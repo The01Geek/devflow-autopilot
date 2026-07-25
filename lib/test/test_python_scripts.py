@@ -15385,6 +15385,30 @@ class _Run792(_Run709):
             argv.append('--accepted')
         return self(*argv, nonce=True)
 
+    def embed_round(self, n, verdict, findings):
+        """One embed-arm round, dispatched and returned with its OWN generated sentinels.
+
+        Both preconditions are asserted, and the sentinels are read back from the dispatch's
+        own output rather than hand-written: an embed return quoting sentinels the dispatch
+        never emitted classifies `no-parseable-verdict` and leaves the round PENDING with a
+        `None` outcome — silently, at exit 0. A row that then asserts a *negative* about the
+        embed round would pass while never having recorded one.
+        """
+        d = self('record-dispatch', self.slug, '--round', str(n), '--arm', 'embed',
+                 '--marker', 'write-failed', stdin='# t\n\nb\n', nonce=True)
+        assert_eq(f"#792 harness precondition: the embed-arm round-{n} dispatch records",
+                  0, d.returncode)
+        fields = dict(tok.split('=', 1) for tok in d.stdout.split() if '=' in tok)
+        ret = self('record-return', self.slug, '--round', str(n), '--verdict', verdict,
+                   '--findings-count', str(findings),
+                   '--carriage-sentinel-open', fields['sentinel_open'],
+                   '--carriage-sentinel-close', fields['sentinel_close'], nonce=True)
+        assert_eq(f"#792 harness precondition: the embed-arm round-{n} {verdict} return "
+                  "records a COMPLETED round, not a pending no-parseable-verdict one",
+                  (0, True), (ret.returncode, f'outcome={verdict.lower()}' in ret.stdout
+                              or 'outcome=pending' not in ret.stdout))
+        return ret
+
     def clean_round(self):
         """One dispatch/return round that ESTABLISHES steering — the `covered` precondition."""
         self.generate()
@@ -15461,11 +15485,65 @@ def _row792_revise_revokes(r):
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE',
       '--findings-count', '1', '--carriage-object-id', r.oid(r.draft), nonce=True)
+    _line = r.fb()
     assert_eq("#792 AC87: a round-2 REVISE on unchanged bytes revokes round 1's covered",
-              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(_line, 'final_byte_coverage='))
+    # The reason token is a RENDERED protocol field, so pin it rather than the coverage
+    # token alone: a file-arm REVISE becomes the selected round itself, so this arm is
+    # `latest-verdict-revise` and NOT the `superseded-by-revise` arm the row below drives.
+    # Without this assertion an arm-order regression or a reason mislabel ships green.
+    assert_eq("#792 AC87: ... naming latest-verdict-revise — the newer REVISE is itself the "
+              "selected file-arm round, not a superseding round over an older FILE",
+              'latest-verdict-revise', _field704(_line, 'final_byte_reason='))
 
 
 _with_run792(_row792_revise_revokes)
+
+
+# AC87 sibling — the `_final_byte_revoked` TRUE branch, which no other row reaches. The
+# revoking round must be verdict-bearing, NEWER, REVISE, and on a NON-file arm: on the file
+# arm the selector picks the REVISE round itself (the row above, `latest-verdict-revise`), so
+# `_final_byte_revoked` never decides there. Replacing its body with `return False` leaves
+# every other row green while shipping a run that reports `covered` over REVISE-invalidated
+# bytes — this row is the only thing that goes red on that mutation.
+def _row792_superseded_by_revise(r):
+    r.clean_round()
+    assert_eq("#792 AC87 sibling precondition: round 1 file-arm FILE reports covered",
+              'covered', _field704(r.fb(), 'final_byte_coverage='))
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    r.embed_round(2, 'REVISE', 1)
+    _line = r.fb()
+    assert_eq("#792 AC87: a newer EMBED-arm REVISE revokes the older file-arm FILE round's "
+              "covered answer — the selector still reads the file-arm round, and the "
+              "revocation is applied by _final_byte_revoked",
+              'uncovered', _field704(_line, 'final_byte_coverage='))
+    assert_eq("#792 AC87: ... naming superseded-by-revise, the reason distinct from the "
+              "file-arm latest-verdict-revise arm",
+              'superseded-by-revise', _field704(_line, 'final_byte_reason='))
+
+
+_with_run792(_row792_superseded_by_revise)
+
+
+# The `revision-postdates` arm, driven on UNCHANGED bytes so the digest term still matches and
+# the answer can only come from this arm. Without it the term is unpinned here: the arm sits
+# below the digest comparison, so every other uncovered row answers before reaching it.
+def _row792_revision_postdates(r):
+    r.clean_round()
+    assert_eq("#792 revision-postdates precondition: the clean round reports covered",
+              'covered', _field704(r.fb(), 'final_byte_coverage='))
+    _rev = r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+             stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
+    assert_eq("#792 revision-postdates precondition: the revision records", 0, _rev.returncode)
+    _line = r.fb()
+    assert_eq("#792 AC86 term 3: a recorded revision that postdates the grounding round "
+              "reports uncovered even though the digest still matches",
+              'uncovered', _field704(_line, 'final_byte_coverage='))
+    assert_eq("#792 AC86 term 3: ... naming revision-postdates, not digest-mismatch",
+              'revision-postdates', _field704(_line, 'final_byte_reason='))
+
+
+_with_run792(_row792_revision_postdates)
 
 
 # AC92/AC93 — the three `unestablished` states, and the one that is NOT one of them.
@@ -15696,14 +15774,17 @@ def _row792_embed_arm_does_not_cover(r):
     assert_eq("#792 AC2 precondition: the file-arm clean round reports covered",
               'covered', _field704(r.fb(), 'final_byte_coverage='))
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'embed',
-      '--draft-file', r.draft, nonce=True)
-    r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
-      '--carriage-sentinel-open', 'x', '--carriage-sentinel-close', 'y', nonce=True)
+    # This row's own assertion is a NEGATIVE one, so the embed round has to be recorded for
+    # real: `embed_round` supplies the required `--marker` and quotes the dispatch's own
+    # sentinels back, and asserts both preconditions. Previously this row hand-wrote
+    # sentinels the dispatch never emitted, so the return classified `no-parseable-verdict`
+    # and the row passed against a run that carried one file-arm round and nothing else.
+    r.embed_round(2, 'FILE', 0)
     _line = r.fb()
     assert_eq("#792 AC2/AC92: an embed-arm LATEST round does not report unestablished — the "
-              "selector reads the newest FILE-ARM verdict-bearing round",
-              True, _field704(_line, 'final_byte_coverage=') != 'unestablished')
+              "selector reads the newest FILE-ARM verdict-bearing round, so round 1's "
+              "covered answer stands unchanged",
+              'covered', _field704(_line, 'final_byte_coverage='))
 
 
 _with_run792(_row792_embed_arm_does_not_cover)
@@ -15851,6 +15932,9 @@ def _row792_pass_then_edit(r):
     _line = r.fb()
     assert_eq("#792 AC109: one more user-requested wording change reports uncovered again",
               'uncovered', _field704(_line, 'final_byte_coverage='))
+    assert_eq("#792 AC109: ... naming digest-mismatch — the bytes moved off the ones the pass "
+              "saw, which is a different arm from the revision-postdates one below it",
+              'digest-mismatch', _field704(_line, 'final_byte_reason='))
     assert_eq("#792 AC109: ... and a further pass is offerable (the revision re-armed the slot)",
               'hold', _field704(_line, 'final_byte_trigger='))
     assert_eq("#792 AC109: ... and it can actually be accepted",

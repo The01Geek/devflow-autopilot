@@ -2807,11 +2807,11 @@ def _funded_rounds(doc):
 def final_byte_passes(state):
     """`(used, exhausted)` for the dedicated final-byte slot — the single derivation.
 
-    Four consumers read this pair (the slot predicate, the summary's two slot fields, the
-    producer's ceiling refusal, and the trigger query's rendering), and the cap is a
-    THRESHOLD: four independent comparisons would have to be found together the first time
-    the comparison changes, one of them deciding an offer and one deciding what the user
-    reads before approving.
+    Several consumers read this pair — the slot predicate, the summary's two slot fields,
+    the producer's ceiling refusal, the trigger query's rendering, and the offer producer's
+    own output line — and the cap is a THRESHOLD: every one of those independent
+    comparisons would have to be found together the first time the comparison changes, one
+    of them deciding an offer and one deciding what the user reads before approving.
     """
     st = state or {}
     # EFFECTIVE passes: grants minus refunds. A pass that closed without honouring the offer was
@@ -3699,11 +3699,16 @@ def _new_doc(slug, nonce):
     return {'schema_version': SCHEMA_VERSION, 'slug': slug, 'nonce': nonce,
             'reinit_forced': False, 'automatic_reaudits_used': 0, 'user_rounds_used': 0,
             # issue #792: the dedicated final-byte slot — a spend counter outside
-            # `_USER_ROUND_CAP` and the canonical digest the slot is currently spent for
-            # (None = unspent). Both are additive under the UNCHANGED schema_version and
-            # read with a default everywhere, so a state file written before this feature
-            # still loads and reports the axis as `unestablished`.
-            'final_byte_passes_used': 0, 'final_byte_slot_digest': None,
+            # `_USER_ROUND_CAP`, the refund counter that makes an unhonoured grant not
+            # consume the cap, the canonical digest the slot is currently spent for
+            # (None = unspent), and the outstanding-grant flag. All four are additive under
+            # the UNCHANGED schema_version and read with a default everywhere, so a state
+            # file written before this feature still loads and reports the axis as
+            # `unestablished`. All four are seeded here rather than only the two the write
+            # paths touch first, so the fresh-document shape is self-documenting in one
+            # place — the defaults below are the same ones every reader already applies.
+            'final_byte_passes_used': 0, 'final_byte_refunds': 0,
+            'final_byte_slot_digest': None, 'final_byte_pending': False,
             'rounds': [], 'revisions': [], 'overrides': [], 'creation': None,
             # issue #562: the tiered draft-root binding (recorded once) and the
             # per-run canonical-write-failure log at the bound path.
