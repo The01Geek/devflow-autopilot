@@ -246,7 +246,11 @@ completion notification **in a later turn** — which a headless `claude -p` clo
 so the dispatched work is discarded and the run can end with no verdict. Two layers cover this:
 the cloud engine workflow steps set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`, documented upstream
 as keeping subagents in the foreground; and each engine root states the requirement behaviorally, so
-it holds on runtimes with no equivalent switch. A second consequence is relevant to *this* doc's
+it holds on runtimes with no equivalent switch. The workflow variable is the floor, not the only
+lever: the corresponding **per-dispatch** parameter (`run_in_background: false` on this runner) is
+the one the dispatching engine can set itself, and the injected review grounding block names it as
+the lever to reach for rather than assuming the workflow-level one is in force. Both are named as
+current mechanisms, not as the definition of the requirement. A second consequence is relevant to *this* doc's
 subject: a background subagent keeps its MCP tools but is restricted to a narrower set of built-in
 tools than its definition grants, so forcing foreground also restores the roster's full declared
 tool surface — an agent-behavior change independent of the stall itself.
