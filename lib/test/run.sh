@@ -6206,15 +6206,6 @@ assert_pin_red_under "429/T1: §1.4 USE_CURRENT arm runs the breadcrumbed base f
 # behind-by derivation (guard-class 2: git produces the count, bash builtins compare it).
 assert_pin_unique "429/T1: §1.4 derives behind-by via git rev-list --count HEAD..origin/\$BASE" \
   'git rev-list --count "HEAD..origin/$BASE"' "$P1_FILE"
-# behind-by-0 case still records (freshness provably CHECKED, not assumed).
-# Indeterminate-count arm: fetch SUCCEEDED but `git rev-list --count` failed (empty BEHIND).
-# "Unknown is not zero" — an underivable count records freshness-unverified, never silently
-# treats the tree as fresh. T2 pins only the fetch-FAILURE UNVERIFIED path; pin this distinct
-# rev-list-failure arm too so deleting its handling turns RED.
-# The behind-by-N arm is the OPERATIVE stale-detection path (the #325 shape) — its two
-# siblings above are pinned, so pin it too: without this, silently dropping the arm that
-# actually reports a stale tree leaves the suite green.
-
 # T2 — degraded arm: a fetch failure records freshness-unverified and CONTINUES (never exit 1).
 assert_pin_red_under "429/T2: §1.4 fetch failure records freshness-unverified and continues (delete → RED)" \
   'tree freshness UNVERIFIED' '/tree freshness UNVERIFIED/d' "$P1_FILE"
@@ -6543,47 +6534,14 @@ assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on remov
 
 # (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
 #     no longer shadow an existing feature branch + open PR (the #356 resume defect).
-# The skip of both branch signals is CONDITIONAL on the checkout landing. Pin that
-# conditionality — an unconditional "skip branch creation" is the regression this guards.
 # A `gh` failure and a clean "no PRs found" both produce an empty result. Collapsing them
-# makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR —
-# the very bug this pre-check exists to stop. Pin the distinct-values contract AND the
-# breadcrumb obligation it enables; a policy whose operand cannot be observed is inert.
-# Pin the OPERATIVE shell, not the comment that explains it: each of the two `gh pr list`
-# calls must carry its own same-statement `|| PR_JSON=''`, which is what makes a failed
-# query distinguishable from a clean empty one. A comment-only pin would stay GREEN against
-# the exact edit that collapses the two outcomes back together. Both call sites need it, so
-# this is a count guard (a lower bound would let one site silently lose its handler).
-# The literal carries the statement's closing `; }` so it matches ONLY the two command
-# lines — the phase file's own prose quotes the bare handler, and counting that comment
-# would make the pin PASS on the very regression it guards (it did, once).
+# makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR.
+# The assertion below checks both `gh pr list` calls retain their same-statement
+# `|| PR_JSON=''` handler, which distinguishes a failed query from a clean empty one.
 assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
   "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
-# The pre-check waives both branch signals on the strength of a checkout it must first
-# confirm. Pin the MECHANISM, not the paragraph that motivates it: an earlier attempt pinned
-# the motivating header, which survived deletion of BOTH the confirmation and the fail-closed
-# stop it named (the framing-pin hole behind PRs #62/#173). These four pins target, in order:
-# the LANDED computation, the stderr discriminator the two failure shapes route on, the
-# fail-closed stop directive, and its rationale.
-# The LANDED pin must cover the rev-parse COMPARISON, not just the `LANDED=no` prefix: an
-# edit that drops the comparison and sets LANDED=yes whenever HEAD_REF is non-empty waives
-# the signals without ever confirming the tree landed — the #356 regression itself.
-# The stderr capture and its `|| true` ARE the mechanism the two failure shapes route on —
-# pin them, not the sentence that motivates them. (An earlier pin sat on that motivating
-# sentence and survived a mutation that gutted the capture and collapsed the routing.)
-# COUPLED TO GIT'S ACTUAL MESSAGE, verified against git 2.50.1: the refusal reads
-# "is already used by worktree at". The bare phrase `already checked out` occurs only in
-# git's --help prose, never in the error — keying on it made the worktree-resume arm
-# unreachable and falsely Blocked a resumable run. Pin the ROUTING BULLET including the
-# `$CO_ERR` operand it reads: a pin on the string alone stays GREEN when the bullet is
-# rewired to a different (or empty) variable, which is the same fail-open it must catch.
-# The PR tiebreak decides WHICH branch a resume adopts; collapsing it adopts the wrong PR.
-
-# A body-reference match that merely MENTIONS the issue number is not a resume target —
-# adopting it would check out an unrelated PR's branch. Pin the closes-the-issue predicate
-# AND its operand's producer: a predicate reading a field the query never fetches is a filter
-# the run can never apply (the unverified-assumption class — the guard's comparand must have a
-# producer). Both queries must request `closingIssuesReferences`, so this is a count guard.
+# Both queries must request `closingIssuesReferences`, so this remaining count guard keeps
+# the selector's required predicate input available.
 assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
   "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
 
@@ -7414,9 +7372,8 @@ assert_pin_red_under "#779: only UNVERIFIED/empty/unrecognized get the bounded r
   "$P4_FILE"
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
-# create-fence guard and the Signal-2 assignment and `#362` the resume pre-check clauses; these
-# two cover the remaining scope boundary, so a later change that quietly hoists the binding or
-# widens the landed-resume arm is caught rather than absorbed.
+# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check;
+# this remaining assertion keeps the adopted-branch scope boundary explicit.
 assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
   'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
 
@@ -7829,13 +7786,9 @@ rm -rf "$S782"
 # asserted only as source text). The behavioral-fix pin (assert_pin_red_under)
 # targets the operative REST PATCH line — removing it re-introduces the
 # stale-link gap, so the pin must flip PASS->FAIL under that mutation (covers
-# AC1 + AC7). The presence pins cover: PR_JSON-not-gh-pr-view derivation (AC1),
-# only-the-Phase-3.1-line rewriting (AC2/AC3), the cloud-only local-tier guard
-# (AC4), the no-op + read-failure warn arms (AC5/AC6), the capture + non-empty
-# guard before the PATCH (issue #493 Important #1 empty-body hardening), and
-# idempotency / at-most-once (AC8). The fixture tests run the helper directly
-# for the Resolves-anchored rewrite, human-line preservation, idempotency, and
-# the fail-closed empty-stdin / missing-arg contract.
+# AC1 + AC7). The fixture tests run the helper directly for the
+# Resolves-anchored rewrite, human-line preservation, idempotency, and the
+# fail-closed empty-stdin / missing-arg contract.
 P1_SETUP="$IMPL_PHASES_DIR/phase-1-setup.md"
 assert_pin_red_under "#493 resume: PR-body run-link refresh PATCHes via REST pulls/\$PR_NUMBER (behavioral-fix; AC1+AC7)" \
   'gh api --method PATCH "repos/{owner}/{repo}/pulls/$PR_NUMBER" -F body=@-' \
@@ -7845,9 +7798,7 @@ assert_pin_red_under "#493 resume: PR-body run-link refresh PATCHes via REST pul
 # as source text, never executed). The fence pipes the body through it and
 # guards the output non-empty before the PATCH (issue #493 Important #1
 # empty-body hardening: a direct transform|gh-api pipe without `pipefail` would
-# let a crashed transform blank the body). Pin (a) the anchoring predicate now
-# living in the helper, (b) the fence invoking the helper, and (c) the
-# capture + non-empty guard around the PATCH.
+# let a crashed transform blank the body).
 P493_HELPER="$LIB/../scripts/refresh-pr-run-link.py"
 assert_pin_unique "#493 resume: helper rewrites only the [View run] line following Resolves # (AC2/AC3)" \
   'lines[i - 1].startswith("Resolves #")' "$P493_HELPER"
@@ -7996,12 +7947,8 @@ assert_eq "base_branch guard: hard-failure read (rc≠0, empty) → main" "main"
 # worktree was pre-created on (whatever its name) instead of creating a SECOND
 # branch. The signal is naming-independent — a linked worktree's --git-common-dir
 # (the main repo's .git) differs from its --git-dir (.git/worktrees/<name>); in the
-# main working tree they are equal. Token pins so a SKILL refactor that drops the
-# mechanism fails HERE rather than silently regressing to a second branch.
-# The base/detached-HEAD guard must wrap BOTH reuse signals (Signal 2's name match too),
-# so a base branch named like a feature branch (base_branch=issue-next) still CREATEs.
-# Pin the breadcrumb so the silent-degrade path stays attributable.
-# Wording covers both symmetric (both-empty) and asymmetric (one-empty) trigger cases.
+# main working tree they are equal. The behavioral matrix below covers the resulting
+# reuse-versus-create decision, including base and detached-HEAD guards.
 assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
   "$(grep -qF 'linked worktree' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in both prose and code (4 occurrences)
 
@@ -8011,10 +7958,9 @@ assert_eq "#168 worktree detect: SKILL names the linked-worktree signal" "yes" \
 # use CUR) or "create" (fall through to branch-for-issue.py). The non-empty + != base
 # guards wrap BOTH signals exactly as the SKILL hoists them; an empty common==gitdir
 # (rev-parse failed) collapses Signal 1 to "not a worktree" → create (fail-closed).
-# Source of truth: SKILL Phase 1.4 (F-8 deferred: token pins catch removal but not a
-# predicate-shape change; F-9 deferred: --path-format=absolute normalization is not
-# exercised here — the mirror receives pre-resolved strings; a real-git integration test
-# would be needed to cover the rev-parse call itself).
+# Source of truth: SKILL Phase 1.4. F-9 remains deferred: --path-format=absolute
+# normalization is not exercised here because the mirror receives pre-resolved strings;
+# a real-git integration test would be needed to cover the rev-parse call itself.
 #   decide_branch <git-common-dir> <git-dir> <CUR> <BASE>
 decide_branch() {
   local common="$1" gitdir="$2" cur="$3" base="$4"
@@ -11310,19 +11256,8 @@ assert_pin_unique "#345 AC4: phase-3-review.md's contract step 6 also states a p
   'A passed probe never ticks the AC box' "$P345_P3"
 
 # ── Issue #184: Phase 1.6 Issue-Claim Audit ──────────────────────────────
-# Five assert_pin_red_on_removal guards + five assert_pin_unique pins.
-# assert_pin_red_on_removal: presence+uniqueness (PASS-before) + deletion
-# (FAIL-after) in one probe, satisfying AC7 — it guards the audit heading,
-# the three claim-type literals (count/negative-scope/policy-referencing),
-# and the mandatory cloud-tier check. assert_pin_unique guards five
-# behavioral contracts: the --status Blocked contract on the Pass 3
-# contradiction path, the cloud-tier vendored-copy existence test and its
-# absent-vs-no-impact disambiguation (no fail-open), the use of the verified
-# count as the working assumption, and the plan-expansion action.
-# Review (1/5 agents): the vendored-copy grep must NOT fail open — an absent vendored
-# file (commonly absent) must be distinguishable from "helper missing from TOOLS=".
-# Pin the existence-test guard + the explicit "NOT a no-impact result" disambiguation
-# so a regression back to a stderr-suppressed `grep … 2>/dev/null` goes RED here.
+# The audit heading retains its removal guard; the ordinary prose-only existence
+# assertions in this group were retired.
 assert_pin_red_on_removal "#184: deleting the audit heading turns its pin RED" \
   '### 1.6 Issue-Claim Audit' "$IMPL_SKILL"
 # ── issue #547 RED: early declared-dependency preflight helper ──────────────
@@ -12047,8 +11982,8 @@ assert_pin_red_under "#547 AC10: a sed -E reorder placing the gate after §1.4 t
 # An issue stating it "must merge after #N" is verified deterministically: each
 # declared dependency's state is read via gh issue view; all-closed records a
 # confirmation note, an OPEN (or unresolvable) dependency routes to the Blocked
-# path with the 👎 outcome reaction. Pin the pass heading removal-proof, and the
-# two operative contracts (the state read and the Blocked-on-open path).
+# path with the 👎 outcome reaction. The heading and extracted helper invocation
+# remain covered here.
 assert_pin_red_on_removal "#254: deleting the early dependency preflight heading turns its pin RED" \
   'Early declared-dependency preflight' "$IMPL_SKILL"
 assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
@@ -12071,23 +12006,12 @@ assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
 # workflow-capable App token (Contents+Workflows write) seeded into checkout (#357/#358)
 # and pushes workflows fine, so Pass 5 keys the deferral on CREDENTIAL CAPABILITY
 # (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
-# Pin the Pass 5 heading removal-proof, plus its operative
-# contracts (non-exhaustive; each pin below names its own): among them the
-# static-not-a-live-probe rule, the credential-capability-keyed (not tier- or
-# path-keyed) decision, the
-# repo-own-vs-vendored carve-out, the coupled-CI-pin-blocked-with-it rule, the
-# cloud-tier defer reflection, the all-blocked → Blocked-path arm (the most
-# safety-relevant route — it declines the issue up front, opening no PR), and the
-# workflow-capable-credential proceed arm (local/interactive OR cloud+DEVFLOW_APP_ID-set,
-# never defers/blocks).
-# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the pins are precise to the
-# audit-pass surface AC7 names, not the whole bundle.
+# The remaining assertions cover the all-blocked Phase 1 path and the coupled
+# Phase 2/Phase 4 behavior below.
+# Scoped to phase-1-setup.md (where Phase 1.6 lives) so the remaining assertion is
+# precise to the audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
-# #350 (Critical): the deferral premise is credential-capability, not tier. Pin the two
-# operative sentences whose removal re-introduces the false "cloud ⇒ defer" premise the
-# review flagged: (a) DEFER only on cloud-tier AND DEVFLOW_APP_ID empty; (b) a NON-EMPTY
-# DEVFLOW_APP_ID (workflow-capable App token, #357/#358) ⇒ do NOT defer. Half-reverting
-# either back to a tier-only rule turns these RED.
+# #350 (Critical): the deferral premise is credential-capability, not tier.
 assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
   'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 # Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
@@ -12101,7 +12025,7 @@ assert_pin_unique "#346: 2.2.5 lists capability-blocked ACs as a sanctioned scop
 # reopen the push-time gap. #350 supersedes the old tier-indeterminate fail-closed-toward-cloud
 # rule: post-#357 a spurious deferral silently under-delivers shippable workflow work (the
 # Critical failure), so when a discriminating signal is unreadable the pass PROCEEDS (fail-open
-# toward the pushable direction), not defers. Pin that corrected fail-direction sentence.
+# toward the pushable direction), not defers.
 assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resident ACs Pass 5's text scan misses" \
   'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
@@ -12116,12 +12040,8 @@ assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to sta
   'the follow-up body MUST state explicitly that' "$IMPL_PHASES_DIR/phase-4-documentation.md"
 # Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
 # every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
-# subset with no executable stop, so the run could fall through to a near-empty PR. Pin the
-# empty-subset → Blocked stop restated at 2.2.5. Also pin the clean cloud-tier arm's
-# record-even-when-clean record (issue #476 re-points this at the new `--note` form:
-# a clean confirmation is a `## Progress` note, no longer a reflection, so the pin
-# asserts the `--note ` prefix rather than a bare outcome-text literal that would stay
-# green even if the arm reverted to `--reflection-kind note`).
+# subset with no executable stop, so the run could fall through to a near-empty PR. The
+# empty-subset → Blocked stop remains asserted at 2.2.5.
 assert_pin_unique "#346: 2.2.5 takes the Blocked path when the pushable subset would be empty (late-discovered all-blocked)" \
   'Empty pushable subset ⇒ take the Blocked path here, do not narrow-and-proceed' "$IMPL_PHASES_DIR/phase-2-implement.md"
 # Review iter 4 (shadow): the Phase 2.3-discovery backstop was inert prose — no firing
@@ -12145,7 +12065,7 @@ assert_pin_unique "#346: Phase 2.5 commit guard also detects untracked new workf
 # that tripped the retrospective cheap gate on every clean run) — each records a
 # `## Progress` --note the moment its pass completes. Only FINDINGS reflect now: a
 # wrong issue claim (issue-accuracy), punted work (deferred), or a hard stop
-# (blocked). Pin each property per-arm.
+# (blocked).
 # (a) Absence: §1.6 (the LAST section of phase-1-setup.md) carries ZERO
 #     `--reflection-kind note` — that kind was the exclusive clean-arm marker, so a
 #     count of 0 proves every clean arm routed to `--note`. The 1.4
@@ -12170,10 +12090,6 @@ assert_eq "#476: §1.6 slice non-vacuity — a clean-arm --note line is present 
 assert_eq "#476: §1.6 has no clean-arm --reflection-kind note (clean confirmations route to --note)" "0" \
   "$(pin_count '--reflection-kind note' "$P1_16_SLICE")"
 rm -f "$P1_16_SLICE"
-# (b) The issue-accuracy finding arms — Pass 1 counts-differ and Pass 2
-#     wrong-exclusion (both are feedback that the issue's own claim was wrong).
-# (c) A representative clean arm records via --note (the counts-match arm; distinct
-#     from the counts-differ issue-accuracy arm above, so it proves the split landed).
 # ── #350 review fixes: re-key the deferral on CREDENTIAL CAPABILITY, and make the
 # signal observable + the guard complete. Coupled sites for this ONE change:
 #   (1) phase-1 Pass 5 + phase-2 2.2.5/2.5 prose (keyed on cloud AND DEVFLOW_APP_ID empty),
@@ -41788,8 +41704,8 @@ assert_pin_unique "#448 ubc-call-sites: phase-2-implement.md read-target sentenc
 # required to read that WARNING and hard-stop instead of taking the "record and continue" arm
 # (the divergence is in COMMITTED history, so no clean-tree backstop downstream can see it).
 # Reword the producer's echo and the guard silently loses its comparand and fails OPEN — the
-# exact unverified-assumption class CLAUDE.md names. Pin the producer literal and each
-# consumer's obligation to key on it, so a one-sided reword turns the suite RED at the desk.
+# exact unverified-assumption class CLAUDE.md names. The producer literal and the
+# remaining review-and-fix consumer stay coupled here.
 UBC_WARN='WARNING push rejected AND the restore to pre-checkpoint SHA'
 assert_pin_unique "#448 ubc-failed-restore: the helper emits the failed-restore WARNING breadcrumb (the guard's producer)" \
   "$UBC_WARN" "$UBC"
