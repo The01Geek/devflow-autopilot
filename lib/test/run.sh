@@ -49472,16 +49472,20 @@ STUB
       'exec jq "$@"' > "$E783_AB/jq-fail"
     chmod +x "$E783_AB/jq-fail"
     rm -rf "$E783_AB/t"; mkdir -p "$E783_AB/t"
+    # TMPDIR is shared with every process in the fixture. On macOS, xcrun may
+    # materialize an xcrun_db cache here while resolving a tool. Keep an explicit
+    # unrelated file so this test audits only scan.sh's mktemp-owned namespace.
+    : > "$E783_AB/t/unrelated-tool-cache"
     TMPDIR="$E783_AB/t" DEVFLOW_CONFIG_FILE="$LIB/test/fixtures/config.json" \
       DEVFLOW_GH="$E783_AB/gh" DEVFLOW_JQ="$E783_AB/jq-fail" \
       bash "$LIB/scan.sh" >/dev/null 2>&1
     E783_AB_RC=$?
     assert_eq "#783 scan.sh aborts when the --slurpfile $_e783_op jq fails" "nonzero" \
       "$([ "$E783_AB_RC" -ne 0 ] && echo nonzero || echo zero)"
-    # The cleanup branch is what this pins: no temp survives the abort.
+    # The cleanup branch is what this pins: no scan-owned temp survives the abort.
     E783_AB_LEFT=0
-    for _f in "$E783_AB/t"/*; do [ -e "$_f" ] && E783_AB_LEFT=$((E783_AB_LEFT + 1)); done
-    assert_eq "#783 scan.sh leaves no orphan temp when the --slurpfile $_e783_op jq aborts" "0" \
+    for _f in "$E783_AB/t"/tmp.*; do [ -e "$_f" ] && E783_AB_LEFT=$((E783_AB_LEFT + 1)); done
+    assert_eq "#783 scan.sh leaves no owned orphan temp when the --slurpfile $_e783_op jq aborts" "0" \
       "$E783_AB_LEFT"
     # Positive control on the same fixture: under real jq the identical run succeeds, so
     # the abort above is attributable to the stubbed jq failure, not a broken fixture.
