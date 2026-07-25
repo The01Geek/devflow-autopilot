@@ -1690,8 +1690,14 @@ jobs:
           # and this is a headless `claude -p` session, which ends at the first
           # tool-call-free turn, so that later turn never happens and the dispatched
           # work is discarded (run 30138268273 burned a full eight-agent fleet and
-          # produced no verdict). This variable keeps subagents in the FOREGROUND, so
-          # results are in hand before the model's turn continues. It ships
+          # produced no verdict). The vendor documents this variable as keeping
+          # subagents in the FOREGROUND, so results are in hand before the model's turn
+          # continues; whether it takes effect inside claude-code-action is NOT yet
+          # observed in this repository and is tracked by issue #812. Note the
+          # documented scope is wider than subagents: it disables ALL background task
+          # functionality, including the Bash tool's run_in_background. No engine
+          # surface requests a backgrounded Bash today, so that is inert here — but a
+          # future step wanting one would find it blocked. It ships
           # unconditionally rather than probe-gated because it is INERT when ignored: a
           # runner that does not honor it leaves today's behavior exactly as it is.
           # The runner-agnostic half of the fix is the barrier statement in

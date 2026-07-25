@@ -1026,14 +1026,15 @@ assert_eq "#801 barrier-cloud-scoped: implement root's barrier sits inside the c
 # other's range is still bounded, and an unbounded range silently degrades the scoped check
 # into the whole-file presence check it was written to be stronger than.
 for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
-  _t801s="$(probe_tmp "#801 barrier-cloud-scoped relocation control (${_root801##*/})")"
+  _root801_label="${_root801#*/skills/}"   # e.g. review/SKILL.md — the basename alone is SKILL.md for BOTH roots
+  _t801s="$(probe_tmp "#801 barrier-cloud-scoped relocation control ($_root801_label)")"
   sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" "$_root801" > "$_t801s"
   printf '%s\n' "A dispatch blocks until the subagent's completed result is in hand." >> "$_t801s"
-  assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED (${_root801##*/})" \
+  assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED ($_root801_label)" \
     "no" "$(barrier_in_cloud_block801 "$_t801s")"
   rm -f "$_t801s"
 done
-unset _root801 _t801s
+unset _root801 _root801_label _t801s
 # The cross-reference this scoping keeps accurate lives in the create-issue audit reference;
 # pin its clause so a future edit that drops it is visible here, where the coupling is stated.
 devflow_module_pin_present "#801 step-3-6-audit.md keeps its cloud-tier headless-wait cross-reference" \
@@ -1055,9 +1056,13 @@ devflow_module_pin_red_under "#801 grounding: deleting the dispatch-barrier sent
 # while a review-tier reference pointed at the implement root, or while a backtick path rotted to
 # a moved root — the reader then follows a wrong or dead pointer and the barrier goes unread.
 #
-# The population is the closed path list the acceptance criterion enumerates, NOT a live grep: no
-# repo artifact enumerates dispatch sites, so a detector claiming to catch a site added later
-# would be unbacked. Two residuals, stated rather than hidden:
+# The population is a closed path list, NOT a live grep: no repo artifact enumerates dispatch
+# sites, so a detector claiming to catch a site added later would be unbacked. It is NOT
+# identical to issue #801's acceptance criterion, which enumerated ten paths as "complete by
+# construction" — review found that enumeration under-inclusive, so `pre-fix-gates.md` (the
+# parked-class sweep's semantic-batch dispatch) and `fixing.md` (its comment-analyzer
+# re-dispatch) are carried here beyond the criterion's ten. Two residuals, stated rather than
+# hidden:
 #   1. FORWARD-LOOKING — a dispatch added in a file outside this list is not caught; the list is
 #      revisited whenever a phase or reference file is added to either engine.
 #   2. PRESENT-DAY — `skills/requesting-code-review/SKILL.md` is a cloud-reachable dispatcher
@@ -1076,6 +1081,7 @@ _dispatch_sites801=(
   "skills/review-and-fix/references/loop-exit.md|skills/review/SKILL.md"
   "skills/review-and-fix/references/loop-control.md|skills/review/SKILL.md"
   "skills/review-and-fix/references/pre-fix-gates.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/fixing.md|skills/review/SKILL.md"
   "skills/implement/phases/phase-2-implement.md|skills/implement/SKILL.md"
   "skills/implement/phases/phase-4-documentation.md|skills/implement/SKILL.md"
 )
@@ -1103,8 +1109,11 @@ unset _site801 _t801p
 # repo-internal and absent from it. Both halves are asserted: a loop that lost an engine
 # workflow would silently stop shipping the floor, and one that GAINED matcher-probe.yml
 # would ship a repo-internal probe to consumers.
-devflow_module_pin_present "#801 install-loop-unchanged: the workflow copy loop still lists the three engine workflows" \
-  'for w in devflow devflow-runner devflow-implement devflow-review telemetry-push; do' "$INSTALL801"  # structural-pin-ok: presence of an unedited copy-loop literal this change deliberately does not touch; its removal breaks no behavior this change fixes
+# The POSITIVE half — that the copy loop still lists the three engine workflows — is deliberately
+# NOT re-pinned here: lib/test/run.sh already pins that exact literal through the stronger
+# mutation-taking assert_pin_red_under, and a second counted home for an existence-only pin is
+# what CONTRIBUTING.md's existence-pin rule exists to prevent. Only the negative half below is
+# new coverage.
 # The negative half matches `matcher-probe` ANYWHERE on the copy-loop line, in either order —
 # `grep -qE 'for w in devflow.*matcher-probe'` would only fire when the probe name follows
 # `devflow`, so `for w in matcher-probe devflow …` stayed green. It carries a planted-defect
@@ -1117,7 +1126,9 @@ loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop
   # workflow name is itself order-dependent, so a reordered list would slip the anchor and the
   # absence check would read "no" for the wrong reason. The positive control below reorders the
   # list precisely to prove this anchor survives it.
-  grep -F -- 'for w in ' "$1" | grep -qF -- 'matcher-probe' && echo yes || echo no
+  # Scoped to the WORKFLOW copy loop by requiring devflow-runner on the same line, so an
+  # unrelated future `for w in …` loop naming matcher-probe cannot false-RED this check.
+  grep -F -- 'for w in ' "$1" | grep -F -- 'devflow-runner' | grep -qF -- 'matcher-probe' && echo yes || echo no
 }
 assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
   "no" "$(loop_ships_probe801 "$INSTALL801")"
