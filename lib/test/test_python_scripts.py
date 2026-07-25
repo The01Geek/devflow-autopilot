@@ -15864,6 +15864,116 @@ def _row792_post_adjudication_fields(r):
 _with_run792(_row792_post_adjudication_fields)
 
 
+# ITER-2 findings — the `final_byte_pending` lifetime. A single armed grant that
+# `record-dispatch` pops exactly once, so a second accept must ABSORB rather than grant again
+# (a second grant funds a round no `final_byte_pass` flag could mark, and no refund could reach),
+# and a DECLINE must clear it (a stale arm would mark a later, ordinary round as the pass and
+# silently exclude it from both axis selectors).
+def _row792_pending_lifetime(r):
+    r.uncovered_round()
+    _first = r.offer(accepted=True)
+    assert_eq("#792 iter2: the first accept is a NEW grant",
+              True, 'grant=new' in _first.stdout and 'final_byte_passes=1' in _first.stdout)
+    # The user edits before any dispatch, so the slot re-arms for the new bytes.
+    Path(r.draft).write_text('# A drafted issue title\n\n## Problem Statement\n\nedited\n',
+                             encoding='utf-8')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    _second = r.offer(accepted=True)
+    assert_eq("#792 iter2: a second accept with a grant still outstanding ABSORBS it",
+              True, 'grant=absorbed' in _second.stdout)
+    assert_eq("#792 iter2: ... so the grant count does not double — a second grant would fund a "
+              "round no final_byte_pass flag could mark and no refund could reach",
+              True, 'final_byte_passes=1' in _second.stdout)
+
+
+_with_run792(_row792_pending_lifetime)
+
+
+def _row792_decline_clears_pending(r):
+    r.uncovered_round()
+    r.offer(accepted=True)
+    Path(r.draft).write_text('# A drafted issue title\n\n## Problem Statement\n\nedited\n',
+                             encoding='utf-8')
+    r('record-revision', r.slug, '--after-round', '1', nonce=True)
+    assert_eq("#792 iter2: the decline records", 0, r.offer(accepted=False).returncode)
+    # The next ordinary round, funded through record-offer — nothing to do with the axis.
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+      '--draft-file', r.draft, nonce=True)
+    _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
+                              f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
+    assert_eq("#792 iter2: a DECLINE clears the armed grant, so the next ordinary round is NOT "
+              "marked as the pass — a stale arm would silently exclude it from the coverage and "
+              "calibration selectors and fire a refund on a slot it never drew from",
+              False, bool(_state['rounds'][1].get('final_byte_pass')))
+
+
+_with_run792(_row792_decline_clears_pending)
+
+
+# ITER-2 finding — the absolute grant ceiling. The pass cap bounds HONOURED passes and a refund
+# returns that headroom, so on a host where every pass degrades the offer cap is never reached;
+# this ceiling is the stop that does not depend on the user declining out of the loop.
+assert_eq("#792 iter2: the grant ceiling is strictly above the honoured-pass cap, so a run that "
+          "degrades occasionally still gets its full pass budget",
+          True, issue_audit_state._FINAL_BYTE_GRANT_CAP > issue_audit_state._FINAL_BYTE_PASS_CAP)
+
+
+def _row792_grant_ceiling(r):
+    r.uncovered_round()
+    for i in range(issue_audit_state._FINAL_BYTE_GRANT_CAP):
+        assert_eq(f"#792 iter2: grant {i + 1} of the ceiling is accepted",
+                  0, r.offer(accepted=True).returncode)
+        Path(r.draft).write_text(
+            f'# A drafted issue title\n\n## Problem Statement\n\nv{i}\n', encoding='utf-8')
+        r('record-revision', r.slug, '--after-round', '1', nonce=True)
+        # Refund the grant, which returns the CAP headroom but never the ceiling headroom.
+        _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+        _d = _json.loads(_p.read_text(encoding='utf-8'))
+        _d['final_byte_refunds'] = _d.get('final_byte_refunds', 0) + 1
+        _p.write_text(_json.dumps(_d), encoding='utf-8')
+    _over = r.offer(accepted=True)
+    assert_eq("#792 iter2: the grant past the ceiling is refused, so a refund->re-arm->refund "
+              "loop on a degrading host is bounded even though the honoured-pass cap never fills",
+              True, _over.returncode != 0)
+    assert_eq("#792 iter2: ... with a breadcrumb embedding its REGISTERED transition reason token",
+              True, 'final-byte-grant-ceiling-reached' in _over.stderr
+              and 'Traceback' not in _over.stderr)
+
+
+_with_run792(_row792_grant_ceiling)
+
+
+# ITER-2 finding — the refund's two materially different outcomes were both silent and mutually
+# indistinguishable. Reported on stderr (the #611 precedent) rather than on record-return's stdout
+# line, which is a closed contract carrying whole-line comparands.
+def _row792_refund_is_reported(r):
+    r.uncovered_round()
+    r.offer(accepted=True)
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+      '--draft-file', r.draft, nonce=True)
+    r('record-return', r.slug, '--round', '2', nonce=True)
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+      '--draft-file', r.draft, nonce=True)
+    r('record-return', r.slug, '--round', '2', nonce=True)
+    r('record-degraded', r.slug, '--round', '2', '--reason',
+      'no-parseable-verdict-exhausted', nonce=True)
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
+      stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
+    _closed = r('record-return', r.slug, '--round', '2', nonce=True)
+    assert_eq("#792 iter2: the refund is REPORTED, naming the registered result token",
+              True, 'final-byte-slot-refunded' in _closed.stderr)
+    assert_eq("#792 iter2: ... and says which of the two outcomes happened (re-armed, versus a "
+              "later offer having moved the slot to other bytes)",
+              True, 're-armed for the bytes the pass covered' in _closed.stderr)
+    assert_eq("#792 iter2: ... on stderr, leaving record-return's closed stdout contract line "
+              "byte-unchanged (whole-line comparands ride on it)",
+              True, 'final-byte' not in _closed.stdout)
+
+
+_with_run792(_row792_refund_is_reported)
+
+
 # AC96/AC108/AC109 — the axis is inert on the three gated surfaces. Driven over a run on
 # which the trigger HOLDS, so a leak would be observable.
 def _row792_axis_is_inert(r):
@@ -16003,6 +16113,23 @@ def _row792_absent_round_digest(r):
               'state-unestablished', _field704(_line792, 'final_byte_reason='))
     assert_eq("#792 shape matrix: ... and the trigger does not hold, so the slot is unspendable",
               'not-hold', _field704(_line792, 'final_byte_trigger='))
+
+
+# ITER-2 finding — `final_byte_pass_digest` is the refund's other comparand and joins the
+# read-boundary shape check on the same rule as `final_byte_slot_digest`.
+for _badpd in (5, '', True, [], {}):
+    _msgpd = ''
+    _dpd = dict(_doc792_old, rounds=[{
+        'round': 1, 'attempts': [{'arm': 'file', 'digest': 'a', 'body_digest': 'a'}],
+        'outcome': 'FILE', 'final_byte_pass': True, 'final_byte_pass_digest': _badpd}])
+    try:
+        issue_audit_state._validate(_dpd, 's792x')
+    except issue_audit_state.StateError as _epd:
+        _msgpd = str(_epd)
+    assert_eq(f"#792 iter2 shape matrix: final_byte_pass_digest {_badpd!r} fails closed at the "
+              "read boundary — a non-string would silently answer 'different bytes' and skip "
+              "the re-arm the refund just paid for",
+              True, 'final_byte_pass_digest' in _msgpd or 'final_byte_pass' in _msgpd)
 
 
 _with_run792(_row792_absent_round_digest)

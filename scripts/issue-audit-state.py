@@ -489,10 +489,20 @@ _USER_ROUND_CAP = 3
 # `_USER_ROUND_CAP`, so a run that legitimately spent every discovery round still gets
 # its safety pass. The slot is keyed to the canonical DIGEST rather than to the run, so
 # a revision that changes the bytes re-arms it — and this cap is what bounds that
-# re-arming, since Step 4's iterate loop can return to the approval election any number
-# of times. A run at the cap files with the coverage field reporting its true value and
-# the exhaustion disclosed on the summary line, never silently.
+# re-arming of HONOURED passes, since Step 4's iterate loop can return to the approval
+# election any number of times. It does NOT bound a run whose every pass degrades (a refund
+# returns this headroom by design) — `_FINAL_BYTE_GRANT_CAP` below is what bounds that. A run
+# at the cap files with the coverage field reporting its true value and the exhaustion
+# disclosed on the summary line, never silently.
 _FINAL_BYTE_PASS_CAP = 3
+# The absolute ceiling on GRANTS. `_FINAL_BYTE_PASS_CAP` bounds *honoured* passes — a refund
+# returns the headroom, which is what makes the safety pass real — but that alone does not bound
+# a host where every pass degrades: refund -> re-arm -> offer -> dispatch -> refund never reaches
+# the effective cap and inflates the funding sum each cycle. Each cycle is user-gated (a decline
+# spends the slot without refunding), so this is a livelock the user can exit rather than an
+# automatic one; the ceiling is the stop that does not depend on them exiting it. It is higher
+# than the pass cap precisely so a run degrading occasionally still gets its full pass budget.
+_FINAL_BYTE_GRANT_CAP = 6
 # The round-funding budgets, enumerated ONCE. Two consumers read this set — `_validate`'s
 # read-boundary integer-shape loop and `_funded_rounds` below — and a fourth budget added
 # to only one of them fails silently in opposite directions (a round refused as unfunded,
@@ -2015,6 +2025,13 @@ def _validate(doc, slug):
         if fbf is not None and not isinstance(fbf, bool):
             raise StateError(f'round {_r.get("round")!r} final_byte_pass {fbf!r} is not a '
                              f'boolean')
+        # The refund's OTHER comparand. Checked on the same rule and for the same reason as
+        # `final_byte_slot_digest`: a non-string would not crash the `==`, it would silently
+        # answer "different bytes" and skip the re-arm the refund just paid for.
+        fbpd = _r.get('final_byte_pass_digest')
+        if fbpd is not None and (not isinstance(fbpd, str) or not fbpd):
+            raise StateError(f'round {_r.get("round")!r} final_byte_pass_digest {fbpd!r} is '
+                             f'present but not a non-empty string')
     rf = doc.get('reinit_forced')
     if rf is not None and not isinstance(rf, bool):
         raise StateError(f'reinit_forced {rf!r} is not a boolean')
@@ -4223,9 +4240,25 @@ def cmd_record_return(args):
         # Re-arm the slot only for the bytes THIS pass was funded on. `record-final-byte-offer`
         # carries no round-open guard, so a later offer recorded against revised bytes can have
         # moved the slot on; clearing unconditionally would discard that newer spend and re-offer
-        # the pass against bytes already offered.
-        if doc.get('final_byte_slot_digest') == rnd.get('final_byte_pass_digest'):
+        # the pass against bytes already offered. A round that records NO pass digest re-arms
+        # unconditionally: the comparand is unavailable, so failing toward the re-arm returns the
+        # safety pass the refund just paid for, where failing the other way would bank a refund
+        # the run could never spend — a self-contradicting state nothing detects.
+        _pass_digest = rnd.get('final_byte_pass_digest')
+        _rearmed = _pass_digest is None or doc.get('final_byte_slot_digest') == _pass_digest
+        if _rearmed:
             doc['final_byte_slot_digest'] = None
+        # ── C: the refund's two materially different outcomes are otherwise both SILENT and
+        # mutually indistinguishable to the orchestrator that just closed the round. Reported on
+        # stderr, not on the stdout line: that line is a closed contract with whole-line
+        # comparands, and this repo's #611 precedent puts an additive diagnostic beside such a
+        # line rather than in it.
+        sys.stderr.write(
+            f'issue-audit-state.py record-return: final-byte-slot-refunded for round '
+            f'{rnd["round"]}; the slot '
+            + ('re-armed for the bytes the pass covered\n' if _rearmed else
+               'was NOT re-armed — a later offer moved it to other bytes, so the refunded '
+               'headroom applies to those instead\n'))
     # Evidence from a REFUSED completion (failed carriage / no parseable verdict) is
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
@@ -5677,12 +5710,30 @@ def cmd_record_final_byte_offer(args):
               '(final-byte-slot-already-spent) the final-byte slot is already spent for '
               'these exact bytes; it re-arms only when a recorded revision changes the '
               'canonical digest')
+    if doc.get('final_byte_passes_used', 0) >= _FINAL_BYTE_GRANT_CAP:
+        _fail('record-final-byte-offer',
+              f'(final-byte-grant-ceiling-reached) this run has been granted '
+              f'{_FINAL_BYTE_GRANT_CAP} final-byte passes and none can be granted again; a '
+              f'refund returns cap headroom but the grant ceiling is absolute, so a host on '
+              f'which every pass degrades cannot loop here indefinitely')
     doc['final_byte_slot_digest'] = digest
+    # `final_byte_pending` is a SINGLE armed grant that `record-dispatch` pops exactly once.
+    # An accept while one is already outstanding therefore ABSORBS it — re-pointing the armed
+    # grant at these bytes — rather than incrementing again: a second increment would fund a
+    # round no `final_byte_pass` flag could ever mark, which is precisely the phantom round the
+    # funding test's own guard exists to prevent, and which no refund could reach. A DECLINE
+    # clears the flag, so a stale arm from an abandoned accept can never mark a later, ordinary
+    # round as the pass (which would silently exclude it from both axis selectors).
+    grant = 'none'
     if args.accepted:
-        doc['final_byte_passes_used'] = doc.get('final_byte_passes_used', 0) + 1
-        # Armed for the NEXT record-dispatch, which consumes it, marks that round as the
-        # pass, and suppresses the derived automatic-re-audit spend for it.
+        if doc.get('final_byte_pending'):
+            grant = 'absorbed'
+        else:
+            grant = 'new'
+            doc['final_byte_passes_used'] = doc.get('final_byte_passes_used', 0) + 1
         doc['final_byte_pending'] = True
+    else:
+        doc['final_byte_pending'] = False
     try:
         save_state(doc, args.slug)
     except StateError as exc:
@@ -5692,6 +5743,7 @@ def cmd_record_final_byte_offer(args):
     # registration. `outcome=` is what actually distinguishes the two arms.
     print(f'final_byte_passes={final_byte_passes(doc)[0]} '
           f'cap={_FINAL_BYTE_PASS_CAP} '
+          f'grant={grant} '
           f'outcome={"accepted" if args.accepted else "declined"}')
 
 

@@ -70,8 +70,11 @@ a premature record and then pins the counter *to* the ceiling.
 The slot is spent **per canonical digest**, so re-arming falls out of the existing digest
 comparison with no revision hook at all: Step 4's iterate loop repeats until the user approves, and
 a pass taken on bytes the user then edits must not leave the bytes actually filed unofferable.
-`_FINAL_BYTE_PASS_CAP` is what bounds that re-arming, since the loop can return to the election any
-number of times; a run at the cap files with the coverage field reporting its true value and
+`_FINAL_BYTE_PASS_CAP` is what bounds that re-arming of **honoured** passes, since the loop can
+return to the election any number of times. It does not bound a run whose every pass *degrades* — a
+refund returns that headroom by design — so a second, absolute `_FINAL_BYTE_GRANT_CAP` bounds
+total grants and stops a refund→re-arm→refund livelock on a host where the pre-dispatch write
+always fails; a run at the cap files with the coverage field reporting its true value and
 `final_byte_exhausted=yes` on the summary line, never silently.
 
 A pass that closes **without a file-arm verdict** refunds the slot — and the refund is recorded on
