@@ -57,9 +57,7 @@ COUNTED_EXCLUSIONS = (
     ".changeset/",
     "CHANGELOG.md",
 )
-COUNTED_EXCLUSION_HEADER = (
-    "lib/test/;.devflow/learnings/;.devflow/logs/;.changeset/;CHANGELOG.md"
-)
+COUNTED_EXCLUSION_HEADER = ";".join(COUNTED_EXCLUSIONS)
 REQUIRED_COPY_PREFIXES = (
     "skills/receiving-code-review/",
     "skills/requesting-code-review/",
@@ -517,24 +515,26 @@ def _mechanical_rationale(bucket: str, counted: int) -> str:
 
 
 def _semantic_recommendation(
-    site: Site, homes: tuple[str, ...]
-) -> tuple[str, str]:
-    if any(_is_boundary(path) for path in homes):
+    site: Site, homes: tuple[str, ...], mechanical: str
+) -> tuple[str, str] | None:
+    if mechanical == "unclear" and any(_is_boundary(path) for path in homes):
         return "boundary", "maintainer adjudication: declared security or interface boundary"
     if "CLAUDE.md" in homes and any(path.startswith("docs/") for path in homes):
         return (
             "required-copy",
             "maintainer adjudication: CLAUDE.md summary paired with canonical docs page",
         )
-    if site.literal is None:
+    if mechanical == "unclear" and site.literal is None:
         return (
             "boundary",
             "maintainer adjudication: dynamic literal is fail-closed pending retirement review",
         )
-    return (
-        "prose-sole-copy",
-        "maintainer adjudication: no established counted home; retained as a sole-copy asset",
-    )
+    if mechanical == "unclear":
+        return (
+            "prose-sole-copy",
+            "maintainer adjudication: no established counted home; retained as a sole-copy asset",
+        )
+    return None
 
 
 def _write_adjudication_template(
@@ -545,19 +545,9 @@ def _write_adjudication_template(
     rows = {}
     for site in sites:
         fact = facts[site.adjudication_key]
-        homes = fact["homes"]
-        recommendation = None
-        if fact["mechanical"] == "unclear":
-            recommendation = _semantic_recommendation(site, homes)
-        elif (
-            site.literal is not None
-            and "CLAUDE.md" in homes
-            and any(home.startswith("docs/") for home in homes)
-        ):
-            recommendation = (
-                "required-copy",
-                "maintainer adjudication: CLAUDE.md summary paired with canonical docs page",
-            )
+        recommendation = _semantic_recommendation(
+            site, fact["homes"], fact["mechanical"]
+        )
         if recommendation is not None:
             rows[site.adjudication_key] = recommendation
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -683,6 +673,8 @@ def main(argv=None) -> int:
         config_keys = _config_keys(repo_root)
         facts = {}
         for site in sites:
+            if site.adjudication_key in facts:
+                continue
             homes = _homes(site.literal, tracked)
             counted_homes = tuple(path for path in homes if _is_counted(path))
             mechanical = classify_mechanical(
@@ -696,11 +688,7 @@ def main(argv=None) -> int:
                 "counted_homes": counted_homes,
                 "mechanical": mechanical,
             }
-            prior = facts.setdefault(site.adjudication_key, fact)
-            if prior != fact:
-                raise ValueError(
-                    f"literal-level facts disagree for {site.adjudication_key}"
-                )
+            facts[site.adjudication_key] = fact
         if args.write_adjudication_template:
             _write_adjudication_template(args.adjudications, sites, facts)
         adjudications = parse_adjudications(
