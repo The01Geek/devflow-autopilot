@@ -8824,6 +8824,79 @@ assert_eq "#781: a failed workpad read is ROUTED (exit 0), never a run-ending er
 assert_eq "#781: a failed workpad read reports workpad-read-failed, never a normal issue-body resolution" \
   "workpad-read-failed" "$(_src781)"
 
+# ---- the `none` demotion is gated on CLEAN ABSENCE alone ----------------------
+# `none` asserts BOTH surfaces were examined and neither carried criteria (Phase 4
+# renders it as exactly that). Every routed non-workpad state falls back to the
+# issue body, so when that fallback ALSO comes up empty the demotion arm fires on
+# a state whose workpad was never read (`workpad-read-failed` — the repo's
+# "Unknown is not zero" anti-pattern: an unestablished measurement collapsed onto
+# the real value), never mirrored (`workpad-unmirrored` — the OPPOSITE claim from
+# a legitimately criteria-less PR), or read but unattributable
+# (`pr-identity-mismatch` — criteria DO exist, this run just cannot confirm they
+# are this PR's). The compound shape is what makes it invisible: it needs a
+# routed state AND a criteria-less issue body at once, so every fixture above
+# (all of which use the three-criterion issue body) passes straight through it.
+cat > "$S781/issue-nocriteria.md" <<'ISSUEMD'
+## Background
+An issue whose body carries no acceptance-criteria section at all.
+
+## Test Plan
+- [ ] something that is not the criteria section
+ISSUEMD
+# Same runner as run781, with the ISSUE-BODY fixture overridden.
+run781_issue() {
+  local issue="$1" body="$2"; shift 2
+  WP781_BODY="$body" WP781_ISSUE="$issue" DEVFLOW_GH="$S781/gh" \
+    python3 "$WP_PY" "$@" >"$S781/out" 2>"$S781/err"
+  echo $?
+}
+
+# Positive control: `none` is still REACHABLE, and only from the clean-absence
+# state. Without this the gate below could be satisfied by a mutant that never
+# demotes at all.
+_c="$(WP781_NO_WORKPAD=1 run781_issue "$S781/issue-nocriteria.md" "$S781/wp-real.md" acs-resolve 999 --pr 143)"
+assert_eq "#781: no workpad AND a criteria-less issue body still exits 0" "0" "$_c"
+assert_eq "#781: no workpad AND a criteria-less issue body is the ONE state that demotes to none" \
+  "none" "$(_src781)"
+
+_c="$(WP781_COMMENT_FAIL=1 run781_issue "$S781/issue-nocriteria.md" "$S781/wp-real.md" acs-resolve 999 --pr 143)"
+assert_eq "#781: a failed workpad read over a criteria-less issue body is still ROUTED (exit 0)" "0" "$_c"
+assert_eq "#781: a failed workpad read KEEPS its token when the issue-body fallback is also empty (unknown is not zero)" \
+  "workpad-read-failed" "$(_src781)"
+
+run781_issue "$S781/issue-nocriteria.md" "$S781/wp-unmirrored.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: an un-mirrored workpad KEEPS its token when the issue-body fallback is also empty" \
+  "workpad-unmirrored" "$(_src781)"
+
+# `pr-identity-mismatch` is deliberately NOT driven here: it is UNREACHABLE with a
+# criteria-less issue body. `_acs_pr_identity_ok` returns True on an empty
+# `issue_norm` (no criterion the workpad could have dropped), so that state and an
+# empty issue-body fallback cannot co-occur — asserting it would be a vacuous test
+# of a shape the code cannot take. The demotion gate still names it, because the
+# gate is written as an allow-list of the ONE demoting state rather than a
+# deny-list of the others, so it stays correct if that reachability ever changes.
+run781_issue "$S781/issue-nocriteria.md" "$S781/wp-norecord.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a narrowed workpad over a criteria-less issue body has no dropped criterion to reject, so it RESOLVES" \
+  "workpad" "$(_src781)"
+
+# ---- a `rewritten` record with no newtext= covers nothing ---------------------
+# `_parse_scope_decisions` admits a `rewritten` record whose `newtext=` field is
+# ABSENT (it drops only an undecodable or empty one), so `_acs_diverge` used to
+# credit it as an audited `CHANGED:` and render "(unrecorded new text)" as the
+# replacement — reporting a scope narrowing as reviewed on a record that records
+# nothing about what replaced the criterion. `_acs_pr_identity_ok` already fails
+# closed on this exact shape (its `new_text is not None` conjunct), so the two
+# read the same record set in opposite directions. The criterion must route to
+# DROP, and the workpad must be rejected.
+_wp781_variant "$S781/wp-rewritten-nonew.md" \
+  '<!-- devflow:scope-decision pr=143 kind=deferred text=Q3JpdGVyaW9uIEM= -->' \
+  '<!-- devflow:scope-decision pr=143 kind=rewritten text=Q3JpdGVyaW9uIEM= -->'
+run781 "$S781/wp-rewritten-nonew.md" acs-resolve 999 --pr 143 >/dev/null
+assert_eq "#781: a rewritten record with NO newtext= covers nothing and reports a DROP finding" \
+  'DROP: Criterion C' "$(_div781)"
+assert_eq "#781: a rewritten record with NO newtext= leaves the workpad rejected (fails closed)" \
+  "pr-identity-mismatch" "$(_src781)"
+
 # acs-resolve's exit-3 fail-closed arm, driven BEHAVIORALLY (it was asserted only by
 # prose pins). Without the issue body there is no comparand and nothing to resolve, so
 # this is the one failure that is NOT a routed source token: a regression routing it as
@@ -9073,6 +9146,20 @@ python3 "$S781X/scripts/workpad.py" acs 1 >/dev/null 2>"$S781X/err"; _c781x=$?
 assert_eq "#781: with section_parse.py absent, acs fails CLOSED (exit 3), never a silent empty read" "3" "$_c781x"
 assert_eq "#781: the absent-sibling breadcrumb names section_parse.py specifically" "yes" \
   "$(grep -q 'section_parse.py' "$S781X/err" && echo yes || echo no)"
+# The `acs` help text enumerates its non-zero exits, and the section_parse-absent
+# arm above is a THIRD exit-3 path the module and acs-resolve docstrings document
+# but the help omitted — a user-facing contract sentence that was incomplete
+# against the shipped behavior the two asserts above drive. Pinned on the RENDERED
+# `--help` output, never a source grep: the help string is assembled from adjacent
+# wrapped literals, so it lives on no single line (the #375 wrapped-literal rule).
+# Rendered from the TOP-LEVEL --help, where argparse prints a subparser's `help=`
+# string (the subcommand's own --help prints its `description`, which this parser
+# does not set). Whitespace is collapsed because argparse re-wraps to the terminal
+# width, and that wrapping is also why the pinned phrase is kept short.
+assert_eq "#781: the acs --help exit contract names the section_parse-absent exit-3 path" "yes" \
+  "$(COLUMNS=400 python3 "$WP_PY" --help 2>/dev/null | tr -s '[:space:]' ' ' \
+     | grep -q 'exit 3 on a gh read failure or when scripts/section_parse.py was not deployed beside workpad.py' \
+     && echo yes || echo no)"
 rm -rf "$S781X"
 rm -rf "$S781"
 
@@ -9084,6 +9171,40 @@ rm -rf "$S781"
 # `$IMPL_SKILL_BUNDLE` is the implement bundle. `$RAF_SHADOW781` targets the
 # shadow reference, which belongs to neither bundle.
 RAF_SHADOW781="$LIB/../skills/review-and-fix/references/shadow-review.md"
+
+# ---- class-closing absence guard over the $ARGUMENTS -> $PR_NUMBER re-anchoring
+# This PR re-anchored every command and gate in the review engine off the raw
+# `$ARGUMENTS` string onto the parsed `$PR_NUMBER`. Only a handful of the
+# re-anchored consumers carry an individual pin, so a revert of any UNPINNED one
+# (a `gh pr review $ARGUMENTS` verdict row, a `gh pr view $ARGUMENTS` gate) would
+# reintroduce the exact defect this PR closes while the suite stayed green.
+# One absence assertion closes the whole class instead of pinning consumers
+# one at a time.
+#
+# Scoped to FENCED command blocks, which is where an interpolation is executed.
+# The surrounding PROSE deliberately still says `$ARGUMENTS` — every occurrence is
+# the rule itself ("never the raw `$ARGUMENTS` string"), the two skill roots'
+# `**Input:**` parse instruction, or Phase 3's note naming the superseded
+# `gh pr diff $ARGUMENTS` form — so a whole-file grep would be RED on the very
+# sentences that state the contract, and could only be made green by deleting them.
+assert_eq "#781: no fenced command in the review engine interpolates the raw \$ARGUMENTS" "none" \
+  "$(python3 - "$LIB/../skills/review/SKILL.md" \
+       "$LIB/../skills/review-and-fix/SKILL.md" \
+       "$LIB"/../skills/review/phases/*.md \
+       "$LIB"/../skills/review-and-fix/references/*.md <<'PY'
+import sys, pathlib
+hits = []
+for p in sys.argv[1:]:
+    infence = False
+    for n, line in enumerate(pathlib.Path(p).read_text(encoding='utf-8').splitlines(), 1):
+        if line.lstrip().startswith('```'):
+            infence = not infence
+            continue
+        if infence and '$ARGUMENTS' in line:
+            hits.append(f'{pathlib.Path(p).name}:{n}')
+print('|'.join(hits) or 'none')
+PY
+)"
 
 # Defect restored: the issue number is derived from the PR body / branch name even
 # when the caller supplied one, so a caller-supplied --issue is compared against a
@@ -9138,7 +9259,7 @@ assert_pin_red_under "#781: Phase 0.4 injects the criteria box-neutralized" \
 # collapse onto one report line, so a failed read presents as a normal issue-body
 # resolution and a run whose mirroring silently failed reads like an ordinary
 # non-implement PR.
-assert_pin_red_under "#781: the six source tokens are reported distinctly (read-failure and un-mirrored routing)" \
+assert_pin_red_under "#781: each source token is reported distinctly (read-failure and un-mirrored routing)" \
   '`workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution' \
   's/, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution//' \
   "$ST_REV"

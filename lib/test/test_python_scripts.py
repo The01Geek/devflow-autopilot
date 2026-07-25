@@ -58,6 +58,7 @@ def _load(modname: str, path: Path) -> types.ModuleType:
 
 workpad = _load('workpad', SCRIPTS / 'workpad.py')
 parse_acs = _load('parse_acs', SCRIPTS / 'parse-acs.py')
+section_parse = _load('section_parse', SCRIPTS / 'section_parse.py')
 file_deferrals = _load('file_deferrals', SCRIPTS / 'file-deferrals.py')
 match_deferrals = _load('match_deferrals', SCRIPTS / 'match-deferrals.py')
 resolve_review_overrides = _load(
@@ -2306,6 +2307,29 @@ assert_eq("render_md: test plan appended after blank line", True,
           '\n\n- [ ] b' in parse_acs._render_md(
               [{'text': 'a', 'ticked': False, 'post_merge': False}],
               [{'text': 'b', 'ticked': False, 'post_merge': False}]))
+
+# ── the documented mid-string `(post-merge)` residual (#781 review) ────────────
+# `_render_md_line`'s comment states the writer and the reader deliberately do NOT
+# share a predicate: the writer suppresses the append on CONTAINMENT, the reader
+# (`section_parse.is_post_merge_tagged` -> `_ends_with_post_merge`) tests a SUFFIX.
+# So a criterion carrying the phrase mid-string is neither tagged by the writer nor
+# excluded by the reader — a disclosed residual with no test, which meant a future
+# "unification" of the two predicates would silently change the shipped contract
+# with nothing red. These assert the residual as the comment describes it, in both
+# directions, so a unification in EITHER direction goes red.
+_MIDSTR = 'Verify (post-merge) that the hook fires'
+assert_eq("post-merge residual: the writer suppresses on containment, so a mid-string "
+          "phrase is left untagged even at post_merge=True", 1,
+          parse_acs._render_md(
+              [{'text': _MIDSTR, 'ticked': False, 'post_merge': True}], []
+          ).count('(post-merge)'))
+assert_eq("post-merge residual: the reader tests a SUFFIX, so the same mid-string "
+          "row is not excluded by the post-merge filter", False,
+          section_parse.is_post_merge_tagged(_MIDSTR))
+assert_eq("post-merge residual control: a TERMINAL tag is what the reader excludes",
+          True, section_parse.is_post_merge_tagged('Do X (post-merge)'))
+assert_eq("post-merge residual control: trailing whitespace cannot mask the terminal tag",
+          True, section_parse.is_post_merge_tagged('Do X (post-merge)  \n'))
 
 # ── issue #254: hard-wrapped criteria (the ~80-column format /devflow:create-issue
 # emits) must join indented continuation lines into ONE criterion, and a post-merge

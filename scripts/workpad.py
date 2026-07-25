@@ -619,7 +619,9 @@ def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
     Reports DROPS, audited DEFERRALS, and TEXT CHANGES only — a criterion the
     workpad no longer carries renders as `DEFERRED:` when a bound record
     explains it and `DROP:` when nothing does, and a `rewritten` record renders
-    as `CHANGED:`. A criterion present in the workpad and
+    as `CHANGED:` — but only when that record actually carries a `newtext=`
+    payload; a `rewritten` record without one covers nothing and its criterion
+    routes to `DROP` like any other unexplained one. A criterion present in the workpad and
     absent from the issue body is never a finding: that is exactly what the
     mirrored `## Test Plan` items look like, and `_render_md` writes them into
     one flat block with no heading, label, or marker, so the section carries no
@@ -633,14 +635,23 @@ def _acs_diverge(issue_items: list[dict], workpad_items: list[dict],
     issue_norm = [normalize_criterion(it['text']) for it in issue_items]
     workpad_norm = {normalize_criterion(it['text']) for it in workpad_items}
     deferred = {d['text'] for d in decisions if d['kind'] == 'deferred'}
-    rewritten = {d['text']: d['new_text'] for d in decisions if d['kind'] == 'rewritten'}
+    # A `rewritten` record with no `newtext=` field records nothing about what
+    # replaced the criterion, so it licenses no text change: it is excluded here
+    # and its criterion falls through to `DEFERRED`/`DROP` like any other
+    # uncovered one. Crediting it as an audited `CHANGED:` would report a scope
+    # narrowing as reviewed on a record that establishes nothing — the same
+    # fail-closed direction `_parse_scope_decisions` takes for an empty payload,
+    # and the direction `_acs_pr_identity_ok` already takes for the same shape
+    # (its `new_text is not None` conjunct), which this line was asymmetric with.
+    rewritten = {d['text']: d['new_text'] for d in decisions
+                 if d['kind'] == 'rewritten' and d['new_text']}
 
     lines = []
     for text in issue_norm:
         if text in workpad_norm:
             continue
         if text in rewritten:
-            lines.append(f'CHANGED: {text} -> {rewritten[text] or "(unrecorded new text)"}')
+            lines.append(f'CHANGED: {text} -> {rewritten[text]}')
         elif text in deferred:
             lines.append(f'DEFERRED: {text}')
         else:
@@ -733,6 +744,14 @@ def cmd_acs_resolve(args):
     `scripts/section_parse.py` was not deployed beside workpad.py — a real
     partial-deployment shape this file's import block documents. Both are
     "no basis to resolve", distinct from the ROUTED workpad outcomes above.
+
+    The `none` source is reached ONLY from the clean-absence state, because
+    `none` asserts both surfaces were examined and neither carried criteria. A
+    routed state whose issue-body fallback also comes up empty keeps its own
+    token: collapsing `workpad-read-failed` onto `none` would fabricate a
+    measurement of a surface this run never read, and collapsing
+    `workpad-unmirrored` onto it would report a silently-failed mirroring as an
+    ordinary criteria-less PR.
     """
     _require_section_parse('acs-resolve')
     issue_body = _acs_fetch_issue_body(args.issue)
@@ -774,7 +793,21 @@ def cmd_acs_resolve(args):
         # still gets a specification whenever one exists anywhere.
         source = state
         selected = issue_items
-        if not issue_items:
+        # The `none` demotion is gated on the CLEAN-ABSENCE state alone. `none`
+        # asserts that both surfaces were examined and neither carried criteria,
+        # which is true only when there was no workpad to read (`issue-body`).
+        # For every other routed state the workpad's criteria were either never
+        # read (`workpad-read-failed` — an unestablished measurement, never
+        # collapsed onto the real value `none`), never mirrored
+        # (`workpad-unmirrored` — the OPPOSITE claim from a legitimately empty
+        # section). Demoting either to `none` because the issue-body FALLBACK came
+        # up empty destroys the very signal each token exists to carry. Written as
+        # an allow-list of the ONE demoting state rather than a deny-list of the
+        # others, so it stays correct as states are added — `pr-identity-mismatch`
+        # cannot co-occur with an empty issue body today (`_acs_pr_identity_ok`
+        # returns True when there is no issue-side criterion to drop), and a
+        # deny-list would have to be revisited if that ever changed.
+        if not issue_items and state == _ACS_SOURCE_ISSUE_BODY:
             source = _ACS_SOURCE_NONE
 
     print(f'source: {source}')
@@ -2855,7 +2888,8 @@ def main():
              'tags preserved; the parsed items are re-rendered, so blank lines '
              'are dropped and "* [ ]" normalizes to "- [ ]"). Exit 2 with empty '
              'stdout AND empty stderr when no workpad exists; exit 3 on a gh '
-             'read failure.',
+             'read failure or when scripts/section_parse.py was not deployed '
+             'beside workpad.py.',
     )
     s.add_argument('issue', type=int)
     s.add_argument('--exclude-post-merge', action='store_true',

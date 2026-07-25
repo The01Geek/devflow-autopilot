@@ -39,3 +39,16 @@ bump: patch
 - Every raw `$ARGUMENTS` interpolation in the review engine is re-anchored on the parsed
   `$PR_NUMBER`, so an extended argument string cannot reach a command line or silently disable the
   phases gated on an is-a-PR-number test.
+
+### Fixed
+
+- `acs-resolve` no longer collapses a routed non-workpad state onto the `none` source when the
+  issue-body fallback is also empty. `none` asserts that both surfaces were examined and neither
+  carried criteria, so a run whose workpad read failed (`workpad-read-failed`) reported a
+  measurement it never took, and a run whose mirroring silently failed (`workpad-unmirrored`)
+  reported the opposite of what happened. The demotion is now reached only from the clean-absence
+  state.
+- A `rewritten` scope-decision record carrying no `newtext=` field no longer reports its criterion
+  as an audited `CHANGED:` text change. It records nothing about what replaced the criterion, so it
+  covers nothing and routes to `DROP` — the direction the PR-identity guard already took for the
+  same shape.

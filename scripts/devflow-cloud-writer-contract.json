@@ -18,7 +18,7 @@
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
     "scripts/stale-prose-lint.py": "30e65eb12ca02ee5c4239df1ebcfda3da58f3e585ce459e624d7a14ce69dd9da",
     "scripts/update-branch-checkpoint.sh": "2d442145329f91167daa7446596117d2bc11895f8f2938b2f672f732a94ce767",
-    "scripts/workpad.py": "bb09d802f427de60b3a4eaea29cf0e8134043c7135133d92a77c7f237b48ac05",
+    "scripts/workpad.py": "97bd2439313130cf70414cdebb88cf282052f399e277aa06f5621365806106e4",
     "skills/docs-release-notes/SKILL.md": "6299f8cae38d5d5bffb4559ed86d11bd84621a86d0e3409fc00deaae6e945fc5",
     "skills/docs-sync-external/SKILL.md": "a143f1e22b0e1ce6a254a20ca6080b01df08f356e2693e4b8f2cf3eb7759d04d",
     "skills/docs-sync-internal/SKILL.md": "bfab308b9d734e026ae66bb4c575ff6aa7a2e44995cb8dd031dad4e1a4c0a43d",
@@ -50,7 +50,7 @@
     "skills/review/phases/phase-3-agents.md": "227583d9d8cf296c9112c3d513fa9fd2bbfe280b77598c889521d00ec0101dc5",
     "skills/review/phases/phase-4-1-7-stale-adjudication.md": "99bad7aea7a73f2d1853e5fdec1512db5b957b7e46a78ac5d3b20edd20fdb591",
     "skills/review/phases/phase-4-4-github-post.md": "335284a3d72f00b7183f04fd146ebf032985a01ed45322988d3ff7f0c0d2a12f",
-    "skills/review/phases/phase-4-verdict.md": "ead3e58332f523400b5cb7b046494e261f6eb8578b9438551167e89f948e8347"
+    "skills/review/phases/phase-4-verdict.md": "4ffead6cca3f2b2b79e18f1acefcfcfe756a9d092b7ac9eef004d5f0479f9a7b"
   },
   "legacy_profile_baseline": "2.15.13",
   "protocol": "devflow-cloud-writer-contract-v1",
