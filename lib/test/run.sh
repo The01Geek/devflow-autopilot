@@ -11988,9 +11988,6 @@ assert_pin_red_on_removal "#254: deleting the early dependency preflight heading
   'Early declared-dependency preflight' "$IMPL_SKILL"
 assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
   'preflight.py dependencies --issue $ISSUE_NUMBER' "$IMPL_SKILL"
-# Review iter 3: the unresolvable-dependency → Blocked arm is the most safety-relevant
-# route (fail-closed on a `gh issue view` failure that says nothing about state); pin it
-# removal-proof too, not just the heading and the OPEN arm.
 # Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
 # dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
 # CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
