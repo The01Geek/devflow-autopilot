@@ -1080,15 +1080,11 @@ jobs:
           # pass reads a definite signal rather than an absent one. Coupled to Pass 5's
           # keying in skills/implement/phases/phase-1-setup.md and its lib/test/run.sh pins.
           DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
-          # Harness floor for the dispatch barrier (issue #801). See the identical
-          # block in devflow-runner.yml for the full rationale: subagents are
-          # background-by-default upstream and a background dispatch's results arrive
-          # in a LATER TURN, which a headless `claude -p` session never reaches — so
-          # the fleet is dispatched and discarded. This keeps them in the FOREGROUND,
-          # which on this tier binds the Phase 2 code-explorer/code-architect
-          # dispatches, the Phase 3 inline review pass, and the Phase 4.1 docs
-          # subagent. Inert when ignored, so it ships unconditionally; the
-          # runner-agnostic half is the barrier statement in skills/implement/SKILL.md.
+          # Harness floor for the dispatch barrier (issue #801) — full rationale in
+          # devflow-runner.yml's copy of this entry. On this tier it binds the Phase 2
+          # code-explorer/code-architect dispatches, the Phase 3 inline review pass,
+          # and the Phase 4.1 docs subagent; the runner-agnostic half is the barrier
+          # statement in skills/implement/SKILL.md.
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is

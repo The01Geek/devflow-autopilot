@@ -56,3 +56,25 @@ re-derived in the module header rather than inherited:
 
 Coverage-map ownership for the moved labels is recorded in
 `lib/test/modules/coverage-map.json`.
+
+## Post-extraction additions
+
+- **`#801` — harness floor + runner-agnostic dispatch barrier.** Authored in this
+  module rather than extracted from `run.sh`. It is the natural home despite
+  reaching beyond the review tier: the layers it asserts are the direct successors
+  of the `#408`/`#415` headless-wait pin family this module already owns, and the
+  `headless-literals-unchanged` obligation (that the additive edit desyncs none of
+  those pre-existing mutation pins) is only checkable where they live. Its targets
+  therefore include implement-tier and installer surfaces the rest of the module
+  does not own: `.github/workflows/devflow-runner.yml` (new `$WFRUN801`), plus the
+  already-owned `$WFI415` / `$WFD408` / `$IMPL_SKILL415` / `$RGB408`, and
+  `skills/review/SKILL.md` (`$REVIEW_ROOT801`),
+  `skills/create-issue/references/step-3-6-audit.md` (`$AUDIT801`) and `install.sh`
+  (`$INSTALL801`). Consequence to know when running this module as the focused test
+  for an implement-tier change: `coverage-map.json` routes label `801` here, so an
+  implement-side regression in those surfaces surfaces in a review-scoped module.
+- The `#801` barrier pins target each engine ROOT's own path rather than
+  `$REVIEW_BUNDLE`, unlike the two `#408` pins above: that criterion is
+  location-sensitive (the statement is canonical in the root and the dispatch sites
+  carry pointers, never copies), so a bundle pin would stay green on a sentence
+  surviving anywhere in the bundle.

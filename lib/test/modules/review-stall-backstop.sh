@@ -935,12 +935,12 @@ rm -f "$T435WF"
 # bundle, and this criterion is location-sensitive (the statement is canonical in the root,
 # and the dispatch sites carry pointers, never copies).
 echo "#801 harness floor + dispatch barrier"
+# Only the paths this block is the first to need get a new variable. devflow.yml,
+# devflow-implement.yml, skills/implement/SKILL.md and the grounding renderer already have
+# module-scoped variables ($WFD408, $WFI415, $IMPL_SKILL415, $RGB408) — reuse them so a
+# workflow or skill rename has one home in this module rather than two that can diverge.
 WFRUN801="$REPO_ROOT/.github/workflows/devflow-runner.yml"
-WFIMP801="$REPO_ROOT/.github/workflows/devflow-implement.yml"
-WFCMD801="$REPO_ROOT/.github/workflows/devflow.yml"
 REVIEW_ROOT801="$REPO_ROOT/skills/review/SKILL.md"
-IMPL_ROOT801="$REPO_ROOT/skills/implement/SKILL.md"
-RGB801="$REPO_ROOT/scripts/render-grounding-block.sh"
 AUDIT801="$REPO_ROOT/skills/create-issue/references/step-3-6-audit.md"
 INSTALL801="$REPO_ROOT/install.sh"
 
@@ -951,10 +951,10 @@ devflow_module_pin_red_under "#801 env-floor-runner: deleting CLAUDE_CODE_DISABL
   '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFRUN801"
 devflow_module_pin_red_under "#801 env-floor-implement: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-implement.yml flips its pin RED" \
   'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
-  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFIMP801"
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFI415"
 devflow_module_pin_red_under "#801 env-floor-command: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow.yml flips its pin RED" \
   'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
-  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFCMD801"
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFD408"
 
 # The three whole-file pins above prove the literal is PRESENT and load-bearing, but not that
 # it sits on the claude-code-action STEP — a copy parked in an unrelated job would keep them
@@ -962,14 +962,14 @@ devflow_module_pin_red_under "#801 env-floor-command: deleting CLAUDE_CODE_DISAB
 # (its `- name: Run Claude Code` line through the `uses:` + `with:` boundary) and pair it with
 # a range-scoped deletion probe, the #435 idiom above.
 cca_step_env801() {  # file -> yes|no : the env line present inside the Run Claude Code step
-  awk '/- name: Run Claude Code/,/^        with:/' "$1" | \
+  awk '/- name: Run Claude Code/,/^[[:space:]]*with:/' "$1" | \
     grep -qF -- 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' && echo yes || echo no
 }
-for _wf801 in "$WFRUN801" "$WFIMP801" "$WFCMD801"; do
+for _wf801 in "$WFRUN801" "$WFI415" "$WFD408"; do
   assert_eq "#801 harness floor present inside the Run Claude Code step of ${_wf801##*/}" \
     "yes" "$(cca_step_env801 "$_wf801")"
   _t801="$(probe_tmp "#801 step-scoped env-floor mutation setup (${_wf801##*/})")"
-  sed -E '/- name: Run Claude Code/,/^        with:/{/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d;}' \
+  sed -E '/- name: Run Claude Code/,/^[[:space:]]*with:/{/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d;}' \
     "$_wf801" > "$_t801"
   assert_eq "#801 dropping the step-scoped harness-floor env line turns the scoped check RED (${_wf801##*/})" \
     "no" "$(cca_step_env801 "$_t801")"
@@ -984,7 +984,7 @@ devflow_module_pin_red_under "#801 barrier-review-root: removing the dispatch-ba
   "/A dispatch blocks until the subagent's completed result is in hand/d" "$REVIEW_ROOT801"
 devflow_module_pin_red_under "#801 barrier-implement-root: removing the dispatch-barrier sentence from skills/implement/SKILL.md flips its pin RED" \
   "A dispatch blocks until the subagent's completed result is in hand" \
-  "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_ROOT801"
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_SKILL415"
 # The launch-acknowledgment half is a second operative clause of the same requirement (a
 # reword could keep the blocking sentence while dropping the rule that an acknowledgment is
 # never the return), so it gets its own pin per the one-pin-per-operative-sentence rule.
@@ -993,7 +993,7 @@ devflow_module_pin_red_under "#801 barrier-review-root: removing the launch-ackn
   '/a launch acknowledgment is never treated as the return/d' "$REVIEW_ROOT801"
 devflow_module_pin_red_under "#801 barrier-implement-root: removing the launch-acknowledgment clause flips its pin RED" \
   'a launch acknowledgment is never treated as the return' \
-  '/a launch acknowledgment is never treated as the return/d' "$IMPL_ROOT801"
+  '/a launch acknowledgment is never treated as the return/d' "$IMPL_SKILL415"
 
 # barrier-cloud-scoped — the barrier must sit INSIDE each root's cloud-conditioned block, not
 # float free as an unconditional rule. Bound the region by the block's own first and last
@@ -1009,13 +1009,12 @@ barrier_in_cloud_block801() {  # file -> yes|no
 assert_eq "#801 barrier-cloud-scoped: review root's barrier sits inside the cloud-conditioned block" \
   "yes" "$(barrier_in_cloud_block801 "$REVIEW_ROOT801")"
 assert_eq "#801 barrier-cloud-scoped: implement root's barrier sits inside the cloud-conditioned block" \
-  "yes" "$(barrier_in_cloud_block801 "$IMPL_ROOT801")"
+  "yes" "$(barrier_in_cloud_block801 "$IMPL_SKILL415")"
 # Positive control: a barrier relocated outside the block must make the scoped check RED.
 # Deleting the barrier only from within the block and appending it after the block reproduces
 # exactly that relocation, so the check is proven to bind on placement, not mere presence.
 _t801s="$(probe_tmp '#801 barrier-cloud-scoped relocation control')"
-awk '{ print }' "$IMPL_ROOT801" | \
-  sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" > "$_t801s"
+sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_SKILL415" > "$_t801s"
 printf '%s\n' "A dispatch blocks until the subagent's completed result is in hand." >> "$_t801s"
 assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED" \
   "no" "$(barrier_in_cloud_block801 "$_t801s")"
@@ -1029,12 +1028,11 @@ devflow_module_pin_present "#801 step-3-6-audit.md keeps its cloud-tier headless
 # guaranteed resident on the cloud review tier, so it carries the barrier too. Pinned on the
 # RENDERED surface (the #375 discipline the sibling #408 grounding pins follow) plus a
 # source-level mutation pin proving the sentence is load-bearing.
-GB801_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB801")"
 assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
-  "$(printf '%s\n' "$GB801_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
+  "$(printf '%s\n' "$GB408_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
 devflow_module_pin_red_under "#801 grounding: deleting the dispatch-barrier sentence from the renderer flips its pin RED" \
   "A dispatch blocks until the subagent's completed result is in hand" \
-  "/A dispatch blocks until the subagent's completed result is in hand/d" "$RGB801"
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$RGB408"
 
 # barrier-pointer-coverage — every dispatch site points at its engine root's barrier statement
 # rather than copying it. The population is the closed path list the acceptance criterion
@@ -1079,4 +1077,4 @@ unset _site801 _t801p
 devflow_module_pin_present "#801 install-loop-unchanged: the workflow copy loop still lists the three engine workflows" \
   'for w in devflow devflow-runner devflow-implement devflow-review telemetry-push; do' "$INSTALL801"  # structural-pin-ok: presence of an unedited copy-loop literal this change deliberately does not touch; its removal breaks no behavior this change fixes
 assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" "no" \
-  "$(grep -F 'for w in devflow' "$INSTALL801" | grep -qF 'matcher-probe' && echo yes || echo no)"
+  "$(grep -qE 'for w in devflow.*matcher-probe' "$INSTALL801" && echo yes || echo no)"
