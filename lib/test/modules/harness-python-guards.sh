@@ -307,6 +307,22 @@ assert_eq "#798 pin-corpus classifier remains maintainer-run (no run.sh invocati
 rm -f "$_HPG_CLASSIFIER_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#810 pin-corpus wording-only authoring gate"
+# ────────────────────────────────────────────────────────────────────────────
+# These focused tests drive the same path-aware parser, registry-closed source
+# population, classification-preserving move logic, and fail-closed worktree setup
+# that the blocking run.sh invocation above consumes.
+_HPG_PIN_LINT_OUT="$(mktemp "$_hpg_tmp_root/pin-lint-unit.XXXXXX")" || {
+  printf 'could not allocate the #810 pin-lint unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test \
+  "#810 pin-corpus authoring gate: focused Python tests pass" \
+  "$LIB/test/test_pin_corpus_lint.py" \
+  "$_HPG_PIN_LINT_OUT"
+rm -f "$_HPG_PIN_LINT_OUT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
 # ────────────────────────────────────────────────────────────────────────────
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units

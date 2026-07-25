@@ -230,13 +230,22 @@ target inflates the count — its `.md` arm subtracts not only `<!-- … -->` re
 comments inside fenced ```` ```bash ```` code blocks of a skill bundle, issue #394); a
 **wrapped-literal meta-guard** (a phrase assembled from wrapped adjacent string literals lives on no
 single line, so a line-based `git grep` misses it — pin the rendered `--help`/stderr surface instead);
-and the **`mutation-routing` declaration gate** (issue #666), a diff-scoped, fail-closed check that turns
-the suite RED for a pin the change *adds* whose helper is not mutation-taking and which carries no
-format-strict `# structural-pin-ok: <reason>` marker — so a behavioral-fix pin authored as a plain
-`assert_pin_unique` is stopped at the desk, while a genuine structural pin declares itself with a
-one-line reason. All three guards run over `run.sh` itself and over every registered
-`lib/test/modules/*.sh` file, so pins that module extraction moves out of `run.sh` stay covered (issue
-#591). A companion runtime overbreadth guard in the three mutation-taking helpers rejects a mutation
+and the **`mutation-routing` declaration gate** (issues #666 and #810), a path-aware,
+diff-scoped, fail-closed check over helper calls and direct positive source-presence
+assertions. A wording-only pin protects a literal that can change without changing
+executable behavior or a machine-consumed contract; new wording-only, secondary-prose,
+documentation-presence, advisory-heading, and comment-presence pins are prohibited.
+A permitted static boundary pin declares
+`# structural-pin-ok: <category> -- <non-empty rationale>`, where the category is one of
+`helper-contract`, `schema-config-vocabulary`, `security-credential-boundary`,
+`machine-sentinel-provenance`, `routing-dispatch-contract`,
+`lifecycle-state-transition`, `generated-artifact-identity`, or
+`cross-file-phase-contract`. The required gate validates its committed source population
+against every registered module and treats base, diff, enumeration, and scratch failures
+as suite failures; it never consults the maintainer-run inventory. A move is exempt
+one-to-one only when its classification is not weakened. All three guards run over
+`run.sh` itself and over every registered `lib/test/modules/*.sh` file, so pins that
+module extraction moves out of `run.sh` stay covered (issue #591). A companion runtime overbreadth guard in the three mutation-taking helpers rejects a mutation
 that blanks its target (`1,$d` / `s/.*//`), closing the loophole where a pin flips PASS→FAIL because the
 file was destroyed rather than the guarded content removed.
 

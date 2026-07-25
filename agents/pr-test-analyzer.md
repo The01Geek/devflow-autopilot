@@ -32,6 +32,8 @@ You are advisory only: never modify working-tree source files, the index, HEAD, 
 
 3. **Evaluate Test Quality**: Assess whether tests:
    - Test behavior and contracts rather than implementation details
+   - Exercise executable behavior and machine-consumed boundaries rather than
+     asserting that prose, documentation, advisory headings, or comments are present
    - Would catch meaningful regressions from future code changes
    - Are resilient to reasonable refactoring
    - Follow DAMP principles (Descriptive and Meaningful Phrases) for clarity
@@ -50,6 +52,11 @@ You are advisory only: never modify working-tree source files, the index, HEAD, 
 4. Check for tests that are too tightly coupled to implementation
 5. Look for missing negative cases and error scenarios
 6. Consider integration points and their test coverage
+7. Treat a new wording-only presence pin as a test-quality defect: if its protected
+   literal could change without executable behavior or a machine-consumed contract
+   changing, recommend a behavioral boundary assertion instead. For an operative
+   prompt regression, require a mutation-taking helper whose focused mutation removes
+   the operative text and demonstrates the named regression.
 
 **Rating Guidelines:**
 - 9-10: Critical functionality that could cause data loss, security issues, or system failures

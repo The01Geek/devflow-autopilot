@@ -44,22 +44,27 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing`` — the **behavioral-fix-pin declaration gate** (issue #666).
-  A diff-scoped, fail-closed gate: for a pin call site the change ADDS whose helper
-  is not mutation-taking, the author must route through a mutation-taking helper or
-  carry a ``# structural-pin-ok: <reason>`` declaration, else the suite goes RED. A
-  moved pin is exempt (one-to-one on its literal, never across a downgrade to a
-  non-mutation helper). It reuses ``join_logical_lines``/``tokenize``/``extract_pins``
-  and reads a unified diff supplied via ``--diff-file``.
+* ``mutation-routing-worktree`` — the required **wording-only pin authoring gate**
+  (issues #666 and #810). It establishes a path-aware worktree diff, validates its
+  audited source population against the module registry, and applies one policy to
+  helper-based and direct raw source-presence pins. A permitted structural boundary
+  declares ``# structural-pin-ok: <category> -- <non-empty rationale>`` with a category
+  from the closed set; a move is exempt one-to-one only when classification is
+  preserved. Base, diff, enumeration, source-read, registry, and scratch failures exit
+  2, policy findings exit 3, and a clean established scan exits 0. The lower-level
+  ``mutation-routing`` synthetic-fixture command remains for legacy self-tests.
 
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
 on stderr, never silently skipped.
 
-Without ``--strict`` all three subcommands exit 0 whether or not they found
-anything. Findings go to stdout (one per line, tab-separated); the unresolvable
-count and per-site detail go to stderr.
+The three legacy pin-source commands preserve their existing output contracts:
+without ``--strict``, ``lint`` and ``wrapped`` exit 0 even on findings, and the
+synthetic-fixture ``mutation-routing`` command always exits 0. Findings go to
+stdout (one per line, tab-separated); unresolvable counts and per-site details go
+to stderr. The required ``mutation-routing-worktree`` command instead carries its
+0/2/3 clean/infrastructure/finding contract directly.
 
 **``--strict`` exit-code mode (issue #687, opt-in, applies to ``lint`` and
 ``wrapped``; ``mutation-routing`` keeps its own always-exit-0 contract).** With
@@ -88,6 +93,7 @@ CLI::
                                        [--reloc-exclude SUBSTR ...]
     pin-corpus-lint.py mutation-routing PIN_SOURCE --diff-file FILE
                                        [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py mutation-routing-worktree REPO_ROOT
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
@@ -113,10 +119,14 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
+from typing import NamedTuple
 
 # Non-source trees always excluded from the relocation search set (issue #661): a
 # committed vendored plugin copy and the run's own draft/derivation artifacts both
@@ -948,8 +958,7 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit, sink,
 # ships silently. This diff-scoped, fail-closed gate makes the author STATE the
 # classification: a pin call site the change ADDS whose helper is not
 # mutation-taking must either route through a mutation-taking helper or carry an
-# explicit `# structural-pin-ok: <reason>` declaration (modeled on the repo's one
-# enforced inline marker, `# raw-guard-ok:`). Sites the change does not touch are
+# explicit typed structural declaration. Sites the change does not touch are
 # out of scope by construction — no backfill of the ~1372 existing pins.
 
 # Helpers that MUST declare (non-mutation-taking pins) — complete by construction.
@@ -971,12 +980,95 @@ MUTATION_TAKING_HELPERS = frozenset(
 # ("does not apply to count-based guards"). They draw no finding.
 COUNT_HELPERS = frozenset({"pin_count", "devflow_module_pin_count"})
 
-# The declaration marker — format-strict, mirroring count_unallowlisted_raw_skill_guards'
-# `# raw-guard-ok:` exclusion. A bare `structural-pin-ok` substring elsewhere on the line
-# (or inside a quoted string argument) does NOT exempt the site.
+# The declaration marker is recognized only in a real comment region; a quoted
+# substring never exempts the site.
 STRUCTURAL_PIN_OK_MARKER = "# structural-pin-ok:"
 
+STRUCTURAL_PIN_CATEGORIES = frozenset(
+    {
+        "helper-contract",
+        "schema-config-vocabulary",
+        "security-credential-boundary",
+        "machine-sentinel-provenance",
+        "routing-dispatch-contract",
+        "lifecycle-state-transition",
+        "generated-artifact-identity",
+        "cross-file-phase-contract",
+    }
+)
+
+# This population is intentionally committed and independent of the registry. The
+# production gate compares the two sets exactly, so registering a new focused module
+# without adding it here fails closed instead of silently leaving its pins unscanned.
+AUDITED_PIN_SOURCES = frozenset(
+    {
+        "lib/test/run.sh",
+        "lib/test/modules/workflow-flight-recorder.sh",
+        "lib/test/modules/review-and-fix-contract.sh",
+        "lib/test/modules/create-issue-contract.sh",
+        "lib/test/modules/capability-profiles.sh",
+        "lib/test/modules/regenerate-artifacts.sh",
+        "lib/test/modules/installer-wiring.sh",
+        "lib/test/modules/harness-python-guards.sh",
+        "lib/test/modules/prompt-extension-reader.sh",
+        "lib/test/modules/review-trigger-helpers.sh",
+        "lib/test/modules/review-stall-backstop.sh",
+        "lib/test/modules/experiment-records.sh",
+    }
+)
+
 _DEF_LINE_RE = re.compile(r"^\w+\s*\(\)")
+
+
+class StructuralDeclaration(NamedTuple):
+    category: str
+    rationale: str
+
+
+class GuardSite(NamedTuple):
+    source_path: str
+    line_start: int
+    line_end: int
+    family: str
+    helper: str | None
+    literal: str | None
+    declaration: StructuralDeclaration | None
+    declaration_error: str | None
+
+
+class FilePatch(NamedTuple):
+    old_path: str | None
+    new_path: str | None
+    added_lines: frozenset[int]
+    deleted_lines: frozenset[int]
+
+
+class InfrastructureError(RuntimeError):
+    """The blocking gate could not establish the population or comparison."""
+
+
+def parse_structural_declaration(physical_lines):
+    """Parse one real-comment declaration using the closed issue-810 grammar."""
+    declarations = []
+    for _, comment in hash_comment_regions(physical_lines):
+        if STRUCTURAL_PIN_OK_MARKER not in comment:
+            continue
+        tail = comment.split(STRUCTURAL_PIN_OK_MARKER, 1)[1].strip()
+        category, sep, rationale = tail.partition("--")
+        category = category.strip()
+        rationale = rationale.strip()
+        if not sep or not category:
+            return None, "missing structural category"
+        if category not in STRUCTURAL_PIN_CATEGORIES:
+            return None, f"unknown structural category: {category}"
+        if not rationale:
+            return None, "empty structural rationale"
+        declarations.append(StructuralDeclaration(category, rationale))
+    if not declarations:
+        return None, "missing structural declaration"
+    if len(declarations) != 1:
+        return None, "multiple structural declarations"
+    return declarations[0], None
 
 
 def parse_diff(difftext):
@@ -1034,13 +1126,9 @@ def site_physical_lines(all_lines, start_lineno, logical_line):
 
 
 def _has_structural_pin_ok(physical_lines):
-    """True iff a real `# structural-pin-ok:` COMMENT (quote-aware, format-strict)
-    appears on any physical line of the site — a marker inside a single-quoted string
-    argument is not a comment and does not exempt."""
-    for _, ctext in hash_comment_regions(physical_lines):
-        if STRUCTURAL_PIN_OK_MARKER in ctext:
-            return True
-    return False
+    """True only for one valid typed declaration in a real comment region."""
+    declaration, error = parse_structural_declaration(physical_lines)
+    return declaration is not None and error is None
 
 
 def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
@@ -1099,12 +1187,415 @@ def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
             f"MUTATION-ROUTING\t{pin_source}:{lineno}\t{helper}\t"
             f"{literal if literal is not None else '<unresolved-literal>'}\t"
             f"added non-mutation pin site needs a mutation-taking helper or a "
-            f"'# structural-pin-ok: <reason>' declaration"
+            f"'# structural-pin-ok: <category> -- <non-empty rationale>' declaration"
         )
     sys.stderr.write(f"MUTATION-ROUTING-SCANNED\t{scanned}\n")
     sys.stderr.write(f"MUTATION-ROUTING-EXEMPTED-BY-MOVE\t{exempted}\n")
     sys.stderr.write(f"MUTATION-ROUTING-FINDINGS\t{findings}\n")
     return 0
+
+
+def parse_unified_diff(difftext):
+    """Return file- and hunk-coordinate-aware patches from a unified diff."""
+    patches = []
+    old_path = new_path = None
+    added = set()
+    deleted = set()
+    old_lineno = new_lineno = None
+
+    def finish():
+        nonlocal old_path, new_path, added, deleted
+        if old_path is not None or new_path is not None:
+            patches.append(
+                FilePatch(old_path, new_path, frozenset(added), frozenset(deleted))
+            )
+        old_path = new_path = None
+        added = set()
+        deleted = set()
+
+    for raw in difftext.splitlines():
+        if raw.startswith("diff --git "):
+            finish()
+            continue
+        if raw.startswith("--- "):
+            value = raw[4:].split("\t", 1)[0]
+            old_path = None if value == "/dev/null" else re.sub(r"^a/", "", value)
+            continue
+        if raw.startswith("+++ "):
+            value = raw[4:].split("\t", 1)[0]
+            new_path = None if value == "/dev/null" else re.sub(r"^b/", "", value)
+            continue
+        if raw.startswith("@@ "):
+            match = re.match(
+                r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw
+            )
+            if match:
+                old_lineno, new_lineno = map(int, match.groups())
+            continue
+        if old_lineno is None or new_lineno is None:
+            continue
+        if raw.startswith("+") and not raw.startswith("+++"):
+            added.add(new_lineno)
+            new_lineno += 1
+        elif raw.startswith("-") and not raw.startswith("---"):
+            deleted.add(old_lineno)
+            old_lineno += 1
+        elif raw.startswith(" "):
+            old_lineno += 1
+            new_lineno += 1
+    finish()
+    return tuple(patches)
+
+
+def _helper_family(helper):
+    if helper in MUTATION_TAKING_HELPERS:
+        return "mutation-helper"
+    if helper in COUNT_HELPERS:
+        return "count-helper"
+    return "static-helper"
+
+
+_RAW_PRESENCE_RE = re.compile(
+    r"""grep\s+-qF\s+(?:--\s+)?(?P<quote>['"])(?P<literal>.*?)(?P=quote)\s+
+        (?P<target>"?(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s"]+)?|[A-Za-z0-9_.-]+(?:/[^\s"]+)*)"?)
+        \s+&&\s+echo\s+yes\s+\|\|\s+echo\s+no""",
+    re.VERBOSE | re.DOTALL,
+)
+
+
+def _line_end(start, logical_line):
+    return start + logical_line.count("\n")
+
+
+def extract_guard_sites(text, source_path, repo_root):
+    """Extract complete helper and narrow raw repository-presence guard sites."""
+    repo_root = os.path.abspath(repo_root)
+    lib = os.path.join(repo_root, "lib")
+    path_vars, literal_vars = build_var_maps(text, lib, {})
+    physical = text.splitlines()
+    sites = []
+    for lineno, logical_line in join_logical_lines(text):
+        stripped = logical_line.lstrip()
+        if not stripped or stripped.startswith("#") or _DEF_LINE_RE.match(stripped):
+            continue
+        first = stripped.split(None, 1)[0]
+        lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
+        if first in HELPERS or first in MUTATION_TAKING_HELPERS:
+            toks = tokenize(stripped)
+            args = toks[1:] if toks else []
+            literal = None
+            if first in HELPERS:
+                lit_idx = HELPERS[first][0]
+            else:
+                lit_idx = 1
+            if lit_idx < len(args):
+                literal = resolve_arg(
+                    args[lit_idx], literal_vars, path_vars, want_path=False, lib=lib
+                )
+            declaration, error = parse_structural_declaration(lines)
+            sites.append(
+                GuardSite(
+                    source_path,
+                    lineno,
+                    _line_end(lineno, logical_line),
+                    _helper_family(first),
+                    first,
+                    literal,
+                    declaration,
+                    error,
+                )
+            )
+            continue
+        if first != "assert_eq" or "| grep" in logical_line:
+            continue
+        # The complement is deliberate: only a positive yes/no fixed-string check
+        # over a direct, statically resolved repository file is a raw presence pin.
+        before_grep = logical_line.split("grep", 1)[0]
+        if not re.search(r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?:"yes"|'yes')""", before_grep):
+            continue
+        match = _RAW_PRESENCE_RE.search(logical_line)
+        if not match:
+            continue
+        target_token = match.group("target").strip('"')
+        var_match = _VARREF.match(target_token)
+        var_name = var_match.group(1) if var_match else ""
+        if re.search(r"(?:TMP|TEMP|FIXTURE|RESULT|OUTPUT|CAPTURE)", var_name):
+            continue
+        target = path_vars.get(var_name) if var_name else None
+        if target is None:
+            target = _resolve_inline_var_path(target_token, lib, path_vars)
+        if target is None and "$" not in target_token:
+            target = (
+                target_token
+                if os.path.isabs(target_token)
+                else os.path.join(repo_root, target_token)
+            )
+        if target is None:
+            continue
+        target_abs = os.path.abspath(target)
+        if os.path.commonpath((repo_root, target_abs)) != repo_root:
+            continue
+        declaration, error = parse_structural_declaration(lines)
+        sites.append(
+            GuardSite(
+                source_path,
+                lineno,
+                _line_end(lineno, logical_line),
+                "raw-presence",
+                None,
+                match.group("literal"),
+                declaration,
+                error,
+            )
+        )
+    return sites
+
+
+def _site_changed(site, changed_lines):
+    return any(site.line_start <= line <= site.line_end for line in changed_lines)
+
+
+def _move_class(site):
+    if site.family == "mutation-helper":
+        return ("mutation-helper", None)
+    if site.declaration is not None:
+        return (site.family, site.declaration.category)
+    return (site.family, "legacy")
+
+
+def _move_compatible(old, new):
+    old_class = _move_class(old)
+    new_class = _move_class(new)
+    if old_class[0] != new_class[0]:
+        return False
+    if old_class[1] == "legacy":
+        return new_class[1] == "legacy" or new.declaration is not None
+    return old_class == new_class
+
+
+def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
+    """Classify changed complete sites and return blocking finding strings."""
+    patches = parse_unified_diff(difftext)
+    old_candidates = []
+    new_candidates = []
+    for patch in patches:
+        if patch.old_path in base_sources:
+            old_candidates.extend(
+                site
+                for site in extract_guard_sites(
+                    base_sources[patch.old_path], patch.old_path, repo_root
+                )
+                if _site_changed(site, patch.deleted_lines)
+            )
+        if patch.new_path in current_sources:
+            new_candidates.extend(
+                site
+                for site in extract_guard_sites(
+                    current_sources[patch.new_path], patch.new_path, repo_root
+                )
+                if _site_changed(site, patch.added_lines)
+            )
+
+    unused_old = list(old_candidates)
+    findings = []
+    for site in new_candidates:
+        if site.family in ("mutation-helper", "count-helper"):
+            continue
+        if site.declaration is not None and site.declaration_error is None:
+            continue
+        move_index = next(
+            (
+                index
+                for index, old in enumerate(unused_old)
+                if site.literal is not None
+                and old.literal == site.literal
+                and _move_compatible(old, site)
+            ),
+            None,
+        )
+        if move_index is not None:
+            unused_old.pop(move_index)
+            continue
+        detail = site.declaration_error or "wording-only presence pin"
+        findings.append(
+            f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+            f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+        )
+    return findings
+
+
+def validate_audited_population(registry, audited_sources, enumerated_sources):
+    """Return population closure findings; an empty list means exact closure."""
+    registered = {"lib/test/run.sh"} | {
+        row["path"] for row in registry.get("test_modules", {}).values()
+    }
+    audited = set(audited_sources)
+    enumerated = set(enumerated_sources)
+    findings = []
+    for path in sorted(registered - audited):
+        findings.append(f"registered pin source absent from audited population: {path}")
+    for path in sorted(audited - registered):
+        findings.append(f"stale audited pin source absent from registry: {path}")
+    for path in sorted(audited - enumerated):
+        findings.append(f"audited pin source absent from Git enumeration: {path}")
+    return findings
+
+
+def _run_git(git_runner, repo_root, *args):
+    result = git_runner(
+        ["git", "-C", str(repo_root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def scan_worktree(
+    repo_root,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+    scratch_factory=None,
+):
+    """Run the required, fail-closed mutation-routing gate over the worktree."""
+    repo_root = Path(repo_root)
+    scratch_factory = scratch_factory or (
+        lambda: tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8")
+    )
+    try:
+        scratch = scratch_factory()
+    except OSError as exc:
+        raise InfrastructureError(f"scratch allocation failed: {exc}") from exc
+    try:
+        _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
+        # A missing local main is the normal Actions checkout shape. Other ancestry
+        # failures remain infrastructure failures rather than green skips.
+        local_main = git_runner(
+            ["git", "-C", str(repo_root), "rev-parse", "--verify", "refs/heads/main"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if local_main.returncode == 0:
+            _run_git(
+                git_runner,
+                repo_root,
+                "merge-base",
+                "--is-ancestor",
+                "refs/heads/main",
+                base_ref,
+            )
+        elif local_main.returncode != 1:
+            raise InfrastructureError(
+                "local main resolution failed "
+                f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
+            )
+        merge_base = _run_git(
+            git_runner, repo_root, "merge-base", base_ref, "HEAD"
+        ).strip()
+        if not merge_base:
+            raise InfrastructureError("comparison merge base resolved to empty output")
+        difftext = _run_git(
+            git_runner,
+            repo_root,
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=0",
+            merge_base,
+            "--",
+            *sorted(AUDITED_PIN_SOURCES),
+        )
+        untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        base_paths = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    merge_base,
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        try:
+            registry = json.loads(
+                (repo_root / "scripts/workflow-flight-recorder-registry.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InfrastructureError(f"registry read failed: {exc}") from exc
+        population_findings = validate_audited_population(
+            registry, AUDITED_PIN_SOURCES, tracked | untracked
+        )
+        if population_findings:
+            raise InfrastructureError("; ".join(population_findings))
+
+        current_sources = {}
+        base_sources = {}
+        for path in sorted(AUDITED_PIN_SOURCES):
+            try:
+                current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+            if path in base_paths:
+                base_sources[path] = _run_git(
+                    git_runner, repo_root, "show", f"{merge_base}:{path}"
+                )
+            else:
+                base_sources[path] = ""
+                lines = current_sources[path].splitlines()
+                difftext += (
+                    f"\ndiff --git a/{path} b/{path}\n"
+                    "--- /dev/null\n"
+                    f"+++ b/{path}\n"
+                    f"@@ -0,0 +1,{len(lines)} @@\n"
+                    + "\n".join(f"+{line}" for line in lines)
+                    + "\n"
+                )
+        scratch.write(difftext)
+        scratch.flush()
+        return scan_changed_sources(
+            current_sources, base_sources, difftext, str(repo_root)
+        )
+    finally:
+        scratch.close()
 
 
 def _read(path):
@@ -1128,10 +1619,27 @@ def _read_target(path):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("lint", "wrapped", "mutation-routing"):
+    if len(argv) < 3 or argv[1] not in (
+        "lint",
+        "wrapped",
+        "mutation-routing",
+        "mutation-routing-worktree",
+    ):
         sys.stderr.write(__doc__ or "")
         return 2
     cmd, pin_source = argv[1], argv[2]
+    if cmd == "mutation-routing-worktree":
+        if len(argv) != 3:
+            sys.stderr.write("mutation-routing-worktree accepts only REPO_ROOT\n")
+            return 2
+        try:
+            findings = scan_worktree(pin_source)
+        except InfrastructureError as exc:
+            sys.stderr.write(f"MUTATION-ROUTING-INFRASTRUCTURE\t{exc}\n")
+            return 2
+        for finding in findings:
+            print(finding)
+        return 3 if findings else 0
     lib = None
     overrides = {}
     md_targets = set()
