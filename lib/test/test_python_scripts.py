@@ -16273,6 +16273,63 @@ def _row792_refund_reports_absent_comparand(r):
 _with_run792(_row792_refund_reports_absent_comparand)
 
 
+# ITER-4 finding (review round 3, Important #1) — the `_pass_digest is None or` disjunct of
+# `_rearmed` had NO covering row. The absent-comparand row above sets the live slot digest to
+# None too, so `_matched` (None == None) is already True there and a mutation dropping the
+# disjunct survives it. Here the pass records NO digest while the slot still holds a REAL one,
+# which is the only state the disjunct actually decides: `_matched` is False, so without it the
+# refund would bank headroom and leave the slot spent — a refund the run could never spend.
+def _row792_absent_comparand_still_rearms(r):
+    _live = _open_pass_round(r)
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    for _r in _doc['rounds']:
+        if _r['round'] == 2:
+            _r['final_byte_pass_digest'] = None
+    _state792(r).write_text(_json.dumps(_doc), encoding='utf-8')
+    assert_eq("#792 iter4 harness precondition: the live slot still holds a REAL digest, so "
+              "`_matched` is False and only the absent-comparand disjunct can re-arm",
+              True, isinstance(_live, str) and len(_live) > 0)
+    _closed = _degrade_to_unhonoured(r)
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    assert_eq("#792 iter4: a pass that recorded NO digest re-arms the slot UNCONDITIONALLY, "
+              "even against a live slot digest it cannot be compared to — failing the other "
+              "way would bank a refund the run could never spend",
+              None, _doc.get('final_byte_slot_digest'))
+    assert_eq("#792 iter4: ... the refund is still credited, and still reports the absent "
+              "comparand rather than claiming the covered bytes are known",
+              (1, True),
+              (_doc.get('final_byte_refunds'),
+               'the pass recorded no digest to compare' in _closed.stderr))
+
+
+_with_run792(_row792_absent_comparand_still_rearms)
+
+
+# ITER-4 finding (review round 3, Suggestion #2) — the refund guard's three-valued
+# `_final_byte_honoured(rnd) is False` test was exercised only incidentally. An OPEN pass round
+# has not honoured the offer yet, but it has not failed to either: a mutation to a falsy check
+# (`not _final_byte_honoured(rnd)`) would refund a round that is still running, handing the run
+# a second slot while the first round can still honour the first.
+def _row792_open_pass_round_does_not_refund(r):
+    _live = _open_pass_round(r)
+    _pending = r('record-return', r.slug, '--round', '2', nonce=True)
+    assert_eq("#792 iter4 harness precondition: a no-parseable-verdict return leaves round 2 "
+              "OPEN with a retry pending, not closed",
+              (0, True), (_pending.returncode, 'outcome=pending' in _pending.stdout))
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    assert_eq("#792 iter4: an OPEN pass round refunds NOTHING — the three-valued honoured test "
+              "answers None here, and only an explicit False may refund",
+              (0, True),
+              (_doc.get('final_byte_refunds', 0),
+               'final-byte-slot-refunded' not in _pending.stderr))
+    assert_eq("#792 iter4: ... and the slot stays spent for the bytes the open round is still "
+              "auditing, so no second pass is offerable against them",
+              _live, _doc.get('final_byte_slot_digest'))
+
+
+_with_run792(_row792_open_pass_round_does_not_refund)
+
+
 # ITER-3 finding (review round 2, Suggestion #1) — the refund was driven through ONE of the
 # three named degradations. Here the pass closes on the EMBED arm with a real FILE verdict:
 # verdict-bearing but not file-arm, so `_final_byte_honoured` is False for a different reason

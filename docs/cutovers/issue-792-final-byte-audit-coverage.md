@@ -74,8 +74,20 @@ a pass taken on bytes the user then edits must not leave the bytes actually file
 return to the election any number of times. It does not bound a run whose every pass *degrades* — a
 refund returns that headroom by design — so a second, absolute `_FINAL_BYTE_GRANT_CAP` bounds
 total grants and stops a refund→re-arm→refund livelock on a host where the pre-dispatch write
-always fails; a run at the cap files with the coverage field reporting its true value and
-`final_byte_exhausted=yes` on the summary line, never silently.
+always fails.
+
+The two ceilings **disclose differently**, and conflating them is the trap. `final_byte_exhausted`
+is derived from the *honoured-pass* cap alone — `max(0, granted − refunds) >= _FINAL_BYTE_PASS_CAP`
+— so a run stopped by the **grant** ceiling renders `final_byte_exhausted=no`: on an all-degrading
+host every grant is refunded, the effective count never leaves `0`, and that is precisely why the
+pass cap cannot bound that loop and this second ceiling has to exist. `_row792_grant_ceiling` pins
+that `no` on exactly this state. The grant ceiling is therefore a **livelock backstop with no
+dedicated summary-exhaustion signal**: its stop is disclosed on `record-final-byte-offer`'s stderr
+breadcrumb, carrying the registered `final-byte-grant-ceiling-reached` token. What the summary line
+still guarantees at *either* ceiling is the coverage field at its **true** value — not that the
+value is `uncovered`, since an honoured pass that reached the pass cap may legitimately have made
+the bytes `covered`. The guarantee is that a run whose bytes a ceiling left unaudited files
+reporting `final_byte_coverage=uncovered`, never silently clean.
 
 A pass that closes **without a file-arm verdict** refunds the slot — and the refund is recorded on
 a **separate** `final_byte_refunds` term rather than by decrementing the grant counter. That split
