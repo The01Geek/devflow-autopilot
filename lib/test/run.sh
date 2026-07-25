@@ -6534,6 +6534,49 @@ assert_pin_red_on_removal "#362: Outcome-reaction marker path flips RED on remov
 
 # (5) Phase 1.4 resume pre-check — runs BEFORE Signal 1, so a harness-created worktree can
 #     no longer shadow an existing feature branch + open PR (the #356 resume defect).
+# These are model-executed safety contracts with no executable implementation to take over
+# their regression coverage. Each mutation names the fail-open behavior the prose must reject;
+# unlike the retired existence-only pins, these are behavioral-fix pins by construction.
+assert_pin_red_under "#362: an unresolvable PR query is never read as 'no open PR'" \
+  'An unresolvable PR query is not evidence that no PR exists' \
+  's#An unresolvable PR query is not evidence that no PR exists#An unresolvable PR query is evidence that no PR exists#' \
+  "$P362_P1"
+assert_pin_red_under "#362: checkout must land on HEAD_REF before signals are waived" \
+  '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' \
+  's#LANDED=yes#LANDED=no#g' "$P362_P1"
+assert_pin_red_under "#362: checkout stderr remains the worktree-refusal discriminator" \
+  'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' \
+  's#2>&1 1>/dev/null#1>/dev/null#' "$P362_P1"
+assert_pin_red_under "#362: worktree-refusal routing reads CO_ERR and git's real message" \
+  '`$CO_ERR` matches `already used by worktree`' \
+  's#already used by worktree#already checked out#g' "$P362_P1"
+assert_pin_red_under "#362: PR selection prefers the workpad branch then newest PR" \
+  'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' \
+  's#pick the newest by `createdAt`#pick the first result#' "$P362_P1"
+assert_pin_red_under "#362: failed resume checkout stops before duplicate branch creation" \
+  'refusing to fall through to branch creation' \
+  's#refusing to fall through to branch creation#falling through to branch creation#' "$P362_P1"
+assert_pin_red_under "#362: body-only resume candidates must close the issue" \
+  'must additionally *close this issue*' \
+  's#must additionally \*close this issue\*#may merely mention this issue#' "$P362_P1"
+assert_pin_red_under "#362: selected PR binds the checkout comparand" \
+  'bind `HEAD_REF` to that PR' \
+  's#bind `HEAD_REF` to that PR#leave `HEAD_REF` unchanged#' "$P362_P1"
+assert_pin_red_under "#362: resume selection runs before Signal 1" \
+  'Resume pre-check (runs BEFORE Signal 1)' \
+  's#Resume pre-check \(runs BEFORE Signal 1\)#Resume pre-check (runs AFTER Signal 1)#' "$P362_P1"
+assert_pin_red_under "#362: branch signals are skipped only after checkout confirmation" \
+  'only once you have confirmed the tree landed on `$HEAD_REF`** skip branch creation' \
+  's#only once you have confirmed the tree landed on `\$HEAD_REF`#before confirming the tree landed on `$HEAD_REF`#' \
+  "$P362_P1"
+assert_pin_red_under "#362: linked-worktree refusal reuses instead of duplicates" \
+  'continue in that worktree instead of duplicating the branch' \
+  's#continue in that worktree instead of duplicating the branch#duplicate the branch instead of continuing in that worktree#' \
+  "$P362_P1"
+assert_pin_red_under "#362: clean-empty resume lookup preserves ordinary branch detection" \
+  'behaves exactly as it did before this pre-check existed' \
+  's#behaves exactly as it did before this pre-check existed#stops instead of continuing to Signal 1#' \
+  "$P362_P1"
 # A `gh` failure and a clean "no PRs found" both produce an empty result. Collapsing them
 # makes an unresolvable query read as "nothing to resume" and forks a duplicate branch+PR.
 # The assertion below checks both `gh pr list` calls retain their same-statement
@@ -11988,6 +12031,12 @@ assert_pin_red_on_removal "#254: deleting the early dependency preflight heading
   'Early declared-dependency preflight' "$IMPL_SKILL"
 assert_pin_unique "#254: Phase 1 invokes the extracted dependency preflight helper" \
   'preflight.py dependencies --issue $ISSUE_NUMBER' "$IMPL_SKILL"
+assert_pin_red_under "#254: an OPEN dependency takes the Blocked path" \
+  'The named dependencies are still open' \
+  's#The named dependencies are still open#The named dependencies are ignored#' "$P1_FILE"
+assert_pin_red_under "#254: an unresolvable dependency never becomes a clean set" \
+  'Never treat this as a clean dependency set' \
+  's#Never treat this as a clean dependency set#Treat this as a clean dependency set#' "$P1_FILE"
 # Review iter (PR #255): `gh issue view` returns MERGED (not CLOSED) for a merged PR
 # dependency — the satisfied case. Pin the operative clause that a landed prerequisite is
 # CLOSED **or** MERGED so a later edit cannot silently drop MERGED and mis-Block a merged
@@ -12008,7 +12057,22 @@ assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
 # Scoped to phase-1-setup.md (where Phase 1.6 lives) so the remaining assertion is
 # precise to the audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
-# #350 (Critical): the deferral premise is credential-capability, not tier.
+# #346's remaining all-blocked contract stays pinned below.
+assert_pin_red_under "#346/#350: capability routing never collapses to tier/path alone" \
+  'Key the routing decision on the pushing credential'"'"'s actual capability, not on the tier or the path alone' \
+  's#actual capability, not on the tier or the path alone#tier alone#' "$P1_FILE"
+assert_pin_red_under "#350: deferral requires cloud tier plus an empty DEVFLOW_APP_ID" \
+  'Defer only when you can positively confirm the pushing credential cannot push a workflow file — i.e. a cloud-tier run (`GITHUB_ACTIONS=true`) whose `DEVFLOW_APP_ID` is empty/unset' \
+  's#Defer only when you can positively confirm#Defer whenever the run is cloud-tier#' "$P1_FILE"
+assert_pin_red_under "#350: a workflow-capable App token is never deferred" \
+  'When **`DEVFLOW_APP_ID` is non-empty**, the seeded App token carries the `workflows` scope and this run pushes `.github/workflows/` exactly like a human run — **do NOT defer.**' \
+  's#\*\*do NOT defer\.\*\*#**defer.**#' "$P1_FILE"
+assert_pin_red_under "#346/#350: workflow-capable credentials never defer or block" \
+  'never defer, never block' \
+  's#never defer, never block#defer workflow edits#' "$P1_FILE"
+assert_pin_red_under "#350: genuinely unreadable capability signals proceed" \
+  'When a discriminating signal is genuinely unreadable, proceed — do not defer' \
+  's#proceed — do not defer#defer#' "$P1_FILE"
 assert_pin_unique "#346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR" \
   'issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/' "$P1_FILE"
 # Coupled mirror sites: the 2.2.5 capability trigger (phase-2) and the Phase 4.0
@@ -41708,10 +41772,13 @@ assert_pin_unique "#448 ubc-failed-restore: the helper emits the failed-restore 
   "$UBC_WARN" "$UBC"
 assert_pin_red_under "#448 ubc-failed-restore: the WARNING breadcrumb is what the hard-stop guard keys on (removing it defeats the guard)" \
   "$UBC_WARN" 's#WARNING push rejected AND the restore to pre-checkpoint SHA#push rejected; restore outcome unstated for#g' "$UBC"
-# Consumers: each must name the failed-restore WARNING as the signal that flips the
-# record-and-continue arm into a hard stop.
+# The remaining review-and-fix consumer must name the failed-restore WARNING as the signal
+# that flips the record-and-continue arm into a hard stop.
 assert_pin_unique "#448 ubc-failed-restore: review-and-fix keys the PUSH_REJECTED hard stop on the failed-restore WARNING" \
   'failed-restore `WARNING`' "$UBC_RAF"
+assert_pin_red_under "#448 ubc-failed-restore: phase-1 checkpoint treats restore as attempted, not guaranteed" \
+  'the restore is attempted, not guaranteed' \
+  's#the restore is attempted, not guaranteed#the restore is guaranteed#' "$UBC_P1"
 
 # ── #779 ubc-token-arms → every token the HELPER'S OWN HEADER enumerates maps to a decided
 # Phase 4.3 arm, and the complement of that set (an empty or unrecognized field) routes to the
