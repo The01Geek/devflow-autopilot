@@ -18,7 +18,8 @@ what a long create-issue run actually pays:
   static word-count or prompt-length gate.
 - **Runtime main-thread context** — the live per-turn token weight the *orchestrator*
   (main thread) carries across a run's many turns: clarification rounds, revision
-  loops, up to three audit rounds, and staged re-writes. It is measured per turn as
+  loops, up to three user-chosen audit rounds plus the issue-#792 exact-byte pass
+  funded from its own slot outside that cap, and staged re-writes. It is measured per turn as
   `input_tokens + cache_read_input_tokens + cache_creation_input_tokens`. This is the
   quantity `scripts/create-issue-context-eval.py` measures, and the cost that drives
   the long-run latency and session-cap pressure issue #767 targets.
