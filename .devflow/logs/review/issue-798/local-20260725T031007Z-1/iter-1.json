@@ -1,0 +1,164 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-25T03:10:07Z",
+  "fix_commit_sha": "db5c86fa",
+  "fix_files": [
+    ".devflow/logs/pin-corpus-inventory.tsv",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "docs/implement-skill.md",
+    "docs/shadow-review.md",
+    "lib/test/pin-corpus-adjudications.tsv",
+    "lib/test/pin-corpus-classifier.py",
+    "lib/test/test_pin_corpus_classifier.py"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "issue798_review_correctness",
+    "issue798_review_tests",
+    "issue798_review_contracts"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": false,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "issue798_review_correctness",
+      "severity": "Important",
+      "description": "Resolved targets leaked clone-specific absolute paths.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-classifier.py",
+        "line_range": [223, 667],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_tests",
+      "severity": "Important",
+      "description": "The revision metadata did not bind census inputs to that Git tree.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-classifier.py",
+        "line_range": [660, 719],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_contracts",
+      "severity": "Important",
+      "description": "Mutation entanglements omitted surviving pins in other test modules.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-classifier.py",
+        "line_range": [697, 697],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_contracts",
+      "severity": "Important",
+      "description": "Validation failures could truncate the committed inventory.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-classifier.py",
+        "line_range": [579, 617],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_correctness",
+      "severity": "Important",
+      "description": "Known persistent SPDX and issue-366 copy sets were misclassified.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-adjudications.tsv",
+        "line_range": [26, 72],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_tests",
+      "severity": "Important",
+      "description": "No end-to-end test asserted all four emitted entanglement columns.",
+      "defect_signature": {
+        "file": "lib/test/test_pin_corpus_classifier.py",
+        "line_range": [162, 299],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "issue798_review_contracts",
+      "severity": "Suggestion",
+      "description": "The module docstring still described live-index rather than revision-tree enumeration.",
+      "defect_signature": {
+        "file": "lib/test/pin-corpus-classifier.py",
+        "line_range": [6, 8],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "revision-binding-and-portability",
+      "decision": "applied",
+      "commit": "88c5e299"
+    },
+    {
+      "finding_id": "frozen-reviewed-inventory",
+      "decision": "applied",
+      "commit": "87d1042d"
+    },
+    {
+      "finding_id": "revision-tree-docstring",
+      "decision": "applied",
+      "commit": "db5c86fa"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": "unavailable",
+  "shadow": {
+    "reviewed_sha": "db5c86fa",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "issue798_review_correctness",
+      "issue798_review_tests",
+      "issue798_review_contracts"
+    ],
+    "expected_reviewers": [
+      "issue798_review_correctness",
+      "issue798_review_tests",
+      "issue798_review_contracts"
+    ],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}
