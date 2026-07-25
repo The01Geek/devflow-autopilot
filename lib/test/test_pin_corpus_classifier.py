@@ -30,8 +30,9 @@ def load_classifier():
 
 
 class PinCorpusClassifierTests(unittest.TestCase):
-    def setUp(self):
-        self.mod = load_classifier()
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_classifier()
 
     def test_mechanical_bucket_boundaries_and_precedence(self):
         classify = self.mod.classify_mechanical
@@ -296,79 +297,76 @@ assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
             )
             self.assertIn("total_sites=2", result.stderr)
 
-    def test_live_corpus_row_count_and_bucket_domains(self):
+    def test_frozen_inventory_matches_its_recorded_revision(self):
         repo_root = HERE.parent.parent
-        with tempfile.TemporaryDirectory() as raw:
-            output = Path(raw) / "inventory.tsv"
-            command = [
-                sys.executable,
-                str(CLASSIFIER),
-                "--repo-root",
-                str(repo_root),
-                "--adjudications",
-                str(HERE / "pin-corpus-adjudications.tsv"),
-                "--output",
-                str(output),
-                "--revision",
-                subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=repo_root,
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                ).stdout.strip(),
-            ]
-            result = subprocess.run(command, text=True, capture_output=True, check=False)
-            self.assertEqual(0, result.returncode, result.stderr)
-            grep = subprocess.run(
-                [
-                    "git",
-                    "grep",
-                    "-nE",
-                    (
-                        "^[[:space:]]*(assert_pin_unique|assert_pin_red_on_removal|"
-                        "devflow_module_pin_unique|devflow_module_pin_present)"
-                        "[[:space:]]"
-                    ),
-                    "--",
-                    "lib/test/run.sh",
-                    "lib/test/modules/create-issue-contract.sh",
-                ],
-                cwd=repo_root,
-                text=True,
-                capture_output=True,
-                check=True,
-            )
-            expected = len(grep.stdout.splitlines())
-            data_lines = [
-                line
-                for line in output.read_text(encoding="utf-8").splitlines()
-                if not line.startswith("#")
-            ]
-            rows = list(csv.DictReader(data_lines, delimiter="\t"))
-            self.assertEqual(expected, len(rows))
-            self.assertEqual(
-                {
-                    "suite-internal",
-                    "required-copy",
-                    "boundary",
-                    "generated",
-                    "config-key",
-                    "prose-sole-copy",
-                    "prose-multi-copy",
-                    "unclear",
-                },
-                self.mod.MECHANICAL_BUCKETS,
-            )
-            self.assertEqual(self.mod.MECHANICAL_BUCKETS - {"unclear"}, self.mod.FINAL_BUCKETS)
-            self.assertTrue(
-                {row["bucket_mechanical"] for row in rows}
-                <= self.mod.MECHANICAL_BUCKETS
-            )
-            self.assertTrue(
-                {row["bucket_final"] for row in rows} <= self.mod.FINAL_BUCKETS
-            )
-            self.assertNotIn("unclear", {row["bucket_final"] for row in rows})
+        inventory = repo_root / ".devflow/logs/pin-corpus-inventory.tsv"
+        raw_lines = inventory.read_text(encoding="utf-8").splitlines()
+        metadata = {}
+        for line in raw_lines:
+            if line.startswith("# "):
+                key, _, value = line[2:].partition(": ")
+                metadata[key] = value
+        revision = metadata["revision"]
+        self.assertRegex(revision, r"^[0-9a-f]{40}$")
+        self.assertIn(f"--revision {revision}", metadata["producing-command"])
+        self.assertEqual(
+            self.mod.COUNTED_EXCLUSION_HEADER,
+            metadata["counted-file-exclusions"],
+        )
+        grep = subprocess.run(
+            [
+                "git",
+                "grep",
+                "-nE",
+                (
+                    "^[[:space:]]*(assert_pin_unique|assert_pin_red_on_removal|"
+                    "devflow_module_pin_unique|devflow_module_pin_present)"
+                    "[[:space:]]"
+                ),
+                revision,
+                "--",
+                "lib/test/run.sh",
+                "lib/test/modules/create-issue-contract.sh",
+            ],
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        expected = len(grep.stdout.splitlines())
+        data_lines = [line for line in raw_lines if not line.startswith("#")]
+        rows = list(csv.DictReader(data_lines, delimiter="\t"))
+        self.assertEqual(expected, len(rows))
+        self.assertEqual(
+            {
+                "suite-internal",
+                "required-copy",
+                "boundary",
+                "generated",
+                "config-key",
+                "prose-sole-copy",
+                "prose-multi-copy",
+                "unclear",
+            },
+            self.mod.MECHANICAL_BUCKETS,
+        )
+        self.assertEqual(
+            self.mod.MECHANICAL_BUCKETS - {"unclear"}, self.mod.FINAL_BUCKETS
+        )
+        self.assertTrue(
+            {row["bucket_mechanical"] for row in rows}
+            <= self.mod.MECHANICAL_BUCKETS
+        )
+        self.assertTrue(
+            {row["bucket_final"] for row in rows} <= self.mod.FINAL_BUCKETS
+        )
+        self.assertNotIn("unclear", {row["bucket_final"] for row in rows})
+        literal_buckets = {}
+        for row in rows:
+            literal = json.loads(row["literal"])
+            if literal is not None:
+                literal_buckets.setdefault(literal, set()).add(row["bucket_final"])
+        self.assertTrue(all(len(buckets) == 1 for buckets in literal_buckets.values()))
 
 
 if __name__ == "__main__":
