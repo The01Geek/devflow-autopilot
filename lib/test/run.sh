@@ -5585,15 +5585,10 @@ assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the app
 # that the backstop captures --persist's stderr and checks it for that literal.
 assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
   '/../../lib/efficiency-trace.sh --persist 2>>"$PERSIST_ERR" || true' "$DEF_SKILL"
-# #236 review (latest shadow pass, requesting-code-review — Important-1): the two breadcrumb
-# literals the consumer grep above depends on were pinned ONLY on the CONSUMER side ($DEF_SKILL,
-# just above). The PRODUCER side — lib/efficiency-trace.sh, which actually EMITS those literals on
-# its record-derivation/write failure paths — was unpinned, so a reword there would silently break
-# the consumer grep, stop the second dropped-failed reflection firing, and leave this suite GREEN:
-# the coupled-invariant / "guard whose comparand can be absent" class CLAUDE.md warns about. Pin
-# the PRODUCER end of BOTH literals so the two ends of the contract cannot drift apart (the
-# jq/mkdir "record not written" literal legitimately recurs across two failure paths — a count
-# pin, not unique; the disk/permission literal is unique).
+# #236 producer-side breadcrumb boundaries. The former consumer-side prose existence pins were
+# retired under #798; these executable-source pins remain because the persist failure paths must
+# keep emitting observable diagnostics. The jq/mkdir "record not written" literal legitimately
+# recurs across two failure paths (a count pin, not unique); the disk/permission literal is unique.
 assert_eq "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the 'record not written' breadcrumb the consumer greps (both failure paths)" "2" \
   "$(pin_count 'record not written' "$LIB/efficiency-trace.sh")"
 assert_pin_unique "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the disk/permission-write breadcrumb the consumer greps" \
