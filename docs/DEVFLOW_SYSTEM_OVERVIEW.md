@@ -285,7 +285,7 @@ Between workpad hydration (**1.3**) and branch work (**1.4**), `/devflow:impleme
 - Both deferral channels (4.0 and 4.0.5) label the follow-up issues they file with the configured **`deferred.labels`** (comma-separated, default `DevFlow,Deferred`) — resolved via `config-get.sh`, normalized like `docs.labels`, ensured via `ensure-label.sh`, and applied best-effort after creation so a label hiccup never blocks filing (an empty/whitespace-only value applies none). Labeling lives in the skill, not `file-deferrals.py` (config stays resolver territory — read through `config-get.sh`, not from Python); it is independent of the hardcoded `DevFlow` provenance label the retrospective scan matches.
 - **4.1** Update internal + external docs + release notes (via the `/devflow:docs` subagent); commit (`docs:`); apply configured labels (default `Documented`).
 - **4.2** Generate the PR description (`/devflow:pr-description`).
-- **4.3** Publish the PR (`gh pr ready`) — unless `devflow_implement.implement_pr_state` is `draft`, which leaves it the Phase 3.1 draft for a human to publish; set status `Complete`; emit the 🎉 reaction (both cases).
+- **4.3** Run the pre-ready base-branch update checkpoint, then publish the PR (`gh pr ready`) — unless `devflow_implement.implement_pr_state` is `draft`, which leaves it the Phase 3.1 draft for a human to publish; set status `Complete`; emit the 🎉 reaction (both cases). Since issue #779 both the publish and the `Complete` flip are **gated on the checkpoint reporting a clean token** — a non-clean one records `Blocked` naming the observed line instead (see [`docs/implement-skill.md`](implement-skill.md)).
 
 ### Single-flight verification (issue #528, Wave 2)
 

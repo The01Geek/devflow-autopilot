@@ -488,11 +488,12 @@ preserves `run.sh`'s exit status, so `scripts/verification-flight.py` still reco
 
 ## Phase 4.3 finalize: publish vs. draft (`implement_pr_state`)
 
-Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs three things in order:
+Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs four things in order:
 
 1. **Clean-tree backstop (unconditional).** `git status --porcelain` must be empty before finalizing. The run started from a clean base-branch checkout, so anything dirty here is this run's own work an earlier phase failed to commit — it is committed with the right prefix and the under-committing phase is recorded in `Devflow Reflection`, never papered over. This runs in *both* the publish and draft cases; it is independent of the publish decision.
-2. **Publish decision.** By default the run publishes the draft PR created in Phase 3.1 by running `gh pr ready`.
-3. **Workpad finalization.** `Status` flips to `Complete` (🎉), the final `## Progress` item is ticked, and the 🎉 outcome reaction is emitted on the triggering comment — in both cases. The final-item tick is a `--tick-progress` substring match against the `## Progress` "PR marked ready" row; if that label has drifted (or was already ticked on a resumed run) the tick is a *volatile* miss — the `## Progress` section is still present, so the call still flips `Status` to `Complete` and writes its note but **exits non-zero** rather than aborting. The finalize must consume that exit code (per the failure-isolation contract below): a non-zero finalize means the box is still `- [ ]` and the row must be re-resolved and re-ticked before the run is treated as cleanly Complete.
+2. **Base-branch update checkpoint 4 (pre-ready).** `scripts/update-branch-checkpoint.sh` brings the branch up to date with the base one last time. Since issue #779 its outcome **gates the two steps below**: only a clean first field (`UPDATED` / `UP_TO_DATE` / `DISABLED`) proceeds, and a non-clean one refuses both the publish and the `Complete` flip. See *Base-branch update checkpoints* below for the full routing.
+3. **Publish decision.** By default the run publishes the draft PR created in Phase 3.1 by running `gh pr ready`.
+4. **Workpad finalization.** `Status` flips to `Complete` (🎉), the final `## Progress` item is ticked, and the 🎉 outcome reaction is emitted on the triggering comment — in both cases. The final-item tick is a `--tick-progress` substring match against the `## Progress` "PR marked ready" row; if that label has drifted (or was already ticked on a resumed run) the tick is a *volatile* miss — the `## Progress` section is still present, so the call still flips `Status` to `Complete` and writes its note but **exits non-zero** rather than aborting. The finalize must consume that exit code (per the failure-isolation contract below): a non-zero finalize means the box is still `- [ ]` and the row must be re-resolved and re-ticked before the run is treated as cleanly Complete.
 
 **Terminal self-record gate on `--status Complete`.** Because Phase 4.3 is the deterministic chokepoint where a run flips to `Complete`, `workpad.py` reconciles the workpad self-record against reality on every `--status Complete` write (`_terminal_complete_gate`, issue #258), running *last* over the post-mutation sections so a call that ticks the final AC row and flips to `Complete` in one shot still passes. Its three outcomes:
 
@@ -590,9 +591,9 @@ The helper owns the recognizer and derivation semantics (ahead-of-base count wit
 
 | token | exit | meaning |
 | --- | --- | --- |
-| `FRESH` | 0 | no ahead-of-base history (fresh fork, or adopted branch fast-forwarded to base) — proceed to §1.4.1 |
-| `VALIDATED_RESUME` | 0 | ahead history validated as this run's own prior work (published-tip reachable, corroborated by a prior proceed verdict) — proceed to §1.4.1 |
-| `AMBIGUOUS <payload-file>` | 2 | ahead history could not be validated as this run's own and needs a human decision (recorded branch matching without a verdict, divergent-but-recorded branch, duplicate/absent Branch line) — **stop before §1.4.1/§1.5**, flip the workpad `Blocked` |
+| `FRESH` | 0 | no ahead-of-base history (fresh fork, or adopted branch fast-forwarded to base) — proceed to the end-of-§1.4 checkpoint invocation |
+| `VALIDATED_RESUME` | 0 | ahead history validated as this run's own prior work (published-tip reachable, corroborated by a prior proceed verdict) — proceed to the end-of-§1.4 checkpoint invocation |
+| `AMBIGUOUS <payload-file>` | 2 | ahead history could not be validated as this run's own and needs a human decision (recorded branch matching without a verdict, divergent-but-recorded branch, duplicate/absent Branch line) — **stop before the end-of-§1.4 checkpoint invocation and §1.5**, flip the workpad `Blocked` |
 | `DECISION_BLOCKED <payload-file>` | 2 | ahead history under unverified/hostile provenance, a named divergent branch that does not exist (marker-forged or corrupted workpad), or a divergent existing branch with no prior proceed verdict (`divergent-without-verdict`) — same terminal `Blocked` stop |
 | `UNAVAILABLE <reason>` | 3 | the ahead count, base ref, or existence probe could not be established (`base`/`count`/`shallow-probe`/`shallow-undeepened`/`existence-probe`/`state`) — fail closed to the same `Blocked` stop rather than risk a spurious proceed |
 
