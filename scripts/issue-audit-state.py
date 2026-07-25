@@ -4266,14 +4266,17 @@ def cmd_record_return(args):
         # stderr, not on the stdout line: that line is a closed contract with whole-line
         # comparands, and this repo's #611 precedent puts an additive diagnostic beside such a
         # line rather than in it.
-        if _matched:
-            _fb_note = 're-armed for the bytes the pass covered'
-        elif _rearmed:
-            # The two re-armed branches are NOT the same state, and the message says so: here
-            # the comparand is absent, so which bytes the pass covered is exactly what is
-            # unknown.
+        if _pass_digest is None:
+            # Tested FIRST, ahead of `_matched`: with no pass digest recorded, `_matched` is
+            # also True whenever the live slot digest is likewise None, so an `if _matched:`
+            # arm ordered ahead of this one would claim the pass's bytes are known in exactly
+            # the state where the comparand is absent. The two re-armed branches are NOT the
+            # same state, and the message says so: here which bytes the pass covered is
+            # exactly what is unknown.
             _fb_note = ('re-armed unconditionally — the pass recorded no digest to compare, so '
                         'the bytes it covered could not be established')
+        elif _matched:
+            _fb_note = 're-armed for the bytes the pass covered'
         else:
             _fb_note = ('was NOT re-armed — a later offer moved it to other bytes, so the '
                         'refunded headroom applies to those instead')

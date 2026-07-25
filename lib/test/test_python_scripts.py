@@ -15405,8 +15405,7 @@ class _Run792(_Run709):
                    '--carriage-sentinel-close', fields['sentinel_close'], nonce=True)
         assert_eq(f"#792 harness precondition: the embed-arm round-{n} {verdict} return "
                   "records a COMPLETED round, not a pending no-parseable-verdict one",
-                  (0, True), (ret.returncode, f'outcome={verdict.lower()}' in ret.stdout
-                              or 'outcome=pending' not in ret.stdout))
+                  (0, True), (ret.returncode, f'outcome={verdict}' in ret.stdout))
         return ret
 
     def clean_round(self):
@@ -16171,6 +16170,162 @@ def _row792_refund_is_reported(r):
 
 
 _with_run792(_row792_refund_is_reported)
+
+
+def _state792(r):
+    """The run's on-disk state file — the seam the two state-patching rows below need.
+
+    Two of the refund's three reported outcomes are unreachable through the CLI (the
+    no-pass-digest arm is dead code today, and the binding is written by a surface these
+    rows do not drive), so those rows patch the recorded document directly rather than
+    asserting nothing about the arm.
+    """
+    return Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+
+
+def _open_pass_round(r, n=2):
+    """Arm the slot, open round `n` as the funded final-byte pass, and return its digest."""
+    r.uncovered_round()
+    r.offer(accepted=True)
+    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+      '--draft-file', r.draft, nonce=True)
+    doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    rnd = [x for x in doc['rounds'] if x['round'] == n][0]
+    assert_eq(f"#792 harness precondition: round {n} opened as the funded final-byte pass "
+              "carrying the digest the slot was armed on",
+              (True, True),
+              (rnd.get('final_byte_pass') is True,
+               isinstance(rnd.get('final_byte_pass_digest'), str)))
+    return rnd['final_byte_pass_digest']
+
+
+def _degrade_to_unhonoured(r, n=2):
+    """Close round `n` verdict-less through the no-parseable-verdict/inline degradation."""
+    for _ in range(2):
+        r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+          '--draft-file', r.draft, nonce=True)
+        r('record-return', r.slug, '--round', str(n), nonce=True)
+    r('record-degraded', r.slug, '--round', str(n), '--reason',
+      'no-parseable-verdict-exhausted', nonce=True)
+    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'inline', '--draft-file', r.draft,
+      stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
+    return r('record-return', r.slug, '--round', str(n), nonce=True)
+
+
+# ITER-3 finding (review round 2, Important #1) — the refund's SECOND reported outcome. Only
+# the `_matched` branch was driven, so a branch-selection or wording regression on the other
+# two arms of this three-way diagnostic shipped green. Here a later accepted offer moves the
+# slot to OTHER bytes before the pass round closes, so the refund must NOT re-arm.
+def _row792_refund_reports_slot_moved(r):
+    _pass_digest = _open_pass_round(r)
+    _other = str(Path(r.tmp, 'other-draft.md'))
+    Path(_other).write_text('# A different drafted title\n\n## Problem Statement\n\nother\n',
+                            encoding='utf-8')
+    _moved = r('record-final-byte-offer', r.slug, '--draft-file', _other, '--accepted',
+               nonce=True)
+    assert_eq("#792 harness precondition: a later offer against DIFFERENT bytes records, "
+              "moving the slot off the bytes the open pass was funded on",
+              0, _moved.returncode)
+    _closed = _degrade_to_unhonoured(r)
+    assert_eq("#792 iter3: an unhonoured pass whose slot a later offer already moved still "
+              "refunds",
+              True, 'final-byte-slot-refunded' in _closed.stderr)
+    assert_eq("#792 iter3: ... and reports the NOT-re-armed outcome, naming the moved slot — "
+              "not the `re-armed for the bytes the pass covered` wording",
+              (True, False),
+              ('was NOT re-armed' in _closed.stderr,
+               're-armed for the bytes the pass covered' in _closed.stderr))
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    assert_eq("#792 iter3: ... and the slot itself is left pointing at the newer bytes, so "
+              "the refund cannot discard a later offer's spend",
+              (True, True),
+              (_doc.get('final_byte_slot_digest') is not None,
+               _doc.get('final_byte_slot_digest') != _pass_digest))
+
+
+_with_run792(_row792_refund_reports_slot_moved)
+
+
+# ITER-3 finding (review round 2, Important #1 + Suggestion #3) — the refund's THIRD reported
+# outcome, the no-pass-digest arm. Unreachable through the CLI (a `final_byte_pass` round
+# always records a digest), so the state is patched to the shape the arm exists to describe.
+# This row is also the mutation guard for the arm ORDER: with the live slot digest ALSO None,
+# `_matched` is True, so an `if _matched:` arm tested ahead of the `_pass_digest is None` one
+# claims the pass's bytes are known in exactly the state where the comparand is absent.
+def _row792_refund_reports_absent_comparand(r):
+    _open_pass_round(r)
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    for _r in _doc['rounds']:
+        if _r['round'] == 2:
+            _r['final_byte_pass_digest'] = None
+    _doc['final_byte_slot_digest'] = None
+    _state792(r).write_text(_json.dumps(_doc), encoding='utf-8')
+    _closed = _degrade_to_unhonoured(r)
+    assert_eq("#792 iter3: a refund on a pass that recorded NO digest still refunds",
+              True, 'final-byte-slot-refunded' in _closed.stderr)
+    assert_eq("#792 iter3: ... and reports the absent COMPARAND, not the bytes-known wording "
+              "-- the arm order is what decides this, since `_matched` is True here too",
+              (True, False),
+              ('the pass recorded no digest to compare' in _closed.stderr,
+               're-armed for the bytes the pass covered' in _closed.stderr))
+
+
+_with_run792(_row792_refund_reports_absent_comparand)
+
+
+# ITER-3 finding (review round 2, Suggestion #1) — the refund was driven through ONE of the
+# three named degradations. Here the pass closes on the EMBED arm with a real FILE verdict:
+# verdict-bearing but not file-arm, so `_final_byte_honoured` is False for a different reason
+# than the no-verdict path, and the refund must still land.
+def _row792_refund_on_embed_arm_degradation(r):
+    r.uncovered_round()
+    r.offer(accepted=True)
+    _closed = r.embed_round(2, 'FILE', 0)
+    assert_eq("#792 iter3: a pass that closes VERDICT-BEARING but on the embed arm is "
+              "unhonoured too, and refunds",
+              True, 'final-byte-slot-refunded' in _closed.stderr)
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    assert_eq("#792 iter3: ... crediting the refund on the dedicated refunds key, never by "
+              "decrementing the funding term",
+              (1, 1),
+              (_doc.get('final_byte_refunds'), _doc.get('final_byte_passes_used')))
+
+
+_with_run792(_row792_refund_on_embed_arm_degradation)
+
+
+# ITER-3 finding (review round 2, Suggestion #2) — the #562 bound-file-over-`--draft-file`
+# precedence is asserted for the two NEW commands, not only transitively through the shared
+# helper's existing rows. A decoy `--draft-file` must not redirect which bytes either command
+# grounds on.
+def _row792_bound_file_wins_for_new_commands(r):
+    r.clean_round()
+    _bound_dir = Path(r.tmp, '.devflow', 'tmp')
+    _bound_dir.mkdir(parents=True, exist_ok=True)
+    _bound_file = _bound_dir / f'issue-draft-{r.slug}.md'
+    _bound_file.write_text(Path(r.draft).read_text(encoding='utf-8'), encoding='utf-8')
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    _doc['draft_binding'] = {'path': str(Path(r.tmp).resolve()), 'tier': 'worktree-root'}
+    _state792(r).write_text(_json.dumps(_doc), encoding='utf-8')
+    _decoy = str(Path(r.tmp, 'decoy-draft.md'))
+    Path(_decoy).write_text('# Decoy\n\n## Problem Statement\n\ndrifted\n', encoding='utf-8')
+    _line = r('query-final-byte', r.slug, '--draft-file', _decoy, nonce=True).stdout.strip()
+    assert_eq("#792 iter3: query-final-byte grounds on the BOUND draft file, so a drifted "
+              "--draft-file cannot flip the answer to digest-mismatch",
+              ('covered', 'none'),
+              (_field704(_line, 'final_byte_coverage='),
+               _field704(_line, 'final_byte_reason=')))
+    _offered = r('record-final-byte-offer', r.slug, '--draft-file', _decoy, '--accepted',
+                 nonce=True)
+    assert_eq("#792 harness precondition: the offer records", 0, _offered.returncode)
+    _doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
+    assert_eq("#792 iter3: record-final-byte-offer spends the slot for the BOUND file's "
+              "bytes, never the drifted --draft-file's",
+              issue_audit_state.hash_file(str(_bound_file)),
+              _doc.get('final_byte_slot_digest'))
+
+
+_with_run792(_row792_bound_file_wins_for_new_commands)
 
 
 # AC96/AC108/AC109 — the axis is inert on the three gated surfaces. Driven over a run on
