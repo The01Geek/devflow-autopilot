@@ -1,0 +1,261 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-25T03:20:38Z",
+  "fix_commit_sha": "827965a6",
+  "fix_files": [
+    "scripts/issue-audit-state.py",
+    "lib/test/test_python_scripts.py",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/cutovers/issue-792-final-byte-audit-coverage.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:pr-test-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Critical",
+      "description": "The final-byte refund decrements final_byte_passes_used, which is a _ROUND_BUDGETS member feeding _funded_rounds; the round the grant paid for stays in doc['rounds'], so the refund retracts funding for an already-opened round and the replacement dispatch is hard-refused as unfunded. Falsifies AC85 and the 'no offer fires that an accepted round could not honour' invariant.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [4188, 4194], "kind": "logic_error"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The refund clears final_byte_slot_digest unconditionally, discarding a spend recorded for different bytes when a later offer moved the slot on before an older round closed.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [4191, 4194], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "final_byte_passes' docstring names 'the producer's ceiling refusal' as a consumer, but cmd_record_final_byte_offer open-coded the comparison; and final_byte_slot_unspent's 'every other mention points at it' was contradicted by the producer restating both terms inline.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2763, 2797], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "'unestablished on exactly three states, complete by construction' is false — the derivation has a fourth arm (state-unestablished, also the foreign-nonce route). Mirrored in DEVFLOW_SYSTEM_OVERVIEW.md and the cutover doc.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [2728, 2733], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The two new illegal-transition rows declare reason tokens no breadcrumb emits, unlike the #562 precedent whose message embeds its token.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [665, 670], "kind": "other"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Critical",
+      "description": "_row792_absent_round_digest would FAIL: _validate already refuses an attempt with a missing digest, so the state collapses to None and the axis answers unestablished, never uncovered.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15771, 15784], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The AC85 refund row asserted the counter and the trigger but never that the refunded pass is dispatchable — the guarantee AC85 states. It would have shipped the Critical green.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15586, 15612], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC89's attestation row recorded a mismatch (whole file vs the body-only comparand), never the `match` the criterion names, and asserted nothing about the status.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15546, 15560], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The calibration half of the selector-exclusion row was vacuous (unestablished on both sides), and AC111's FILE-pass variant was not driven.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15633, 15660], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "No embed-arm row existed, leaving the arm=='file' term of _final_byte_round unasserted — replacing the selector with last_completed would have left every row green.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15571, 15612], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The undigestible-draft arm (AC93 term 2) and the producer's two digest refusals had no assertion.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15497, 15520], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC125's backward-compatibility row ran the POST-change _validate over the new keys, proving nothing about the prior build.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15731, 15742], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC112 (post-adjudication fields report the pass's own record) and AC109 (pass -> FILE -> one more edit -> uncovered again and offerable) had no rows.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15400, 15800], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "cmd_record_creation_epoch is a digest-reading site not routed through resolve_draft_digest, so the resolver's 'single owner of the precedence rule every digest-reading surface obeys' docstring overstated the tree.",
+      "defect_signature": {"file": "scripts/issue-audit-state.py", "line_range": [5570, 5586], "kind": "comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC105 substitutes _ARMS for the file-arm/embed-arm out-of-bounds enumerations it names; those are count-locked prose lists in skills/create-issue/references/, not module constants.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [15694, 15704], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The change adds no surface-presence pins to lib/test/modules/create-issue-contract.sh, so the new prose contracts are unguarded against silent reversion.",
+      "defect_signature": {"file": "lib/test/modules/create-issue-contract.sh", "line_range": null, "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-11", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-12", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-13", "decision": "applied", "commit": "827965a6"},
+    {"finding_id": "F-14", "decision": "applied", "commit": "827965a6"},
+    {
+      "finding_id": "F-15",
+      "decision": "advisory",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "AC105 substitutes _ARMS for the out-of-bounds enumerations it names",
+      "skip_category": "advisory-parked",
+      "evidence": "the named enumerations are count-locked prose lists in skills/create-issue/references/, which this change does not touch; the assertion was reworded to name what it pins and to disclose the residual as evidenced by the diff rather than by the row",
+      "parking_evidence": {
+        "basis": "the finding is correct that _ARMS is a different constant; the deliverable is a disclosure rather than a new prose pin, because the operator instruction for this run defers new existence-only pins (see issue #798)",
+        "failing_input": "a change that edited an out-of-bounds enumeration would not be caught by this row",
+        "source": "skills/create-issue/references/step-3-6-audit.md (out-of-bounds region, untouched by this diff)",
+        "finding_ref": {"iter": 1, "index": 14}
+      }
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "deferred",
+      "source_file": "lib/test/modules/create-issue-contract.sh",
+      "claim_text": "the change adds no surface-presence pins over the new prose contracts",
+      "skip_category": "out-of-scope",
+      "evidence": "the operator instruction for this run is to skip test runs because ~99% of pin tests are being deprecated (issue #798); adding new existence-only pins would grow exactly the pool that issue exists to retire. The issue's Implementation Notes (non-authoritative narrative) name these pins; no acceptance criterion requires them.",
+      "parking_evidence": {
+        "basis": "adding existence-only surface-presence pins contradicts the run's operative deviation and issue #798's direction",
+        "failing_input": "a silent revert of the new prose contracts would not turn the suite RED",
+        "source": "issue #798 (existence-only pin census/retirement) and the invoking instruction for this run",
+        "finding_ref": {"iter": 1, "index": 15}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "fix_diff_lines": 268,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "verified"},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3":   {"calls": 4, "tokens": 581567, "wall_clock_s": 325},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 0, "webfetches": 0},
+    "step_2_6":  {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}
