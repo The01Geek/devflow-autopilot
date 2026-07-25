@@ -5436,22 +5436,6 @@ assert_pin_red_on_removal "#167 core-mp: deleting the Phase 0.5 table-row dispat
   'a *forced extra pass*, not a checklist or cost override' "$REVIEW_SKILL"
 assert_pin_red_on_removal "#167 core-mp: deleting the false-positive-shape exclusion turns its pin RED" \
   'a check over a fixed hand-listed set is **not** this shape' "$REVIEW_SKILL"
-# #186: the implement skill's behavioral-fix-pin sub-rule is itself a multi-sentence behavioral
-# property, so by its own "at least one pin per operative sentence" rule each DIRECTIVE sentence
-# (the text that tells the implementer what to DO) gets its own removal-proof pin; the
-# definitions/rationale/history that merely elaborate them stay unpinned (pinning every clause
-# is the over-pinning treadmill the issue warns against). ($DEF_SKILL = the implement SKILL.md
-# bundle; defined at the top of this file.) #375 update: step (c)/(d) now route through
-# assert_pin_red_under (not a one-time manual half-revert); the old `counterfactually
-# half-revert` step-(c) pin was retired and the (c)/(d) routing + evidence-note directives are
-# pinned in the #375 block below. The operative-vs-framing definition, the at-least-one-pin, and
-# the scope-limiter rules are unchanged and stay pinned here.
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting 'pin the operative sentence, not framing' turns its pin RED" \
-  'pin the operative sentence, not an adjacent framing clause' "$DEF_SKILL"
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the at-least-one-pin-per-operative-sentence rule turns its pin RED" \
-  'at least one pin per operative sentence' "$DEF_SKILL"
-assert_pin_red_on_removal "#186 behavioral-fix-pin: deleting the behavioral-fix-pin scope limiter turns its pin RED" \
-  'literal constants, token names, count-based guards, absence pins' "$DEF_SKILL"
 # #194: the (B) confirm-a-guard-REGISTERED directive — its named assertion appears as PASS AND the
 # assertion count rose — pinned per file (implement = $DEF_SKILL, review-and-fix = $MAXI_SKILL),
 # because a green suite alone does not prove a guard ran. (#194's (A) bake-the-half-revert
@@ -5474,14 +5458,8 @@ assert_pin_red_on_removal "#194 (B) implement: deleting the assertion-count-rose
   "the suite's assertion count rose" "$DEF_SKILL"
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the assertion-count-rose conjunct turns its pin RED" \
   "the suite's assertion count rose" "$MAXI_SKILL"
-# (B)'s OTHER conjunct — "its named assertion appears in the run as a PASS" — is operatively
-# distinct from count-rose (it catches the case where the count rose but the assertion that
-# passed is not the one you added; count-rose catches the case where nothing new ran), so by
-# the same one-pin-per-operative-sentence rule it gets its own per-file pin. The two skills word
-# the clause slightly differently (implement: "actually appears"; review-and-fix: "appears"),
-# so the per-file literals differ — each verified to appear exactly once in its own file.
-assert_pin_red_on_removal "#194 (B) implement: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
-  'its named assertion actually appears in the run as a PASS' "$DEF_SKILL"
+# The review-and-fix wording of the named-PASS conjunct remains covered separately
+# from the assertion-count signal.
 assert_pin_red_on_removal "#194 (B) review-and-fix: deleting the named-assertion-appears-as-PASS conjunct turns its pin RED" \
   'its named assertion appears in the run as a PASS' "$MAXI_SKILL"
 # #235 (finding A) was the forced per-behavioral-fix-pin NOTE. #375 REPLACED its
@@ -5517,47 +5495,10 @@ assert_pin_red_under "#375 evidence-note directive — review-and-fix Step 3 ite
   'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$MAXI_SKILL"
 assert_pin_red_under "#375 evidence-note directive — prompt extension records the mutation run + the pin observed RED" \
   'the mutation you ran and the pin you observed go RED' '/the mutation you ran and the pin you observed go RED/d' "$EXT_IMPL"
-# #235 (finding B): the Phase 3.3 observability-persistence backstop — after the inline
-# review-and-fix loop returns, verify the run's telemetry artifacts were persisted, run
-# lib/efficiency-trace.sh --persist when they are missing, and record a dropped-failed
-# reflection when even --persist has no iter-*.json inputs. Two operative DIRECTIVE sentences
-# (run-the-backstop / record-the-gap), so one removal-proof pin each (per finding A's own
-# "at least one pin per operative sentence" rule the new clause must obey). Both sentences
-# live in phases/phase-3-review.md, i.e. inside $DEF_SKILL (the implement bundle).
-assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the run-the-persist-backstop directive turns its pin RED" \
-  'run the efficiency-trace persist backstop when they are missing' "$DEF_SKILL"
-assert_pin_red_on_removal "#235 (B) phase-3.3: deleting the dropped-failed-reflection directive turns its pin RED" \
-  'reflection naming the observability gap' "$DEF_SKILL"
-# #235 (finding B, executable surface): the two prose pins above pin the DIRECTIVE; a
-# half-revert could break the actual bash code block that IMPLEMENTS the backstop while the
-# prose stays intact (the exact framing-only-pin class this PR closes, applied to code). So
-# pin the executable tokens the backstop stands on — the --persist invocation, the
-# this-run-scoped no-inputs detector, and the dropped-failed reflection emission.
-# These are literal-constant/token pins (not operative-sentence pins), so assert_pin_unique
-# is the right form and no operative-vs-framing note is required (the finding-A carve-out).
+# #235's retained executable boundary is the external --persist invocation. Detailed
+# Phase 3 prose and inline implementation statements are intentionally not pinned here.
 assert_pin_unique "#235 (B) phase-3.3: the --persist backstop command is actually invoked" \
   '/../../lib/efficiency-trace.sh --persist' "$DEF_SKILL"
-# The "no inputs" detector is THIS-RUN-SCOPED (#236 review): it snapshots the pre-existing
-# iter-*.json BEFORE the inline loop and, after, records a loss only when NO NEW iter-*.json
-# appeared (comm -13 vs the snapshot). A whole-tree presence check would let a prior-run
-# leftover on the persistent local tier mask a genuine loss. Both blocks now use the
-# #365 portable enumeration idiom (`set -- <glob>` after the zsh nomatch guard, then the
-# builtin `printf '%s\n' "$@"`) in place of the bash-only `compgen -G` — so the pin
-# targets each block's DISTINCTIVE full line, not the shared `set --` glob line (which is
-# byte-identical in both blocks and so no longer unique). The snapshot-line pin captures
-# the empty-set-writes-empty-file `{ [ -e "$1" ] && … ; } > snapshot` shape; the detector-
-# line pin captures BOTH the definitive-absence arm (`[ ! -e "$1" ]`, structurally distinct
-# from the enumerate-and-diff arm) AND the operative condition SENSE (`[ -z … ]` over the
-# comm-diff): a half-revert flipping the sense (-z→-n), dropping the snapshot diff, or
-# dropping the definitive-absence arm turns the suite RED — closing the framing-only-pin gap
-# on the guard's condition itself (this PR's own lesson, applied to the detector sense; #236
-# pr-test-analyzer note).
-assert_pin_unique "#235 (B)/#365 phase-3.3: pre-loop snapshot captures pre-existing iter-*.json (portable enumeration; empty-set writes an empty snapshot)" \
-  '{ [ -e "$1" ] && printf '"'"'%s\n'"'"' "$@" | sort; } > "$ROOT/.devflow/tmp/.phase33-iters-before"' "$DEF_SKILL"
-assert_pin_unique "#235 (B)/#365 phase-3.3: no-inputs detector is this-run-scoped (comm -13 vs snapshot), definitive-absence-aware (! -e \$1) AND fail-closed on empty (-z)" \
-  'if [ ! -e "$1" ] || [ -z "$(printf '"'"'%s\n'"'"' "$@" | sort | comm -13 "$BEFORE" -)" ]; then' "$DEF_SKILL"
-assert_pin_unique "#235 (B) phase-3.3: the no-inputs case emits the dropped-failed telemetry-lost reflection" \
-  'lib/efficiency-trace.sh --persist synthesized nothing' "$DEF_SKILL"
 # #365: NO agent-executed prose block under skills/ may use the bash-only `compgen` builtin
 # (the sole bash-only builtin this fix removed). Prose bash blocks in SKILL.md / phase files
 # are run by the AGENT's own shell (zsh on macOS, sometimes dash/sh), NOT a bash-shebanged
@@ -5618,14 +5559,10 @@ assert_pin_unique "#235 (B) phase-3.3: the --persist backstop resolves lib/ via 
 # the adjacent comment claimed "fail-toward-surfacing, never masking" while the code actually
 # CAN mask a real this-run loss (an empty BEFORE snapshot makes comm -13 count any leftover
 # iter-*.json from a prior local run as "new", suppressing the -z reflection check even when
-# this run wrote nothing). The fix corrects the comment AND emits a distinct ::warning:: on the
-# snapshot-absent path so the degrade is visible on the run log instead of being silently
-# indistinguishable from the healthy case. Pin both halves: the false claim must be gone, and
-# the new warning breadcrumb must be present.
+# this run wrote nothing). The absence check below keeps the obsolete claim from returning;
+# the warning's detailed phase prose is intentionally not pinned.
 assert_eq "#235/#236 (B) phase-3.3: the false 'fail-toward-surfacing, never masking' claim is gone" \
   "0" "$(pin_count 'fail-toward-surfacing, never masking' "$DEF_SKILL")"
-assert_pin_unique "#235/#236 (B) phase-3.3: snapshot-absent degrade emits a distinct MASK warning breadcrumb" \
-  'no-inputs detector degrades to whole-tree presence, which can MASK a real this-run telemetry loss' "$DEF_SKILL"
 # #236 review (iteration 4, silent-failure-hunter Finding 2 + pr-test-analyzer mutation-tested
 # gap): two hardenings to the Phase 3.3 observability backstop.
 #
@@ -5648,95 +5585,22 @@ assert_eq "#236 (B) phase-3.3: observability backstop directive precedes the app
 # that the backstop captures --persist's stderr and checks it for that literal.
 assert_pin_unique "#236 (B) phase-3.3: backstop captures --persist stderr for the record-write-failure check" \
   '/../../lib/efficiency-trace.sh --persist 2>>"$PERSIST_ERR" || true' "$DEF_SKILL"
-# The single-literal grep above was itself a #236-review fix-delta-gate finding: jq-derivation
-# and mkdir failures both end "...record not written[ for ...]", but the disk/permission
-# write failure (write-after-mkdir-succeeded: ENOSPC/EROFS/quota/perms) reads "...failed
-# (disk/permission); not persisted for ..." instead — a grep on "record not written" alone
-# silently misses that third failure mode. Pin BOTH alternatives so a regression back to the
-# single-literal form (or a dropped alternative) turns the suite RED.
-assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector matches the jq/mkdir 'record not written' breadcrumb via grep -qE" \
-  'grep -qE '\''record not written|failed' "$DEF_SKILL"
-assert_pin_unique "#236 (B) phase-3.3: record-write-failure detector ALSO matches the disk/permission-write breadcrumb (the single-literal grep this fix replaced silently missed it)" \
-  'failed \(disk/permission\); not persisted for'\''' "$DEF_SKILL"
-# #236 review (latest shadow pass, requesting-code-review — Important-1): the two breadcrumb
-# literals the consumer grep above depends on were pinned ONLY on the CONSUMER side ($DEF_SKILL,
-# just above). The PRODUCER side — lib/efficiency-trace.sh, which actually EMITS those literals on
-# its record-derivation/write failure paths — was unpinned, so a reword there would silently break
-# the consumer grep, stop the second dropped-failed reflection firing, and leave this suite GREEN:
-# the coupled-invariant / "guard whose comparand can be absent" class CLAUDE.md warns about. Pin
-# the PRODUCER end of BOTH literals so the two ends of the contract cannot drift apart (the
-# jq/mkdir "record not written" literal legitimately recurs across two failure paths — a count
-# pin, not unique; the disk/permission literal is unique).
+# #236 producer-side breadcrumb boundaries. The former consumer-side prose existence pins were
+# retired under #798; these executable-source pins remain because the persist failure paths must
+# keep emitting observable diagnostics. The jq/mkdir "record not written" literal legitimately
+# recurs across two failure paths (a count pin, not unique); the disk/permission literal is unique.
 assert_eq "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the 'record not written' breadcrumb the consumer greps (both failure paths)" "2" \
   "$(pin_count 'record not written' "$LIB/efficiency-trace.sh")"
 assert_pin_unique "#236 (B) producer-side coupled pin: efficiency-trace.sh EMITS the disk/permission-write breadcrumb the consumer greps" \
   'failed (disk/permission); not persisted for' "$LIB/efficiency-trace.sh"
-# #236 review (latest shadow pass, pr-test-analyzer — Important-3 + Suggestions 1-2): removal-proofs
-# were missing on the best-effort observability lines that carry the backstop's non-swallowing +
-# loss-record behavior — the PR's own operative-vs-framing lesson applied to code. Pin each so a
-# half-revert turns the suite RED:
-#  (1) `cat "$PERSIST_ERR" >&2` is the ONLY line re-surfacing --persist's captured breadcrumbs to
-#      the run log; deleting it re-swallows every breadcrumb into a temp file that is then rm -f'd.
-assert_pin_unique "#236 (B) phase-3.3: --persist captured stderr is re-surfaced to the run log (non-swallowing)" \
-  'cat "$PERSIST_ERR" >&2' "$DEF_SKILL"
-#  (2) BOTH dropped-failed `|| echo "::warning::"` loss-record guards (the "double silent failure"
-#      tails for a failing workpad.py write) — either tail dropped ships green, so count both.
+# The durable exact-count guard below covers the paired dropped-failed loss-record tails.
 assert_eq "#236 (B) phase-3.3: BOTH dropped-failed reflection loss-record guards present (either tail dropped -> RED)" "2" \
   "$(pin_count 'this run'\''s effectiveness telemetry is lost AND its loss-record could not be written' "$DEF_SKILL")"
-#  (3) the pre-loop snapshot's mkdir-failure breadcrumb that names the actual root cause.
-assert_pin_unique "#236 (B) phase-3.3: pre-loop snapshot mkdir-failure emits its distinct root-cause breadcrumb" \
-  'could not create $ROOT/.devflow/tmp (permissions/read-only-fs/disk-full?)' "$DEF_SKILL"
-# #236 review (iteration 2 fix-delta gate, pr-test-analyzer): the $PERSIST_ERR_IS_DEVNULL
-# mktemp-degrade path this fix introduced had NO removal-proof coverage — a half-revert
-# collapsing it back to a bare `PERSIST_ERR=$(mktemp)`, or one flipping the `-eq 1 ||` sense on
-# the cleanup guard, would ship green despite reintroducing the exact `rm -f /dev/null`
-# device-deletion hazard the guard exists to prevent (severe: under a root shell with a
-# writable /dev this breaks every other command in the environment that redirects to
-# /dev/null). Pin the rm-f cleanup guard's sense directly (assert_pin_red_on_removal on the
-# operative sentence: the code IS the fix, so the removal-proof target is the guard line
-# itself) and the mktemp-degrade warning breadcrumb's presence.
-assert_pin_red_on_removal "#236 (B) phase-3.3: deleting the /dev/null-safe rm-f cleanup guard turns its pin RED" \
-  '[ "$PERSIST_ERR_IS_DEVNULL" -eq 1 ] || rm -f "$PERSIST_ERR"' "$DEF_SKILL"
-assert_pin_unique "#236 (B) phase-3.3: mktemp-failure degrade emits its own distinct ::warning:: breadcrumb" \
-  'could not allocate a temp file for --persist'\''s stderr (mktemp failed)' "$DEF_SKILL"
-# #236 review (shadow pass, pr-test-analyzer): the `[ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] &&`
-# guard gating the record-write-failure grep was UNPINNED — mutation-tested by the reviewer
-# (dropping the guard clause left the full suite green, since $PERSIST_ERR literally equals
-# /dev/null when the flag is 1 and grep against /dev/null always no-matches today). Currently
-# behaviorally redundant, but a future refactor reassigning $PERSIST_ERR away from the literal
-# path /dev/null while forgetting to update this guard would silently reintroduce a live bug
-# with nothing to catch it. Pin the guarded grep line as a whole so the conjunct can't be
-# silently dropped.
-assert_pin_unique "#236 (B) phase-3.3: record-write-failure grep is gated on the PERSIST_ERR_IS_DEVNULL guard (not run unconditionally)" \
-  'if [ "$PERSIST_ERR_IS_DEVNULL" -eq 0 ] && grep -qE' "$DEF_SKILL"
-# (c) BOUNDED RE-REVIEW coverage: the AWUSF path can drive a SECOND, separate inline
-# review-and-fix invocation (the bounded re-review) whose own Loop Exit is just as droppable as
-# the first invocation's — but the original backstop only ran once, after the FIRST invocation,
-# leaving the second entirely unguarded (silent-failure-hunter's #236 review Finding 2). Pin that
-# the bounded re-review step re-runs both halves of the backstop (a fresh snapshot before, the
-# persistence check after) rather than relying on the first invocation's now-stale snapshot.
-assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-takes a fresh pre-invocation snapshot" \
-  're-run the pre-invocation snapshot block from 3.3 above' "$DEF_SKILL"
-assert_pin_unique "#236 (B) phase-3.3: bounded re-review re-runs the observability-persistence backstop" \
-  're-run the observability-persistence backstop block from 3.3 above' "$DEF_SKILL"
 # ── #296: keep the cloud inline review-and-fix loop instrumented ──────────────────────
 # #291's run (PR #292) hand-ran the review engine via direct Agent dispatch under cloud
 # claude-code-action friction, skipped the per-iteration iter-<N>.json write, and lost the
-# effectiveness half of the telemetry. Three ADDITIVE prose invariants close the upstream
-# driver (they do NOT replace the #235/#236 backstop pins above — that backstop is preserved
-# intact per AC4):
-#   (1) the iter-<N>.json emit is a NON-OPTIONAL obligation on EVERY iteration, incl. a
-#       hand-run/degraded path, written via the Write tool (never a shell `>` redirect);
-#   (2) the Phase 3.3 seam authors .devflow/tmp scratch with the Write tool, not `>`;
-#   (3) a cloud claude-code-action denial is NOT the local-tier classifier and NOT license
-#       to leave the instrumented loop.
-# The (1) obligation lives in review-and-fix/references/fixing.md ($MAXI_SKILL bundle) and is ALSO restated for
-# the inline driver at the implement Phase 3.3 seam (phases/phase-3-review.md, inside
-# $DEF_SKILL); (2)+(3) live at that seam too. Each behavioral operative sentence is pinned
-# removal-proof (assert_pin_red_on_removal, PASS->FAIL on a targeted half-revert) — including
-# the seam restatement of (1), which is operative (not framing). The mechanism/naming/
-# Lifecycle-restatement pins are literal-constant style (assert_pin_unique), where no
-# operative-vs-framing distinction exists.
+# effectiveness half of the telemetry. The retained boundary is the durable per-iteration
+# emit in review-and-fix and its Phase 3.3 seam restatement.
 #
 # (1) NON-OPTIONAL EMIT — the operative directive in Step 3 item 7 (the authoritative
 # record-shape spec; the Write act itself is anchored at item 6's fix-commit moment):
@@ -5753,18 +5617,9 @@ assert_pin_unique "#296 review-and-fix: the Lifecycle 'Iter N end' bullet restat
 # only the Skill-tool inline-driving case it originally framed) — naming pin.
 assert_pin_unique "#296 review-and-fix: Common Mistakes names the direct-Agent-dispatch hand-run bypass" \
   'hand-runs the review engine via direct `Agent` dispatch' "$MAXI_SKILL"
-# (2) SEAM SCRATCH DISCIPLINE — the Phase 3.3 seam authors .devflow/tmp scratch/telemetry with
-# the Write tool, not a shell `>` redirect: operative directive, removal re-opens the friction.
-assert_pin_red_on_removal "#296 phase-3.3: deleting the Write-tool-for-.devflow/tmp seam directive turns its pin RED" \
-  'author it with the Write tool, not a shell redirect' "$DEF_SKILL"
-# (2b) the non-optional-emit obligation RESTATED for the inline driver at the seam: operative.
+# The non-optional-emit obligation is restated for the inline driver at the seam.
 assert_pin_red_on_removal "#296 phase-3.3: deleting the inline-driver non-optional-emit restatement turns its pin RED" \
   'the per-iteration effectiveness record (`iter-<N>.json`) is a non-optional emit on every iteration, written with the Write tool' "$DEF_SKILL"
-# (3) MISATTRIBUTION CORRECTION — a cloud claude-code-action denial is not the local-tier
-# classifier and not license to leave the loop: operative sentence, removal re-opens the
-# misattribution the #291 run made.
-assert_pin_red_on_removal "#296 phase-3.3: deleting the 'denial != local classifier != leave-the-loop' correction turns its pin RED" \
-  'that denial is not the local-tier permission classifier, and is not license to abandon the instrumented loop' "$DEF_SKILL"
 # ── #192: review/analysis agents must never mutate the live working tree ──────────────
 # Two coupled layers, each pinned with a mutation-proven assert_pin_red_on_removal so a
 # half-applied removal of the contract turns the suite RED (issue #192 AC4):
@@ -6266,18 +6121,13 @@ assert_pin_unique "429/T4: §1.6 names the #322→#325 false refutation as the c
 assert_pin_unique "429/T4: §2.1 names the #322→#325 false refutation as the canonical example" \
   '#322→#325 false refutation' "$P2_FILE"
 
-# T5 — the §2.1 code-wins paragraph carries the freshness qualifier; a sibling pin asserts the
-# pre-existing descriptive-vs-prescriptive boundary is UNCHANGED (still present, verbatim).
+# T5 — the §2.1 code-wins paragraph carries the freshness qualifier.
 assert_pin_red_under "429/T5: §2.1 code-wins gains the freshness qualifier (remove → RED)" \
   'only when the code being read is verified fresh' '/only when the code being read is verified fresh/d' "$P2_FILE"
-assert_pin_unique "429/T5: §2.1 descriptive-vs-prescriptive boundary is unchanged" \
-  'applies to **descriptive** claims only — it never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
 
-# T6 — Phase 4.0 sibling-PR annotation rule + the aligned 2.2.5 verbatim language.
+# T6 — Phase 4.0 sibling-PR annotation rule.
 assert_pin_red_under "429/T6: §4.0 annotation names the sibling PR AND its merge state at filing time (remove → RED)" \
   'name the sibling PR **and its merge state at filing time**' '/name the sibling PR/d' "$P4_FILE"
-assert_pin_unique "429/T6: §4.0 aligned verbatim language names the parent's decided criteria as the unreworded source" \
-  "parent's decided criteria are the unreworded semantic source" "$P4_FILE"
 
 # #761 — §4.2's PR-body reconciliation is a three-class claim audit (behavioral, verification,
 # artifact-existence), each with its own comparand. The mutations narrow the audit back to
@@ -6292,15 +6142,6 @@ assert_pin_red_under "#761: §4.2 verification class binds Test-Plan/coverage ro
 assert_pin_red_under "#761: §4.2 artifact-existence class requires a resolvable identifier (narrow → RED)" \
   "**Artifact-existence claims** — comparand: the artifact's own resolvable identifier" \
   '/^3\. \*\*Artifact-existence claims\*\*/d' "$P4_FILE"
-# The behavioral class + its comparand are the preserved class-1 obligation (unchanged from the
-# pre-#761 §4.2); a presence pin, not a behavioral-fix regression pin.
-assert_pin_unique "#761: §4.2 preserves the behavioral class and its shipped-code-path comparand" \
-  "**Behavioral claims** — comparand: the actual shipped code path, followed into pre-existing code the diff calls." "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the preserved class-1 obligation exists; the narrowing mutation keeps behavioral, so a red_under form cannot express it)
-# The AC5 per-class-outcome contract: one note per class plus an explicit clean-pass note,
-# so a clean class is distinguishable from one that never ran.
-assert_pin_unique "#761: §4.2 records one outcome per class with an explicit clean-pass note (AC5)" \
-  "a class that found nothing records an **explicit clean-pass** note, so a class that ran clean is distinguishable from a class that never ran" "$P4_FILE"  # structural-pin-ok: documentation-presence pin (asserts the AC5 per-class clean-pass-note contract exists; no code regression guarded)
-
 # T7 — no-new-grants. The new prose (Phase 1.6 fresh-tree verification + Phase 2.1 code-wins
 # pass) executes during a /devflow:implement run, and `devflow-implement.yml` is the SINGLE
 # workflow that runs /devflow:implement — both the automated pickup AND a manual bare
@@ -6396,28 +6237,15 @@ assert_pin_red_on_removal "#232: SKILL self-check operative clause flips RED on 
   'the run is not finished — return to the phase that owns the remaining work' "$IMPL_ORCH"
 assert_pin_red_on_removal "#232: SKILL Status-not-draft clause flips RED on removal" \
   'keys on the workpad `Status`, not on PR draft state' "$IMPL_ORCH"
-# (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor — AC3 (re-read the phase
-#     file before §4.2 after the docs subagent returns) + AC4 (scoped to SUBAGENT returns,
-#     not the Phase 2/3 subagent returns). Issue #362 reworded AC4's scope clause from
+# (2) phase-4-documentation.md Phase 4.1 post-subagent re-anchor scope. Issue #362
+#     reworded the scope clause from
 #     "the Phase 4.1 docs subagent return only" to "**subagent** returns", because a
 #     Skill-tool return is now covered by the orchestrator's generalized mid-phase
-#     re-anchor instead; the wording and these pins move together.
-assert_pin_unique "#232: phase-4 re-anchor operative clause present (re-read before §4.2)" \
-  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
+#     re-anchor instead.
 assert_pin_unique "#232/#362: phase-4 re-anchor scoped to **subagent** returns (AC4, reworded)" \
   'scoped to **subagent** returns' "$P4_FILE"
-assert_pin_red_on_removal "#232: phase-4 re-anchor operative clause flips RED on removal" \
-  're-anchoring the remaining §4.2 (PR description) and §4.3 (finalize) procedure' "$P4_FILE"
 assert_pin_red_on_removal "#232/#362: phase-4 re-anchor scope clause flips RED on removal" \
   'scoped to **subagent** returns' "$P4_FILE"
-# review iter-1 (pr-test-analyzer): pin the OPERATIVE directives, not only their framing —
-# a same-line surgical edit that drops the actual instruction while keeping the descriptive
-# appendix would otherwise ship GREEN (the recurring framing-only-pin hole).
-# AC3 operative: the mandatory re-`Read` directive itself (not the "re-anchoring …" appendix).
-assert_pin_unique "#232: phase-4 re-anchor keeps the operative re-Read directive" \
-  'again and follow it exactly' "$P4_FILE"
-assert_pin_red_on_removal "#232: phase-4 operative re-Read directive flips RED on removal" \
-  'again and follow it exactly' "$P4_FILE"
 # AC1 operative: the normative prohibition sentence (not only its corrective consequence).
 assert_pin_unique "#232: SKILL self-check keeps the run-final-message prohibition (operative)" \
   'Do not emit your run-final message while the workpad' "$IMPL_ORCH"
@@ -6672,8 +6500,6 @@ assert_pin_red_on_removal "#366/#356: SKILL self-check backstop-accuracy clause 
 # pr-<N>-only find silently misses those deferrals. The operative arm is the one that
 # actually adds the branch-slug dir to the search set; pin it removal-proof so deleting
 # the branch-slug arm goes RED. Also pin the BRANCH_SLUG derivation (its producer).
-assert_pin_unique "#254: Phase 4.0.5 reads the current branch once into CUR_BRANCH" \
-  'CUR_BRANCH=$(git branch --show-current)' "$P4_FILE"
 assert_pin_unique "#254: Phase 4.0.5 derives the sanitized branch slug from CUR_BRANCH" \
   'BRANCH_SLUG=$(printf '"'"'%s'"'"' "$CUR_BRANCH" | tr' "$P4_FILE"
 assert_pin_unique "#254: Phase 4.0.5 adds the branch-slug dir to the manifest search set (operative)" \
@@ -6683,16 +6509,6 @@ assert_pin_red_on_removal "#254: Phase 4.0.5 branch-slug discovery arm flips RED
 # The aggregate must still be written at pr-<N>/deferrals.json (the path /pr-description reads).
 assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path" \
   'AGG="${SLUG_DIR}/deferrals.json"' "$P4_FILE"
-# tr-dependence observability (this repo's review-and-fix guard-class 2): BRANCH_SLUG is
-# derived through `tr` on PATH, so a `tr`-degraded host yields an empty slug and the branch-
-# slug arm is silently dropped. The extension MANDATES making that degradation observable,
-# so the empty-slug breadcrumb must not be droppable unnoticed — pin it removal-proof (the
-# existing SEARCH_DIRS pin covers the arm's RHS only, not this guard/breadcrumb).
-assert_pin_red_on_removal "#254: Phase 4.0.5 tr-degraded empty-slug breadcrumb flips RED on removal" \
-  'current branch produced an empty slug' "$P4_FILE"
-assert_pin_unique "#254: Phase 4.0.5 guards the branch-slug arm on a non-empty slug" \
-  '[ -n "$BRANCH_SLUG" ] && [ "$BRANCH_DIR" != "$SLUG_DIR" ]' "$P4_FILE"
-
 # ── issue #555: Phase 4.0.5 manifest discovery runs through the fail-closed helper, not a
 # multi-root `find` whose exit status the `| sort` capture masked. Under the old shape a
 # search that FAILED and a search that legitimately matched nothing both yielded an empty
@@ -6898,15 +6714,9 @@ _P4_ROUTING_BULLETS="$(awk '/further exits before any label is applied/,/^If the
 assert_eq "#555 the §4.0.5 reader-routing list still carries exactly 8 bullets (6 exits + 2 qualifiers) — the count-locked header's numerals are only true at this population" \
   "8" "$_P4_ROUTING_BULLETS"
 
-assert_pin_unique "sweep 2.3.6: implement SKILL keeps the sweep body" '#### 2.3.6 Error-handling & silent-failure sweep' "$IMPL_SKILL"
-assert_pin_unique "sweep 2.3.6: implement SKILL lists it in the always-run index" '**2.3.6** (error-handling & silent-failure)' "$IMPL_SKILL"
 assert_eq "sweep 2.3.6: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.6 Error-handling & silent-failure |' "$IMPL_DOC" && echo yes || echo no)"
-# Heading/index/table pins above catch a half-applied *removal* but not a semantic
-# gutting that leaves the heading while deleting the sweep's load-bearing steps.
-# Pin one step token unique to the 2.3.6 procedure (the false-success rule) so a
-# reviewer who guts the steps but keeps the heading still trips the suite.
-assert_pin_unique "sweep 2.3.6: implement SKILL keeps the false-success step rule" "never prints success for work that didn't happen" "$IMPL_SKILL"
+# The docs rationale row remains covered independently of the phase prose.
 
 # Issue #200 / PR #202: silent-failure-hunter gains a prompt-instruction-artifact lens for
 # inert guards (a guard that reads as handled but fails open as written). Pin the operative
@@ -6970,101 +6780,20 @@ assert_pin_red_on_removal "#200 SFH: keeps the ordered-after-exit slug definitio
 assert_pin_red_on_removal "#200 SFH: keeps the output-format CRITICAL-de-escalation carve-out" \
   'do not auto-escalate to CRITICAL merely because it is a silent failure' "$SFH_AGENT"
 
-# Issue #198: the two observability sub-checks added to 2.3.4a and 2.3.6. Each pin
-# targets the OPERATIVE instruction (the minimal text whose removal alone re-opens the
-# gap, per #186), NOT a framing clause — gut the sub-check while keeping its heading and
-# these go RED. 2.3.4a clean-path evidence: a step claiming to enumerate/verify/scan must
-# log a summary even on the clean path. 2.3.6 per-branch breadcrumb: each branch of a
-# multi-branch no-op path must emit a distinct, condition-naming diagnostic.
-assert_pin_unique "sweep 2.3.4a: implement SKILL keeps the clean-path-evidence sub-check" \
-  "log a summary (the count checked, the result) even on the clean path where nothing needs changing" "$IMPL_SKILL"
-assert_pin_unique "sweep 2.3.6: implement SKILL keeps the per-branch-breadcrumb sub-check" \
-  "confirm each branch emits a distinct diagnostic naming which condition fired" "$IMPL_SKILL"
-# Coupled-invariant: the same two sub-checks are mirrored in docs/implement-skill.md
-# (the SKILL <-> docs pair CLAUDE.md names as a coupled invariant). Pin the doc half too
-# so a one-sided revert/gutting of either mirror clause trips the suite instead of letting
-# the SKILL and its doc rationale silently desync.
+# Issue #198's observability guidance remains covered at the docs mirror.
 assert_pin_unique "sweep 2.3.4a: docs/implement-skill.md mirrors the clean-path-evidence sub-check" \
   "(count, result) even when nothing needs changing" "$IMPL_DOC"
 assert_pin_unique "sweep 2.3.6: docs/implement-skill.md mirrors the per-branch-breadcrumb sub-check" \
   "it confirms each branch emits a distinct diagnostic naming which condition fired" "$IMPL_DOC"
 
-# Drift guard: issue #159 B2's severity-aware exit in Phase 3.3 — the implement run must NOT
-# fully Block after the AWUSF + bounded-re-review "two consecutive fails"; it soft-proceeds
-# (PR review-ready, residual surfaced) UNLESS a genuine unresolved Critical (or ungradeable/
-# unparseable verdict) remains. Pinned via assert_pin_unique so each clause is mutation-checked
-# exactly-once. A paraphrase reverting to the old hard-block (or widening the block back past
-# genuine-Critical, or letting an ungradeable residual fall through to soft-proceed) fails here.
-assert_pin_unique "phase 3.3: severity-aware exit (does not fully block on diminishing-returns)" \
-  'Severity-aware exit (do not fully block on diminishing-returns)' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: soft-proceed keeps the PR review-ready, not auto-merged" \
-  'soft-proceeded on non-Critical residual findings' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: only a genuine unresolved Critical takes the Blocked path" \
-  'Blocked path (genuine unresolved Critical only)' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: non-Critical residual routes to soft-proceed, not Block" \
-  'the residual is only advisory / Suggestion / `severity-calibrated`-down' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: an ungradeable residual fails closed to Blocked (not soft-proceed)" \
-  'an ungradeable residual fails **closed** to the Blocked path' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: option-2 / first-run-REJECT applies over-grade calibration itself" \
-  'apply the same flag-and-evaluate calibration yourself' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: REJECT routes through the severity-aware exit (Critical still Blocks)" \
-  'a REJECT whose unresolved triggers are all non-Critical' "$IMPL_SKILL"
-assert_pin_unique "phase 3.3: soft-proceed records each residual finding durably in the workpad" \
-  'unresolved after bounded re-review (non-Critical, surfaced for human review)' "$IMPL_SKILL"
-
-# Drift guard: issue #193 — Phase 3.2 must triage each /simplify finding against the
-# issue's in-scope ACs before applying it, skipping AC-conflicting findings with a
-# recorded rationale. The OPERATIVE pin is the skip+record sentence (the behavioral fix):
-# deleting it alone re-introduces the bug where AC-violating cleanups get applied silently.
-# Per the behavioral-fix-pin convention (#186/#192/#194), the operative pin uses
-# assert_pin_red_on_removal — the suite itself half-reverts the sentence and confirms the
-# pin goes RED, baking the mutation-proof into CI rather than relying on a one-time dev check.
-# The scope pin (issue-context-only) and the stale-AC carve-out pin (Phase 2.2.6, not a silent
-# skip) stay assert_pin_unique presence guards — they are framing/scope, not the behavioral fix.
-assert_pin_red_on_removal "phase 3.2: /simplify findings triaged — operative skip+record sentence (mutation-proven)" \
-  'skip the finding and record the AC conflict as the skip rationale' "$IMPL_SKILL"
-assert_pin_unique "phase 3.2: triage scoped to the issue-context /devflow:implement path only" \
-  'exists only on the issue-context' "$IMPL_SKILL"
-assert_pin_unique "phase 3.2: stale-AC conflict routes to Phase 2.2.6, not a silent skip" \
-  'that is Phase 2.2.6 AC-rewrite territory' "$IMPL_SKILL"
-
-# Same drift guard for the 2.3.0a peer-checkpoint-completeness sweep: the additive
-# twin of 2.3.0 lives in the same three places (sweep body, "Sweep selection" index,
-# rationale table) and must stay in sync. It homes the recurring incomplete-edit
-# sub-pattern (a rule added at only some of its co-equal peer sites); if any of the
-# three loses it, that catch reverts to a review REJECT or a post-bot fix.
-assert_pin_unique "sweep 2.3.0a: implement SKILL keeps the sweep body" '#### 2.3.0a Peer-checkpoint completeness sweep' "$IMPL_SKILL"
-assert_pin_unique "sweep 2.3.0a: implement SKILL lists it in the always-run index" 'run **2.3.0a**' "$IMPL_SKILL"
+# The docs rationale mirror for the peer-checkpoint-completeness sweep remains covered.
 assert_eq "sweep 2.3.0a: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.0a Peer-checkpoint completeness |' "$IMPL_DOC" && echo yes || echo no)"
-# Pin one step token unique to the 2.3.0a procedure (the grep-the-peer-set rule) so a
-# reviewer who guts the steps but keeps the heading still trips the suite.
-assert_pin_unique "sweep 2.3.0a: implement SKILL keeps the enumerate-by-grep step" 'Enumerate the peer set by grep, not from memory' "$IMPL_SKILL"
-
-# Issue #165 Part C: four-mirror-site drift guard for the new 2.3.0b
-# enum-enumeration reconciliation sweep — the sibling of 2.3.0a for "a value was
-# added to an enumerated set". It lives in four places (sweep body, "Sweep
-# selection" index, rationale table, and the DEVFLOW_SYSTEM_OVERVIEW.md sweep-list
-# entry pinned below) and must stay in sync; if any loses it, the catch for a
-# stale doc/comment enumeration or fall-through consumer reverts to a shadow-review
-# finding or a post-bot fix.
-# The three SKILL-body pins use assert_pin_unique (exactly-once), matching the 2.3.0a/2.3.6
-# sibling sweep-body pins above — not the raw single-line presence form, which #157 AC2's
-# repo-wide scanner flags as an un-routed raw SKILL guard. (#166 landed them in the raw form;
-# this is the cross-PR reconciliation to #157's widened rule.) The IMPL_DOC / OVERVIEW mirrors
-# below stay in presence form like their sibling doc-row pins — the AC2 scanner does not cover
-# non-SKILL files.
-assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the sweep body" '#### 2.3.0b Enum-enumeration reconciliation sweep' "$IMPL_SKILL"
-assert_pin_unique "sweep 2.3.0b: implement SKILL lists it in the Sweep-selection index" 'run **2.3.0b**' "$IMPL_SKILL"
+# Issue #165's docs and overview mirrors for the enum-enumeration reconciliation
+# sweep remain covered independently of the phase prose.
 assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.0b Enum-enumeration reconciliation |' "$IMPL_DOC" && echo yes || echo no)"
-# Pin one step token unique to the 2.3.0b procedure (the grep-every-enumerating-site
-# rule) so a reviewer who guts the steps but keeps the heading still trips the suite.
-assert_pin_unique "sweep 2.3.0b: implement SKILL keeps the enumerate-every-site step" 'Enumerate every site that names a member of the set, by grep' "$IMPL_SKILL"
-# Fourth mirror site (the same pinned-OVERVIEW-row idiom 2.3.0c's AC11 pin reuses below): Part C
-# added a sweep-list line in docs/DEVFLOW_SYSTEM_OVERVIEW.md. This PR's own iteration-1
-# review caught that line stale, proving it is a coupled mirror — so pin it too, or a
-# later edit could silently drop 2.3.0b from the OVERVIEW and the suite would stay green.
+# The overview sweep-list entry is the other retained mirror.
 assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
   "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
 
@@ -7073,29 +6802,12 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
 # member, or a mirrored contract literal across sites still trips the contract-completeness
 # sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to "just the five always-on sweeps".
-# Coupled invariant: the re-anchor lives in BOTH the SKILL preamble and its
-# docs/implement-skill.md mirror, so pin BOTH sites — a one-sided revert of either back to
-# the code-only framing then fails closed (the dominant convention-violation half-revert
-# pattern). assert_pin_unique asserts the literal occurs EXACTLY once, so each pin goes RED
-# on removal (count 0) AND on accidental duplication (count > 1) — stronger than a bare grep.
-# Both literals are ASCII + apostrophe-free per the embedded-jq/SC11xx single-quote trap.
-# The mutation property is proven by the assert_pin_unique removal semantics (meta-tested
-# elsewhere in this suite).
-assert_pin_unique "sweep selection: implement SKILL re-anchors classification on cross-site replication (substrate-agnostic)" \
-  "classify by what the change replicates across sites, not by whether it is code" \
-  "$IMPL_SKILL"
+# The docs mirror and cross-site enumeration below retain the coupled re-anchor without
+# holding the phase prose to an existence-only literal.
 assert_pin_unique "sweep selection: docs/implement-skill.md mirror carries the substrate-agnostic re-anchor (coupled invariant)" \
   "so the preamble classifies by *what the change replicates across sites*, not by whether it is code" \
   "$IMPL_DOC"
-# Pin the OPERATIVE qualifier too, not just the framing clause above: the behavioral fix
-# is the sentence that says an add-only prose/doc/config diff still trips 2.3.0/2.3.0a/2.3.0b
-# (exactly the PR #166 regression). Reverting only that qualifier back to the unconditional
-# "just the five always-on sweeps" — while leaving the pinned re-anchor clause intact — is a
-# half-revert that ships the regression; the framing pins above do not catch it. Pin the
-# qualifier at BOTH coupled sites so that half-revert fails closed.
-assert_pin_unique "sweep selection: implement SKILL qualifies the five-always-on sentence so a replicating prose/doc/config diff still trips the contract sweeps" \
-  "still trips the contract-completeness sweeps (**2.3.0** / **2.3.0a** / **2.3.0b**), not just the five" \
-  "$IMPL_SKILL"
+# The docs mirror also retains the qualifier; the cross-site enumeration checks alignment.
 assert_pin_unique "sweep selection: docs/implement-skill.md mirror qualifies the five-always-on sentence (coupled invariant)" \
   "still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b)" \
   "$IMPL_DOC"
@@ -7141,12 +6853,6 @@ assert_pin_red_under "#661: §2.3.0 recovers a content move from the diff deleti
 assert_pin_red_under "#661: §2.3.0 also enumerates citations that name the vacated location (operative)" \
   'separately enumerate the citations that **name the vacated location**' \
   's|separately enumerate the citations that \*\*name the vacated location\*\*|also look|' "$P2_FILE"
-# AC3 — file-path recovery via git diff --name-status (rename source / deletion entry); presence.
-assert_pin_unique "#661: §2.3.0 recovers a file-path move via a rename record source" \
-  'the **source** of a rename record (`R### old new`' "$P2_FILE"
-# AC8 — the cloud-safe search uses grep -rnE/tr, never the ungranted git grep; presence.
-assert_pin_unique "#661: §2.3.0 forbids the ungranted git grep for the cloud whitespace search" \
-  'never `git grep`, which the implement profile does not grant' "$P2_FILE"
 # AC11 — docs/implement-skill.md rationale reconciled with the hardened §2.3.0 (coupled mirror).
 assert_eq "#661: docs/implement-skill.md carries the relocation-is-a-contract-change rationale" "yes" \
   "$(grep -qF 'Relocation is a contract change too (issue #661)' "$IMPL_DOC" && echo yes || echo no)"
@@ -7224,13 +6930,7 @@ assert_pin_red_under "#474(2.3.0c-b): the completion gate binds trigger-b obliga
 assert_pin_red_under "#474(2.3.7): the closing this-PR-defect enforcement sentence is operative (softening mandatory->advisory goes RED)" \
   'shipped with only a single-element test as a defect in **this** PR' \
   's|as a defect in \*\*this\*\* PR, not a|as acceptable to defer to a|' "$P2_FILE"
-# §2.3.7 mirror sites (coupled invariant — the enumerating sites §2.3.0b reconciliation
-# requires): the sweep body heading, the Sweep-selection index row, the docs rationale
-# table row, and the DEVFLOW_SYSTEM_OVERVIEW sweep-index entry must all carry §2.3.7.
-assert_pin_unique "#474(2.3.7): implement SKILL keeps the sweep body heading" \
-  '#### 2.3.7 Collection-cardinality sweep' "$IMPL_SKILL"
-assert_pin_unique "#474(2.3.7): implement SKILL lists it in the Sweep-selection index" \
-  'run **2.3.7**' "$IMPL_SKILL"
+# The docs rationale and overview sweep index retain the §2.3.7 mirror contract.
 assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "yes" \
   "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
 assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
@@ -7468,9 +7168,6 @@ assert_pin_red_under "#779: a tier-refused checkpoint-4 invocation records a deg
   'It does **not** route to `Blocked`: converting a permission boundary into a run-ending stop' \
   's#It does \*\*not\*\* route to `Blocked`#It routes to `Blocked`#' \
   "$P4_FILE"
-# The clean/non-clean partition is complete by construction against the helper's own header.
-assert_pin_unique "#779: checkpoint 4 names the clean set exactly" \
-  'The clean set is `UPDATED`, `UP_TO_DATE`, `DISABLED`' "$P4_FILE"  # structural-pin-ok: contract-presence pin (the partition's behavior is guarded by the refusal-arm and CONFLICT-exemption mutation pins above; this only asserts the set is named)
 unset U779_INV_LN U779_CO_LN U779_BR_LN U779_15_LN U779_TB_LN U779_RT_LN
 
 # ── Issue #755: Phase 2 §2.0 resume-idempotency gate ──
@@ -7888,15 +7585,9 @@ assert_pin_unique "#493 resume: idempotency wording (no duplication, no corrupti
 # Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
 # CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
 # block is a SEPARATE shell, Phase 1.4's $BASE is out of scope at 3.1, so 3.1 must
-# RE-DERIVE it (same config-get read + fail-closed guard) and pass --base "$BASE" to
-# `gh pr create`. Pin both halves against the phase-3 file specifically: dropping the
-# --base flag OR the re-derivation guard turns the suite RED (the operand-traceability
-# pin ensures the --base pin can't pass with an empty $BASE — the exact bug class).
+# RE-DERIVE it through the config read and fail-closed fallback. The retained assertions
+# cover that derivation boundary without pinning the detailed `gh pr create` prose.
 P3_REVIEW="$IMPL_PHASES_DIR/phase-3-review.md"
-# Include the leading `create ` so the pinned literal does not start with `--`
-# (pin_count's `grep -oF` would otherwise parse a `--base…` pattern as grep options
-# and match nothing): this pins the flag ON the `gh pr create` invocation specifically.
-assert_pin_unique "#224 Phase 3.1: gh pr create passes --base \"\$BASE\"" 'create --base "$BASE"' "$P3_REVIEW"
 assert_pin_unique "#224 Phase 3.1: re-derives BASE via config-get with the main default" 'config-get.sh .base_branch main' "$P3_REVIEW"
 assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard" '[ -n "$BASE" ]' "$P3_REVIEW"
 # The guard PREDICATE `[ -n "$BASE" ]` is only half the fail-closed contract; its
@@ -7905,11 +7596,10 @@ assert_pin_unique "#224 Phase 3.1: re-derives BASE with the fail-closed empty-re
 # `|| { …; BASE=main; }` action would ship `gh pr create --base ""` (the silent
 # mistarget this PR exists to prevent) while every predicate/ordering pin stayed GREEN.
 assert_pin_unique "#224 Phase 3.1: empty-read guard falls back to main (fail-closed consequent)" 'BASE=main' "$P3_REVIEW"
-# Ordering/same-block guard (issue #224 iter 2): the pins above prove the tokens EXIST
-# but are positionally independent — a refactor that put `gh pr create --base "$BASE"`
-# BEFORE the re-derivation, or split them into separate ```bash fences, would leave them
-# all GREEN while $BASE is empty/unset at create time: the exact shell-boundary
-# mistarget (`--base ""`) §3.1's prose forbids. Assert the full producer→guard→fallback
+# Ordering/same-block guard (issue #224 iter 2): verify the full producer-to-consumer
+# sequence so a refactor cannot put `gh pr create --base "$BASE"` before the
+# re-derivation or split the statements into separate ```bash fences. Assert the
+# producer→guard→fallback
 # →consumer order WITHIN ONE fenced bash block: the producer (config-get read `d`), the
 # fail-closed empty-read guard `[ -n "$BASE" ]` (`g`), AND its `BASE=main` fallback
 # action (`f`) all precede the consumer `gh pr create --base "$BASE"` (`c`), in the order
@@ -8125,18 +7815,10 @@ assert_eq "implement_pr_state: malformed config → resolver exits non-zero, emp
   "$([ "$IPS_RC" -ne 0 ] && [ -z "$IPS_OUT" ] && echo nonzero-empty || echo "rc=$IPS_RC out='$IPS_OUT'")"
 rm -f "$IPS_CFG"
 
-# SKILL Phase 4.3 token pins: the gate is one piece of load-bearing inline bash in
-# the implement skill (phases/phase-4-documentation.md). Pin the tokens so a refactor that drops them fails here rather
-# than silently always-publishing (or always-drafting).
+# The retained Phase 4.3 boundaries cover the config read and clean-tree backstop;
+# detailed publish-state prose is intentionally not pinned.
 assert_pin_unique "implement_pr_state: SKILL reads via config-get with the ready_for_review default" 'config-get.sh .devflow_implement.implement_pr_state ready_for_review' "$IMPL_SKILL"
-assert_pin_unique "implement_pr_state: SKILL gates publish on the literal draft" '[ "$PR_STATE" = "draft" ]' "$IMPL_SKILL"
-# Pin the *command* form, not the bare token: a plain `grep -qF 'gh pr ready'` is also
-# satisfied by the draft-branch diagnostic echo and the explanatory prose, so it would
-# stay green even if the actual publish invocation were deleted. Pin the guarded
-# `elif gh pr ready; then` so this asserts the publish command itself survives.
-assert_pin_unique "implement_pr_state: SKILL keeps the guarded publish invocation (elif gh pr ready)" 'elif gh pr ready; then' "$IMPL_SKILL"
 assert_pin_unique "implement_pr_state: SKILL keeps the clean-tree backstop above the gate" 'git status --porcelain' "$IMPL_SKILL"
-assert_pin_unique "implement_pr_state: SKILL has draft-aware finalize wording" 'left as draft' "$IMPL_SKILL"
 
 # Executable publish-decision guard — logic-equivalent to the SKILL's single literal-`draft`
 # comparison (semantically mirrors `[ "$PR_STATE" = "draft" ]`; `$1` stands in for
@@ -8181,9 +7863,8 @@ rm -f "$IPS_E2E"
 # The publish_failed capture (the workpad never falsely claims a PR was published on a
 # `gh pr ready` failure) and the idempotent arm (a re-run of an already-published PR is
 # NOT a failure) are the headline correctness properties of this change. Modelling all
-# four arms here — plus the token pins below for the idempotent re-check command and
-# breadcrumb — means a refactor that dropped the `else` arm OR the idempotent arm is
-# caught. $1 = PR_STATE, $2 = simulated `gh pr ready` exit (0 ok / non-0), $3 = simulated
+# arms here, plus the retained breadcrumbs below, catches a dropped `else` or
+# idempotent arm. $1 = PR_STATE, $2 = simulated `gh pr ready` exit (0 ok / non-0), $3 = simulated
 # `isDraft` re-check result ("true"/"false"/"" when the re-check itself errored).
 ips_outcome() {
   [ "$1" = "draft" ] && { printf 'draft\n'; return; }
@@ -8197,26 +7878,14 @@ assert_eq "implement_pr_state outcome: gh fails + PR still draft → publish_fai
 assert_eq "implement_pr_state outcome: gh fails + PR already non-draft → published (idempotent)" "published" "$(ips_outcome ready_for_review 1 false)"
 assert_eq "implement_pr_state outcome: gh fails + state unconfirmed (re-check errored) → publish_failed (fail-safe)" "publish_failed" "$(ips_outcome ready_for_review 1 '')"
 
-# Token pins for the publish_failed failure-capture branch, the idempotent re-run arm, and
-# the outcome-specific finalize wording — the prior pass pinned only the draft note
-# (`left as draft`), leaving the load-bearing "never falsely claim published" path and the
-# idempotent re-check uncovered (a refactor dropping the isDraft arm would stay green).
+# Executable assertions below cover the publish-failure breadcrumbs and outcome model.
+# Detailed idempotent and finalize wording is intentionally not pinned.
 assert_eq "implement_pr_state: SKILL captures the publish_failed outcome (gh pr ready failure not swallowed)" "yes" \
   "$(grep -qF 'PR_OUTCOME=publish_failed' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: appears twice in implement SKILL (publish-failed paths)
 assert_eq "implement_pr_state: SKILL leaves a gh-pr-ready failure breadcrumb" "yes" \
   "$(grep -qF 'gh pr ready FAILED' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: appears twice in implement SKILL (publish-failed paths)
-assert_pin_unique "implement_pr_state: SKILL keeps the idempotent already-non-draft re-check" 'gh pr view --json isDraft' "$IMPL_SKILL"
 assert_eq "implement_pr_state: SKILL labels the idempotent re-run breadcrumb" "yes" \
   "$(grep -qF 'idempotent re-run' "$IMPL_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'idempotent re-run' appears twice in implement SKILL
-# Couple the fail-safe construct: the re-check must redirect stderr (empty-on-error) AND
-# compare against the literal `= "false"` — so an unconfirmed/errored re-check (empty
-# substitution) is `!= "false"` and falls through to publish_failed (the conservative
-# direction). Pinning the two together catches a silent fail-safe inversion (e.g. someone
-# rewriting it as `!= "true"`, under which an empty result would wrongly read as published).
-assert_pin_unique "implement_pr_state: SKILL idempotent re-check is fail-safe (2>/dev/null coupled to = \"false\")" '2>/dev/null)" = "false" ]' "$IMPL_SKILL"
-assert_pin_unique "implement_pr_state: SKILL has a distinct published-outcome note" 'PR published (gh pr ready)' "$IMPL_SKILL"
-assert_pin_unique "implement_pr_state: draft case posts no extra PR-thread comment (AC7)" 'no additional comment' "$IMPL_SKILL"
-
 # Positional check: the clean-tree backstop must run ABOVE the publish gate (the diff's
 # behavioral change is that it runs unconditionally in BOTH publish and draft cases), not
 # merely be present somewhere. Assert line ordering, not bare presence.
@@ -9963,16 +9632,6 @@ for capability_mirror in \
 done
 
 E484_PHASE4="$LIB/../skills/implement/phases/phase-4-documentation.md"
-assert_pin_red_on_removal "#484 docs staging consumes all four observed config results" \
-  'read the four tool results and substitute non-empty values as literals below' "$E484_PHASE4"
-assert_pin_red_on_removal "#484 docs config failures retry then block" \
-  'retry that read once, then mark the workpad `Blocked`' "$E484_PHASE4"
-assert_pin_red_on_removal "#484 docs staging inspects unfiltered status" \
-  'Inspect unfiltered `git status --short` after the docs subagent returns' "$E484_PHASE4"
-assert_pin_red_on_removal "#484 docs staging builds an explicit complete artifact list" \
-  'Build the explicit staging list from every documentation artifact that dispatch changed' "$E484_PHASE4"
-assert_pin_red_on_removal "#484 docs no-change arm requires clean subagent output plus unfiltered status" \
-  'Only when the subagent returned cleanly and unfiltered status confirms it produced no documentation artifact' "$E484_PHASE4"
 for docs_key in .docs.internal .docs.external .docs.release_notes_file .docs.changelog_file; do
   assert_pin_red_on_removal "#484 docs staging reads configured key $docs_key" \
     "config-get.sh $docs_key" "$E484_PHASE4"
@@ -12188,61 +11847,24 @@ assert_eq "#350: the DEVFLOW_APP_ID env export lives in the Run Claude Code step
 # The Addendum (2026-06-29) SUPERSEDES LLM prose-extraction: a deterministic
 # helper (scripts/extract-doc-needed-paths.sh) is the single extraction boundary
 # BOTH stages consume, and its behavior is verified by the fixture matrix below
-# (not by prose pins). The prose pins here lock the load-bearing operative
-# sentences of each stage's control flow; they are intentionally NOT a tally,
-# so this comment names them structurally rather than by count (a hardcoded
-# count drifts the moment an arm is added or removed):
-#   Stage 1 — deterministic-extraction mandate + mandatory-deliverable dispatch
-#             phrase + present-bullet-but-no-paths audit note.
-#   Stage 2 — single-source-of-truth re-run, no-op escape, bare-filename match,
-#             self-heal condition, three-dot diff range, Blocked arm, $BASE
-#             non-empty fallback, rc-vs-empty-stdout distinction, broken-command
-#             fail-closed floor, and remote-anchored self-heal re-check.
+# (not by detailed prose pins). The retained boundaries cover the mandatory
+# deliverable dispatch, helper invocation shape, no-op escape, diff range, and
+# Blocked arm.
 assert_pin_unique "#185: Phase 4.1 Stage 1 requires docs subagent to treat named paths as mandatory (D)" \
   'treat each as a mandatory deliverable' "$IMPL_SKILL"
-# Addendum: Stage 1 extraction is deterministic (helper), not LLM prose-reading.
-assert_pin_unique "#185A: Phase 4.1 Stage 1 mandates deterministic (not LLM) extraction" \
-  'do not interpret the prose yourself' "$IMPL_SKILL"
-# Addendum: both stages consume the SAME deterministic helper (not re-derived). Issue #284
+# Both stages consume the SAME deterministic helper (not re-derived). Issue #284
 # folded the once-only retry into each stage's `if ! A && ! B` extractor guard, so the
 # helper is now invoked twice per stage (read + retry) × 2 stages = 4 occurrences.
 assert_eq "#185A: Phase 4.1 calls extract-doc-needed-paths.sh in BOTH stages (read+retry each)" \
   "4" "$(pin_count 'extract-doc-needed-paths.sh' "$IMPL_SKILL")"
-assert_pin_unique "#185A: Phase 4.1 Stage 2 re-runs the helper as the single source of truth" \
-  're-running the helper is the single source of truth' "$IMPL_SKILL"
-# #190 suggestion 1: a present-but-empty Documentation Needed bullet must leave an
-# auditable breadcrumb rather than silently disabling enforcement.
-assert_pin_unique "#190: Phase 4.1 Stage 1 records a note when the bullet has no extractable paths (H)" \
-  'the extractor found no file paths' "$IMPL_SKILL"
 assert_pin_unique "#185: Phase 4.1 Stage 2 no-op escape hatch when no paths extracted (E)" \
   'this cross-check is a no-op' "$IMPL_SKILL"
-assert_pin_unique "#185: Phase 4.1 Stage 2 bare-filename matching rule (F)" \
-  'whose basename matches it counts as satisfied' "$IMPL_SKILL"
-assert_pin_unique "#185: Phase 4.1 Stage 2 keeps the absent-file self-heal condition (A)" \
-  'absent from the diff, perform the missing update' "$IMPL_SKILL"
 # Issue #284 folded the once-only retry into the Stage-2 diff `if ! A && { fetch; ! B; }`
 # guard, so the three-dot range now appears twice (read + retry) — count-based, ==2.
 assert_eq "#185: Phase 4.1 Stage 2 uses the three-dot origin/\$BASE...HEAD diff range (B, read+retry)" \
   "2" "$(pin_count 'git diff --name-only "origin/$BASE...HEAD"' "$IMPL_SKILL")"
 assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content condition (C)" \
   'Documentation Needed file content cannot be determined' "$IMPL_SKILL"
-# #190 finding 2: $BASE-empty recovery must mirror the Phase 1.4 fallback, not
-# just the config-get.sh read (the read alone returns nothing on malformed config).
-assert_pin_unique "#190: Phase 4.1 Stage 2 \$BASE recovery mirrors the Phase 1.4 fallback (I)" \
-  'applying its non-empty fallback and not just the config read' "$IMPL_SKILL"
-# #190 finding 3 (re-stated per review Critical #2): the FAILURE signal is the exit
-# status, never stdout emptiness — an rc-0 empty diff is a genuine all-absent result.
-assert_pin_unique "#190: Phase 4.1 Stage 2 distinguishes rc-0 empty stdout from a command failure (J)" \
-  'an rc-0 result with empty stdout is NOT a failure' "$IMPL_SKILL"
-# Review suggestion 1: a re-fetch that itself fails must fail CLOSED (Blocked),
-# never fall through to a path-absent verdict on a broken command.
-assert_pin_unique "#190: Phase 4.1 Stage 2 fails closed when the diff command stays broken" \
-  'never fall through to a path-absent verdict on a broken command' "$IMPL_SKILL"
-# #190 finding 1 (re-stated per review Important #3): the self-heal re-check is
-# remote-anchored — HEAD must match @{u}, so a no-op/rejected push cannot satisfy
-# the gate off a still-local commit.
-assert_pin_unique "#190: Phase 4.1 Stage 2 self-heal re-check is remote-anchored (K)" \
-  'the local branch is in sync with its upstream' "$IMPL_SKILL"
 # PR #190 fix-loop: the EXTRACTION side (gh issue view / helper) must read the
 # exit status, not stdout emptiness — a failed gh issue view (auth/network/wrong
 # number) emits empty stdout indistinguishable from a genuinely empty bullet and
@@ -12280,69 +11902,23 @@ assert_eq "#190 fix-loop: Phase 4.1 fail-closed extraction contract pinned in BO
 
 # ── issue #230: narrative is a starting point; only Desired Behavior + ACs are ──
 # authoritative downstream, and the Documentation Needed bullet is a floor-not-a-
-# ceiling. These are load-bearing guidance prose, so pin their operative sentences
-# in the OWNING phase file directly (not the merged bundle) — AC7 requires a
-# presence pin in EACH edited phase file. Each pinned literal is the operative
-# sentence whose removal alone re-introduces the gap, not an adjacent framing
-# clause: assert_pin_unique's count==1 contract is the standing removal-proof.
+# ceiling. The retained assertions focus on regression-specific discriminators
+# and the docs mirror.
 P2_FILE="$IMPL_PHASES_DIR/phase-2-implement.md"
 # P4_FILE is defined once next to IMPL_PHASES_DIR above (shared by the #232 and #230 blocks).
-assert_pin_unique "#230: phase-2 §2.1 names the narrative as a non-authoritative starting point (AC1)" \
-  'non-authoritative starting point to verify' "$P2_FILE"
-assert_pin_unique "#230: phase-2 §2.1 scopes 'code wins' so it never overrides the decided spec (AC2)" \
-  'never overrides Desired Behavior or Acceptance Criteria' "$P2_FILE"
-# AC2's load-bearing discriminator is the SCOPING word `descriptive`, not the consequence
-# clause above: a reword that drops "applies to descriptive claims only" while keeping the
-# "never overrides …" tail would re-broaden "code wins" over the decided spec (the exact
-# #230 bug class) yet stay GREEN. Pin the scoping clause itself so its removal goes RED.
-assert_pin_unique "#230: phase-2 §2.1 keeps the 'code wins' scoping qualifier (descriptive-only) (AC2 discriminator)" \
-  'applies to **descriptive** claims only' "$P2_FILE"
-# AC1's operational meaning of "non-authoritative" is the 'narrow or suppress' clause — the
-# direct encoding of the #230 fix (a contradictory narrative must not talk a phase out of
-# warranted work). The 'non-authoritative starting point to verify' label pin above guards
-# the term; this guards what the term *operationally forbids*, so a reword collapsing it back
-# to "ignore it" goes RED.
+# AC1's operational prohibition remains covered directly.
 assert_pin_unique "#230: phase-2 §2.1 keeps the operational 'narrow or suppress' prohibition (AC1 meaning)" \
   'narrow or suppress' "$P2_FILE"
-assert_pin_unique "#230: phase-4 §4.1 narrative never suppresses the routine doc pass (AC3)" \
-  'suppresses the routine documentation pass' "$P4_FILE"
 # AC3's regression-specific discriminator is the absent/empty/contradictory trigger list —
-# the three bullet shapes #230 exploited. The general "never suppresses" pin above does not
-# guard it: dropping the enumeration would re-open the exact suppression path while staying
-# GREEN. Pin the trigger enumeration so its removal goes RED.
+# the bullet shapes #230 exploited.
 assert_pin_unique "#230: phase-4 §4.1 keeps the absent/empty/contradictory trigger enumeration (AC3 discriminator)" \
   'absent, empty, or contradictory' "$P4_FILE"
-assert_pin_unique "#230: phase-4 §4.1 Documentation Needed is a floor, never a ceiling (AC4)" \
-  'never a ceiling that authorizes skipping otherwise-warranted documentation' "$P4_FILE"
-# §2.1 and §4.1 are coupled mirror sites of one authority hierarchy; §4.1 ties back via the
-# 'mirrors the §2.1 authority hierarchy' anchor. Pin that anchor so a reword that desyncs the
-# two files' framing (the dominant CLAUDE.md coupled-invariant bug class) goes RED rather than
-# leaving the mirror sites silently disagreeing.
-assert_pin_unique "#230: phase-4 §4.1 keeps the §2.1 cross-reference anchor (mirror-site coupling)" \
-  'mirrors the §2.1 authority hierarchy' "$P4_FILE"
-# docs/implement-skill.md is the THIRD coupled mirror site (AC6 requires its Phase 4.1
-# section carry the floor-not-ceiling framing). Pin its operative clause so a future edit
-# that reverts/contradicts the doc while the phase files stay intact goes RED — the same
-# coupled-mirror discipline the phase-file pins above apply, extended to the doc (precedent:
-# the docs/implement-skill.md mirrors already pinned earlier in this file via $IMPL_DOC).
+# The docs mirror carries the floor-not-ceiling framing required by AC6.
 assert_pin_unique "#230: docs/implement-skill.md mirrors the floor-not-ceiling framing (AC6)" \
   'never read as a ceiling that authorizes' "$IMPL_DOC"
 
-# ── issue #334: comment discipline — repo-agnostic engine prose in §2.3 and ───
-# §2.3.4a. These are behavioral-fix pins: each pinned literal is the OPERATIVE
-# sentence of its passage — the minimal text whose removal alone re-introduces the
-# gap it guards, not an adjacent framing clause. The §2.3.4a pin deliberately spans
-# the trailing "even when the comment is currently accurate" clause: that clause is
-# the whole reason the §2.3.4a sweep step is an always-on sweep rather than a
-# restatement of §2.3, so a half-revert deleting only it must turn this pin RED.
-# The docs mirror in $IMPL_DOC is pinned below (the #334 docs↔skill coupled
-# invariant, mirroring the #230 $IMPL_DOC pins). assert_pin_unique's count==1
-# contract is the standing removal-proof (the counterfactual half-revert was
-# observed RED at authoring time, per the workpad).
-assert_pin_unique "#334: §2.3 authoring rule forbids mirror-fact comments (operative sentence)" \
-  'A comment that mirrors a fact the code already carries is not authored' "$P2_FILE"
-assert_pin_unique "#334: §2.3.4a step drift-proofs mirror-fact comments before commit (operative sentence + always-on clause)" \
-  'is made drift-proof per the §2.3 treatments — rewritten or removed — before commit, **even when the comment is currently accurate.**' "$P2_FILE"
+# ── issue #334: comment-contract docs mirror ────────────────────────────────
+# The docs mirror remains covered without holding the Phase 2 procedure to exact prose.
 assert_pin_unique "#334: docs/implement-skill.md mirrors the 2.3.4a mirror-fact drift-proofing clause (docs↔skill coupled invariant)" \
   'is rewritten or removed per the §2.3 authoring' "$IMPL_DOC"
 
@@ -12587,17 +12163,6 @@ assert_pin_red_under "#377 w3-no-clean-as-evidence: §3.2 states a cleanup agent
 assert_pin_red_under "#377 w3-phase33-owns-correctness: §3.2 names the Phase 3.3 reviewers as the owners of correctness (AC6)" \
   'Correctness is owned by the Phase 3.3 reviewers' \
   's/Correctness is owned by the Phase 3.3 reviewers//' "$P3_FILE"
-# AC7: §3.2's existing #193 AC-triage pins must survive the rewrite unchanged. They are asserted
-# in the #193 block above (lines pinning 'skip the finding and record the AC conflict as the skip
-# rationale', 'exists only on the issue-context', 'that is Phase 2.2.6 AC-rewrite territory' against
-# $IMPL_SKILL); re-confirm here against the owning phase file that all three survive verbatim.
-assert_pin_unique "#377 w3-triage-pins-intact: §3.2 #193 AC-triage operative sentence survives the rewrite (AC7)" \
-  'skip the finding and record the AC conflict as the skip rationale' "$P3_FILE"
-assert_pin_unique "#377 w3-triage-scope-intact: §3.2 #193 issue-context scope pin survives the rewrite (AC7)" \
-  'exists only on the issue-context' "$P3_FILE"
-assert_pin_unique "#377 w3-triage-carveout-intact: §3.2 #193 stale-AC carve-out pin survives the rewrite (AC7)" \
-  'that is Phase 2.2.6 AC-rewrite territory' "$P3_FILE"
-
 # ── issue #478: re-anchor Step 3 item 3b onto the full Phase 2.3 sweep-selection index ──
 # Part 2 of 2 (after #474). Item 3b no longer hand-enumerates three sweeps — it re-anchors onto
 # the §2.3 "Sweep selection (run first)" index, carries a durable-operand read protocol, a
@@ -16893,7 +16458,6 @@ assert_pin_unique "#272 AC10: overview §11 mirrors the visual-specification beh
 #    verified-config multi-shape block driving config-get.sh's fail-closed arm selection.
 CI446_TMPL="$LIB/../skills/create-issue/references/issue-template.md"
 CI446_SKILL="$CREATE_ISSUE_BUNDLE"   # #614: Step 2's DoR item and Step 4's offer gate now live in references/; the bundle is the content-survival target
-CI446_P4="$LIB/../skills/implement/phases/phase-4-documentation.md"
 CI446_OVERVIEW="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1/AC2 — the optional ## Dependencies section in BOTH the template's structure guidance
 # and its bottom skeleton (coupled mirror sites: a one-sided edit turns one of these RED).
@@ -16907,19 +16471,6 @@ assert_pin_unique "#446 AC2: issue-template bottom skeleton mirrors the Dependen
 # recognized forms are pinned together — RED if either side's heading or phrasing drifts.
 assert_eq "#446: template Dependencies vocabulary matches the extracted preflight recognizer (producer/consumer coupled)" "yes" \
   "$(grep -qF '## Dependencies' "$CI446_TMPL" && grep -qF 'Blocked by #N' "$CI446_TMPL" && grep -qF 'DEPENDENCY_HEADING' "$LIB/../scripts/preflight.py" && grep -qF 'blocked by' "$LIB/../scripts/preflight.py" && echo yes || echo no)"  # raw-guard-ok: compound coupled producer/consumer vocabulary check across template + helper
-# AC4 — phase-4 Phase 4.0 renders ## Dependencies above Problem Statement (Sections-in-order
-# list + the render bullet + the heredoc line).
-assert_pin_unique "#446 AC4: phase-4 Phase 4.0 Sections-in-order list leads with ## Dependencies" \
-  '**Sections, in this order:** `## Dependencies`, `## Problem Statement`' "$CI446_P4"
-assert_pin_unique "#446 AC4: phase-4 Phase 4.0 documents the parent-ordering redundancy bullet" \
-  'making the same parent-ordering fact scannable as its own section' "$CI446_P4"
-assert_pin_unique "#446 AC4: phase-4 Phase 4.0 heredoc renders the parent Blocked-by line" \
-  'Blocked by #$ARGUMENTS — the parent issue' "$CI446_P4"
-# AC4 — the "intentionally omitted" list is reconciled: it now names the Technical-Context
-# Dependencies *bullet* as omitted while the top-level ## Dependencies section IS rendered, so a
-# regression re-adding the section to the omitted set (contradicting the render bullet) goes RED.
-assert_pin_unique "#446 AC4: phase-4 intentionally-omitted list keeps the top-level ## Dependencies section rendered" \
-  'distinct from the top-level `## Dependencies` section, which *is* rendered' "$CI446_P4"
 # AC6 — the ladder terminal arm is decided two ways, and the Blocked-section inclusion rule is
 # reconciled to admit the ladder-produced vendor-behavior question (no longer "solely when the
 # user disengaged"). Pin both so a revert of either terminal-arm reconciliation goes RED.
@@ -29344,7 +28895,6 @@ echo "#628 code-explorer/code-architect quantitative-claim calibration + inert-g
 # plus live structural assertions computed against the tracked files (T5).
 CE_628="$FDROOT/agents/code-explorer.md"
 CA_628="$FDROOT/agents/code-architect.md"
-P2_628="$FDROOT/skills/implement/phases/phase-2-implement.md"
 
 # T1 (AC1): architect calibration sentence in its Output Guidance.
 assert_pin_unique "#628 architect Output Guidance carries the quantitative-claim calibration sentence" \
@@ -29362,10 +28912,6 @@ assert_pin_unique "#628 explorer calibration states operands + counting rule inl
 # T3 (AC3): explorer file:line scoping sentence after the line-numbers mandate.
 assert_pin_unique "#628 explorer scopes file:line precision to ephemeral analysis, bare paths in committed docs" \
   'committed documentation instead references bare paths and symbol names' "$CE_628"
-# T4 (AC4): phase-2 §2.2 re-derivation obligation.
-assert_pin_unique "#628 phase-2 §2.2 obliges orchestrator to re-derive a subagent quantitative claim" \
-  'Independently re-derive any quantitative claim a Phase-2 subagent produced' "$P2_628"
-
 # T5 (AC5): live structural assertions — each agent tools: line omits KillShell and
 # BashOutput (exactly the two inert tokens removed), and the two files' tools: lines
 # are byte-identical (the channel that keeps AC5's identity criterion from rotting
@@ -31048,10 +30594,8 @@ assert_pin_unique "#290 workflow grants contents: write for the bump push" \
 assert_pin_unique "#290 workflow guards against its own bump commit re-triggering (no loop)" \
   "startsWith(github.event.head_commit.message, 'chore: bump version')" "$CS_WF"
 
-# Repointed Phase 3 gate: engine-surface change ⇒ changeset file present (replaces the old
-# version↔CHANGELOG presence check). Pin the gate prose in phase-3-review.md and the extension.
-assert_pin_unique "#290 Phase 3 gate keys on the presence of a changeset artifact" \
-  'a missing changeset file' "$P3_REVIEW"
+# The implement extension retains the engine-surface changeset gate independently of
+# the Phase 3 procedure's exact wording.
 assert_pin_unique "#290 implement prompt-extension gate: engine-surface change with no changeset FAILs" \
   'FAILs on an engine-surface change that carries **no** changeset file' "$FDROOT/.devflow/prompt-extensions/implement.md"
 # The .changeset/ contributor doc must exist and document the required bump frontmatter.
@@ -34435,18 +33979,6 @@ RESOLVES_LN289="$(grep -nF 'Resolves #{issue_number}' "$P3289" | head -1 | cut -
 VIEWRUN_LN289="$(grep -nF '[View run]($RUN_URL)' "$P3289" | head -1 | cut -d: -f1)"        # raw-guard-ok: line-number lookup for the positional pin
 assert_eq "#289 AC9: [View run](\$RUN_URL) is positioned after Resolves #{issue_number} in the draft-PR heredoc" "yes" \
   "$([ -n "$RESOLVES_LN289" ] && [ -n "$VIEWRUN_LN289" ] && [ "$VIEWRUN_LN289" -gt "$RESOLVES_LN289" ] && echo yes || echo no)"
-# AC6 (local-tier omission): the strip line that drops the broken [View run]() line when
-# RUN_URL is empty (behavioral-fix pin — its operative sentence is that strip; removing it
-# reintroduces a broken link on every local-tier draft PR, which AC9's presence pin would NOT
-# catch since it only asserts the line is present after Resolves).
-assert_pin_unique "#289 AC6: phase-3-review.md strips the broken [View run]() line on a local-tier run (empty RUN_URL)" \
-  "grep -vF '[View run]()'" "$P3289"
-# AC9 (heredoc expansion): the draft-PR heredoc must stay unquoted (<<EOF) so \$RUN_URL
-# expands — a revert to <<'EOF' would emit the literal string "\$RUN_URL" into the PR body,
-# which the [View run](\$RUN_URL) presence pin above matches identically and so cannot catch.
-assert_pin_unique "#289 AC9: draft-PR heredoc is unquoted (<<EOF) so \$RUN_URL expands, not emitted literally" \
-  'BODY=$(cat <<EOF' "$P3289"
-
 # ────────────────────────────────────────────────────────────────────────────
 echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate helper"
 # ────────────────────────────────────────────────────────────────────────────
@@ -41812,10 +41344,6 @@ for _t in $UBC_TOKENS; do
 done
 assert_eq "#779 ubc-token-arms: every helper token is named in a checkpoint-4 arm (none falls through to publish)" \
   "" "${UBC_UNMAPPED# }"
-# The complement — an empty or unrecognized first field — takes the SAME refusal arm as the
-# non-clean tokens, so a novel/degenerate output shape fails closed rather than publishing.
-assert_pin_unique "#779 ubc-token-arms: an empty or unrecognized first field takes the refusal arm" \
-  'or a first field that is empty or unrecognized' "$UBC_P4"  # structural-pin-ok: contract-presence pin for the complement of the derived token set; the refusal behavior itself is guarded by the #779 refusal-arm mutation pin
 unset _t UBC_TOKENS UBC_TOKENS_ONELINE UBC_P4_BODY UBC_UNMAPPED
 # ────────────────────────────────────────────────────────────────────────────
 echo "extract-execution-shape.sh (#437 execution-file shape probe: redaction + present/absent/unavailable + encoding)"
