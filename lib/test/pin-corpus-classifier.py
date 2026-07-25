@@ -4,8 +4,8 @@
 """Produce the frozen protected-asset census for existence-only test pins.
 
 This is a maintainer-run measurement instrument, not a test-suite gate.  It
-reuses pin-corpus-lint.py's shell parser and enumerates homes from the git index
-so runtime bundle targets never masquerade as source homes.
+reuses pin-corpus-lint.py's shell parser and enumerates homes from an immutable
+Git revision tree so runtime bundle targets never masquerade as source homes.
 """
 
 from __future__ import annotations
