@@ -1025,7 +1025,7 @@ def _deleted_pin_literals(deleted_lines, lib, overrides):
     return counts
 
 
-def _site_physical_lines(all_lines, start_lineno, logical_line):
+def site_physical_lines(all_lines, start_lineno, logical_line):
     """The ORIGINAL physical lines of a call site (with trailing backslashes intact),
     so they match the diff's added-line content. `logical_line` carries one embedded
     newline per continuation join, so its newline count is (end - start)."""
@@ -1079,7 +1079,7 @@ def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
         toks = tokenize(stripped)
         if not toks or "".join(v for _, v in toks[0]) != helper:
             continue
-        phys = _site_physical_lines(all_lines, lineno, line)
+        phys = site_physical_lines(all_lines, lineno, line)
         # In scope only when EVERY physical line of the site is in the added set.
         if not phys or any(pl.rstrip("\r") not in added for pl in phys):
             continue

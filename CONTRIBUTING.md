@@ -164,6 +164,13 @@ you declare the classification at authoring time. The gate is diff-scoped (only 
 change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
 files is exempt.
 
+**Retiring existence-only pins (issue #798).** Use the frozen census in
+`.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the
+pin's literal appears in two or more counted homes, remove the pin only in the same
+change that removes at least one of those copies; a pin-only removal is not an
+accepted disposition because it leaves the duplicated prose without its divergence
+check.
+
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
 member of the same declaration-marker family, in the same one-line-reason framing as
 `# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`

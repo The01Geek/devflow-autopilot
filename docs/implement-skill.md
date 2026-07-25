@@ -240,6 +240,33 @@ one-line reason. All three guards run over `run.sh` itself and over every regist
 that blanks its target (`1,$d` / `s/.*//`), closing the loophole where a pin flips PASS→FAIL because the
 file was destroyed rather than the guarded content removed.
 
+### Protected-asset taxonomy for existence-only pins
+
+The maintainer-run classifier in `lib/test/pin-corpus-classifier.py` evaluates every
+in-scope existence-only pin against exactly these eight protected-asset buckets:
+
+| Bucket | Protected asset |
+| --- | --- |
+| `suite-internal` | A literal whose homes are all inside `lib/test/`, with no counted prose occurrence. |
+| `required-copy` | A literal in a copy set that project policy requires to remain duplicated. |
+| `boundary` | Code, workflow, or contract text on a security, credential, or interface boundary; this requires maintainer adjudication rather than path-only classification. |
+| `generated` | A generated artifact whose byte identity is the contract. |
+| `config-key` | A configuration key name. |
+| `prose-sole-copy` | Prose with exactly one counted tracked home. |
+| `prose-multi-copy` | Prose with two or more counted tracked homes. |
+| `unclear` | The fail-closed result when the mechanical walk cannot establish the literal, its homes, or a semantic classification. |
+
+Each inventory row records `bucket_mechanical` in the exact eight-value vocabulary,
+although the mechanical walk deliberately never emits `boundary`. An `unclear`
+mechanical result requires explicit adjudication, so `bucket_final` is one of the
+other seven values. Classification belongs to the literal rather than the call site, so
+every in-scope pin for the same resolved literal receives the same final bucket. The
+classifier mechanically orders `suite-internal`, `required-copy`, `generated`,
+`config-key`, and the counted-home prose buckets; declared boundary paths and any other
+undecided case first become `unclear`. The committed snapshot, including each site's
+mechanical and final bucket plus its retirement entanglements, is
+`.devflow/logs/pin-corpus-inventory.tsv`.
+
 **Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
 persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
 workpad copy, derived from its per-iteration `iter-*.json`. But Phase 3.3 drives that loop **inline in the
