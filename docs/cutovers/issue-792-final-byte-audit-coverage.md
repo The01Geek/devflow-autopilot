@@ -94,6 +94,16 @@ return carrying no parseable verdict, and a `VERDICT: DRAFT-UNREADABLE` return o
 re-dispatch is exhausted — because the offer's own precondition is that an accepted round could
 honour it, and a verdict-less round did not.
 
+## The pass must be dispatched with its instruction file
+
+Because `covered` inherits all four terms of the clean test — steering included — a pass dispatched
+without `--instructions-file`/`--instructions-draft-path` records `steering_reason=inputs-unrecorded`
+and the field reports `uncovered` whatever verdict comes back. Such a pass burns a slot and a
+dispatch and can never make the bytes `covered`. The skill prose therefore names those inputs
+explicitly rather than leaving "an ordinary whole-draft round through the existing file-arm
+machinery" to imply them. This was caught by a review iteration whose test row dispatched the pass
+without them and could not reach the headline `covered` state.
+
 ## Two things the decline must not be
 
 The decline is recorded on a **dedicated channel the override-validity gate cannot see**.

@@ -5775,8 +5775,8 @@ def cmd_record_final_byte_offer(args):
         doc['final_byte_pending'] = True
     elif doc.get('final_byte_pending'):
         # A decline over an OUTSTANDING grant retracts it. That grant funded no round — the
-        # accept armed it and no dispatch consumed it — so the monotonic-grant argument above
-        # does not apply here, and leaving it would fund a phantom round that no ceiling saw,
+        # accept armed it and no dispatch consumed it — so the never-decrement-on-refund rule
+        # above does not reach it, and leaving it would fund a phantom round that no ceiling saw,
         # that no `final_byte_pass` flag marks, and that no refund could ever reach.
         grant = 'retracted'
         doc['final_byte_passes_used'] = max(0, doc.get('final_byte_passes_used', 0) - 1)

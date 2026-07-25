@@ -15569,12 +15569,24 @@ _with_run792(_row792_slot_per_digest)
 # summary line rather than filing silently.
 def _row792_pass_cap(r):
     r.uncovered_round()
+    # The cap counts HONOURED passes, and a grant no dispatch consumed is retracted (by a decline
+    # or a revision) rather than banked — so the cap is filled by taking real passes, each of
+    # which opens a round and returns a verdict. Each pass returns REVISE so the run stays
+    # `uncovered` and the offer keeps firing.
     for i in range(issue_audit_state._FINAL_BYTE_PASS_CAP):
         assert_eq(f"#792 AC98: pass {i + 1} of the cap is offerable",
                   0, r.offer(accepted=True).returncode)
-        Path(r.draft).write_text(f'# A drafted issue title\n\n## Problem Statement\n\nv{i}\n',
-                                 encoding='utf-8')
-        r('record-revision', r.slug, '--after-round', '1', nonce=True)
+        _rd = r('record-dispatch', r.slug, '--round', str(i + 2), '--arm', 'file',
+                '--draft-file', r.draft, nonce=True)
+        assert_eq(f"#792 AC98: pass {i + 1} dispatches, funded by the dedicated slot",
+                  0, _rd.returncode)
+        r('record-return', r.slug, '--round', str(i + 2), '--verdict', 'REVISE',
+          '--findings-count', '1', '--carriage-object-id', r.oid(r.draft), nonce=True)
+        # Revise so the slot re-arms for new bytes and the next offer can fire.
+        Path(r.draft).write_text(
+            f'# A drafted issue title\n\n## Problem Statement\n\nv{i}\n', encoding='utf-8')
+        r('record-revision', r.slug, '--after-round', str(i + 2), '--stdin-digest',
+          stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     over = r.offer(accepted=True)
     assert_eq("#792 AC98: the pass past the cap is refused", True, over.returncode != 0)
     assert_eq("#792 AC98: ... with a breadcrumb embedding the REGISTERED transition reason "
@@ -15822,8 +15834,12 @@ _with_run792(lambda r: _row792_selectors_exclude_pass(r, 'FILE'))
 def _row792_pass_then_edit(r):
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
-      '--draft-file', r.draft, nonce=True)
+    # The pass carries the SAME instruction inputs as any round — it is an ordinary whole-draft
+    # round through the existing file-arm machinery. Dispatching it without them records steering
+    # as `inputs-unrecorded`, and the axis then reports `uncovered` no matter what verdict comes
+    # back: an accepted pass could never make the bytes `covered`, which is the entire mechanism.
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', r.draft,
+      '--instructions-file', r.instr, '--instructions-draft-path', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
       '--carriage-object-id', r.oid(r.draft),
       '--instructions-object-id', r.oid(r.instr), '--extra-dispatch-content', 'no', nonce=True)
@@ -15848,7 +15864,8 @@ _with_run792(_row792_pass_then_edit)
 # completed round, and the earlier whole-draft record is not silently overwritten by an empty one.
 def _row792_post_adjudication_fields(r):
     r.uncovered_round()
-    r.adjudicate(1, 'REVISE', 2, '2')
+    r.adjudicate(1, 'REVISE', 2, '2',
+                 'unresolved: first finding\nunresolved: second finding\n')
     assert_eq("#792 AC112 precondition: the whole-draft round's adjudication renders",
               True, 'adjudicated_verdict=REVISE must_revise=2' in r.summary())
     r.offer(accepted=True)
@@ -15856,7 +15873,7 @@ def _row792_post_adjudication_fields(r):
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE', '--findings-count', '1',
       '--carriage-object-id', r.oid(r.draft), nonce=True)
-    r.adjudicate(2, 'REVISE', 1, '1')
+    r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: the pass finding\n')
     assert_eq("#792 AC112: once the pass is the latest completed round the summary reports ITS "
               "record, not an empty one over the earlier whole-draft record",
               True, 'adjudicated_verdict=REVISE must_revise=1' in r.summary())
@@ -16009,17 +16026,27 @@ assert_eq("#792 iter2: the grant ceiling is strictly above the honoured-pass cap
 
 def _row792_grant_ceiling(r):
     r.uncovered_round()
+    # Grants are banked only by a pass a dispatch actually consumed; a grant retracted by a
+    # decline or a revision never counted. So the ceiling is reached by the degrade path the
+    # ceiling exists to bound — accept, dispatch, refund — which returns CAP headroom every
+    # cycle but never GRANT headroom. Recorded directly rather than driven through the full
+    # degraded-inline escalation each cycle, which this row does not exercise (the refund's own
+    # behavior is `_row792_refund`'s subject).
+    _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
     for i in range(issue_audit_state._FINAL_BYTE_GRANT_CAP):
         assert_eq(f"#792 iter2: grant {i + 1} of the ceiling is accepted",
                   0, r.offer(accepted=True).returncode)
-        Path(r.draft).write_text(
-            f'# A drafted issue title\n\n## Problem Statement\n\nv{i}\n', encoding='utf-8')
-        r('record-revision', r.slug, '--after-round', '1', nonce=True)
-        # Refund the grant, which returns the CAP headroom but never the ceiling headroom.
-        _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
         _d = _json.loads(_p.read_text(encoding='utf-8'))
-        _d['final_byte_refunds'] = _d.get('final_byte_refunds', 0) + 1
+        # The grant is consumed by a dispatch and then refunded — the state a degraded pass
+        # leaves: the grant stays banked, the cap headroom and the slot both return.
+        _d['final_byte_pending'] = False
+        _d[issue_audit_state._FINAL_BYTE_REFUNDS_KEY] = (
+            _d.get(issue_audit_state._FINAL_BYTE_REFUNDS_KEY, 0) + 1)
+        _d['final_byte_slot_digest'] = None
         _p.write_text(_json.dumps(_d), encoding='utf-8')
+        assert_eq(f"#792 iter2: after refund {i + 1} the honoured-pass cap is NOT reached, which "
+                  "is exactly why it cannot bound this loop",
+                  'no', _field704(r.fb(), 'final_byte_exhausted='))
     _over = r.offer(accepted=True)
     assert_eq("#792 iter2: the grant past the ceiling is refused, so a refund->re-arm->refund "
               "loop on a degrading host is bounded even though the honoured-pass cap never fills",
