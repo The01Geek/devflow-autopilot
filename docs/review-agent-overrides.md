@@ -235,6 +235,21 @@ override parameter but **no effort parameter**, and an already-running session h
   — the subagent inherits the **session effort**. This is reported honestly (a per-resolve
   `::notice::` summary from the resolver, distinct from `::warning::`), never claimed as applied.
 
+**The parameter surface is not closed at `model`, and the omission that mattered was
+background-dispatch semantics (issue #801).** Beyond `model`, the Agent tool carries a
+**per-dispatch background/foreground** property, and it is the property that decides whether a
+dispatch returns a result at all — so a survey of the surface that stops at "`model` yes, effort no"
+omits the one parameter a no-verdict run turns on. Upstream, **subagents run in the background by
+default** (since Claude Code v2.1.198), and a background subagent's results reach the caller as a
+completion notification **in a later turn** — which a headless `claude -p` cloud run never reaches,
+so the dispatched work is discarded and the run can end with no verdict. Two layers cover this:
+the cloud engine workflow steps set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`, documented upstream
+as keeping subagents in the foreground; and each engine root states the requirement behaviorally, so
+it holds on runtimes with no equivalent switch. A second consequence is relevant to *this* doc's
+subject: a background subagent keeps its MCP tools but is restricted to a narrower set of built-in
+tools than its definition grants, so forcing foreground also restores the roster's full declared
+tool surface — an agent-behavior change independent of the stall itself.
+
 Earlier releases of this doc and the engine described both model and effort as riding a per-run
 `--agents` JSON block "for every subagent". That mechanism does **not** exist in an already-running
 session — it was fictional for **model as well as effort** (model happens to be delivered by the

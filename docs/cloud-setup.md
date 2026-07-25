@@ -723,7 +723,12 @@ The same App token **also** powers the review workflow's **no-verdict
 auto-resume backstop** (`devflow_review.stall_backstop`, issue #408 — the
 review-side sibling of the implement backstop above; see
 `docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
-with no verdict (the early-quit timing race); when that happens the auto-review
+with no verdict — not a timing race but the harness's **default dispatch mode**
+meeting a headless runner: subagents are background-by-default, a background
+dispatch's results arrive in a *later turn*, and a headless `claude -p` session
+ends at its first tool-call-free turn, so the dispatched fleet is discarded
+(issue #801; the cloud engine steps now set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`
+to keep subagents in the foreground). When it still happens the auto-review
 path (`devflow-review.yml`'s `finalize_check`) mints its **own fresh** App token
 just-in-time and authors a `/devflow:review` re-trigger comment so the review
 re-runs without a human. As with the implement resume, a `GITHUB_TOKEN`-authored

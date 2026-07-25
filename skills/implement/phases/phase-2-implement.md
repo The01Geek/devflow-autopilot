@@ -42,6 +42,8 @@ This gate covers the Phase 2 subagent dispatches only. Phase 3's inline review-e
 
 ### 2.1 Discovery
 
+**Dispatch barrier.** Every subagent dispatch in this step is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/implement/SKILL.md`) — read the requirement there; it is deliberately not restated here.
+
 Use the **Agent tool** with `subagent_type: devflow:code-explorer` to explore the codebase and understand the system as it relates to the issue.
 
 **The issue body is a starting point, not the source of truth.** Treat its problem framing, any stated root cause, and its Technical Context as a strong lead to *verify* — never fact to implement on faith. The explorer (and the architect in Path B) confirm the issue's claims against the actual code; where a **descriptive** claim (current behavior, the stated root cause) diverges from the code, **the code wins** — but the code wins over a descriptive claim **only when the code being read is verified fresh** (see the Fresh-tree verification rules below); a stale checkout is not the source of truth its reads pretend to be. Subject to that freshness qualifier: surface the divergence in the workpad and plan from what the code shows, rather than implementing a claim the code contradicts.

@@ -924,3 +924,163 @@ assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line t
   "no" "$(bstep_headsha "$T435WF")"
 rm -f "$T435WF"
 
+
+# ── #801: harness floor + runner-agnostic dispatch barrier ───────────────────
+# Two coordinated layers keep a cloud engine run from ending its turn with dispatched
+# subagents still in flight. (1) The HARNESS FLOOR: each cloud workflow step that runs a
+# DevFlow engine sets CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, which the vendor documents as
+# keeping subagents in the foreground — so results are in hand before the turn continues,
+# without depending on the model choosing correctly. (2) The RUNNER-AGNOSTIC BARRIER: each
+# engine root states, once, that a dispatch blocks until the completed result is in hand and
+# that a launch acknowledgment is never the return — with the per-runner mechanism named as a
+# current example, so the requirement survives a parameter rename and holds on runtimes with
+# no equivalent switch. The barrier pins target each ROOT's own path rather than
+# $REVIEW_BUNDLE: a bundle pin would stay green on a sentence surviving anywhere in the
+# bundle, and this criterion is location-sensitive (the statement is canonical in the root,
+# and the dispatch sites carry pointers, never copies).
+echo "#801 harness floor + dispatch barrier"
+WFRUN801="$REPO_ROOT/.github/workflows/devflow-runner.yml"
+WFIMP801="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+WFCMD801="$REPO_ROOT/.github/workflows/devflow.yml"
+REVIEW_ROOT801="$REPO_ROOT/skills/review/SKILL.md"
+IMPL_ROOT801="$REPO_ROOT/skills/implement/SKILL.md"
+RGB801="$REPO_ROOT/scripts/render-grounding-block.sh"
+AUDIT801="$REPO_ROOT/skills/create-issue/references/step-3-6-audit.md"
+INSTALL801="$REPO_ROOT/install.sh"
+
+# env-floor-runner / env-floor-implement / env-floor-command — one mutation pin per engine
+# workflow. The mutation deletes the env entry, so a pin that survives it is reported RED.
+devflow_module_pin_red_under "#801 env-floor-runner: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-runner.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFRUN801"
+devflow_module_pin_red_under "#801 env-floor-implement: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-implement.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFIMP801"
+devflow_module_pin_red_under "#801 env-floor-command: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFCMD801"
+
+# The three whole-file pins above prove the literal is PRESENT and load-bearing, but not that
+# it sits on the claude-code-action STEP — a copy parked in an unrelated job would keep them
+# green while the floor never reaches the agent's process. Scope the check to the step block
+# (its `- name: Run Claude Code` line through the `uses:` + `with:` boundary) and pair it with
+# a range-scoped deletion probe, the #435 idiom above.
+cca_step_env801() {  # file -> yes|no : the env line present inside the Run Claude Code step
+  awk '/- name: Run Claude Code/,/^        with:/' "$1" | \
+    grep -qF -- 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' && echo yes || echo no
+}
+for _wf801 in "$WFRUN801" "$WFIMP801" "$WFCMD801"; do
+  assert_eq "#801 harness floor present inside the Run Claude Code step of ${_wf801##*/}" \
+    "yes" "$(cca_step_env801 "$_wf801")"
+  _t801="$(probe_tmp "#801 step-scoped env-floor mutation setup (${_wf801##*/})")"
+  sed -E '/- name: Run Claude Code/,/^        with:/{/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d;}' \
+    "$_wf801" > "$_t801"
+  assert_eq "#801 dropping the step-scoped harness-floor env line turns the scoped check RED (${_wf801##*/})" \
+    "no" "$(cca_step_env801 "$_t801")"
+  rm -f "$_t801"
+done
+unset _wf801 _t801
+
+# barrier-review-root / barrier-implement-root — the canonical statement, one pin per engine
+# root, each proven RED under a mutation that removes ONLY the barrier sentence.
+devflow_module_pin_red_under "#801 barrier-review-root: removing the dispatch-barrier sentence from skills/review/SKILL.md flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$REVIEW_ROOT801"
+devflow_module_pin_red_under "#801 barrier-implement-root: removing the dispatch-barrier sentence from skills/implement/SKILL.md flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_ROOT801"
+# The launch-acknowledgment half is a second operative clause of the same requirement (a
+# reword could keep the blocking sentence while dropping the rule that an acknowledgment is
+# never the return), so it gets its own pin per the one-pin-per-operative-sentence rule.
+devflow_module_pin_red_under "#801 barrier-review-root: removing the launch-acknowledgment clause flips its pin RED" \
+  'a launch acknowledgment is never treated as the return' \
+  '/a launch acknowledgment is never treated as the return/d' "$REVIEW_ROOT801"
+devflow_module_pin_red_under "#801 barrier-implement-root: removing the launch-acknowledgment clause flips its pin RED" \
+  'a launch acknowledgment is never treated as the return' \
+  '/a launch acknowledgment is never treated as the return/d' "$IMPL_ROOT801"
+
+# barrier-cloud-scoped — the barrier must sit INSIDE each root's cloud-conditioned block, not
+# float free as an unconditional rule. Bound the region by the block's own first and last
+# lines (its heading and its closing "This discipline" paragraph) rather than by the next
+# markdown heading, which is many paragraphs away and would accept a barrier moved out of the
+# block. Keeping the barrier cloud-scoped is what keeps step-3-6-audit.md's cross-reference —
+# which contrasts its own unconditional wait with "the cloud-tier headless-wait discipline" —
+# accurate without editing that file.
+barrier_in_cloud_block801() {  # file -> yes|no
+  awk '/Cloud headless-wait discipline/,/^This discipline/' "$1" | \
+    grep -qF -- "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no
+}
+assert_eq "#801 barrier-cloud-scoped: review root's barrier sits inside the cloud-conditioned block" \
+  "yes" "$(barrier_in_cloud_block801 "$REVIEW_ROOT801")"
+assert_eq "#801 barrier-cloud-scoped: implement root's barrier sits inside the cloud-conditioned block" \
+  "yes" "$(barrier_in_cloud_block801 "$IMPL_ROOT801")"
+# Positive control: a barrier relocated outside the block must make the scoped check RED.
+# Deleting the barrier only from within the block and appending it after the block reproduces
+# exactly that relocation, so the check is proven to bind on placement, not mere presence.
+_t801s="$(probe_tmp '#801 barrier-cloud-scoped relocation control')"
+awk '{ print }' "$IMPL_ROOT801" | \
+  sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" > "$_t801s"
+printf '%s\n' "A dispatch blocks until the subagent's completed result is in hand." >> "$_t801s"
+assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED" \
+  "no" "$(barrier_in_cloud_block801 "$_t801s")"
+rm -f "$_t801s"
+# The cross-reference this scoping keeps accurate lives in the create-issue audit reference;
+# pin its clause so a future edit that drops it is visible here, where the coupling is stated.
+devflow_module_pin_present "#801 step-3-6-audit.md keeps its cloud-tier headless-wait cross-reference" \
+  'deliberately unlike the cloud-tier headless-wait discipline' "$AUDIT801"  # structural-pin-ok: presence of an unedited cross-reference clause whose accuracy this change preserves; its removal breaks no behavior this change fixes
+
+# grounding-barrier-present — the injected engine-ground-truth block is the one prompt surface
+# guaranteed resident on the cloud review tier, so it carries the barrier too. Pinned on the
+# RENDERED surface (the #375 discipline the sibling #408 grounding pins follow) plus a
+# source-level mutation pin proving the sentence is load-bearing.
+GB801_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB801")"
+assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
+  "$(printf '%s\n' "$GB801_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
+devflow_module_pin_red_under "#801 grounding: deleting the dispatch-barrier sentence from the renderer flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$RGB801"
+
+# barrier-pointer-coverage — every dispatch site points at its engine root's barrier statement
+# rather than copying it. The population is the closed path list the acceptance criterion
+# enumerates, NOT a live grep: no repo artifact enumerates dispatch sites, so a detector
+# claiming to catch a site added later would be unbacked. The residual is stated rather than
+# hidden — a dispatch added in a file outside this list is not caught, and the list is
+# revisited whenever a phase or reference file is added to either engine.
+BARRIER_POINTER801='barrier statement in the engine root'
+_dispatch_sites801=(
+  "skills/review/phases/phase-1-checklist.md"
+  "skills/review/phases/phase-2-verification.md"
+  "skills/review/phases/phase-3-agents.md"
+  "skills/review/phases/phase-0-3-6-blocker-recheck.md"
+  "skills/review-and-fix/references/shadow-review.md"
+  "skills/review-and-fix/references/fix-delta-gate.md"
+  "skills/review-and-fix/references/loop-exit.md"
+  "skills/review-and-fix/references/loop-control.md"
+  "skills/implement/phases/phase-2-implement.md"
+  "skills/implement/phases/phase-4-documentation.md"
+)
+has_barrier_pointer801() {  # file -> yes|no
+  grep -qF -- "$BARRIER_POINTER801" "$1" && echo yes || echo no
+}
+for _site801 in "${_dispatch_sites801[@]}"; do
+  assert_eq "#801 barrier-pointer-coverage: $_site801 points at its engine root's barrier statement" \
+    "yes" "$(has_barrier_pointer801 "$REPO_ROOT/$_site801")"
+done
+# Planted-defect positive control: strip the pointer from one listed site on a COPY and prove
+# the coverage check fires, so a vacuous grep (an always-yes matcher) cannot pass silently.
+_t801p="$(probe_tmp '#801 barrier-pointer-coverage positive control')"
+sed -E "/$BARRIER_POINTER801/d" "$REPO_ROOT/${_dispatch_sites801[0]}" > "$_t801p"
+assert_eq "#801 barrier-pointer-coverage: stripping the pointer from a listed site turns the coverage check RED" \
+  "no" "$(has_barrier_pointer801 "$_t801p")"
+rm -f "$_t801p"
+unset _site801 _t801p
+
+# install-loop-unchanged — consumers receive the harness floor with no install.sh edit,
+# because the copy loop already carries all three engine workflows; matcher-probe.yml stays
+# repo-internal and absent from it. Both halves are asserted: a loop that lost an engine
+# workflow would silently stop shipping the floor, and one that GAINED matcher-probe.yml
+# would ship a repo-internal probe to consumers.
+devflow_module_pin_present "#801 install-loop-unchanged: the workflow copy loop still lists the three engine workflows" \
+  'for w in devflow devflow-runner devflow-implement devflow-review telemetry-push; do' "$INSTALL801"  # structural-pin-ok: presence of an unedited copy-loop literal this change deliberately does not touch; its removal breaks no behavior this change fixes
+assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" "no" \
+  "$(grep -F 'for w in devflow' "$INSTALL801" | grep -qF 'matcher-probe' && echo yes || echo no)"

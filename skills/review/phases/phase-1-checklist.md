@@ -65,6 +65,8 @@ where `M` is the total dropped count (`N - 100`) and per-category counts sum to 
 
 ### 1.2 Launch checklist-generator agent(s)
 
+**Dispatch barrier.** Every subagent dispatch in this step is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/review/SKILL.md`) — read the requirement there; it is deliberately not restated here.
+
 Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for `devflow:checklist-generator` per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` as the Agent tool's `model` override.
 
 Pass the following prompt — carrying the slice's **file path** (from Phase 1.1), never inline diff content:

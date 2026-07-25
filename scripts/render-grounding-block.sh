@@ -200,6 +200,12 @@ ${ALLOWED_TOOLS}
 > UNAVAILABLE (their "you'll be re-invoked" promise is false under \`claude -p\`);
 > keep the turn alive by polling for the pending results instead, so the run reaches
 > a verdict rather than dying success-with-no-verdict.
+> A dispatch blocks until the subagent's completed result is in hand, and a launch acknowledgment is never treated as the return.
+> An acknowledgment means the work STARTED, not that it finished, so never proceed
+> past a dispatch on one and never create a pending dispatch you cannot collect
+> within this turn. How that obligation is met is a per-runner detail, not the
+> requirement itself — keeping subagents in the foreground is the current mechanism
+> on this runner, named as an example rather than as the definition.
 ${DISPLACED_SECTION}
 ---
 EOF

@@ -1113,6 +1113,15 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Harness floor for the dispatch barrier (issue #801). See the identical
+          # block in devflow-runner.yml for the full rationale: subagents are
+          # background-by-default upstream and a background dispatch's results arrive
+          # in a LATER TURN, which a headless `claude -p` session never reaches — so
+          # the fleet is dispatched and discarded. This keeps them in the FOREGROUND.
+          # Inert when ignored, so it ships unconditionally; the runner-agnostic half
+          # is the barrier statement in each engine root's headless-wait block.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed section passes '' here (the action treats
