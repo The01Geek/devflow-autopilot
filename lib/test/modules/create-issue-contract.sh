@@ -55,12 +55,6 @@ CI_REF_FB_STATEOWNER="$CI_ROOT/skills/create-issue/references/fallback-state-own
 CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
 CI_OVERVIEW="$CI_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
-# #593 grant-timing bootstrap consumer docs. The comment sits on its own line, not
-# trailing the assignment: pin-corpus-lint's assignment-RHS resolver (issue #757) does
-# not strip a trailing comment, so `VAR="$CI_ROOT/…"  # note` leaves VAR unresolved and
-# its pins silently exempt from the wrapped / pin-in-comment meta-guards.
-CI_CLOUD_SETUP="$CI_ROOT/docs/cloud-setup.md"
-CI_IMPL_DOC="$CI_ROOT/docs/implement-skill.md"
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
 _ci_tmp_root_kind="self"
@@ -480,10 +474,6 @@ devflow_module_pin_unique "#546: the retired .md event log stays declared out of
 # is next_action_budget_rows in this file's #546 block, which drives `query-next-action`'s
 # retry/budget arms directly — including the ceiling itself: three consecutive REVISE rounds
 # must yield one automatic re-audit and then fall through to the user-chosen-offer evaluation.
-# Coupled doc site (AC 'Coupled sites updated in the same change'): the §11 item 5 overview
-# must carry the new file-first contract, not the retired "only the rendered title and body".
-devflow_module_pin_unique "#522: overview §11 item 5 describes the file-first sole-draft-source contract" \
-  'reads that file as the sole draft source' "$CI_OVERVIEW"
 # File-arm carriage / identity check (closes the write-to-read race — the one uncovered
 # operative anti-corruption contract): the auditor must return a full-content git hash-object
 # digest of the file it read so the orchestrator can compare and reject foreign bytes —
@@ -756,36 +746,11 @@ devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim f
   '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
   "$CI_BUNDLE"
 
-# ── issue #462: three create-issue authoring-discipline rules (prose + pins). Reuses the
-#    #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT). Each pinned literal
-#    IS the operative contract sentence itself, so devflow_module_pin_unique is the honest primitive
-#    (the #312 item-2 coupled-pair pattern). The template↔Step-3.5 coupled pair for the
-#    unstated-reliance class is pinned on BOTH sides so a one-sided edit goes RED.
-# Rule 1 — value-comparison type-semantics, template AC guidance + its checklist mirror.
-# Rule 1 also verified in the Step 3.5 steelman (the check that flags a non-conforming AC).
-# Rule 2 — convention-matrix reconciliation + the `governing conventions consulted:` discharge
-# literal pinned in BOTH the Testing Strategy guidance AND its quality-checklist mirror.
-# Rule 3 — unstated-mechanism-dependency, coupled template↔Step-3.5 pair + summary/zero arm.
+# ── issue #462: retain the falsifiable no-dependencies boundary.
 devflow_module_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
   'the mechanism invokes no in-repo helpers, resolvers, or gates' "$CI_BUNDLE"
-# Rule 3's template quality-checklist mirror pinned too (symmetry with rule 1's checklist pin) —
-# closes the coupled-mirror drift gap the pr-test-analyzer flagged: the checklist line can no
-# longer silently drift out of agreement with the premise-class prose it mirrors.
-# Step 3.6 — one consolidated generic dimension + the growth policy.
-# Extension — one consolidated DevFlow-specific sharpening.
-devflow_module_pin_unique "#462 ext: live create-issue extension carries the consolidated DevFlow sharpening" \
-  'Authoring-discipline defects (DevFlow specifics, issue #462)' "$CI_EXT"
 
-# ── issue #467: four create-issue authoring-discipline hardenings (prose + pins). Reuses the
-#    #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT). Each pinned literal
-#    is drawn verbatim from the operative contract prose (a whole sentence or a load-bearing
-#    fragment of one), so devflow_module_pin_unique is the honest primitive — the pin catches removal or
-#    rewording of the contract prose, not a behavioral regression (the #312 coupled-pair pattern).
-#    The template<->Step-3.5 coupled pairs for the B1
-#    occurrence-count and C1 conditional-path premise classes are pinned on BOTH sides so a
-#    one-sided edit goes RED.
-# Cluster A — universal-claim rule (template AC guidance + checklist), Step 3.5 sweep + zero arm,
-# Step 3.6 dimension sharpening (generic checklist size guard-locked below).
+# ── issue #467: retain the executable dimension-count boundary.
 # A3 count guard — the generic dimension checklist size is guard-locked (dimension-growth policy).
 # The count is 9 after issue #464 (merged) appended the "Adversarial third-party input" dimension;
 # #467 sharpened the "Load-bearing assumptions" dimension in place, adding no row (the growth-policy
@@ -829,16 +794,12 @@ devflow_module_pin_unique "#467 D2 (CLAUDE.md leg): best-effort-parser gotcha wi
   'The governed surface is broader than config JSON' "$CI_CLAUDE"
 devflow_module_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mutable-markdown/external-format" \
   'The governed surface is broader than config JSON' "$CI_IMPL_BUNDLE"  # runtime-pin-ok: target is the module-internal implement-skill bundle built under the runtime scratch root, unresolvable by the static meta-guard
-devflow_module_pin_unique "#467 D3: extension authoring-discipline dimension demands the input-type-appropriate matrix" \
-  'input-type analogue** for the widened surfaces' "$CI_EXT"
 # D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
 # added a separate `## Evidence axes` section (whose axis bullets are also `- **`), this guard
 # is scoped to the `## Audit dimensions` section ONLY (heading line to the next `## ` heading),
 # so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + #464's "Mutation
 # evidence for behavioral-fix pins" dimension + the "Deployment-variance silence" dimension main
 # commit 760c0902 appended; #467 sharpened the existing case-matrix bullet in place, adding no row.
-devflow_module_pin_unique "base-update: create-issue extension carries the deployment-variance dimension" \
-  'Deployment-variance silence.' "$CI_EXT"
 assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
   "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
 # #548 Guard-reconciliation: the `## Evidence axes` section carries the DevFlow axis bullets; the
@@ -849,37 +810,14 @@ assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensio
 assert_eq "#548 Evidence-axes: create-issue extension ## Evidence axes section is 6 axis bullets" "6" \
   "$(awk '/^## Evidence axes/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
 
-# ── issue #593: grant-timing bootstrap (in-PR tool grants are post-merge-only) + repo-wide
-#    mirror-sweep scope. Five surface-presence contract pins (devflow_module_pin_unique / a
-#    count-equals-3 guard) on new prose — NOT behavioral-fix pins, so no mutation obligation
-#    attaches (matching the #548/#464 surface-presence precedent: these pin sentence *presence*,
-#    not a behavioral guarantee whose half-revert re-introduces a named bug).
-# (1) CLAUDE.md gotcha operative phrase.
+# ── issue #593: retain the grant-timing boundary and the exact repo-wide-scope count.
 devflow_module_pin_unique "#593: CLAUDE.md grant-timing gotcha states the in-PR-inert rule" \
   'in-PR-inert and post-merge-only' "$CI_CLAUDE"
-# (2) Extension's new Grant-timing bootstrap evidence axis.
-devflow_module_pin_unique "#593: extension ## Evidence axes carries the Grant-timing bootstrap axis" \
-  'Record whether any proposed in-run obligation, probe, or verification command' "$CI_EXT"
-# (3) Shared repo-wide-scope sentence — legitimately occurs at three enumeration-mandating sites,
+# The shared repo-wide-scope sentence legitimately occurs at three enumeration-mandating sites,
 #     so an exactly-once pin cannot hold; a count-equals-3 guard is the harness idiom for a value
 #     that recurs. A dropped or wrapped-across-lines site makes this RED (below-3), fail-closed.
-#     SEMANTIC SIBLING the count deliberately EXCLUDES (#613): the Consumers-axis evidence floor's
-#     sweep leg states the same repo-wide-enumeration contract in PARAPHRASE, not with the canonical
-#     sentence above — a recorded decision, because carrying the canonical sentence would break this
-#     exactly-3 count. A textual sweep for the canonical sentence therefore cannot find the
-#     paraphrase, so the linkage is recorded here instead: an edit to the canonical sentence must
-#     reconcile the paraphrase in the same change. The paraphrase's operative scope clause is pinned
-#     separately below so it cannot be dropped silently.
 assert_eq "#593: extension repo-wide-scope sentence present at exactly 3 enumeration sites" "3" \
   "$(devflow_module_pin_count 'a directory-scoped sweep does not discharge enumeration' "$CI_EXT")"
-devflow_module_pin_unique "#613: Consumers-axis floor's sweep-leg paraphrase of the repo-wide-scope contract" \
-  'executed repo-wide whitespace-normalized sweep' "$CI_EXT"
-# (4) docs/cloud-setup.md consumer timing sentence.
-devflow_module_pin_unique "#593: docs/cloud-setup.md states in-PR grants take effect only post-merge" \
-  'takes effect only after that PR merges, because the workflows resolve grants at trigger time' "$CI_CLOUD_SETUP"
-# (5) docs/implement-skill.md consumer timing sentence.
-devflow_module_pin_unique "#593: docs/implement-skill.md states in-PR grants take effect only post-merge" \
-  'is live only after that PR merges, because the workflows resolve config grants at trigger time' "$CI_IMPL_DOC"
 
 # ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
 #    All surface-presence contract pins on new feature prose (devflow_module_pin_unique) — NOT
@@ -1086,15 +1024,7 @@ for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
   assert_eq "#465 (g)-mp: absence pin is non-vacuous — injecting '$CI465_TOK' raises the count by 1" \
     "$(( $(devflow_module_pin_count "$CI465_TOK" "$CI_BUNDLE") + 1 ))" "$(devflow_module_pin_count "$CI465_TOK" "$CI465_INJ")"
 done
-# ── issue #464: create-issue adversarial-input dimension + enumerated-AC-list floor rule.
-#    Reuses the #312/#443 create-issue file vars (CI_TMPL, CI_SKILL, CI_EXT) and adds
-#    the overview doc var. Each pinned literal is a verbatim fragment of the new contract prose
-#    (a bullet header or an on-line span of the rule sentence, not a synthetic marker). These are all
-#    SURFACE-PRESENCE contract pins (plain devflow_module_pin_unique on new prose) — the exact class the
-#    new extension mutation-evidence dimension EXCLUDES (this issue is that distinction's worked
-#    example), so no devflow_module_pin_red_under mutation obligation applies. Wrapped-literal hazard
-#    (#375): every literal below is chosen to sit on a single physical line (grep -oF is
-#    line-scoped), so a phrase that wraps in the prose is pinned by its on-line fragment.
+# ── issue #464: retain adversarial-input and enumerated-list closure boundaries.
 # AC1 — Step 3.6 generic dimension checklist gains the adversarial-third-party-input dimension.
 devflow_module_pin_unique "#464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension" \
   'Adversarial third-party input' "$CI_TMPL_AUDIT"
@@ -1103,17 +1033,6 @@ devflow_module_pin_unique "#464 AC1: the dimension carries the input-is-data gua
 # AC3 — template Acceptance-Criteria list-closure rule + Move 2 write-back extension.
 devflow_module_pin_unique "#464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing" \
   "writes the sweep's output back as additional closed AC items before filing" "$CI_TMPL"
-# AC5 — extension gains the mutation-evidence dimension, scoping surface-presence pins OUT.
-devflow_module_pin_unique "#464 AC5: extension gains the mutation-evidence dimension for behavioral-fix pins" \
-  'Mutation evidence for behavioral-fix pins (issue #464)' "$CI_EXT"
-devflow_module_pin_unique "#464 AC5: mutation-evidence dimension excludes surface-presence contract pins" \
-  'Surface-presence contract pins' "$CI_EXT"
-# AC6/AC7 — overview §11 documents both seams and records the Stage-B auditor-side deferral.
-devflow_module_pin_unique "#464 AC7: overview §11 documents the two new create-issue seams" \
-  'Adversarial-input dimension and enumerated-list floor rule (issue #464)' "$CI_OVERVIEW"
-devflow_module_pin_unique "#464 AC6: overview §11 records the deliberate Stage-B auditor-side deferral" \
-  'extending the audit seams into Stage B is a separate change' "$CI_OVERVIEW"
-
 # ── issue #559: Revision-delta verification — coverage guard + prose pins ──
 #    The shared "Revision-delta verification" procedure is stated once in the
 #    create-issue skill and referenced by every revise-and-re-gate sentence. This
@@ -1283,64 +1202,11 @@ rm -f "$CI559_BND"
 devflow_module_pin_red_under "#559: always-run trigger carries the at-every-revision-event qualifier" \
   'runs **at every revision event** — before any re-audit dispatch at that site and before any presentation of the revised draft' \
   's/at every revision event/sometimes/' "$CI_BUNDLE"
-# SYSTEM_OVERVIEW §11 retains two Revision-delta procedure mirrors (AC 13).
-devflow_module_pin_unique "#559: overview §11 (Step 3.5 loop) documents the Revision-delta verification procedure" \
-  "walks the revision's edit-batch delta across six classes" "$CI_OVERVIEW"
-devflow_module_pin_unique "#559: overview §11 (Step 3.6/Step 4 loop) documents the Revision-delta verification procedure" \
-  "runs the shared **Revision-delta verification** procedure over the revision's delta" "$CI_OVERVIEW"
-
 # ── issue #613: shift-left evidence disciplines in the live create-issue extension —
-#    an executed-sweep floor on the consumers axis, closed-set complement entries, a
-#    pre-merge obligation walk, success-path channels, and a self-referential-count gate
-#    scan. Surface-presence contract pins on new prose, plus one negative repo-wide sweep
-#    (AC10) and its rc-class anti-vacuity rows. Same disposition as the #548/#464/#593 blocks
-#    above: none pins a behavioral guarantee whose half-revert re-introduces a named bug, so
-#    no devflow_module_pin_red_under mutation obligation attaches.
-# AC1 — Consumers-axis evidence floor (## Evidence axes section prose).
-devflow_module_pin_unique "#613 AC1: extension ## Evidence axes carries the Consumers-axis evidence floor" \
-  'Consumers-axis evidence floor (this repo).' "$CI_EXT"
-# Pin the WHOLE verdict phrase, not just the trailing state: `unestablished` is the operative
-# token that makes this arm fail closed. A literal of `consumers not swept` alone would stay
-# GREEN if the arm were inverted to `Verified: consumers not swept` — the exact
-# evidence-laundering the floor exists to prevent.
-devflow_module_pin_unique "#613 AC1: the floor's unestablished arm names the un-swept consumers state" \
-  'unestablished — consumers not swept' "$CI_EXT"
-# The floor is a CONJUNCTION; this clause is what stops a drafter discharging it with reads
-# alone. Softening it to "or" would leave the two sweep-leg pins green.
-devflow_module_pin_unique "#613 AC1: the floor's two legs are non-substitutable (conjunction, not either-or)" \
-  'so neither leg substitutes for the other' "$CI_EXT"
-# AC2 — Closed-set complement entries (## Evidence axes section prose).
-devflow_module_pin_unique "#613 AC2: extension ## Evidence axes carries the closed-set complement entry rule" \
-  'Closed-set complement entries (this repo).' "$CI_EXT"
-devflow_module_pin_unique "#613 AC2: the complement rule names its six-shape-matrix sibling relation" \
-  'set-membership sibling of the six-shape JSON matrix' "$CI_EXT"
-# AC5 — authoring-discipline shape (1) gains the success-path-channel check.
-devflow_module_pin_unique "#613 AC5: shape (1) flags a measurement AC naming no success-path channel" \
-  'measurement or equality AC that names no success-path channel' "$CI_EXT"
-# AC3 — authoring-discipline shape (2) gains the closed-set complement flag.
-devflow_module_pin_unique "#613 AC3: shape (2) flags a closed set whose complement is never analyzed" \
-  'closed set the draft'"'"'s mechanism defines' "$CI_EXT"
-# AC4 — authoring-discipline shape (4) gains the pre-merge temporal walk.
-devflow_module_pin_unique "#613 AC4: shape (4) walks the obligation as the pre-merge implementing run resolves it" \
-  'as the pre-merge implementing run resolves it' "$CI_EXT"
-# AC7 — the self-referential-count defect class, and the count-free parenthetical rewrite.
-devflow_module_pin_unique "#613 AC7: authoring-discipline bullet carries defect class (5), self-referential counts" \
-  'self-referential count or ordinal' "$CI_EXT"
-devflow_module_pin_unique "#613 AC7: the cross-cutting parenthetical is count-free" \
-  'not an additional defect class' "$CI_EXT"
+#    the surviving behavioral guards cover the stale ordinal and negative repo-wide sweep.
+# AC7 — the self-referential count must remain free of the retired ordinal.
 assert_eq "#613 AC7: the rotted 'fourth defect class' ordinal is gone from the extension" "0" \
   "$(devflow_module_pin_count 'not a fourth defect class' "$CI_EXT")"
-# AC6 — the new no-options-gate scan section, outside both hook sections.
-devflow_module_pin_unique "#613 AC6: extension carries the no-options-gate self-referential count scan heading" \
-  '## No-options gate — self-referential count scan (this repo)' "$CI_EXT"
-devflow_module_pin_unique "#613 AC6: the gate scan states the drift the count class exhibits" \
-  'moment a revision adds or removes an item it counts' "$CI_EXT"
-# The gate scan defines a closed set (the draft's own self-referential counts); this sentence is
-# its COMPLEMENT — the sole false-positive suppressor separating "rewrite the draft's own counts"
-# from "rewrite counts in quoted evidence". Leaving it unpinned would ship exactly the unguarded
-# complement that AC2/AC3's own closed-set rule, shipped in this same change, forbids.
-devflow_module_pin_unique "#613 AC6: the gate scan's complement — quoted external counts are exempt" \
-  'Counts inside verbatim-quoted external text are exempt' "$CI_EXT"
 # AC10 — the overview's stale axis enumeration is retired repo-wide. The module itself
 # necessarily carries the phrase as this grep's own needle, so the sweep excludes this
 # file by pathspec; an unexcluded sweep could never reach zero. Any OTHER tracked hit is
@@ -1396,16 +1262,13 @@ assert_eq "#613 AC10 anti-vacuity: a live scan of a non-repo path yields the sen
   "$(_ci613_scan "$CI_ROOT/nonexistent-ac10-probe-$$" 'per-profile cloud allowlists' 2>/dev/null)"
 unset -f _ci613_classify _ci613_scan
 unset _ci613_out _ci613_rc
-devflow_module_pin_unique "#613 AC10: overview evidence-axes hook points at the live extension instead of enumerating" \
-  'see the live extension'"'"'s `## Evidence axes` section for the current axis list' "$CI_OVERVIEW"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#614 create-issue split: routing, markers, purity"
 # ────────────────────────────────────────────────────────────────────────────
 # The skill is a thin root plus marker-gated references. These assertions cover the
 # structure (T1), the boundary-marker contract (T2), the
-# default-path purity pins (T4), the routing table's stated failure arms (T6), and the
-# consumer extension's new measurement-command evidence axis (T7).
+# default-path purity pins (T4), and the routing table's stated failure arms (T6).
 
 # The reference roster is stated ONCE here and drives every loop below, so a reference
 # can never be registered in one assertion's list and silently dropped from another.
@@ -1553,17 +1416,6 @@ ci614_step_unique step-4-present-create '**Show the complete rendered issue in c
 unset -f ci614_step_unique
 
 
-# T7 (AC13) — the consumer extension's new measurement-command evidence axis. A
-# surface-presence contract pin (the extension's own behavioral-fix-pin dimension), so it
-# carries no mutation obligation.
-devflow_module_pin_unique "#614 T7/AC13: the extension carries a measurement-command naming axis" \
-  '**Measurement-command naming.**' "$CI_EXT"
-devflow_module_pin_unique "#614 T7/AC13: the axis requires the exact measuring command per quantitative AC" \
-  'the bundle records, per such AC, the **exact' "$CI_EXT"
-devflow_module_pin_unique "#614 T7/AC13: an unestablishable measurement records unestablished, never an unnamed counter" \
-  'never an unnamed' "$CI_EXT"
-devflow_module_pin_unique "#614 T7/AC13: the axis cites the GNU/BSD wc -w divergence as its motivating defect" \
-  'GNU and BSD `wc -w` disagree in two directions on this repo'"'"'s own prompt corpus' "$CI_EXT"
 unset -f ci614_marker_id
 
 # ---------------------------------------------------------------------------
