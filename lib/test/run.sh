@@ -12055,8 +12055,8 @@ assert_pin_unique "#254: helper recognizes CLOSED and MERGED as landed states" \
 # workflow-capable App token (Contents+Workflows write) seeded into checkout (#357/#358)
 # and pushes workflows fine, so Pass 5 keys the deferral on CREDENTIAL CAPABILITY
 # (cloud-tier AND DEVFLOW_APP_ID empty), never on tier alone.
-# The remaining assertions cover the all-blocked Phase 1 path and the coupled
-# Phase 2/Phase 4 behavior below.
+# The remaining assertions cover Phase 1 credential-capability routing and its
+# all-blocked path, plus the coupled Phase 2/Phase 4 behavior below.
 # Scoped to phase-1-setup.md (where Phase 1.6 lives) so the remaining assertions
 # are precise to the audit-pass surface AC7 names, not the whole bundle.
 P1_FILE="$IMPL_PHASES_DIR/phase-1-setup.md"
