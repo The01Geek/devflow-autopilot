@@ -6543,19 +6543,22 @@ assert_pin_red_under "#362: an unresolvable PR query is never read as 'no open P
   "$P362_P1"
 assert_pin_red_under "#362: checkout must land on HEAD_REF before signals are waived" \
   '[ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_REF" ] && LANDED=yes' \
-  's#LANDED=yes#LANDED=no#g' "$P362_P1"
+  's#\[ "\$\(git rev-parse --abbrev-ref HEAD 2>/dev/null\)" = "\$HEAD_REF" \]#[ -n "$HEAD_REF" ]#' \
+  "$P362_P1"
 assert_pin_red_under "#362: checkout stderr remains the worktree-refusal discriminator" \
   'CO_ERR=$( { git fetch origin "$HEAD_REF" && git checkout "$HEAD_REF"; } 2>&1 1>/dev/null ) || true' \
   's#2>&1 1>/dev/null#1>/dev/null#' "$P362_P1"
 assert_pin_red_under "#362: worktree-refusal routing reads CO_ERR and git's real message" \
   '`$CO_ERR` matches `already used by worktree`' \
-  's#already used by worktree#already checked out#g' "$P362_P1"
+  's#`\$CO_ERR` matches `already used by worktree`#`$CO_ERR` matches `already checked out`#' \
+  "$P362_P1"
 assert_pin_red_under "#362: PR selection prefers the workpad branch then newest PR" \
   'pick the one whose `headRefName` equals the workpad `Branch` line; if none matches, pick the newest by `createdAt`' \
   's#pick the newest by `createdAt`#pick the first result#' "$P362_P1"
 assert_pin_red_under "#362: failed resume checkout stops before duplicate branch creation" \
-  'refusing to fall through to branch creation' \
-  's#refusing to fall through to branch creation#falling through to branch creation#' "$P362_P1"
+  'record it and **stop**' \
+  '/record it and \*\*stop\*\*/c\
+- **`LANDED` is `no` for any other reason** — continue to branch creation.' "$P362_P1"
 assert_pin_red_under "#362: body-only resume candidates must close the issue" \
   'must additionally *close this issue*' \
   's#must additionally \*close this issue\*#may merely mention this issue#' "$P362_P1"
