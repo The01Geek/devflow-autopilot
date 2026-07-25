@@ -44,9 +44,10 @@ The complement of the following set is what `covered` means. None of these is re
   bytes;
 - a clean round whose **steering-absence was never established** (term 4).
 
-`unestablished` is **not** `uncovered`, and it covers exactly three states: no completed file-arm
-verdict-bearing round exists, the canonical file could not be digested, or the query was supplied
-no draft digest. A trigger phrased as "not `covered`" would fire on states where an accepted round
+`unestablished` is **not** `uncovered`, and it covers exactly four states: no readable, owned
+lifecycle state exists at all (an unreadable/corrupt record, or a foreign nonce the caller
+collapsed to `None`); no completed file-arm verdict-bearing round exists; the canonical file could
+not be digested; or the query was supplied no draft digest. A trigger phrased as "not `covered`" would fire on states where an accepted round
 cannot change the answer — funding nothing and leaving the run with no next action.
 
 ## Why the selector reads the newest **file-arm verdict-bearing** round
@@ -73,7 +74,14 @@ a pass taken on bytes the user then edits must not leave the bytes actually file
 number of times; a run at the cap files with the coverage field reporting its true value and
 `final_byte_exhausted=yes` on the summary line, never silently.
 
-A pass that closes **without a file-arm verdict** refunds the slot. One condition covers all three
+A pass that closes **without a file-arm verdict** refunds the slot — and the refund is recorded on
+a **separate** `final_byte_refunds` term rather than by decrementing the grant counter. That split
+is load-bearing and was a live defect the review pass caught: `final_byte_passes_used` is a
+*funding* term (it is in `_ROUND_BUDGETS`, and `_funded_rounds` compares against the monotonically
+growing `len(doc['rounds'])`), so decrementing it retracts budget for a round already opened —
+re-arming the offer while hard-refusing the replacement dispatch as unfunded, on exactly the two
+states the dedicated slot exists to keep fundable. Grants stay monotonic and fund rounds; refunds
+are subtracted from the **cap** comparison only, because a degraded round was not a pass. One condition covers all three
 degradations the round can take — a failed pre-dispatch write (the round lands on the embed arm), a
 return carrying no parseable verdict, and a `VERDICT: DRAFT-UNREADABLE` return once its one
 re-dispatch is exhausted — because the offer's own precondition is that an accepted round could

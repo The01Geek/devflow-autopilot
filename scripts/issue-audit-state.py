@@ -501,6 +501,16 @@ _FINAL_BYTE_PASS_CAP = 3
 # final-byte slot's whole point is that it sits outside `_USER_ROUND_CAP`. Only the
 # enumeration is shared.
 _ROUND_BUDGETS = ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used')
+# `final_byte_passes_used` is MONOTONIC — it counts grants, and every grant funded exactly one
+# round that stays in `doc['rounds']` forever. A refund therefore must NOT decrement it: the
+# funding test compares `len(doc['rounds'])` against `_funded_rounds`, so retracting a grant for
+# an already-opened round leaves the run one round short of its own history and hard-refuses the
+# replacement dispatch the refund just re-armed the offer for. The refund is recorded on this
+# separate term instead, which is subtracted from the CAP comparison only (a degraded round was
+# not a pass) and never from the funding sum. `_ROUND_BUDGETS` deliberately excludes it for the
+# same reason — it is a cap-facing quantity, not a funding one — but it joins the read-boundary
+# integer-shape check below on its own.
+_FINAL_BYTE_REFUNDS_KEY = 'final_byte_refunds'
 # The closed answer set of the final-byte coverage axis. Complete by construction: the
 # derivation returns exactly one of these on every path, and asserts membership at its own
 # return (the sibling `_COVERAGE_BACKINGS` discipline) — a token typo'd in a return dict
@@ -1975,11 +1985,12 @@ def _validate(doc, slug):
             raise StateError(f'revision {rev["ordinal"]} stdin_digest is present but not '
                              f'a non-empty string')
     # issue #792: `final_byte_passes_used` joins the integer-shape check at the read
-    # boundary, so a wrong-typed value is refused BEFORE either of its two consumers —
-    # the coverage/trigger derivation and `record-dispatch`'s funding arithmetic — reads
-    # it. The `.get(key, 0)` default is what makes the absent and valid-falsy-`0` shapes
+    # boundary, so a wrong-typed value is refused before any of its consumers reads it —
+    # the coverage/trigger derivation, `record-dispatch`'s funding arithmetic, the
+    # producer's ceiling refusal, and the refund. The `.get(key, 0)` default is what makes
+    # the absent and valid-falsy-`0` shapes
     # both legal and identical: an unspent slot IS zero.
-    for key in _ROUND_BUDGETS:
+    for key in _ROUND_BUDGETS + (_FINAL_BYTE_REFUNDS_KEY,):
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
             raise StateError(f'{key} {val!r} is not an integer')
@@ -1995,6 +2006,15 @@ def _validate(doc, slug):
     fbp = doc.get('final_byte_pending')
     if fbp is not None and not isinstance(fbp, bool):
         raise StateError(f'final_byte_pending {fbp!r} is not a boolean')
+    # The per-round pass flag, read truthily by `_last_discovery_round`, `_final_byte_honoured`
+    # and the refund. Shape-checked on the same rule as its document-level siblings: a truthy
+    # non-boolean would silently mark an ordinary round as a pass and exclude it from both axis
+    # selectors, which is a corrupted record reading as a decision rather than failing closed.
+    for _r in doc['rounds']:
+        fbf = _r.get('final_byte_pass')
+        if fbf is not None and not isinstance(fbf, bool):
+            raise StateError(f'round {_r.get("round")!r} final_byte_pass {fbf!r} is not a '
+                             f'boolean')
     rf = doc.get('reinit_forced')
     if rf is not None and not isinstance(rf, bool):
         raise StateError(f'reinit_forced {rf!r} is not a boolean')
@@ -2725,10 +2745,11 @@ def evaluate_final_byte_coverage(state, current_digest=None, digest_failed=False
     never does, per term 4. None of the three records is read anywhere below; that is the
     non-substitutability, stated here and asserted in the suite.
 
-    `unestablished` on exactly three states, complete by construction: no completed
-    file-arm verdict-bearing round exists; the canonical file could not be digested; or
-    the query was supplied no draft digest, so the comparison was never made. An
-    embed-arm or inline-arm LATEST round is NOT one of them — the selector reads the
+    `unestablished` on exactly four states, complete by construction: no readable, owned
+    lifecycle state exists at all (an unreadable/corrupt record, or a foreign nonce the
+    caller collapsed to `None`); no completed file-arm verdict-bearing round exists; the
+    canonical file could not be digested; or the query was supplied no draft digest, so
+    the comparison was never made. An embed-arm or inline-arm LATEST round is NOT one of them — the selector reads the
     newest file-arm verdict-bearing round, so a run that already reported `uncovered`
     keeps reporting it. `unestablished` is not `uncovered`: the trigger below does not
     hold on it, so no offer fires that an accepted round could not honour.
@@ -2769,7 +2790,12 @@ def final_byte_passes(state):
     the comparison changes, one of them deciding an offer and one deciding what the user
     reads before approving.
     """
-    used = (state or {}).get('final_byte_passes_used', 0)
+    st = state or {}
+    # EFFECTIVE passes: grants minus refunds. A pass that closed without honouring the offer was
+    # not a pass, so it does not consume the cap — that is what makes the refund a real safety
+    # pass rather than a re-armed trigger the cap immediately re-closes. Clamped at 0 so a
+    # hand-corrupted refund count can never report a negative spend.
+    used = max(0, st.get('final_byte_passes_used', 0) - st.get(_FINAL_BYTE_REFUNDS_KEY, 0))
     return (used, used >= _FINAL_BYTE_PASS_CAP)
 
 
@@ -4080,7 +4106,11 @@ def cmd_record_dispatch(args):
                # selectors can exclude it, and so the refund at return time knows which
                # rounds the dedicated slot paid for. An ORDINARY round in every other
                # respect — same dispatch vocabulary, same arms, same verdict set.
-               'final_byte_pass': final_byte_pass}
+               'final_byte_pass': final_byte_pass,
+               # The canonical digest the pass was funded on, so a refund re-arms the slot only
+               # for those bytes. `None` on an ordinary round.
+               'final_byte_pass_digest': (doc.get('final_byte_slot_digest')
+                                          if final_byte_pass else None)}
         doc['rounds'].append(rnd)
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
@@ -4189,9 +4219,13 @@ def cmd_record_return(args):
     # dedicated slot, so the run keeps its safety pass rather than spending it on a
     # degradation. The `max(0, ...)` floor pairs with the read-boundary non-negative check.
     if rnd.get('final_byte_pass') and _final_byte_honoured(rnd) is False:
-        doc['final_byte_passes_used'] = max(
-            0, doc.get('final_byte_passes_used', 0) - 1)
-        doc['final_byte_slot_digest'] = None
+        doc[_FINAL_BYTE_REFUNDS_KEY] = doc.get(_FINAL_BYTE_REFUNDS_KEY, 0) + 1
+        # Re-arm the slot only for the bytes THIS pass was funded on. `record-final-byte-offer`
+        # carries no round-open guard, so a later offer recorded against revised bytes can have
+        # moved the slot on; clearing unconditionally would discard that newer spend and re-offer
+        # the pass against bytes already offered.
+        if doc.get('final_byte_slot_digest') == rnd.get('final_byte_pass_digest'):
+            doc['final_byte_slot_digest'] = None
     # Evidence from a REFUSED completion (failed carriage / no parseable verdict) is
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
@@ -5570,18 +5604,20 @@ def cmd_record_offer(args):
 def resolve_draft_digest(prefix, state_or_doc, args):
     """The current canonical draft digest, or `(None, digest_failed)`.
 
-    The single owner of the issue-#562 precedence rule every digest-reading surface obeys:
-    prefer the RECORDED bound draft file over the caller's `--draft-file`, so a compacted
-    context that hands a drifted path cannot redirect which file the answer grounds on;
-    fall back to `--draft-file` only on an unbound run.
+    The single owner of the issue-#562 precedence rule for the digest-reading surfaces that
+    breadcrumb-and-continue: prefer the RECORDED bound draft file over the caller's
+    `--draft-file`, so a compacted context that hands a drifted path cannot redirect which
+    file the answer grounds on; fall back to `--draft-file` only on an unbound run.
 
     A digest failure is surfaced on stderr and never swallowed — a silent one would
     misattribute the resulting refusal (`unaudited-revision` rather than the honest
     `draft-undigestible`). Queries stay exit-0; this is a breadcrumb, not a failure exit.
     `prefix` names the calling command in that breadcrumb.
 
-    `cmd_emit_body` deliberately does NOT route through here: it reads the bytes it is
-    about to emit and `_fail`s rather than breadcrumbing, so its failure shape differs.
+    Two digest-reading surfaces deliberately do NOT route through here, because their
+    failure shape differs: `cmd_emit_body` reads the bytes it is about to emit and `_fail`s
+    rather than breadcrumbing, and `cmd_record_creation_epoch` hashes the BODY-ONLY split of
+    the file it is binding. Neither is covered by the precedence claim above.
     """
     source = _bound_draft_file(state_or_doc, args.slug) or args.draft_file
     if not source:
@@ -5626,19 +5662,24 @@ def cmd_record_final_byte_offer(args):
               'no canonical draft digest is available (no recorded draft binding and no '
               '--draft-file); the final-byte slot is spent PER DIGEST and cannot be '
               'recorded without one')
-    used = doc.get('final_byte_passes_used', 0)
-    if used >= _FINAL_BYTE_PASS_CAP:
+    # Both refusal arms read the SHARED derivations rather than open-coding their terms, so the
+    # producer and the read side can never disagree about whether the slot is spendable. The two
+    # are kept as separate arms only to name distinct causes in the breadcrumb, and each embeds
+    # its registered transition reason token so the message and the vocabulary agree.
+    if final_byte_passes(doc)[1]:
         _fail('record-final-byte-offer',
-              f'final-byte passes are capped at {_FINAL_BYTE_PASS_CAP} per run; the '
-              f'ceiling is already reached, so this run files with the coverage field '
-              f'reporting its true value and the exhaustion disclosed on the summary line')
-    if doc.get('final_byte_slot_digest') == digest:
+              f'(final-byte-pass-cap-reached) final-byte passes are capped at '
+              f'{_FINAL_BYTE_PASS_CAP} per run; the ceiling is already reached, so this run '
+              f'files with the coverage field reporting its true value and the exhaustion '
+              f'disclosed on the summary line')
+    if not final_byte_slot_unspent(doc, digest):
         _fail('record-final-byte-offer',
-              'the final-byte slot is already spent for these exact bytes; it re-arms '
-              'only when a recorded revision changes the canonical digest')
+              '(final-byte-slot-already-spent) the final-byte slot is already spent for '
+              'these exact bytes; it re-arms only when a recorded revision changes the '
+              'canonical digest')
     doc['final_byte_slot_digest'] = digest
     if args.accepted:
-        doc['final_byte_passes_used'] = used + 1
+        doc['final_byte_passes_used'] = doc.get('final_byte_passes_used', 0) + 1
         # Armed for the NEXT record-dispatch, which consumes it, marks that round as the
         # pass, and suppresses the derived automatic-re-audit spend for it.
         doc['final_byte_pending'] = True
@@ -5649,7 +5690,7 @@ def cmd_record_final_byte_offer(args):
     # No `slot=` field: both arms spend the slot, so the token could never vary — a
     # printed constant trains a reader to skip the line, and still costs a protocol-token
     # registration. `outcome=` is what actually distinguishes the two arms.
-    print(f'final_byte_passes={doc["final_byte_passes_used"] if args.accepted else used} '
+    print(f'final_byte_passes={final_byte_passes(doc)[0]} '
           f'cap={_FINAL_BYTE_PASS_CAP} '
           f'outcome={"accepted" if args.accepted else "declined"}')
 
