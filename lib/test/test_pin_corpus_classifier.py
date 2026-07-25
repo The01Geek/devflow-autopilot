@@ -576,7 +576,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             "whether by a Phase-3 review finding **or by the issue",
             (
                 '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner '
-                'reports in context>}"/../../scripts/'
+                'reports in context>}"/../../scripts/config-get.sh .docs.internal'
             ),
         ):
             self.assertEqual({"required-copy"}, literal_buckets[required_literal])
