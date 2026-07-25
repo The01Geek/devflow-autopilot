@@ -29,10 +29,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PCL_PATH = HERE / "pin-corpus-lint.py"
-DEFAULT_SOURCES = (
+PIN_CORPUS_SOURCES = (
     "lib/test/run.sh",
     "lib/test/modules/create-issue-contract.sh",
+    "lib/test/modules/capability-profiles.sh",
+    "lib/test/modules/installer-wiring.sh",
+    "lib/test/modules/regenerate-artifacts.sh",
+    "lib/test/modules/review-stall-backstop.sh",
+    "lib/test/modules/review-trigger-helpers.sh",
 )
+DEFAULT_SOURCES = PIN_CORPUS_SOURCES
 EXISTENCE_HELPERS = frozenset(
     {
         "assert_pin_unique",
@@ -86,12 +92,8 @@ GENERATED_EXACT = frozenset(
         "lib/review-profile.tokens",
     }
 )
-OUT_OF_SCOPE_MODULES = (
-    "lib/test/modules/capability-profiles.sh",
-    "lib/test/modules/installer-wiring.sh",
-    "lib/test/modules/regenerate-artifacts.sh",
-    "lib/test/modules/review-stall-backstop.sh",
-    "lib/test/modules/review-trigger-helpers.sh",
+OUT_OF_SCOPE_MODULES = tuple(
+    source for source in PIN_CORPUS_SOURCES if source not in DEFAULT_SOURCES
 )
 TSV_COLUMNS = (
     "source_file",
@@ -518,11 +520,15 @@ def _out_of_scope_counts(
     tracked: dict[str, bytes],
     lib: str,
     overrides: dict[str, str],
+    sources: tuple[str, ...],
     expected: int,
-) -> tuple[Counter, int]:
+) -> tuple[Counter, int, tuple[str, ...]]:
     result = Counter()
     sites = 0
-    for relative in OUT_OF_SCOPE_MODULES:
+    outside_modules = tuple(
+        source for source in PIN_CORPUS_SOURCES if source not in sources
+    )
+    for relative in outside_modules:
         raw = tracked.get(relative)
         if raw is None:
             continue
@@ -537,7 +543,7 @@ def _out_of_scope_counts(
         raise ValueError(
             f"out-of-scope site count mismatch: expected {expected}, found {sites}"
         )
-    return result, sites
+    return result, sites, outside_modules
 
 
 def _region_ranges(run_text: str) -> dict[str, tuple[int, int]]:
@@ -630,6 +636,9 @@ def _write_inventory(
     output: Path,
     command: str,
     revision: str,
+    sources: tuple[str, ...],
+    outside_total: int,
+    outside_modules: tuple[str, ...],
     sites: list[Site],
     facts: dict[str, dict],
     mutation_counts: Counter,
@@ -709,8 +718,11 @@ def _write_inventory(
             handle.write("# snapshot: frozen pin-corpus census; not a live index\n")
             handle.write(f"# producing-command: {command}\n")
             handle.write(f"# revision: {revision}\n")
-            handle.write(f"# in-scope: {';'.join(DEFAULT_SOURCES)}\n")
-            handle.write("# out-of-scope: 28 sites in five smaller modules\n")
+            handle.write(f"# in-scope: {';'.join(sources)}\n")
+            handle.write(
+                f"# out-of-scope: {outside_total} sites in "
+                f"{len(outside_modules)} unselected candidate sources\n"
+            )
             handle.write(
                 f"# counted-file-exclusions: {COUNTED_EXCLUSION_HEADER}\n"
             )
@@ -732,9 +744,30 @@ def _parse_args(argv):
     parser.add_argument("--adjudications", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision")
-    parser.add_argument("--expected-out-of-scope", type=int, default=28)
+    parser.add_argument("--expected-out-of-scope", type=int, default=0)
     parser.add_argument("--write-adjudication-template", action="store_true")
     return parser.parse_args(argv)
+
+
+def _canonical_command_argv(
+    raw_argv: list[str], sources: tuple[str, ...]
+) -> list[str]:
+    """Drop redundant source flags when they spell the complete default scope."""
+    if sources != DEFAULT_SOURCES:
+        return raw_argv
+    canonical = []
+    index = 0
+    while index < len(raw_argv):
+        argument = raw_argv[index]
+        if argument == "--source":
+            index += 2
+            continue
+        if argument.startswith("--source="):
+            index += 1
+            continue
+        canonical.append(argument)
+        index += 1
+    return canonical
 
 
 def main(argv=None) -> int:
@@ -809,17 +842,26 @@ def main(argv=None) -> int:
         exact_counts = Counter()
         for text in source_texts.values():
             exact_counts.update(extract_exact_count_literals(text, lib, overrides))
-        outside_counts, outside_total = _out_of_scope_counts(
-            tracked, lib, overrides, args.expected_out_of_scope
+        outside_counts, outside_total, outside_modules = _out_of_scope_counts(
+            tracked, lib, overrides, sources, args.expected_out_of_scope
         )
         regions = _region_ranges(source_texts.get("lib/test/run.sh", ""))
         if not re.fullmatch(r"[0-9a-f]{40}", revision):
             raise ValueError("revision must be a 40-character lowercase git SHA")
-        command = shlex.join(["python3", "lib/test/pin-corpus-classifier.py", *raw_argv])
+        command = shlex.join(
+            [
+                "python3",
+                "lib/test/pin-corpus-classifier.py",
+                *_canonical_command_argv(raw_argv, sources),
+            ]
+        )
         bucket_counts = _write_inventory(
             args.output,
             command,
             revision,
+            sources,
+            outside_total,
+            outside_modules,
             sites,
             facts,
             mutation_counts,

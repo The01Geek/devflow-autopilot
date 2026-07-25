@@ -217,6 +217,25 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
                 f"{key}\tunclear\tstill unclear\n"
             )
 
+    def test_complete_explicit_source_scope_canonicalizes_to_default_command(self):
+        remaining = ["--repo-root", ".", "--output", "inventory.tsv"]
+        explicit = []
+        for source in self.mod.DEFAULT_SOURCES:
+            explicit.extend(("--source", source))
+        self.assertEqual(
+            remaining,
+            self.mod._canonical_command_argv(
+                [*explicit, *remaining], self.mod.DEFAULT_SOURCES
+            ),
+        )
+        self.assertEqual(
+            ["--source", "lib/test/run.sh", *remaining],
+            self.mod._canonical_command_argv(
+                ["--source", "lib/test/run.sh", *remaining],
+                ("lib/test/run.sh",),
+            ),
+        )
+
     def test_cli_debundles_homes_applies_only_exact_count_exclusions(self):
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -516,6 +535,11 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             self.mod.COUNTED_EXCLUSION_HEADER,
             metadata["counted-file-exclusions"],
         )
+        self.assertEqual(";".join(self.mod.DEFAULT_SOURCES), metadata["in-scope"])
+        self.assertEqual(
+            "0 sites in 0 unselected candidate sources",
+            metadata["out-of-scope"],
+        )
         grep = subprocess.run(
             [
                 "git",
@@ -528,8 +552,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                 ),
                 revision,
                 "--",
-                "lib/test/run.sh",
-                "lib/test/modules/create-issue-contract.sh",
+                *self.mod.DEFAULT_SOURCES,
             ],
             cwd=repo_root,
             text=True,
