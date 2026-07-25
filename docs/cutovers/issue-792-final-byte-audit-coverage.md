@@ -90,7 +90,9 @@ refuse at the user-round ceiling — the ask must be one the run can actually ho
 
 ## Why an accepted pass retires neither the coverage nor the calibration axis
 
-Both selectors now resolve to the newest completed round that is **not** a final-byte pass.
+Both selectors now resolve to `_last_discovery_round` — the newest completed round that is
+**not** a final-byte pass. (Named for the concept rather than the exclusion, so a second
+non-discovery round kind extends the predicate instead of falsifying the name.)
 Recording coverage on the pass itself would not have sufficed: `_coverage_round` returns nothing
 unless the latest completed round's outcome is literally `FILE`, so a pass returning `REVISE` would
 **erase** an earlier round's coverage evidence rather than re-derive it, and any superseding
@@ -114,7 +116,14 @@ arithmetic — reads it.
 
 - `scripts/issue-audit-state.py` — the derivation, the trigger, the producer, the query, the
   funding test, the refund, the two selector exclusions, `_EVENTS`/`TRANSITIONS`/`_RESULTS`/
-  `_TRANSITION_REASONS`/`_PROTOCOL_TOKENS`/`_SUMMARY_FIELDS`.
+  `_TRANSITION_REASONS`/`_PROTOCOL_TOKENS`/`_SUMMARY_FIELDS`. The `/simplify` pass additionally
+  single-sourced two enumerations this change would otherwise have duplicated — `_ROUND_BUDGETS`
+  (read by both `_validate`'s integer-shape loop and `_funded_rounds`) and `final_byte_passes`
+  (read by the slot predicate, the summary's two slot fields, the producer's ceiling refusal and
+  the trigger query) — and cut `cmd_query_eligibility` and `cmd_query_summary` over to the shared
+  `resolve_draft_digest`, which this change had otherwise made a third copy of the #562
+  bound-file-precedence rule. That cutover is byte-output-identical (the `query:` breadcrumb the
+  suite pins is unchanged).
 - `skills/create-issue/references/step-4-present-create.md` — the sub-step-4 exclusivity sentence
   (now a suppression), the sub-step-5 subsumption, the approval-election evaluation point, the
   return-handling carve-out, and the summary-line field enumeration.

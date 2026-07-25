@@ -15372,9 +15372,6 @@ assert_eq("#743 read-boundary: invalid_records present but invalid_count absent 
 class _Run792(_Run709):
     """A #709 run extended with the #792 final-byte surfaces."""
 
-    def __init__(self, tmp, slug='s792'):
-        super().__init__(tmp, slug=slug)
-
     def fb(self, draft=True):
         argv = ['query-final-byte', self.slug]
         if draft:
@@ -15394,14 +15391,22 @@ class _Run792(_Run709):
         assert d.returncode == 0, f'#792 harness: dispatch failed: {d.stderr!r}'
         return self.ret(instructions_oid=self.oid(self.instr), extra='no')
 
+    def uncovered_round(self):
+        """One round that quotes NO instruction oid — the `uncovered` precondition.
+
+        The mirror of `clean_round`, factored because eight rows below open with it: if the
+        steering-unestablished shape ever changes, a row left behind would silently become a
+        COVERED run whose negative assertions then pass vacuously.
+        """
+        self.generate()
+        d = self.dispatch()
+        assert d.returncode == 0, f'#792 harness: dispatch failed: {d.stderr!r}'
+        return self.ret(instructions_oid=None, extra='no')
+
 
 def _with_run792(fn, **kw):
     with tempfile.TemporaryDirectory() as tmp:
         fn(_Run792(tmp, **kw))
-
-
-def _fb_field(line, token):
-    return line.split(token, 1)[1].split()[0] if token in line else None
 
 
 # AC83/AC86 positive control — a fully clean, steering-established, digest-matching
@@ -15412,9 +15417,9 @@ def _row792_covered(r):
     line = r.fb()
     assert_eq("#792 AC86: a clean steering-established digest-matching file-arm FILE round "
               "reports the final-byte coverage as covered",
-              'covered', _fb_field(line, 'final_byte_coverage='))
+              'covered', _field704(line, 'final_byte_coverage='))
     assert_eq("#792 AC95: ... and the trigger does NOT hold on covered",
-              'not-hold', _fb_field(line, 'final_byte_trigger='))
+              'not-hold', _field704(line, 'final_byte_trigger='))
     assert_eq("#792 AC83: the summary renders the field immediately before bound_root=",
               True, 'final_byte_coverage=covered bound_root=' in r.summary())
     assert_eq("#792 AC83: ... and attestation= stays the trailing field",
@@ -15428,17 +15433,15 @@ _with_run792(_row792_covered)
 # steering-absence was never established, so the engine refuses to ground on it and the
 # axis reports `uncovered` — which is exactly the round the exact-byte pass is for.
 def _row792_steering_uncovered(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')     # quotes nothing => not established
+    r.uncovered_round()                          # quotes nothing => not established
     line = r.fb()
     assert_eq("#792 AC88: a digest-matching clean round whose steering was NOT established "
               "reports uncovered, not covered",
-              'uncovered', _fb_field(line, 'final_byte_coverage='))
+              'uncovered', _field704(line, 'final_byte_coverage='))
     assert_eq("#792 AC88: ... naming steering-unestablished as the reason",
-              'steering-unestablished', _fb_field(line, 'final_byte_reason='))
+              'steering-unestablished', _field704(line, 'final_byte_reason='))
     assert_eq("#792 AC95: ... and the trigger HOLDS on uncovered with an unspent slot",
-              'hold', _fb_field(line, 'final_byte_trigger='))
+              'hold', _field704(line, 'final_byte_trigger='))
 
 
 _with_run792(_row792_steering_uncovered)
@@ -15449,7 +15452,7 @@ _with_run792(_row792_steering_uncovered)
 def _row792_revise_revokes(r):
     r.clean_round()
     assert_eq("#792 AC87 precondition: round 1 FILE reports covered",
-              'covered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'covered', _field704(r.fb(), 'final_byte_coverage='))
     # A second round on the SAME bytes returning REVISE. It is funded by the automatic
     # budget only after a REVISE predecessor, so open it through the offer channel.
     r('record-offer', r.slug, '--accepted', nonce=True)
@@ -15458,7 +15461,7 @@ def _row792_revise_revokes(r):
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE',
       '--findings-count', '1', '--carriage-object-id', r.oid(r.draft), nonce=True)
     assert_eq("#792 AC87: a round-2 REVISE on unchanged bytes revokes round 1's covered",
-              'uncovered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
 
 
 _with_run792(_row792_revise_revokes)
@@ -15467,16 +15470,16 @@ _with_run792(_row792_revise_revokes)
 # AC92/AC93 — the three `unestablished` states, and the one that is NOT one of them.
 def _row792_unestablished(r):
     assert_eq("#792 AC93: no completed file-arm verdict-bearing round reports unestablished",
-              'no-file-arm-verdict-round', _fb_field(r.fb(), 'final_byte_reason='))
+              'no-file-arm-verdict-round', _field704(r.fb(), 'final_byte_reason='))
     r.clean_round()
     assert_eq("#792 AC93/AC94: a file-arm clean epoch queried with NO draft digest reports "
               "unestablished",
-              'unestablished', _fb_field(r.fb(draft=False), 'final_byte_coverage='))
+              'unestablished', _field704(r.fb(draft=False), 'final_byte_coverage='))
     assert_eq("#792 AC93: ... naming the caller's omission, not a comparison that failed",
-              'no-digest-supplied', _fb_field(r.fb(draft=False), 'final_byte_reason='))
+              'no-digest-supplied', _field704(r.fb(draft=False), 'final_byte_reason='))
     assert_eq("#792 AC93: ... and the trigger does not hold, so the slot is never spent on "
               "a comparison that was never attempted",
-              'not-hold', _fb_field(r.fb(draft=False), 'final_byte_trigger='))
+              'not-hold', _field704(r.fb(draft=False), 'final_byte_trigger='))
 
 
 _with_run792(_row792_unestablished)
@@ -15485,30 +15488,26 @@ _with_run792(_row792_unestablished)
 # AC89/AC90/AC91 — the non-substitution set, asserted at the derivation. None of the
 # three records is read by the derivation, so each is driven over a state that carries it.
 def _row792_non_substitution(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')      # uncovered (steering unestablished)
-    base = _fb_field(r.fb(), 'final_byte_coverage=')
+    r.uncovered_round()
+    base = _field704(r.fb(), 'final_byte_coverage=')
     assert_eq("#792 non-substitution precondition: the run reports uncovered", 'uncovered', base)
     r('record-override', r.slug, '--kind', 'user-decline', '--surface', 'step4-offer',
       '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC91: a recorded user-decline override does not set the field to covered",
-              'uncovered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
     r('record-creation-epoch', r.slug, '--round', '1', '--draft-file', r.draft, nonce=True)
     r('record-creation-attestation', r.slug, nonce=True,
       stdin=Path(r.draft).read_text(encoding='utf-8'))
     assert_eq("#792 AC89: a recorded creation attestation does not set the field to covered "
               "(an attestation is tamper evidence, not audit coverage)",
-              'uncovered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
 
 
 _with_run792(_row792_non_substitution)
 
 
 def _row792_cap_reached(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     for _ in range(issue_audit_state._USER_ROUND_CAP):
         r('record-offer', r.slug, '--accepted', nonce=True)
     ov = r('record-override', r.slug, '--kind', 'cap-reached', '--draft-file', r.draft,
@@ -15517,14 +15516,14 @@ def _row792_cap_reached(r):
               0, ov.returncode)
     assert_eq("#792 AC90: a recorded cap-reached override does not set the field to covered "
               "(it records a ceiling, not a verdict)",
-              'uncovered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
     # AC101 — the pass is fundable at the user-round ceiling AND under a cap-reached override.
     got = r.offer(accepted=True)
     assert_eq("#792 AC101: the final-byte offer is accepted on a run whose user_rounds_used "
               "already equals the cap and which carries a cap-reached override",
               0, got.returncode)
     assert_eq("#792 AC100: ... and it spends the DEDICATED counter, not user_rounds_used",
-              True, 'final_byte_passes=1' in got.stdout)
+              True, 'final_byte_passes=1' in got.stdout and 'outcome=accepted' in got.stdout)
 
 
 _with_run792(_row792_cap_reached)
@@ -15533,16 +15532,14 @@ _with_run792(_row792_cap_reached)
 # AC97/AC99/AC120 — the slot is spent PER CANONICAL DIGEST, and a recorded revision that
 # changes the digest re-arms it.
 def _row792_slot_per_digest(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     assert_eq("#792 AC95 precondition: the trigger holds on the unspent slot",
-              'hold', _fb_field(r.fb(), 'final_byte_trigger='))
+              'hold', _field704(r.fb(), 'final_byte_trigger='))
     dec = r.offer(accepted=False)
     assert_eq("#792 AC120: a DECLINED offer records", 0, dec.returncode)
     assert_eq("#792 AC120: ... and marks the slot spent for the current digest, so the offer "
               "does not re-fire against unchanged bytes",
-              'not-hold', _fb_field(r.fb(), 'final_byte_trigger='))
+              'not-hold', _field704(r.fb(), 'final_byte_trigger='))
     assert_eq("#792 AC121: ... a decline is NOT recorded as a user-decline override",
               'user_declined=no', [t for t in r.summary().split()
                                    if t.startswith('user_declined=')][0])
@@ -15554,7 +15551,7 @@ def _row792_slot_per_digest(r):
     r('record-revision', r.slug, '--after-round', '1', nonce=True)
     assert_eq("#792 AC97/AC99: a revision that changes the canonical digest re-arms the slot, "
               "so the bytes actually filed stay offerable",
-              'hold', _fb_field(r.fb(), 'final_byte_trigger='))
+              'hold', _field704(r.fb(), 'final_byte_trigger='))
 
 
 _with_run792(_row792_slot_per_digest)
@@ -15563,9 +15560,7 @@ _with_run792(_row792_slot_per_digest)
 # AC98 — the re-arming is bounded, and an exhausted run discloses the exhaustion on the
 # summary line rather than filing silently.
 def _row792_pass_cap(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     for i in range(issue_audit_state._FINAL_BYTE_PASS_CAP):
         assert_eq(f"#792 AC98: pass {i + 1} of the cap is offerable",
                   0, r.offer(accepted=True).returncode)
@@ -15589,9 +15584,7 @@ _with_run792(_row792_pass_cap)
 # reporting `uncovered` rather than downgrading to `unestablished`. Driven over the
 # degraded-inline escalation, the terminal verdict-less shape.
 def _row792_refund(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     r.offer(accepted=True)
     r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
@@ -15608,12 +15601,12 @@ def _row792_refund(r):
               True, 'outcome=no-verdict' in closed.stdout)
     line = r.fb()
     assert_eq("#792 AC85: a pass that closes without a verdict REFUNDS the slot",
-              '0', _fb_field(line, 'final_byte_passes='))
+              '0', _field704(line, 'final_byte_passes='))
     assert_eq("#792 AC85: ... so the run does not lose its safety pass",
-              'hold', _fb_field(line, 'final_byte_trigger='))
+              'hold', _field704(line, 'final_byte_trigger='))
     assert_eq("#792 AC2/AC85/AC92: ... and an inline-arm latest round does not downgrade a "
               "known uncovered to unestablished",
-              'uncovered', _fb_field(line, 'final_byte_coverage='))
+              'uncovered', _field704(line, 'final_byte_coverage='))
     assert_eq("#792 AC113: the summary carries the coverage value on the degraded inline arm",
               True, 'degraded=yes' in r.summary()
               and 'final_byte_coverage=uncovered' in r.summary())
@@ -15684,13 +15677,11 @@ _with_run792(_row792_selectors_exclude_pass)
 # AC96/AC108/AC109 — the axis is inert on the three gated surfaces. Driven over a run on
 # which the trigger HOLDS, so a leak would be observable.
 def _row792_axis_is_inert(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     elig_before, trig_before = r.eligibility(), r.triggers()
     conv_before = r('query-convergence', r.slug, nonce=True).stdout.strip()
     assert_eq("#792 AC96 precondition: the final-byte trigger holds on this run",
-              'hold', _fb_field(r.fb(), 'final_byte_trigger='))
+              'hold', _field704(r.fb(), 'final_byte_trigger='))
     r.offer(accepted=False)
     assert_eq("#792 AC96/AC109: query-eligibility is byte-identical across a final-byte record",
               elig_before, r.eligibility())
@@ -15721,7 +15712,7 @@ assert_eq("#792 AC105: the override-kind vocabulary is byte-unchanged — the fi
 # AC123 — every `<field>=` token this change prints is registered in the closed protocol
 # vocabulary, so auditor-derived text cannot forge one.
 for _tok792 in ('final_byte_coverage', 'final_byte_exhausted', 'final_byte_passes',
-                'final_byte_reason', 'final_byte_trigger', 'slot'):
+                'final_byte_reason', 'final_byte_trigger'):
     assert_eq(f"#792 AC123: the printed token {_tok792!r} is registered in _PROTOCOL_TOKENS",
               True, _tok792 in issue_audit_state._PROTOCOL_TOKENS)
 
@@ -15798,7 +15789,7 @@ def _row792_absent_round_digest(r):
     _p792.write_text(_json.dumps(_s792), encoding='utf-8')
     assert_eq("#792 shape matrix: a round whose dispatch digest is ABSENT reports uncovered, "
               "never covered — an unmade comparison is not a pass",
-              'uncovered', _fb_field(r.fb(), 'final_byte_coverage='))
+              'uncovered', _field704(r.fb(), 'final_byte_coverage='))
 
 
 _with_run792(_row792_absent_round_digest)
@@ -15808,9 +15799,7 @@ _with_run792(_row792_absent_round_digest)
 # exact-byte round must still report `uncovered` — the cooperative path proves nothing
 # about the one the mechanism exists to make visible.
 def _row792_skipped_step(r):
-    r.generate()
-    r.dispatch()
-    r.ret(instructions_oid=None, extra='no')
+    r.uncovered_round()
     r('record-override', r.slug, '--kind', 'user-decline',
       '--surface', 'step4-approval-after-exhausted-offer', '--draft-file', r.draft,
       nonce=True)

@@ -395,7 +395,7 @@ _PROTOCOL_TOKENS = (
     # auditor-derived ledger summary, invalidation reason, or claim key can never forge a
     # field of the tool's own printed surface.
     'final_byte_coverage', 'final_byte_exhausted', 'final_byte_passes',
-    'final_byte_reason', 'final_byte_trigger', 'slot',
+    'final_byte_reason', 'final_byte_trigger',
 )
 
 
@@ -493,8 +493,18 @@ _USER_ROUND_CAP = 3
 # of times. A run at the cap files with the coverage field reporting its true value and
 # the exhaustion disclosed on the summary line, never silently.
 _FINAL_BYTE_PASS_CAP = 3
+# The round-funding budgets, enumerated ONCE. Two consumers read this set — `_validate`'s
+# read-boundary integer-shape loop and `_funded_rounds` below — and a fourth budget added
+# to only one of them fails silently in opposite directions (a round refused as unfunded,
+# or a wrong-typed counter reaching the arithmetic unchecked). The counters themselves are
+# deliberately NOT collapsed: each has its own cap, producer and re-arm rule, and the
+# final-byte slot's whole point is that it sits outside `_USER_ROUND_CAP`. Only the
+# enumeration is shared.
+_ROUND_BUDGETS = ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used')
 # The closed answer set of the final-byte coverage axis. Complete by construction: the
-# derivation returns exactly one of these on every path.
+# derivation returns exactly one of these on every path, and asserts membership at its own
+# return (the sibling `_COVERAGE_BACKINGS` discipline) — a token typo'd in a return dict
+# would otherwise ship green, since nothing downstream re-checks it.
 _FINAL_BYTE_COVERAGE = ('covered', 'uncovered', 'unestablished')
 
 # ── The transition table (the vocabulary registry and lockstep record) ─────────────────
@@ -1969,7 +1979,7 @@ def _validate(doc, slug):
     # the coverage/trigger derivation and `record-dispatch`'s funding arithmetic — reads
     # it. The `.get(key, 0)` default is what makes the absent and valid-falsy-`0` shapes
     # both legal and identical: an unspent slot IS zero.
-    for key in ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used'):
+    for key in _ROUND_BUDGETS:
         val = doc.get(key, 0)
         if not isinstance(val, int) or isinstance(val, bool):
             raise StateError(f'{key} {val!r} is not an integer')
@@ -2553,13 +2563,13 @@ def _coverage_round(state):
     coverage round only when its outcome is `FILE`.
 
     issue #792: "the run's final accepted round" excludes a final-byte exact-byte pass —
-    see `_last_completed_non_final_byte` for why an accepted pass must not retire this
+    see `_last_discovery_round` for why an accepted pass must not retire this
     axis. A run with no pass takes the identical answer, since the selector then reduces
     to `last_completed`.
     """
     if state is None:
         return None
-    last = _last_completed_non_final_byte(state)
+    last = _last_discovery_round(state)
     if last is None or last.get('outcome') != 'FILE':
         return None
     return last
@@ -2657,11 +2667,28 @@ def _final_byte_revoked(state, rnd):
     the selector keeps answering with a file-arm round (whose digest can be compared)
     even when the revoking round is an embed/inline one.
     """
-    done = completed_rounds(state)
-    # Located by IDENTITY, not `list.index`'s `==`: two round records comparing equal by
-    # value would resolve to the earlier one and silently widen the "newer" window.
-    at = next(i for i, o in enumerate(done) if o is rnd)
-    return any(o.get('outcome') == 'REVISE' for o in done[at + 1:])
+    # A single reverse pass, stopping at `rnd` itself. Comparing by IDENTITY rather than
+    # `==` matters: two round records comparing equal by value would otherwise stop the
+    # scan at the earlier one and silently widen the "newer" window.
+    for other in reversed(completed_rounds(state)):
+        if other is rnd:
+            return False
+        if other.get('outcome') == 'REVISE':
+            return True
+    return False
+
+
+def _final_byte_answer(coverage, reason, rnd):
+    """One decided final-byte answer, its token asserted against the closed set.
+
+    Every `evaluate_final_byte_coverage` return goes through here, so the closed
+    vocabulary is enforcement rather than documentation — a token typo'd in one arm would
+    otherwise ship green, since nothing downstream re-checks it.
+    """
+    _require(coverage in _FINAL_BYTE_COVERAGE,
+             f'issue-audit-state: the final-byte coverage token {coverage!r} is outside '
+             f'_FINAL_BYTE_COVERAGE')
+    return {'coverage': coverage, 'reason': reason, 'round': rnd}
 
 
 def evaluate_final_byte_coverage(state, current_digest=None, digest_failed=False):
@@ -2707,29 +2734,43 @@ def evaluate_final_byte_coverage(state, current_digest=None, digest_failed=False
     hold on it, so no offer fires that an accepted round could not honour.
     """
     if state is None:
-        return {'coverage': 'unestablished', 'reason': 'state-unestablished',
-                'round': None}
+        return _final_byte_answer('unestablished', 'state-unestablished', None)
     rnd = _final_byte_round(state)
     if rnd is None:
-        return {'coverage': 'unestablished', 'reason': 'no-file-arm-verdict-round',
-                'round': None}
+        return _final_byte_answer('unestablished', 'no-file-arm-verdict-round', None)
     if digest_failed:
-        return {'coverage': 'unestablished', 'reason': 'draft-undigestible',
-                'round': rnd}
+        return _final_byte_answer('unestablished', 'draft-undigestible', rnd)
     if current_digest is None:
-        return {'coverage': 'unestablished', 'reason': 'no-digest-supplied',
-                'round': rnd}
+        return _final_byte_answer('unestablished', 'no-digest-supplied', rnd)
     if rnd.get('outcome') != 'FILE':
-        return {'coverage': 'uncovered', 'reason': 'latest-verdict-revise', 'round': rnd}
+        return _final_byte_answer('uncovered', 'latest-verdict-revise', rnd)
     if _final_byte_revoked(state, rnd):
-        return {'coverage': 'uncovered', 'reason': 'superseded-by-revise', 'round': rnd}
+        return _final_byte_answer('uncovered', 'superseded-by-revise', rnd)
     if rnd['attempts'][-1].get('digest') != current_digest:
-        return {'coverage': 'uncovered', 'reason': 'digest-mismatch', 'round': rnd}
+        return _final_byte_answer('uncovered', 'digest-mismatch', rnd)
     if _revision_postdates(state, rnd):
-        return {'coverage': 'uncovered', 'reason': 'revision-postdates', 'round': rnd}
+        return _final_byte_answer('uncovered', 'revision-postdates', rnd)
     if not _steering_established(rnd):
-        return {'coverage': 'uncovered', 'reason': 'steering-unestablished', 'round': rnd}
-    return {'coverage': 'covered', 'reason': None, 'round': rnd}
+        return _final_byte_answer('uncovered', 'steering-unestablished', rnd)
+    return _final_byte_answer('covered', None, rnd)
+
+
+def _funded_rounds(doc):
+    """How many rounds the recorded budgets fund: the initial one plus every spend."""
+    return 1 + sum(doc.get(k, 0) for k in _ROUND_BUDGETS)
+
+
+def final_byte_passes(state):
+    """`(used, exhausted)` for the dedicated final-byte slot — the single derivation.
+
+    Four consumers read this pair (the slot predicate, the summary's two slot fields, the
+    producer's ceiling refusal, and the trigger query's rendering), and the cap is a
+    THRESHOLD: four independent comparisons would have to be found together the first time
+    the comparison changes, one of them deciding an offer and one deciding what the user
+    reads before approving.
+    """
+    used = (state or {}).get('final_byte_passes_used', 0)
+    return (used, used >= _FINAL_BYTE_PASS_CAP)
 
 
 def final_byte_slot_unspent(state, current_digest):
@@ -2745,13 +2786,12 @@ def final_byte_slot_unspent(state, current_digest):
         that changes the canonical digest therefore re-arms the slot with no revision
         hook at all — the comparison below simply stops matching.
       - the run is under `_FINAL_BYTE_PASS_CAP`. Re-arming is unbounded without it, since
-        the loop can return to the election any number of times. A run at the cap files
-        with the coverage field reporting its true value and the exhaustion disclosed on
-        the summary line (`final_byte_exhausted=yes`), never silently.
+        the loop can return to the election any number of times. See `_FINAL_BYTE_PASS_CAP`
+        for what a run at the cap discloses.
     """
     if state is None:
         return False
-    if state.get('final_byte_passes_used', 0) >= _FINAL_BYTE_PASS_CAP:
+    if final_byte_passes(state)[1]:
         return False
     spent_for = state.get('final_byte_slot_digest')
     return spent_for is None or spent_for != current_digest
@@ -2777,8 +2817,30 @@ def evaluate_final_byte_trigger(state, current_digest=None, digest_failed=False)
     return {'holds': holds, 'coverage': fb['coverage'], 'reason': fb['reason']}
 
 
-def _last_completed_non_final_byte(state):
-    """The newest completed round that is NOT a final-byte pass (issue #792).
+def _final_byte_honoured(rnd):
+    """Did this round honour the final-byte offer? `None` while it is still open (#792).
+
+    Three-valued deliberately: `None` means the round has not closed, and a pending retry
+    must not trigger a refund that would hand the run a second slot while the first round
+    is still open.
+
+    A round honours the offer only by closing with a FILE-ARM VERDICT-BEARING outcome —
+    the one condition that covers all three degradations the pass can take: a failed
+    pre-dispatch write (the round lands on the embed arm, so the arm term fails), a return
+    carrying no parseable verdict (outcome `no-verdict`), and a `VERDICT: DRAFT-UNREADABLE`
+    return once its one re-dispatch is exhausted.
+    """
+    if rnd.get('outcome') is None:
+        return None
+    return (rnd['outcome'] in _VERDICT_BEARING_OUTCOMES
+            and rnd['attempts'][-1]['arm'] == 'file')
+
+
+def _last_discovery_round(state):
+    """The newest completed DISCOVERY round — one that is not a final-byte pass (#792).
+
+    Named for the concept rather than the exclusion, so a second non-discovery round kind
+    extends this predicate's body instead of falsifying its name.
 
     The coverage and calibration axes derive from "the run's final accepted round", and
     an accepted exact-byte pass would otherwise retire both: the coverage selector
@@ -2807,12 +2869,12 @@ def _calibration_round(state):
     keep a run under-evidenced.
 
     issue #792: "the latest completed adjudicated round" excludes a final-byte exact-byte
-    pass — see `_last_completed_non_final_byte`. A run with no pass takes the identical
+    pass — see `_last_discovery_round`. A run with no pass takes the identical
     answer, since the selector then reduces to `last_completed`.
     """
     if state is None:
         return None
-    last = _last_completed_non_final_byte(state)
+    last = _last_discovery_round(state)
     if last is None or last.get('adjudicated_verdict') is None:
         return None
     return last
@@ -3569,9 +3631,8 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # the one the approve gate grounded on. A distinct axis: this derivation never
         # feeds convergence, the coverage backing, or the calibration backing, and it
         # never gates `emit-body` or `query-eligibility`.
-        final_byte_passes=state.get('final_byte_passes_used', 0),
-        final_byte_exhausted=(state.get('final_byte_passes_used', 0)
-                              >= _FINAL_BYTE_PASS_CAP),
+        final_byte_passes=final_byte_passes(state)[0],
+        final_byte_exhausted=final_byte_passes(state)[1],
         final_byte_coverage=_final_byte['coverage'],
         # issue #709: the LATEST completed round's steering-absence establishment, read
         # from that round only — the property binds to the audited bytes, not to the run,
@@ -4000,9 +4061,7 @@ def cmd_record_dispatch(args):
         # budget spent above, an accepted user-chosen offer (record-offer), or an accepted
         # final-byte offer (record-final-byte-offer --accepted, issue #792). Opening
         # an unfunded round would hand the run re-audits the cap never sees.
-        if len(doc['rounds']) >= (1 + doc.get('automatic_reaudits_used', 0)
-                                  + doc.get('user_rounds_used', 0)
-                                  + doc.get('final_byte_passes_used', 0)):
+        if len(doc['rounds']) >= _funded_rounds(doc):
             _fail('record-dispatch',
                   f'round {args.round} is not funded: the automatic budget is spent '
                   f'and no accepted user-chosen round funds it (record-offer '
@@ -4126,22 +4185,13 @@ def cmd_record_return(args):
         else:
             rnd['no_parseable_retry_used'] = True
             rnd['pending'] = 'dispatch-retry-same-arm'
-    # issue #792: a final-byte pass that CLOSES without a file-arm verdict refunds the
-    # dedicated slot. The offer's own precondition is that an accepted round could honour
-    # it, and such a round did not — so the run keeps its safety pass rather than spending
-    # it on a degradation. This one condition covers all three degradations the pass can
-    # take: a failed pre-dispatch write (the round lands on the embed arm, so the arm term
-    # fails), a return carrying no parseable verdict (outcome `no-verdict`), and a
-    # `VERDICT: DRAFT-UNREADABLE` return once its one re-dispatch is exhausted. It fires
-    # only on a CLOSED round — a pending retry has not closed, so a mid-round refund
-    # cannot hand the run a second slot while the first round is still open.
-    if rnd.get('final_byte_pass') and rnd.get('outcome') is not None:
-        _closed_file_verdict = (rnd['outcome'] in _VERDICT_BEARING_OUTCOMES
-                                and rnd['attempts'][-1]['arm'] == 'file')
-        if not _closed_file_verdict:
-            doc['final_byte_passes_used'] = max(
-                0, doc.get('final_byte_passes_used', 0) - 1)
-            doc['final_byte_slot_digest'] = None
+    # issue #792: a final-byte pass that closes WITHOUT honouring the offer refunds the
+    # dedicated slot, so the run keeps its safety pass rather than spending it on a
+    # degradation. The `max(0, ...)` floor pairs with the read-boundary non-negative check.
+    if rnd.get('final_byte_pass') and _final_byte_honoured(rnd) is False:
+        doc['final_byte_passes_used'] = max(
+            0, doc.get('final_byte_passes_used', 0) - 1)
+        doc['final_byte_slot_digest'] = None
     # Evidence from a REFUSED completion (failed carriage / no parseable verdict) is
     # never recorded: an unproven findings tally must not leak into the summary via a
     # later clean retry that omits its own count.
@@ -5517,13 +5567,21 @@ def cmd_record_offer(args):
     print(f'user_rounds_used={doc["user_rounds_used"]} cap={_USER_ROUND_CAP}')
 
 
-def _final_byte_digest(prefix, state_or_doc, args):
-    """The current canonical digest for a final-byte operation, or (None, failed).
+def resolve_draft_digest(prefix, state_or_doc, args):
+    """The current canonical draft digest, or `(None, digest_failed)`.
 
-    Mirrors `query-eligibility`/`query-summary`: prefer the recorded bound draft file
-    over the caller's `--draft-file`, so a compacted context cannot drift which file the
-    slot is keyed to. Returns `(digest, digest_failed)`; a digest failure is surfaced on
-    stderr and never swallowed.
+    The single owner of the issue-#562 precedence rule every digest-reading surface obeys:
+    prefer the RECORDED bound draft file over the caller's `--draft-file`, so a compacted
+    context that hands a drifted path cannot redirect which file the answer grounds on;
+    fall back to `--draft-file` only on an unbound run.
+
+    A digest failure is surfaced on stderr and never swallowed — a silent one would
+    misattribute the resulting refusal (`unaudited-revision` rather than the honest
+    `draft-undigestible`). Queries stay exit-0; this is a breadcrumb, not a failure exit.
+    `prefix` names the calling command in that breadcrumb.
+
+    `cmd_emit_body` deliberately does NOT route through here: it reads the bytes it is
+    about to emit and `_fail`s rather than breadcrumbing, so its failure shape differs.
     """
     source = _bound_draft_file(state_or_doc, args.slug) or args.draft_file
     if not source:
@@ -5558,7 +5616,7 @@ def cmd_record_final_byte_offer(args):
     because only an accept opens a round.
     """
     doc = _load_for_mutation('record-final-byte-offer', args.slug, args.nonce)
-    digest, digest_failed = _final_byte_digest('record-final-byte-offer', doc, args)
+    digest, digest_failed = resolve_draft_digest('record-final-byte-offer', doc, args)
     if digest_failed:
         _fail('record-final-byte-offer',
               'the canonical draft file could not be hashed, so the slot cannot be keyed '
@@ -5588,34 +5646,35 @@ def cmd_record_final_byte_offer(args):
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-final-byte-offer', str(exc))
-    print(f'final_byte_passes={doc.get("final_byte_passes_used", 0)} '
+    # No `slot=` field: both arms spend the slot, so the token could never vary — a
+    # printed constant trains a reader to skip the line, and still costs a protocol-token
+    # registration. `outcome=` is what actually distinguishes the two arms.
+    print(f'final_byte_passes={doc["final_byte_passes_used"] if args.accepted else used} '
           f'cap={_FINAL_BYTE_PASS_CAP} '
-          f'slot=spent '
           f'outcome={"accepted" if args.accepted else "declined"}')
 
 
 def cmd_query_final_byte(args):
     """The final-byte trigger, on its OWN query (issue #792).
 
-    Never appended to `query-triggers`: that query's Step 3.6 -> Step 4 boundary consumer
-    applies `While **any** holds` semantics at the PRE-PRESENTATION pause, where the bytes
-    are not yet final, so a fifth field there would fire the pass at the wrong moment —
-    and its answer shape is fixed by whole-line comparands besides. Single-line, decided
-    output on every arm, exit 0 once the arguments parse, exactly like its siblings.
+    Single-line, decided output on every arm, exit 0 once the arguments parse, exactly
+    like its siblings. See `evaluate_final_byte_trigger` for why this is answered here
+    rather than on `query-triggers`.
     """
     state = _query_state(args.slug)
+    # A foreign nonce collapses the state to unestablished and overrides only the REASON,
+    # then falls through to the SINGLE formatter below — never a second hand-written copy
+    # of the field run, which a sixth field would silently leave behind (the same
+    # fall-through idiom `cmd_query_summary` uses).
+    reason_override = None
     if state is not None and state['nonce'] != args.nonce:
-        print('final_byte_trigger=not-hold final_byte_coverage=unestablished '
-              'final_byte_reason=foreign-nonce final_byte_passes=0 '
-              'final_byte_exhausted=no')
-        return
-    digest, digest_failed = _final_byte_digest('query-final-byte', state, args)
+        state, reason_override = None, 'foreign-nonce'
+    digest, digest_failed = resolve_draft_digest('query-final-byte', state, args)
     t = evaluate_final_byte_trigger(state, digest, digest_failed=digest_failed)
-    passes = (state or {}).get('final_byte_passes_used', 0)
-    exhausted = passes >= _FINAL_BYTE_PASS_CAP
+    passes, exhausted = final_byte_passes(state)
     print(f'final_byte_trigger={"hold" if t["holds"] else "not-hold"} '
           f'final_byte_coverage={t["coverage"]} '
-          f'final_byte_reason={t["reason"] or "none"} '
+          f'final_byte_reason={reason_override or t["reason"] or "none"} '
           f'final_byte_passes={passes} '
           f'final_byte_exhausted={_yn(exhausted)}')
 
@@ -6344,22 +6403,8 @@ def cmd_query_eligibility(args):
     if state is not None and state['nonce'] != args.nonce:
         print('eligible=no reason=foreign-nonce')
         return
-    digest = None
-    digest_failed = False
-    # issue #562: prefer the recorded bound draft file over the caller's --draft-file, so
-    # a compacted context cannot drift which file eligibility grounds on. Fall back to
-    # --draft-file only when unbound.
-    source = _bound_draft_file(state, args.slug) or args.draft_file
-    if source:
-        try:
-            digest = hash_file(source)
-        except _DigestError as exc:
-            # Surface the real cause — a swallowed digest failure would misattribute
-            # the refusal as unaudited-revision. Queries stay exit-0; this is a
-            # breadcrumb, not a failure exit.
-            print(f'query: could not hash draft file {source}: {exc}',
-                  file=sys.stderr)
-            digest_failed = True
+    # issue #562 precedence + the digest-failure breadcrumb, owned by the shared resolver.
+    digest, digest_failed = resolve_draft_digest('query', state, args)
     r = evaluate_eligibility(state, args.mode, digest, digest_failed=digest_failed)
     if args.mode == 'iterate':
         if r['answer'] == 'iterate-ok':
@@ -6387,21 +6432,10 @@ def cmd_query_summary(args):
         print(f'query: nonce mismatch for slug {args.slug} (the state file is owned by '
               f'another run); answering unestablished', file=sys.stderr)
         state = None
-    digest = None
-    digest_failed = False
-    # issue #562: prefer the recorded bound draft file (consistency with query-eligibility,
-    # whose derivation this summary shares) over the caller's --draft-file.
-    source = _bound_draft_file(state, args.slug) or args.draft_file
-    if source:
-        try:
-            digest = hash_file(source)
-        except _DigestError as exc:
-            # Same breadcrumb discipline as query-eligibility: never a silent swallow —
-            # and the failure threads into the eligibility derivation so the summary can
-            # never render a live token the approve gate would refuse.
-            print(f'query: could not hash draft file {source}: {exc}',
-                  file=sys.stderr)
-            digest_failed = True
+    # Same resolver as query-eligibility, whose derivation this summary shares — so the
+    # two can never ground on different files. The failure threads into the eligibility
+    # derivation, so the summary can never render a live token the approve gate refuses.
+    digest, digest_failed = resolve_draft_digest('query', state, args)
     f = summary_fields(state, digest, digest_failed=digest_failed)
     fc = 'none' if f['findings_count'] is None else str(f['findings_count'])
     token = f['token'] or ('stale-token' if f['stale_token'] else 'none')
