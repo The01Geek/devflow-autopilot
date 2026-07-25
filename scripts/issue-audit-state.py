@@ -511,13 +511,16 @@ _FINAL_BYTE_GRANT_CAP = 6
 # final-byte slot's whole point is that it sits outside `_USER_ROUND_CAP`. Only the
 # enumeration is shared.
 _ROUND_BUDGETS = ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used')
-# `final_byte_passes_used` is MONOTONIC — it counts grants, and every grant funded exactly one
-# round that stays in `doc['rounds']` forever. A refund therefore must NOT decrement it: the
-# funding test compares `len(doc['rounds'])` against `_funded_rounds`, so retracting a grant for
-# an already-opened round leaves the run one round short of its own history and hard-refuses the
+# `final_byte_passes_used` counts grants a round DID OR WILL claim. A REFUND must never
+# decrement it: the granted round is already in `doc['rounds']` forever, and the funding test
+# compares `len(doc['rounds'])` against `_funded_rounds`, so retracting a grant for an
+# already-opened round leaves the run one round short of its own history and hard-refuses the
 # replacement dispatch the refund just re-armed the offer for. The refund is recorded on this
-# separate term instead, which is subtracted from the CAP comparison only (a degraded round was
-# not a pass) and never from the funding sum. `_ROUND_BUDGETS` deliberately excludes it for the
+# separate term instead, subtracted from the CAP comparison only (a degraded round was not a
+# pass) and never from the funding sum. The counter IS decremented on exactly one class of
+# event — the retraction of an OUTSTANDING grant that no dispatch ever consumed, by a decline or
+# a recorded revision — which is consistent rather than contradictory: that grant funded no
+# round, so removing it keeps the funding sum equal to what the rounds list actually needs. `_ROUND_BUDGETS` deliberately excludes it for the
 # same reason — it is a cap-facing quantity, not a funding one — but it joins the read-boundary
 # integer-shape check below on its own.
 _FINAL_BYTE_REFUNDS_KEY = 'final_byte_refunds'
@@ -5439,6 +5442,19 @@ def cmd_record_revision(args):
            'floor_round': floor}
     if stdin_digest is not None:
         rev['stdin_digest'] = stdin_digest
+    # issue #792: a recorded revision supersedes the bytes an outstanding final-byte grant was
+    # accepted for, so the grant is retracted here — exactly as the decline arm retracts one.
+    # `record-dispatch` pops `final_byte_pending` at the top of its new-round branch WITHOUT
+    # checking what funds that round, so an accept whose dispatch never happened (the
+    # pre-dispatch canonical write failed — the degradation this feature is designed for) would
+    # otherwise stamp the next ordinary, `record-offer`-funded discovery round as the pass:
+    # double-funded, silently excluded from both axis selectors, and refunding a slot it never
+    # drew from. The grant funded no round, so decrementing it keeps the funding sum consistent
+    # with `len(doc['rounds'])`. The slot digest is left alone — the revision changes the
+    # canonical digest, which re-arms the offer on its own.
+    if doc.get('final_byte_pending'):
+        doc['final_byte_pending'] = False
+        doc['final_byte_passes_used'] = max(0, doc.get('final_byte_passes_used', 0) - 1)
     doc['revisions'].append(rev)
     try:
         save_state(doc, args.slug)
@@ -5710,10 +5726,13 @@ def cmd_record_final_byte_offer(args):
               'recorded without one')
     # These two refusal arms read the SHARED derivations rather than open-coding their terms, so
     # the producer and the read side can never disagree about whether the slot is spendable. They
-    # are kept separate only to name distinct causes in the breadcrumb. Every refusal in this
-    # command — including the grant-ceiling arm further down, which reads the monotonic grant
-    # count directly because no shared derivation exposes it — embeds its registered transition
-    # reason token, so the message and the closed vocabulary cannot drift apart.
+    # are kept separate only to name distinct causes in the breadcrumb. Each of the three
+    # LEGALITY refusals — these two plus the grant-ceiling arm further down, which reads the raw
+    # grant count directly because no shared derivation exposes it — embeds its registered
+    # transition reason token, so the message and the closed vocabulary cannot drift apart. The
+    # two digest-availability refusals above are deliberately NOT in that set: an unhashable or
+    # absent draft is a caller-input failure, not an illegal lifecycle transition, so it has no
+    # transition row and no registered token to embed.
     if final_byte_passes(doc)[1]:
         _fail('record-final-byte-offer',
               f'(final-byte-pass-cap-reached) final-byte passes are capped at '

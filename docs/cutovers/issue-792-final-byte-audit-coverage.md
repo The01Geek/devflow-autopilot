@@ -83,8 +83,12 @@ is load-bearing and was a live defect the review pass caught: `final_byte_passes
 *funding* term (it is in `_ROUND_BUDGETS`, and `_funded_rounds` compares against the monotonically
 growing `len(doc['rounds'])`), so decrementing it retracts budget for a round already opened —
 re-arming the offer while hard-refusing the replacement dispatch as unfunded, on exactly the two
-states the dedicated slot exists to keep fundable. Grants stay monotonic and fund rounds; refunds
-are subtracted from the **cap** comparison only, because a degraded round was not a pass. One condition covers all three
+states the dedicated slot exists to keep fundable. `final_byte_passes_used` therefore counts grants
+a round *did or will* claim: a refund never touches it, and it is decremented on exactly one class
+of event — the retraction of an **outstanding** grant no dispatch ever consumed (a decline, or a
+recorded revision that supersedes the bytes it was accepted for). Such a grant funded no round, so
+removing it keeps the funding sum equal to what the rounds list actually needs. Refunds are
+subtracted from the **cap** comparison only, because a degraded round was not a pass. One condition covers all three
 degradations the round can take — a failed pre-dispatch write (the round lands on the embed arm), a
 return carrying no parseable verdict, and a `VERDICT: DRAFT-UNREADABLE` return once its one
 re-dispatch is exhausted — because the offer's own precondition is that an accepted round could

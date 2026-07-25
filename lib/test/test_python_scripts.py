@@ -15964,6 +15964,38 @@ def _row792_ceiling_still_permits_decline(r):
 _with_run792(_row792_ceiling_still_permits_decline)
 
 
+# ITER-4 finding — a recorded REVISION retracts an outstanding grant. `record-dispatch` pops
+# `final_byte_pending` without checking what funds the round, so an accept whose dispatch never
+# happened (the pre-dispatch canonical write failed — the degradation this feature is designed
+# for) would otherwise stamp the next ordinary, record-offer-funded discovery round as the pass:
+# double-funded, silently excluded from both axis selectors, and refunding a slot it never drew
+# from. The decline path alone did not close this — no decline occurs in the sequence below.
+def _row792_revision_retracts_outstanding_grant(r):
+    r.clean_round()
+    assert_eq("#792 iter4 precondition: the accept is a new grant",
+              True, 'grant=new' in r.offer(accepted=True).stdout)
+    # The dispatch never happens; the user revises instead.
+    Path(r.draft).write_text('# A drafted issue title\n\n## Problem Statement\n\nedited\n',
+                             encoding='utf-8')
+    _rev = r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
+             stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
+    assert_eq("#792 iter4 precondition: the revision records", 0, _rev.returncode)
+    # The iterate loop then funds an ORDINARY round through record-offer.
+    r('record-offer', r.slug, '--accepted', nonce=True)
+    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+      '--draft-file', r.draft, nonce=True)
+    _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
+                              f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
+    assert_eq("#792 iter4: the revision retracted the stale grant, so the ordinary round is NOT "
+              "stamped as the pass",
+              False, bool(_state['rounds'][1].get('final_byte_pass')))
+    assert_eq("#792 iter4: ... and the retracted grant no longer funds a phantom round",
+              0, _state.get('final_byte_passes_used', 0))
+
+
+_with_run792(_row792_revision_retracts_outstanding_grant)
+
+
 _with_run792(_row792_decline_clears_pending)
 
 
