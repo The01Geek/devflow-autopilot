@@ -15,7 +15,8 @@
       "Bash(shellcheck:*)"
     ],
     "execution_diagnostics_enabled": true,
-    "execution_transcript_artifact_enabled": true
+    "execution_transcript_artifact_enabled": true,
+    "attribute_commits_to_triggerer": false
   },
   "devflow_implement": {
     "effort": "low",
@@ -29,6 +30,7 @@
       "Bash(git ls-remote:*)",
       "Bash(git check-ignore:*)"
     ],
+    "update_branch_checkpoints": true,
     "stall_backstop": {
       "enabled": true,
       "max_resume_attempts": 2
@@ -54,6 +56,10 @@
     },
     "require_up_to_date": true,
     "require_ci_green": true,
+    "stall_backstop": {
+      "enabled": true,
+      "max_resume_attempts": 2
+    },
     "agent_overrides": {
       "default": {
         "effort": "low"
@@ -78,6 +84,7 @@
     "install": [
       "python -m pip install -r requirements.txt"
     ],
+    "claude_code_executable": "",
     "git_dir_pin": false,
     "git_work_tree_pin": false
   },
@@ -93,6 +100,15 @@
   "deferred": {
     "labels": "DevFlow,Deferred"
   },
+  "telemetry": {
+    "branch": "devflow-telemetry"
+  },
+  "verification_flight": {
+    "enabled": true,
+    "lease_seconds": 900,
+    "wait_timeout_seconds": 600,
+    "profiles": {}
+  },
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-opus-4-8",
@@ -106,11 +122,5 @@
   "workflows": {
     "devflow": true,
     "devflow-review": true
-  },
-  "verification_flight": {
-    "enabled": true,
-    "lease_seconds": 900,
-    "wait_timeout_seconds": 600,
-    "profiles": {}
   }
 }
