@@ -169,7 +169,12 @@ files is exempt.
 pin's literal appears in two or more counted homes, remove the pin only in the same
 change that removes at least one of those copies; a pin-only removal is not an
 accepted disposition because it leaves the duplicated prose without its divergence
-check.
+check. Refresh it with a two-commit, inventory-free snapshot protocol: preserve the
+prior snapshot in history; delete the inventory in the source/retirement commit;
+generate the replacement against that exact inventory-free commit; and commit the
+generated artifact separately. The source/retirement commit is intentionally
+non-green while the artifact is absent, so never leave that intermediate commit as
+the PR head.
 
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
 member of the same declaration-marker family, in the same one-line-reason framing as

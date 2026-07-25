@@ -540,6 +540,9 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         data_lines = [line for line in raw_lines if not line.startswith("#")]
         rows = list(csv.DictReader(data_lines, delimiter="\t"))
         self.assertEqual(expected, len(rows))
+        inventory_path = inventory.relative_to(repo_root).as_posix()
+        for row in rows:
+            self.assertNotIn(inventory_path, json.loads(row["homes"]))
         self.assertEqual(
             {
                 "suite-internal",
