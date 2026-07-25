@@ -29,6 +29,18 @@
 # rebound to stderr for the whole script and the token is emitted on the saved
 # real-stdout fd 3 via emit().
 #
+# HOW A CALLER MATCHES THE TOKEN (binding on every call site, issue #779): compare the
+# FIRST WHITESPACE-DELIMITED FIELD of the emitted line, never the line as a whole — `UPDATED`
+# is emitted as `UPDATED <behind>` (e.g. `UPDATED 3`), so a whole-line equality test against
+# `UPDATED` is false for every real merge — misgrading the successful-merge case in whichever
+# direction the call site's routing then takes (at checkpoints 1-3, treating a landed merge as
+# degraded-and-continue; at checkpoint 4's publish gate, blocking the publish on exactly the
+# runs that in fact reconciled).
+# And "the helper reported nothing" is NOT observable as "no output at all": fd 1 is rebound to
+# stderr below, so git's own chatter interleaves with the token and a successful invocation is
+# never silent — the observable discriminator is that NO line's leading word is a member of the
+# token set enumerated here.
+#
 # Outcome contract — exactly one token on stdout, matching exit code:
 #   UP_TO_DATE         exit 0  behind-by 0; tree untouched
 #   UPDATED <behind>   exit 0  merged and pushed (incl. via push-race recovery)
@@ -187,9 +199,11 @@ _reject_restore() {  # message
 # Never a bare `git push` here. Two distinct shapes break it, and both are shapes the
 # checkpoint genuinely runs on:
 #
-#   (1) NO upstream. Phase 1.4's resume/adopt checkpoint fires on the adopted-branch arm —
-#       including the linked-worktree signal, a branch a local run created and has NOT pushed
-#       — and Phase 1.5's `git push -u origin HEAD` runs *after* it. `push.default=simple`
+#   (1) NO upstream. Phase 1.4's checkpoint fires on EVERY §1.4 arm (issue #779) — the
+#       adopted-branch arm including the linked-worktree signal, a branch a local run created
+#       and has NOT pushed; the new-branch arm, whose branch `git checkout -b` has only just
+#       cut and which has no upstream at all; and the landed-resume arm — and Phase 1.5's
+#       `git push -u origin HEAD` runs *after* it in every one of them. `push.default=simple`
 #       refuses without an upstream, the recovery arm then cannot fetch a remote ref that does
 #       not exist, and _reject_restore rolls the base merge back: a false PUSH_REJECTED that
 #       SILENTLY DISCARDS the merge — a no-op on the exact path the feature exists for.
