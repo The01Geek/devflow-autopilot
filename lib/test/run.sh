@@ -8336,7 +8336,10 @@ cat > "$S781/gh" <<'STUB'
 # driven by a scenario below (no declared-but-unused knobs).
 j="$*"
 if [[ "$j" == *"repo view"* ]]; then echo "owner/repo"; exit 0; fi
-if [[ "$j" == *"issue view"* ]]; then cat "$WP781_ISSUE"; exit 0; fi
+if [[ "$j" == *"issue view"* ]]; then
+  if [ "${WP781_ISSUE_FAIL:-}" = "1" ]; then echo "gh: stubbed issue-body transport failure" >&2; exit 1; fi
+  cat "$WP781_ISSUE"; exit 0
+fi
 if [[ "$j" == *"/comments"* ]]; then
   if [ "${WP781_COMMENT_FAIL:-}" = "1" ]; then echo "gh: stubbed transport failure" >&2; exit 1; fi
   if [ "${WP781_NO_WORKPAD:-}" = "1" ]; then echo '[]'; exit 0; fi
@@ -8622,6 +8625,27 @@ _c="$(WP781_COMMENT_FAIL=1 run781 "$S781/wp-real.md" acs-resolve 999 --pr 143)"
 assert_eq "#781: a failed workpad read is ROUTED (exit 0), never a run-ending error" "0" "$_c"
 assert_eq "#781: a failed workpad read reports workpad-read-failed, never a normal issue-body resolution" \
   "workpad-read-failed" "$(_src781)"
+
+# acs-resolve's exit-3 fail-closed arm, driven BEHAVIORALLY (it was asserted only by
+# prose pins). Without the issue body there is no comparand and nothing to resolve, so
+# this is the one failure that is NOT a routed source token: a regression routing it as
+# a normal `issue-body` resolution would have the reviewer judge the PR against a
+# workpad set with no comparand at all, and would have shipped green.
+_c="$(WP781_ISSUE_FAIL=1 run781 "$S781/wp-real.md" acs-resolve 999 --pr 143)"
+assert_eq "#781: acs-resolve exits 3 when the ISSUE BODY read fails (no comparand, nothing to resolve)" \
+  "3" "$_c"
+assert_eq "#781: the issue-body read failure never routes to a source token" "" \
+  "$(grep '^source: ' "$S781/out" || true)"
+assert_eq "#781: the issue-body read failure names itself on stderr" "yes" \
+  "$([ -s "$S781/err" ] && echo yes || echo no)"
+
+# acs-resolve is a pure read exactly as `acs` is — nothing time-varying may reach its
+# output, or Phase 0.4's injected criteria block would churn between otherwise
+# identical runs. `acs` had this pin; acs-resolve did not.
+run781 "$S781/wp-real.md" acs-resolve 999 --pr 143 >/dev/null; cp "$S781/out" "$S781/rr-a"
+run781 "$S781/wp-real.md" acs-resolve 999 --pr 143 >/dev/null; cp "$S781/out" "$S781/rr-b"
+assert_eq "#781: acs-resolve output is byte-identical on re-run against unchanged surfaces" "yes" \
+  "$(cmp -s "$S781/rr-a" "$S781/rr-b" && echo yes || echo no)"
 
 # No criteria on EITHER surface → the gap is reported explicitly.
 printf '## Background\nnothing here\n' > "$S781/issue-empty.md"

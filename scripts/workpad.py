@@ -22,7 +22,7 @@ Usage:
     workpad.py id        ISSUE [--marker M]
     workpad.py acs       ISSUE [--exclude-post-merge] [--neutralize-boxes]
                                [--emit-source-token]
-    workpad.py acs-resolve ISSUE --pr N
+    workpad.py acs-resolve ISSUE [--pr N]
     workpad.py body      COMMENT_ID
     workpad.py patch     COMMENT_ID BODY_FILE
     workpad.py create    ISSUE BODY_FILE
