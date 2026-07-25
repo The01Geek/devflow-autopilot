@@ -1889,6 +1889,7 @@ MODULE_DRIVEN_SUITES = (
     "test_verification_flight.py",
     "test_reception_identity.py",
     "test_coverage_map_guard.py",
+    "test_pin_corpus_classifier.py",
     "test_workflow_flight_recorder.py",
     "test_workflow_analyzer.py",
 )

@@ -288,6 +288,25 @@ assert_eq "reception identity: CLI does not re-implement write-tree" "0" \
 rm -rf "$RI_ROOT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#798 pin-corpus protected-asset classifier"
+# ────────────────────────────────────────────────────────────────────────────
+# The production classifier is a maintainer-run census instrument, not a suite
+# gate. Its focused unit tests are self-contained: synthetic tracked populations
+# exercise parsing and classification, while one live-corpus arm proves the
+# committed adjudications still close every row without writing the inventory.
+_HPG_CLASSIFIER_OUT="$(mktemp "$_hpg_tmp_root/classifier-unit.XXXXXX")" || {
+  printf 'could not allocate the #798 classifier unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test \
+  "#798 pin-corpus classifier: focused Python tests pass" \
+  "$LIB/test/test_pin_corpus_classifier.py" \
+  "$_HPG_CLASSIFIER_OUT"
+assert_eq "#798 pin-corpus classifier remains maintainer-run (no run.sh invocation)" \
+  "0" "$(grep -cF 'pin-corpus-classifier.py' "$LIB/test/run.sh" || true)"
+rm -f "$_HPG_CLASSIFIER_OUT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
 # ────────────────────────────────────────────────────────────────────────────
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units
