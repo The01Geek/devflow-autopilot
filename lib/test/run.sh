@@ -35347,7 +35347,7 @@ _PCL_WRAP_ERR="$(probe_tmp '#375 real-corpus wrapped stderr capture')"
 # discrimination is exercised by the #661 self-tests below. --reloc-exclude drops the
 # pin-source tree so a real relocation report never self-matches a pin's own
 # declaration (the abspath auto-exclude covers run.sh itself either way).
-_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
+_PCL_WRAP_OUT="$(python3 "$PCL" wrapped "$SELF_SRC" "${_PCL_ARGS[@]}" --reloc --reloc-exclude lib/test/ --reloc-exclude .devflow/logs/pin-corpus-inventory.tsv 2>"$_PCL_WRAP_ERR")"; _PCL_WRAP_RC=$?
 assert_eq "#375 wrapped-literal meta-guard: no resolvable pin phrase is off-line/wrapped (real corpus; exit 0 + empty)" \
   "rc=0|" "rc=$_PCL_WRAP_RC|$_PCL_WRAP_OUT"
 # Same positive-coverage floor as the lint block (bash-builtin count extraction, fail-closed).
@@ -35721,6 +35721,15 @@ if _F661="$(mktemp -d 2>/dev/null)" && [ -n "$_F661" ] && [ -d "$_F661" ]; then
   printf '%s\n' "$_F661/wrapdest.md" > "$_F661/set_wrap.txt"
   printf '%s\n%s\n%s\n' "$_F661/pinsrc.sh" "$_F661/.devflow/vendor/vcopy.md" "$_F661/.devflow/tmp/tdraft.md" > "$_F661/set_scope.txt"
   : > "$_F661/set_empty.txt"
+  # The frozen #798 census quotes every literal and is deliberately outside the
+  # relocation population. Prove that a literal found only in an inventory-shaped
+  # candidate remains a genuine deletion rather than a self-generated relocation.
+  mkdir -p "$_F661/.devflow/logs"
+  printf '%s\n' "$RELOC_LIT" > "$_F661/.devflow/logs/pin-corpus-inventory.tsv"
+  printf '%s\n' "$_F661/.devflow/logs/pin-corpus-inventory.tsv" > "$_F661/set_inventory.txt"
+  _R798_INV="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_inventory.txt" --reloc-exclude .devflow/logs/pin-corpus-inventory.tsv 2>/dev/null)"
+  assert_eq "pin-corpus inventory reloc exclusion: a literal found only in the frozen inventory still diagnoses as deleted" \
+    "yes" "$(printf '%s' "$_R798_INV" | grep -q 'deleted (not found anywhere)' && ! printf '%s' "$_R798_INV" | grep -q 'RELOCATED' && echo yes || echo no)"
   # Positive control: the literal resolves in exactly one non-target file → RELOCATED to it.
   _R661_POS="$(python3 "$PCL" wrapped "$_F661/pins_lit.sh" --lib "$_F661" --reloc --reloc-search-set "$_F661/set_dest.txt" 2>/dev/null)"
   assert_eq "#661 reloc self-test: an ABSENT literal present in a non-target file is reported RELOCATED to it" \
@@ -47119,11 +47128,11 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 [ "$CICE_TEST_RC" -eq 0 ] || while IFS= read -r _cice_line || [ -n "$_cice_line" ]; do printf '    %s\n' "$_cice_line"; done <<< "$CICE_TEST_OUT"
 
 # harness-python-guards contract coverage (issue #707: extracted from this file's
-# #600 / #527 / #528 / #668 / #591 monolith-only Python guard blocks into a focused
+# #600 / #527 / #528 / #668 / #798 / #591 Python guard blocks into a focused
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 33; then
+  "harness-python-guards" 35; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi

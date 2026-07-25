@@ -1,0 +1,375 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+"""Focused tests for the issue-798 pin-corpus classifier."""
+
+from __future__ import annotations
+
+import csv
+from collections import Counter
+import importlib.util
+import io
+import json
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CLASSIFIER = HERE / "pin-corpus-classifier.py"
+
+
+def load_classifier():
+    spec = importlib.util.spec_from_file_location("pin_corpus_classifier", CLASSIFIER)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class PinCorpusClassifierTests(unittest.TestCase):
+    def setUp(self):
+        self.mod = load_classifier()
+
+    def test_mechanical_bucket_boundaries_and_precedence(self):
+        classify = self.mod.classify_mechanical
+        self.assertEqual(
+            "unclear",
+            classify(None, (), (), config_keys=frozenset()),
+        )
+        self.assertEqual(
+            "unclear",
+            classify("missing", (), (), config_keys=frozenset()),
+        )
+        self.assertEqual(
+            "suite-internal",
+            classify(
+                "inside",
+                ("lib/test/fixture.txt",),
+                (),
+                config_keys=frozenset(),
+            ),
+        )
+        self.assertEqual(
+            "required-copy",
+            classify(
+                "copy",
+                ("skills/receiving-code-review/SKILL.md", "docs/copy.md"),
+                ("skills/receiving-code-review/SKILL.md", "docs/copy.md"),
+                config_keys=frozenset(),
+            ),
+        )
+        self.assertEqual(
+            "generated",
+            classify(
+                "generated",
+                ("scripts/workflow-flight-recorder-registry.json",),
+                ("scripts/workflow-flight-recorder-registry.json",),
+                config_keys=frozenset(),
+            ),
+        )
+        self.assertEqual(
+            "config-key",
+            classify(
+                "feature_flag",
+                ("docs/config.md",),
+                ("docs/config.md",),
+                config_keys=frozenset({"feature_flag"}),
+            ),
+        )
+        self.assertEqual(
+            "prose-sole-copy",
+            classify(
+                "one",
+                ("docs/one.md",),
+                ("docs/one.md",),
+                config_keys=frozenset(),
+            ),
+        )
+        self.assertEqual(
+            "prose-multi-copy",
+            classify(
+                "many",
+                ("docs/one.md", "skills/x/SKILL.md", "README.md"),
+                ("docs/one.md", "skills/x/SKILL.md", "README.md"),
+                config_keys=frozenset(),
+            ),
+        )
+
+    def test_boundary_path_fails_closed_and_boundary_is_not_mechanical(self):
+        bucket = self.mod.classify_mechanical(
+            "permissions: write",
+            (".github/workflows/devflow.yml",),
+            (".github/workflows/devflow.yml",),
+            config_keys=frozenset({"permissions: write"}),
+        )
+        self.assertEqual("unclear", bucket)
+        self.assertNotEqual("boundary", bucket)
+
+    def test_site_extraction_reuses_helpers_and_physical_spans(self):
+        source = """\
+MAXI_SKILL="$LIB/maxi.md"
+assert_pin_unique "plain" 'alpha' "$LIB/a.md"
+assert_pin_red_on_removal \\
+  "removal" \\
+  'beta'
+devflow_module_pin_unique "module unique" 'gamma' "$LIB/c.md"
+devflow_module_pin_present "module present" 'delta' "$LIB/d.md"
+# assert_pin_unique "comment" 'ignored' "$LIB/no.md"
+assert_pin_unique() { :; }
+"""
+        rows = self.mod.extract_existence_sites(
+            source,
+            "lib/test/run.sh",
+            "/repo/lib",
+            {"MAXI_SKILL": "/__pin_corpus_runtime__/MAXI_SKILL"},
+        )
+        self.assertEqual(4, len(rows))
+        self.assertEqual(
+            [
+                "assert_pin_unique",
+                "assert_pin_red_on_removal",
+                "devflow_module_pin_unique",
+                "devflow_module_pin_present",
+            ],
+            [row.helper for row in rows],
+        )
+        self.assertEqual("plain", rows[0].assertion_name)
+        self.assertEqual((2, 2), (rows[0].line_start, rows[0].line_end))
+        self.assertEqual((3, 5), (rows[1].line_start, rows[1].line_end))
+        self.assertTrue(rows[1].target_defaulted)
+        self.assertEqual("/__pin_corpus_runtime__/MAXI_SKILL", rows[1].resolved_target)
+
+    def test_override_name_recovery_binds_synthetic_nontracked_paths(self):
+        source = """\
+_PCL_ARGS=(
+  --var "MAXI_SKILL=$MAXI_BUNDLE"
+  --var "REPO_ROOT=$SOMETHING"
+)
+assert_pin_unique "x" 'literal' "$REPO_ROOT/docs/file.md"
+"""
+        overrides = self.mod.recover_override_names(source)
+        self.assertEqual(
+            "/__pin_corpus_runtime__/MAXI_SKILL", overrides["MAXI_SKILL"]
+        )
+        self.assertEqual(
+            "/__pin_corpus_runtime__/REPO_ROOT", overrides["REPO_ROOT"]
+        )
+
+    def test_command_substitution_pin_counts_are_found(self):
+        source = """\
+assert_eq "count one" 1 "$(pin_count 'a (b)' "$LIB/a.md")"
+assert_eq "count two" 1 "$(devflow_module_pin_count '--lead' "$LIB/b.md")"
+"""
+        counts = self.mod.extract_exact_count_literals(source, "/repo/lib", {})
+        self.assertEqual({"a (b)": 1, "--lead": 1}, counts)
+
+    def test_tsv_cells_are_json_encoded_and_round_trip_adversarial_text(self):
+        values = ["--leading", "tab\tinside", "line\ninside", "quote'\"inside", r"a\b"]
+        encoded = [self.mod.encode_cell(value) for value in values]
+        self.assertEqual(values, [json.loads(value) for value in encoded])
+        output = io.StringIO()
+        writer = csv.writer(output, delimiter="\t", lineterminator="\n")
+        writer.writerow(encoded)
+        self.assertEqual(encoded, next(csv.reader(io.StringIO(output.getvalue()), delimiter="\t")))
+
+    def test_literal_entanglements_include_mutation_counts_and_regions(self):
+        source = """\
+# PARKCAL_GUARD_REGION_BEGIN
+assert_pin_unique "existence" 'shared literal' "$LIB/a.md"
+assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
+# PARKCAL_GUARD_REGION_END
+"""
+        mutations = self.mod._mutation_counts(
+            {"lib/test/run.sh": source}, "/repo/lib", {}
+        )
+        self.assertEqual(Counter({"shared literal": 1}), mutations)
+        ranges = self.mod._region_ranges(source)
+        site = self.mod.extract_existence_sites(
+            source, "lib/test/run.sh", "/repo/lib", {}
+        )[0]
+        self.assertEqual("park-calibration", self.mod._region_for(site, ranges))
+
+    def test_adjudications_fail_closed_and_project_per_literal(self):
+        key = self.mod.literal_adjudication_key("same literal")
+        parsed = self.mod.parse_adjudications(
+            f"adjudication_key\tbucket_final\trationale\n"
+            f"{key}\tboundary\tsecurity interface contract\n"
+        )
+        self.assertEqual(
+            ("boundary", "security interface contract"),
+            parsed[key],
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate adjudication"):
+            self.mod.parse_adjudications(
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tboundary\tone\n"
+                f"{key}\tboundary\ttwo\n"
+            )
+        with self.assertRaisesRegex(ValueError, "cannot be unclear"):
+            self.mod.parse_adjudications(
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tunclear\tstill unclear\n"
+            )
+
+    def test_cli_debundles_homes_applies_only_exact_count_exclusions(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "lib/test").mkdir(parents=True)
+            (root / "docs").mkdir()
+            (root / ".devflow/logs").mkdir(parents=True)
+            (root / "skills/x").mkdir(parents=True)
+            source = root / "lib/test/source.sh"
+            source.write_text(
+                """\
+MAXI_SKILL="/tmp/runtime-bundle"
+assert_pin_unique "one home" 'literal [one]' "$MAXI_SKILL"
+assert_pin_red_on_removal "docs count" 'literal docs' "$MAXI_SKILL"
+""",
+                encoding="utf-8",
+            )
+            (root / "skills/x/SKILL.md").write_text("literal [one]\n", encoding="utf-8")
+            (root / ".devflow/logs/history.txt").write_text(
+                "literal [one]\n", encoding="utf-8"
+            )
+            (root / "skills/x/OTHER.md").write_text("literal docs\n", encoding="utf-8")
+            (root / "docs/copy.md").write_text("literal docs\n", encoding="utf-8")
+            tracked = root / "tracked.txt"
+            tracked.write_text(
+                "\n".join(
+                    [
+                        "lib/test/source.sh",
+                        "skills/x/SKILL.md",
+                        ".devflow/logs/history.txt",
+                        "skills/x/OTHER.md",
+                        "docs/copy.md",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            adjudications = root / "adjudications.tsv"
+            adjudications.write_text(
+                "adjudication_key\tbucket_final\trationale\n", encoding="utf-8"
+            )
+            output = root / "inventory.tsv"
+            command = [
+                sys.executable,
+                str(CLASSIFIER),
+                "--repo-root",
+                str(root),
+                "--source",
+                "lib/test/source.sh",
+                "--tracked-files",
+                str(tracked),
+                "--adjudications",
+                str(adjudications),
+                "--output",
+                str(output),
+                "--revision",
+                "a" * 40,
+                "--expected-out-of-scope",
+                "0",
+            ]
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+            self.assertEqual(0, result.returncode, result.stderr)
+            data_lines = [
+                line
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("#")
+            ]
+            rows = list(csv.DictReader(data_lines, delimiter="\t"))
+            self.assertEqual(2, len(rows))
+            self.assertEqual("prose-sole-copy", rows[0]["bucket_mechanical"])
+            self.assertEqual(1, int(rows[0]["counted_occurrences"]))
+            self.assertEqual("prose-multi-copy", rows[1]["bucket_mechanical"])
+            self.assertEqual(2, int(rows[1]["counted_occurrences"]))
+            self.assertEqual(
+                [
+                    ".devflow/logs/history.txt",
+                    "lib/test/source.sh",
+                    "skills/x/SKILL.md",
+                ],
+                json.loads(rows[0]["homes"]),
+            )
+            self.assertIn("total_sites=2", result.stderr)
+
+    def test_live_corpus_row_count_and_bucket_domains(self):
+        repo_root = HERE.parent.parent
+        with tempfile.TemporaryDirectory() as raw:
+            output = Path(raw) / "inventory.tsv"
+            command = [
+                sys.executable,
+                str(CLASSIFIER),
+                "--repo-root",
+                str(repo_root),
+                "--adjudications",
+                str(HERE / "pin-corpus-adjudications.tsv"),
+                "--output",
+                str(output),
+                "--revision",
+                subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=repo_root,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout.strip(),
+            ]
+            result = subprocess.run(command, text=True, capture_output=True, check=False)
+            self.assertEqual(0, result.returncode, result.stderr)
+            grep = subprocess.run(
+                [
+                    "git",
+                    "grep",
+                    "-nE",
+                    (
+                        "^[[:space:]]*(assert_pin_unique|assert_pin_red_on_removal|"
+                        "devflow_module_pin_unique|devflow_module_pin_present)"
+                        "[[:space:]]"
+                    ),
+                    "--",
+                    "lib/test/run.sh",
+                    "lib/test/modules/create-issue-contract.sh",
+                ],
+                cwd=repo_root,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            expected = len(grep.stdout.splitlines())
+            data_lines = [
+                line
+                for line in output.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("#")
+            ]
+            rows = list(csv.DictReader(data_lines, delimiter="\t"))
+            self.assertEqual(expected, len(rows))
+            self.assertEqual(
+                {
+                    "suite-internal",
+                    "required-copy",
+                    "boundary",
+                    "generated",
+                    "config-key",
+                    "prose-sole-copy",
+                    "prose-multi-copy",
+                    "unclear",
+                },
+                self.mod.MECHANICAL_BUCKETS,
+            )
+            self.assertEqual(self.mod.MECHANICAL_BUCKETS - {"unclear"}, self.mod.FINAL_BUCKETS)
+            self.assertTrue(
+                {row["bucket_mechanical"] for row in rows}
+                <= self.mod.MECHANICAL_BUCKETS
+            )
+            self.assertTrue(
+                {row["bucket_final"] for row in rows} <= self.mod.FINAL_BUCKETS
+            )
+            self.assertNotIn("unclear", {row["bucket_final"] for row in rows})
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1603,6 +1603,10 @@
       "note": "issue #789 tiered focused-verification policy pins (the _WSR_FOCUSED_POLICY loop's #789 arms, the receiving-code-review.md adaptation pins, and the CLAUDE.md/CONTRIBUTING.md/overview mirror + named-flake pins); the run.sh Failure recap itself is covered behaviourally by lib/test/test_module_harness.py's FailureRecapTests",
       "owner": "unmodularized"
     },
+    "798": {
+      "note": "",
+      "owner": "harness-python-guards"
+    },
     "88": {
       "note": "",
       "owner": "unmodularized"
