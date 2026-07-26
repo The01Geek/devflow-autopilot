@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable installer / workflow-wiring contract module (issue #695 extraction).
+# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
+# lib/test/module-harness.sh before this module.
 # The `trap _iw_cleanup EXIT` below relies on a sourcing contract: both callers
 # (module-harness.sh's full-suite boundary and run-module.sh) source this module
 # inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
@@ -53,8 +55,6 @@ for _wf487 in devflow-implement devflow; do
   _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
   assert_eq "#487 wiring: $_wf487.yml launches the refresher with env -u DEVFLOW_APP_PRIVATE_KEY BEFORE nohup (closes the /proc PEM leak)" "yes" \
     "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
-  # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
-  # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
   # No `background:` step key anywhere (would break actionlint).
   assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
     "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"

@@ -14,6 +14,7 @@ import ast
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,15 +37,15 @@ HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES = frozenset(
 )
 EXECUTABLE_BOUNDARY_IDENTITIES = frozenset(
     {
-        "25665260301c431c013a17f318b99ae88a994c8c54ea334d7fe1b924a5b464c8",
         "3db5530cadb4b6f9736cf3abb76645300c2733a287efd57d723b83beb4cff8d5",
-        "80091b94bd585de7c8816b82d2254701ff2473f925589b1ea7c8db1eb7894b9f",
-        "8e7c453a51cb345931f87fe914191c2d64ee5fdcc9d382a32e00958886b7b8f1",
-        "c1095ca5354fff6cf7bb80d0fd328ccd53d4ab0def2d58ddb6846a4eb8e94b67",
-        "d35d4ac2ff05f2ba907542210d598f8c409944bc12362e0cd766230e8c427f90",
-        "e0205645efe43b7bdaf287fef8be24949bcdcbda4ea4d5e50d1c254de3b5e54b",
-        "e1773322103b9967cca49c7af30b7fc5e87eed8ec1b99e3cf5127051dbd7880f",
-        "f7ee273441fe996a07eff927e5f8d1ee0cf71f96f6de9c57d33cc845dc435bfd",
+        "2d8275d45a27368198dead82dff33049279641d0dfb11b97c711301137f94c71",
+        "6493953617fbc0748f1d528a769129bddd706736871213498c218671d0bdab30",
+        "773c694960dc8b3d0157098b277e5ce69e70b8e298ddb2ed7afa194a9114a136",
+        "9a3ff928b4ef3fb130d1b4b93584de8137b3fa6869366829c2b6b1499587341b",
+        "b6306602df7f51703c351ef1681e955ec00435629532ea9df2bbbfeaa7bd0433",
+        "bf9fad8a7a3e1f7eabfef637531c647c877bd442ff8d033d0f0c0e3cc73a97b2",
+        "cd000a5735a98dab2d7cf4af6167a823ab55b8bd1649ba99f7f18ebcd95fbdcd",
+        "e1b06d78765f7b4af817de611bcadebbaa2868a5ae41d9c83038bb5e8af9fd5f",
     }
 )
 RETAINED_BOUNDARY_IDENTITIES = (
@@ -61,9 +62,13 @@ _DIRECT_CALL_RE = re.compile(
     rf"^\s*(?:(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)\s+)*"
     rf"(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
 )
+_COMMAND_PREFIX = (
+    rf"(?:(?:if|while|until|!|command|builtin|exec|time)\s+|"
+    rf"env(?:\s+{_WORD}=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+))*\s+)"
+)
 _LEXICAL_CALL_RE = re.compile(
     rf"^\s*(?:(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)\s+)*"
-    rf"(?:command\s+)?(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
+    rf"(?:{_COMMAND_PREFIX})*(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
 )
 
 
@@ -113,6 +118,7 @@ class Adjudication:
 @dataclass(frozen=True)
 class _LogicalLine:
     text: str
+    physical: str
     line_start: int
     line_end: int
 
@@ -205,7 +211,14 @@ def _logical_lines(text: str, path: str) -> tuple[_LogicalLine, ...]:
                     f"unterminated continuation in {path}:{start}"
                 )
         normalized = " ".join(piece.strip() for piece in pieces)
-        output.append(_LogicalLine(normalized, start, index + 1))
+        output.append(
+            _LogicalLine(
+                normalized,
+                "\n".join(physical[start - 1 : index + 1]),
+                start,
+                index + 1,
+            )
+        )
         index += 1
     return tuple(output)
 
@@ -263,16 +276,60 @@ def _shell_segments(text: str) -> tuple[str, ...]:
             continue
         index += 1
     segments.append(text[start:])
-    return tuple(segment.strip() for segment in segments if segment.strip())
+    return tuple(segment for segment in segments if segment.strip())
 
 
 def _definition_counts(repo_root: Path) -> dict[str, int]:
     counts = dict.fromkeys(HELPERS, 0)
-    test_root = repo_root / "lib/test"
     try:
-        paths = sorted(test_root.rglob("*.sh"))
-    except OSError as exc:
-        raise CensusError(f"cannot enumerate helper definitions: {exc}") from exc
+        result = subprocess.run(
+            ["git", "ls-files", "-z", "--", "lib/test"],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise CensusError(
+            f"cannot enumerate tracked helper definitions: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        stderr = (
+            result.stderr.decode("utf-8", errors="replace")
+            if isinstance(result.stderr, bytes)
+            else result.stderr
+        ).strip()
+        raise CensusError(
+            "tracked helper-definition enumeration failed "
+            f"(exit {result.returncode}): {stderr or '(no stderr)'}"
+        )
+    if not result.stdout or not result.stdout.endswith(b"\0"):
+        raise CensusError(
+            "tracked helper-definition enumeration is empty or malformed"
+        )
+    raw_paths = result.stdout[:-1].split(b"\0")
+    try:
+        relative_paths = [raw.decode("utf-8") for raw in raw_paths]
+    except UnicodeDecodeError as exc:
+        raise CensusError(
+            "tracked helper-definition path is not valid UTF-8"
+        ) from exc
+    if (
+        any(not path or "\0" in path for path in relative_paths)
+        or len(relative_paths) != len(set(relative_paths))
+    ):
+        raise CensusError(
+            "tracked helper-definition enumeration contains malformed or "
+            "duplicate paths"
+        )
+    paths = [
+        repo_root / relative
+        for relative in sorted(relative_paths)
+        if relative.startswith("lib/test/") and relative.endswith(".sh")
+    ]
+    if not paths:
+        raise CensusError(
+            "tracked helper-definition enumeration selected no shell sources"
+        )
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
@@ -283,7 +340,7 @@ def _definition_counts(repo_root: Path) -> dict[str, int]:
             raise CensusError(f"cannot read test shell source: {path}: {exc}") from exc
         relative = path.relative_to(repo_root).as_posix()
         for logical in _logical_lines(text, relative):
-            for segment in _shell_segments(logical.text):
+            for segment in _shell_segments(logical.physical):
                 for helper, pattern in _DEFINITION_RE.items():
                     if pattern.match(segment):
                         counts[helper] += 1
@@ -297,7 +354,7 @@ def _extract_source(repo_root: Path, source: str) -> tuple[CensusRow, ...]:
     for logical in _logical_lines(text, source):
         lexical = 0
         extracted: list[CensusRow] = []
-        for segment in _shell_segments(logical.text):
+        for segment in _shell_segments(logical.physical):
             if any(pattern.match(segment) for pattern in _DEFINITION_RE.values()):
                 continue
             lexical_match = _LEXICAL_CALL_RE.match(segment)
@@ -312,7 +369,7 @@ def _extract_source(repo_root: Path, source: str) -> tuple[CensusRow, ...]:
                 CensusRow(
                     path=source,
                     helper=helper,
-                    logical_call=segment[call_start:].strip(),
+                    logical_call=segment[call_start:],
                     line_start=logical.line_start,
                     line_end=logical.line_end,
                 )

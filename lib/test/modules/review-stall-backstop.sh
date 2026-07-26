@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable review stall-backstop contract module (issue #746 tranche).
+# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
+# lib/test/module-harness.sh before this module.
 REPO_ROOT="$LIB/.."
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -264,24 +266,6 @@ devflow_module_pin_unique "#408 devflow-yml: manual-path fresh backstop-token mi
   "id: backstop-token" "$WFD408"
 assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DEVFLOW_APP_ID" "1" \
   "$(grep -cF "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}" "$WFD408")"
-# #498 — review-tier exclusion regression pins (issue #498 AC6). The two review-
-# tier backstops already exclude cancellation at source (the #408 pins above
-# assert the source-text exclusions); these two behavioral-fix pins prove the
-# exclusion catches a resume-on-cancel regression. Each is carried with
-# devflow_module_pin_red_under: a sed -E mutation that re-introduces resume-on-cancel
-# keying is run and the pin observed RED under it. They guard the source-text
-# exclusion (no backstop keys its resume decision on a cancelled run's stall
-# signature); they do not claim to close the accepted latched-signal race
-# documented in the issue's Desired Behavior.
-# Pin A — devflow.yml's `Review stall backstop` `if:` re-trigger condition
-# contains the is_error/failure disjuncts and NO cancellation trigger. The
-# mutation adds a cancelled disjunct (resume-on-cancel keying); the dead-run
-# literal is then absent from the backstop step's if: → PASS->FAIL.
-# Pin B — devflow-review.yml emits backstop_eligible=true ONLY in the incomplete
-# arm (a second emission — e.g. on the cancelled|skipped arm — would resume a
-# cancelled review run). The mutation adds a second backstop_eligible=true
-# emission to the cancelled arm (resume-on-cancel keying); the literal is then
-# no longer unique → PASS->FAIL.
 # Fix A consumer-side breadcrumb selection now lives in the shared helper (issue #414),
 # driven in the #414 block below for both the manual and auto-review paths.
 
@@ -300,11 +284,6 @@ assert_eq "#408 grounding block renders the ScheduleWakeup-unavailable rule" "ye
   "$(printf '%s\n' "$GB408_OUT" | grep -qF 'ScheduleWakeup' && echo yes || echo no)"
 IMPL_SKILL415="$REPO_ROOT/skills/implement/SKILL.md"
 WFI415="$REPO_ROOT/.github/workflows/devflow-implement.yml"
-# The resume note is a single printf line carrying the premise (pinned above) AND the
-# operative instruction; pin the operative instruction too so an in-line reword that keeps
-# the premise but drops the never-end-turn directive still turns the suite RED (the whole
-# printf is one line, so both mutations target it — the two pins guard different clauses).
-
 # ── #415 review finding #1 + #2: the schedulewakeup-probe verdict core is extracted
 # ── into scripts/schedulewakeup-probe-verdict.py so every arm — and the fail-open
 # ── name-match matrix — is DRIVEN, not left inline-in-YAML untestable (same rationale

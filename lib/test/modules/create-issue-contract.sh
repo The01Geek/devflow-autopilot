@@ -4,7 +4,7 @@
 # Sourceable create-issue contract module.
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present).
 # The module owns its private fixture root and cleanup; it never invokes the runner
 # or the full-suite boundary, and it references NO monolith helper (no monolith temp
 # allocator, no pin machinery of its own) — it uses only assert_eq plus the namespaced module API,
@@ -199,18 +199,9 @@ devflow_module_pin_unique "ci module: inventory names the revision-delta guard g
 echo "create-issue contract: issue #443 Step 3.6 fresh-context audit"
 # ────────────────────────────────────────────────────────────────────────────
 # ── issue #443: the mandatory Step 3.6 fresh-context audit in /devflow:create-issue ──
-# The deliverable is agent-executed skill prose plus one tracked extension file; no runtime
-# code path executes in CI, so the automated boundary is the repo's skill-contract mechanism:
-# pins over the rendered SKILL surfaces. Each pinned literal below IS the operative contract
-# sentence itself (a self-contained skill-prose requirement, not a framing clause introducing
-# one), so there is no operative-vs-framing ambiguity for devflow_module_pin_red_under to discriminate
-# here. It is still used over plain devflow_module_pin_unique for its NON-VACUITY proof: each mutation
-# excises the operative requirement clause (the whole pinned sentence or a fragment of it),
-# re-introducing the guarded regression, so every pin is proven to flip PASS->FAIL when that
-# clause is removed, not merely to be present. (#375's framing-vs-operative discrimination is
-# exercised where the mutation deletes a DIFFERENT line than the pinned literal; here the
-# mutation targets the pinned sentence itself, so the flip is a presence-of-the-operative-clause
-# proof. The surface-presence pins that follow the mutation pins use plain devflow_module_pin_unique.)
+# The surviving assertions below cover machine-readable contract vocabulary and rendered
+# surfaces with ordinary executable presence/cardinality checks. Legacy generic mutation
+# pins over prose wording were retired; this block makes no mutation-behavior claim.
 # Verdict-line requirement (maps to the audit-prompt AC): removing "legal values are exactly"
 # guts the FILE/REVISE/DRAFT-UNREADABLE verdict contract (issue #522 widened it to three values).
 devflow_module_pin_present "#522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value" \
@@ -223,29 +214,7 @@ devflow_module_pin_present "#443: Step 3.6 names the VERDICT: FILE legal value" 
   'VERDICT: FILE' "$CI_BUNDLE"
 devflow_module_pin_present "#443: Step 3.6 names the VERDICT: REVISE legal value" \
   'VERDICT: REVISE' "$CI_BUNDLE"
-# Information-diet exclusion clause (maps to the information-diet AC): removing it re-anchors
-# the auditor on the drafting context — the exact regression the fresh-context mechanism prevents.
-# Out-of-bounds on-disk artifacts (maps to the information-diet AC): the void clause is what
-# stops repository read access from silently re-anchoring the auditor on the drafter's reasoning.
-# Synchronous-dispatch sentence (maps to the dispatch AC): removing the blocking-wait wording
-# lets a launch acknowledgment be misread as the auditor's return.
-# Degraded arm (maps to the degraded-arm AC). The #546 cutover moved this arm's ENTRY
-# classification into the tool (`query-next-action` answers `dispatch-inline-degraded`, driven
-# by run.sh's #546 next_action_budget_rows), so the old enumerated-failures literal is gone.
-# What did NOT move is the attempt-first discipline: no state owner can stop an orchestrator
-# from pre-detecting a nested context and skipping a dispatch it therefore never makes, so
-# this stays a prose-only guarantee and keeps its pin. The mutation excises the never-
-# pre-detect clause, re-introducing exactly that pre-detected skip.
-# Re-audit offer in the Step 4 revision loop (maps to the revision-loop AC). Repointed by the
-# #546 cutover's delta 9, which reordered the loop so the offer resolves BEFORE the confirm/
-# edit approval question; the offer itself survives verbatim as a prose obligation (the tool
-# owns the ceiling, never whether the orchestrator asks). Inverting the offer into a skip
-# re-introduces the ship-an-unaudited-revision channel.
-# Dispatch-time fresh re-load of the extension (maps to the forwarding-freshness AC): removing
-# the fresh re-load lets a compaction-evicted turn-one load silently drop consumer dimensions.
-# Forwarding-contract heading, pinned as a COUPLED PAIR (maps to the forwarding-contract and
-# extension-file ACs): the skill's forwarding sentence and this repo's live extension must both
-# carry the exact `## Audit dimensions` heading; either side drifting turns its pin RED.
+# The extension heading is a live machine-routed surface shared with the audit renderer.
 # (#600 cutover) retired: this extraction-rule / re-load-site prose pin is
 # superseded — scripts/render-audit-prompt.py now owns the heading-extraction
 # and the `## Audit dimensions` forwarding; its regression is covered by

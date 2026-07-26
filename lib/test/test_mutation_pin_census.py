@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
 """Regression tests for the opaque legacy mutation-pin census."""
 
 from __future__ import annotations
@@ -65,12 +67,29 @@ class FixtureRepo:
         )
         harness = self.root / "lib/test/module-harness.sh"
         harness.write_text(DEFINITIONS, encoding="utf-8")
+        subprocess.run(
+            ["git", "init", "-q"],
+            cwd=self.root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "add", "."],
+            cwd=self.root,
+            check=True,
+        )
 
     def close(self) -> None:
         self._tmp.cleanup()
 
     def write(self, relative: str, text: str) -> None:
         (self.root / relative).write_text(text, encoding="utf-8")
+
+    def track(self, relative: str) -> None:
+        subprocess.run(
+            ["git", "add", "--", relative],
+            cwd=self.root,
+            check=True,
+        )
 
     def census(self):
         return CENSUS.build_census(self.root)
@@ -141,7 +160,7 @@ class MutationPinCensusTests(unittest.TestCase):
                     "reject_unadjudicated_mutation_site",
                 )
 
-    def test_identity_uses_path_helper_and_normalized_call_not_locator(self) -> None:
+    def test_identity_uses_path_helper_and_exact_physical_call_not_locator(self) -> None:
         source = AUDITED[1]
         self.repo.write(
             source,
@@ -155,7 +174,9 @@ class MutationPinCensusTests(unittest.TestCase):
         self.assertEqual(row.helper, "devflow_module_pin_red_under")
         self.assertEqual(
             row.logical_call,
-            "devflow_module_pin_red_under 'name' 'literal' 's/x/y/' target",
+            "devflow_module_pin_red_under 'name' \\\n"
+            "  'literal' \\\n"
+            "  's/x/y/' target",
         )
         self.assertEqual((row.line_start, row.line_end), (1, 3))
         moved = CENSUS.CensusRow(
@@ -166,6 +187,17 @@ class MutationPinCensusTests(unittest.TestCase):
             line_end=42,
         )
         self.assertEqual(row.identity, moved.identity)
+        reformatted = CENSUS.CensusRow(
+            path=row.path,
+            helper=row.helper,
+            logical_call=(
+                "devflow_module_pin_red_under 'name' 'literal' "
+                "'s/x/y/' target"
+            ),
+            line_start=row.line_start,
+            line_end=row.line_end,
+        )
+        self.assertNotEqual(row.identity, reformatted.identity)
 
     def test_sorted_jsonl_and_tsv_are_deterministic(self) -> None:
         self.repo.write(
@@ -247,17 +279,26 @@ class MutationPinCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(CENSUS.CensusError, "multiple supported calls"):
             self.repo.census()
 
-    def test_lexical_extracted_disagreement_fails_closed(self) -> None:
-        self.repo.write(
-            AUDITED[2],
-            "command devflow_module_pin_red_under a b c d\n",
+    def test_prefixed_helper_tokens_fail_closed(self) -> None:
+        calls = (
+            "command devflow_module_pin_red_under a b c d",
+            "if devflow_module_pin_red_under a b c d; then :; fi",
+            "! devflow_module_pin_red_under a b c d",
+            "while devflow_module_pin_red_under a b c d; do :; done",
+            "env FLAG=1 devflow_module_pin_red_under a b c d",
         )
-        with self.assertRaisesRegex(CENSUS.CensusError, "lexical/extracted"):
-            self.repo.census()
+        for call in calls:
+            with self.subTest(call=call):
+                self.repo.write(AUDITED[2], call + "\n")
+                with self.assertRaisesRegex(
+                    CENSUS.CensusError,
+                    "lexical/extracted",
+                ):
+                    self.repo.census()
 
     def test_unexpected_and_duplicate_helper_definitions_fail_closed(self) -> None:
         (self.repo.root / "lib/test/module-harness.sh").unlink()
-        with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
+        with self.assertRaisesRegex(CENSUS.CensusError, "test shell source"):
             self.repo.census()
         (self.repo.root / "lib/test/module-harness.sh").write_text(
             DEFINITIONS + "devflow_module_pin_red_under() { :; }\n",
@@ -265,6 +306,29 @@ class MutationPinCensusTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
             self.repo.census()
+
+    def test_helper_definitions_are_enumerated_from_tracked_files_only(self) -> None:
+        relative = "lib/test/untracked-definition.sh"
+        (self.repo.root / relative).write_text(
+            "devflow_module_pin_red_under() { :; }\n",
+            encoding="utf-8",
+        )
+        self.repo.census()
+        self.repo.track(relative)
+        with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
+            self.repo.census()
+
+    def test_tracked_definition_enumeration_failure_fails_closed(self) -> None:
+        real_run = subprocess.run
+
+        def fail_ls_files(args, **kwargs):
+            if args[:2] == ["git", "ls-files"]:
+                return subprocess.CompletedProcess(args, 1, "", "injected")
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=fail_ls_files):
+            with self.assertRaisesRegex(CENSUS.CensusError, "tracked"):
+                self.repo.census()
 
     def test_unterminated_continuation_fails_closed(self) -> None:
         self.repo.write(AUDITED[3], "assert_pin_red_under a b c d \\")
@@ -287,14 +351,19 @@ class MutationPinCensusTests(unittest.TestCase):
 
     def test_census_does_not_spawn_or_interpret_mutation_tools(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
-        self.assertNotIn("subprocess", source)
         self.assertNotIn("sed ", source)
         self.assertNotIn("grep ", source)
         self.repo.write(
             AUDITED[4],
             "devflow_module_pin_red_under n l 'arbitrary opaque bytes' f\n",
         )
-        with mock.patch.object(subprocess, "run", side_effect=AssertionError):
+        real_run = subprocess.run
+
+        def git_only(args, **kwargs):
+            self.assertEqual(args[:2], ["git", "ls-files"])
+            return real_run(args, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=git_only):
             self.assertEqual(len(self.repo.census().rows), 1)
 
     def test_cli_outputs_jsonl_and_tsv_with_master_digest(self) -> None:

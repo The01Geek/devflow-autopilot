@@ -32823,7 +32823,6 @@ echo "#591: pin-corpus meta-lints cover registered module files"
 CI_MOD_VARS=(
   --var "CI_SKILL=skills/create-issue/SKILL.md"
   --var "CI_BUNDLE=$CREATE_ISSUE_BUNDLE"
-  --var "CI_REF_STEP2=skills/create-issue/references/step-2-clarify.md"
   --var "CI_REF_STEP35=skills/create-issue/references/step-3-5-steelman.md"
   --var "CI_REF_REVDELTA=skills/create-issue/references/revision-delta.md"
   --var "CI_REF_STEP36=skills/create-issue/references/step-3-6-audit.md"
@@ -32835,7 +32834,6 @@ CI_MOD_VARS=(
   --var "CI_TMPL_AUDIT=skills/create-issue/references/audit-prompt-template.md"
   --var "CI_TMPL=skills/create-issue/references/issue-template.md"
   --var "CI_EXT=.devflow/prompt-extensions/create-issue.md"
-  --var "CI_OVERVIEW=docs/DEVFLOW_SYSTEM_OVERVIEW.md"
   --var "CI_CLAUDE=CLAUDE.md"
   --var "CI_INVENTORY=lib/test/modules/create-issue-contract.inventory.md"
   # CI_ROOT lets the meta-guard resolve the module's own `$CI_ROOT/…` assignments
@@ -32858,7 +32856,6 @@ CI_MOD_VARS=(
 # resolver understands rather than a command substitution.
 RSB_MOD_VARS=(
   --var "REVIEW_BUNDLE=$REVIEW_BUNDLE"
-  --var "REVIEW_SKILL408=$REVIEW_BUNDLE"
 )
 for _mod in "$LIB"/test/modules/*.sh; do
   case "$_mod" in
@@ -32939,13 +32936,12 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 echo "#666: mutation-routing declaration gate (behavioral-fix-pin classification)"
 # ────────────────────────────────────────────────────────────────────────────
-# The mutation-taking helpers prove a pin is non-vacuous; this blocking gate proves every
-# changed non-mutation pin is either a classification-preserving move or carries the typed
-# structural declaration. The Python entry point owns the complete production path:
-# comparison-base validation, path-aware diff generation, tracked/untracked enumeration,
-# registry-to-scanner population closure, and complete-site classification. Infrastructure
-# failures are rc 2 and policy findings are rc 3; both are ordinary suite failures, never
-# skips. The maintainer-run census and its inventory are deliberately absent from this path.
+# The blocking worktree gate rebuilds the opaque mutation-call census for the 12 audited
+# sources and compares it with the committed retained-boundary inventory. It rejects any
+# new, changed, reformatted, or cross-file-moved identity without interpreting the mutation.
+# A byte-identical relocation within one file is intentionally not distinguishable from
+# unrelated line movement. Infrastructure failures are rc 2 and policy findings are rc 3;
+# both are ordinary suite failures, never skips.
 MR_REPO="$(cd "$LIB/.." && pwd)"
 _MR_OUT="$(python3 "$PCL" mutation-routing-worktree "$MR_REPO" 2>&1)"; _MR_RC=$?
 assert_eq "#810 mutation-routing worktree gate is established and clean" "0" "$_MR_RC"
@@ -43625,6 +43621,25 @@ unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720
 devflow_pool_open \
   "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
   "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
+
+# The mutation census and its worktree policy are executable CI contracts, not
+# maintainer-only utilities. Run their focused unittest suites serially and feed each
+# verdict into the same RESULTS_FILE tally as the rest of the full suite.
+MUTATION_CENSUS_TEST_OUT="$(python3 "$LIB/test/test_mutation_pin_census.py" 2>&1)"
+MUTATION_CENSUS_TEST_RC=$?
+assert_eq "mutation-pin census focused tests pass" "0" "$MUTATION_CENSUS_TEST_RC"
+[ "$MUTATION_CENSUS_TEST_RC" -eq 0 ] || \
+  while IFS= read -r _mpc_line || [ -n "$_mpc_line" ]; do
+    printf '    %s\n' "$_mpc_line"
+  done <<< "$MUTATION_CENSUS_TEST_OUT"
+
+PIN_CORPUS_LINT_TEST_OUT="$(python3 "$LIB/test/test_pin_corpus_lint.py" 2>&1)"
+PIN_CORPUS_LINT_TEST_RC=$?
+assert_eq "pin-corpus lint focused tests pass" "0" "$PIN_CORPUS_LINT_TEST_RC"
+[ "$PIN_CORPUS_LINT_TEST_RC" -eq 0 ] || \
+  while IFS= read -r _pcl_line || [ -n "$_pcl_line" ]; do
+    printf '    %s\n' "$_pcl_line"
+  done <<< "$PIN_CORPUS_LINT_TEST_OUT"
 
 # test_module_harness.py runs SERIALLY on the main shell, OUTSIDE the pool — both its
 # full-suite invocation and its --signal-matrix-capability probe. The supervisor forks

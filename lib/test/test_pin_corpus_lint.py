@@ -1078,6 +1078,8 @@ class RetainedBoundaryRatchetTests(unittest.TestCase):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
 
     def _public_rc(self, root):
         with (
@@ -1266,14 +1268,20 @@ class RetainedBoundaryRatchetTests(unittest.TestCase):
             )
             self.assertEqual(2, self._public_rc(root)[0])
 
-    def test_required_path_does_not_run_git_sed_grep_or_semantic_analysis(self):
+    def test_required_path_runs_only_git_enumeration_not_mutation_semantics(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._repo(root)
+            real_run = subprocess.run
+
+            def git_only(args, **kwargs):
+                self.assertEqual(args[:2], ["git", "ls-files"])
+                return real_run(args, **kwargs)
+
             with mock.patch.object(
                 subprocess,
                 "run",
-                side_effect=AssertionError("subprocess invoked"),
+                side_effect=git_only,
             ):
                 self.assertEqual((0, "", ""), self._public_rc(root))
 

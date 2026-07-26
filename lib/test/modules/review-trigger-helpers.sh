@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable review/implement trigger-helper contract module (issue #746 tranche).
+# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
+# lib/test/module-harness.sh before this module.
 #
 # No private fixture root and no EXIT trap here, deliberately. The extracted sections
 # allocate their own fixture trees with bare `mktemp -d` and remove them on their own
