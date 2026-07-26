@@ -203,15 +203,13 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   environment-variance defect ships. The narrower dimensions above (allowlist skew, matcher shapes,
   non-preflight PATH tools, shallow clone) are specific instances; this one catches the axis a draft
   never considered at all.
-<!-- dim-key: mutation-evidence-for-behavioral-fix-pins -->
-- **Mutation evidence for behavioral-fix pins (issue #464).** A Testing Strategy that commits to
-  a **behavioral-fix / regression pin** — one added *specifically because* removing the pinned
-  text would re-introduce a **named** bug or regression (a coupled-invariant pin, the operative
-  qualifier of a sweep rule, a regression guard), per `CLAUDE.md`'s behavioral-fix-pin rule and
-  `skills/implement/phases/phase-2-implement.md` §2.3 — must carry the `assert_pin_red_under`
-  mutation-evidence obligation: a `sed -E` mutation that re-introduces the named bug by removing
-  only the operative sentence, with the pin observed RED under it. The auditor flags such a pin
-  plan that states no mutation obligation. A wording-only pin is one whose protected literal can
+<!-- dim-key: executable-evidence-for-behavioral-regressions -->
+- **Executable evidence for behavioral regressions (issues #464 and #810).** A Testing
+  Strategy that protects a named bug or regression must exercise its rendered interface
+  or machine-observable contract with an ordinary executable test and state how that test
+  is proved RED when the behavior breaks. The former mutation-taking helpers are retired.
+  The auditor flags a behavioral-regression plan that proposes only source-text presence
+  or states no executable RED obligation. A wording-only pin is one whose protected literal can
   change without changing executable behavior and without breaking a machine-consumed contract.
   The auditor flags any Testing Strategy that proposes plain prose surface-presence coverage,
   including secondary prose, documentation presence, advisory headings, or comment presence.

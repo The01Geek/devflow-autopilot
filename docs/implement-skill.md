@@ -267,24 +267,14 @@ discharges the obligation. Membership in the carve-out is what exempts.
 
 Two guards close gaps the review surface let ship "green" and only a blinded shadow pass (or nothing) caught.
 
-**Evidence-based behavioral-fix pin (Phase 2.3 + review-and-fix Step 3).** The behavioral-fix-pin
-discipline — pin the *operative* sentence whose removal *alone* re-introduces the bug, never an adjacent
-*framing/justification* clause — was advice a fix-iteration author could quietly violate by pinning the
-nearest unique literal instead (the recurring framing-only-pin class behind PRs #173/#171/#167). Issue
-#375 replaced the earlier *substring-attestation* note (which merely asserted "the pin literal is a
-substring of the operative sentence" — unfalsifiable self-testimony) with an **evidence** record: a
-behavioral-fix pin is expressed through **`assert_pin_red_under <name> <literal> <mutation> [file]`** (the
-mutation-taking removal-proof assertion in `lib/test/run.sh`), passing a `sed -E` mutation that
-re-introduces the named bug by deleting *only* the operative sentence, and the workpad `--note` records
-**the mutation you ran and the pin you observed go RED** under it. A generic whole-line deletion check
-reports `PASS->FAIL` for *any* present-and-unique literal — framing or operative alike; by contrast,
-`assert_pin_red_under` reports a framing-only pin **RED** when it survives the operative
-mutation, so the operative-vs-framing distinction is enforced mechanically rather than by author
-diligence. The requirement lives at three co-equal homes — `phase-2-implement.md` §2.3 (the implement-path
-author), `skills/review-and-fix/references/fixing.md`'s Step 3 mutation-check step (the fix-loop author), and
-`.devflow/prompt-extensions/implement.md` (this repo's operative policy) — and is scoped to
-**behavioral-fix** pins only, never to literal-constant, token-name, count-based, or absence pins where no
-operative-vs-framing distinction exists. Three mechanical suite guards (`lib/test/pin-corpus-lint.py`,
+**Executable behavioral-regression evidence (Phase 2.3 + review-and-fix Step 3).**
+Behavioral regressions are covered at a machine-observable interface: rendered output,
+parser results, routing decisions, emitted state, or another executable contract. The
+author breaks that behavior on a copy, observes the ordinary executable test go RED,
+and records the evidence in the workpad. The former mutation-taking source-presence
+helpers are retired and their audited-source census must remain empty. Typed structural,
+count, and absence guards retain their narrower roles. Three mechanical suite guards
+(`lib/test/pin-corpus-lint.py`,
 self-scanned by `lib/test/run.sh`) now catch the blind spots the parents (#370/#371) had to
 rediscover in a shadow: a **pin-in-comment lint** (a pin literal that also appears in a comment of its own
 target inflates the count — its `.md` arm subtracts not only `<!-- … -->` regions but also the `#`
@@ -301,19 +291,20 @@ A permitted static boundary pin declares
 `helper-contract`, `schema-config-vocabulary`, `security-credential-boundary`,
 `machine-sentinel-provenance`, `routing-dispatch-contract`,
 `lifecycle-state-transition`, `generated-artifact-identity`, or
-`cross-file-phase-contract`. The required gate validates its committed source population
-against every registered module and treats base, diff, enumeration, and scratch failures
-as suite failures; it never consults the maintainer-run inventory. Its raw-presence path
+`cross-file-phase-contract`. The required gate validates its audited-source population
+against every registered module, requires the retired-helper census and checked-in
+inventory to remain empty, and treats base, diff, enumeration, and scratch failures
+as suite failures. Its raw-presence path
 covers positive fixed-and-quiet `grep` checks against repository files and direct
 file-text assertions in tracked or untracked `lib/test/test_*.py` leaves
 (`assertIn`/`assertRegex`, or a literal `in` a `read()`/`read_text()` result). Python
 leaf sites whose target cannot be resolved for inspection fail closed instead of gaining
 an exemption from a typed marker. A move is exempt one-to-one only when its
-classification is not weakened. All three guards run over
+classification is not weakened. The static-pin guards run over
 `run.sh` itself and over every registered `lib/test/modules/*.sh` file, so pins that
-module extraction moves out of `run.sh` stay covered (issue #591). A companion runtime overbreadth guard in the three mutation-taking helpers rejects a mutation
-that blanks its target (`1,$d` / `s/.*//`), closing the loophole where a pin flips PASS→FAIL because the
-file was destroyed rather than the guarded content removed.
+module extraction moves out of `run.sh` stay covered (issue #591). Behavioral
+regressions use ordinary executable tests instead of mutation-taking source-presence
+helpers.
 
 ### Protected-asset taxonomy for existence-only pins
 
