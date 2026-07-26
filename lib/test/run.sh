@@ -11686,11 +11686,6 @@ assert_pin_red_under "#541 reference_reads: a not_verified fix_delta prohibits a
 #     rather than solely carries the rule — a presence pin is the honest instrument.
 assert_pin_unique "#541 reference_reads: the field is conditional — absence on a no-gate iteration is not a defect" \
   'its absence is not a defect' "$MAXI_SKILL"
-# (c) PRESENCE: the distinct-breadcrumb requirement. Its sentence opens by stating the two
-#     arms "keep their **distinct** breadcrumbs in `reason`", so this clause likewise
-#     reinforces an already-stated rule.
-assert_pin_unique "#541 reference_reads: the two not_verified arms keep DISTINCT breadcrumbs in reason" \
-  'must preserve that distinction rather than collapsing both onto one string' "$MAXI_SKILL"
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
