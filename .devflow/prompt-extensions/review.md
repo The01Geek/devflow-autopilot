@@ -7,6 +7,22 @@ twin of the same criterion in `.devflow/prompt-extensions/review-and-fix.md`; ea
 only its own extension name, so the criterion ships as two pinned-identical copies rather than
 one shared file. Edit both copies in the same change.
 
+## Wording-only pin review policy
+
+A wording-only pin is a test whose protected literal can change without changing executable
+behavior and without breaking a machine-consumed contract. Flag every newly added wording-only,
+secondary-prose, documentation-presence, advisory-heading, or comment-presence pin as an
+**Important** finding, whether it uses a pin helper or a raw text-presence assertion. A
+`# structural-pin-ok:` comment does not make prose executable.
+
+An operative prompt regression instead uses a mutation-taking helper that removes the operative
+text and demonstrates the named regression. A new non-mutation presence pin is valid only with
+the exact declaration `# structural-pin-ok: <category> -- <rationale>`, a nonempty rationale,
+and one category from this closed set: `helper-contract`, `schema-config-vocabulary`,
+`security-credential-boundary`, `machine-sentinel-provenance`,
+`routing-dispatch-contract`, `lifecycle-state-transition`,
+`generated-artifact-identity`, `cross-file-phase-contract`.
+
 ## Prompt-surface edit routing evidence gate
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence

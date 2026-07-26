@@ -211,14 +211,13 @@ subagent. Judge the draft against each of these, in addition to the generic dime
   `skills/implement/phases/phase-2-implement.md` §2.3 — must carry the `assert_pin_red_under`
   mutation-evidence obligation: a `sed -E` mutation that re-introduces the named bug by removing
   only the operative sentence, with the pin observed RED under it. The auditor flags such a pin
-  plan that states no mutation obligation. **Surface-presence contract pins** — a plain
-  `assert_pin_unique` on new prose whose removal breaks no behavioral guarantee — are explicitly
-  **outside this dimension's scope** and carry no mutation obligation, matching the suite's own
-  precedent (this very issue's prose pins are that class). A surface-presence pin stays permitted
-  at issue altitude; it acquires a `# structural-pin-ok:` declaration only **when it is
-  implemented** (issue #666's `mutation-routing` gate enforces that marker at implement time on a
-  suite consumers do not run), so this is an implement-time consequence, not a drafting
-  requirement — the auditor does not flag a draft's surface-presence pin for lacking the marker.
+  plan that states no mutation obligation. A wording-only pin is one whose protected literal can
+  change without changing executable behavior and without breaking a machine-consumed contract.
+  The auditor flags any Testing Strategy that proposes plain prose surface-presence coverage,
+  including secondary prose, documentation presence, advisory headings, or comment presence.
+  Issue-level plans instead specify a behavioral test at the executable boundary, or, for a
+  genuine machine-consumed structural boundary, name the boundary and the intended typed
+  `# structural-pin-ok: <category> -- <rationale>` classification.
 
 ## Evidence axes
 

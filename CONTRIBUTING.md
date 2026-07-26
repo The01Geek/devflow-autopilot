@@ -149,20 +149,26 @@ map does not carry, never the reverse. A map entry with no derivation behind it 
 block whose assertions were deleted or renamed — is a curated historical record, so it is
 neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
 
-**Behavioral-fix pins vs. structural pins (issue #666).** A **behavioral-fix pin** —
-one you add *specifically because* removing the pinned text would re-introduce a
-named bug — must be expressed through a mutation-taking helper (`assert_pin_red_under`
-/ `devflow_module_pin_red_under`), which proves the pin flips PASS→FAIL under a
-specific `sed -E` regression. A plain **structural** pin (`assert_pin_unique` /
-`assert_pin_red_on_removal` / `devflow_module_pin_unique` / `devflow_module_pin_present`)
-whose removal breaks no behavioral guarantee is fine, but a pin call site your change
-*adds* through one of those non-mutation helpers must carry a format-strict
-`# structural-pin-ok: <reason>` marker on its logical line — a one-line reason, the same
-reviewable artifact as the existing `# raw-guard-ok:` convention. `lib/test/run.sh`'s
-`mutation-routing` gate turns the suite RED for an added, undeclared non-mutation pin, so
-you declare the classification at authoring time. The gate is diff-scoped (only pins the
-change adds), so the existing corpus needs no backfill, and a pin merely *moved* between
-files is exempt.
+**Behavioral-fix pins vs. structural pins (issues #666 and #810).** A **wording-only
+pin** protects a literal that can change without changing executable behavior and
+without breaking a machine-consumed contract. Do not add wording-only,
+secondary-prose, documentation-presence, advisory-heading, or comment-presence pins.
+A behavioral-fix pin must instead use a mutation-taking helper
+(`assert_pin_red_under` / `devflow_module_pin_red_under`) whose focused mutation
+removes the operative text and demonstrates the named regression.
+
+A new static helper or direct positive source-presence assertion is allowed only for
+an executable structural boundary and must carry
+`# structural-pin-ok: <category> -- <non-empty rationale>` on its logical line.
+`<category>` is exactly one of `helper-contract`, `schema-config-vocabulary`,
+`security-credential-boundary`, `machine-sentinel-provenance`,
+`routing-dispatch-contract`, `lifecycle-state-transition`,
+`generated-artifact-identity`, or `cross-file-phase-contract`.
+`lib/test/run.sh`'s required mutation-routing gate applies the same policy to helper
+and raw presence forms, validates the scanner population against the module registry,
+and fails closed when its base, diff, enumeration, or scratch setup cannot be
+established. The gate is diff-scoped, so the existing corpus needs no backfill; a
+one-to-one move is exempt only when it preserves classification.
 
 **Retiring existence-only pins (issue #798).** Use the frozen census in
 `.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the

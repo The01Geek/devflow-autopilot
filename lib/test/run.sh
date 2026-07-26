@@ -32079,9 +32079,8 @@ assert_eq "#248 preflight: empty DEVFLOW_BASH is a no-op — not surfaced (AC2/A
 #    prints the remedy naming the supported bashes + DEVFLOW_BASH and exits non-zero,
 #    BEFORE the bash-only `${BASH_SOURCE[0]}` would abort with a cryptic error.
 #    Exercised with a real non-bash sh when one exists (dash/busybox, invoked by
-#    absolute path); on a bash-only host the dynamic arm is skipped (recorded, never
-#    silently green) and the source-level recovery contract below still covers every
-#    supported recovery option. ──
+#    absolute path); on a bash-only host the dynamic arm is skipped and recorded,
+#    never replaced by a wording-only source assertion. ──
 NONBASH=""
 if command -v dash >/dev/null 2>&1; then NONBASH="$(command -v dash)"
 elif command -v busybox >/dev/null 2>&1; then NONBASH="$(command -v busybox) sh"
@@ -32101,17 +32100,10 @@ if [ -n "$NONBASH" ]; then
     "$(printf '%s' "$PF248R_OUT" | grep -qi 'bad substitution\|BASH_SOURCE' && echo yes || echo no)"
 else
   # No non-bash sh on this host: record an explicit skip so the missing dynamic
-  # coverage is visible (never a silent green); the source-level remedy contract
-  # below still covers every supported recovery option.
-  # Route the recorded PASS through assert_eq (a trivially-true comparison) rather
-  # than hand-inlining its tally/print contract, so this site tracks any change to
-  # how the helper records a pass.
-  assert_eq "#248 preflight: non-bash remedy dynamic arm SKIPPED (no dash/busybox on host) — source contract below covers the recovery options" "skip" "skip"
+  # coverage is visible rather than substituting a wording-only fallback.
+  skip "#248 preflight: non-bash remedy dynamic arm" host-capability \
+    "no dash/busybox on host"
 fi
-
-# Source-level recovery contract for hosts without a second shell.
-assert_eq "#248 pin: remedy names all three supported bashes + the DEVFLOW_BASH override (AC3)" "yes" \
-  "$(grep -q 'WSL bash' "$PF248" && grep -q 'Git Bash' "$PF248" && grep -q 'MSYS2 bash' "$PF248" && grep -q 'DEVFLOW_BASH' "$PF248" && echo yes || echo no)"
 
 rm -rf "$T248"
 
@@ -34357,98 +34349,20 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 echo "#666: mutation-routing declaration gate (behavioral-fix-pin classification)"
 # ────────────────────────────────────────────────────────────────────────────
-# The mutation-taking helpers prove a pin is non-vacuous; nothing proved a pin REACHED
-# them. This diff-scoped, fail-closed gate makes the author declare: a pin call site the
-# change ADDS whose helper is not mutation-taking must route through a mutation-taking
-# helper or carry a `# structural-pin-ok: <reason>` marker. Sites the change does not
-# touch are out of scope by construction (no backfill of the existing corpus). The gate
-# has two opposite silent-by-default failure directions and the ACs address them apart:
-#   - TOO NARROW: an untracked new file is absent from `git diff` with rc 0, so its pins
-#     scan against an added-line set containing none of them → composes the added-line set
-#     from `git diff <merge base>` (working tree) PLUS every line of every untracked
-#     lib/test/ file (treated as added).
-#   - TOO WIDE: a base behind the true fork point pulls in already-merged pins → validate
-#     the base (local `main` not an ancestor of `origin/main` → SKIP, never findings).
-# An UNESTABLISHED diff is a SKIP, never an empty one: every failure step (unresolvable
-# origin/main, unresolvable merge base, non-zero diff, un-creatable scratch) takes the skip
-# arm. The gate grades the WORKING TREE like the rest of the suite, so — unlike #434 — it
-# carries NO working-tree-dirty skip arm.
-MR_GATE="#666 mutation-routing declaration gate"
+# The mutation-taking helpers prove a pin is non-vacuous; this blocking gate proves every
+# changed non-mutation pin is either a classification-preserving move or carries the typed
+# structural declaration. The Python entry point owns the complete production path:
+# comparison-base validation, path-aware diff generation, tracked/untracked enumeration,
+# registry-to-scanner population closure, and complete-site classification. Infrastructure
+# failures are rc 2 and policy findings are rc 3; both are ordinary suite failures, never
+# skips. The maintainer-run census and its inventory are deliberately absent from this path.
 MR_REPO="$(cd "$LIB/.." && pwd)"
-if ! git -C "$MR_REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
-  skip "$MR_GATE" blocking-gate "origin/main not resolvable in this checkout"
-else
-  # Base validation — the branch-forked-from-unpushed-local-main hazard. The predicate is
-  # THREE-valued: ancestor (ok), not-an-ancestor (stale local main → skip), and
-  # could-not-establish (rc>=2, e.g. 128 on a shallow clone → skip). An ABSENT refs/heads/main
-  # is the normal GitHub Actions shape (remote-tracking refs + detached HEAD) and passes through.
-  if git -C "$MR_REPO" rev-parse --verify --quiet refs/heads/main >/dev/null 2>&1; then
-    git -C "$MR_REPO" merge-base --is-ancestor refs/heads/main origin/main >/dev/null 2>&1; _mr_anc=$?
-  else
-    _mr_anc=0
-  fi
-  if [ "$_mr_anc" -eq 1 ]; then
-    skip "$MR_GATE" blocking-gate "refs/heads/main exists and is NOT an ancestor of origin/main (branch forked from unpushed local main; the diff would widen onto already-merged pins)"
-  elif [ "$_mr_anc" -ne 0 ]; then
-    skip "$MR_GATE" blocking-gate "local main vs origin/main ancestry could not be established (merge-base --is-ancestor exit $_mr_anc)"
-  else
-    _MR_MB="$(git -C "$MR_REPO" merge-base origin/main HEAD 2>/dev/null)" || _MR_MB=""
-    if [ -z "$_MR_MB" ]; then
-      skip "$MR_GATE" blocking-gate "merge base of origin/main and HEAD did not resolve"
-    elif ! _MR_DIFF="$(probe_tmp "$MR_GATE diff setup")"; then
-      skip "$MR_GATE" blocking-gate "scratch file for the diff could not be created (mktemp failed)"
-    elif ! git -C "$MR_REPO" diff "$_MR_MB" -- lib/test/ > "$_MR_DIFF" 2>/dev/null; then
-      skip "$MR_GATE" blocking-gate "git diff against the merge base ($_MR_MB) exited non-zero"
-      [ "$_MR_DIFF" = /dev/null ] || rm -f "$_MR_DIFF"
-    else
-      # Report the resolved base on stderr, so a widened diff is diagnosable from the run
-      # log rather than presenting as an unexplained batch of findings.
-      printf '  %s: resolved base commit %s\n' "$MR_GATE" "$_MR_MB" >&2
-      # Enumerate untracked lib/test/ files and append each one's lines as synthetic `+`
-      # lines — git diff reports TRACKED paths only, so a newly-created, unstaged module is
-      # absent from it while the modules/*.sh glob still scans it; this is what stops that
-      # combination reporting zero findings at exit 0.
-      _MR_UNTRACKED="$(git -C "$MR_REPO" ls-files --others --exclude-standard -- lib/test/ 2>/dev/null)" || _MR_UNTRACKED=""
-      while IFS= read -r _mr_uf; do
-        [ -n "$_mr_uf" ] || continue
-        [ -r "$MR_REPO/$_mr_uf" ] || continue
-        printf '+++ b/%s\n' "$_mr_uf" >> "$_MR_DIFF"
-        while IFS= read -r _mr_ul || [ -n "$_mr_ul" ]; do
-          printf '+%s\n' "$_mr_ul" >> "$_MR_DIFF"
-        done < "$MR_REPO/$_mr_uf"
-      done <<MR_UNTRACKED_EOF
-$_MR_UNTRACKED
-MR_UNTRACKED_EOF
-      # Tracked set (repo-relative) so a scanned source in NEITHER the diff (tracked) nor the
-      # untracked enumeration records a blocking-gate skip naming it (the fail-closed arm — a
-      # source on disk that the enumeration failed to surface).
-      _MR_TRACKED="$(git -C "$MR_REPO" ls-files -- lib/test/ 2>/dev/null)" || _MR_TRACKED=""
-      for _mr_src in "$SELF_SRC" "$LIB"/test/modules/*.sh; do
-        _mr_rel="${_mr_src#$MR_REPO/}"
-        # Membership: tracked (covered by git diff) OR untracked-enumerated (appended above).
-        if ! printf '%s\n' "$_MR_TRACKED" | grep -qxF "$_mr_rel" \
-           && ! printf '%s\n' "$_MR_UNTRACKED" | grep -qxF "$_mr_rel"; then
-          skip "$MR_GATE ($_mr_rel)" blocking-gate "pin source exists on disk but is neither tracked nor in the untracked enumeration — its added-line set could not be established"
-          continue
-        fi
-        # NOTE the deliberate asymmetry with the #591 pin-lint loop above, which also
-        # carries a review-stall-backstop arm: `mutation-routing` resolves only the pin
-        # LITERAL, never the pin's target PATH, so a module whose extra bindings are
-        # path-vars (review-stall-backstop's REVIEW_BUNDLE) correctly needs no arm here.
-        # create-issue keeps one because CI_MOD_VARS also binds literal-valued vars. Add
-        # an arm here only for a module that needs a LITERAL resolved.
-        case "$_mr_src" in
-          */create-issue-contract.sh) _mr_vars=( --lib "$LIB" "${CI_MOD_VARS[@]}" ) ;;
-          "$SELF_SRC") _mr_vars=( "${_PCL_ARGS[@]}" ) ;;
-          *) _mr_vars=( --lib "$LIB" ) ;;
-        esac
-        _MR_OUT="$(python3 "$PCL" mutation-routing "$_mr_src" --diff-file "$_MR_DIFF" "${_mr_vars[@]}" 2>/dev/null)"; _MR_RC=$?
-        assert_eq "#666 mutation-routing clean over $(basename "$_mr_src") (exit 0 + no findings)" \
-          "rc=0|" "rc=$_MR_RC|$_MR_OUT"
-      done
-      [ "$_MR_DIFF" = /dev/null ] || rm -f "$_MR_DIFF"
-    fi
-  fi
+_MR_OUT="$(python3 "$PCL" mutation-routing-worktree "$MR_REPO" 2>&1)"; _MR_RC=$?
+assert_eq "#810 mutation-routing worktree gate is established and clean" "0" "$_MR_RC"
+if [ "$_MR_RC" -ne 0 ]; then
+  while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do
+    printf '    %s\n' "$_mr_line"
+  done <<< "$_MR_OUT"
 fi
 
 # ── #666 mutation-routing synthetic self-tests: prove the gate FLAGS the undeclared add,
@@ -34465,7 +34379,7 @@ if _F666="$(mktemp -d 2>/dev/null)" && [ -n "$_F666" ] && [ -d "$_F666" ]; then
   # add, one untouched pre-existing pin, and a definition line.
   printf '%s\n' \
     "assert_pin_unique \"undeclared\" 'MR_LIT_UNDECL' \"\$F\"" \
-    "assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: presence only" \
+    "assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: helper-contract -- the helper name is machine-invoked" \
     "assert_pin_red_under \"mutating\" 'MR_LIT_MUT' 's/x/y/' \"\$F\"" \
     "assert_pin_unique \"moved\" 'MR_LIT_MOVED' \"\$F\"" \
     "assert_pin_unique \"untouched\" 'MR_LIT_OLD' \"\$F\"" \
@@ -34476,7 +34390,7 @@ if _F666="$(mktemp -d 2>/dev/null)" && [ -n "$_F666" ] && [ -d "$_F666" ]; then
   printf '%s\n' \
     "--- a/x" "+++ b/x" "@@" \
     "+assert_pin_unique \"undeclared\" 'MR_LIT_UNDECL' \"\$F\"" \
-    "+assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: presence only" \
+    "+assert_pin_unique \"declared\" 'MR_LIT_DECL' \"\$F\"  # structural-pin-ok: helper-contract -- the helper name is machine-invoked" \
     "+assert_pin_red_under \"mutating\" 'MR_LIT_MUT' 's/x/y/' \"\$F\"" \
     "+assert_pin_unique \"moved\" 'MR_LIT_MOVED' \"\$F\"" \
     "+assert_pin_unique() {" \
@@ -34597,14 +34511,13 @@ assert_eq "#666 overbreadth: an operative single-counted-line mutation still pas
   "PASS" "$(probe_assert assert_count_red_under 'ob-count-ok' '^S$' '^E$' '^COUNTED_' -ge 3 's/^COUNTED_bravo.*/kept but renamed harmlessly/' "$_OCF")"
 rm -f "$_OCF"
 
-# #666 the gate's OWN behavioral-fix pin, expressed through assert_pin_red_under (never a plain
-# assert_pin_unique — the gate must obey the rule it enforces). It guards the OPERATIVE clause of
-# the marker-declaration rule in the implement extension; the `sed -E` mutation removes ONLY that
-# clause ("unless its logical line carries a format-strict"), so a framing edit that leaves the
-# clause present-and-unique cannot pass here. Observed RED under the mutation at authoring time.
-assert_pin_red_under "#666: implement extension states the structural-pin-ok declaration rule (operative clause)" \
-  'unless its logical line carries a format-strict' \
-  's/unless its logical line carries a format-strict//' "$LIB/../.devflow/prompt-extensions/implement.md"
+# The gate's own behavioral pin protects the operative issue-810 boundary: a marker
+# never launders prose presence into an executable contract. The mutation flips only
+# that proposition, recreating the named false-exemption regression.
+assert_pin_red_under "#810: a structural marker never exempts protected prose" \
+  'A marker never turns protected prose into' \
+  's/A marker never turns protected prose into/A marker turns protected prose into/' \
+  "$LIB/../.devflow/prompt-extensions/implement.md"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#736 overbreadth-count helper: python3 derivation, locale-invariance, shape matrix"
@@ -45422,7 +45335,7 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 35; then
+  "harness-python-guards" 36; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi

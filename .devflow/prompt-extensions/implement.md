@@ -78,20 +78,17 @@ it with bash builtins instead), while cosmetic sanitization through them is acce
 missing tool fails closed. This concrete set is what instantiates "the project's preflight" in the
 base skill's generic wording; the base skill stays repo-agnostic and names no tools.
 
-## Comment discipline — pin mirror-fact comments or don't write them
+## Comment discipline — do not preserve mirror facts with wording pins
 
 The base skill's §2.3 authoring rule keeps mirror-fact comments (an exact count, an
 enumerated list of sites/values, a scope word restating a predicate, narration of what
-adjacent code does) out of the diff or makes them drift-proof. This repository sharpens the
-"drift-proof" alternative into a hard local rule: **a mirror-fact comment is written only if
-it is pinned by a `lib/test/run.sh` assertion added in the same change — otherwise it is not
-written.** With the pin in place, a later code change that strands the comment turns the suite
-RED at the desk instead of shipping a stale comment to review; without it, the comment is
-review-time-only again, which is exactly the rot this policy removes. Header and contract
-comments — fail-closed decision matrices, cross-file producer/consumer contracts, and the
-issue provenance of a non-obvious shape — are load-bearing and stay, pinned or not. **Prefer a
-lower bound over an exact count in both the comment and its pin** (`at least N`, not `N`), so
-adding an Nth site never forces a coupled edit of the comment and the assertion.
+adjacent code does) out of the diff or makes them drift-proof. Remove or rewrite a mirror
+fact as a lower bound or a pointer to the defining symbol. When the underlying claim is
+load-bearing, prefer a behavioral test at the executable boundary that would fail when the
+implementation drifts; do not preserve the comment with a comment-presence or wording-presence
+pin. Header and contract comments — fail-closed decision matrices, cross-file
+producer/consumer contracts, and the issue provenance of a non-obvious shape — remain
+load-bearing prose, but their prose presence alone is not a test target.
 
 ## Behavioral-fix pins — evidence, not attestation
 
@@ -112,18 +109,25 @@ the old unfalsifiable attestation that "the pin literal is a substring of the op
 note that testifies about the pin proves nothing a reviewer can re-run; a note that states the
 mutation and the observed RED verdict does.
 
-This mandate is now **mechanically enforced** (issue #666). `lib/test/pin-corpus-lint.py`'s
-`mutation-routing` gate, driven from `lib/test/run.sh`, reports a finding — turning the suite RED —
-for any pin call site the change *adds* whose helper is not mutation-taking
-(`assert_pin_unique`, `assert_pin_red_on_removal`, `devflow_module_pin_unique`,
-`devflow_module_pin_present`) unless its logical line carries a format-strict
-`# structural-pin-ok: <reason>` declaration. So a genuine **structural** pin — a surface-presence
-or contract-presence pin whose removal breaks no behavioral guarantee — must carry that marker (a
-one-line reason, the same reviewable artifact as the existing `# raw-guard-ok:` convention), and a
-**behavioral-fix** pin must instead route through `assert_pin_red_under` per the rule above. The
-gate is diff-scoped: it only flags pins the change adds, so the existing corpus needs no backfill.
-Do not silence it with a false reason — the marker's reason is a reviewer-read diff line, exactly
-like `# raw-guard-ok:`.
+**Wording-only pins are prohibited.** A wording-only pin is a test whose protected literal can
+change without changing executable behavior and without breaking a machine-consumed contract.
+Do not add wording-only, secondary-prose, documentation-presence, advisory-heading, or
+comment-presence pins, whether expressed through a pin helper or a raw `grep`/text-presence
+assertion. An operative prompt regression is behavioral: route it through the mutation-taking
+`assert_pin_red_under` helper above, remove the operative text in the mutation, and demonstrate
+the named regression.
+
+The only new non-mutation presence pins permitted are executable-boundary pins classified by
+this closed set: `helper-contract`, `schema-config-vocabulary`,
+`security-credential-boundary`, `machine-sentinel-provenance`,
+`routing-dispatch-contract`, `lifecycle-state-transition`,
+`generated-artifact-identity`, and `cross-file-phase-contract`. Their logical line must carry
+the format-strict declaration
+`# structural-pin-ok: <category> -- <rationale>`, with one category from that set and a
+nonempty rationale explaining the machine-consumed or executable boundary. The
+diff-scoped `mutation-routing` gate applies this same policy to helper-based and raw presence
+assertions; unchanged legacy sites need no backfill. A marker never turns protected prose into
+an executable boundary.
 
 ## Verification under classifier friction — never ship an unverified assumption
 

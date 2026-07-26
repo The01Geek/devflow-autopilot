@@ -44,22 +44,27 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing`` — the **behavioral-fix-pin declaration gate** (issue #666).
-  A diff-scoped, fail-closed gate: for a pin call site the change ADDS whose helper
-  is not mutation-taking, the author must route through a mutation-taking helper or
-  carry a ``# structural-pin-ok: <reason>`` declaration, else the suite goes RED. A
-  moved pin is exempt (one-to-one on its literal, never across a downgrade to a
-  non-mutation helper). It reuses ``join_logical_lines``/``tokenize``/``extract_pins``
-  and reads a unified diff supplied via ``--diff-file``.
+* ``mutation-routing-worktree`` — the required **wording-only pin authoring gate**
+  (issues #666 and #810). It establishes a path-aware worktree diff, validates its
+  audited source population against the module registry, and applies one policy to
+  helper-based and direct raw source-presence pins. A permitted structural boundary
+  declares ``# structural-pin-ok: <category> -- <non-empty rationale>`` with a category
+  from the closed set; a move is exempt one-to-one only when classification is
+  preserved. Base, diff, enumeration, source-read, registry, and scratch failures exit
+  2, policy findings exit 3, and a clean established scan exits 0. The lower-level
+  ``mutation-routing`` synthetic-fixture command remains for legacy self-tests.
 
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
 on stderr, never silently skipped.
 
-Without ``--strict`` all three subcommands exit 0 whether or not they found
-anything. Findings go to stdout (one per line, tab-separated); the unresolvable
-count and per-site detail go to stderr.
+The three legacy pin-source commands preserve their existing output contracts:
+without ``--strict``, ``lint`` and ``wrapped`` exit 0 even on findings, and the
+synthetic-fixture ``mutation-routing`` command always exits 0. Findings go to
+stdout (one per line, tab-separated); unresolvable counts and per-site details go
+to stderr. The required ``mutation-routing-worktree`` command instead carries its
+0/2/3 clean/infrastructure/finding contract directly.
 
 **``--strict`` exit-code mode (issue #687, opt-in, applies to ``lint`` and
 ``wrapped``; ``mutation-routing`` keeps its own always-exit-0 contract).** With
@@ -88,6 +93,7 @@ CLI::
                                        [--reloc-exclude SUBSTR ...]
     pin-corpus-lint.py mutation-routing PIN_SOURCE --diff-file FILE
                                        [--lib DIR] [--var NAME=PATH ...]
+    pin-corpus-lint.py mutation-routing-worktree REPO_ROOT
 
 ``PIN_SOURCE`` is the shell file whose pin call sites are scanned (``run.sh``
 itself for the real corpus, a synthetic fixture for the self-tests). ``--var``
@@ -113,10 +119,16 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 
 from __future__ import annotations
 
+import ast
+import difflib
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
+from typing import NamedTuple
 
 # Non-source trees always excluded from the relocation search set (issue #661): a
 # committed vendored plugin copy and the run's own draft/derivation artifacts both
@@ -227,6 +239,7 @@ def tokenize(s):
 
 # ── variable resolution ─────────────────────────────────────────────────────
 _VARREF = re.compile(r"^\$\{?(\w+)\}?$")
+_ASSIGNMENT_RE = re.compile(r"^\s*(?:local\s+)?([A-Za-z_]\w*)=(.*)$")
 
 
 def build_var_maps(text, lib, overrides):
@@ -235,34 +248,62 @@ def build_var_maps(text, lib, overrides):
     path_vars: NAME -> resolved filesystem path (from `--var` overrides and from
     `VAR="$LIB/..."` / `VAR=$OTHER` assignments).
     literal_vars: NAME -> literal string value (from `VAR='single-quoted'`).
+
+    This intentionally models only sequential top-level assignments. Each
+    right-hand side is resolved against the values available at that point; it
+    does not attempt to evaluate conditional shell control flow.
     """
     path_vars = dict(overrides)
     literal_vars = {}
-    # First pass: collect raw RHS of simple `NAME=...` assignments at line start.
-    assigns = {}
     for _, line in join_logical_lines(text):
-        m = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
+        m = _ASSIGNMENT_RE.match(line)
         if not m:
             continue
         name, rhs = m.group(1), m.group(2).strip()
-        assigns.setdefault(name, rhs)  # first assignment wins (definition order)
-    # Literal vars: RHS is a single-quoted string (no interpolation).
-    for name, rhs in assigns.items():
-        if len(rhs) >= 2 and rhs[0] == "'" and rhs.endswith("'") and "'" not in rhs[1:-1]:
-            literal_vars[name] = rhs[1:-1]
-    # Path vars: iterative resolution of `$LIB`/`$OTHER`-based path assignments.
-    for _ in range(10):
-        changed = False
-        for name, rhs in assigns.items():
-            if name in path_vars:
-                continue
-            val = _resolve_path_rhs(rhs, lib, path_vars)
-            if val is not None:
-                path_vars[name] = val
-                changed = True
-        if not changed:
-            break
+        _apply_assignment(
+            name, rhs, path_vars, literal_vars, lib, protected=set(overrides)
+        )
     return path_vars, literal_vars
+
+
+def _apply_assignment(name, rhs, path_vars, literal_vars, lib, protected=()):
+    """Apply one supported assignment using the values visible before it."""
+    if name in protected:
+        return
+    path_vars.pop(name, None)
+    literal_vars.pop(name, None)
+    if (
+        len(rhs) >= 2
+        and rhs[0] == "'"
+        and rhs.endswith("'")
+        and "'" not in rhs[1:-1]
+    ):
+        literal_vars[name] = rhs[1:-1]
+        return
+    value = _resolve_path_rhs(rhs, lib, path_vars)
+    if value is not None:
+        path_vars[name] = value
+
+
+def variable_maps_by_line(text, lib, overrides):
+    """Return sequential assignment maps before each logical line."""
+    maps = {}
+    path_vars = dict(overrides)
+    literal_vars = {}
+    for lineno, line in join_logical_lines(text):
+        maps[lineno] = (dict(path_vars), dict(literal_vars))
+        match = _ASSIGNMENT_RE.match(line)
+        if match is None:
+            continue
+        _apply_assignment(
+            match.group(1),
+            match.group(2).strip(),
+            path_vars,
+            literal_vars,
+            lib,
+            protected=set(overrides),
+        )
+    return maps
 
 
 def _resolve_path_rhs(rhs, lib, path_vars):
@@ -374,7 +415,7 @@ def resolve_arg(segments, literal_vars, path_vars, want_path, lib=None):
 # ── call-site extraction ────────────────────────────────────────────────────
 def extract_pins(text, lib, overrides):
     """Yield dicts for each pin call site: resolved (literal, file) or unresolved."""
-    path_vars, literal_vars = build_var_maps(text, lib, overrides)
+    maps_by_line = variable_maps_by_line(text, lib, overrides)
     for lineno, line in join_logical_lines(text):
         stripped = line.lstrip()
         if stripped.startswith("#"):
@@ -385,6 +426,7 @@ def extract_pins(text, lib, overrides):
         toks = tokenize(stripped)
         if not toks or "".join(v for _, v in toks[0]) != first[0]:
             continue
+        path_vars, literal_vars = maps_by_line[lineno]
         args = toks[1:]
         lit_idx, file_idx, default_file = HELPERS[first[0]]
         if lit_idx >= len(args):
@@ -948,8 +990,7 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit, sink,
 # ships silently. This diff-scoped, fail-closed gate makes the author STATE the
 # classification: a pin call site the change ADDS whose helper is not
 # mutation-taking must either route through a mutation-taking helper or carry an
-# explicit `# structural-pin-ok: <reason>` declaration (modeled on the repo's one
-# enforced inline marker, `# raw-guard-ok:`). Sites the change does not touch are
+# explicit typed structural declaration. Sites the change does not touch are
 # out of scope by construction — no backfill of the ~1372 existing pins.
 
 # Helpers that MUST declare (non-mutation-taking pins) — complete by construction.
@@ -971,12 +1012,310 @@ MUTATION_TAKING_HELPERS = frozenset(
 # ("does not apply to count-based guards"). They draw no finding.
 COUNT_HELPERS = frozenset({"pin_count", "devflow_module_pin_count"})
 
-# The declaration marker — format-strict, mirroring count_unallowlisted_raw_skill_guards'
-# `# raw-guard-ok:` exclusion. A bare `structural-pin-ok` substring elsewhere on the line
-# (or inside a quoted string argument) does NOT exempt the site.
+# The declaration marker is recognized only in a real comment region; a quoted
+# substring never exempts the site.
 STRUCTURAL_PIN_OK_MARKER = "# structural-pin-ok:"
 
+STRUCTURAL_PIN_CATEGORIES = frozenset(
+    {
+        "helper-contract",
+        "schema-config-vocabulary",
+        "security-credential-boundary",
+        "machine-sentinel-provenance",
+        "routing-dispatch-contract",
+        "lifecycle-state-transition",
+        "generated-artifact-identity",
+        "cross-file-phase-contract",
+    }
+)
+
+# This population is intentionally committed and independent of the registry. The
+# production gate compares the two sets exactly, so registering a new focused module
+# without adding it here fails closed instead of silently leaving its pins unscanned.
+AUDITED_PIN_SOURCES = frozenset(
+    {
+        "lib/test/run.sh",
+        "lib/test/modules/workflow-flight-recorder.sh",
+        "lib/test/modules/review-and-fix-contract.sh",
+        "lib/test/modules/create-issue-contract.sh",
+        "lib/test/modules/capability-profiles.sh",
+        "lib/test/modules/regenerate-artifacts.sh",
+        "lib/test/modules/installer-wiring.sh",
+        "lib/test/modules/harness-python-guards.sh",
+        "lib/test/modules/prompt-extension-reader.sh",
+        "lib/test/modules/review-trigger-helpers.sh",
+        "lib/test/modules/review-stall-backstop.sh",
+        "lib/test/modules/experiment-records.sh",
+    }
+)
+
 _DEF_LINE_RE = re.compile(r"^\w+\s*\(\)")
+
+
+class StructuralDeclaration(NamedTuple):
+    category: str
+    rationale: str
+
+
+class GuardSite(NamedTuple):
+    source_path: str
+    line_start: int
+    line_end: int
+    family: str
+    helper: str | None
+    literal: str | None
+    target_path: str | None
+    declaration: StructuralDeclaration | None
+    declaration_error: str | None
+
+
+class FilePatch(NamedTuple):
+    old_path: str | None
+    new_path: str | None
+    added_lines: frozenset[int]
+    deleted_lines: frozenset[int]
+
+
+class InfrastructureError(RuntimeError):
+    """The blocking gate could not establish the population or comparison."""
+
+
+_FUNCTION_START_RE = re.compile(r"(?m)^([A-Za-z_]\w*)\s*\(\)\s*\{")
+_POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
+_ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
+
+
+def _function_definitions(text):
+    """Return quote-, comment-, escape-, and parameter-aware function spans."""
+    definitions = {}
+    for match in _FUNCTION_START_RE.finditer(text):
+        depth = 1
+        parameter_depth = 0
+        quote = None
+        escaped = False
+        index = match.end()
+        body_start = index
+        while index < len(text):
+            char = text[index]
+            if escaped:
+                escaped = False
+                index += 1
+                continue
+            if char == "\\" and quote != "'":
+                escaped = True
+                index += 1
+                continue
+            if quote:
+                if char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char in ("'", '"'):
+                quote = char
+                index += 1
+                continue
+            if char == "#" and (
+                index == body_start or text[index - 1].isspace()
+            ):
+                newline = text.find("\n", index)
+                index = len(text) if newline < 0 else newline + 1
+                continue
+            if char == "$" and index + 1 < len(text) and text[index + 1] == "{":
+                parameter_depth += 1
+                index += 2
+                continue
+            if char == "}" and parameter_depth:
+                parameter_depth -= 1
+                index += 1
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    definitions[match.group(1)] = (
+                        text[body_start:index],
+                        text.count("\n", 0, match.start()) + 1,
+                        text.count("\n", 0, index) + 1,
+                    )
+                    break
+            index += 1
+    return definitions
+
+
+def _function_bodies(text):
+    return {
+        name: definition[0]
+        for name, definition in _function_definitions(text).items()
+    }
+
+
+def _token_value(token):
+    return "".join(value for _, value in token)
+
+
+def _helper_call(tokens, helper_specs):
+    """Return (token-index, helper-name) for the first executable helper token.
+
+    Shell control prefixes such as ``if`` and ``!`` remain separate bare
+    tokens, so scanning the token stream covers guarded calls without treating
+    a helper name inside an assertion label as executable.
+    """
+    command_prefixes = {
+        "if", "then", "elif", "while", "until", "do", "!", "&&", "||", ";", "{"
+    }
+    assignment = re.compile(r"^[A-Za-z_]\w*=.*$")
+    for index, token in enumerate(tokens):
+        if not token or any(kind != "bare" for kind, _ in token):
+            continue
+        value = _token_value(token)
+        if value not in helper_specs:
+            continue
+        before = [_token_value(item) for item in tokens[:index]]
+        executable = (
+            not before
+            or before[-1] in command_prefixes
+            or before[-1].endswith(";")
+            or all(assignment.match(item) for item in before)
+        )
+        if executable:
+            return index, value
+    return None, None
+
+
+def helper_specs_for_source(
+    text, include_families=False, include_origins=False
+):
+    """Return built-in plus source-local wrapper helper specifications.
+
+    A focused module may wrap the shared pin API. Enumerating function
+    definitions independently of call spellings keeps those wrappers in the
+    audited population. Wrappers are inferred from the supported positional or
+    ``$@`` forwarding forms to an already-known helper; conventional
+    ``*_pin_*`` wrappers provide the small fallback needed for wrappers
+    implemented via lower-level counters (for example ``_raf_pin_unique``).
+    """
+    specs = dict(HELPERS)
+    families = {name: _helper_family(name) for name in HELPERS}
+    origins = {}
+    bodies = _function_bodies(text)
+
+    for _ in range(len(bodies) + 1):
+        changed = False
+        for name, body in bodies.items():
+            if name in specs:
+                continue
+            for body_lineno, logical_line in join_logical_lines(body):
+                tokens = tokenize(logical_line.strip())
+                index, callee = _helper_call(tokens, specs)
+                if callee is None:
+                    continue
+                args = tokens[index + 1 :]
+                if len(args) == 1 and _ALL_POSITIONAL_RE.match(
+                    _token_value(args[0]).rstrip(";")
+                ):
+                    specs[name] = specs[callee]
+                    families[name] = families[callee]
+                    origins[name] = body_lineno
+                    changed = True
+                    break
+                splat_indexes = [
+                    arg_index
+                    for arg_index, arg in enumerate(args)
+                    if _ALL_POSITIONAL_RE.match(
+                        _token_value(arg).rstrip(";")
+                    )
+                ]
+                lit_selector, file_index, default_file = specs[callee]
+                if len(splat_indexes) > 1:
+                    continue
+                splat_index = splat_indexes[0] if splat_indexes else None
+                if isinstance(lit_selector, int):
+                    if splat_index is not None and lit_selector >= splat_index:
+                        wrapper_lit_selector = lit_selector - splat_index
+                    elif lit_selector >= len(args):
+                        continue
+                    else:
+                        lit_token = args[lit_selector]
+                        lit_ref = _POSITIONAL_RE.match(
+                            _token_value(lit_token).rstrip(";")
+                        )
+                        if lit_ref is not None:
+                            wrapper_lit_selector = int(lit_ref.group(1)) - 1
+                        else:
+                            fixed_literal = resolve_arg(
+                                lit_token,
+                                literal_vars={},
+                                path_vars={},
+                                want_path=False,
+                            )
+                            if fixed_literal is None:
+                                continue
+                            wrapper_lit_selector = fixed_literal
+                else:
+                    wrapper_lit_selector = lit_selector
+                wrapper_file_index = 10**6
+                wrapper_default = default_file
+                if splat_index is not None and file_index >= splat_index:
+                    wrapper_file_index = file_index - splat_index
+                    wrapper_default = None
+                elif file_index < len(args):
+                    file_value = _token_value(args[file_index]).rstrip(";")
+                    file_ref = _POSITIONAL_RE.match(file_value)
+                    if file_ref is not None:
+                        wrapper_file_index = int(file_ref.group(1)) - 1
+                        wrapper_default = None
+                    else:
+                        var_ref = _VARREF.match(file_value)
+                        if var_ref is not None:
+                            wrapper_default = var_ref.group(1)
+                specs[name] = (
+                    wrapper_lit_selector,
+                    wrapper_file_index,
+                    wrapper_default,
+                )
+                families[name] = families[callee]
+                origins[name] = body_lineno
+                changed = True
+                break
+        if not changed:
+            break
+    # A name-only fallback may identify static presence wrappers implemented
+    # through lower-level counters, but it must never grant mutation/count
+    # exemption without body-derived evidence.
+    for name in bodies:
+        if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
+            specs[name] = (1, 2, None)
+            families[name] = "static-helper"
+    if include_families and include_origins:
+        return specs, families, origins
+    if include_families:
+        return specs, families
+    return specs
+
+
+def parse_structural_declaration(physical_lines):
+    """Parse one real-comment declaration using the closed issue-810 grammar."""
+    declarations = []
+    for _, comment in hash_comment_regions(physical_lines):
+        if STRUCTURAL_PIN_OK_MARKER not in comment:
+            continue
+        tail = comment.split(STRUCTURAL_PIN_OK_MARKER, 1)[1].strip()
+        category, sep, rationale = tail.partition("--")
+        category = category.strip()
+        rationale = rationale.strip()
+        if not sep or not category:
+            return None, "missing structural category"
+        if category not in STRUCTURAL_PIN_CATEGORIES:
+            return None, f"unknown structural category: {category}"
+        if not rationale:
+            return None, "empty structural rationale"
+        declarations.append(StructuralDeclaration(category, rationale))
+    if not declarations:
+        return None, "missing structural declaration"
+    if len(declarations) != 1:
+        return None, "multiple structural declarations"
+    return declarations[0], None
 
 
 def parse_diff(difftext):
@@ -1034,13 +1373,9 @@ def site_physical_lines(all_lines, start_lineno, logical_line):
 
 
 def _has_structural_pin_ok(physical_lines):
-    """True iff a real `# structural-pin-ok:` COMMENT (quote-aware, format-strict)
-    appears on any physical line of the site — a marker inside a single-quoted string
-    argument is not a comment and does not exempt."""
-    for _, ctext in hash_comment_regions(physical_lines):
-        if STRUCTURAL_PIN_OK_MARKER in ctext:
-            return True
-    return False
+    """True only for one valid typed declaration in a real comment region."""
+    declaration, error = parse_structural_declaration(physical_lines)
+    return declaration is not None and error is None
 
 
 def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
@@ -1099,12 +1434,1148 @@ def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
             f"MUTATION-ROUTING\t{pin_source}:{lineno}\t{helper}\t"
             f"{literal if literal is not None else '<unresolved-literal>'}\t"
             f"added non-mutation pin site needs a mutation-taking helper or a "
-            f"'# structural-pin-ok: <reason>' declaration"
+            f"'# structural-pin-ok: <category> -- <non-empty rationale>' declaration"
         )
     sys.stderr.write(f"MUTATION-ROUTING-SCANNED\t{scanned}\n")
     sys.stderr.write(f"MUTATION-ROUTING-EXEMPTED-BY-MOVE\t{exempted}\n")
     sys.stderr.write(f"MUTATION-ROUTING-FINDINGS\t{findings}\n")
     return 0
+
+
+def parse_unified_diff(difftext):
+    """Return file- and hunk-coordinate-aware patches from a unified diff."""
+    patches = []
+    old_path = new_path = None
+    added = set()
+    deleted = set()
+    old_lineno = new_lineno = None
+    in_file = False
+    old_header_seen = new_header_seen = False
+    hunk_expected = None
+    hunk_consumed = None
+    saw_hunk = False
+    metadata = set()
+    last_hunk_line_was_content = False
+    no_newline_marker_seen = False
+
+    def finish_hunk():
+        nonlocal hunk_expected, hunk_consumed, old_lineno, new_lineno
+        nonlocal last_hunk_line_was_content, no_newline_marker_seen
+        if hunk_expected is not None and hunk_consumed != hunk_expected:
+            raise InfrastructureError(
+                "malformed unified diff: truncated hunk "
+                f"(expected {hunk_expected}, consumed {hunk_consumed})"
+            )
+        hunk_expected = hunk_consumed = None
+        old_lineno = new_lineno = None
+        last_hunk_line_was_content = False
+        no_newline_marker_seen = False
+
+    def finish():
+        nonlocal old_path, new_path, added, deleted, in_file
+        nonlocal old_header_seen, new_header_seen
+        nonlocal saw_hunk, metadata
+        finish_hunk()
+        if in_file and (old_header_seen != new_header_seen):
+            raise InfrastructureError(
+                "malformed unified diff: file patch is missing ---/+++ header pair"
+            )
+        if in_file and old_header_seen and not saw_hunk:
+            raise InfrastructureError(
+                "malformed unified diff: ---/+++ headers have no hunk"
+            )
+        if in_file and old_header_seen and old_path is None and new_path is None:
+            raise InfrastructureError(
+                "malformed unified diff: both file paths are /dev/null"
+            )
+        if in_file and old_header_seen and new_header_seen:
+            patches.append(
+                FilePatch(old_path, new_path, frozenset(added), frozenset(deleted))
+            )
+        if in_file and not old_header_seen:
+            complete_metadata_change = (
+                {"old mode", "new mode"} <= metadata
+                or {"rename from", "rename to"} <= metadata
+                or {"copy from", "copy to"} <= metadata
+                or "new file mode" in metadata
+                or "deleted file mode" in metadata
+            )
+            if not complete_metadata_change:
+                raise InfrastructureError(
+                    "malformed unified diff: file stanza has no complete change record"
+                )
+        old_path = new_path = None
+        added = set()
+        deleted = set()
+        in_file = False
+        old_header_seen = new_header_seen = False
+        saw_hunk = False
+        metadata = set()
+
+    def diff_path(value, prefix):
+        value = value.split("\t", 1)[0]
+        if value.startswith('"') != value.endswith('"'):
+            raise InfrastructureError(
+                "malformed unified diff: unterminated quoted path"
+            )
+        if value.startswith('"'):
+            try:
+                value = ast.literal_eval(value)
+                if not isinstance(value, str):
+                    raise ValueError("quoted path did not decode to a string")
+                # Git C-quotes non-ASCII UTF-8 bytes as octal escapes. Python's
+                # literal parser maps each escape to a Latin-1 code point, so
+                # reconstruct the original byte sequence before path matching.
+                value = value.encode("latin-1").decode("utf-8")
+            except (SyntaxError, ValueError) as exc:
+                raise InfrastructureError(
+                    f"malformed unified diff: invalid quoted path ({exc})"
+                ) from exc
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+        return re.sub(rf"^{prefix}/", "", value)
+
+    for raw in difftext.splitlines():
+        if raw.startswith("diff --git "):
+            finish()
+            in_file = True
+            continue
+        if not in_file:
+            if raw.strip():
+                raise InfrastructureError(
+                    "malformed unified diff: content precedes diff --git header"
+                )
+            continue
+        if (
+            hunk_expected is not None
+            and hunk_consumed == hunk_expected
+            and raw != r"\ No newline at end of file"
+        ):
+            finish_hunk()
+        if hunk_expected is not None:
+            if raw == r"\ No newline at end of file":
+                if not last_hunk_line_was_content or no_newline_marker_seen:
+                    raise InfrastructureError(
+                        "malformed unified diff: misplaced no-newline marker"
+                    )
+                no_newline_marker_seen = True
+                last_hunk_line_was_content = False
+                continue
+            if raw.startswith("+"):
+                added.add(new_lineno)
+                new_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0], hunk_consumed[1] + 1
+                )
+            elif raw.startswith("-"):
+                deleted.add(old_lineno)
+                old_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0] + 1, hunk_consumed[1]
+                )
+            elif raw.startswith(" "):
+                old_lineno += 1
+                new_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0] + 1, hunk_consumed[1] + 1
+                )
+            elif raw.startswith("@@ "):
+                finish_hunk()
+            else:
+                raise InfrastructureError(
+                    f"malformed unified diff: unexpected hunk line {raw!r}"
+                )
+            if hunk_expected is not None:
+                last_hunk_line_was_content = True
+                no_newline_marker_seen = False
+                if (
+                    hunk_consumed[0] > hunk_expected[0]
+                    or hunk_consumed[1] > hunk_expected[1]
+                ):
+                    raise InfrastructureError(
+                        "malformed unified diff: hunk exceeds declared size"
+                    )
+                continue
+        if raw.startswith("--- "):
+            if old_header_seen:
+                raise InfrastructureError(
+                    "malformed unified diff: duplicate --- header"
+                )
+            value = raw[4:].split("\t", 1)[0]
+            old_path = None if value == "/dev/null" else diff_path(value, "a")
+            old_header_seen = True
+            continue
+        if raw.startswith("+++ "):
+            if not old_header_seen or new_header_seen:
+                raise InfrastructureError(
+                    "malformed unified diff: invalid +++ header ordering"
+                )
+            value = raw[4:].split("\t", 1)[0]
+            new_path = None if value == "/dev/null" else diff_path(value, "b")
+            new_header_seen = True
+            continue
+        if raw.startswith("@@ "):
+            match = re.match(
+                r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
+                raw,
+            )
+            if match is None or not old_header_seen or not new_header_seen:
+                raise InfrastructureError(
+                    f"malformed unified diff: invalid hunk header {raw!r}"
+                )
+            old_lineno = int(match.group(1))
+            new_lineno = int(match.group(3))
+            hunk_expected = (
+                int(match.group(2) or 1),
+                int(match.group(4) or 1),
+            )
+            hunk_consumed = (0, 0)
+            saw_hunk = True
+            continue
+        if not raw and saw_hunk:
+            continue
+        if old_header_seen or new_header_seen:
+            raise InfrastructureError(
+                f"malformed unified diff: unexpected post-header line {raw!r}"
+            )
+        metadata_patterns = (
+            ("index", r"index [0-9a-fA-F]+\.\.[0-9a-fA-F]+(?: [0-7]{6})?"),
+            ("new file mode", r"new file mode [0-7]{6}"),
+            ("deleted file mode", r"deleted file mode [0-7]{6}"),
+            ("old mode", r"old mode [0-7]{6}"),
+            ("new mode", r"new mode [0-7]{6}"),
+            ("similarity index", r"similarity index (?:100|[0-9]?[0-9])%"),
+            ("dissimilarity index", r"dissimilarity index (?:100|[0-9]?[0-9])%"),
+            ("rename from", r"rename from .+"),
+            ("rename to", r"rename to .+"),
+            ("copy from", r"copy from .+"),
+            ("copy to", r"copy to .+"),
+        )
+        matched_metadata = next(
+            (
+                name
+                for name, pattern in metadata_patterns
+                if re.fullmatch(pattern, raw)
+            ),
+            None,
+        )
+        if raw and matched_metadata is None:
+            raise InfrastructureError(
+                f"malformed unified diff: unexpected metadata line {raw!r}"
+            )
+        if matched_metadata is not None:
+            if matched_metadata in metadata and matched_metadata != "index":
+                raise InfrastructureError(
+                    f"malformed unified diff: duplicate metadata line {raw!r}"
+                )
+            metadata.add(matched_metadata)
+    finish()
+    return tuple(patches)
+
+
+def _helper_family(helper):
+    if helper in MUTATION_TAKING_HELPERS:
+        return "mutation-helper"
+    if helper in COUNT_HELPERS:
+        return "count-helper"
+    return "static-helper"
+
+
+_RAW_PRESENCE_RE = re.compile(
+    r"""(?P<prefix>\$\(|\bif\s+|\bthen\s+|(?:^|;|&&)\s*)
+        grep\s+
+        (?P<options>(?:(?:-[A-Za-z]+|--[a-z-]+)\s+)+)
+        (?:--\s+)?
+        (?P<literal_token>'[^']*'|"[^"]*"|[^\s]+)\s+
+        (?P<target>
+            "(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)"
+            |
+            '(?:/?[A-Za-z0-9_.-]+(?:/[^\s';]+)*)'
+            |
+            (?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)
+        )
+        (?P<tail>\s*(?:;|\)|&&|\|\||$))""",
+    re.VERBOSE | re.DOTALL,
+)
+
+_RAW_CAT_PRESENCE_RE = re.compile(
+    r"""(?P<prefix>\[\[\s+)
+        ["']?\$\(cat\s+
+        (?P<target>"[^"]+"|'[^']+'|[^\s)]+)
+        \s*\)["']?\s+==\s+
+        \*(?P<literal_token>'[^']*'|"[^"]*"|[^\s*]+)\*
+        \s+\]\]""",
+    re.VERBOSE,
+)
+
+
+def _line_end(start, logical_line):
+    return start + logical_line.count("\n")
+
+
+def _raw_options_are_fixed_quiet(options):
+    fixed = quiet = False
+    for option in options.split():
+        if option == "--fixed-strings":
+            fixed = True
+        elif option == "--quiet":
+            quiet = True
+        elif option.startswith("-") and not option.startswith("--"):
+            fixed = fixed or "F" in option[1:]
+            quiet = quiet or "q" in option[1:]
+    return fixed and quiet
+
+
+def _resolve_guard_target(args, spec, literal_vars, path_vars, lib):
+    _, file_index, default_file = spec
+    if file_index < len(args):
+        target = resolve_arg(
+            args[file_index], literal_vars, path_vars, want_path=True, lib=lib
+        )
+        return target.rstrip(";") if target is not None else None
+    if default_file is not None:
+        return path_vars.get(default_file)
+    return None
+
+
+def _markdown_prose_text(text):
+    """Return Markdown text outside closed fences and HTML comments.
+
+    A properly closed fenced block is machine-facing content for this boundary.
+    An unterminated fence fails closed: its content remains prose-eligible
+    rather than allowing a stray opener to exempt the rest of a document.
+    """
+    lines = text.splitlines(keepends=True)
+    excluded = set()
+    fence = None
+    fence_start = None
+    for index, line in enumerate(lines):
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if fence is None:
+            if match and not (
+                match.group(1)[0] == "`" and "`" in match.group(2)
+            ):
+                fence = (match.group(1)[0], len(match.group(1)))
+                fence_start = index
+            continue
+        if (
+            match
+            and match.group(1)[0] == fence[0]
+            and len(match.group(1)) >= fence[1]
+            and match.group(2).strip() == ""
+        ):
+            excluded.update(range(fence_start, index + 1))
+            fence = None
+            fence_start = None
+
+    visible = "".join(
+        line for index, line in enumerate(lines) if index not in excluded
+    )
+    return re.sub(r"<!--.*?-->", "", visible, flags=re.DOTALL)
+
+
+def _markdown_literal_is_prose(text, literal):
+    """Detect visible Markdown headings and whitespace-bearing prose phrases."""
+    visible = _markdown_prose_text(text)
+    for line in visible.splitlines():
+        if literal not in line:
+            continue
+        if re.match(r"^ {0,3}#{1,6}(?:\s+|$)", line):
+            return True
+        if re.search(r"\s", literal):
+            return True
+    return False
+
+
+def _typed_pin_protects_prose(site, repo_root):
+    """Return True when a declaration matches the conservative prose boundary.
+
+    The issue-810 boundary is semantic: a category marker does not turn an
+    advisory phrase into an executable contract. For statically resolved
+    targets, the conservative classifier rejects headings, whitespace-bearing
+    visible Markdown phrases, and hash-comment text. A standalone non-heading
+    token is treated as a sentinel; fenced Markdown machine content and
+    operative source text retain the typed structural path.
+    """
+    if (
+        site.declaration is None
+        or site.literal is None
+        or site.target_path is None
+    ):
+        return False
+    target = Path(site.target_path)
+    if not target.is_absolute():
+        target = Path(repo_root) / target
+    ext = target.suffix.lower()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # Defensive fallback for direct callers. The production scanner rejects
+        # unreadable typed targets in _typed_pin_inspection_error first.
+        return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
+    if site.literal not in text:
+        return False
+    if ext in COMMENT_MD_EXTS:
+        return _markdown_literal_is_prose(text, site.literal)
+    if ext in COMMENT_HASH_EXTS:
+        return any(
+            site.literal in comment
+            for _, comment in hash_comment_regions(text.splitlines())
+        )
+    return False
+
+
+def _typed_pin_inspection_error(site, repo_root):
+    """Return why a typed declaration's target boundary cannot be inspected."""
+    if site.declaration is None or site.declaration_error is not None:
+        return None
+    if not site.literal:
+        return "typed structural declaration literal cannot be inspected"
+    if site.target_path is None:
+        return "typed structural declaration target cannot be inspected"
+    target = Path(site.target_path)
+    if not target.is_absolute():
+        target = Path(repo_root) / target
+    try:
+        if os.path.commonpath((Path(repo_root).resolve(), target.resolve())) != str(
+            Path(repo_root).resolve()
+        ):
+            return (
+                "typed structural declaration target cannot be inspected "
+                "(outside repository)"
+            )
+    except (OSError, ValueError):
+        return "typed structural declaration target cannot be inspected"
+    try:
+        target_text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return (
+            "typed structural declaration target cannot be inspected "
+            f"({type(exc).__name__})"
+        )
+    if site.literal not in target_text:
+        return (
+            "typed structural declaration literal cannot be inspected "
+            "(absent from target)"
+        )
+    return None
+
+
+def _python_read_target(node, repo_root):
+    """Return (contains file-text read, statically resolved target or None)."""
+    for child in ast.walk(node):
+        if not (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr in {"read", "read_text"}
+        ):
+            continue
+        receiver = child.func.value
+        path_arg = None
+        if (
+            child.func.attr == "read_text"
+            and isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "Path"
+            and receiver.args
+        ):
+            path_arg = receiver.args[0]
+        elif (
+            child.func.attr == "read"
+            and isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "open"
+            and receiver.args
+        ):
+            path_arg = receiver.args[0]
+        target = None
+        if isinstance(path_arg, ast.Constant) and isinstance(path_arg.value, str):
+            target = Path(path_arg.value)
+            if not target.is_absolute():
+                target = Path(repo_root) / target
+            target = str(target)
+        return True, target
+    return False, None
+
+
+def extract_python_guard_sites(text, source_path, repo_root):
+    """Extract direct Python assertions over file text."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise InfrastructureError(
+            f"Python pin source cannot be parsed: {source_path}: {exc}"
+        ) from exc
+    physical = text.splitlines()
+    parents = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+    def lexical_scope(node):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return node
+        return tree
+
+    assigned_bindings = {}
+    for assignment in ast.walk(tree):
+        if (
+            isinstance(assignment, ast.Assign)
+            and len(assignment.targets) == 1
+            and isinstance(assignment.targets[0], ast.Name)
+        ):
+            is_read, target = _python_read_target(assignment.value, repo_root)
+            key = (lexical_scope(assignment), assignment.targets[0].id)
+            assigned_bindings.setdefault(key, []).append(
+                (assignment.lineno, is_read, target)
+            )
+    sites = []
+    for node in ast.walk(tree):
+        literal = haystack = helper = None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "assertIn"
+            and len(node.args) >= 2
+        ):
+            literal, haystack = node.args[:2]
+            helper = f"python-{node.func.attr}"
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "assertRegex"
+            and len(node.args) >= 2
+        ):
+            haystack, literal = node.args[:2]
+            helper = "python-assertRegex"
+        elif isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
+            comparison = node.test
+            if (
+                len(comparison.ops) == 1
+                and isinstance(comparison.ops[0], ast.In)
+                and len(comparison.comparators) == 1
+            ):
+                literal = comparison.left
+                haystack = comparison.comparators[0]
+                helper = "python-assert-in"
+        direct_read, target_path = (
+            _python_read_target(haystack, repo_root)
+            if haystack is not None
+            else (False, None)
+        )
+        assigned_read = False
+        if isinstance(haystack, ast.Name):
+            bindings = assigned_bindings.get(
+                (lexical_scope(node), haystack.id), ()
+            )
+            prior = [
+                binding for binding in bindings if binding[0] < node.lineno
+            ]
+            if prior:
+                _, assigned_read, target_path = max(
+                    prior, key=lambda binding: binding[0]
+                )
+        if (
+            not isinstance(literal, ast.Constant)
+            or not isinstance(literal.value, str)
+            or haystack is None
+            or not (direct_read or assigned_read)
+        ):
+            continue
+        line_end = getattr(node, "end_lineno", node.lineno)
+        declaration, error = parse_structural_declaration(
+            physical[node.lineno - 1 : line_end]
+        )
+        sites.append(
+            GuardSite(
+                source_path,
+                node.lineno,
+                line_end,
+                "raw-presence",
+                helper,
+                literal.value,
+                target_path,
+                declaration,
+                error,
+            )
+        )
+    return sites
+
+
+def extract_guard_sites(text, source_path, repo_root):
+    """Extract complete helper and narrow raw repository-presence guard sites."""
+    if source_path.endswith(".py"):
+        return extract_python_guard_sites(text, source_path, repo_root)
+    repo_root = os.path.abspath(repo_root)
+    lib = os.path.join(repo_root, "lib")
+    helper_specs, helper_families, wrapper_origins = helper_specs_for_source(
+        text, include_families=True, include_origins=True
+    )
+    definitions = _function_definitions(text)
+    function_by_line = {
+        line: name
+        for name, (_, start, end) in definitions.items()
+        for line in range(start, end + 1)
+    }
+    invoked_wrappers = set()
+    for invocation_line, invocation_text in join_logical_lines(text):
+        invocation_tokens = tokenize(invocation_text.lstrip())
+        _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
+        if (
+            invocation_helper in definitions
+            and function_by_line.get(invocation_line) != invocation_helper
+        ):
+            invoked_wrappers.add(invocation_helper)
+    represented_body_lines = {
+        definitions[name][1] + wrapper_origins[name] - 1
+        for name in invoked_wrappers
+        if name in wrapper_origins
+    }
+    maps_by_line = variable_maps_by_line(text, lib, {})
+    physical = text.splitlines()
+    sites = []
+    for lineno, logical_line in join_logical_lines(text):
+        stripped = logical_line.lstrip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        path_vars, literal_vars = maps_by_line[lineno]
+        lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
+        toks = tokenize(stripped)
+        helper_index, helper = _helper_call(toks, helper_specs)
+        if helper is not None:
+            args = toks[helper_index + 1 :]
+            literal = None
+            spec = helper_specs[helper]
+            lit_selector = spec[0]
+            if isinstance(lit_selector, int) and lit_selector < len(args):
+                literal = resolve_arg(
+                    args[lit_selector],
+                    literal_vars,
+                    path_vars,
+                    want_path=False,
+                    lib=lib,
+                )
+            elif isinstance(lit_selector, str):
+                literal = lit_selector
+            if lineno in represented_body_lines:
+                # An invoked wrapper's body is not a second runtime pin site;
+                # its body-derived spec classifies the invocation instead.
+                continue
+            target = _resolve_guard_target(
+                args, spec, literal_vars, path_vars, lib
+            )
+            declaration, error = parse_structural_declaration(lines)
+            sites.append(
+                GuardSite(
+                    source_path,
+                    lineno,
+                    _line_end(lineno, logical_line),
+                    helper_families[helper],
+                    helper,
+                    literal,
+                    target,
+                    declaration,
+                    error,
+                )
+            )
+            continue
+        match = _RAW_PRESENCE_RE.search(logical_line)
+        cat_match = _RAW_CAT_PRESENCE_RE.search(logical_line)
+        if match is None and cat_match is None:
+            continue
+        if match is not None:
+            if not _raw_options_are_fixed_quiet(match.group("options")):
+                continue
+            # Negative assertions are absence guards, not presence pins. Canonical
+            # yes/no and 1/0 renderings are recognized; an `if grep ...` branch is
+            # positive unless explicitly negated.
+            before_grep = logical_line[: match.start()]
+            expected = re.search(
+                r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?P<q>['"])(?P<value>yes|no|1|0)(?P=q)""",
+                before_grep,
+            )
+            if re.search(r"!\s*$", before_grep):
+                continue
+            echo_pair = re.search(
+                r"&&\s+echo\s+(?P<on_match>yes|no|1|0)"
+                r"\s+\|\|\s+echo\s+(?P<on_miss>yes|no|1|0)",
+                logical_line[match.start() :],
+            )
+            if expected:
+                if echo_pair:
+                    if expected.group("value") != echo_pair.group("on_match"):
+                        continue
+                elif expected.group("value") in {"no", "0"}:
+                    continue
+        else:
+            match = cat_match
+        target_token = match.group("target")
+        if (
+            len(target_token) >= 2
+            and target_token[0] == target_token[-1]
+            and target_token[0] in {"'", '"'}
+        ):
+            target_token = target_token[1:-1]
+        var_match = _VARREF.match(target_token)
+        var_name = var_match.group(1) if var_match else ""
+        target = path_vars.get(var_name) if var_name else None
+        if target is None:
+            target = _resolve_inline_var_path(target_token, lib, path_vars)
+        if target is None and "$" not in target_token:
+            target = (
+                target_token
+                if os.path.isabs(target_token)
+                else os.path.join(repo_root, target_token)
+            )
+        if (
+            target is None
+            and var_name
+            and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
+        ):
+            continue
+        target_abs = os.path.abspath(target) if target is not None else None
+        if target_abs is not None:
+            try:
+                inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
+            except ValueError:
+                inside_repo = False
+            if not inside_repo:
+                continue
+        declaration, error = parse_structural_declaration(lines)
+        literal_tokens = tokenize(match.group("literal_token"))
+        raw_literal = None
+        if literal_tokens:
+            raw_literal = resolve_arg(
+                literal_tokens[0],
+                literal_vars,
+                path_vars,
+                want_path=False,
+                lib=lib,
+            )
+        sites.append(
+            GuardSite(
+                source_path,
+                lineno,
+                _line_end(lineno, logical_line),
+                "raw-presence",
+                None,
+                raw_literal,
+                target_abs,
+                declaration,
+                error,
+            )
+        )
+    return sites
+
+
+def _site_changed(site, changed_lines):
+    return any(site.line_start <= line <= site.line_end for line in changed_lines)
+
+
+def _move_class(site):
+    if site.family == "mutation-helper":
+        return ("mutation-helper", None)
+    if site.declaration is not None:
+        return (site.family, site.declaration.category)
+    return (site.family, "legacy")
+
+
+def _move_compatible(old, new):
+    if old.target_path != new.target_path:
+        return False
+    old_class = _move_class(old)
+    new_class = _move_class(new)
+    if old_class[0] != new_class[0]:
+        return False
+    if old_class[1] == "legacy":
+        return new_class[1] == "legacy" or new.declaration is not None
+    return old_class == new_class
+
+
+def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
+    """Classify changed complete sites and return blocking finding strings."""
+    patches = parse_unified_diff(difftext)
+    old_candidates = []
+    new_candidates = []
+    for patch in patches:
+        old_sites = []
+        new_sites = []
+        if patch.old_path in base_sources:
+            old_sites = extract_guard_sites(
+                base_sources[patch.old_path], patch.old_path, repo_root
+            )
+            old_candidates.extend(
+                site for site in old_sites if _site_changed(site, patch.deleted_lines)
+            )
+        if patch.new_path in current_sources:
+            new_sites = extract_guard_sites(
+                current_sources[patch.new_path], patch.new_path, repo_root
+            )
+            new_candidates.extend(
+                site for site in new_sites if _site_changed(site, patch.added_lines)
+            )
+        # A changed assignment can alter an unchanged call's effective literal
+        # or target. Compare sites connected by the unchanged-line mapping so
+        # semantic changes enter the same policy path even when the call line is
+        # diff context.
+        if (
+            patch.old_path == patch.new_path
+            and patch.old_path in base_sources
+            and patch.new_path in current_sources
+            and (patch.added_lines or patch.deleted_lines)
+        ):
+            old_lines = base_sources[patch.old_path].splitlines()
+            new_lines = current_sources[patch.new_path].splitlines()
+            line_map = {}
+            for block in difflib.SequenceMatcher(
+                None, old_lines, new_lines, autojunk=False
+            ).get_matching_blocks():
+                for offset in range(block.size):
+                    line_map[block.a + offset + 1] = block.b + offset + 1
+            new_by_line = {site.line_start: site for site in new_sites}
+            for old_site in old_sites:
+                new_site = new_by_line.get(line_map.get(old_site.line_start))
+                if new_site is None:
+                    continue
+                old_effective = (
+                    old_site.family,
+                    old_site.helper,
+                    old_site.literal,
+                    old_site.target_path,
+                    old_site.declaration,
+                    old_site.declaration_error,
+                )
+                new_effective = (
+                    new_site.family,
+                    new_site.helper,
+                    new_site.literal,
+                    new_site.target_path,
+                    new_site.declaration,
+                    new_site.declaration_error,
+                )
+                if old_effective == new_effective:
+                    continue
+                if old_site not in old_candidates:
+                    old_candidates.append(old_site)
+                if new_site not in new_candidates:
+                    new_candidates.append(new_site)
+
+    unused_old = list(old_candidates)
+    findings = []
+    for site in new_candidates:
+        if site.family in ("mutation-helper", "count-helper"):
+            continue
+        inspection_error = _typed_pin_inspection_error(site, repo_root)
+        if inspection_error is not None:
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
+                f"{inspection_error}"
+            )
+            continue
+        if (
+            site.declaration is not None
+            and site.declaration_error is None
+            and not _typed_pin_protects_prose(site, repo_root)
+        ):
+            continue
+        if _typed_pin_protects_prose(site, repo_root):
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
+                "typed structural declaration cannot exempt prose presence"
+            )
+            continue
+        if site.declaration_error != "missing structural declaration":
+            detail = site.declaration_error
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+            )
+            continue
+        move_index = next(
+            (
+                index
+                for index, old in enumerate(unused_old)
+                if site.literal is not None
+                and old.literal == site.literal
+                and _move_compatible(old, site)
+            ),
+            None,
+        )
+        if move_index is not None:
+            unused_old.pop(move_index)
+            continue
+        detail = site.declaration_error or "wording-only presence pin"
+        findings.append(
+            f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+            f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+        )
+    return findings
+
+
+def validate_audited_population(registry, audited_sources, enumerated_sources):
+    """Return registry/audit mismatches and audited paths absent from Git."""
+    if not isinstance(registry, dict):
+        raise InfrastructureError("registry schema: root must be an object")
+    if type(registry.get("schema_version")) is not int or registry["schema_version"] != 1:
+        raise InfrastructureError(
+            "registry schema: schema_version must be integer 1"
+        )
+    modules = registry.get("test_modules")
+    if not isinstance(modules, dict) or not modules:
+        raise InfrastructureError(
+            "registry schema: test_modules must be a non-empty object"
+        )
+    registered = {"lib/test/run.sh"}
+    for name, row in modules.items():
+        if (
+            not isinstance(name, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]*", name) is None
+            or not isinstance(row, dict)
+            or not isinstance(row.get("path"), str)
+            or re.fullmatch(
+                r"lib/test/modules/[A-Za-z0-9][A-Za-z0-9._-]*[.]sh",
+                row["path"],
+            )
+            is None
+            or type(row.get("minimum_assertions")) is not int
+            or not 1 <= row["minimum_assertions"] <= 1_000_000
+        ):
+            raise InfrastructureError(
+                f"registry schema: invalid test_modules row: {name!r}"
+            )
+        registered.add(row["path"])
+    audited = set(audited_sources)
+    enumerated = set(enumerated_sources)
+    findings = []
+    for path in sorted(registered - audited):
+        findings.append(f"registered pin source absent from audited population: {path}")
+    for path in sorted(audited - registered):
+        findings.append(f"stale audited pin source absent from registry: {path}")
+    for path in sorted(audited - enumerated):
+        findings.append(f"audited pin source absent from Git enumeration: {path}")
+    return findings
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate registry key {key!r}")
+        result[key] = value
+    return result
+
+
+def load_registry(path):
+    """Load the module registry with the selector's duplicate-key contract."""
+    try:
+        return json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise InfrastructureError(f"registry read failed: {exc}") from exc
+
+
+def _run_git(git_runner, repo_root, *args):
+    result = git_runner(
+        ["git", "-C", str(repo_root), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def scan_worktree(
+    repo_root,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+    scratch_factory=None,
+):
+    """Run the required, fail-closed mutation-routing gate over the worktree."""
+    repo_root = Path(repo_root)
+    scratch_factory = scratch_factory or (
+        lambda: tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8")
+    )
+    try:
+        scratch = scratch_factory()
+    except OSError as exc:
+        raise InfrastructureError(f"scratch allocation failed: {exc}") from exc
+    try:
+        _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
+        # A missing local main is the normal Actions checkout shape. Other ancestry
+        # failures remain infrastructure failures rather than green skips.
+        local_main = git_runner(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "show-ref",
+                "--verify",
+                "--quiet",
+                "refs/heads/main",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if local_main.returncode == 0:
+            _run_git(
+                git_runner,
+                repo_root,
+                "merge-base",
+                "--is-ancestor",
+                "refs/heads/main",
+                base_ref,
+            )
+        elif local_main.returncode != 1:
+            raise InfrastructureError(
+                "local main resolution failed "
+                f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
+            )
+        merge_base = _run_git(
+            git_runner, repo_root, "merge-base", base_ref, "HEAD"
+        ).strip()
+        if not merge_base:
+            raise InfrastructureError("comparison merge base resolved to empty output")
+        python_tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        python_untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
+        difftext = _run_git(
+            git_runner,
+            repo_root,
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=0",
+            merge_base,
+            "--",
+            *sorted(scan_sources),
+        )
+        untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        base_paths = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    merge_base,
+                    "--",
+                    *sorted(scan_sources),
+                ).splitlines(),
+            )
+        )
+        registry = load_registry(
+            repo_root / "scripts/workflow-flight-recorder-registry.json"
+        )
+        population_findings = validate_audited_population(
+            registry, AUDITED_PIN_SOURCES, tracked | untracked
+        )
+        if population_findings:
+            raise InfrastructureError("; ".join(population_findings))
+
+        current_sources = {}
+        base_sources = {}
+        for path in sorted(scan_sources):
+            try:
+                current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+            if path in base_paths:
+                base_sources[path] = _run_git(
+                    git_runner, repo_root, "show", f"{merge_base}:{path}"
+                )
+            else:
+                base_sources[path] = ""
+                lines = current_sources[path].splitlines()
+                difftext += (
+                    f"\ndiff --git a/{path} b/{path}\n"
+                    "--- /dev/null\n"
+                    f"+++ b/{path}\n"
+                    f"@@ -0,0 +1,{len(lines)} @@\n"
+                    + "\n".join(f"+{line}" for line in lines)
+                    + "\n"
+                )
+        try:
+            scratch.write(difftext)
+        except OSError as exc:
+            raise InfrastructureError(f"scratch write failed: {exc}") from exc
+        try:
+            scratch.flush()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch flush failed: {exc}") from exc
+        return scan_changed_sources(
+            current_sources, base_sources, difftext, str(repo_root)
+        )
+    finally:
+        try:
+            scratch.close()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch close failed: {exc}") from exc
 
 
 def _read(path):
@@ -1128,10 +2599,27 @@ def _read_target(path):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("lint", "wrapped", "mutation-routing"):
+    if len(argv) < 3 or argv[1] not in (
+        "lint",
+        "wrapped",
+        "mutation-routing",
+        "mutation-routing-worktree",
+    ):
         sys.stderr.write(__doc__ or "")
         return 2
     cmd, pin_source = argv[1], argv[2]
+    if cmd == "mutation-routing-worktree":
+        if len(argv) != 3:
+            sys.stderr.write("mutation-routing-worktree accepts only REPO_ROOT\n")
+            return 2
+        try:
+            findings = scan_worktree(pin_source)
+        except InfrastructureError as exc:
+            sys.stderr.write(f"MUTATION-ROUTING-INFRASTRUCTURE\t{exc}\n")
+            return 2
+        for finding in findings:
+            print(finding)
+        return 3 if findings else 0
     lib = None
     overrides = {}
     md_targets = set()
