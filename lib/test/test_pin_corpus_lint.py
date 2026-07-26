@@ -2213,6 +2213,8 @@ class RetiredPinRevivalTests(unittest.TestCase):
         include_revival=True,
         duplicate_revival=False,
         added_adjudication=False,
+        authorization_family="static-helper",
+        authorization_helper="assert_pin_unique",
     ):
         bundle = (
             root
@@ -2233,7 +2235,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
             )
         if include_revival:
             row = (
-                "lib/test/new.sh\tstatic-helper\tassert_pin_unique\t"
+                f"lib/test/new.sh\t{authorization_family}\t{authorization_helper}\t"
                 f"{self.literal_key}\tdocs/x.md\tmachine-sentinel-provenance\t"
                 f"{self.RATIONALE}\n"
             )
@@ -2291,6 +2293,8 @@ class RetiredPinRevivalTests(unittest.TestCase):
         revival=False,
         duplicate_revival=False,
         added_adjudication=False,
+        authorization_family="static-helper",
+        authorization_helper="assert_pin_unique",
     ):
         if source is None:
             source = self.SOURCE
@@ -2309,6 +2313,8 @@ class RetiredPinRevivalTests(unittest.TestCase):
                 include_revival=revival,
                 duplicate_revival=duplicate_revival,
                 added_adjudication=added_adjudication,
+                authorization_family=authorization_family,
+                authorization_helper=authorization_helper,
             )
         self._commit(root, "revive")
 
@@ -2469,6 +2475,41 @@ class RetiredPinRevivalTests(unittest.TestCase):
                 + hashlib.sha256("NOT RETIRED EITHER".encode("utf-8")).hexdigest()
             )
             self.assertNotIn(converted, retired)
+
+    def test_count_helpers_cannot_bypass_retired_literal_policy(self):
+        for helper in ("pin_count", "devflow_module_pin_count"):
+            source = (
+                'F="$LIB/../docs/x.md"\n'
+                f"{helper} 'MACHINE SENTINEL' \"$F\"  {self.MARKER}\n"
+            )
+            with self.subTest(helper=helper), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root)
+                self._commit_revival(root, table, source=source)
+                analysis = self._analysis(root, base)
+                findings = self._scan_sources(root, base, analysis)
+                self.assertEqual(1, len(findings))
+                self.assertIn("retired wording-pin", findings[0])
+
+    def test_count_helper_exact_authorized_structural_revival_passes(self):
+        source = (
+            'F="$LIB/../docs/x.md"\n'
+            f"pin_count 'MACHINE SENTINEL' \"$F\"  {self.MARKER}\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root)
+            self._commit_revival(
+                root,
+                table,
+                source=source,
+                delta=True,
+                revival=True,
+                authorization_family="count-helper",
+                authorization_helper="pin_count",
+            )
+            analysis = self._analysis(root, base)
+            self.assertEqual([], self._scan_sources(root, base, analysis))
 
 
 class StaticPinWorktreeCompositionTests(unittest.TestCase):

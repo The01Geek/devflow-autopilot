@@ -2958,8 +2958,6 @@ def scan_changed_sources(
     consumed_revivals = set()
     findings = []
     for site in new_candidates:
-        if site.family == "count-helper":
-            continue
         literal_key = (
             _literal_adjudication_key(site.literal)
             if site.literal is not None
@@ -2992,6 +2990,8 @@ def scan_changed_sources(
                     "retired wording-pin revival lacks " + " and ".join(missing)
                 )
                 continue
+        elif site.family == "count-helper":
+            continue
         inspection_error = _typed_pin_inspection_error(site, repo_root)
         if inspection_error is not None:
             findings.append(
