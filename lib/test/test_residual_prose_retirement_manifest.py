@@ -12,6 +12,7 @@ import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
@@ -124,7 +125,7 @@ def load_classifier():
     return module
 
 
-class ResidualProseRetirementManifestTests(unittest.TestCase):
+class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.classifier = load_classifier()
@@ -301,6 +302,248 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
             "missing RETAIN_BOUNDARY identities:\n"
             + "\n".join(sorted(map(repr, retained - current))),
         )
+
+
+NEW_BASE_REVISION = "29f3298b0cd0bbd5efea4c01ca592041a2be92e4"
+NEW_MANIFEST = REPO_ROOT / ".devflow/logs/residual-required-copy-retirement-manifest.tsv"
+NEW_MANIFEST_COLUMNS = IDENTITY_COLUMNS + ("disposition", "rationale")
+NEW_EXPECTED_SELECTOR_DIGEST = "d412dfc70f1830fafe8388f33d42057722999d5f34876b6cfd16a629bd6b7abb"
+NEW_EXPECTED_CANONICAL_BYTES = 31254
+NEW_EXPECTED_CANONICAL_SHA256 = "d412dfc70f1830fafe8388f33d42057722999d5f34876b6cfd16a629bd6b7abb"
+NEW_EXPECTED_AUDIT_MAPPING_BYTES = 55610
+NEW_EXPECTED_AUDIT_MAPPING_SHA256 = "30c00f2b96f79c5fe4ff64fa42d01767a46288eb0ebf1c92727259460cae1829"
+NEW_EXPECTED_COUNTS = {"historical": 141, "retire_prose": 30, "retain_boundary": 111, "distinct_literals": 130, "retired_distinct_literals": 26, "retained_distinct_literals": 105}
+HARNESS_INVENTORY = REPO_ROOT / "lib/test/modules/harness-python-guards.inventory.md"
+
+
+class ResidualProseRetirementManifestTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.classifier = load_classifier()
+
+    def load_manifest(self) -> tuple[dict[str, str], list[dict[str, object]]]:
+        raw = NEW_MANIFEST.read_text(encoding="utf-8")
+        metadata: dict[str, str] = {}
+        table = []
+        for line in raw.splitlines():
+            if line.startswith("# "):
+                key, _, value = line[2:].partition(": ")
+                metadata[key] = value
+            else:
+                table.append(line)
+        reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
+        self.assertEqual(NEW_MANIFEST_COLUMNS, tuple(reader.fieldnames or ()))
+        rows = []
+        for row in reader:
+            rows.append(
+                {
+                    "source_file": decode_cell(row["source_file"]),
+                    "helper": row["helper"],
+                    "assertion_name": decode_cell(row["assertion_name"]),
+                    "literal": decode_cell(row["literal"]),
+                    "resolved_target": decode_cell(row["resolved_target"]),
+                    "target_defaulted": row["target_defaulted"] == "true",
+                    "disposition": row["disposition"],
+                    "rationale": row["rationale"],
+                }
+            )
+        return metadata, rows
+
+    def selected_base_rows(self) -> tuple[set[tuple[object, ...]], bytes]:
+        with tempfile.TemporaryDirectory() as temporary:
+            inventory = Path(temporary) / "inventory.tsv"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(CLASSIFIER),
+                    "--repo-root",
+                    str(REPO_ROOT),
+                    "--adjudications",
+                    str(ADJUDICATIONS),
+                    "--output",
+                    str(inventory),
+                    "--revision",
+                    NEW_BASE_REVISION,
+                ],
+                cwd=REPO_ROOT,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            raw = inventory.read_text(encoding="utf-8")
+        reader = csv.DictReader(
+            (line for line in raw.splitlines() if not line.startswith("# ")),
+            delimiter="\t",
+        )
+        rows = []
+        canonical = []
+        for row in reader:
+            if row["bucket_final"] == "boundary":
+                continue
+            rows.append(
+                (
+                    decode_cell(row["source_file"]),
+                    row["helper"],
+                    decode_cell(row["assertion_name"]),
+                    decode_cell(row["literal"]),
+                    decode_cell(row["resolved_target"]),
+                    row["target_defaulted"] == "true",
+                )
+            )
+            canonical.append(
+                "\t".join(
+                    row[column]
+                    for column in IDENTITY_COLUMNS
+                ).encode("utf-8")
+            )
+        return set(rows), b"\n".join(sorted(canonical)) + b"\n"
+
+    def test_manifest_exactly_partitions_the_frozen_selector(self):
+        # Break caught: an audited required-copy or suite-internal site is omitted or reassigned.
+        metadata, rows = self.load_manifest()
+        base_identities, raw_canonical = self.selected_base_rows()
+        self.assertEqual(NEW_BASE_REVISION, metadata["source-revision"])
+        self.assertEqual(NEW_EXPECTED_SELECTOR_DIGEST, metadata["raw-selector-canonical-sha256"])
+        self.assertEqual(NEW_EXPECTED_SELECTOR_DIGEST, hashlib.sha256(raw_canonical).hexdigest())
+        canonical = "\n".join(sorted(canonical_identity(row) for row in rows)) + "\n"
+        self.assertEqual(str(NEW_EXPECTED_CANONICAL_BYTES), metadata["canonical-bytes"])
+        self.assertEqual(NEW_EXPECTED_CANONICAL_BYTES, len(canonical.encode("utf-8")))
+        self.assertEqual(NEW_EXPECTED_CANONICAL_SHA256, metadata["canonical-sha256"])
+        self.assertEqual(NEW_EXPECTED_CANONICAL_SHA256, hashlib.sha256(canonical.encode("utf-8")).hexdigest())
+        mapping = (
+            "\t".join(NEW_MANIFEST_COLUMNS)
+            + "\n"
+            + "\n".join(
+                sorted(
+                    canonical_identity(row)
+                    + "\t"
+                    + str(row["disposition"])
+                    + "\t"
+                    + str(row["rationale"])
+                    for row in rows
+                )
+            )
+            + "\n"
+        )
+        self.assertEqual(str(NEW_EXPECTED_AUDIT_MAPPING_BYTES), metadata["audit-mapping-bytes"])
+        self.assertEqual(NEW_EXPECTED_AUDIT_MAPPING_BYTES, len(mapping.encode("utf-8")))
+        self.assertEqual(NEW_EXPECTED_AUDIT_MAPPING_SHA256, metadata["audit-mapping-sha256"])
+        self.assertEqual(NEW_EXPECTED_AUDIT_MAPPING_SHA256, hashlib.sha256(mapping.encode("utf-8")).hexdigest())
+        self.assertEqual(NEW_EXPECTED_COUNTS["historical"], len(rows))
+        self.assertEqual(NEW_EXPECTED_COUNTS["historical"], len(set(map(identity, rows))))
+        self.assertEqual(base_identities, set(map(identity, rows)))
+        self.assertEqual(
+            {"RETIRE_PROSE": NEW_EXPECTED_COUNTS["retire_prose"], "RETAIN_BOUNDARY": NEW_EXPECTED_COUNTS["retain_boundary"]},
+            Counter(row["disposition"] for row in rows),
+        )
+        self.assertTrue({row["disposition"] for row in rows} <= {"RETIRE_PROSE", "RETAIN_BOUNDARY"})
+        for row in rows:
+            if row["disposition"] == "RETAIN_BOUNDARY":
+                self.assertRegex(str(row["rationale"]), r"^Retain .+ boundary:")
+        self.assertEqual(NEW_EXPECTED_COUNTS["distinct_literals"], len({row["literal"] for row in rows}))
+        self.assertEqual(NEW_EXPECTED_COUNTS["retired_distinct_literals"], len({row["literal"] for row in rows if row["disposition"] == "RETIRE_PROSE"}))
+        self.assertEqual(NEW_EXPECTED_COUNTS["retained_distinct_literals"], len({row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}))
+
+    def test_every_retained_literal_has_an_explicit_non_mechanical_adjudication(self):
+        # Break caught: a retained boundary falls back to required-copy classification.
+        _, rows = self.load_manifest()
+        adjudications = self.classifier.parse_adjudications(ADJUDICATIONS.read_text(encoding="utf-8"))
+        retained = {row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}
+        self.assertEqual(NEW_EXPECTED_COUNTS["retained_distinct_literals"], len(retained))
+        for literal in retained:
+            key = self.classifier.literal_adjudication_key(literal)
+            self.assertIn(key, adjudications, literal)
+            bucket, rationale = adjudications[key]
+            self.assertEqual("boundary", bucket, literal)
+            self.assertTrue(rationale and not rationale.startswith("mechanical:"), literal)
+
+    def test_adjudications_keep_the_base_table_as_an_exact_prefix(self):
+        base = subprocess.run(
+            ["git", "show", f"{NEW_BASE_REVISION}:lib/test/pin-corpus-adjudications.tsv"],
+            cwd=REPO_ROOT, text=True, capture_output=True, check=True,
+        ).stdout
+        self.assertTrue(ADJUDICATIONS.read_text(encoding="utf-8").startswith(base))
+
+    def current_source_identities(
+        self, source_files: set[str]
+    ) -> set[tuple[object, ...]]:
+        source_texts = {
+            source_file: (REPO_ROOT / source_file).read_text(encoding="utf-8")
+            for source_file in source_files
+        }
+        overrides = {}
+        for text in source_texts.values():
+            overrides.update(self.classifier.recover_override_names(text))
+        return {
+            site_identity(site)
+            for source_file, text in source_texts.items()
+            for site in self.classifier.extract_existence_sites(
+                text, source_file, str(REPO_ROOT / "lib"), overrides
+            )
+        }
+
+    def test_current_tree_realizes_the_retirement_and_inventory_summary(self):
+        # Break caught: a wording-only pin remains, a boundary vanishes, or summary drifts.
+        _, rows = self.load_manifest()
+        retired = {identity(row) for row in rows if row["disposition"] == "RETIRE_PROSE"}
+        retained = {identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}
+        current = self.current_source_identities(
+            {str(row["source_file"]) for row in rows}
+        )
+        self.assertSetEqual(
+            set(),
+            retired & current,
+            "still-live RETIRE_PROSE identities:\n"
+            + "\n".join(sorted(map(repr, retired & current))),
+        )
+        self.assertSetEqual(
+            set(),
+            retained - current,
+            "missing RETAIN_BOUNDARY identities:\n"
+            + "\n".join(sorted(map(repr, retained - current))),
+        )
+        summary = {}
+        for line in HARNESS_INVENTORY.read_text(encoding="utf-8").splitlines():
+            if not line.startswith("residual_required_copy_retirement "):
+                continue
+            summary = dict(field.split("=", 1) for field in line.split()[1:])
+        self.assertEqual(
+            {
+                "historical": str(len(rows)),
+                "retire_prose": str(len(retired)),
+                "retain_boundary": str(len(retained)),
+            },
+            summary,
+        )
+
+    def test_final_inventory_is_a_canonical_boundary_only_realization(self):
+        inventory = REPO_ROOT / ".devflow/logs/pin-corpus-inventory.tsv"
+        raw = inventory.read_text(encoding="utf-8")
+        metadata = dict(
+            line[2:].split(": ", 1) for line in raw.splitlines() if line.startswith("# ")
+        )
+        revision = metadata["revision"]
+        self.assertRegex(revision, r"^[0-9a-f]{40}$")
+        subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], cwd=REPO_ROOT, check=True)
+        self.assertEqual(
+            "python3 lib/test/pin-corpus-classifier.py --repo-root . --adjudications "
+            "lib/test/pin-corpus-adjudications.tsv --output .devflow/logs/pin-corpus-inventory.tsv "
+            f"--revision {revision}",
+            metadata["producing-command"],
+        )
+        rows = list(csv.DictReader((line for line in raw.splitlines() if not line.startswith("# ")), delimiter="\t"))
+        self.assertTrue(rows)
+        self.assertEqual({"boundary"}, {row["bucket_final"] for row in rows})
+        self.assertTrue(all(".devflow/logs/pin-corpus-inventory.tsv" not in decode_cell(row["homes"]) for row in rows))
+        _, manifest = self.load_manifest()
+        retired = {identity(row) for row in manifest if row["disposition"] == "RETIRE_PROSE"}
+        retained = {identity(row) for row in manifest if row["disposition"] == "RETAIN_BOUNDARY"}
+        observed = {
+            (decode_cell(row["source_file"]), row["helper"], decode_cell(row["assertion_name"]), decode_cell(row["literal"]), decode_cell(row["resolved_target"]), row["target_defaulted"] == "true")
+            for row in rows
+        }
+        self.assertFalse(retired & observed)
+        self.assertTrue(retained <= observed)
 
 
 if __name__ == "__main__":
