@@ -1528,50 +1528,119 @@ class AdjudicationStateTests(unittest.TestCase):
                 "/repo", "origin/main", git_runner=runner(outputs)
             )
 
-    def test_new_bundle_discovery_rejects_historical_changes(self):
+    def _bundle_manifest(self):
         key = "literal:" + "a" * 64
-        manifest = (
+        return (
             "adjudication_key\tbase_state\tcurrent_state\n"
             f'{key}\tnull\t["boundary","authorized rationale"]\n'
         )
+
+    def _commit(self, root, message):
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=root, check=True)
+
+    def _prepared_bundle_repo(self, root):
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], cwd=root, check=True
+        )
+        historical = (
+            root
+            / ".devflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
+        )
+        historical.parent.mkdir(parents=True)
+        historical.write_text(self._bundle_manifest(), encoding="utf-8")
+        self._commit(root, "base")
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, capture_output=True
+        ).stdout.strip()
+        current = (
+            root
+            / ".devflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
+        )
+        current.parent.mkdir(parents=True)
+        current.write_text(self._bundle_manifest(), encoding="utf-8")
+        self._commit(root, "add current bundle")
+        return base, historical, current
+
+    def test_new_bundle_discovery_rejects_historical_changes(self):
+        key = "literal:" + "a" * 64
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-            subprocess.run(
-                ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
-            )
-            subprocess.run(
-                ["git", "config", "user.name", "Test User"], cwd=root, check=True
-            )
-            historical = (
-                root
-                / ".devflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
-            )
-            historical.parent.mkdir(parents=True)
-            historical.write_text(manifest, encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
-            base = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, capture_output=True
-            ).stdout.strip()
-            added = (
-                root
-                / ".devflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
-            )
-            added.parent.mkdir(parents=True)
-            added.write_text(manifest, encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(["git", "commit", "-qm", "add current bundle"], cwd=root, check=True)
+            base, historical, added = self._prepared_bundle_repo(root)
             self.assertEqual(
                 [{key: (None, ("boundary", "authorized rationale"))}],
                 self.mod.discover_new_adjudication_delta_manifests(root, base),
             )
-            historical.write_text(manifest.replace("authorized", "changed"), encoding="utf-8")
-            subprocess.run(["git", "add", "."], cwd=root, check=True)
-            subprocess.run(
-                ["git", "commit", "-qm", "alter historical bundle"], cwd=root, check=True
+            historical.write_text(
+                self._bundle_manifest().replace("authorized", "changed"), encoding="utf-8"
             )
+            self._commit(root, "alter historical bundle")
             with self.assertRaisesRegex(self.mod.InfrastructureError, "historical"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+
+    def test_new_bundle_discovery_rejects_unsafe_ids_and_nested_paths(self):
+        def runner(diff_row):
+            def invoke(args, **kwargs):
+                command = tuple(args[3:])
+                output = "" if command[0] in {"ls-tree", "status"} else diff_row
+                return subprocess.CompletedProcess(args, 0, output, "")
+
+            return invoke
+
+        for label, path in (
+            ("dot id", ".devflow/logs/pin-corpus-adjudication-changes/./adjudication-delta.tsv"),
+            ("dotdot id", ".devflow/logs/pin-corpus-adjudication-changes/../adjudication-delta.tsv"),
+        ):
+            with self.subTest(case=label):
+                with self.assertRaisesRegex(self.mod.InfrastructureError, "unsafe bundle ID"):
+                    self.mod.discover_new_adjudication_delta_manifests(
+                        "/repo", "base", git_runner=runner(f"A\t{path}\n")
+                    )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, _, current = self._prepared_bundle_repo(root)
+            nested = current.parent / "nested" / "unexpected.tsv"
+            nested.parent.mkdir()
+            nested.write_text(self._bundle_manifest(), encoding="utf-8")
+            self._commit(root, "add unexpected nested file")
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "unexpected bundle path"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+
+    def test_new_bundle_discovery_rejects_worktree_drift_and_head_symlinks(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "repo"
+            root.mkdir()
+            base, historical, current = self._prepared_bundle_repo(root)
+            current.write_text(
+                self._bundle_manifest().replace("authorized", "tampered"), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "bundle worktree differs"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+            current.unlink()
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "bundle worktree differs"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+            subprocess.run(["git", "checkout", "--", str(current.relative_to(root))], cwd=root, check=True)
+            historical.write_text(
+                self._bundle_manifest().replace("authorized", "tampered"), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "bundle worktree differs"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "repo"
+            root.mkdir()
+            base, _, current = self._prepared_bundle_repo(root)
+            current.unlink()
+            external = Path(td) / "external-manifest.tsv"
+            external.write_text(self._bundle_manifest(), encoding="utf-8")
+            current.symlink_to(external)
+            self._commit(root, "add symlinked bundle manifest")
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "HEAD blob"):
                 self.mod.discover_new_adjudication_delta_manifests(root, base)
 
 

@@ -1282,14 +1282,27 @@ def require_current_adjudication_base(repo_root, base_ref, *, git_runner=subproc
 def discover_new_adjudication_delta_manifests(
     repo_root, merge_base, *, git_runner=subprocess.run
 ):
-    """Return parsed delta manifests from only newly-added immutable bundles."""
-    root = Path(repo_root)
+    """Return parsed HEAD manifests from only newly-added immutable bundles."""
+    worktree_status = _run_git(
+        git_runner,
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        _ADJUDICATION_BUNDLE_ROOT,
+    )
+    if worktree_status:
+        raise InfrastructureError(
+            "adjudication bundle worktree differs from HEAD: "
+            f"{worktree_status.strip()}"
+        )
     base_paths = set(
         filter(
             None,
             _run_git(
                 git_runner,
-                root,
+                repo_root,
                 "ls-tree",
                 "-r",
                 "--name-only",
@@ -1306,7 +1319,7 @@ def discover_new_adjudication_delta_manifests(
     }
     changes = _run_git(
         git_runner,
-        root,
+        repo_root,
         "diff",
         "--name-status",
         "--no-renames",
@@ -1324,13 +1337,18 @@ def discover_new_adjudication_delta_manifests(
                 f"adjudication bundle diff has malformed name-status row: {line!r}"
             ) from exc
         parts = path.split("/")
-        if (
-            len(parts) < 5
-            or "/".join(parts[:3]) != _ADJUDICATION_BUNDLE_ROOT
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[3])
-        ):
+        if len(parts) < 4 or "/".join(parts[:3]) != _ADJUDICATION_BUNDLE_ROOT:
             raise InfrastructureError(f"adjudication bundle path is invalid: {path!r}")
         change_id = parts[3]
+        if change_id in {".", ".."} or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*", change_id
+        ):
+            raise InfrastructureError(f"adjudication bundle has unsafe bundle ID: {change_id!r}")
+        expected_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        )
+        if path != expected_path:
+            raise InfrastructureError(f"adjudication bundle has unexpected bundle path: {path!r}")
         if status != "A" or change_id in historical_ids:
             raise InfrastructureError(
                 f"historical adjudication bundle was changed: {path} ({status})"
@@ -1338,14 +1356,25 @@ def discover_new_adjudication_delta_manifests(
         new_ids.add(change_id)
     manifests = []
     for change_id in sorted(new_ids):
-        manifest_path = root / _ADJUDICATION_BUNDLE_ROOT / change_id / "adjudication-delta.tsv"
+        manifest_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        )
+        listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", manifest_path)
         try:
-            manifest_text = manifest_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
+            mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+        except ValueError as exc:
             raise InfrastructureError(
-                f"new adjudication bundle has unreadable delta manifest: {manifest_path}"
+                f"new adjudication bundle manifest is not a regular HEAD blob: {manifest_path}"
             ) from exc
-        manifests.append(parse_adjudication_delta_manifest(manifest_text))
+        if mode != "100644" or kind != "blob" or listed_path != manifest_path:
+            raise InfrastructureError(
+                f"new adjudication bundle manifest is not a regular HEAD blob: {manifest_path}"
+            )
+        manifests.append(
+            parse_adjudication_delta_manifest(
+                _run_git(git_runner, repo_root, "show", f"HEAD:{manifest_path}")
+            )
+        )
     return manifests
 
 
