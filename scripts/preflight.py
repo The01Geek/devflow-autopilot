@@ -237,8 +237,8 @@ def dependencies(args: argparse.Namespace) -> int:
 #
 # Two provenance sources may vouch for ahead-of-base history (issue #780): the
 # workpad (`provenance_established`), and the OPEN-PR LINKAGE — an open PR in THIS
-# repository whose head branch is the working branch, which closes this issue, and
-# which is not cross-repository, and which is tied to this issue either by closing
+# repository whose head branch is the working branch, which is not
+# cross-repository, and which is tied to this issue either by closing
 # it or by having been selected by the §1.4 pre-check's head-branch query
 # (`open_pr_branch` / `open_pr_closes_issue` / `open_pr_cross_repository` /
 # `open_pr_selected_by`). Operative rules, enforced below: every conjunct of the PR

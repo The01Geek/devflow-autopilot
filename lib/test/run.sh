@@ -8879,6 +8879,13 @@ def emit_prov(arm, work, state):
 # recording that the PR linkage COULD have. One key alone cannot express that.
 emit_prov("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
           "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# Workpad vouches while the PR operands are present but do NOT → the source key must
+# still read `workpad` while the linkage key reads False. An implementation hard-coding
+# `pr_linkage_vouches` True on the workpad-precedence path passes every other payload
+# arm and only this one.
+emit_prov("wp_only_pr_refutes", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False,
+          **{**_PRV, "open_pr_cross_repository": True}})
 # Neither vouches → no source, and the linkage is recorded as not vouching.
 emit_prov("pr_no_source", pwork, _PS)
 # PR-vouched but the published tip no longer reaches HEAD: the run reaches the
@@ -9140,6 +9147,8 @@ assert_eq "#780 reason: a cross-repository PR carries 'unverified-provenance'" \
 _bs780p() { awk -v k="prov_$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
 assert_eq "#780 payload: both sources vouching records the WORKPAD as the source used, PR linkage as available" \
   "workpad True" "$(_bs780p both_wp_precedence)"
+assert_eq "#780 payload: a workpad-sourced stop whose PR operands refute records the workpad with a non-vouching linkage" \
+  "workpad False" "$(_bs780p wp_only_pr_refutes)"
 assert_eq "#780 payload: neither source vouching records no source and a non-vouching linkage" \
   "None False" "$(_bs780p pr_no_source)"
 assert_eq "#780 payload: a PR-vouched stop records the open-PR source" \
