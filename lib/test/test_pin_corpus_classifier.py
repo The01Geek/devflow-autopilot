@@ -199,23 +199,37 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
         key = self.mod.literal_adjudication_key("same literal")
         parsed = self.mod.parse_adjudications(
             f"adjudication_key\tbucket_final\trationale\n"
-            f"{key}\tboundary\tsecurity interface contract\n"
+            f"{key}\tboundary\t security interface contract \n"
         )
         self.assertEqual(
-            ("boundary", "security interface contract"),
+            ("boundary", " security interface contract "),
             parsed[key],
         )
-        with self.assertRaisesRegex(ValueError, "duplicate adjudication"):
+        with self.assertRaisesRegex(ValueError, "duplicate key"):
             self.mod.parse_adjudications(
                 "adjudication_key\tbucket_final\trationale\n"
                 f"{key}\tboundary\tone\n"
                 f"{key}\tboundary\ttwo\n"
             )
-        with self.assertRaisesRegex(ValueError, "cannot be unclear"):
+        with self.assertRaisesRegex(ValueError, "invalid final bucket"):
             self.mod.parse_adjudications(
                 "adjudication_key\tbucket_final\trationale\n"
                 f"{key}\tunclear\tstill unclear\n"
             )
+        for invalid in (
+            (
+                "bucket_final\tadjudication_key\trationale\n"
+                f"boundary\t{key}\treordered\n"
+            ),
+            f"adjudication_key\tbucket_final\trationale\n{key}\tboundary\twhy\textra\n",
+            (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"tombstone:{key}\ttombstone\tretired\n"
+            ),
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    self.mod.parse_adjudications(invalid)
 
     def test_complete_explicit_source_scope_canonicalizes_to_default_command(self):
         remaining = ["--repo-root", ".", "--output", "inventory.tsv"]
@@ -607,8 +621,24 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         self.assertNotIn(str(repo_root), inventory.read_text(encoding="utf-8"))
 
         with tempfile.TemporaryDirectory() as raw:
-            reproduced = Path(raw) / "inventory.tsv"
+            scratch = Path(raw)
+            reproduced = scratch / "inventory.tsv"
             command = shlex.split(metadata["producing-command"])
+            historical_test_dir = scratch / "lib/test"
+            historical_test_dir.mkdir(parents=True)
+            for relative in (
+                "lib/test/pin-corpus-classifier.py",
+                "lib/test/pin-corpus-lint.py",
+            ):
+                historical = subprocess.run(
+                    ["git", "show", f"{revision}:{relative}"],
+                    cwd=repo_root,
+                    text=True,
+                    capture_output=True,
+                    check=True,
+                ).stdout
+                (scratch / relative).write_text(historical, encoding="utf-8")
+            command[1] = str(historical_test_dir / "pin-corpus-classifier.py")
             output_index = command.index("--output") + 1
             command[output_index] = str(reproduced)
             result = subprocess.run(
@@ -629,42 +659,6 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                 f"# producing-command: {metadata['producing-command']}"
             )
             self.assertEqual(raw_lines, reproduced_lines)
-
-    def test_adjudication_events_replace_or_deactivate_only_known_active_keys(self):
-        base = "adjudication_key\tbucket_final\trationale\n"
-        active = base + "literal:a\trequired-copy\told decision\n"
-        self.assertEqual(
-            {"literal:a": ("boundary", "new decision")},
-            self.mod.parse_adjudications(
-                active + "supersede:literal:a\tboundary\tnew decision\n"
-            ),
-        )
-        self.assertEqual(
-            {},
-            self.mod.parse_adjudications(
-                active + "tombstone:literal:a\ttombstone\tretired decision\n"
-            ),
-        )
-        tombstoned = active + "tombstone:literal:a\ttombstone\tretired decision\n"
-        for resurrection in (
-            tombstoned + "literal:a\tboundary\tordinary resurrection\n",
-            tombstoned + "supersede:literal:a\tboundary\tresurrected event\n",
-        ):
-            with self.subTest(resurrection=resurrection):
-                with self.assertRaises(ValueError):
-                    self.mod.parse_adjudications(resurrection)
-        for invalid in (
-            "literal:a\tboundary\tordinary duplicate\n",
-            "supersede:literal:missing\tboundary\tunknown target\n",
-            "tombstone:literal:missing\ttombstone\tunknown target\n",
-            "tombstone:literal:a\tboundary\tbad event bucket\n",
-            "supersede:literal:a\tboundary\t\n",
-            "supersede:literal:a\tboundary\tnew decision\n"
-            "supersede:literal:a\tboundary\trepeated event\n",
-        ):
-            with self.subTest(invalid=invalid):
-                with self.assertRaises(ValueError):
-                    self.mod.parse_adjudications(active + invalid)
 
 if __name__ == "__main__":
     unittest.main()

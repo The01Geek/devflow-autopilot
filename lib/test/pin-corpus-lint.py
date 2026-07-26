@@ -1090,6 +1090,25 @@ _FINAL_ADJUDICATION_BUCKETS = frozenset(
 _CURRENT_ADJUDICATION_HEADER = ("adjudication_key", "bucket_final", "rationale")
 _ADJUDICATION_DELTA_HEADER = ("adjudication_key", "base_state", "current_state")
 _ADJUDICATION_BUNDLE_ROOT = ".devflow/logs/pin-corpus-adjudication-changes"
+_ADJUDICATION_TABLE_PATH = "lib/test/pin-corpus-adjudications.tsv"
+_MIGRATION_BUNDLE_ID = "2026-07-26-pr-849"
+_MIGRATION_CERTIFICATE_PATH = (
+    f"{_ADJUDICATION_BUNDLE_ROOT}/{_MIGRATION_BUNDLE_ID}/migration.tsv"
+)
+_LEGACY_ADJUDICATION_SHA256 = (
+    "db13cb2caa85b95c3bcdca6488f87c1b79428de5d4055e2faaf3b9636bc985cd"
+)
+_RESOLVED_ADJUDICATION_SHA256 = (
+    "bc955639aee8f6fa37a8a41cf42202e175254bff95cfb13e5a347bbe527a2aa9"
+)
+_RESOLVED_ADJUDICATION_SEMANTIC_SHA256 = (
+    "63eae0fc7617e23a4ab3ec71e36cac0e81f246515759bbb381557f007707c0c5"
+)
+_MIGRATION_CERTIFICATE_BYTES = (
+    "legacy_sha256\tresolved_sha256\tsemantic_map_sha256\n"
+    f"{_LEGACY_ADJUDICATION_SHA256}\t{_RESOLVED_ADJUDICATION_SHA256}\t"
+    f"{_RESOLVED_ADJUDICATION_SEMANTIC_SHA256}\n"
+).encode("ascii")
 
 
 def _parse_exact_tsv(text, header, label):
@@ -1219,6 +1238,16 @@ def hash_adjudication_table_state(adjudications):
     ).hexdigest()
 
 
+def hash_adjudication_semantic_map(adjudications):
+    """Hash canonical sorted TSV rows without coupling semantics to a header."""
+    canonical_adjudication_table_state(adjudications)
+    payload = "".join(
+        f"{key}\t{adjudications[key][0]}\t{adjudications[key][1]}\n"
+        for key in sorted(adjudications)
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def compute_adjudication_delta(base, current):
     """Return the complete base-to-current state delta, including deletions."""
     canonical_adjudication_table_state(base)
@@ -1267,9 +1296,18 @@ def is_exactly_authorized_adjudication_delta(base, current, manifests):
     return actual == authorized
 
 
-def require_current_adjudication_base(repo_root, base_ref, *, git_runner=subprocess.run):
+def require_current_adjudication_base(
+    repo_root,
+    base_ref,
+    *,
+    merge_base=None,
+    git_runner=subprocess.run,
+):
     """Require HEAD to descend directly from the configured current base tip."""
-    merge_base = _run_git(git_runner, repo_root, "merge-base", base_ref, "HEAD").strip()
+    if merge_base is None:
+        merge_base = _run_git(
+            git_runner, repo_root, "merge-base", base_ref, "HEAD"
+        ).strip()
     base_tip = _run_git(git_runner, repo_root, "rev-parse", base_ref).strip()
     if merge_base != base_tip:
         raise InfrastructureError(
@@ -1280,9 +1318,13 @@ def require_current_adjudication_base(repo_root, base_ref, *, git_runner=subproc
 
 
 def discover_new_adjudication_delta_manifests(
-    repo_root, merge_base, *, git_runner=subprocess.run
+    repo_root,
+    merge_base,
+    *,
+    include_migration=False,
+    git_runner=subprocess.run,
 ):
-    """Return parsed HEAD manifests from only newly-added immutable bundles."""
+    """Return parsed HEAD payloads from only newly-added immutable bundles."""
     worktree_status = _run_git(
         git_runner,
         repo_root,
@@ -1328,7 +1370,7 @@ def discover_new_adjudication_delta_manifests(
         "--",
         _ADJUDICATION_BUNDLE_ROOT,
     )
-    new_ids = set()
+    new_paths = {}
     for line in filter(None, changes.splitlines()):
         try:
             status, path = line.split("\t", 1)
@@ -1344,37 +1386,62 @@ def discover_new_adjudication_delta_manifests(
             r"[A-Za-z0-9][A-Za-z0-9._-]*", change_id
         ):
             raise InfrastructureError(f"adjudication bundle has unsafe bundle ID: {change_id!r}")
-        expected_path = (
-            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        delta_path = f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        is_migration = (
+            include_migration
+            and change_id == _MIGRATION_BUNDLE_ID
+            and path == _MIGRATION_CERTIFICATE_PATH
         )
-        if path != expected_path:
+        if path != delta_path and not is_migration:
             raise InfrastructureError(f"adjudication bundle has unexpected bundle path: {path!r}")
         if status != "A" or change_id in historical_ids:
             raise InfrastructureError(
                 f"historical adjudication bundle was changed: {path} ({status})"
             )
-        new_ids.add(change_id)
+        new_paths.setdefault(change_id, set()).add(path)
+    for change_id, paths in new_paths.items():
+        expected_paths = {
+            (
+                _MIGRATION_CERTIFICATE_PATH
+                if change_id == _MIGRATION_BUNDLE_ID
+                else f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+            )
+        }
+        if paths != expected_paths:
+            unexpected = sorted(paths - expected_paths or paths)
+            raise InfrastructureError(
+                f"adjudication bundle has unexpected bundle path: {unexpected[0]!r}"
+            )
     manifests = []
-    for change_id in sorted(new_ids):
-        manifest_path = (
-            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+    migration_bytes = None
+    for change_id in sorted(new_paths):
+        payload_path = (
+            _MIGRATION_CERTIFICATE_PATH
+            if change_id == _MIGRATION_BUNDLE_ID
+            else f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
         )
-        listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", manifest_path)
+        listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", payload_path)
         try:
             mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
         except ValueError as exc:
             raise InfrastructureError(
-                f"new adjudication bundle manifest is not a regular HEAD blob: {manifest_path}"
+                f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
             ) from exc
-        if mode != "100644" or kind != "blob" or listed_path != manifest_path:
+        if mode != "100644" or kind != "blob" or listed_path != payload_path:
             raise InfrastructureError(
-                f"new adjudication bundle manifest is not a regular HEAD blob: {manifest_path}"
+                f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
             )
-        manifests.append(
-            parse_adjudication_delta_manifest(
-                _run_git(git_runner, repo_root, "show", f"HEAD:{manifest_path}")
+        payload = _run_git_bytes(git_runner, repo_root, "show", f"HEAD:{payload_path}")
+        if payload_path == _MIGRATION_CERTIFICATE_PATH:
+            migration_bytes = payload
+        else:
+            manifests.append(
+                parse_adjudication_delta_manifest(
+                    _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
+                )
             )
-        )
+    if include_migration:
+        return manifests, migration_bytes
     return manifests
 
 
@@ -2889,6 +2956,105 @@ def _run_git(git_runner, repo_root, *args):
     return result.stdout
 
 
+def _run_git_bytes(git_runner, repo_root, *args):
+    command = ["git", "-C", str(repo_root), *args]
+    try:
+        result = git_runner(
+            command,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InfrastructureError(
+            f"git {' '.join(args)} invocation failed: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        stderr = result.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {stderr.strip()}"
+        )
+    return result.stdout.encode("utf-8") if isinstance(result.stdout, str) else result.stdout
+
+
+def _decode_utf8(payload, label):
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InfrastructureError(f"{label} is not UTF-8: {exc}") from exc
+
+
+def scan_adjudication_changes(
+    repo_root,
+    merge_base,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+):
+    """Authorize the exact base-to-worktree current-state table delta."""
+    repo_root = Path(repo_root)
+    try:
+        current_bytes = (repo_root / _ADJUDICATION_TABLE_PATH).read_bytes()
+    except OSError as exc:
+        raise InfrastructureError(
+            f"adjudication table unreadable: {_ADJUDICATION_TABLE_PATH}: {exc}"
+        ) from exc
+    current_text = _decode_utf8(current_bytes, "adjudication table")
+    current = parse_current_adjudications(current_text)
+    base_bytes = _run_git_bytes(
+        git_runner,
+        repo_root,
+        "show",
+        f"{merge_base}:{_ADJUDICATION_TABLE_PATH}",
+    )
+    manifests, migration_bytes = discover_new_adjudication_delta_manifests(
+        repo_root,
+        merge_base,
+        include_migration=True,
+        git_runner=git_runner,
+    )
+    base_digest = hashlib.sha256(base_bytes).hexdigest()
+    current_digest = hashlib.sha256(current_bytes).hexdigest()
+    if base_digest == _LEGACY_ADJUDICATION_SHA256:
+        require_current_adjudication_base(
+            repo_root,
+            base_ref,
+            merge_base=merge_base,
+            git_runner=git_runner,
+        )
+        if (
+            current_digest != _RESOLVED_ADJUDICATION_SHA256
+            or migration_bytes != _MIGRATION_CERTIFICATE_BYTES
+            or manifests
+            or hash_adjudication_semantic_map(current)
+            != _RESOLVED_ADJUDICATION_SEMANTIC_SHA256
+        ):
+            raise InfrastructureError(
+                "adjudication migration does not match the exact bootstrap certificate"
+            )
+        return []
+
+    if migration_bytes is not None:
+        raise InfrastructureError(
+            "adjudication migration certificate is invalid for a strict base table"
+        )
+    base = parse_current_adjudications(
+        _decode_utf8(base_bytes, "base adjudication table")
+    )
+    actual = compute_adjudication_delta(base, current)
+    if actual:
+        require_current_adjudication_base(
+            repo_root,
+            base_ref,
+            merge_base=merge_base,
+            git_runner=git_runner,
+        )
+    if not is_exactly_authorized_adjudication_delta(base, current, manifests):
+        return ["MUTATION-ROUTING\tunauthorized pin adjudication delta"]
+    return []
+
+
 def scan_static_pin_changes(
     repo_root,
     base_ref="origin/main",
@@ -2936,6 +3102,12 @@ def scan_static_pin_changes(
         ).strip()
         if not merge_base:
             raise InfrastructureError("comparison merge base resolved to empty output")
+        adjudication_findings = scan_adjudication_changes(
+            repo_root,
+            merge_base,
+            base_ref,
+            git_runner=git_runner,
+        )
         python_tracked = set(
             filter(
                 None,
@@ -3056,7 +3228,7 @@ def scan_static_pin_changes(
             scratch.flush()
         except OSError as exc:
             raise InfrastructureError(f"scratch flush failed: {exc}") from exc
-        return scan_changed_sources(
+        return adjudication_findings + scan_changed_sources(
             current_sources, base_sources, difftext, str(repo_root)
         )
     finally:

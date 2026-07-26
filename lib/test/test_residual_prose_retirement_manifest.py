@@ -457,13 +457,6 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
             self.assertEqual("boundary", bucket, literal)
             self.assertTrue(rationale and not rationale.startswith("mechanical:"), literal)
 
-    def test_adjudications_keep_the_base_table_as_an_exact_prefix(self):
-        base = subprocess.run(
-            ["git", "show", f"{NEW_BASE_REVISION}:lib/test/pin-corpus-adjudications.tsv"],
-            cwd=REPO_ROOT, text=True, capture_output=True, check=True,
-        ).stdout
-        self.assertTrue(ADJUDICATIONS.read_text(encoding="utf-8").startswith(base))
-
     def current_source_identities(
         self, source_files: set[str]
     ) -> set[tuple[object, ...]]:

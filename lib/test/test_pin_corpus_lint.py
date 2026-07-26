@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import io
 import json
 import shutil
@@ -1068,6 +1069,12 @@ class PinCorpusLint810Tests(unittest.TestCase):
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("", encoding="utf-8")
+        adjudication_text = (
+            REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
+        ).read_text(encoding="utf-8")
+        adjudications = root / "lib/test/pin-corpus-adjudications.tsv"
+        adjudications.parent.mkdir(parents=True, exist_ok=True)
+        adjudications.write_text(adjudication_text, encoding="utf-8")
         registry_path = root / "scripts/workflow-flight-recorder-registry.json"
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(
@@ -1086,6 +1093,13 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, "mergebase\n", "")
             if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
                 return subprocess.CompletedProcess(args, 0, audited, "")
+            if (
+                "show mergebase:lib/test/pin-corpus-adjudications.tsv"
+                in rendered
+            ):
+                return subprocess.CompletedProcess(
+                    args, 0, adjudication_text.encode("utf-8"), b""
+                )
             if "show mergebase:" in rendered:
                 return subprocess.CompletedProcess(args, 0, "", "")
             return subprocess.CompletedProcess(args, 0, "", "")
@@ -1644,6 +1658,254 @@ class AdjudicationStateTests(unittest.TestCase):
                 self.mod.discover_new_adjudication_delta_manifests(root, base)
 
 
+class AdjudicationChangeScanTests(unittest.TestCase):
+    LEGACY_SHA256 = "db13cb2caa85b95c3bcdca6488f87c1b79428de5d4055e2faaf3b9636bc985cd"
+    RESOLVED_SHA256 = "bc955639aee8f6fa37a8a41cf42202e175254bff95cfb13e5a347bbe527a2aa9"
+    SEMANTIC_SHA256 = "63eae0fc7617e23a4ab3ec71e36cac0e81f246515759bbb381557f007707c0c5"
+    MIGRATION_PATH = (
+        ".devflow/logs/pin-corpus-adjudication-changes/"
+        "2026-07-26-pr-849/migration.tsv"
+    )
+    MIGRATION_TEXT = (
+        "legacy_sha256\tresolved_sha256\tsemantic_map_sha256\n"
+        f"{LEGACY_SHA256}\t{RESOLVED_SHA256}\t{SEMANTIC_SHA256}\n"
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+        cls.live_table = (
+            REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
+        ).read_text(encoding="utf-8")
+        cls.legacy_table = subprocess.run(
+            [
+                "git",
+                "show",
+                "63585ad75031859db3b25db5432e3af3d515ba3a:"
+                "lib/test/pin-corpus-adjudications.tsv",
+            ],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    def _commit(self, root, message):
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=root, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def _repo(self, root, base_table):
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=root,
+            check=True,
+        )
+        table = root / "lib/test/pin-corpus-adjudications.tsv"
+        table.parent.mkdir(parents=True)
+        table.write_text(base_table, encoding="utf-8")
+        base = self._commit(root, "base")
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", base],
+            cwd=root,
+            check=True,
+        )
+        return base, table
+
+    def _write_bundle(self, root, relative, text):
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _scan(self, root, merge_base):
+        return self.mod.scan_adjudication_changes(
+            root, merge_base, "origin/main"
+        )
+
+    def test_exact_legacy_to_resolved_bootstrap_is_the_only_accepted_migration(self):
+        self.assertEqual(
+            self.LEGACY_SHA256,
+            hashlib.sha256(self.legacy_table.encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(
+            self.RESOLVED_SHA256,
+            hashlib.sha256(self.live_table.encode("utf-8")).hexdigest(),
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, self.legacy_table)
+            table.write_text(self.live_table, encoding="utf-8")
+            self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
+            self._commit(root, "exact migration")
+            self.assertEqual([], self._scan(root, base))
+
+        variants = {
+            "legacy bytes": (
+                self.legacy_table.replace("boundary", "generated", 1),
+                self.live_table,
+                self.MIGRATION_TEXT,
+            ),
+            "resolved bytes": (
+                self.legacy_table,
+                self.live_table.replace("boundary", "generated", 1),
+                self.MIGRATION_TEXT,
+            ),
+            "certificate bytes": (
+                self.legacy_table,
+                self.live_table,
+                self.MIGRATION_TEXT.replace(self.SEMANTIC_SHA256, "0" * 64),
+            ),
+        }
+        for label, (base_text, current_text, certificate) in variants.items():
+            with self.subTest(variant=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root, base_text)
+                table.write_text(current_text, encoding="utf-8")
+                self._write_bundle(root, self.MIGRATION_PATH, certificate)
+                self._commit(root, "nearby migration")
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self._scan(root, base)
+
+    def test_migration_bundle_accepts_only_the_exact_regular_certificate(self):
+        for label, extra_path in (
+            (
+                "delta sibling",
+                ".devflow/logs/pin-corpus-adjudication-changes/"
+                "2026-07-26-pr-849/adjudication-delta.tsv",
+            ),
+            (
+                "nested payload",
+                ".devflow/logs/pin-corpus-adjudication-changes/"
+                "2026-07-26-pr-849/nested/payload.tsv",
+            ),
+        ):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root, self.legacy_table)
+                table.write_text(self.live_table, encoding="utf-8")
+                self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
+                self._write_bundle(root, extra_path, "unexpected\n")
+                self._commit(root, "migration with extra payload")
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError, "unexpected bundle path"
+                ):
+                    self._scan(root, base)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, self.legacy_table)
+            table.write_text(self.live_table, encoding="utf-8")
+            certificate = root / self.MIGRATION_PATH
+            certificate.parent.mkdir(parents=True)
+            target = root / "outside.tsv"
+            target.write_text(self.MIGRATION_TEXT, encoding="utf-8")
+            certificate.symlink_to(target)
+            self._commit(root, "symlink certificate")
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "regular HEAD blob"):
+                self._scan(root, base)
+
+    def test_strict_table_delta_requires_exact_authorization(self):
+        key = "literal:" + "a" * 64
+        base_table = (
+            "adjudication_key\tbucket_final\trationale\n"
+            f"{key}\tboundary\told rationale\n"
+        )
+        current_table = base_table.replace("old rationale", "new rationale")
+        manifest = (
+            "adjudication_key\tbase_state\tcurrent_state\n"
+            f'{key}\t["boundary","old rationale"]\t'
+            '["boundary","new rationale"]\n'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, base_table)
+            table.write_text(current_table, encoding="utf-8")
+            self._commit(root, "unauthorized change")
+            self.assertEqual(
+                ["MUTATION-ROUTING\tunauthorized pin adjudication delta"],
+                self._scan(root, base),
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, base_table)
+            table.write_text(current_table, encoding="utf-8")
+            self._write_bundle(
+                root,
+                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                "adjudication-delta.tsv",
+                manifest,
+            )
+            self._commit(root, "authorized change")
+            self.assertEqual([], self._scan(root, base))
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, base_table)
+            table.write_text(current_table, encoding="utf-8")
+            self._write_bundle(
+                root,
+                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                "adjudication-delta.tsv",
+                manifest.replace("old rationale", "older rationale"),
+            )
+            self._commit(root, "stale authorization")
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "stale or extra"):
+                self._scan(root, base)
+
+    def test_adjudication_change_rejects_a_branch_behind_the_base_tip(self):
+        key = "literal:" + "a" * 64
+        base_table = (
+            "adjudication_key\tbucket_final\trationale\n"
+            f"{key}\tboundary\told rationale\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, base_table)
+            subprocess.run(["git", "switch", "-qc", "feature"], cwd=root, check=True)
+            table.write_text(
+                base_table.replace("old rationale", "new rationale"),
+                encoding="utf-8",
+            )
+            self._write_bundle(
+                root,
+                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                "adjudication-delta.tsv",
+                (
+                    "adjudication_key\tbase_state\tcurrent_state\n"
+                    f'{key}\t["boundary","old rationale"]\t'
+                    '["boundary","new rationale"]\n'
+                ),
+            )
+            feature = self._commit(root, "feature change")
+            subprocess.run(["git", "switch", "--detach", base], cwd=root, check=True)
+            (root / "main-advance.txt").write_text("new base tip\n", encoding="utf-8")
+            main_tip = self._commit(root, "advance main")
+            subprocess.run(
+                ["git", "update-ref", "refs/remotes/origin/main", main_tip],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(["git", "switch", "--detach", feature], cwd=root, check=True)
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "not based on current"
+            ):
+                self._scan(root, base)
+
+
 class StaticPinWorktreeCompositionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1655,6 +1917,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             "lib/test/module-harness.sh",
             "lib/test/pin-corpus-lint.py",
             "lib/test/test_pin_corpus_lint.py",
+            "lib/test/pin-corpus-adjudications.tsv",
             ".devflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
