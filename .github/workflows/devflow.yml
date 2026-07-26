@@ -1113,6 +1113,11 @@ jobs:
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
+        env:
+          # Harness floor for the dispatch barrier (issue #801) — full rationale in
+          # devflow-runner.yml's copy of this entry; the runner-agnostic half is the
+          # barrier statement in each engine root's headless-wait block.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
           # active. A provider-routed section passes '' here (the action treats
