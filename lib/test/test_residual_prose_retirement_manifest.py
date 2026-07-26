@@ -124,9 +124,11 @@ def canonical_mapping(row: dict[str, object]) -> str:
 class RefreshLedgerError(ValueError):
     """A structurally malformed refresh-ledger row, named by row and cause.
 
-    Raised only while PARSING.  An admissible-but-wrong declaration is a
-    different failure: `refresh_admission_error` RETURNS its reason as a string
-    and never raises, so nothing in the admission path produces this exception.
+    Raised while parsing, and by `refresh_mapping_of` on a duplicated old
+    identity.  An admissible-but-wrong declaration is a different failure:
+    `refresh_admission_error` RETURNS its reason as a string and never raises --
+    it screens duplicates before the mapping build, so nothing in the admission
+    path produces this exception.
     """
 
 
@@ -577,6 +579,29 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             "stale refresh: the old identity is still live",
             refresh_admission_error([dict(base)], retained, stale_current) or "",
         )
+
+    def test_refresh_mapping_refuses_a_duplicated_old_identity(self):
+        # Break caught: refresh_mapping_of's duplicate raise is dropped. Its
+        # direct caller refresh_mapping() has NO admission screen in front of it,
+        # so a collapsed row would surface through
+        # test_current_tree_realizes_the_retirement_manifest as a MISSING retained
+        # boundary -- blaming the tree for a ledger fault. The admission path
+        # screens duplicates first, so only this test drives the raise.
+        row = {
+            "source_file": "lib/test/run.sh",
+            "helper": "assert_pin_unique",
+            "assertion_name": "a frozen assertion name",
+            "literal": "a guarded literal",
+            "resolved_target": "/__pin_corpus_runtime__/SOME_BUNDLE",
+            "target_defaulted": False,
+            "new_assertion_name": "the renamed assertion name",
+            "rationale": "duplicate probe",
+        }
+        self.assertEqual(1, len(refresh_mapping_of([dict(row)])))
+        with self.assertRaises(RefreshLedgerError) as caught:
+            refresh_mapping_of([dict(row), dict(row)])
+        self.assertIn("declares", str(caught.exception))
+        self.assertIn(row["assertion_name"], str(caught.exception))
 
     def test_an_empty_refresh_ledger_parses_and_admits(self):
         # Break caught: the ledger's documented zero-row steady state (a pin renamed
