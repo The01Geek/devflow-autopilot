@@ -11412,7 +11412,6 @@ assert_eq "#380 W6A heading shape: heading-arm emitted-reset keeps a later prima
 # W6A operative-sentence removal proofs (AC8) — every new operative sentence pinned.
 P380_P3="$IMPL_PHASES_DIR/phase-3-review.md"
 P380_P4="$IMPL_PHASES_DIR/phase-4-documentation.md"
-P380_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
 # Execute the Stage 1 safety-net ERE from its owning instruction against the
 # accepted issue-body shapes. Break caught: a heading-only Documentation Needed
 # section with no extracted paths becomes a silent skip instead of a workpad note.
