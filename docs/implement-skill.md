@@ -242,8 +242,13 @@ A permitted static boundary pin declares
 `lifecycle-state-transition`, `generated-artifact-identity`, or
 `cross-file-phase-contract`. The required gate validates its committed source population
 against every registered module and treats base, diff, enumeration, and scratch failures
-as suite failures; it never consults the maintainer-run inventory. A move is exempt
-one-to-one only when its classification is not weakened. All three guards run over
+as suite failures; it never consults the maintainer-run inventory. Its raw-presence path
+covers positive fixed-and-quiet `grep` checks against repository files and direct
+file-text assertions in tracked or untracked `lib/test/test_*.py` leaves
+(`assertIn`/`assertRegex`, or a literal `in` a `read()`/`read_text()` result). Python
+leaf sites whose target cannot be resolved for inspection fail closed instead of gaining
+an exemption from a typed marker. A move is exempt one-to-one only when its
+classification is not weakened. All three guards run over
 `run.sh` itself and over every registered `lib/test/modules/*.sh` file, so pins that
 module extraction moves out of `run.sh` stay covered (issue #591). A companion runtime overbreadth guard in the three mutation-taking helpers rejects a mutation
 that blanks its target (`1,$d` / `s/.*//`), closing the loophole where a pin flips PASS→FAIL because the
