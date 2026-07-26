@@ -1,0 +1,71 @@
+{
+  "iter": 2,
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "fix_commit_sha": "dd00db33",
+  "fix_files": [
+    "scripts/stale-prose-lint.py",
+    "skills/implement/phases/phase-2-implement.md",
+    "lib/test/run.sh",
+    "lib/test/test_python_scripts.py",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "dd00db33"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "dd00db33"},
+    {"finding_id": "S-3", "decision": "applied", "commit": "dd00db33"},
+    {"finding_id": "S-4", "decision": "applied", "commit": "dd00db33"},
+    {"finding_id": "S-5", "decision": "applied", "commit": "dd00db33"},
+    {"finding_id": "S-6", "decision": "applied", "commit": "dd00db33"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 168,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "verification_evidence": {
+    "focused_test": "lib/test/test_python_scripts.py",
+    "result": "2507 passed, 0 failed",
+    "lints": [
+      "pin-corpus-lint.py mutation-routing-worktree . — clean",
+      "lint-tree-enumeration.py — audited 74 of 74, clean",
+      "lint-gh-api-repo-path.py — audited 229 of 229, clean",
+      "shellcheck (all tracked non-lib/test .sh) — clean",
+      "shellcheck --extended-analysis=false lib/test/run.sh — clean",
+      "ruff (all tracked .py) — clean",
+      "regenerate-artifacts.py — all artifacts reconciled, exit 0"
+    ],
+    "full_suite": "not run locally — standing operator instruction routes the full lib/test/run.sh to CI's `lib + python tests` job; recorded as a known, deliberate coverage boundary of this local run"
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "reason": "the iteration-1 shadow's findings were promoted into this iteration and fixed; no second shadow fan-out was dispatched over the promoted fixes, so this run's terminal verdict is reported as an approve WITH CAVEAT rather than a clean approve",
+    "reviewers_dispatched": [],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:type-design-analyzer"],
+    "phase3_findings": [],
+    "comparison": null,
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0}
+  }
+}
