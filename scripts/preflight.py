@@ -234,6 +234,29 @@ def dependencies(args: argparse.Namespace) -> int:
 # The two-payload verdicts (AMBIGUOUS/DECISION_BLOCKED) additionally print a
 # `<verdict> <payload-file>` where the payload file captures the gathered +
 # derived state and the classification reason for the human deciding the stop.
+#
+# Two provenance sources may vouch for ahead-of-base history (issue #780). The
+# original is the workpad (`provenance_established`). The second is the OPEN-PR
+# LINKAGE: an open PR in THIS repository whose head branch is the working branch,
+# which closes this issue, and which is not cross-repository. Threat model — who
+# can write each, and what that buys:
+#   * The workpad is a marker-detected ISSUE COMMENT. Any GitHub user who can
+#     comment on the issue can author a comment carrying the marker, which is why
+#     an unestablished-provenance workpad is refused outright.
+#   * The PR-linkage record cannot be manufactured by that wider population: a
+#     same-repo-headed PR requires push access to this repository, and the
+#     issue-closing linkage is derived by GitHub from the PR body.
+#   * BUT the populations DO overlap: an actor who can push the branch can also
+#     open the PR that vouches for it. So this source does not defend against a
+#     hostile collaborator, and no such claim is made. It is admitted because it
+#     is strictly stronger than the workpad against the wider issue-commenter
+#     population, and because VALIDATED_RESUME's other conjunct
+#     (_published_tip_reachable) already rests on a signal any pusher can produce
+#     — so admitting PR linkage lowers the screen below no pre-existing level.
+# A PR-vouched run therefore reaches the recorded-branch and proceed-verdict arms
+# with the UNTRUSTED WORKPAD NEUTRALIZED: the PR supplies both operands (its head
+# branch is the recorded branch, and an open PR closing this issue IS the prior
+# run's go-ahead), and `workpad_body`/`has_proceed_verdict` are not consulted.
 
 # The workpad front-matter Branch line: `**Branch:** `<name>`` (a real branch)
 # or `**Branch:** _(creating…)_` (the 1.3 placeholder, no backticks). Match the
@@ -476,18 +499,41 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
     # ahead > 0: the branch carries commits not on the base. They are legitimate
     # only if they are this run's own prior work; otherwise §1.5 would publish
     # foreign history into the PR (the PR #524 incident). Validate before proceed.
-    if not state.get("provenance_established", False):
-        # The workpad's recorded branch / verdict are the only signals that could
-        # vouch for the ahead history, and unestablished provenance means they may
+    # Open-PR linkage — the second provenance source (issue #780), which is what
+    # lets the landed-resume arm be classified at all: that arm's workpad
+    # provenance is unestablished across two large populations (a cloud run whose
+    # HANDOFF record is `unknown`, and a local resumed run that did not create its
+    # own workpad), so a workpad-only gate would convert ordinarily-resumable runs
+    # into terminal stops. Every conjunct is required and each fails CLOSED: an
+    # absent `open_pr_cross_repository` is not read as "same-repo", because a
+    # caller that never gathered the field established nothing about it.
+    pr_branch = state.get("open_pr_branch")
+    pr_vouched = (
+        isinstance(pr_branch, str)
+        and pr_branch == current_branch
+        and state.get("open_pr_closes_issue") is True
+        and state.get("open_pr_cross_repository") is False
+    )
+    derived["pr_provenance"] = pr_vouched
+    if not state.get("provenance_established", False) and not pr_vouched:
+        # Neither source vouches. The workpad's recorded branch / verdict are then
+        # the only remaining signals, and unestablished provenance means they may
         # be marker-forged — so they cannot be trusted to validate anything.
         return ("DECISION_BLOCKED", "unverified-provenance", derived)
 
-    recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
+    if state.get("provenance_established", False):
+        recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
+        has_verdict = bool(state.get("has_proceed_verdict", False))
+    else:
+        # PR-vouched only. The workpad is still untrusted here, so neither its
+        # Branch line nor a workpad-derived proceed verdict may vouch for anything
+        # — consulting them would let a forged comment steer the classification
+        # the PR was admitted to decide. The PR supplies both operands instead.
+        recorded, duplicate = pr_branch, False
+        has_verdict = True
     derived["recorded_branch"] = recorded
     if duplicate:
         return ("AMBIGUOUS", "duplicate-branch-line", derived)
-
-    has_verdict = bool(state.get("has_proceed_verdict", False))
 
     # Published-tip reachability is only consulted on the absent and matching
     # arms below; the divergent arm never reads it, so it is derived inside those
@@ -570,7 +616,19 @@ def branch_state(args: argparse.Namespace) -> int:
     # manufacture a proceed verdict the run never earned. Both are silent: no
     # exception, no exit-code deviation, just the unsafe verdict. So a present
     # non-bool is refused here rather than coerced downstream.
-    for _flag in ("provenance_established", "has_proceed_verdict"):
+    # `open_pr_closes_issue` / `open_pr_cross_repository` join the list because
+    # issue #780 promoted them from payload-only context to load-bearing gate
+    # operands: they now decide whether the PR-linkage source vouches for ahead
+    # history, so a quoted `"false"` there would fail open exactly as it would on
+    # the two original flags. (`open_pr_branch` is compared for string equality
+    # with `current_branch`, so a non-string simply fails that conjunct closed and
+    # needs no separate refusal.)
+    for _flag in (
+        "provenance_established",
+        "has_proceed_verdict",
+        "open_pr_closes_issue",
+        "open_pr_cross_repository",
+    ):
         if _flag in state and not isinstance(state[_flag], bool):
             return _unavailable_state(
                 f"branch-state '{_flag}' must be a JSON boolean (true/false), not "

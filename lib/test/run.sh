@@ -5729,6 +5729,13 @@ assert_pin_unique "#779: the checkpoint helper fetches the base with the same fo
 assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; this asserts that rationale is present, while the behavior it explains (CONFLICT -> Blocked on every arm) is guarded by the mutation pin above
 
+# #780 revisits that routing now that Verdict B classifies the landed-resume arm, and decides it
+# STAYS. The two contracts disagree on this token (checkpoint 1 overrides the resolve-then-suite-
+# then-commit arm that §1.4.1 hands to checkpoints 2/3/4), so the override sentence is the
+# cross-file phase contract a reader routing by §1.4.1 alone would otherwise resolve the wrong way.
+assert_pin_unique "#780: the checkpoint-1 CONFLICT override is re-decided as STAYING after the Verdict B widening" \
+  'Verdict B now classifies that arm, but the CONFLICT routing here stays at Blocked' "$P1_FILE"  # structural-pin-ok: cross-file-phase-contract -- checkpoint 1 overrides the CONFLICT arm that phase-1-setup.md 1.4.1 hands to checkpoints 2/3/4; without this sentence a reader routing by the inherited contract hand-resolves a merge on an arm whose commits this run did not author
+
 # (g) The landed-resume BRIDGING clause — the single instruction routing that arm to the relocated
 # checkpoint. Without it the arm reads "skip both signals entirely" and falls through to §1.5,
 # reproducing #779 exactly; the negative-control pin below does NOT catch that, because its literal
@@ -5762,10 +5769,9 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # compounds a failed restore instead of clearing a transient blip.
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
-# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check;
-# this remaining assertion keeps the adopted-branch scope boundary explicit.
-assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
-  'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
+# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check.
+# The former Verdict-B scope-boundary pin here was retired by issue #780, which widened
+# §1.4.0.5 to the landed-resume arm — the boundary it asserted no longer exists.
 
 # (f) Phase 4.3 publish gate. The leading-word read is the operative shape: a whole-line test
 # against `UPDATED` is false for every real merge (`emit "UPDATED $BEHIND"` prints `UPDATED 3`)
@@ -9899,6 +9905,40 @@ emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "
 commit(work, "local-only")
 emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# ── issue #780: open-PR-linkage provenance (the landed-resume arm) ────────────
+# A landed resume has ahead history by definition, and its workpad provenance is
+# unestablished across two large populations (a cloud run whose HANDOFF record is
+# `unknown`; a local resumed run that did not create its own workpad) — so the
+# workpad-only gate returned DECISION_BLOCKED for them, which is why Verdict B
+# could not be widened to that arm. The PR-linkage source admits them. Its own
+# fixture repo (pushed feat, ahead>0, tip reachable) so the arms are independent
+# of the `resume` repo's trailing local-only commit above.
+_, pwork = base_repo("prprov"); git(["checkout", "-qb", "feat", "main"], pwork); commit(pwork, "a1")
+git(["push", "-q", "-u", "origin", "feat"], pwork)
+_PRV = {"open_pr_branch": "feat", "open_pr_closes_issue": True, "open_pr_cross_repository": False}
+_PS = {"base": "main", "current_branch": "feat", "provenance_established": False}
+# The two populations #780 must NOT re-block.
+emit("pr_cloud_handoff_unknown", pwork, {**_PS, **_PRV})
+emit("pr_local_no_workpad", pwork, {**_PS, **_PRV, "has_proceed_verdict": False})
+# The untrusted workpad is NEUTRALIZED on the PR-vouched path, not consulted: both
+# bodies below would steer the classification if they were read (a divergent
+# nonexistent name → DECISION_BLOCKED, a duplicate Branch line → AMBIGUOUS).
+emit("pr_forged_wp_divergent", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False})
+emit("pr_forged_wp_duplicate", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `a`\n**Branch:** `b`"})
+# Negative direction — every conjunct of the source is required and fails CLOSED.
+emit("pr_no_source", pwork, _PS)
+emit("pr_branch_mismatch", pwork, {**_PS, **_PRV, "open_pr_branch": "other"})
+emit("pr_not_closing", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False})
+emit("pr_cross_repo", pwork, {**_PS, **_PRV, "open_pr_cross_repository": True})
+emit("pr_crossrepo_absent", pwork, {**_PS, "open_pr_branch": "feat", "open_pr_closes_issue": True})
+# Established workpad provenance is unchanged by the new source (control).
+emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# PR-vouched but the published tip no longer reaches HEAD: the run reaches the
+# recorded-branch + proceed-verdict arms rather than short-circuiting to proceed,
+# so a diverged branch still stops.
+commit(pwork, "local-only")
+emit("pr_tip_diverged", pwork, {**_PS, **_PRV})
 # aheadN + mixed ahead/behind
 _, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
 for i in range(3): commit(work, f"a{i}")
@@ -10004,6 +10044,12 @@ bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bw
 bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
          "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
 bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
+# issue #780 promoted these two from payload-only context to load-bearing gate
+# operands, so they inherit the same refusal — a quoted "false" on either would
+# fail open into a PR-vouched proceed the caller never established.
+bad_file("iv_prclosesstr", json.dumps({**_B, "open_pr_branch": "feat", "open_pr_closes_issue": "false"}), bwork)
+bad_file("iv_prcrossstr", json.dumps({**_B, "open_pr_branch": "feat", "open_pr_closes_issue": True,
+         "open_pr_cross_repository": "false"}), bwork)
 emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
@@ -10079,6 +10125,43 @@ assert_eq "#576 reason: matching branch + verdict but unreachable tip carries 'm
 assert_eq "#576 reason: divergent existing branch WITH a verdict carries 'divergent-existing-with-verdict'" \
   "divergent-existing-with-verdict" "$(_bs576v reason_wp_divergent_exist_verdict)"
 
+# ── #780: the open-PR-linkage provenance source, driven in BOTH directions. The
+# admitting direction is what lets §1.4.0.5 run on the landed-resume arm at all;
+# the refusing direction is what keeps the screen a screen rather than a
+# pass-by-construction. The two populations Current Behavior names get their own
+# arms so the fix is shown not to re-block the runs it exists to unblock.
+assert_eq "#780: cloud resume whose HANDOFF is unknown, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_cloud_handoff_unknown)"
+assert_eq "#780: local resume with no workpad of its own, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_local_no_workpad)"
+assert_eq "#780: a forged workpad naming a divergent branch is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_divergent)"
+assert_eq "#780: a forged duplicate Branch line is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_duplicate)"
+assert_eq "#780: no provenance source at all still → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_no_source)"
+assert_eq "#780: PR head branch != working branch → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_branch_mismatch)"
+assert_eq "#780: PR that does not close this issue → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_not_closing)"
+assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
+assert_eq "#780: an UNGATHERED cross-repository field fails closed → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_crossrepo_absent)"
+assert_eq "#780: every refusing arm keeps the 'unverified-provenance' slug (no new remedy routing)" \
+  "unverified-provenance unverified-provenance unverified-provenance unverified-provenance unverified-provenance" \
+  "$(_bs576v reason_pr_no_source) $(_bs576v reason_pr_branch_mismatch) $(_bs576v reason_pr_not_closing) $(_bs576v reason_pr_cross_repo) $(_bs576v reason_pr_crossrepo_absent)"
+assert_eq "#780: established workpad provenance classifies exactly as before (control)" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_wp_prov_control)"
+# The admitting direction reaches the recorded-branch + proceed-verdict arms — it
+# does not short-circuit to proceed. This arm is what proves that: same PR-vouched
+# state, unreachable published tip, and the run STOPS on the matching-branch arm's
+# own reason slug.
+assert_eq "#780: PR-vouched but the published tip no longer reaches HEAD → AMBIGUOUS/stop" \
+  "AMBIGUOUS 2" "$(_bs576 pr_tip_diverged)"
+assert_eq "#780: the PR-vouched path lands on the recorded-branch/proceed-verdict arm's slug" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_pr_tip_diverged)"
+
 # ── branch-state input-validation matrix (#576 Important #2). Every shape fails
 # closed to the SAME `UNAVAILABLE state` / exit 3 contract, so each arm also pins
 # the specific stderr cause that attributes WHICH guard rejected it — a bare
@@ -10124,6 +10207,14 @@ assert_eq "#576 input-val: the truthy-string verdict cause names that specific f
   "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
 assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
+assert_eq "#780 input-val: truthy-string 'open_pr_closes_issue' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prclosesstr)"
+assert_eq "#780 input-val: the truthy-string closes-issue cause names that specific flag" "yes" \
+  "$(_bs576err iv_prclosesstr "'open_pr_closes_issue' must be a JSON boolean")"
+assert_eq "#780 input-val: truthy-string 'open_pr_cross_repository' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossstr)"
+assert_eq "#780 input-val: the truthy-string cross-repository cause names that specific flag" "yes" \
+  "$(_bs576err iv_prcrossstr "'open_pr_cross_repository' must be a JSON boolean")"
 # Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
 # arms above are the flag guard firing, not a blanket rejection of the fixture.
 assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
