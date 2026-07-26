@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import importlib.util
+import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,6 +22,11 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 SCRIPT = HERE / "mutation-pin-census.py"
+HISTORICAL_ADJUDICATIONS = HERE / "mutation-pin-corpus-adjudications.tsv"
+CURRENT_INVENTORY = (
+    REPO_ROOT / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+)
+HARNESS_INVENTORY = HERE / "modules/harness-python-guards.inventory.md"
 SPEC = importlib.util.spec_from_file_location("mutation_pin_census", SCRIPT)
 assert SPEC and SPEC.loader
 CENSUS = importlib.util.module_from_spec(SPEC)
@@ -40,12 +48,7 @@ AUDITED = (
     "lib/test/modules/experiment-records.sh",
     "lib/test/modules/retrospective-lifecycle.sh",
 )
-DEFINITIONS = (
-    "assert_pin_red_under() { :; }\n"
-    "devflow_module_pin_red_under() { :; }\n"
-    "assert_count_red_under() { :; }\n"
-    "_ra_conflict_red_under() { :; }\n"
-)
+DEFINITIONS = ""
 
 
 class FixtureRepo:
@@ -108,14 +111,14 @@ class MutationPinCensusTests(unittest.TestCase):
         second = CENSUS.build_census(REPO_ROOT)
         self.assertEqual(first, second)
         self.assertEqual(tuple(first.sources), tuple(sorted(AUDITED)))
-        self.assertEqual(len(first.rows), 15)
+        self.assertEqual(len(first.rows), 0)
         self.assertEqual(
             {helper: first.helper_count(helper) for helper in CENSUS.HELPERS},
             {
-                "assert_pin_red_under": 2,
-                "devflow_module_pin_red_under": 1,
-                "assert_count_red_under": 7,
-                "_ra_conflict_red_under": 5,
+                "assert_pin_red_under": 0,
+                "devflow_module_pin_red_under": 0,
+                "assert_count_red_under": 0,
+                "_ra_conflict_red_under": 0,
             },
         )
         self.assertRegex(first.master_sha256, r"^[0-9a-f]{64}$")
@@ -132,18 +135,88 @@ class MutationPinCensusTests(unittest.TestCase):
         )
         self.assertEqual(
             dispositions.count("retain_helper_infrastructure_boundary"),
-            7,
+            0,
         )
         self.assertEqual(
             dispositions.count("retain_executable_boundary"),
-            8,
+            0,
         )
         retained = {
             CENSUS._identity_sha256(row)
             for row in first.rows
             if CENSUS.adjudicate(row).disposition.startswith("retain_")
         }
-        self.assertEqual(retained, CENSUS.RETAINED_BOUNDARY_IDENTITIES)
+        self.assertEqual(retained, set())
+
+    def test_historical_disposition_summary_is_derived_and_current_inventory_is_empty(
+        self,
+    ) -> None:
+        lines = HISTORICAL_ADJUDICATIONS.read_text(encoding="utf-8").splitlines()
+        rows = list(
+            csv.DictReader(
+                io.StringIO(
+                    "\n".join(line for line in lines if not line.startswith("#"))
+                ),
+                delimiter="\t",
+            )
+        )
+        self.assertEqual(650, len(rows))
+        derived = {
+            disposition: sum(
+                row["disposition"] == disposition for row in rows
+            )
+            for disposition in (
+                "retire_presence_equivalent",
+                "retain_helper_infrastructure_boundary",
+                "retain_executable_boundary",
+            )
+        }
+        self.assertEqual(
+            {
+                "retire_presence_equivalent": 635,
+                "retain_helper_infrastructure_boundary": 7,
+                "retain_executable_boundary": 8,
+            },
+            derived,
+        )
+
+        summary = HARNESS_INVENTORY.read_text(encoding="utf-8")
+        match = re.search(
+            r"mutation census: historical=(\d+), "
+            r"retire_presence_equivalent=(\d+), "
+            r"retain_helper_infrastructure_boundary=(\d+), "
+            r"retain_executable_boundary=(\d+), current=(\d+)",
+            summary,
+        )
+        self.assertIsNotNone(match)
+        historical, retired, helper_boundaries, executable_boundaries, current = (
+            int(value) for value in match.groups()
+        )
+        self.assertEqual(len(rows), historical)
+        self.assertEqual(
+            (
+                derived["retire_presence_equivalent"],
+                derived["retain_helper_infrastructure_boundary"],
+                derived["retain_executable_boundary"],
+            ),
+            (retired, helper_boundaries, executable_boundaries),
+        )
+        self.assertEqual(historical, retired + helper_boundaries + executable_boundaries)
+
+        current_rows = [
+            line
+            for line in CURRENT_INVENTORY.read_text(
+                encoding="utf-8"
+            ).splitlines()
+            if line and not line.startswith("#")
+        ]
+        self.assertEqual(
+            "path\thelper\tlogical_call\tline_start\tline_end\t"
+            "identity_sha256\tdisposition\trationale",
+            current_rows[0],
+        )
+        self.assertEqual(current, len(current_rows) - 1)
+        self.assertEqual(0, current)
 
     def test_unrecognized_mutation_helpers_are_rejected_not_auto_retained(self) -> None:
         source = AUDITED[0]
@@ -249,7 +322,7 @@ class MutationPinCensusTests(unittest.TestCase):
             output.splitlines()[0],
             f"# source_revision\t{revision}",
         )
-        self.assertIn("\tretire_presence_equivalent\t", output)
+        self.assertIn("\treject_unadjudicated_mutation_site\t", output)
         self.assertNotIn("source_revision\tself", output)
 
     def test_missing_source_fails_closed(self) -> None:
@@ -361,11 +434,9 @@ class MutationPinCensusTests(unittest.TestCase):
 
         harness.write_text(
             DEFINITIONS.replace(
-                "assert_pin_red_under() { :; }",
-                (
-                    "assert_pin_red_under() { "
-                    "assert_count_red_under n a b c; :; }"
-                ),
+                "",
+                "assert_pin_red_under() { "
+                "assert_count_red_under n a b c; :; }",
             ),
             encoding="utf-8",
         )
@@ -393,13 +464,11 @@ class MutationPinCensusTests(unittest.TestCase):
 
         harness.write_text(
             DEFINITIONS.replace(
-                "assert_pin_red_under() { :; }",
-                (
-                    "assert_pin_red_under()\n"
-                    "{\n"
-                    "  assert_count_red_under n a b c\n"
-                    "}\n"
-                ),
+                "",
+                "assert_pin_red_under()\n"
+                "{\n"
+                "  assert_count_red_under n a b c\n"
+                "}\n",
             ),
             encoding="utf-8",
         )

@@ -277,8 +277,8 @@ devflow_module_pin_unique "#443: audit summary renders the word degraded wheneve
 #    offers, the mandatory summary render) — plus the obey-the-tool contract itself, which is the
 #    seam the whole cutover rests on. Do not re-pin a tool-owned guarantee as prose: a prose pin
 #    over a value the tool decides is the coupled-mirror hazard, and the tool is the source of
-#    truth. Behavioral-fix pins here use devflow_module_pin_red_under with a sed -E mutation that
-#    RE-INTRODUCES the named defect (excising or inverting the operative clause so its removal
+#    truth. Behavioral regressions here use ordinary executable tests that
+#    RE-INTRODUCE the named defect (excising or inverting the operative clause so its removal
 #    alone re-opens the guarded regression); the rest are surface-presence pins.
 #
 # (0) OBEY THE TOOL — the headline pin of the #546 cutover, and the one guarantee the tool
@@ -688,8 +688,8 @@ devflow_module_pin_unique "#467 D2 (Phase 2.4 leg): dry-trace rule widened to mu
 # D3 count guard — the extension's dimension-bullet count is guard-locked. Since issue #548
 # added a separate `## Evidence axes` section (whose axis bullets are also `- **`), this guard
 # is scoped to the `## Audit dimensions` section ONLY (heading line to the next `## ` heading),
-# so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + #464's "Mutation
-# evidence for behavioral-fix pins" dimension + the "Deployment-variance silence" dimension main
+# so future `## Evidence axes` edits do not re-break it. It is 9: 7 base + the "Executable
+# evidence for behavioral regressions" dimension + the "Deployment-variance silence" dimension main
 # commit 760c0902 appended; #467 sharpened the existing case-matrix bullet in place, adding no row.
 assert_eq "#467 D3 (re-scoped by #548): create-issue extension ## Audit dimensions section is 9 dimension bullets" "9" \
   "$(awk '/^## Audit dimensions/{f=1;next} /^## /{f=0} f' "$CI_EXT" | grep -c '^- \*\*')"
@@ -712,7 +712,7 @@ assert_eq "#593: extension repo-wide-scope sentence present at exactly 3 enumera
 
 # ── issue #548: evidence-bundle sub-pass + actionability/convergence contracts (prose pins).
 #    All surface-presence contract pins on new feature prose (devflow_module_pin_unique) — NOT
-#    behavioral-fix pins, so no devflow_module_pin_red_under mutation obligation attaches (matching the
+#    behavioral-regression tests (matching the
 #    suite's precedent for this pin class; the #546/#548 state-owner behavior is covered
 #    behaviorally in lib/test/test_python_scripts.py and the CLI block below).
 devflow_module_pin_unique "#548/#600: heading-extraction rule owned by the renderer/template" \
@@ -811,8 +811,8 @@ assert_eq "#603: the convergence definition no longer claims a budget clause" \
 #    sentence has a mechanical counterpart, that counterpart is separately covered by an
 #    executable row in lib/test/test_python_scripts.py or the lib/test/run.sh
 #    restricted-PATH roundtrip; the remaining pins guard orchestrator-judgment prose with no
-#    code behavior to mutate. Either way these are presence pins, not behavioral-fix pins,
-#    so the mutation-evidence obligation does not attach.
+#    code behavior to exercise. Either way these are presence pins, not behavioral tests,
+#    so the executable-evidence obligation does not attach.
 # structural-pin-ok: presence only — this pins that the step-3.6 prose NAMES the multi-line
 # read-back query class, a documentation contract with no code regression a sed mutation could
 # re-introduce. #704 widened the class from one query to three; #708 added `query-coverage` as

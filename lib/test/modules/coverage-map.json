@@ -119,6 +119,10 @@
       "note": "issue #610 cloud seam-probe verdict core; driven directly in lib/test/run.sh (asv arms + fail-open matrix)",
       "owner": "unmodularized"
     },
+    "scripts/background-tasks-probe-verdict.py": {
+      "note": "issue #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict core; driven in lib/test/modules/review-stall-backstop.sh (bgv arms + fail-open matrix)",
+      "owner": "review-stall-backstop"
+    },
     "scripts/analyze-implement-runs.py": {
       "note": "",
       "owner": "unmodularized"
@@ -1008,7 +1012,7 @@
       "owner": "unmodularized"
     },
     "431": {
-      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while the trailing '#431 producer pins' block stays in lib/test/run.sh because its five assert_pin_red_under pins target efficiency-trace.{jq,sh}, devflow-review.yml, open-state-pr.sh and the run.sh-global $MAXI_BUNDLE — surfaces the assembler does not own",
+      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while ordinary executable #431 assertions for configuration-fingerprint selection and efficiency-trace emission remain in lib/test/run.sh",
       "owner": "unmodularized"
     },
     "434": {
@@ -1620,6 +1624,10 @@
       "owner": "harness-python-guards"
     },
     "801": {
+      "note": "",
+      "owner": "review-stall-backstop"
+    },
+    "812": {
       "note": "",
       "owner": "review-stall-backstop"
     },

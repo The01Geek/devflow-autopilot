@@ -14,7 +14,7 @@
 # shell without restoring the trap.
 
 # This module deliberately uses the caller's module API only. A caller may point
-# DEVFLOW_RAF_CONTRACT_ROOT at a scratch repository copy for mutation evidence;
+# DEVFLOW_RAF_CONTRACT_ROOT at a scratch repository copy for RED/GREEN evidence;
 # the normal focused and full-suite paths default to the repository containing LIB.
 RAF_ROOT="${DEVFLOW_RAF_CONTRACT_ROOT:-${LIB%/lib}}"
 # #539: review-and-fix is a thin root SKILL.md + skills/review-and-fix/references/*.md
@@ -235,8 +235,8 @@ _raf_pin_unique "raf verification: re-sweep searches identifiers rather than hun
   'identifier-located, not hunk-located' "$RAF_SKILL"
 _raf_pin_unique "raf verification: re-sweep finding is explicit" \
   'A comment that still describes the pre-change mechanism is a finding' "$RAF_SKILL"
-_raf_pin_unique "raf verification: mutation evidence is required" \
-  'the mutation you ran and the pin you observed go RED' "$RAF_SKILL"
+_raf_pin_unique "raf verification: executable RED evidence is required" \
+  'the behavior you broke and the executable test you observed go RED' "$RAF_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "review-and-fix contract: telemetry, recovery, continuation, and prompt composition"

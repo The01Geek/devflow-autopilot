@@ -82,13 +82,10 @@ _BASE_ASSERTION_HEADS = (
     "assert_eq",
     "assert_true",
     "assert_pin_unique",
-    "assert_pin_red_under",
     "assert_pin_red_on_removal",
     "check",
     "pin_count",
-    "assert_count_red_under",
     "devflow_module_pin_unique",
-    "devflow_module_pin_red_under",
     "devflow_module_pin_present",
     "devflow_module_pin_count",
 )

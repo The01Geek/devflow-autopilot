@@ -4,8 +4,8 @@
 # Sourceable regenerate-artifacts contract module (issue #619).
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq plus the `_ra_*`
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present).
+# This module uses assert_eq plus the `_ra_*`
 # domain-private helpers defined below — it references NO monolith helper. They are
 # deliberately not enumerated here: an exact list is a mirror-fact that goes stale on
 # the next helper added, and the definitions below are the authoritative set.
@@ -1092,11 +1092,6 @@ devflow_module_pin_unique "#619 the helper states its single-file write scope" '
 # emits the artifact PATHS, the resolution CLASS, and the RECIPE so a conflict rule can key
 # on `--list` at runtime and never hardcode a path or a command.
 #
-# Every behavioral pin below mutates a COPY of the helper inside a fixture and re-runs
-# `--list` against it, asserting the pinned OUTPUT line flips present->absent. That is
-# stronger than a source-content pin: it proves the emit is what the mutation kills, not
-# merely that a source literal moved. Never mutate the live checkout (the module-wide rule).
-
 # The live `--list` output (captured in A4) as a FILE, because the harness pin API reads a
 # path. Every arm below matches through that API rather than a `case` glob: a `case` pattern
 # with two `*` wildcards spans LINES in a multi-line string, so `*"conflict-path	"*"	$1"*`
@@ -1107,45 +1102,11 @@ devflow_module_pin_unique "#619 the helper states its single-file write scope" '
 RA_C_LIST_F="$_ra_tmp_root/c655-live-list.txt"
 printf '%s\n' "$RA_LIST" > "$RA_C_LIST_F"
 
-# One mutation harness: copy the pristine fixture, apply a `sed -E` to the helper inside
-# it, re-run `--list` there, and report whether `literal` was present before and after.
-# A no-op mutation, a sed error, or a `--list` that fails to run are each their own named
-# failure — never a silent "absent after", which would let a broken harness certify a pin
-# it never actually exercised.
-# ONE fixture root shared by every mutated-helper arm below. Each arm writes its mutated
-# helper to a DISTINCT scratch path outside the root and invokes it with --repo-root pointed
-# here, so no arm's mutation is visible to another and none of them writes into the root:
-# `--list` is read-only (it walks ROWS, reads the capability generator, and prints). Without
-# this each arm cost a full `cp -R` of the tracked tree, and this module runs inside the
-# slowest step in the repo.
+# One fixture root shared by the fail-closed registry mutation arms below. Each arm
+# writes a distinct helper copy outside the root and invokes it with --repo-root pointed
+# here, so no arm's mutation is visible to another.
 RA_C_SHARED="$_ra_tmp_root/c655-shared"; _ra_fixture "$RA_C_SHARED"
 RA_C_MUT=0
-
-_ra_conflict_red_under() {  # name literal mutation
-  local name="$1" literal="$2" mutation="$3" mut before after
-  RA_C_MUT=$((RA_C_MUT + 1))
-  mut="$_ra_tmp_root/c655-mut-$RA_C_MUT.py"
-  if ! sed -E "$mutation" "$RA_HELPER" > "$mut" 2>/dev/null; then
-    assert_eq "$name" "PASS->FAIL" "mutation-errored"; return 0
-  fi
-  if cmp -s "$RA_HELPER" "$mut"; then
-    assert_eq "$name" "PASS->FAIL" "mutation-noop(the pin would prove nothing)"; return 0
-  fi
-  # Exactly 1, matching devflow_module_pin_red_under's PASS derivation rather than `-ge 1`:
-  # two helpers whose pin names mean different things is the divergence a second copy of a
-  # contract always drifts into.
-  before="$([ "$(devflow_module_pin_count "$literal" "$RA_C_LIST_F")" = 1 ] \
-    && printf 'PASS' || printf 'FAIL')"
-  # The mutated run's rc is deliberately IGNORED for the after-state: several mutations
-  # here are expected to make `--list` fail closed (a raise), and "the line is gone
-  # because the helper refused to emit anything" is exactly as much a RED as "the line is
-  # gone because the emit was deleted". A separate arm (the fail-closed pin) asserts the
-  # raise path on its own terms.
-  python3 "$mut" --list --repo-root "$RA_C_SHARED" >"$mut.out" 2>&1
-  after="$([ "$(devflow_module_pin_count "$literal" "$mut.out")" = 1 ] \
-    && printf 'PASS' || printf 'FAIL')"
-  assert_eq "$name" "PASS->FAIL" "$before->$after"
-}
 
 # ── (a) every registered row emits a conflict-class line with an IN-SET value ────
 # Derived from RA_ROW_NAMES (the registry's own roster, already coupled to `--list` by
@@ -1167,11 +1128,8 @@ for _row in $RA_ROW_NAMES; do
     *)  assert_eq "#655 --list emits a non-empty conflict-recipe for: $_row" yes yes ;;
   esac
 done
-_ra_conflict_red_under "#655 the conflict-class emit is what produces those lines" \
-  'conflict-class	coverage-map-ratchet	by-hand' \
-  's/^([[:space:]]*)print\(f"conflict-class.*$/\1pass/'
 
-# ── (b) each class ASSIGNMENT pinned; mutation flips one ─────────────────────────
+# ── (b) each class assignment is checked in executable output ───────────────────
 _ra_class_is() {  # row expected-class
   assert_eq "#655 conflict-class assignment: $1 -> $2" "1" \
     "$(devflow_module_pin_count "conflict-class	$1	$2" "$RA_C_LIST_F")"
@@ -1179,13 +1137,6 @@ _ra_class_is() {  # row expected-class
 _ra_class_is cloud-writer-manifest       regenerate
 _ra_class_is capability-profile-literals reconcile-source
 _ra_class_is coverage-map-ratchet        by-hand
-# The mutation flips every by-hand row to regenerate. The pinned literal is the coverage
-# row's assignment — the one whose misclassification is most costly, because
-# coverage_map_guard.py has no write path at all, so "regenerate" would name a command
-# that does not exist.
-_ra_conflict_red_under "#655 a flipped class is caught (by-hand -> regenerate)" \
-  'conflict-class	coverage-map-ratchet	by-hand' \
-  's/"conflict_class": "by-hand"/"conflict_class": "regenerate"/g'
 
 # ── (c) the conflict-path set covers EVERY known generated artifact ──────────────
 # This is the property without which the whole rule is inert: the rule matches a
@@ -1217,16 +1168,6 @@ _ra_conflict_path_covered .github/workflows/devflow-runner.yml
 _ra_conflict_path_covered .github/workflows/devflow.yml
 _ra_conflict_path_covered .github/workflows/devflow-implement.yml
 _ra_conflict_path_covered .github/workflows/matcher-probe.yml
-_ra_conflict_red_under "#655 dropping a row's conflict_paths entry leaves its artifact uncovered" \
-  'conflict-path	coverage-map-ratchet	lib/test/modules/coverage-map.json' \
-  's/"conflict_paths": \("lib\/test\/modules\/coverage-map.json",\)/"conflict_paths": ()/'
-# And the generator-sourced half: emptying REGIONS must NOT silently shrink the set.
-# Mutation: drop the bind-loop line that wires the row's conflict_paths_extra callable, so
-# the row falls back to its static path alone and every generator-sourced workflow literal
-# vanishes from the set.
-_ra_conflict_red_under "#655 the workflow literals come from the generator-sourced derivation" \
-  'conflict-path	capability-profile-literals	.github/workflows/devflow-runner.yml' \
-  's/_row\["conflict_paths_extra"\] = _capability_region_targets/pass/'
 
 # ── (d) each regenerate/reconcile-source recipe names a command the TOOL really has ──
 # A substring pin ("the recipe mentions 'generate'") stays green when the subcommand is
@@ -1295,9 +1236,6 @@ assert_eq "#655 --list emits exactly one conflict-sibling line" "1" \
   "$(devflow_module_pin_count 'conflict-sibling	' "$RA_C_LIST_F")"
 assert_eq "#655 the conflict-sibling line names the reviewer lock as by-hand" "1" \
   "$(devflow_module_pin_count 'conflict-sibling	capability-profile-literals	lib/review-profile.tokens	by-hand' "$RA_C_LIST_F")"
-_ra_conflict_red_under "#655 the coupled_by_hand tuple is what produces the sibling line" \
-  'conflict-sibling	capability-profile-literals	lib/review-profile.tokens	by-hand' \
-  's/"coupled_by_hand": \(\("lib\/review-profile.tokens", "by-hand"\),\)/"coupled_by_hand": ()/'
 
 # ── (f) a conflict_class outside the closed set FAILS CLOSED ─────────────────────
 # The bind-time validation raises, so `--list` never emits an unknown class a consumer

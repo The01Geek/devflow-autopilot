@@ -90,32 +90,26 @@ pin. Header and contract comments — fail-closed decision matrices, cross-file
 producer/consumer contracts, and the issue provenance of a non-obvious shape — remain
 load-bearing prose, but their prose presence alone is not a test target.
 
-## Behavioral-fix pins — evidence, not attestation
+## Behavioral regressions — executable evidence, not attestation
 
-When you add a **behavioral-fix pin** in this repo (a coverage pin added *specifically because*
-removing the pinned text would re-introduce a **named** bug — the operative qualifier of a sweep
-rule, a coupled-invariant pin, a regression guard), express it through **`assert_pin_red_under`**
-— the mutation-taking removal-proof assertion in `lib/test/run.sh`
-(`assert_pin_red_under <name> <literal> <mutation> [file]`) — passing a `sed -E`
-**mutation that re-introduces the named bug** by removing *only* the operative sentence from a
-scratch copy. A generic whole-line deletion check reports PASS→FAIL for *any* present-and-unique
-literal, framing or operative alike; by contrast, `assert_pin_red_under` reports a
-framing-only pin **RED** when it survives the operative mutation, so the pin proves it catches the
-*guarded regression*, not merely its own line vanishing.
+When a test protects a **named behavioral regression**, exercise the rendered
+interface or machine-observable contract with an ordinary executable test. Break the
+behavior on a scratch copy or fixture, observe that executable test go RED, and then
+restore the correct behavior. Do not encode the regression as source-text presence;
+the former mutation-taking helpers and wrappers are retired.
 
-Then record **evidence, not an attestation**. The workpad `--note` records
-**the mutation you ran and the pin you observed go RED** under it — a reproducible fact — instead of
-the old unfalsifiable attestation that "the pin literal is a substring of the operative sentence." A
-note that testifies about the pin proves nothing a reviewer can re-run; a note that states the
-mutation and the observed RED verdict does.
+Then record **evidence, not an attestation**. The workpad `--note` records the
+behavior you broke and the executable test you observed go RED — a reproducible fact.
+A note that merely testifies that a guard is relevant proves nothing a reviewer can
+re-run.
 
 **Wording-only pins are prohibited.** A wording-only pin is a test whose protected literal can
 change without changing executable behavior and without breaking a machine-consumed contract.
 Do not add wording-only, secondary-prose, documentation-presence, advisory-heading, or
 comment-presence pins, whether expressed through a pin helper or a raw `grep`/text-presence
-assertion. An operative prompt regression is behavioral: route it through the mutation-taking
-`assert_pin_red_under` helper above, remove the operative text in the mutation, and demonstrate
-the named regression.
+assertion. An operative prompt regression is behavioral: exercise the rendered or
+consumed prompt with an ordinary executable test, break the behavior in a scratch
+fixture, and demonstrate that test going RED.
 
 The only new non-mutation presence pins permitted are executable-boundary pins classified by
 this closed set: `helper-contract`, `schema-config-vocabulary`,
@@ -206,18 +200,20 @@ Record the marker with the **`note`** reflection kind (`scripts/workpad.py updat
 When you probe behavior that depends on the **interpreter or environment** an artifact runs under —
 a shell built-in's expansion, a `printf` escape, a locale effect, a version-specific behavior — run
 the probe under the interpreter the artifact actually runs under, and
-prefer mutation evidence over a hand probe when the two disagree. A probe run under the *wrong*
+prefer mutation evidence over a hand probe when the two disagree. That mutation
+evidence must come from an ordinary executable test running under the artifact's real
+interpreter, never from a retired source-text mutation helper. A probe run under the *wrong*
 interpreter reports a **false vacuity**: an assertion that is live under the artifact's real shell
 looks dead under whatever shell you happened to type into, and chasing that phantom costs real effort —
 multiplied across every reviewer who repeats the same wrong-interpreter probe — while finding zero real
 defects. The artifact's own shebang (or its runner's invocation) is the authority for which interpreter
-is "actual"; a mutation that breaks the pinned behavior and turns the suite red is decisive where a hand
+is "actual"; a mutation that breaks the behavior and turns the executable test red is decisive where a hand
 probe under a different shell is not.
 
 **#340 reproduction (local instance):** a test loop drives eight separators through `printf '%b'`. Three
 of them are multibyte octal escapes. Bash expands them; that session's zsh does not. The orchestrator and
 two independent reviewers each probed under zsh, saw literal backslash text, and briefly concluded three
-assertions were vacuous. They were not — the suite's shebang is bash, and the mutation evidence was
+assertions were vacuous. They were not — the suite's shebang is bash, and the executable suite evidence was
 decisive. Cost: real effort, three times over; defects found: zero. **PR #340 cost this would have
 eliminated:** the three false vacuity alarms — duplicated investigative effort across the orchestrator
 and two reviewers with zero defects found.

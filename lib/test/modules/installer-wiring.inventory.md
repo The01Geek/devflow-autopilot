@@ -27,7 +27,7 @@ created an uncoupled mirror. The module re-derives `WF` from the harness-provide
 | Installer seven-output validation | `#533` AC14 rows and the shared `_ENV533` fixture | installer section | each induced failure exits 1 naming its own output; the success arm lands all seven |
 | Installer guard recipes and planted defects | `#533` AC10 / AC13 / AC22 rows | installer section | the bare-`DEVFLOW_GH`-export guard, the harness-entry inherited-override clear, and the mutated-installer copies that flip the named assertions RED |
 | Fingerprint-comparison symmetry | `#544` rows | installer section | every defeated hash method still defers on the ambient token with the disclosed breadcrumb |
-| Workflow-token and secret-file permissions | `#599` AC21 mutation pins | installer section | the version-consolidate App-token seed, the `umask 077` token file, the bad-credential signature, and the review-identity split each flip RED under a mutation that re-introduces the named regression |
+| Workflow-token and secret-file permissions | `#599` AC21 rows | installer section | direct/static checks preserve the version-consolidate App-token seed, the `umask 077` token file, the bad-credential signature, and the review-identity split |
 | Windows mode-probe arms | `#690` rows and the `_stub690` / `_i690` stderr-only runners | installer section | the `nt`+`666`/`444` and unrecognized-token arms pass on the mode value with a stderr breadcrumb |
 
 Labels the extraction **fully** removes from `lib/test/run.sh` (zero assertions left

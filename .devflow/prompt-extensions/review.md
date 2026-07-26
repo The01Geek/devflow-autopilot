@@ -15,8 +15,9 @@ secondary-prose, documentation-presence, advisory-heading, or comment-presence p
 **Important** finding, whether it uses a pin helper or a raw text-presence assertion. A
 `# structural-pin-ok:` comment does not make prose executable.
 
-An operative prompt regression instead uses a mutation-taking helper that removes the operative
-text and demonstrates the named regression. A new non-mutation presence pin is valid only with
+An operative prompt regression instead uses an ordinary executable test over the
+rendered or consumed prompt and demonstrates that test going RED when the behavior
+breaks. A new static presence pin is valid only with
 the exact declaration `# structural-pin-ok: <category> -- <rationale>`, a nonempty rationale,
 and one category from this closed set: `helper-contract`, `schema-config-vocabulary`,
 `security-credential-boundary`, `machine-sentinel-provenance`,

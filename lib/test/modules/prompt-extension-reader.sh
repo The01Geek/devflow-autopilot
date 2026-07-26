@@ -4,8 +4,8 @@
 # Sourceable prompt-extension-reader contract module (issue #746 tranche).
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq alone — it asserts the
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present).
+# This module uses assert_eq alone — it asserts the
 # observable behavior of scripts/load-prompt-extension.sh through recorded exit
 # codes and captured stdout, so it needs no pin primitive and references NO
 # monolith helper. Every path derives from LIB. It allocates no module-level
