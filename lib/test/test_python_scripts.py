@@ -4494,7 +4494,7 @@ def _run_e2e_demotion():
     stale_prose_lint._run_git = lambda *a, **k: (0, "", "")
     stale_prose_lint.parse_diff_full = lambda dt: ({"f.md": {5: "claim"}}, {}, {})
     stale_prose_lint.build_move_index = lambda f, r, rbf: stale_prose_lint.MoveIndex(frozenset(), {})
-    stale_prose_lint.post_file_lines = lambda rev, path: ["claim"]
+    stale_prose_lint.post_file_lines = lambda rev, path, root=None: ["claim"]
 
     def _fake_examine(path, added, lines, rows, move=None):
         rows.append(stale_prose_lint.Row(_U, "R2", path, 5, _RP + "count claims 3 but region reaches 4"))
@@ -4933,10 +4933,10 @@ with tempfile.TemporaryDirectory(prefix='spl818-') as _WT818_STR:
         assert_eq("#818/AC124: the working-tree post-image read returns the ON-DISK file — a "
                   "NEW uncommitted file resolves, where the revision mode resolves nothing",
                   ["Every call site is updated.", ""],
-                  stale_prose_lint.post_file_lines(None, 'newfile.md'))
+                  stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'newfile.md'))
         assert_eq("#818: an unreadable path in working-tree mode is UNRESOLVABLE (None), not a "
                   "crash — the same non-gating arm the revision mode takes",
-                  None, stale_prose_lint.post_file_lines(None, 'absent.md'))
+                  None, stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'absent.md'))
     finally:
         os.chdir(_CWD818)
 
@@ -5023,7 +5023,7 @@ assert_eq("#818 exclusions (end-to-end through run): an excluded corpus path emi
 # documented failure into a silent one. Two distinct OS errors must not converge on one text.
 _wt_err818 = io.StringIO()
 with contextlib.redirect_stderr(_wt_err818):
-    stale_prose_lint.post_file_lines(None, 'definitely-absent-818.md')
+    stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'definitely-absent-818.md')
 assert_eq("#818: the working-tree unreadable arm breadcrumbs the path AND the OS reason "
           "(never a silent None)",
           [True, True],
@@ -5113,6 +5113,48 @@ with tempfile.TemporaryDirectory(prefix='spl818repo-') as _R818:
                                  _HALF_DIFF818.encode('utf-8'))
     finally:
         os.chdir(_cwd818)
+    # The `unlocated` coverage-drop breadcrumb: a diff-added line that corresponds to nothing
+    # in the post-image is dropped before any rule, and the drop must not read as a clean run.
+    # Driven under `--rev`, where the post-image predates the added line — the shape that
+    # produces the miss. BLANK added lines must NOT be counted: `_locate` returns None for them
+    # by construction, so counting them would inflate the figure on every diff adding one.
+    (_R818P / 'skew.md').write_text("baseline\n", encoding='utf-8')
+    _git818(_R818, 'add', 'skew.md')
+    _git818(_R818, 'commit', '-qm', 'skew base')
+    (_R818P / 'skew.md').write_text("baseline\nunmatched prose line\n\n\n", encoding='utf-8')
+    _SKEW_DIFF818 = _git818(_R818, 'diff', 'HEAD', '-U0').stdout
+    _cwd818 = os.getcwd()
+    os.chdir(_R818)
+    try:
+        _skew818 = _spl_main_818(['stale-prose-lint.py', '--rev', 'HEAD'],
+                                 _SKEW_DIFF818.encode('utf-8'))
+    finally:
+        os.chdir(_cwd818)
+    assert_eq("#818: an added line that does not correspond to the post-image is announced as a "
+              "coverage drop, counting the one NON-BLANK line only (two blank additions are "
+              "excluded — _locate rejects them by construction, not because of any skew)",
+              [True, True],
+              ["1 non-blank added line(s) in skew.md" in _skew818[2],
+               "coverage drop, not a clean result" in _skew818[2]])
+
+    # The repo-root FALLBACK breadcrumb — an observable §2.3.4b's degraded arm routes on. Only
+    # the success path was pinned; a refactor dropping this write would make that arm silently
+    # unreachable while the run resolved every path against the wrong directory.
+    _NOGIT818 = Path(tempfile.mkdtemp(prefix='spl818nogit-'))
+    _cwd818 = os.getcwd()
+    os.chdir(_NOGIT818)
+    try:
+        _nogit818 = _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                                  _MOD_DIFF818.encode('utf-8'))
+    finally:
+        os.chdir(_cwd818)
+        _NOGIT818.rmdir()
+    assert_eq("#818: an unresolvable repository root is announced on stderr, naming the "
+              "directory used instead and the zero-rows-exit-0 shape it produces",
+              [True, True],
+              ["could not resolve the repository root" in _nogit818[2],
+               "emit zero rows while exiting 0" in _nogit818[2]])
+
     assert_eq("#818: an unparseable .py post-image under --worktree still examines its '#' "
               "comments and says so on stderr, naming the post-image rather than a flag the "
               "invocation never passed",

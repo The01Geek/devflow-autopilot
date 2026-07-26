@@ -214,7 +214,9 @@ required flag:
 * ``--rev <revision>`` (the shipped behavior, unchanged): ``git show <rev>:<path>``. Both
   pre-#818 call sites pass this and are unaffected.
 * ``--worktree``: the **on-disk** file is read directly, making the helper usable **before
-  commit**, over a diff covering new, staged, and modified files alike.
+  commit**, over a diff covering new, staged, and modified files alike. Internally the mode is
+  carried by the distinct :data:`WORKTREE` sentinel rather than by ``None``, so an embedding
+  caller threading an unset value cannot silently select it.
 
 The mode matters more than a referent source: the post-image answer **gates entry to line
 examination itself**. Under ``--rev`` on an uncommitted tree, a *modified* file resolves to its
@@ -513,7 +515,10 @@ _EXAMPLE_MARKER_RE = _marker_re("example")
 # The two closed sets below are the tier's authoritative shape; the module header is their
 # authoritative spec. Kept as module-level constants for the same reason `_COUNT_NOUNS` is:
 # one place to read, one place to change.
-# The universal-quantifier tokens — exactly these, complete by construction.
+# The coverage-scope tokens — exactly these, complete by construction. Deliberately broader
+# than "universal quantifier": `only` / `complete` / `entire` / `whole` are scope claims rather
+# than universals, and are recognised because a scope claim about the change's own coverage
+# needs grounding for the same reason a universal does.
 _CU_QUANT = r"(?:every|all|each|any|both|no|none|exactly|only|complete|entire|whole)"
 # The coverage-referent nouns — exactly these, complete by construction. Each matches singular
 # or plural. `call site` is expressed as an OPTIONAL prefix on `site` rather than as a separate
@@ -551,8 +556,13 @@ _RULE_TEXT_MARKER_RE = _marker_re("rule-text")
 # fail OPEN on a typo (a mistyped ``"STAEL"`` at one append site silently drops that row from
 # the exit-code tally → the lint reports a clean pass on real staleness — the exact fail-open
 # a fail-safe lint must not have). A constant turns that typo into a ``NameError`` at import.
-# Resolved lazily by `_repo_root()` and cached for the process (issue #818).
-_REPO_ROOT = None
+# The working-tree post-image mode selector (issue #818). A DISTINCT sentinel rather than
+# `None`, for the same reason the verdict tokens below are constants rather than bare strings:
+# `None` on a parameter named `rev` reads as "unset" to every Python caller, so an embedding
+# caller threading an absent config value — `run(cfg.get("rev"), diff)` — would silently select
+# working-tree mode AND skip the only validation this helper has. With a distinct object, an
+# accidental `None` resolves to no mode at all and fails loudly instead.
+WORKTREE = object()
 
 VERIFIED = "VERIFIED"
 STALE = "STALE"
@@ -1099,34 +1109,34 @@ def _repo_root():
     the shape that emits zero rows while exiting 0, which the sweep would otherwise record as
     a clean pass.
 
-    Cached for the duration of one ``run`` — which cannot change repository mid-way — and
-    RESET at each ``run`` entry rather than for the life of the process, so an embedding
-    caller (the test harness, a future in-process driver) that invokes ``run`` twice from two
-    different trees resolves each against its own root instead of inheriting the first one."""
-    global _REPO_ROOT
-    if _REPO_ROOT is None:
-        rc, out, _ = _run_git(["rev-parse", "--show-toplevel"])
-        if rc == 0 and out.strip():
-            _REPO_ROOT = out.strip()
-        else:
-            _REPO_ROOT = os.getcwd()
-            sys.stderr.write(
-                "stale-prose-lint.py: could not resolve the repository root "
-                "(git rev-parse --show-toplevel failed); resolving working-tree post-image "
-                f"paths against the current directory {_REPO_ROOT} instead — a path that is "
-                "not repo-root-relative will read as UNRESOLVABLE\n")
-    return _REPO_ROOT
+    Deliberately **not** cached in module state. ``run`` resolves it once and threads it to
+    every ``post_file_lines`` call, so there is no cache to invalidate and no ordering coupling
+    for a direct ``post_file_lines`` caller (the test suite is one) — a module-level cache
+    guaranteed its per-run scoping only for callers that entered through ``run``."""
+    rc, out, _ = _run_git(["rev-parse", "--show-toplevel"])
+    if rc == 0 and out.strip():
+        return out.strip()
+    cwd = os.getcwd()
+    sys.stderr.write(
+        "stale-prose-lint.py: could not resolve the repository root "
+        "(git rev-parse --show-toplevel did not report one); resolving working-tree "
+        f"post-image paths against the current directory {cwd} instead. Diff paths ARE "
+        "repo-root-relative, so unless that directory IS the root every file will read as "
+        "UNRESOLVABLE and the run will emit zero rows while exiting 0\n")
+    return cwd
 
 
-def post_file_lines(rev, path):
+def post_file_lines(rev, path, root=None):
     """Return the post-diff file's lines (1-indexed via index+1), or None when the
     file cannot be resolved — an UNRESOLVABLE case, NOT an internal error (only an
     unreadable REV itself is exit-2, validated up front).
 
-    ``rev`` of ``None`` selects the issue-#818 **working-tree** mode: the post-image is the
-    on-disk file, read directly with no history read at all, so a new or modified uncommitted
-    file resolves to its post-change content. Every other value keeps the shipped
-    ``git show <rev>:<path>`` behavior byte-for-byte.
+    ``rev`` of :data:`WORKTREE` selects the issue-#818 **working-tree** mode: the post-image is
+    the on-disk file, read directly with no history read at all, so a new or modified
+    uncommitted file resolves to its post-change content. ``root`` is the repository root that
+    mode resolves against, threaded from ``run`` (resolved there once); when it is omitted this
+    function resolves it itself, so a direct caller cannot accidentally read the CWD. Every
+    other ``rev`` value keeps the shipped ``git show <rev>:<path>`` behavior byte-for-byte.
 
     Every non-zero ``git show`` lands on the same None -> UNRESOLVABLE arm, but the
     reasons are not the same: an expected absence (the file was deleted/renamed at
@@ -1142,9 +1152,9 @@ def post_file_lines(rev, path):
     rows while exiting 0 — a *clean-shaped* result for work that never happened. Anchoring
     mirrors the shared repo-root contract the ``.devflow/`` readers already follow (issue
     #295): ``git rev-parse --show-toplevel``, falling back to the CWD with a breadcrumb."""
-    if rev is None:
+    if rev is WORKTREE:
         try:
-            with open(os.path.join(_repo_root(), path), "r",
+            with open(os.path.join(root if root is not None else _repo_root(), path), "r",
                       encoding="utf-8", errors="replace") as fh:
                 return fh.read().split("\n")
         except OSError as exc:
@@ -1328,7 +1338,11 @@ def examine_file(path, added, lines, rows, move=None):
                 # non-UTF-8 byte the `errors="replace"` read substitutes). Each miss is a line
                 # the sweep never examined while the run still reports zero rows, so the drop
                 # is counted and announced below rather than left to look like a clean pass.
-                unlocated += 1
+                # A blank/whitespace-only added line is NOT counted: `_locate` returns None for
+                # it by construction, independent of any post-image skew, so counting it would
+                # inflate the figure on every diff that adds a blank line.
+                if text.strip():
+                    unlocated += 1
                 continue
             located_by_text = True
         if not _may_carry_claim(mask, idx):
@@ -1489,9 +1503,11 @@ def examine_file(path, added, lines, rows, move=None):
     # unrecognised-extension fail-open, the issue-#672 exclusions, and the #629 demotions.
     if unlocated:
         sys.stderr.write(
-            f"stale-prose-lint.py: {unlocated} added line(s) in {path} did not correspond to "
-            "the post-image and were NOT examined (a concurrent write, or a byte the "
-            "post-image read substituted); this is a coverage drop, not a clean result\n")
+            f"stale-prose-lint.py: {unlocated} non-blank added line(s) in {path} did not "
+            "correspond to the post-image and were NOT examined — the dominant cause is "
+            "post-image skew (a revision-mode post-image that predates the added line), and a "
+            "concurrent write or a substituted undecodable byte produce it too; this is a "
+            "coverage drop, not a clean result\n")
 
 
 def _permits_elsewhere(lines, claim_idx, op, mask=None):
@@ -1574,15 +1590,14 @@ def _demotion_breadcrumbs(rows, err):
 def run(rev, diff_text):
     # Validate the rev up front — an unreadable rev is a caller error (exit 2), not
     # a per-file UNRESOLVABLE. `rev-parse --verify` never derives a diff range.
-    # Re-resolve the working-tree post-image root for THIS run (issue #818): the cache is
-    # per-run, not per-process, so a second `run` from a different tree cannot inherit the
-    # first one's root and silently resolve every path against the wrong repository.
-    global _REPO_ROOT
-    _REPO_ROOT = None
+    # Resolve the working-tree post-image root ONCE for this run and thread it below (issue
+    # #818) — a per-run value held on the stack, so two runs from two trees cannot share one
+    # and a direct `post_file_lines` caller is not coupled to this run's ordering.
+    root = _repo_root() if rev is WORKTREE else None
 
-    # `rev is None` is the issue-#818 working-tree mode: there is no revision to validate
+    # `rev is WORKTREE` is the issue-#818 working-tree mode: there is no revision to validate
     # (and no history read at all), so this precondition does not apply to it.
-    if rev is not None:
+    if rev is not WORKTREE:
         rc, _, _ = _run_git(["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
         if rc != 0:
             raise InternalError(f"--rev '{rev}' does not resolve to a commit")
@@ -1604,7 +1619,7 @@ def run(rev, diff_text):
         if _is_excluded(path):
             excluded.append(path)
             continue
-        lines = post_file_lines(rev, path)
+        lines = post_file_lines(rev, path, root)
         if lines is None:
             for post_ln in sorted(added):
                 rows.append(Row(UNRESOLVABLE, "-", path, post_ln,
@@ -1705,9 +1720,9 @@ def main(argv):
             sys.stderr.write(f"stale-prose-lint.py: diff is not valid UTF-8 ({exc})\n")
             return 2
 
-        # `None` selects the working-tree post-image mode; argparse already guaranteed
-        # exactly one of the two flags is present.
-        return run(None if args.worktree else args.rev, diff_text)
+        # The WORKTREE sentinel selects the working-tree post-image mode; argparse already
+        # guaranteed exactly one of the two flags is present.
+        return run(WORKTREE if args.worktree else args.rev, diff_text)
     except InternalError as exc:
         sys.stderr.write(f"stale-prose-lint.py: {exc}\n")
         return 2

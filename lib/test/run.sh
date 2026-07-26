@@ -43458,9 +43458,16 @@ print("explicit=%s fallback=%s breadcrumb=%s" % (
 # inside the one known indirection (`_emit_count`, whose `rule` is bound by its literal call
 # sites, which are themselves collected). So a new emit helper — under any name, in either
 # call form — is SEEN, not matched around.
-# Note the id harvest is name-generic over `_emit_*`: a future helper that emits only
+# Note the id harvest is name-generic over `_emit_*`: a future emit HELPER that emits only
 # UNRESOLVABLE rows would still contribute its id and turn this RED. That is the safe
 # direction (it forces a classification decision), not a bug in the new code.
+# The scope of that claim is the indirection, not every UNRESOLVABLE-only emitter — issue
+# #818's `CU`/`RT` tiers are UNRESOLVABLE-only and do NOT turn this RED, because they append
+# `Row(...)` directly rather than through a helper, and the walk is STALE-verdict-scoped. That
+# is correct: carry-forward operates on STALE rows only, so a token that can never reach a
+# STALE verdict is outside the population this pin guards (the classification is recorded in
+# `scripts/match-lint-adjudications.py`'s COUPLED SITE comment). Give `CU` a STALE arm later
+# and `Row(STALE, "CU", …)` enters the harvest and turns this RED as designed.
 assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4, emitted through no idiom the extractor cannot see (a new rule must be classified in CARRY_FORWARD_EXCLUDED_RULES)" \
   "R1 R2 R3 R4 | violations=0" \
   "$(python3 - "$LIB/../scripts/stale-prose-lint.py" <<'RULEDRIFT'
