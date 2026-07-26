@@ -1,28 +1,40 @@
 adjudication_key	bucket_final	rationale
 literal:0002b4bcce8dc572cfecdb5078f22aa702f2973edcc0e33df2dd2ead77c6dc0f	boundary	maintainer adjudication: declared security or interface boundary
+literal:002e30dc4561ec9fd145ad178d026109b99bae1fd7aa1bb0a3ea5832271f96f5	boundary	Retain executable/helper contract: #467 A3: the generic-dimension-checklist sed END anchor is present and unique.
 literal:0044edb321d42fa239af0677b142bcbcba1e002c3edb0fcd6f41e3207b5b0298	boundary	maintainer adjudication: deferral search roots are a Phase 3-to-4 manifest handoff boundary
+literal:010608d01e37642733c1383e78471abf6bccb0b5bf3736ad5cd7625871fa8781	boundary	Retain routing/state-transition contract: #448 ubc-call-sites: phase-2-implement.md read-target sentence names the reconciliation checkpoint.
 literal:0110a6cfb9cfcd736b122c694de24af2fac91988b90f77134769a7cfdd54189f	boundary	maintainer adjudication: declared security or interface boundary
 literal:0167d73b3fbf14d4a1b46591037bdb324c37c57192fc3732f67c5c98a2cde234	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: the fallback block binds no slug of its own, reusing Step 1's
 literal:01dcf2d7c45d80c0fc8035d286c972319756e8c7bfcc31ce838c34806720983e	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Defines precedence for parked-sibling shadow handling.
+literal:01e828e54aa9bb2ca7eb4560d25b1dd618c74bb464732287afce374fa1f6ce05	boundary	Severity cap controls whether a finding may transition the verdict to REJECT.
 literal:0223263a38d01180b48b81da1fddc5c3f9debbfaa9dc3ca706e16e57996a4482	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the stale resolution-basis summary phrase
+literal:0280bca412646c896d462fd3fafb39f1ae36f74be5a740512008c45696c98170	boundary	maintainer adjudication: final-modules workflow-routing: Anchors the backstop step used to scope the adjacent workflow gate on both paths.
 literal:02a02004a30675c93c3e630ff2553e4e86b3da90f077706bc968c22d02e75845	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: audit summary states whether a consumer audit-dimensions section was appended
 literal:02a3196d08334a8618d9231e2f59ec2dd56a8ee75104db751378bffbe32cdecf	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: create-issue preamble carries the never-capture operative sentence
 literal:02cf76d1ada6d5ab890ebdcd97c7c1a788c894c5f44b599d4ddf8831559dcbf5	boundary	maintainer adjudication: declared security or interface boundary
+literal:0302779f4ea71915bf03c8893002f3b2ce19335c425f3ba25f0baee1996bed14	boundary	Retain operative cross-surface contract: #467 C1: quality-checklist mirror for the conditional-path premise check.
 literal:03dd692a3dcfbc75fe06e44e0f7b204a74427d2008ab022655632b71c7584a16	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Prevents an empty or failed diff from bypassing the gate.
 literal:03f1110cfd855e65c4a7c06e441c23f4f4e5b0c6b5b412bc2ea105e09b047888	boundary	maintainer adjudication: review-and-fix CROSS_PHASE: Defines how disclosure evidence is verified by the comparer.
 literal:03f63bd712e46009b8dcc281ae5db7e6c0132d5a4d1d7c456a0a8a82507cd360	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:0400644e6b13861f45049cb271671d8caf58c36ac3ace5565fda3b336505e66c	boundary	Retain routing/state-transition contract: #345 AC4: phase-3-review.md's contract step 6 also states a passed probe never ticks the AC box.
+literal:049da03b2b4e1ff8b8475d1e13b3d76b9edd0c191b6f893024e75e5ed371856b	boundary	Retain routing/state-transition contract: 429/T4: §2.1 indeterminate arm fails closed (coupled mirror).
 literal:04cfb19b41abf44ae7b20875179e37a43bbc5e4a6653ced7a528c7afa126b2a9	boundary	maintainer adjudication: reflection payload cleanup is a cross-phase scratch handoff boundary
 literal:05540c9d6b37820b258c05f64f743440910dd385bc431771f66a6a1fcbc2adad	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines exclusive decision-row precedence.
 literal:05a30460ad30ec6d1437f13c76a9f5c566f8ee7ef9be181586e5ee26bed8599a	boundary	maintainer adjudication: review-and-fix REFERENCE_INTEGRITY: Defines exact ordered reference-boundary validation.
 literal:0638eaaf9cd6e595523b98d10a1e3eb46b2b68cb45869bf683fa32dadc07c827	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #504 AC6 Phase-3 truthfulness-contract dispatch reads the displaced scratch file
 literal:06660186c5e157d995f340db068be03f7d552958ba931902805e5b8430838b2d	boundary	maintainer adjudication: declared security or interface boundary
+literal:0713061e2ef9391f7ae9f11382f3a0e91a9f6d3abb39941b11c867c2b23d5200	boundary	maintainer adjudication: final-modules state-title: Maps the ci-approval-required state to its documented check-run title.
+literal:074b390d8a0d6ce7746de3589b7a4ad17050b8d43cc402a62359bc9c2d0b4597	boundary	Failure-path routing and liveness contract.
+literal:07a952880a55b24bdfeec27fb9ed460cfb0336913243d41c3197e4d5c00975e5	boundary	Retain executable/helper contract: #448 ubc-call-sites: checkpoint 4 invokes the helper in phase-4-documentation.md.
 literal:0836c32f96783be320bbb6e7b6a34aefe10bea7cddb2fdca505dfbfa5ba1d04b	boundary	maintainer adjudication: declared security or interface boundary
 literal:085fa4efbc8d5b27afa1cd8059614b5bf06015a682a25021512f7689a2c66f52	boundary	maintainer adjudication: failed-probe prohibition is a deferral safety boundary
 literal:08710f41964ca2672bf272df2b11ae53dd5b268856c5fa9d227cfde4cc400bc0	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:08715f8b3ee874508b84380805c57070768da7016a4c21e94e58604a06ff0a93	boundary	maintainer adjudication: review-and-fix SENTINEL: Defines the over-grade clean completion sentinel.
 literal:08fa02fa49020bdfa8507c71bea22a82f7752863a00b7f0798fc90d66655a37b	boundary	maintainer adjudication: other-skills schema-contract: Closed terminal-status vocabulary shared with producer.; schema-contract: Removal proof for shared status vocabulary.
 literal:0919423fb53db7228f957e224e61a9542a46cf2b328eadc73bd79689bef81aed	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Prevents automatic severity demotion.
+literal:0937faea2701334a5a931624ea0824b23c4d90f4b47455cca52bb012852127d0	boundary	Shadow dispatch cardinality is a routing and cross-phase review contract.
 literal:09b6a2e61b6df1540435157e7e2b1f6a73ed4d5f03076b35c61323832fbfca84	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #504 AC6 Phase 0.1.5 scratch persistence
+literal:09fa525320f26c617c3070748e2c583edb7ac693d484a4ac7b6f00f5d29de1ad	boundary	maintainer adjudication: final-modules credential-contract: Defines the two-strike stop condition for expired GitHub App credentials on both implement and review-and-fix execution surfaces.
 literal:0acc543a201154b91a77e1ba52b1bb446e485e17671bf6c8bf36faeec8609c38	boundary	maintainer adjudication: agents SC: checklist item schema requires the closed claim_provenance enum consumed downstream
 literal:0b5415ac80ede11f88a6830c4e9956c2070eb01c69c6a85c202cd734f64225f4	boundary	maintainer adjudication: create-issue RS: reference-loader entry marker, degradation, breadcrumb, or file-read security gate: the root ships the total degrade rule (no failure arm terminates the run)
 literal:0b77d1ba2da72d6866d66c55efa2bf8e85dcdfc482a2dd568560283918dc6b86	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the forced-reinit cost is disclosed
@@ -39,16 +51,22 @@ literal:0eea9b408f4e1c474d1ea44f7feafe7b04212faed9fff8326c09843fb356b7fe	boundar
 literal:101e4bcbd3904ab9fd1f5b7a3f05e28c2251b5ba88934083e098840c5e846cf6	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines nullable prompt-addenda schema state.
 literal:106fab00ebf3d5d1838e26c97d8ab35ce8f7cef979201324f36e040277e2a279	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: the tool compares against the dispatch-time digest, never a compare-time re-hash
 literal:11197ee31d5f54f1c6d8e91765f36635069af81d7255cd627ce4e8f76cefe9d6	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #271 coupled: skills/review/SKILL.md trace example invokes the run-jq.sh wrapper (not bare jq -n)
+literal:11323b53e9f2bdacbe8df7411a70ed87b3f7e8cd1a797fcce7f6ecfb925d975e	boundary	Retain routing/state-transition contract: #443: audit summary renders the word degraded whenever the degraded arm ran.
 literal:113713fdcb4596425c409affc24983affe58bd1f9267bd7c5df6498d59f99e3f	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): the pushed head must resolve locally (cat-file guard) or fall through
 literal:11670808cc099091a9f60f4d36136a5474144c15a04598e0b2d68723df6ffa94	boundary	maintainer adjudication: declared security or interface boundary
 literal:11cf772a3d5047cd2380254e4386672ab662c44398ff13657ef6f229eaa12ad4	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: degraded inline arm emits no VERDICT: DRAFT-UNREADABLE
 literal:11e1b6dae847a1338dc62923e8f4fc3cc5167e36469a56794be8085138f3b28d	boundary	maintainer adjudication: probe evidence record is a durable deferral schema boundary
+literal:1281a149a56e6456526e1da78ad98721fe13f5b9f717d3d22733b2b7fd3e4eeb	boundary	Exact clean-pass sentinel in the review record.
 literal:130e9f720980c5d087f77e59ae5310114b98a67a55782a4d9123a58d6ff83b4b	boundary	maintainer adjudication: prompt-extensions tool-routing: The prompt must select the allowlisted direct leading-token module runner rather than a denied bash wrapper.
 literal:1316523a69de760aa121295167ab71d02ef4383d236dbb7a1d9ea866c4bd6447	boundary	maintainer adjudication: docs-root runner_scope_contract: The install instruction forbids an assign-then-use command shape known to erase helper-path variables on the supported runner.
 literal:137a5a4c8e830ca1caae511fc9c89f6a2dd2066b3feaf3878c560e09ebb2c0b3	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Defines the early-shadow trigger predicate.
+literal:148d1b9fedb6cb49f09c97cc8cfd5771eda160580d294d5167b19e2088464370	boundary	Retain exact schema/sentinel contract: #443: Step 3.6 names the VERDICT: FILE legal value.
+literal:14c13992d3c9ad5f4b087d6a9ecddb91f6c7031544bef5add0d7f685026a0174	boundary	maintainer adjudication: final-modules workflow-state: Writes the workflow output that makes the incomplete review eligible for the backstop.
+literal:15537428c59f61947c0fe153805c42b82054bf9f7729baa61cb62d50c3b974e3	boundary	Concrete prompt-extension routing invocation.
 literal:1558ce6398bed02fc459f37ee84180710a6c1d1174bc1ce1d0a61ea4d7b10ca1	boundary	maintainer adjudication: review-and-fix STATE_TRANSITION: Defines cap accounting for a promoted iteration.
 literal:1569e242463eafdc56464b9756d244ff763992486ea4105b92ac47b445a1dfed	boundary	maintainer adjudication: failed-precondition route is a deferral safety boundary
 literal:15adb9e4661cad5508cfa9adc577b4df437f1d703f63a13303d5f6ec49825a23	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): unparseable blocker enumeration falls through, never guessed
+literal:15eb20eb9fc0ddf995e63c363031b80be02e31e4b392e000b5787f0ef66f1615	boundary	Retain security/integrity boundary: #464 AC1: Step 3.6 generic checklist gains the adversarial-third-party-input dimension.
 literal:166043a38d2a3a7afa5a4ebe21a74a08e6cde03d4799f8eaa8de86b495732cf7	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: create-issue invokes apply-labels.sh through the inline portable anchor
 literal:17bce4939547d19abc3f8582d445c4c012c7b41c4aad8513738fdc7c35f4c883	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: no tool-owned decision is ever re-derived from this prose
 literal:17dc642168cc24a57972f074f1806ee9abf3a1a4c7fbbc3779647f4a56759430	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): precondition 2 joins by Reviewed HEAD equalling REJECTED_HEAD
@@ -59,29 +77,48 @@ literal:1894cedb411471d9c52d326db1428cc1e6ecc49012e56bc14a2d981380a5c4cd	boundar
 literal:18c3c003c669cb27af385eeb991d1df71ab6bbdf809a31e43634c30205ca8e5a	boundary	maintainer adjudication: other-skills producer-consumer-contract: Bump prefix is coupled to merge-time producer.
 literal:195c38384b6f64a33b93dde3ce33ba55321cb34a5b036500d66d922d3403f230	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the decided recovery for a refused summary
 literal:1a303cba53f6594fa2371254ebfa7c8bebc0988da1616a414d2728add0058896	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/producer): the carve-out marker carries the blocker file as a required field
+literal:1a5911951dd238b05f40a92e398dd3b1b9a8e6881324513fb67ec2f331b515e6	boundary	Independence contract for the second verification pass.
 literal:1ad2696c7e0db2d0d4951d0c3849064c01776a85b4ba33704e74426089954276	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: an illegal transition never routes to the state-owner-unavailable fallback
 literal:1adf1d67cf0471da1dc58e697be8ea5dcf44fa8cf5f88ff262b65e3681c79c90	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/producer): Phase 4.1 stamps carve-out findings with an unconditional marker
+literal:1b0de10334059adb0290d81042dce447d29eec5214034eab2ecbc0512099a2b6	boundary	Retain exact schema/sentinel contract: #755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a).
 literal:1bb7383cec0925fe7902e6e6d3983bf5ee243f985500fb516fb0f3007de8f14d	boundary	maintainer adjudication: declared security or interface boundary
 literal:1c2d22a93ec74c7c6be9c03a17b8fcf266f45367baf7fdbe54830033df9eef21	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC5): any still-unfixed blocker posts REJECT, never APPROVE/silence
+literal:1c45f3bc9b8db8bc5738de6547e51fbfada8a0a400dcc993fb1f7578a436fa08	boundary	Fail-safe state for unestablished editor authority.
+literal:1c7e334dfb152408344e320ed9e454dad269df538302d6b80358aa06ae5cf3d4	boundary	Retain operative cross-surface contract: #380 W6A: create-issue SKILL.md drafting step mirrors the verified-or-obligation rule.
+literal:1c87076023712e8df4b49f45ec21a24fcba72ebddd8fb3181a084f56b7c559be	boundary	Authorization catch-all prevents fail-open authority inference.
 literal:1cd8474b9d20af80f3634c04f1b1c4ad1efafb4ece61c79eefac4c998fbb0273	boundary	maintainer adjudication: declared security or interface boundary
 literal:1d06e9244345479478763a31cc9bf5efbf7d5cd377d43df07f8bbb5d6487d155	boundary	maintainer adjudication: declared security or interface boundary
+literal:1d36854001cbe8b4ebc5dc609a38275fc57e3c1a94ef411ee595b3142fb67fb2	boundary	Fail-closed provenance state rule.
+literal:1e15452da16cf4f9ebb63b6e56f75ba1291ec2a7242c4ea682b9ad822f1ab972	boundary	Retain exact schema/sentinel contract: #603/AC1: the ledger fence uses a QUOTED heredoc delimiter.
+literal:1e30ca93e1e6fe58ae0db05759c689865ca64f6afef5a9b6619f11941e2f8188	boundary	Retain operative cross-surface contract: #443: audit prompt reserves exactly one Quiet Killer slot.
 literal:1e67f3a8a82637095570a27458101c0890355fd36b3db5360b08592b7c2ebbbf	boundary	maintainer adjudication: other-skills revision-operand: The exact two-dot revision range is load-bearing and has regressed before.
 literal:1ee7e25cd5f0e9027e68d52572713ac918cfdae1d99231463eb6c57707850c49	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the pointer is extracted with python3, never grep/sed/awk
 literal:1ef357a08db89fccd5a60e5e340be69479bb2954c33e96d04490069c6a1e8b9c	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines valid absence of a conditional field.
 literal:1f6041831f57203820253d627ae51535c636efcbf06ab1a6b09ccdf86ccae838	boundary	maintainer adjudication: cloud fallback discriminator is a credential boundary
 literal:1fee9adf0382b28358b947cdd51644f928ceb953cf96ee97256a82136bd8f788	boundary	maintainer adjudication: planning-discovered workflow residence is a credential backstop boundary
 literal:20c0a43c1e53e3979e06af64489800db408899de068c6fb7980b1436446cc155	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): fast path is gated off when head_override is set (fix-loop reuse)
+literal:20d4209809b9713fd0d1f37a5d4b761c32bc9e88535285725f321dbc9a0f6f58	boundary	Retain cross-phase documentation contract: every extracted Documentation Needed path is a mandatory Phase 4 deliverable.
 literal:210344ba25ad639c530b0ab21fecb0e6759ce5fc97c05d42c3022961702758b7	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC3): the fast path stamps Reviewed HEAD with $PR_HEAD_SHA (chaining producer key)
 literal:216d902168fb88515962b8364506facc729ef0cce6f25aea40eb3902668f0a40	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): an unparseable annotation region falls through (fail-closed)
+literal:21bd679f658f86689440c03f0a6d5b78916d6f3c544e7395862c5caeb22fbb59	boundary	Retain executable/helper contract: #275 pin (P3-live): phase-3 carries the live --persist backstop via the portable anchor.
 literal:21c0ed3915c8a889026ac117a40db4eaf9b2dc6e79e7f87f50eee7164816f039	boundary	maintainer adjudication: declared security or interface boundary
 literal:21cc74bf2865ec4fda78fc61093641d44c1b1ca6b7a1b4e6a90fe2ee4fe03ce8	boundary	maintainer adjudication: other-skills mutation-ownership: The no-commit clause preserves caller ownership of the mutation boundary.
+literal:22f410543edc81cf76ecf1cb7b496d2ed3bbe735fedc9ea72b96a7127240b47e	boundary	Retain security/integrity boundary: #467 C3: quality-checklist mirror for the trust-boundary closure rule.
+literal:23257d16eee51ef524d37f33c709c20ccd21d140c8350bfbe9e4e8ca00be166c	boundary	maintainer adjudication: runtime schema-contract: The helper's documented input object includes the provenance discriminator consumed by normalization routing.
+literal:2328d10be70409ed883467060adbd29ed75a6013a5c67b30a3801638791b94aa	boundary	maintainer adjudication: final-modules conflict-state: Defines the fail-closed needs-human-reconciliation transition shared by all three conflict handlers.
 literal:23e8656e4b46700621e5095a3a07f0f6d1663bfabe0c383f44546245233b69fd	suite-internal	maintainer adjudication: create-issue module inventory provenance is a suite-internal coverage map, not a shipped contract.
+literal:244652f6a1529efd7dc3a2259622df08075aa66e0763e0cf7a98163a18585abe	boundary	maintainer adjudication: runtime sentinel-contract: Exact unknown-CI sentinels are coupled to the summarizer and their fail-closed interpretation.
+literal:24e9f977706f198c34c42dc43b5b3fa00bd1c0834487521a9ab98b455b8f9a4f	boundary	Operational prompt-composition prohibition protecting independent verification.
 literal:25190a4d03e47c549f171ea39e75c3e462fd27ccdd9f79a84572b05da820b91c	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:259136f05f89f7d6d300dee621c104d65f115cc57a709917deb2945822365179	boundary	maintainer adjudication: review-and-fix ROUTING: Defines the loop-control reference route.
 literal:25a844bc7db69ce36951eb437583916d567e87a2e85c9a90736630ac6619a456	boundary	maintainer adjudication: other-skills state-transition: Marker persistence routes on mechanical status.
 literal:25ac283959345d713ea1e5d0fe28401503b0628d823db89357ecdd01c485f610	boundary	maintainer adjudication: review-and-fix ROUTING: Defines the loop-control failure-map route.
+literal:25bb2b9672b2f8cce02e546f67079c24694304a28ddc546818e1e69babddf63b	boundary	Retain security/integrity boundary: #312 item 7: Phase 2.3.6 states all-output-channels honesty.
 literal:25e452281a0bf6fd15e5ee20b0c8befaccd86ae768571ff154be5c83e8511ea4	boundary	maintainer adjudication: declared security or interface boundary
+literal:26411e0fc97e2db6e51210da12262041154419bb2fe378fcfb05670c2fcda7b6	boundary	Defines an agent classification branch that promotes a documented falsehood.
+literal:264e81f37b3bd3517a933c3a502a48abff968c4f17107894886dcd0f0c1040cd	boundary	Retain security/integrity boundary: #374 copy-based verification: implement Phase 2.3 test-guard rule instructs mutating a copy, never the working-tree file in place.
 literal:2656693f0130de2c3d9f4dfb1676ccddc85b817794cf955c361e9c290893ec79	boundary	maintainer adjudication: docs-root orchestrator_routing: The operative root rule routes required CLAUDE.md edits directly through the orchestrator and forbids a stalling nested-skill path.; orchestrator_routing: The removal-proof companion guards the same load-bearing autonomous-run routing rule.
+literal:26a0120a59f6ae50374955cba477dc6809306dcc72900b2bef27516aea7d158d	boundary	Retain operative cross-surface contract: #312 item 2 (broadened #446): issue-template names the relied-on third-party premise class.
 literal:26a4746b7c0993fa42c257b9c4bd76cd46c504d1600a030b2063c10bf3c5c4cc	boundary	maintainer adjudication: partial-discovery marker is an external-helper protocol boundary
 literal:281cf459395dc923721bbe89d8ddd6533c8366b19561661a20627a3fab4c55f0	boundary	maintainer adjudication: workflow-capability scope trigger is a credential boundary
 literal:28448c373e7b53f25389a5feb2de8b28020a291352257e32647e3a98ddd799ea	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC1): a superseded REJECT behind a later-page APPROVE must never be rechecked
@@ -89,7 +126,9 @@ literal:28b240eabcdb8d854824bd2d04108239cb53bc02c6211f3ff1afbad4a839e1bf	boundar
 literal:28d843fd3dcd1382c064a7d014e15a816d007d4f7b50950abd1431e6d5baf768	boundary	maintainer adjudication: deferral filing call is an external-helper boundary
 literal:2943b9d2a19427f975898da1c3cb78d9dcbfcb6b652608fa5c7f079e567ae52c	boundary	maintainer adjudication: declared security or interface boundary
 literal:29704170ae5fdbaf1243f50b98f041b57e1d71d675aac0d04cf200f1fcf0c646	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: stamps a terminal ❌ on ANY path that reaches no verdict
+literal:2a580f0370b0ebcc5c8a2ba6f3c268181a32f8807b4694985e15d0f86d1376f1	boundary	Retain security/integrity boundary: #312 item 3: addendum names the endpoint↔permission map.
 literal:2a5a17c7a43d83bb8a810f78ebbfc1cd7121e82dd047e47b88189fa0e6df81a0	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): a bare _(pending)_ tally still falls through (sentinel is not a wildcard)
+literal:2a8d84eb41f0a339b8cfab7498bada95e62606ffc6df8f83a8f7a5996f780fae	boundary	Retain exact parser/schema contract: the extractor recognizes the level-3 Documentation Needed heading that bridges review deferral into Implement documentation.
 literal:2ad197c6d7db1c6bb008dc1b03d379d33f037aac79fa9d8c381638f1db78172e	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines intentionally absent persistence state.
 literal:2b695cf16adba232895a8b78c7feeec3d0118581996cf2accb9c19b88c52d148	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:2bcfe160813c68db3342b58a62fdcdcc8be1f7644f9df9393c5535ba8f1122fc	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
@@ -97,6 +136,7 @@ literal:2c7017a05e8e0096ab63fb061aa1c7c82c25a30fe4fad9668da821e51ab6d5d6	boundar
 literal:2c8a0d85e7839183a5cb9e3d3c1736fc9e6d6ff1412159bc123b9ac5cab8e90f	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:2cf72305e427183323b6044c4dccb9faf283d1c171877b94f0b5980645cb9dce	boundary	maintainer adjudication: declared security or interface boundary
 literal:2d231ff99a1b2e37fadc3dea233775f25e59d9e2dfcdb87bf330414a8c142958	boundary	maintainer adjudication: docs-root config_timing_contract: The operative root instruction prevents a run from relying on a tool grant that the same unmerged PR introduces.
+literal:2d569965f94184df0199dd47c7bfd508e3fd6e21fb2e7f15f31935ff8292c252	boundary	Retain routing/state-transition contract: #242 A1: create-issue caps clarification with a runner-neutral total-question budget.
 literal:2d724095faa64f03bc58e18ab6b1c1163b59f76d36129b5f93a226429599d836	required-copy	maintainer adjudication: issue-366 CLAUDE.md carve-out paired with its skills/implement mirror
 literal:2d8730768c748ba498cf7747e4d668299789f06510100fb2af2f464e8bd04b15	boundary	maintainer adjudication: review AR: agent dispatch/routing boundary: #425(rev): the iterations exclusion is never applied to the Step 2.6 shadow
 literal:2db5281e6a9dced3f3c457a2121c9b859ef1175eb6df89c392534b99f86443af	boundary	maintainer adjudication: review CF: config/helper boundary: sev(rev): reads verdict_severity_threshold via config-get.sh
@@ -105,16 +145,21 @@ literal:2ef166e137b39204db1b387c70896631b506361c5d12e30ac9df74e987b0b65c	boundar
 literal:2f16b7e5fdb1d60a293cb18af6e1378e09478325323de2e0fbc0e9c04c6ec5ca	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:2f2e80dc276fa8e34f67337f3d7d307ad506ff47ce3b1135997a95d3ede5d9aa	boundary	maintainer adjudication: declared security or interface boundary
 literal:2f38411fb9d75fb169fe94f270934f241f535a509c73d2196cef631d9dd6ee9b	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: truncation warning uses the runner's user-question tool
+literal:2f6076d6f94c2066fc16dd8596597f59e5c7fb77247a615d16812e062dfa6b89	boundary	Defines the operands used by the convergence decision.
 literal:2fdee39b645560a2be3f42952185c7ab0c95b46a8caeadecba82a4a91f1cc03e	boundary	maintainer adjudication: review-and-fix POST_SHADOW_GATE: Defines the logs-only exemption for post-shadow edits.
 literal:2fff197c78d220c798edcc94598e9f4cf2eb5a2687f55d6166003b86e750a782	boundary	maintainer adjudication: declared security or interface boundary
 literal:302d7b96763047d7ce336048dc669b3fb467e12554ad3ce24ba1ff490bcee923	boundary	maintainer adjudication: review PF: review-profile routing boundary: #769: small_diff AND config_only profile-table row present (surface presence over unamended text)
+literal:309de5bd34ede0803efd50977b208c9a51aaa94cb4459176822d1d1dec820566	boundary	Retain security/integrity boundary: #224 Phase 3.1: empty-read guard falls back to main (fail-closed consequent).
 literal:30b9e0d7e663773b57e6064722fb2c08cc0f5c26130e81643f2fcbdc827530e5	boundary	maintainer adjudication: create-issue GD: generated dispatch pointer or closed regeneration-input schema: the dispatch prompt is a generated pointer, not freehand prose
 literal:30dbe13d0b07e6fdc5889a9a5ef436f71ba869e4a142e564d96c1bc7df2f9715	boundary	maintainer adjudication: iteration record emit is a durable telemetry writer contract
+literal:3163f27c204c785532025d6dc9e3cf5ce49352eb2535fac7bad79deba2dd75ea	boundary	Conditional gate scheduling.
 literal:3170ec9e53a0807085032a72140039be41dcfd6ffe4aba387e8a26eec67276e6	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: an absent/unconfigured config is tier-disabled on every rung, never 'unreadable'
 literal:31be92ae37da13d4c5f6a66113a645e4b0ccd1bfafb707412ec24cf837fa865a	boundary	maintainer adjudication: other-skills fail-wrong: The explicit prohibition keeps the manifest as sole version authority.
 literal:31f24540f163626f5a9534ac1b8092e2b5b6718ac29378b8f22c5ff9b7685056	boundary	maintainer adjudication: declared security or interface boundary
 literal:32460070d2442ba03344bb1bca6e89f3acf7147818057ea87301ad7dfd2d1e6b	boundary	maintainer adjudication: declared security or interface boundary
 literal:328ac6e94ca9278c7c7382da5501b3d61353f5607d77e3b28d7be2541b1896d4	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: edit-sequencing rule is stated once, scoped to digest-bound overrides
+literal:32e1ab3852db1a76397ceaf8a7adaf11c4845396f08ceffc6a647471080c6d11	boundary	Blinding boundary excludes prior decision context.
+literal:33adccacda7c1e059155dcebc9b1c9133f6aec606940fa31e4f7d38e8a3d7fac	boundary	Distinct run-state marker recording disabled-gate fallback.
 literal:344e8228041aa9838bd670d73d87acdff3de1745f2d0d0f609877f28f3b8f31f	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Requires re-derivation rather than a defaulted trigger flag.
 literal:3459cc1f0b3ca8dc1afd8da2dbd2e366b4b169db646bde48d4ac8f6eef94b54c	boundary	maintainer adjudication: coupled-file revert rule preserves the credential-deferred remainder
 literal:34c2fc50613543a04fa8bb9328c04d13d68a415e7675d827c3010fb305e6795f	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Requires use of the engine-selected base operand.
@@ -124,6 +169,7 @@ literal:3565e2925ccfd277367b2e2bc0c6aad82fcc282df8d7c9310f9e8cac739dd727	boundar
 literal:35c1891fc70fa5616a8782092518a71a2add3ac987120351cd9414bfebb1ae7e	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: an absent CI result is not a passing one
 literal:361ea73263353c1385a05e41262f30f1958e18095499ca31adc52a525acf0087	boundary	maintainer adjudication: declared security or interface boundary
 literal:3631b73abc9c632dc39ebda9d6d1073cfc806ae0a9bfb09a88893ece3241b2e7	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the shared ledger-maintenance procedure both revision sites call
+literal:363b3a35cb6e3dc2dcd17207accbe738371060717dac0d0d8079a18ef73d9dfe	boundary	Retain routing/state-transition contract: #284 positive: phase-4 doc-gate diff read discriminates via single-statement if!.
 literal:36786da3e6d931301c1f94ee8bdebd457ac4e4e96d09c406dbc50b69c0d530eb	boundary	maintainer adjudication: declared security or interface boundary
 literal:367acfb74a55ed7d93adbf4a4f2fb07cbf767061c3f7963f4dccad084f6b0148	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-11(AC8): 4.1 PASS-item iteration line excludes normalized items
 literal:36d2cd76403a63ba56247c7efebe077675a56f61996bf182ef30a137d5a73d92	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #504 AC6 Phase 2.1b dispatch reads the displaced scratch file
@@ -134,16 +180,19 @@ literal:37a7e20f2c60964ec08566b1133e674a7dfe1e5d2efc1a89f29370818369fa40	boundar
 literal:37e31d37a1509ad4674249c0d7136fdd3a3484c2ea8055d94160ef5f5edd4daf	boundary	maintainer adjudication: declared security or interface boundary
 literal:37e60962b87d28a8cb4b324ac426cecbb8b6cc003d52f82741ee95784096ab3e	required-copy	maintainer adjudication: repository-wide mandatory SPDX copyright header
 literal:382004d2c7998197cb59fb54ef5a87c8ffbd97e97a4d322a4a9b1d7a2fbe75a6	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): an empty $BLOCKERS set falls through (no vacuous every-blocker-fixed APPROVE)
+literal:3834fa8976fdbff39461e86063680dc654c2b70be6065d17f066552e0d279501	boundary	Retain executable/helper routing contract: Implement Phase 1 invokes the extracted dependency preflight with the current issue operand.
 literal:3866d347f32eea99d16c9ef025741703cd454be7caf429fc2e99c4632d41c41a	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Treats every noncanonical attestation as unattested.
 literal:38dd0ed36740fdffe2dcac17907090f95437d95c1101a27673614a772fb44de9	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:3978d38dd3e4aade96bd722b64fe712b39bc40b311bffe77ea2fc81442652345	required-copy	maintainer adjudication: CLAUDE.md summary paired with canonical docs page
 literal:39ad3945bd6e5a763b40568b9a4155d20f3bcf594d3a4090f0a7b3b1cc2cdde8	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Pins the fix-commit-fused workpad write.
+literal:39d9db9a35f3c7020629953459fbec332e5db0e2a86105c276bc77223f86b0d3	boundary	Retain exact schema/sentinel contract: #603/AC9: the write-once refusal breadcrumb is named.
 literal:3a2b6f0d9719c95fe6409e287ae8f183c7f8208b000f848bf860962501f604d7	boundary	maintainer adjudication: review-and-fix SECURITY_BOUNDARY: Forbids all listed shadow steering channels.
 literal:3a44f8f3a8a8ad7e4819eb01ee6c4db7749e19a08f2b360013c16fec5fad7216	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: file-arm skill-prose out-of-bounds names exactly the 6 paths (Step 1 evidence added)
 literal:3a7a564b20713a3ae066651065a93ae8ffc6ce3c04e49b0f7105648e4f6939be	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: every check NAME inside the CI fence is untrusted data
 literal:3bb319ebbece3c622d04a1722b309b2092dd50d0277615cdbc0e56f5878c07e3	boundary	maintainer adjudication: declared security or interface boundary
 literal:3bc4cf12f8773f1ba9c6ab8ebf126f25b2c909bb7d70de823d702b4325e5e569	boundary	maintainer adjudication: review-and-fix WRITE_MECHANISM: Pins the durable Write-tool persistence mechanism.
 literal:3c5b62c98ea021451e64f469e8cd87931ceb389c82cd9f6f960e0156e8e923e1	boundary	maintainer adjudication: review AR: agent dispatch/routing boundary: #425(rev): iteration-1 / standalone / absent-signal all exclude nothing (default-off)
+literal:3c75f7a6f48a515cae5f474a428f26304c61bc98c4a36240d6c707c33eac56ed	boundary	maintainer adjudication: runtime helper-contract: Resolver sourcing is the executable boundary for honoring the configured GitHub CLI.
 literal:3cc7dd07c8ce1763b2e826adeacb148f9195e55c2daad460f95d1d342ee3e805	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:3cd41daa532248ac7832de17d3f7f29f41fb4fcc04de1eefa1f6f102c56b3e83	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:3ce6371df6b3788c1b148a07a7a6bae5055f0dc33a78cc1e4f62249c93ff63d2	boundary	maintainer adjudication: pre-merge probe gate is a deferral safety boundary
@@ -151,7 +200,9 @@ literal:3d1bf4d9b416c60411caa09c6629393692cf66018c5b5e46dbb39c32c3e364bc	boundar
 literal:3d69fdecb0f8c0a1b37d66acd0b0364396b2d6ec111cb05a1b4c6b90fa079a41	boundary	maintainer adjudication: declared security or interface boundary
 literal:3d70a1e371bb9feac03ba1c4ea1b803a7e457dfb0f6503018ddc076c5886b78a	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: every rendered block ends with the re-read-before-creating pointer
 literal:3d80255d7bc88480b46a283fb02127c06260547174f73d9e0283a84b052ea421	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: sub-step 5a discriminates anchor-resolution failure from a benign label outcome
+literal:3da4182939b6b7d0357cf6fed60048f6ee9889ca79679e90d70bc4cab06e6acc	boundary	Executable integer-validation grammar; changing it alters accepted configuration inputs.
 literal:3df36d2a41114c7545c0510fe304337b3e950d5f285039eca7f45a12753ba5a9	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #426 T1: Phase 1.1 authors the batch slice by awk-extracting ^diff --git sections from the cached diff
+literal:3e072e90fc6c3c9d6b8120db8044cd65af45f46eb83ad01bde6f023cc13632e8	boundary	maintainer adjudication: runtime cross-phase-contract: Prompt contract tells the review engine how API-derived CI conclusions discharge evidence.
 literal:3e121357d1f501b29e955a476e41d2009e4dae48d70ca254208c7d13ff9e58d0	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:3e69e808ae72359541055c64ace60eb7041c0873454d20b3179a84ec60f09a16	boundary	maintainer adjudication: declared security or interface boundary
 literal:3ea96a1a9f1367f1f2f774bab040ae8091536b9eb31ee2be0324ec0f096a7d7c	boundary	maintainer adjudication: declared security or interface boundary
@@ -163,6 +214,7 @@ literal:4085c03de80e90d9eab5522884746fab065fabb10dbaf26305cb1dace9667675	boundar
 literal:fe44f06c3323f9440c8c68febadfada924b00a88e253437bd267aa2a4c43d1d1	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Defines the deterministic behavior-inert prose calibration cap.
 literal:40ff39e1a188773d4b1f5e5caf23e42e6918fd00f633b9dedd3e7e534a3e02e3	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the verdict token's absence is classified by the tool, not by the run
 literal:418c14d4c0727355ed1b187cb751af9e071130c2f1e9b5d55cf75c257b1a2286	boundary	maintainer adjudication: empty observable-set record is a durable deferral schema boundary
+literal:41b818e9add413b079ee4e089c15650637239beca24c518000cc243b6086b4bc	boundary	Helper invocation contract; ambiguous shared target expands over implement, review-and-fix, and receiving-code-review extensions.
 literal:437624c5586419712b2c9f13a0e2e36d4b795cfede301264e0eb6412bea8215d	boundary	maintainer adjudication: filing guard is a fail-closed deferral protocol boundary
 literal:43a26e1e9501b5d3c3189a26b7cd1990c80351567df9ca7d5e42e9382d412e99	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: fallback names the fourth path-agnostic creation-time anchor
 literal:43d2e9268f7cdaf177cf2fb81880b8f2043ad16a4ae127b6c2cc7c2d74b25646	boundary	maintainer adjudication: declared security or interface boundary
@@ -174,38 +226,56 @@ literal:455e228a4938c2a7f427483a0442c6372066dac6b2d3bb4daf22b582052b7510	boundar
 literal:45da37568d26e6593ac8143e1ad78244a8eec20b83f39a80188f311f21b105ec	boundary	maintainer adjudication: declared security or interface boundary
 literal:45f4f13b1e5e71d65c8d7a97a3dfde94e74e531bd26a7a79203dd6dc47b3dedd	boundary	maintainer adjudication: implementation-discovered workflow edit is a credential backstop boundary
 literal:46150ab820b572a7db5c18a7a7dd59f14292e99131a08c02afc674a9a4ec5334	boundary	maintainer adjudication: other-skills sentinel-contract: Consumer discriminates skips by schema key.
+literal:479902f5d5c52087d4c0543c354107a641e795bb62f3fdc6bfde7ea7cbc14373	boundary	Retain executable/helper contract: #366: SKILL states the two guards division of labor (mid-procedure stop unreachable by re-anchor).
 literal:47c87c34141e214b5fed38a974a0359b0765f0a39233569f8c4cc30d8f10aa5c	boundary	maintainer adjudication: declared security or interface boundary
 literal:47cd6b4aa5e41705e72fadedd7f82b2bfc8c4ad5d1938671512402e54c6c3ad9	boundary	maintainer adjudication: declared security or interface boundary
+literal:47de0a0995e573b18727ec07c248484386bb939665bee829d3d125452ddf1686	boundary	Retain routing/state-transition contract: #380 W6A: §3.4 doc-AC deferral rule leaves it unticked and does not block the gate.
 literal:48063f8c4b2b8cc70fe81918abb6aca5d54865f0b55140c4023834bda5bbd599	boundary	maintainer adjudication: review-and-fix FIX_ROUTING: Defines threshold routing into the fixer.
 literal:480cfb3a8f5ae9c6bdbee07109e2f611d3438bf075c53d121057faceb3b57373	boundary	maintainer adjudication: declared security or interface boundary
 literal:48b09a971cd0cca7150fd0058edb4d20c549c5d7a00af659c9cc367a79883869	boundary	maintainer adjudication: create-issue GD: generated dispatch pointer or closed regeneration-input schema: the closed regeneration inputs are forwarded at dispatch
+literal:49a3c2458ef52d098877ab2219e473c85569e1c314de9c22ae9cc7f8e91086d8	boundary	Cross-phase diagnostic token drives a hard-stop state transition.
 literal:49ee288c00ad4cbed09c4517acccd0db9ba13964ac8697f240ccc3c0e66d8f42	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC1): the last devflow review must itself be a live CHANGES_REQUESTED
 literal:49ef0c1da7ae14e84a66849f1841f7911efea195a414157b1253c3981fbbde05	boundary	maintainer adjudication: docs-root helper_invocation_contract: The generated dispatch instructions must name the renderer file-mode invocation that makes the audited file arm reachable.
 literal:4a4dbda2a18057176718b2504c7db2f87355daecc91f456e5464fc4b38cfb0a4	boundary	maintainer adjudication: review AR: agent dispatch/routing boundary: #425(rev): Phase 3.1 excludes a first-only agent on fix-loop iter≥2
 literal:4a81c9df18ffb0e03266f049f544c63c5f6ddc29a87e65dc1e819a09ac2e5372	boundary	maintainer adjudication: declared security or interface boundary
+literal:4aafe4e0fcf53909b3fe36e7db1f4d27b293a53b68e5b820fa8851ff7d431c38	boundary	Explicit producer/consumer operand contract.
 literal:4af9a730ab72166aa5d016f23e0532d1bdaec966ed470bb913ca11b1cc0656c4	boundary	maintainer adjudication: review-and-fix COMPLETION_EVIDENCE: Defines Loop Exit's persistence-backstop action.
+literal:4b193cb86bae5ad205d65e8baa25b8f4fb7c2154492632d61d1fa130f5b6534d	boundary	maintainer adjudication: runtime execution-boundary: Prompt contract describes the harness's deny behavior and prevents unsafe command planning.
 literal:4b35ac14074122f7f95d49e42da81c652d82bf1a859fc069243c38cb489006a2	boundary	maintainer adjudication: review DT: dirty-tree safety boundary: #484 backstop: deleting the external digest handoff contract turns its pin RED
 literal:4bdfee13e32399402bf4d90f0ae2d6b1206a2ee0d4fa8a597534186daf8ebc51	boundary	maintainer adjudication: review-and-fix FIX_ROUTING: Defines the REJECT-driver routing set.
+literal:4c0860509fc8f79be7e338f2dbbfebfa20369bff51d186d5c51cf67da5d0ca6a	boundary	Checklist output category enum.
 literal:4ddeeac90dc856929d94d1a1271bbcc3f8ab46ffaeb91056f9e304eb5d73acc7	boundary	maintainer adjudication: declared security or interface boundary
 literal:4e06e840ad9fa001cc373881d80a8354b285fd00ae6badff1df674f6bac2c931	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Restricts shadow review to engine-produced full-diff artifacts.
 literal:4e2e096c2dbcea55de26851c50670cc8aca5c744890bdbabd90d7d6bc833eed8	boundary	maintainer adjudication: pre-merge probe is a cross-phase contract boundary
 literal:4e6687894d7a3a2eadfb1a26a89d3a51b541213297426524bf835d80752e4a9f	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: a post-close record is a claim about verified fact
+literal:4e91385929d2ad30a877e085b794407e8a2593ddbd3f8045d7b7451797ed0cd0	boundary	Retain routing/state-transition contract: #312 item 3: Phase 2.3.4 carries the workflow-diff addendum.
 literal:4fbc2f067ce55b8aeb87be887ca62cf44779836217ebda7afb41ce012405327a	boundary	maintainer adjudication: prompt-extensions ST: review gate state transition fails engine changes lacking a changeset
 literal:4fcea564b4acdc1ac394d836488bbe49f2b17bc83059827e2349878f2e5a1088	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the recovery never sanctions a bare re-record pair
+literal:50f946020a4a1c4253eb2408ae8140375dbcc7ff036833e2a032989377ef21da	boundary	maintainer adjudication: runtime state-vocabulary: Closed state vocabulary prevents a merged prerequisite from being treated as blocked.
 literal:513b25a3d0a3a221bb50e7911fd01c5e06089d29ed9ad581a4d0af91bcd58e2c	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: query-next-action's answer is obeyed verbatim from its closed answer set
+literal:5214812b76f1fbcb6b2d1a8682cbabfa2c5a9e7e93ab0308fe6048ce16beca8c	boundary	Monotonic verdict-state rule.
+literal:521c49d8b55a41e8ad38e4063837069128949e0668a2932b31709b462ff386de	boundary	Mandatory gate handoff before committing an outcome.
+literal:523ef44161e9cb8a64adcc09a310bf61128395b206978b3c896e8500f2c9d45e	boundary	Fast-path phase-routing and cost-accounting contract.
+literal:52d2ec83b2b8263e45d9ec9150abe2dc3d2d7c050b82ecdd8a3e16fa2a791c70	boundary	Retain operative cross-surface contract: #661: Sweep-selection index cues a relocated prose literal/heading/section/path.
 literal:52eae3f3055ad075de54f95a0526aca36be45671653f1ccc4ce2787a625294d4	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Records the non-verified fix-delta outcome.
 literal:5316e2f36acc0759cea1351e59d50a8afe9bf81468930539151f3aa95491825f	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:532bb008c90c8388848f1e33bb6324e90376afbfe15433897ded3740ed59a414	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: wholesale misadjudication has no amend path
+literal:5375c2064ada5b76f158e82ed6d96086fdb7bc25a65ffef018ed09f227ef4833	boundary	Executable lower-bound contract for loop state, not descriptive wording.
 literal:5409cf03c3c1b2746d529377fe193ed4eb1c8a3d4229354b0e7f38df91e7a42d	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: SKILL documents the type-tolerant python3 fallback read of workflows.devflow (lowercases only booleans, top-level-tolerant, mirrors config-get)
+literal:540d0c87f5f89d3047abd43565b2649531f7252314498cd60480fdb20216003c	boundary	Fail-closed direction for every adversarial input shape.
 literal:543746d960fcf62ccfee1c337262542dca158f0ff93843822e5e76162d561fe1	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: disengagement push-back uses the runner's user-question tool
 literal:5484eedcb5bd5950508556d9f2c680b92bdcf24f1bddbdabfbe7366b705c10aa	boundary	maintainer adjudication: declared security or interface boundary
 literal:54ab9811d2eaacbee7878a411963b9bb43c8216c40e66c912f1f02fa22f9b565	boundary	maintainer adjudication: live parse-acs invocation is an executable interface boundary
+literal:55142a5d45a8115c132dd021b96f9a8c0bdafedb4887da0ae4486e3a1b01eb80	boundary	Shared prompt-composition and blinding boundary across every shadow agent.
 literal:552a4d12f2bc6a469c9aad914950d9e959ba8d6fdd4a4f8631b4029b75ff4b10	boundary	maintainer adjudication: declared security or interface boundary
 literal:553c311033effc6cadd9799a18f62a527b08582173b17b499916b21bc6f25b4a	boundary	maintainer adjudication: discovery-state initialization is a fail-closed sentinel boundary
 literal:55803c021a75efbe4529e5710361a97e6cb5a82ffd5bf4296d625865e8118369	boundary	maintainer adjudication: declared security or interface boundary
+literal:55c253ae16c90ba7e06f3079f142c1c555f32477c86efec1ae4d2e316e1c88e0	boundary	Retain routing/state-transition contract: #555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false.
+literal:55ee86fd9dd710d8b28c099181180c22aeee513a0060481b5807de8bfe3995f0	boundary	Bounded failure-recovery transition.
 literal:55f0d37bf23d7ba508eda09ba1896b24962b3b25a3cda42fe4e0b9dfba49c1ef	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:5684fa183806e2957a505a02d4cabd437a66adeefafc3acef1b497f48faf13f6	boundary	maintainer adjudication: argument-less efficiency persistence call is an external-helper boundary
 literal:569815720144165835b11a8c32a3ffc04f29f382b8cc7e2b12a986286d63aeaf	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:56ddc5978ee3e1464b7f47c0f3e9bb62fc925bf649dddf6d7a48292dd2144682	boundary	Retain executable/helper contract: #232/#362: phase-4 re-anchor scoped to **subagent** returns (AC4, reworded).
 literal:56fcab3767ec48fce3de66e4f702a3692254a53236047ab8408975199444c4cc	boundary	maintainer adjudication: other-skills schema-contract: Exact interim defined-skip JSON shape.
 literal:5707bb51265027c85eaa995fa1ad4186751a48c3865b7fd210e35de1d59b2f98	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: embed-arm auditor must quote both sentinels plus body boundary lines
 literal:57198d23ad57dcdde6fc820a82f4d6c1e9dcfbdb440428319cf18ac37146971b	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: offer gate reads workflows.devflow via config-get.sh as the leading token
@@ -213,13 +283,22 @@ literal:57317a34526a4f43d7f30b86eea5351588894a37c4fa1d270f75500ffaa065bd	boundar
 literal:5795a1d4edc524defdb9bff1da08086a62597bcfdd20105f055cabe54724dcc7	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:58277a4cef7ad14aab11778b37e32186f4580f5251f80699c29b0db1d83744b9	boundary	maintainer adjudication: deferral merge call is an external-helper boundary
 literal:583c9ac1850c40505b9f8563859a84b2272abe587eedad2b898ce0cf28b0f12d	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the extraction returns the pointer line byte-identically
+literal:587bacb0dcaffd8c9588453e9d9ebda3be0a766c16f493c69ad73d8d07e96414	boundary	maintainer adjudication: final-modules routing-anchor: The section heading is the extraction and cross-reference anchor for the byte-identical generated-artifact conflict rule.
+literal:5920bebf28de026c84c6cfcdefcbd7384c5ac35119e7fb0260257d96891ce87f	boundary	Exact clean-state record marker for each iteration.
+literal:596e219239d0ef39d4e1673c948893b6480d6ffef4c29bbd9cde70a100b76ffe	boundary	Retain routing/state-transition contract: #312 item 2 (broadened #446): Step 3.5 ladder reaches the ask-the-user arm.
 literal:5a85177da6f0473cae92a34edf328dc911bee0d393cf17e87f16f539de9f2cc9	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: status-transition sentence names the nearest-equivalents rule
 literal:5ad9eb70f992c2954bec0047fa7ddd0ccebd860c863fff8db8db57cbb138f608	boundary	maintainer adjudication: workflow-edit commit gate is a credential safety boundary
 literal:5b584582330464bc5fa63423a9c7d6f002e6e767620d6971e32d61dc1e1e5801	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #529 the root's identity table fires on an UNDERIVED hash, not only a present-and-wrong one
+literal:5b76c6ceff04598726e2ff3ba1f6d5ebc1a455b282ed9403d3001f1c2b1696a4	boundary	Retain routing/state-transition contract: #312 item 10: Phase 3.2 names the filter-narrowing consumer-boundary re-check.
 literal:5c06a2d76c27c3e6e528d1b231bfb28c494f3809e90377b9f6dceae371315f54	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/producer): the marker never lands inside the finding's free-prose description
 literal:5d0aac788674ca6f330eb818441d67287beaf62b6e4b12a4da92934e25a205f1	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Pins commit-fused per-iteration persistence.
 literal:5da22bfd4411195c0edf970d7a30dcaed61a008c63c33e4b76037ac44dca0ba3	boundary	maintainer adjudication: docs-root prompt_edit_routing: The operative root rule routes autonomous skill edits through the isolated agent path instead of a stalling nested skill invocation.; prompt_edit_routing: The removal-proof companion guards the same load-bearing prompt-edit routing rule.
+literal:5db9967839fa340150c8e5466d305344829bd0eb7fba845ee973f5d67ba49454	boundary	Shared prohibition on repository mutations by review agents.
+literal:5e2377197e25bec0d3a1aab55103440e0e6559dbd19869ed6b487be21e387256	boundary	Retain executable/helper contract: 429/T1: §1.4 derives behind-by via git rev-list --count HEAD..origin/$BASE.
 literal:5e884f01e62a33cbc1006af42b6c59af4f8ce8dc0a3854799d797e55fa124b68	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #284 positive: review live-comment 3-way reads $? inline in the elif (with #384 stderr discriminator)
+literal:5ee3aac1887b395910b0c88884d104e7cf002bdb54ab5e12c8be0ac098eb2da3	boundary	maintainer adjudication: final-modules generated-security: Forbids bypassing the manifest generator by hand-editing a generated allowlist.
+literal:5f498704963e445fe0b5ebccacf0d4da87b56e9011af2d3d24e01d09a89a951d	boundary	Global convergence-cap contract after promotion.
+literal:5f56c158e4437348aebc5eaf99c51ee7637176f557e32f5cec5c17696f3b1890	boundary	Retain routing/state-transition contract: #312 item 2 (broadened #446): issue-template ladder reaches the ask-the-user arm.
 literal:5f6571a3bcd22b7b03b6a4f52158621152f112060d1a6195e6b3442d6e7f555b	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/producer): an absent defect_signature.file renders the marker as unknown, never omitted/invented
 literal:5f6f0ce1879b3189ea58f0ca8c0a5ee32244ede419e7a609aecd7b0c88c43809	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)
 literal:5fb2eddde2d00d8b36c8c66f577850a987e2fe2ea203965753d55f0cac87ac02	boundary	maintainer adjudication: review-and-fix FIX_LOOP_CONTROL: Preserves early-trigger continuation semantics.
@@ -230,19 +309,30 @@ literal:61f883139f4135892bd3c351d0d70c145079452cd2199c39fb662a98acdb4386	boundar
 literal:622c2c59677d1569faa0a625c1187855eb3097e6f70d36e81f022e37e8b0ee44	boundary	maintainer adjudication: declared security or interface boundary
 literal:627785e14eee6c3170681778144958fd5801a9843aecf439301cc14e58483a92	boundary	maintainer adjudication: create-issue GD: generated dispatch pointer or closed regeneration-input schema: an absent auditor value is never invented
 literal:64ac6b68d3ace1ab27cadb2a957ca191bf792b69e562d88d5ccfdb5265a7259b	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:64ad6388b21096d8495be0ad54de849af17eee690afb21b6180e1871a6e4caa8	boundary	Retain routing/state-transition contract: #346: Pass 5 all-blocked arm takes the Phase 1 Blocked path and opens no PR.
+literal:64eff7d097872986211f29fc50c67e98cb3a1feccdd8d596767dea0bb89878e6	boundary	Machine-consumed marker and payload schema.
+literal:65569e3a9e07c93625d8c9baab48b7b0bafa772cfdd2a89165956c310867d64f	boundary	Retain exact schema/sentinel contract: #312 item 8: Phase 2.3.0b names a doc-enumerated configuration set.
 literal:65e1c1dedb6df51068caadbeca20013198b677875766228fd4c2baf575d344de	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: create-issue displays the draft at the bound-root ABSOLUTE path
+literal:65fa1e8ab03a98ce86c052f0e29a9a4d2690c432020ddaf591dcc6ebb0fcff62	boundary	maintainer adjudication: final-modules success-sentinel: The exact post-helper breadcrumb is the success signal that prevents a failed POST from being reported as a fired re-trigger.
 literal:661115c0f37c9a209a9e7a641ffe2eefdce6adbc48ee961cfcfbd503df3386df	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the rationale-bearing class population.
+literal:662f1b80c1cbdf79899055c9c98b1457c8004105911c42f500f68eb62ae430ef	boundary	FAIL result is the shared review gate operand.
 literal:667e7acac1daacc457f230c2a77c9939f783dd8160df5fc6968f8b7528497e4e	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: the block's CI signals are the authoritative test evidence
 literal:67640d320a36185706ca8f2ededdf8119da1c2511927e07b4365faee53c56166	boundary	maintainer adjudication: declared security or interface boundary
 literal:6902263bb25a74dad0960c4002cf75aac50ba733169f63b68f9e4b4ed74024d4	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:6a5fc2eeee8b8ee280ae70fa7789c0a5744226b0efeb9f0e0fc42b77a065345f	boundary	maintainer adjudication: documentation ownership is a Phase 3-to-4 handoff boundary
+literal:6ae71f7197a2d4bdfb708a5654e9030c73aadf8237d5f9beac14ef5c8df18a3f	boundary	Defines the mutation-check trigger set across review and test phases.
 literal:6aebb68a900ac1d20b82e7edec574545e689c5572aa23884559749b605390eab	boundary	maintainer adjudication: declared security or interface boundary
+literal:6b11a02eb8b17bea37f88a6457561c369d10dfe006732935d13dd28af04fa560	boundary	Retain routing/state-transition contract: #493 resume: cloud-only guard skips the refresh on a local-tier resume (AC4).
+literal:6b42052e1808765936fd7f6df60c7ab7dc0033013e9094bc4805b0cd94bb3ac1	boundary	Retain operative cross-surface contract: #548: ## Evidence axes forwarding (live extension carries the exact heading).
+literal:6b5a7fe973944765adc4f269b61a673886e7bdb1fdc97d53d619439329a4a325	boundary	Retain executable/helper contract: #224 Phase 3.1: re-derives BASE via config-get with the main default.
 literal:6ba90c775eed794475bfe05b46547a53ba81d6cba770679ed9e8a796d5fdfde5	boundary	maintainer adjudication: declared security or interface boundary
 literal:6c1e74f39fe8b2aa7dd009ad14b8e5c85982531bd9dda4dbefc8af9ceee5e6ff	boundary	maintainer adjudication: targeted efficiency persistence call is an external-helper boundary
+literal:6cebe4699efd398a80a3e4f4f45ef596b30d11240d342c831895317645ed853a	boundary	Executable configuration default and convergence cap contract.
 literal:6cecf9d65668ea15ab23f85502bfe788fcfe63fca449c1468dd8902dd97fea59	boundary	maintainer adjudication: deferral discovery call is an external-helper boundary
 literal:6d55b12fee84b68a10761f3060d3f90be9a7c3eed8ef532123a497ca1683f690	boundary	maintainer adjudication: agents ST: confidence threshold routes demonstrated falsehoods through the reporting gate
 literal:6d8e3bad0b4a04088e7e7f6c5c00c5887d4ce8a19d96d1c0a3938fe80f71d70d	boundary	maintainer adjudication: declared security or interface boundary
 literal:6e3f40d0ebbb977e273deee0d5517e6c7b97ba0b21b276d5b9018b82b42ac7fa	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:6e93cea96dd91077575a425a39aa42cfa4dfa9cf46056a73be3f01951d1ec6ed	boundary	Defines the verifier's allowed review scope.
 literal:6f18a1182d1f8fbdb98d2d86569362f839afd773e897c4312da9c2c064727f10	boundary	maintainer adjudication: self-reconfiguration rule is a pre-merge deferral safety boundary
 literal:6f3adf476594bad85a5e8163e427cabd688f7dcfb3bc914da39889672839dd6a	boundary	maintainer adjudication: declared security or interface boundary
 literal:6fa3e5cf86d058958ca5bd12f84d08f42ae370dac022a0eedaa2e06bab4b5e37	boundary	maintainer adjudication: discovery field is a durable sentinel schema boundary
@@ -251,6 +341,8 @@ literal:70a059f7163921684786d7d5d10f4036d0dba18e732f6d5e89e99049b373d889	boundar
 literal:7102e23a42405f6cc541a50f429fb01afcb1dedbd14b645af7c496d1f299f154	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #466 mla-flatten: Phase 0.6 join flattens the concatenated --paginate pages
 literal:713f32aed602ca1e339e47b2ad9cc4872af2da281a39c52fc569a6dc01aaab5e	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): precondition requires zero checklist FAIL/INCONCLUSIVE
 literal:716ca7a019c622eec9167187cfe02cb1fe75ab1a7ae82ed10105329c94f75be7	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: SKILL derives the appended flag from the auditor returned quote
+literal:71db56fc589fde766e89fc4b29119f473cda30998113e7620a1c27a953f3e43d	boundary	Concrete cross-phase handoff file consumed by the agent.
+literal:728c98d2041ebcda202474b7031d582b4c8900a7381d140bb8b02446962646e8	boundary	Retain routing/state-transition contract: #312 item 5: declared-but-unused stub failure knob flagged as a pre-commit smell.
 literal:731b92431c8f3b10e81da5ddc5c59f7f4baa63cb2921df25feb07c7ec37abce8	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): the marker is matched by producer position, not a bare substring
 literal:7336d0134370fd57521dba678b38104f14dec18b71a3841f259823bfd316e4db	required-copy	maintainer adjudication: portable helper anchor is part of the persistent path-normalization preamble copy set
 literal:73b9b29ce8d9ec197991de6698e40f326bbdb3d963feadb4c4158c5a6532fead	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: offer gate compares to literal true with bash builtins only (no tr/sed)
@@ -259,44 +351,67 @@ literal:7446a41cd15f051af06cfb495be38e0b58d37878b52bd9bb6751de8fc037ccf1	boundar
 literal:74b9c90721a26f2d0e27d269d3ff8207597155229d3af1444ea6bc80186ca07a	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Names the rationale-bearing disclosure writer.
 literal:754a4b915c1ff414efd4077a3a7c0c60dd1c65afdf4ea88c23242460216110c7	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: fallback mirrors state to the per-slug checklist state file
 literal:756268e411f533b705a097e7f532cd75c3a25d4234e7f0b9ccf29b28e1741c14	boundary	maintainer adjudication: other-skills producer-consumer-contract: CHANGELOG heading is coupled to its producer.
+literal:75c3014c77de483fd1758255524736a88ffa2368f8199798c55a47536b677078	boundary	Explicit prohibition on a state promotion.
 literal:75cd3447f1647a64461256d3dbccee03909b76398b81b5fc0d95c2cd3a25a478	boundary	maintainer adjudication: declared security or interface boundary
 literal:75ebd65c1984f2c98e4cc185089be3649a7c011867b72e8b6a746ca671045e36	boundary	maintainer adjudication: declared security or interface boundary
 literal:768bb06228bd8540924f292dade516b58ab7db21c764a671f2149fce8aec22fc	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Prevents duplicate early and convergence shadow passes.
+literal:76ba512bffe8d7df6da0b45e7813c683d9227de8156eec732145352a2a750df3	boundary	Retain operative cross-surface contract: #467 D1: introduction trigger names a blanket testing-scope waiver non-conforming.
+literal:76cf7a8b0581a69f100d6a408d07af303cf68e98d42247f2684b9655728f1d0e	boundary	Permission-enum branch selecting the governing spec state.
+literal:76d4dca78be388277c2c717eee841b1133b050a7f53cf83a7ea93ed5f1425ea0	boundary	Retain routing/state-transition contract: indeterminate Documentation Needed content routes Implement Phase 4 to Blocked.
 literal:773408170c6db8120d4b079f7f99807beba7f861185d03fff022278948b9b9a1	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: SKILL fallback detects file-absent with [ -f ], not an interpreter crash
+literal:776a66a5273f86484823a0383a9fe9d816014a9863b3d9e33bb4b931e10e0ff1	boundary	maintainer adjudication: final-modules helper-routing: Routes the agents-seam probe verdict through its tested helper.
 literal:77d2f9373d4cb4674e4b04f605b7915f39f8d772d965e0f79cf234db16c84221	boundary	maintainer adjudication: declared security or interface boundary
 literal:78b8ab23784470d16673b77cd67ae46be51cdbd0dc9d8fa547c6cdc3bd541ca2	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC1): a fast-path hit terminates the run, never continues into the full pipeline
+literal:795b6ec308ee4f8d5fc66cd1c1e2d41c045c7082ab383c20673ede4ad17bce9d	boundary	Retain exact schema/sentinel contract: #230: phase-4 §4.1 keeps the absent/empty/contradictory trigger enumeration (AC3 discriminator).
+literal:796a2faa40d96808d2fb3a2a989a99d4c592dcc20ecd0721bfe495f95973804a	boundary	Mandatory routing through the gate on an early-exit branch.
 literal:79deb5748f7a40e7129158af0b83413e1ac256ac114abe379a95b31593a24aa5	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #284 positive: review verdict-threshold discriminates via single-statement if!
 literal:79f1ef4a7cd172a6e17462a2ed345d8ec9f964d742aa949a3bdd0e4ba93032b0	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: names review-and-fix as the no-block path that is unaffected
+literal:7a349a76f23162919cd03ebb8cc4da32cca4e515e067e516525f39b4d119214b	boundary	Verifier input schema field and legal-value enum.
 literal:7a384f5f27b99405687c2a991f1951706a42ed7046b8874d75d533e03a0bd0d3	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Requires an iteration record even on hand-run paths.
 literal:7a430d0f3cef282690bf55cc1bdb22c0d81ab4a20b924f1b10e049dcfbf4e143	boundary	maintainer adjudication: DEVFLOW_APP_ID capability discriminator is a credential boundary
 literal:7a97657777f71b7cdbea133c3e2c4565d9eefac725cc0877d9bc37d407de66f8	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Requires recomputing the post-fix diff at current HEAD.
+literal:7ab7da554fb35cfe8ad3d108a27dd4a192c0ed5ff5a0c99852dbaa9164e5aee3	boundary	Retain exact schema/sentinel contract: #522: Step 3.6 names the VERDICT: DRAFT-UNREADABLE legal value.
 literal:7ba64496aa58064bccc1004c7576c728b0cf32344fb30fe3a5685aabeee2114d	boundary	maintainer adjudication: declared security or interface boundary
 literal:7bbf23eba7c9318545074c039a686dd675b951717cd54c578371e5badd77b525	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: no confirmed fix means no recorded resolution
 literal:7bd64c933049e749277b01596b639aa9ce08cc5cf1223271eed76839f15786ad	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): precondition 4 must NOT read the unrendered defect_signature.file
 literal:7bff138a7f4a810ba6b62f64a6de264091acf6c35f34d5695ff6578da465da05	boundary	maintainer adjudication: other-skills schema-contract: Exact Cancelled defined-skip JSON shape.
+literal:7ca31849e728bb739643144b8ad6577055de1ee3f9acd113302353c82219c41d	boundary	maintainer adjudication: runtime fail-closed-sentinel: Operative prompt rule prevents missing CI evidence from being interpreted as green.
 literal:7f5439825db6c8394c6967d8b75e7c314a06ebe205cb91cc260d76d847909218	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #504 AC6 SKILL Phase 2.1a lite-probe routing
 literal:805d35d6cf9a0c6515979942ca0d1004dfcb87778200a2d8a30d25afe34d2f5c	boundary	maintainer adjudication: review PB: progress-publication state boundary: #384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)
 literal:815590d4694c29efe88eade047468fd191ab3a812d7ef1e7d9f9766321c6c60f	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): target head is the pushed $PR_HEAD_SHA, never the local git HEAD ref
 literal:81fdb2545e56fbc00c0f1cb21a2aa44ae1a83b220c17fc5f1310696768fbc92d	boundary	maintainer adjudication: review-and-fix POST_SHADOW_GATE: Preserves the non-logs post-shadow safety gate.
 literal:823e1f400c80c15c5f586753add268dea6b0494f59f278cbd98bf6181762a7e2	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Requires one evidence-comparison record per pair.
+literal:827a7dc5efcff82873a8b16f5143ef5f23bd2c4f766cd9cbe0f218604b481564	boundary	maintainer adjudication: final-modules vendored-routing: Keeps workflow dedupe routed through the vendored shared detector.
+literal:82a91b17dba06cb11776f7bcec4ff27a2e644b668c2eb2e9b89096c238e3d8c8	boundary	Retain routing/state-transition contract: #779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only.
 literal:82cd0d38479aab4208cdc24bd465ffe200bbc16bea0e39b5489383c95146fec2	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the revise-and-recover sequence records a resolution
 literal:82e23cf8fd86b7e68f660d5d22042e8e3545c3498f8ffc3320c0864484072f54	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC3/producer): the fast path records the checklist-not-run sentinel tally
 literal:8321a99ab66c2e7dd7ecd4655dfe6fa6b5f1a45b77edfac39ddd10efdf410e34	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the multi-line read-back query class is named
 literal:8383be0ad6dacc92544be8acc35e8f8fc872a8aafa412b734a5abe537c106f4e	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft
 literal:83aa404bf9c269037052f054eae02984f4ef43cf01def346f9c9e8dde8e57606	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7a): bad-input arm one re-Write and re-invoke
+literal:842d48afe3a03f6c33c753d88eeecadc7c4e6689c1463da0fa51c985aa8235c7	boundary	Severity-dependent routing transition.
+literal:84839b6cd76d3bafa51af8e15b4b47ad749ff073d129c7bebd95a67da0d398f0	boundary	maintainer adjudication: runtime state-routing: Executable provenance arm distinguishes post-shadow parked records.
 literal:856f89f02f6cbd1bf0fef867fa974615841069ac21edcf2194a289bdae6d46f3	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: state file is deliberately outside the Step 3.6 out-of-bounds enumerations
 literal:857c0275b5f10b0a2851a704caa07f6ca3e33d9614bf9dda7162ef1b46205d43	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines component-wise severity normalization.
+literal:86371a75961059db6bca0b442e7ab1451d1497811b8f3d0204c412e7c5c5afde	boundary	maintainer adjudication: runtime producer-consumer: Exact warning sentinel is consumed by the hard-stop guard after push rejection and failed restore.
 literal:8638f84bc0e91731a3fdd4051cefa2a71fc396f5b004f4df98988a653727486e	boundary	maintainer adjudication: other-skills cross-phase-contract: Declares both consumers of the search-space handoff.
+literal:864acb2293744cc57df4193ea37e2bc208d22ebb6ded8c2161122e815d3bc000	boundary	Named provisional verdict state in the loop transition table.
 literal:867bf1dd0263f290a515a6a7294f504f4fd3ac4b566574fcc0dd7d94cc3c3d02	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the write-landing observation is reported to the tool, which decides the arm
 literal:86a4cee6ff31786c2c4eb8f1119724059fd54b1524cea28293effce403d160f8	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:86d70fbfe4f03ac8bfb99c17500d807e1dd6576cc4b687d9e5632f34e19a465d	boundary	Retain exact state enum schema: workpad handoff_origin accepts created-current-run, adopted-existing, or unknown as the Implement GHA handoff vocabulary.
 literal:86ede41e3b0f1bfbcadac99401b6b999ea621e9f65bdf0a7e021dfdc8612d74d	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Pins the PR-mode selected diff-base operand.
 literal:874d7df0cecd29c30e6b91ca3ecada9415f32e467c2157fcf91cfc3b8437fc0f	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #284 positive: review trace render discriminates via single-statement if! (quoted)
+literal:87725edacf59deb585eadb726d416ca1e94f12ea7b0e7cc7d8dd4025f101303c	boundary	Failure-direction routing for an authorization read.
+literal:88164226a5e57be7072aa0ce2fca01d4e80bf37cf2f22a36b796c1fe3bbe377f	boundary	Identity and recency query operand used by the authority decision.
 literal:88c34f938570cf0cac329fc863bd3642f587bc7439a383ebd19ceb2b8b55bdf7	boundary	maintainer adjudication: declared security or interface boundary
 literal:89125629f00349f2fe5fe4c6f1acf39a58358b26a06190415cbb6b8ba9fc5ef8	boundary	maintainer adjudication: declared security or interface boundary
 literal:891acb929eeb3412f9455f121446255650bf685ca91682f030b84e66600581b5	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: the orchestrator never compares the carriage digest itself
 literal:8a3c3ba059df4e1e7fbcf310b3042c79c078215c16d1be5855e7d4a733d03c57	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7): local-tier python3 second rung
+literal:8a6a989d9000486a11cc9c125e8a4511bbfe5e51b52d8e1190b0defcd239caa2	boundary	Unknown-CI failure direction maps to a named evidence state.
 literal:8a8de40d573eb4f7598b66edfb9b25f6de7c38ab20105fa1593a32b36f0cde1e	boundary	maintainer adjudication: other-skills helper-contract: Precheck requires the shared wrapper executable.
 literal:8ab202ace424e5a6d74a6ed9121e4f5fbf25c530267a3ae2e97ca0029762cf3e	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: create-issue enumerates options in-text when the tool has no structured choices
+literal:8ad66665f48f5eb43451cfc8c7891adb55afbf019538e6a02d830f5dbc190d6b	boundary	maintainer adjudication: runtime security-boundary: Renderer-owned containment applies to the allowlist interpolation independently of callers.
+literal:8af5302ab67f56b5f9d1b71984e04a25764df80bf635a22bb3d54b3cf898a162	boundary	Retain security/integrity boundary: #312 item 7: honesty rule covers reason codes and user-facing titles.
+literal:8b03d36145b61aae180db944517ca687575564315845985bd2cbaa7720a48055	boundary	Retain routing/state-transition contract: #464 AC3: Move 2 writes the coverage-sweep output back as closed AC items before filing.
 literal:8b9627462956f5e4d41cd6786c432c8e9b389aa462ca3ff56f47fae98287a6c6	boundary	maintainer adjudication: review-and-fix VERDICT_SCHEMA: Defines the verdict-line evidence token shape.
 literal:8bc33db8aadea77828b539a60ee30073c52f5ee1e11b208e1ddb6db65579e687	boundary	maintainer adjudication: review-and-fix CONFIG_ROUTING: Pins the config lookup path and default used for routing.
 literal:8c60f9a42078133fd135e0fff5a2ab130c76a54d0aa1c26de5b018ea75221d2f	boundary	maintainer adjudication: final-modules credential-step: Identifies the fresh App-token mint consumed by the review stall backstop.
@@ -305,21 +420,31 @@ literal:8ce2f5941a380e3aed2bacb7b8d31620137b596dd8b0a77f976c448908651a7b	boundar
 literal:8d594892ca8e0c5ad44de919ba7513c70a87cf73354b0f9b0aac4e47ed481a60	boundary	maintainer adjudication: declared security or interface boundary
 literal:8f6b70862aa85d9b3529968ee16bd6bd9b7ce6549861a5489ff58023dcb46f16	boundary	maintainer adjudication: declared security or interface boundary
 literal:8f826d917fdb95f5ae31ec1c21442d63f82c444c4ef24fe03f29b7c0c473bddc	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Stops mutation when pre-fix gate coverage is unreadable.
+literal:9053990cfddb4e6947a9cdb0c64dd7ca1a25cef6d31fb129e01b16e8ce7c6fb5	boundary	Retain routing/state-transition contract: #312 item 5: Phase 2.3 carries the stub-blindness rule.
 literal:906149d0dccf54694f6b54f023113143c21b5f8c7bb4176c74461af1c2be4a75	boundary	maintainer adjudication: review-and-fix CONFIG_ROUTING: Pins fail-closed iteration-cap derivation syntax.
 literal:90e8d5c6f627d6c0ff289032b832b7fc944d75c7af4fcd8e638ca84ccf23be17	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: reconciliation arm — recurrence of a still-unresolved entry
+literal:90f0b0ee408323163871cbb5f9f3cdd911dad306142fc66081568fd0f12b1c6e	boundary	maintainer adjudication: runtime security-boundary: Companion rule preserves trust in API conclusions while distrusting names.
 literal:91c00bbdc459480da61384273a4952200a42fa3a2adadd9179494b7aa19aa77e	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Distinguishes calibration records from skips.
+literal:92221be112d606184da5eb0fdc1e692fb925d3241f02197e40437a491f1035e4	boundary	Retain security/integrity boundary: #709: withhold-then-disclose never blocks filing.
 literal:922601f37e398f4756eadf220917fa0e903e5157d1696957d799e0130de3fd1d	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: fail-closed arm treats a bad state file as pipeline-paused
 literal:92d2680dedf32ae41e5d1c633726e0c93aea575934416d3624adb9884fde4e30	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Requires recording unavailable-tool evidence.
+literal:92f15c33cc771e6c583ace81b75185c71e18d2366e67ed5f96caf80eef1e542e	boundary	maintainer adjudication: final-modules credential-sentinel: Names the compaction-immune wrapper diagnostic that exposes bad credentials.
 literal:93c6110929970040bd6e476fabb664fd80b28956d17a183f07fb10840810839c	boundary	maintainer adjudication: branch-slug derivation is a Phase 3-to-4 manifest path handoff boundary
 literal:942710ae47973c6fe87ba172f75ec2a6f79178495358647e36ea2a9ec613d064	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the redirect truncates the target before the generator runs
+literal:94854c3eba43bbfec73d946c777b2b24c741dbe4e48b66fbe12614af0db08650	boundary	maintainer adjudication: runtime schema-contract: Expected-field constant defines the synthesized-shadow completeness schema.
 literal:94955931c491cded5d75f2d92aa5023c9458bd7733415d869cf890171fc575f5	boundary	maintainer adjudication: declared security or interface boundary
 literal:95a072144179105d838904c6e40336e6ae7f60851442039c0a7ac26ad9654cd2	boundary	maintainer adjudication: declared security or interface boundary
 literal:95a267cf60a99919831e436d75bf0221815f4aac8091c1fe9b24edbfdc097cb7	boundary	maintainer adjudication: other-skills security-boundary: Forbids mutation of project instruction files.
 literal:95ab5584fc8744336b5dcb6c927b13f9e0ee087b02a5290ef835e4a10596fa47	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: SKILL fallbacks anchor the config path to the git repo root (#295 contract)
 literal:9624671444ba4338b35684b75fef3f549228635c9cc1616088d94139d21bd3d1	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:966aca9e1b7296c3f5b60f406219f4717004da34871aeb3ad0a9d37c68cabf7d	boundary	maintainer adjudication: final-modules runtime-sentinel: Asserts the runtime launch-failure classification emitted for every unlaunchable row.
 literal:97353ede983a205be0d4fbe48fba46a9d274610a9b46da19bb96dca51588ccd0	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: mandate names the runner-neutral task-tracking abstraction
 literal:9786239653b2e848a7b65cab1a2512bbdf6c381a50a906a0ceb0bf7280192b43	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Names the completion-evidence consumer of persisted evidence.
+literal:9824bb829886bd316d4b450ee3d0316aefb437e55fab60931de3457ca67459ca	boundary	Retain operative cross-surface contract: #522: audit summary carries the declined-further-audit phrase.
+literal:98afcbca54be67910a4db8e04e20dd52d3edfc99bb445996d1917bd5aa3a4dcc	boundary	Retain executable/helper contract: the Implement Phase 1.4 checkpoint helper must fetch the configured base through the same forced refspec as its consuming phase.
+literal:98d545b5fa0c9aba5d024f50ad3b306cf7fb643a40c35b25e24c9c7d4c001b4e	boundary	Convergence and fail-safe transition invariants across the split.
 literal:990337e1393db82435fabd806c96a56859ecc79ea8b1c176c032d1340d1e3ffa	boundary	maintainer adjudication: review-and-fix COMPLETION_EVIDENCE: Pins fail-closed trace rendering for Loop Exit.
+literal:99a323683ad787ae072b789a7fb21789450623c324bce5e3edd7f461acc7c964	boundary	Retain operative cross-surface contract: #366: SKILL carve-out — required CLAUDE.md edit made directly by the orchestrator (operative).
 literal:99f6b462f44a4331c7354e6e10a652a9386a879e92f19617e4e2d03117ecc3f5	boundary	maintainer adjudication: other-skills routing: The non-customer-visible state must route to Step 4b rather than terminate.
 literal:9a9c08a434ac87cdf885f7b299ebbeb38e126fb838f86ab5a44d3e4284f0dc36	boundary	maintainer adjudication: other-skills sentinel-contract: Routes skips by key, not free-text errors.
 literal:9abbd1a57618a3ed706f3600c5bd8e0da9b0baf72f943603a5a7b3c2e160549f	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the severity-calibrated decision value.
@@ -327,44 +452,67 @@ literal:9b7d4362e9d50ed9a140adae981b7f1659c1ffeb2d471c8518b99c43f60f125b	boundar
 literal:9b89514d231e20c5e4b1cf6f9ae139593fbeec33a60076af806c49a8d4ea60d2	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #424 T11 engine arm(a) names provision_env as the precondition of the config bridge
 literal:9c0f38d1398522ae52bedfa6d812cdb8c108369119a528388e5d94d33bd14d7b	boundary	maintainer adjudication: create-issue RS: reference-loader entry marker, degradation, breadcrumb, or file-read security gate: the root ships the entry-gate marker contract as rule text
 literal:9ce497144def01cf968394e1483be810efb88aa514aa313c03d14e482be4135d	boundary	maintainer adjudication: prompt-extensions XP: merge-time changeset producer owns version and CHANGELOG assembly
+literal:9d186574f20f10defb5388a6da1c11a4b415d0a49f04a7d0bba16e7feac215a4	boundary	Agent verdict discriminator maps evidence states to non-demotable versus demotable outcomes.
+literal:9d7a0662dbcc73506cc2ce3771dac618a9dff7b288226fcdd145014f9b1e7fc4	boundary	Retain routing/state-transition contract: #493 resume: best-effort warn on PR-body read failure (distinct from no-line; AC6).
+literal:9d8a31fb0200a13fe8f82c73a8ee4b5070a32c54096000fc1ff43d723e28f4c2	boundary	Explicit exclusion of an unsafe authorization surrogate.
+literal:9d9d583bfe8bea29f50bb893e65830a68de38bd83a140e3cd7de463072a282d2	boundary	Retain routing/state-transition contract: #550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review.
 literal:9e76764869744b5cb4136e635538ea1a4ea6b447f8bb76348eb8f2241f5bd84c	boundary	maintainer adjudication: declared security or interface boundary
 literal:9e986db287f1bed8d673a24396cb6dd563dbd5171fff3443e8e5df439d2a2421	boundary	maintainer adjudication: declared security or interface boundary
+literal:9eab0e3cb2549fbe7669d25322921b6b5b916c11c5c1e5e6b585cfcf35ad5f6a	boundary	maintainer adjudication: final-modules oracle-command: Names the non-writing registry oracle used to classify generated-artifact conflicts.
+literal:9f18a65bf33cbe0231711b82540d53a7e83a794383befe76c560e5aa8b1ffc9e	boundary	Retain routing/state-transition contract: #815 the reference sources parent-derived slots from the Phase 1.1 cache.
 literal:9f64692b53658232990e7f2a44d5e6cca9f3f8baf605436558d37501218d47e5	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Defines overlap versus new finding semantics.
 literal:a02a604bf3f34eae4fca7fd99dfbd185dd614deace5dc7f26d641a38093b83c2	boundary	maintainer adjudication: agents XP: output-channel contract separates ephemeral line references from durable committed documentation
 literal:a040735b88c30ebac8051ad2d33e5fb645e0184a2fd7faa9aed50135efad0ddd	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): a changed path outside the enumerated blocker sites falls through (fail-closed)
 literal:a07fd2525fad6bdda925e947cdcb79ed237a18bf008e55630eb100b4b34d8da4	boundary	maintainer adjudication: declared security or interface boundary
 literal:a0ff8e4e50d82420e93484d3f756860a88b1f82f5f210e3a315f5be21f5b7795	boundary	maintainer adjudication: aggregate path is a durable deferral schema boundary
 literal:a136679c9e40172d6751df94b497a0e3f70479100ff7148b3aabed782e6c2909	boundary	maintainer adjudication: agents RT: absolute claims must route to agent verification rather than lite grep; RT: mutation proof protects the same absolute-claim routing boundary
+literal:a200d5d9a72ee299bde6a8a43e75a53ec7ebd37798f2449431a00d5d4edb82f7	boundary	Retain executable/helper contract: #600: Step 3.5 self-check runs the renderer checklist mode.
 literal:a21902d4a7a2a163a1c4a9f97960224655cc742ae9785f25fa33e3d403173ad2	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: the cutover preserved the out-of-bounds declaration
 literal:a25fa20ddfb1e954151cfbb1a7dc220baff6e3cd0da7879aae7e5433c762ba0b	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: creation-time confirmation obligation sits at Step 4 sub-step 5
+literal:a2d114ef8a2b968ba3d7ee95b18f88913c7273548ce3060173513b46423c023f	boundary	Authority-selection rule for multiple edits.
 literal:a3982c4cbff03caacea5ee9396b562e8377733fc522bbab52ea186399143a9b6	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: create-issue invokes load-prompt-extension.sh through the inline portable anchor
 literal:a3b89c53de7e3fe1ec63cf9f9a0c03c498605730aef0d0d64d6b1666b68ede73	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:a466053e64746ea60632a49d65016883956d11856c80c7c7fd345ba1d7790c1b	boundary	Verifier input schema field with a provenance-conditioned requirement.
 literal:a4909675459ca1e025c4bc26b837d04481630e9680be36cbe4f85a83ed0ec501	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Defines the durable join to the parked finding record.
 literal:a494e789c7a1a19cbb1a3f0dc13d93aa1cf9af8fad4fd8e57d7daa4bd5de2297	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the file-arm dispatch-recording sentence shows --round
 literal:a49d26ae45f7e10568d338244aa137b060dadd917260e40b980885d60eaa03da	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: audit-prompt template instructs the auditor to return a git hash-object digest
 literal:a4a108b59a1523bc9b614db29f3983a8149ecdad8c1c684d793bfe4be4ae05d2	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:a4d3c64780e2dfd53cf9ca1a3d65f46b8d3ecbf2f58f20a87a39179734575854	boundary	maintainer adjudication: prompt-extensions cross-file-heading: The receiving-code-review extension cites this exact review-and-fix heading; the producer-side pin prevents a dangling cross-phase reference while the mutation pin guards the citing side.
 literal:a592781f4e4ebdfd526d26476960765848f0c1d917988ab3fd5105db23ec2f17	boundary	maintainer adjudication: declared security or interface boundary
+literal:a5d6eddab5dfc72042a3158c33df8b298d01a19a3630dac910b45934309a5098	boundary	Retain routing/state-transition contract: #362: self-answer rule is confined to a nested skill question (a Blocked pause stays a pause).
 literal:a5f1d34bc0df3bdedba64d34e6925009b0bf23e2a4216e2607d84ca34bd312ec	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: SKILL states the positional two-marker delivery check
+literal:a631724aecaf1c1476f2a7e00986f186abcd743f046bfbcf463dacf93f28a471	boundary	Exact clean-run sentinel required in the convergence record.
+literal:a68675db06db2649c36b691522f861399522983c02e33ab7422379e32ada2f8f	boundary	Fail-closed handoff of unresolved state to the shadow phase.
 literal:a6f8f3703f83fef853c7563315f062f58f462455adb70a0665f44a6c854c0c62	boundary	maintainer adjudication: review AR: agent dispatch/routing boundary: #554(rev): per-agent model rides the Agent tool's model override parameter
 literal:a737dab9583fe09ac2f851bf0e4854674e9a4ceec41291de50f0810395c2068c	boundary	maintainer adjudication: declared security or interface boundary
+literal:a7ca38a3991b957c520f40b893388040e49a5d2f2580b5110ffd6575bb75a356	boundary	Retain routing/state-transition contract: #755: Phase 2 §2.0 gate carries the same Plan seed literal as workpad.py new-body (coupled discriminator).
 literal:a8091f6685e2ceaf6a03b49f93bf0d3826acb23b0f9dbfe91bfdadb1bcf30140	boundary	maintainer adjudication: review PB: progress marker/status boundary: #356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker
+literal:a821c8a82b7e95df209be67586e5477e13e2d048767a377ed254db061399661e	boundary	maintainer adjudication: runtime schema-contract: The helper's documented input object carries the source-authored excerpt field across the verifier boundary.
 literal:a8ac1bd46ae69c8d97ae7a15a91a831a817a304dc173bc4039b88cca24429049	boundary	maintainer adjudication: declared security or interface boundary
 literal:a8ce63b9fbf5f0d1e99294e811979d89e00895a0645a6f5d870128d7ed5b2cd2	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Prohibits recall-based recovery without a durable operand.
+literal:a8ea63b4e0c573c3b5cb5c67f6b75f1d700c89d0254c6ecead3a93cc657d40d5	boundary	Retain security/integrity boundary: #224 Phase 3.1: re-derives BASE with the fail-closed empty-read guard.
 literal:a8fbe6c14c77fb9bce396b31f61d6fed5c19a0d615b3bac25d63ebf95f1f8802	boundary	maintainer adjudication: pre-merge decomposition is a deferral protocol boundary
 literal:a9bc685012e9a24d5aeb6397dfeb13a4360604fcdae16b1b18d2ce441cc32c51	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: the quoted object ID is forwarded verbatim and the tool's classification obeyed
 literal:aa2f609c5c92c86984c0cb270afdd2e7a0845912dabb604bfd0806359935a867	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7): helper invoked as the single leading token
+literal:aa550b738271c486fe7566596000d221d24d42d916449ad2f51927a272b9862d	boundary	maintainer adjudication: runtime state-routing: Executable provenance arm routes shadow records into the shadow classification.
 literal:ab46f3fdeeee8f4f182334f0cc5936a9a24e90bbb5f541b2193b491d4f565328	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: SKILL documents the type-tolerant jq fallback read of workflows.devflow (repo-root anchored, string-truthy, top-level-tolerant)
+literal:abcfd22ee1a96cf6112493d0c9d90edcc440fd8940499cec1416dcefb336c9ce	boundary	maintainer adjudication: runtime security-boundary: Executable sanitizer prevents attacker-controlled check names from closing the prompt fence.
 literal:ac33cfbe588a6c957fa4a668cf76846d41511b6181616cc1853fbd9d96b7d84b	boundary	maintainer adjudication: declared security or interface boundary
+literal:ac462ea40f184c6583b273a0b6ab86bacc851204f62e98474553a06e05fa43ee	boundary	Two-arm durable-record routing contract keyed by invocation context.
 literal:acb6c4d3ddf59ea2c90b0b2b6ebf59e4dfb638954920db73878b429ce7797ed3	boundary	maintainer adjudication: declared security or interface boundary
+literal:acc4153abeb5f77baecf9b77631994853e57f92ddc05804ba04c1770f82aa2df	boundary	Operational routing contract: both fail-fast executables direct an unsupported Windows/Git-Bash runtime to the repository's provisioning helper. The exact helper path, unlike surrounding prose, is an actionable cross-tool seam.
+literal:accfc7d868c6564cf71af9bcb43c8370f9804a3d977638c78a9aac7835fa97f1	boundary	Retain operative cross-surface contract: #272 AC6: issue-template has the Visual Specification section heading.
 literal:adbcfd9f0e88e99f7e590553d87d6f7532cfada2ee48780ebae9c735db32704a	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the swept-sibling marker consumed by later gates.
 literal:adcef9d88762da9951c56d4d7b61235fb458f9d2bbc4516538e5a1b4d214aed4	required-copy	maintainer adjudication: repository-wide mandatory SPDX license header
 literal:ade896f3bd03ce0d429863532ef272ba1c627ecf086bd82651b7d91236bd3a2f	boundary	maintainer adjudication: declared security or interface boundary
+literal:adf814aaef76b62079e8f5373259657a7f510eeb14135fafc84da373f2f252a6	boundary	Retain exact schema/sentinel contract: #443: Step 3.6 names the VERDICT: REVISE legal value.
 literal:ae828d65967db6c5d29e044325198dc3ece141f069ab657074b5cc45d9f96066	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: a suspicious NAME is never grounds to doubt a CONCLUSION
 literal:ae8b55ff47631a726610cef89be8ba3d2096fd4e2cef53cb815c6cb753728bea	boundary	maintainer adjudication: create-issue RS: reference-loader entry marker, degradation, breadcrumb, or file-read security gate: references load with the runner's file-read tool, never a shell invocation
+literal:aeed22fd9e7abad7519f8aa3221e0f2e0a673d88698898b75a15ab84fcff3f62	boundary	Machine-consumed section-start sentinel; anchors non-empty operands for the cross-file byte-identity test.
 literal:afca2e502b6e2c70f44a7596b45b94be067877afde2be99930fcf8ca4ee04a78	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-5: claim_provenance + source_excerpt in 2.1b dispatch prompt
 literal:b00f4def4a6fbee11b84bcad66389d0f8e2f14ca71f3ddceaaf47d511fdb9a5a	boundary	maintainer adjudication: review-and-fix SECURITY_BOUNDARY: Requires both provenance checks before trusting extension text.
 literal:b034c798969faf6d5417492c985b8249ee3ce9f3db61791f47f82ac9a54acf37	boundary	maintainer adjudication: definitive-answer discriminator is a deferral safety boundary
+literal:b04061f65b08e40cbe92da71feb2dd9ce2849b618a6967d877c9e43b799e2e36	boundary	Retain routing/state-transition contract: #462 rule3: zero arm states the falsifiable no-dependencies claim, not a count.
 literal:b05636430f82711ba397c2b2d0dbaef11e34ef1f2f2d6a116b2c2ebc21d1005a	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): precondition 4 reads the blocker file from the marker
 literal:b084ea2fc7ebab535eb929ff0e2792cc2a5ece12a155f853aab13639c750a3ab	boundary	maintainer adjudication: other-skills helper-contract: Calls shared disposition program with gate operand.
 literal:b099500497570027b20dff78d38cef5652730bda3618be8d0189db752f600886	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: the instructions are conditioned on the block's PRESENCE
@@ -372,23 +520,36 @@ literal:b0edb0897baab48bfc246f19d760606bd9f55fbcc3d3716fca446c7580ecd5b3	boundar
 literal:b220db2615aff9223fa9e3b5143cf7d2dd09f1678120e9a4eee7317ed68a3f91	boundary	maintainer adjudication: review-and-fix STATE_TRANSITION: Requires pending-dispatch state before dispatch.
 literal:b224455a6f20b57a04ceaa69dcb47b4ad05f0fdb93a45a210c455facd5a0d1b7	boundary	maintainer adjudication: prompt-extensions XP: merge commit prefix is consumed by release-notes reconciliation
 literal:b2412add1cbfd0324b5b72187f68621c165fa2eeb57e9d1d3eae51d8e3675a62	boundary	maintainer adjudication: declared security or interface boundary
+literal:b26007a8d81fbcef19957dc85febe6af886035cad8776ec64ddb2ad1e690a5ef	boundary	Retain exact schema/sentinel contract: #548/#600: heading-extraction rule owned by the renderer/template.
+literal:b2b215ef3f0fc86339286a5b67ac0c62360ee8eedf9879e0d3676ed3f3f86cad	boundary	maintainer adjudication: final-modules registry-contract: Defines the same-PR registration obligation for suite-gated generated artifacts.
 literal:b3548d58aaac0e31837cefba98014f7394c3ba9602a734c684a8bbb2d44aca42	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: the Step 2 slug sentence defers to Step 1's binding, never binding one
+literal:b36045aaa7331b9736aa4a0773cc52e81c4d31cf9f5584fb75e1f1255d634769	boundary	Retain exact schema/sentinel contract: #709: Step 4 renders the steering marker on the audit-summary line.
 literal:b369fa02b480c6e772b7d6c93b31231b4495878a696d997542d174be4b1b3146	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Routes signature-less evidence to the fail-closed arm.
+literal:b3cc9cd00a0fa26a232b540b172572255b6ee6a0e156572931563408004cbd04	boundary	maintainer adjudication: final-modules helper-routing: Routes the ScheduleWakeup probe verdict through its tested helper.
+literal:b3f10a6b2bf6dd62e0480ad8a29c8d4374e3a4dea3ea5c042ad9299d6ad70a56	boundary	Retain routing/state-transition contract: the Phase 4 cross-check has an explicit no-op arm only when extraction returns no paths.
 literal:b3f4cbd4f5e072dd4784e96cb94bf5c3779b8613f12c518d8bd8670496f368e2	boundary	maintainer adjudication: reviewer roster is a runtime dispatch interface boundary
 literal:b46c58bdb38ede95299ac15ef85c4672bed9e46d63d59e6a1391df18f2b3229e	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): a REJECT-driver lacking the carve-out marker falls through
+literal:b4a1a35916166c210f5c13a646bad2995b0ad2f390728c106960a6b069d0e92e	boundary	maintainer adjudication: runtime helper-contract: Resolver sourcing is the executable boundary for honoring the configured jq binary.
 literal:b4e3b918d47b3be0d5e1fab2ec0cd2bed798e11b58212df12d646608b259f536	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): intervening-change guard requires REJECTED_HEAD ancestor of PR_HEAD_SHA
 literal:b65425cbb39f1ca26c3f19c0dcb7ddce3505ca63e916b1fd1ff0530f859606d4	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #466 mla-fetch: Phase 0.6 comment fetch uses the {owner}/{repo} placeholders
 literal:b66b8685c3aab80d85c245322ed20957fae507b8c0a68b9a139bdcf73293546e	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:b67ba1cdcaddc56fd9b3ae06cf7d08e1d9c30170cd944b495ad2f0c8a50c15f1	boundary	Defines the base operand for the cumulative delta.
 literal:b6a4032f0c84e0fa6ab178c7d6a2cb8feee193aaac3213d15f608df71284cd5c	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: fallback renders the paused-at-todo-6 waiting state
 literal:b6b2be69e49a64d349a19ef3e370d80a05a0da8823e72d7db972013a82ed0bf6	boundary	maintainer adjudication: create-issue RS: reference-loader entry marker, degradation, breadcrumb, or file-read security gate: a failed load emits a breadcrumb naming the file and the failure kind
+literal:b76f43b1c7b956c126ea8d562c23cedaf63772e2303c9eede388f73c9c9e9b70	boundary	Retain operative cross-surface contract: #312 item 3: addendum names the event-path artifact-lifecycle walkthrough.
+literal:b793b1a3dd41f68aaa565c634e09c1c4dab17ae2bd4b51ee7bddce2b60bc518f	boundary	Retain routing/state-transition contract: implement split: orchestrator preamble fails closed when ${CLAUDE_SKILL_DIR} does not resolve.
 literal:b880ec8d290bea276af534a1eae13cdf4b4d7e0cd2e0c8219d6b9e0ac3ba29ee	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:b92a01796c83f8c2425c7cb1cfea0340ff7d0461a09591932873bb392e71413f	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:b96bb551d16d588811bd073eb7d361e42e639a08f8e914091e31e15ed8a54fa2	boundary	Git publication safety boundary.
 literal:b986873da6599d709b14a4bbf54b15fbab7bcdc7fa1c779bbc7a4b534d14c2ad	boundary	maintainer adjudication: declared security or interface boundary
+literal:b9e7f8120dc1e314824299b0b122cb6e34066fe4e1f6555722c1924a8d95e853	boundary	maintainer adjudication: runtime routing-contract: Executable predicate scopes mutation to the Resolves-anchored run link.
 literal:baac39ff3a4ea0217f0ed5dbb5f2b9d5287cb8a114cbca0acca32d6b6ba61ab0	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: audit-prompt template states the DRAFT-UNREADABLE emit condition
 literal:baf6fa44385d42a15259cf8f0ddbb690dc4dd7ae4608470f5577f2f33c1e604f	boundary	maintainer adjudication: review BI: batch/filter/helper command boundary: #181 filter: Phase 0.3 derives the changed-file list from the filtered diff.patch (peer-completeness)
 literal:bb6c8270a1d7bc474c39fd246cae4e3cf5608d843afa1936926165533bd56397	boundary	maintainer adjudication: other-skills schema-contract: Argument grammar is the caller/parser interface.
 literal:bb7fcc826fb9ab768357b6dcb1e310843ee3bd9e530bbf38a69c7929f081ee3e	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: read-only sandbox degrades to the re-post-in-current-turn rule
 literal:bb89f4514e00eb96cee80690ab6ee5f24237656e9c8ebeb237022654d9e538d3	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Pins the parked-class-sweep record schema.
+literal:be5ed25ad801ddde5e41af030f34022dbdb71ec2ca54aff9fd408954695bcfe3	boundary	Explicit state transition and step-routing contract.
+literal:be5f9a1a760cb02c3facd7469ca303a67eb83a4168d302f57c5a5ec586e56f93	boundary	Retain executable/configuration contract: Implement reads implement_pr_state through config-get with ready_for_review as the lifecycle default.
 literal:be6d6df91363a0bcacadd0068057be0d3c4671b4a778ef344d313e2247b5818d	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the instruction write uses a shell redirect in the bash fence
 literal:bed6bd3a9a6e3aed2dff5dbd6dbccf7abd8ae3e77c4f3342700031449d332f23	boundary	maintainer adjudication: other-skills helper-contract: The helper and config-key/default operands are a durable configuration contract.
 literal:bfa729fdbb30835d2ad5a1fbd50c785d40d065dc020538fd4cc94bc29d445565	suite-internal	maintainer adjudication: create-issue module inventory provenance is a suite-internal coverage map, not a shipped contract.
@@ -397,49 +558,73 @@ literal:c0391f75ea2aa27d9f1e099808c2e24743d1e4d5eb98e4cc61ab72cb9110c880	boundar
 literal:c078fb8530efe83d1a6279707d0c9a2f662e8b556d07e78646b2391e3b4748dd	boundary	maintainer adjudication: empty issue-number capture is a durable deferral sentinel boundary
 literal:c09b19832a178813d1f4448956d0d3878031f352199d1285dbf9cc78861412a0	boundary	maintainer adjudication: review-and-fix COMMIT_SAFETY: Prevents unscoped staging during a fix commit.
 literal:c1877869aceaf7b87254841336ea9ca0df7082aafa26bb23800cf14c2b5e4f94	boundary	maintainer adjudication: declared security or interface boundary
+literal:c1c4eed15be2778dfa7e96e290f30688d3dbab7f0829046edbab0b5e831f1a20	boundary	Finding output completeness contract.
 literal:c27794b2592cbdd585634ce358becd19c1e8ff8d1e01446045321c47fb32d639	boundary	maintainer adjudication: declared security or interface boundary
 literal:c28d14b7588a8e725ac2e75229f36bde76633dcfbcdfd7c80f2e74024d67d7aa	boundary	maintainer adjudication: review-and-fix CONFIG_ROUTING: Pins fail-closed threshold derivation syntax.
 literal:c335e87515ffeb05de65be52203456df0b0cc6b69cf41b48082358484b980f5b	boundary	maintainer adjudication: declared security or interface boundary
 literal:c353c51f1953e368b48766a440eea5b57788e2f3a081c049b91fb88e26ae22ff	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the quoted delimiter is never to be simplified away
+literal:c385cc83d6f7baab10591b0a99158b18d4525a4f254d54392f39b23c61b39296	boundary	maintainer adjudication: final-modules helper-routing: Keeps the standalone command resolver routed through the single shared detector.
 literal:c3c8e4ec4460fd5e3eba0cab7df47bb3c7e5cae48c7831656b61357d01618e79	boundary	maintainer adjudication: declared security or interface boundary
 literal:c3e7e129a9a60d950be03a77815328a3080ed4689efe796011a7afefe12d1060	boundary	maintainer adjudication: review PB: progress marker/status boundary: #356 pin: skills/review/SKILL.md seeds the '**Status:** 🚀 Reviewing' line the helper matches
+literal:c424b768a14da3a961afec3806a3518ff88df88d2e524299f6f9edda99e8a9bb	boundary	Machine-consumed section-end sentinel.
 literal:c4362b8fbcb4b4a1a222ee69039e7ee590991429673095d9f5cb1bb1d6d302e5	boundary	maintainer adjudication: discovery roots marker is an external-helper output boundary
 literal:c4725709061630fc37ab3d27cb70497e364884c4fc50b897a1fdad15b0115de4	boundary	maintainer adjudication: declared security or interface boundary
+literal:c4ad97236c92bf7e275d948f9d0edf780584a90c373a9c6520532db1eca1624a	boundary	Retain operative cross-surface contract: #362: the Outcome-reaction removal targets the exact path the guard globs.
 literal:c505a65c5b97fe95268230ba6b8df2fa15f354b6d84235cb3b7e035197193ef8	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: ledger text is identity data, never protocol
+literal:c565449cae2dc843383e327a6bd8b1269ecf9575fc5254db21c0a76e255ded41	boundary	Authorization lookup operand.
 literal:c5e88e18259dfdcc0e69fd431f39bed2a551fdd4468fab6a18c0b2f3bec81165	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the persisted iteration-role enum.
 literal:c6111bf63e6b6b7ced70398baaa28c92a7b49ef11ca3ddc2b950e0c5ba9bf2a8	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Stops blind fixes when fixing guidance is unreadable.
 literal:c6cd88a8c5d02827fa567a843a8a0dc4f8a26f0ef971887dd27fd59397a25961	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: only a check NAME with a CONCLUSION beside it is evidence
 literal:c6e026121a612b8ca1175c51444d7e96a501abd4b79b6baa03ab2348abc83f39	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): a non-zero git diff exit falls through (operative errored-diff mechanism)
 literal:c6f46c5b66a8e45331224508e7b0f6b54c41c67f7eac2a0f9a133b9262d2fee8	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Restates mandatory per-iteration persistence.
+literal:c71ef0a82b5f0ea4391a9ecc722ba8c423eb00ef626b86e25c68976cd86c299c	boundary	Retain operative cross-surface contract: mutation-check: implement skill test-writing phase references the discipline.
 literal:c720fb8d32c2498d2437bf7de96d3a9bcc63735056ef6e963f6824027e84fd91	boundary	maintainer adjudication: declared security or interface boundary
 literal:c75a95d80e6f38913c228343ee4c1412bc905f925d5f36b2533326bab84de647	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: embed arm out-of-bounds names exactly the 7 files (Step 1 evidence added)
 literal:c7b4281f6deebb83d59ec6d8e54c0c4f063b27a87f46de466bad92354440aad9	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the read-back, never recollection, is the classification input
 literal:c7c61af975b840c850647f65692133afccb69f92b95f2c87ed109a9dd816044e	boundary	maintainer adjudication: resume discriminator is a cross-phase protocol boundary
 literal:c828cfb2a5d62e21ae258dff2504261716015b13de93e04036863b819c649ca6	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the landed check is exit-zero plus a non-empty file
 literal:c879617282d2c271d2e04b38a131aa28df82d05e9cd04701a75dfd76c2638888	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): a resolver-exit-0 absent/empty threshold key legitimately defaults to critical
+literal:c889882f9b06058b2933c67f324e622b9bacdebf1eb549e5901ce8cfc48326fb	boundary	Executable producer/consumer contract: Phase 3 captures persistence stderr and branches on this diagnostic; deleting or freely rewording only the producer would break failure detection across the helper boundary.
+literal:c8c3f0be2a72c8e9c7963a34f2a62618c19c666e3b0efdd02a7071f64c059e42	boundary	Agent topology and no-fanout rule constrain dispatch behavior.
 literal:c905ee91674b07b969951360986da5bc035f5fb654b4be893fef06cbe30f8573	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #466 mla-fp-direction: Phase 0.6 degraded arm leaves STALE rows at configured severity + records a degraded-check note
 literal:c9b652bef1afa894ca3b202347d7fa5b8e9acb97085418702c0b9cc15652e55a	boundary	maintainer adjudication: declared security or interface boundary
 literal:ca225b06d4162d1658e5ddabe3f0616050b0a0a408204115fa1d8ba30ad0da4f	boundary	maintainer adjudication: declared security or interface boundary
 literal:ca60dcdab6b8b6640bf5405e813e9ca1bfef7af4cb952d877382a87cc3a8f785	boundary	maintainer adjudication: review-and-fix ROUTING: Defines the error-handling failure-map route.
+literal:ca98b9ff3f65d82789f59a8a0354a2b7df7d49a2b7af2747ea946c9301362c97	boundary	Shared read-only review-agent safety boundary; target expands across the review-agent roster.
+literal:cac2be0085af06eb0b8ca4404c03ffd142e6f0b9fe854c81a266528eba4007eb	boundary	Retain executable/helper contract: #275 pin (A2b): create-issue invokes ensure-label.sh through the inline portable anchor.
 literal:cae8f9d9a9f3b7e2448128badd1dddfb4653d52b1c26dc9dcf84f6f5f420de36	boundary	maintainer adjudication: declared security or interface boundary
+literal:cb2d28fa6c9af1e64476a9535f782e7c386739be982c0260cd588927e5cacf7b	boundary	Retain executable/helper contract: #600: Step 2 evidence-axes forwarding consumes the renderer extract mode.
 literal:cb328afc06b3dc9ef11ea5b4b23f3c7e62ee22ecbba195e83612e04bdecdaf10	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #529 the root's 4.1.7 routing row carries the ordering cue (after 4.1.6, before 4.2)
 literal:cb64ecf5488cbfdf96a95a6c9dcfda480f24470c1d35c01fa0746593862127e5	boundary	maintainer adjudication: review DT: dirty-tree safety boundary: #192 backstop: deleting the untracked-file-never-auto-deleted safety rule turns its pin RED
+literal:cb9e24c4c14f49475ec5516e1b7a92e80eefcf90db17a47cb5ed3808e6397af0	boundary	Missing-record condition drives the convergence state transition.
+literal:cc1164d672b5cca8a67b796161aa34b71423eba0d82f16981d8fe0ab148024aa	boundary	Retain operative cross-surface contract: #194 (B) implement: confirm-guard-registered directive.
+literal:cc1ec6d24e5401382cf736e869c4b33d3e1764b36563862d64c237e23a5df2b2	boundary	Order and durable-state precondition for focused-module iteration.
 literal:cccb3e980d41364843b8979473bfa61a281613573c74bfc1f2dfbd20d91425b6	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC1): a non-zero exit from the paginated reviews query falls through (fail-closed)
 literal:cd175c2895713a3096ca46e78e5f4ea88474393b5e42d5dc0edf5bfe3e9a9781	boundary	maintainer adjudication: agents HC: agent verification contract requires a falsifying-input probe
 literal:cd360da86b7bcdfaff040dcee718b35048f8397d633fe798ec95704ba2dc65db	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
-literal:cfea1582f717c8117111e12d42ff156c49b027b6cbcf8e40d2b183b53fbb71eb	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: the record-draft-binding --path re-resolves the root inline (self-contained fence)
+literal:cd3ee1a8b55cbe8dfe90ab8b9890ebfc52cf2143827e045b5aa6ef1d1408acbe	boundary	Retain operative cross-surface contract: #754 A10: phase-2 keeps the rig under an already-ignored scratch path.
+literal:ce2c66f9cd9b5c2baa4faf77ce04f33e0ad7c426f234c1b1856c32826ec468c5	boundary	Exact diff-range operand passed across review phases.
+literal:cede004b2ee18d36e5dc8218f6a43aec4d554595669a1126798cbf8f93d803c4	boundary	maintainer adjudication: runtime helper-contract: Explicit parser class preserves the exit-3 preflight error contract instead of argparse's exit 2.
 literal:cef11c2e9bb95d95347acd53614f50c30c5df401627aef95ed0e8f06779758a7	suite-internal	maintainer adjudication: create-issue module inventory provenance is a suite-internal coverage map, not a shipped contract.
+literal:cf53ba94cec2144116fd75a53c8429543065bfa122a6b9ef37c63e96db8235aa	boundary	Retain security/integrity boundary: #374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file.
+literal:cfea1582f717c8117111e12d42ff156c49b027b6cbcf8e40d2b183b53fbb71eb	boundary	maintainer adjudication: create-issue EH: external helper, portable anchor, root binding, path display, or label outcome contract: the record-draft-binding --path re-resolves the root inline (self-contained fence)
 literal:d0794e6001ad3ba1c61dfff8b8b355ed11880dca1877501389de5c4582f44841	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): precondition 3 admits the fast-path sentinel tally (enables chaining)
 literal:d0b94582eba64570cb684c8ad13974fcdb72c43a08a95828922e792842358b4c	boundary	maintainer adjudication: declared security or interface boundary
+literal:d19a009d792cf22864405b55f28d19655acb9530cb99323572c5f6601f9ddfbf	boundary	Failure fallback routing needed for liveness.
 literal:d22e21b5e7f4cedcafc8dd72b273fc3fb29386a79ceb4a2d64446877432d70b3	boundary	maintainer adjudication: review-and-fix STATE_TRANSITION: Defines the fixer-routed disclosure foreclosure transition.
 literal:d362940becfd73dee313d3847e710b2b35ad03ecbe8f829a7f0bb87250f77160	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:d38ead18680a5cab0bedff4a58d72ea88125a95f3710c8f26021474f7180468b	boundary	Retain operative cross-surface contract: #194 (B) implement: assertion-count-rose conjunct.
 literal:d45f2486a0238beca4f5c140c433016a011e61d8647140637b96cadbef7d3fbf	boundary	maintainer adjudication: declared security or interface boundary
 literal:d59db21a12dbcc981c1dab0a1399781d3dad65ef08b2d1f13a5c0cd9dbbb854d	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Provides the configuration-read failure breadcrumb.
 literal:d5c4b9b77bfa62cbe4ca80f9c5cbb52bd2bc9509e91bd47395537a48f8aa49c0	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: the boundary offer names which trigger fired, and the unestablished state when unknown
+literal:d630464de9fe6278a82c187ebad9e5d47dc4765c50543dae976c3b0898ae42d6	boundary	maintainer adjudication: runtime security-boundary: Renderer-owned containment prevents the reviewed revision from closing inline-code spans.
 literal:d668ecffe2d47a58d6eba61830c4146c463570958a1ceee2741c3445ade7d69e	boundary	maintainer adjudication: declared security or interface boundary
+literal:d68fa4c63ce8e07c62d555358d3f8c1b017d82195b6c8b1a071d90fb65c7c46e	boundary	Executable helper-readability precondition before invocation.
+literal:d6aaca89f8e4ede5b4483aa476e4ffbaabf0e6789f45a408cdcacd6071b4b9b4	boundary	Pagination uncertainty maps to an unestablished authorization state.
 literal:d6b861740ab49570153edb78a5f9bbf00b6422a9c3957ff46d295c9a6f869d8e	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines a persisted evidence-classification enum.
 literal:d6b87bddcd25255b8c491661b353ec3b8074c56a7525f8dde622ff0d0d8effe5	boundary	maintainer adjudication: declared security or interface boundary
 literal:d6bfd883454f7775c80a17b6ab709f9f9c37b1ac29a396625783bd5c42adaf67	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: the state-owner-unavailable fallback carries its own distinct summary marker
+literal:d6ef2310e0b827bd3f1056f869aee681fc27c298f228e3c06c057f5c4060d5e3	boundary	maintainer adjudication: runtime security-boundary: Prompt-injection defense treats attacker-controlled check names as quoted data.
 literal:d78e35a12da1b63f33fcc6daa5bdc07a7f2e67303acb2411e18e8a0f2a8aa219	boundary	maintainer adjudication: review MR: PR-base state handoff boundary: #503 Phase 0.2 stores baseRefName as $PR_BASE_BRANCH (the head-override base operand)
 literal:d7c22a326de603b9d828e23489694da167d8f6442a482dc3e75c61bee41c2a4f	boundary	maintainer adjudication: declared security or interface boundary
 literal:d7e21babba0802505bd5fc6034bd004e43435faf7f140018c0dc80bf045301c5	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: attempt no command outside the injected allowed-tools list
@@ -447,18 +632,26 @@ literal:d815c57c7838a4d091a8e42e725de8c81d346fbc0307c16beb70b42cc9b166d7	boundar
 literal:d88f327f7be3d440a2c34ac01a9569090c5e96ce558d9dcfb5a23c3b18075700	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: a twice-listed defect counts per listing
 literal:d8b1fd8e0a5e0ebabc2000c2b2326b23a04b2d37916d01e96605d3d34df9a757	boundary	maintainer adjudication: declared security or interface boundary
 literal:d8e4eedf8bf497c61b5f7522db1314b40679e6c4ac160049c6dcff9477de05ed	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: template owns the amended two-transport read-ordering sentence
+literal:d962869926d9300b57b9858db2538da6fde6c65e925b75493f779e12bbac109d	boundary	Retain security/integrity boundary: the Create-Issue Phase 2.4 dry-trace rule must cover mutable Markdown and external-format parsers, not config JSON alone.
+literal:d9a7cf125c3dc11c51f4587978a37026c4c856d8bcea782a872a3e4aa913f315	boundary	Precedence and routing rule between interactive directives and loop execution.
 literal:d9b0df56acb1accf2918431f44f38f39f955b1962234b9c476056919a667a456	boundary	maintainer adjudication: declared security or interface boundary
 literal:d9bd4fa854769ca48eaf4a73526c113728ba244e254422d9aa5eae433948687e	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: reconciliation arm — recurrence of a resolved entry
 literal:da3ca3bbb2e6b13fd7059c4d562d0a04d21e7f5ddf99acd76e96e36a6a4fe03f	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: SKILL forbids a boolean-only fallback (string 'true' must read as enabled, matching the gate)
 literal:da42e88cd0f57a0a44b71f93a96ef4bae9d9295aec68e7be9b40975a1536e18b	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: a diverged regeneration is surfaced in the same turn, before dispatch
 literal:daa8494cd7b0174aac3b68a2ac83d671ad95012a1a0b5ed2a54e31cc4ef5d025	boundary	maintainer adjudication: other-skills state-transition: Advisory check cannot change init success to failure.
+literal:db8cd60c0704d1f50a2b6851dacabab117b4082f7a73931eb85ec6be06f90ada	boundary	Retain operative cross-surface contract: #230: phase-2 §2.1 keeps the operational 'narrow or suppress' prohibition (AC1 meaning).
 literal:dbbe1eaf31d0b5ccec8fb3bc4ba5f365355281afeaebfb391a57a89e662f08c5	boundary	maintainer adjudication: declared security or interface boundary
+literal:dc3825a302e27d9c1d4df0b749d3f64a9460327cad21163e2cd70efc3a02252a	boundary	Retain operative cross-surface contract: #443: live create-issue extension carries the exact ## Audit dimensions heading.
 literal:dc4cad584589d7eb1121e0d30231d3324c0d501dc97f35332a57e1cf7470d77d	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: reason-selection observes exit status, never empty stdout as the value false
 literal:dc8b6cd6fb203412c34a4025e7e1656fb2ee60dec01998e2ea82d93dd027fff2	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): every intervening changed path must be one of the $BLOCKERS files (subset check)
+literal:dcdac3f0fe8d5c748acfcb9986598060afd78daeb7519d66e0a10705556fcc4a	boundary	Retain operative cross-surface contract: 429/T4: §2.1 carries the MERGED+non-ancestor merge-base ancestry check (coupled mirror).
 literal:dce2a99f11d8713cd3896cd8cbcbc53e96a4a936fac2e7bceb9f87ec55fb4843	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
+literal:dd3e068a614663beb101732d0447d17e200bba068e100744f72254ee3b03abb0	boundary	Retain exact schema/sentinel contract: #312 item 6: Phase 2.2.6 requires an in-repo breadcrumb at the deviation site.
 literal:dd5467008e5629cedc4a823c9c5744f785870a087f8d6ba2056e9c7122b5b403	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Prohibits clean approval after unreadable shadow coverage.
 literal:ddc5cb8ddc9976eb2342953cde08df0074a95248f13aed9bd86c3460051f35e5	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: the tool owns the per-run offer ceiling; the run never counts rounds itself
+literal:ddcbd9dc7cf67870d0e0ff96fd5f29f53e45b1411c875a1af53fe858279382a6	boundary	Retain routing/state-transition contract: #312 item 10: Phase 3.2 triage evaluates against generality/consumer-facing ACs.
 literal:dde786211f91d32b3630f9a1d21884c0d4ca062aeb60089286afbac87c76a692	boundary	maintainer adjudication: review MR: modular phase-routing/cross-phase boundary: #529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)
+literal:de78ca3d82bff3cd83eede704318715c532bd76b328ee6c1c9cb7bd1f89936ef	boundary	Explicit verdict-to-step routing transition.
 literal:de7b4d7ab05896f9fab3152604eb6425f69d4858e52f7d95b996cc4f6c63db63	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:dea91d2ddd48a6920f977a7daf9af761bdd31ac770484cc47579577db37ff3d7	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the distinct below-threshold evidence marker.
 literal:df2e289f424a1526f907029711ce72f74b37be90a81d2a27338f7d3156093b68	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: ## Evidence axes forwarding sentence (SKILL contract, exact heading)
@@ -467,6 +660,7 @@ literal:dfc1906b1e51f84ac22aa82abfd1f5a6c5ea277eb62ccaf731e9a8752148586a	boundar
 literal:e00601aadc81538802509f46f3e345c2ea5b802af56669669d89961cb01259c2	boundary	maintainer adjudication: recorded classification reader is a Phase 1-to-2 handoff boundary
 literal:e093bc5c3147943a09d1c3e36e1b0e83f6e94401377073d8d3ce7abcd924f9da	boundary	maintainer adjudication: declared security or interface boundary
 literal:e0b63ac9667a88f9a86f6170e7b0120a8098749ca5bdf78efd1bd081f5bd9a7b	boundary	maintainer adjudication: declared security or interface boundary
+literal:e16edd887cc1d8550490064f7e47ff94534304d77c8849590aa6a9dc97edfd7d	boundary	Bounded retry state-machine limit.
 literal:e203b974d09d728cd32022b98f4291851b917066d2f5d07428fb428bed38fbe3	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the dispatch arm is the tool's answer, never the orchestrator's
 literal:e22362665cb545dbf52d2b7cc04083ffb8e27d9ab3bf053ffd9c5a649a7496bd	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7): in-context recovery arm
 literal:e278203683de4c07e8de547720a46c0f267e43e3c4664e08c44fd313031bf0fe	boundary	maintainer adjudication: review-and-fix REFERENCE_INTEGRITY: Defines malformed-marker reference failure conditions.
@@ -476,10 +670,15 @@ literal:e3c7a13a1d691113f7cfb8167e555657d9ee3a821ea3c6ec4462e82c8f3ea026	boundar
 literal:e40ef6ce68dcc4210704929da9d22b5938d9b0b54f07c57daec2153fca842ddb	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC1): precondition 1 paginates the reviews read (no oldest-page truncation)
 literal:e46e495bd0f5d6311ed8346a26c2a410ed3c46d998bcb6ba155f60232f8489dd	boundary	maintainer adjudication: declared security or interface boundary
 literal:e527fc20ab09b9fc279ec60a048ccd97dc61440ba481beade46988bf4c060855	boundary	maintainer adjudication: review AR: agent dispatch/routing boundary: #425(rev): iterations is not forwarded to the --agents dispatch block
+literal:e52c502c767d7b5a7922b8324f4f769a2c9f18e090090766db9578767133b40a	boundary	Names routing changes that trigger the review re-sweep.
 literal:e5868861b117a02c4d490441e66ca8c5f529cdd99f6cb81ee451a8ddf612baa7	boundary	maintainer adjudication: review-and-fix SENTINEL: Defines the preservation completion sentinel.
+literal:e5cba11ddd9e989354fb638e92b18e6c0436d6f3a6492d1efd8b791104eb22f4	boundary	Severity-to-routing mapping.
+literal:e5d9bba4de555b6dc017c442b17ba4a30e1315785d36d1c01adfad6da23b90d0	boundary	Executable input guard before an external identifier lookup.
+literal:e5eb0b99653963ebb40db4b2bcc5ce4e35234443ba68d156834fdde5a716c867	boundary	maintainer adjudication: final-modules write-scope: Declares the helper's single-file write boundary.
 literal:e653f5696d826de4e8bf311ef984c8202de5b17ee42b8418c6baba5f4e192dfe	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:e697093d3539cffca0839381ea29cc7747292f14bf6ad0b217cca982ab717559	boundary	maintainer adjudication: all-workflow-blocked stop is a credential safety boundary
 literal:e6c4ccff1bbe068329349acd3418d436b629df374874032959fb5baf44123054	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the flag-requirement note spans every arm, not just the inline pair
+literal:e6f26eb54a8f21b7cfc46957b123f0a51a6c7ef8efa343cec73f38656f75c909	boundary	Shared agent asset; included because Implement Phase 2 dispatches it. Retain routing/state-transition contract: #628 explorer calibration states operands + counting rule inline.
 literal:e73c3828c639bf584ba8a7a7d7fbb2f530bf5ff507d62035d6eca92d22aca455	boundary	maintainer adjudication: declared security or interface boundary
 literal:e786ce8feaea036ef5d7a31f5319d7ed8f4d04c8c43eecfed9616babb3966186	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the boundary offer names the self-verified state
 literal:e792946df8797cc7e14b7aed1b82e76b788d24d65385c692c9eb7cd8beafb2d5	boundary	maintainer adjudication: declared security or interface boundary
@@ -488,25 +687,37 @@ literal:e80053a56c6975bade715db7aaa1ac249031445b4acbd1cf15396c42eb0a3ee6	boundar
 literal:e8112579622995bacbc13dbf7cebf4eac163928d3c4b3a34a073b6d019d87362	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #424 T12 Phase 0.6 pipes the cached diff into the helper (proven cloud shape)
 literal:e86d1fd957004daff85288a3056d1d66f87e33b66db4243471cc1a35579e543b	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:e8dc788f68ef6e991a7f7ee5bc2f30a2777e158c472d4e80f574e7368cea9a78	boundary	maintainer adjudication: docs-root caller_quoting_contract: The install instruction carries the runner-specific quoting rule needed to preserve a workpad text argument as one argv value.
+literal:e9a982a86c964cf4d1e06fc60cbafe7896e98d8539a8c6bac7612a7730b11650	boundary	Gate scheduling contract.
 literal:e9bc26f895177b6f1badb02fa8ad8213a5b5b2337426eac7fec034f1b47b87c7	boundary	maintainer adjudication: read-only probe rule is a deferral safety boundary
+literal:ea34eb082b49267972af1fdb4d2f1f02a85979b52bec01cd0d97e6b586e31292	boundary	Retain routing/state-transition contract: #312 item 4: implement Phase 2.4 carries the six-shape set (valid-falsy row).
 literal:eac7b28f108c2f7673be69fec21c6c58e0f1b0b57e303076d22dac4663753d5e	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: create-issue makes batching conditional (one-question-per-call → sequential)
+literal:eb9439c6417ee4d8295c8f6aa0c1547b795ccb4914bf4de46ef08c3a553eb0f3	boundary	Iteration-accounting contract.
 literal:eb97c2b27bb8d4ce77bfe8e80f6f359a80a712c737109ff0804fc3a1821f7df1	boundary	maintainer adjudication: review-and-fix GATE_SCOPE: Defines the complete finding population for the gate.
 literal:ec1f52b5cd6c93af266dcadc7fc0d7aa642551ad9f812d2aa353d050a9e28248	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the DRAFT-UNREADABLE embed-retry variant shows --round
 literal:ec4fa6f15acf7427b36a7e4c4bd22544b43c337f9169d78891ece3f4634cc8f8	boundary	maintainer adjudication: create-issue RS: reference-loader entry marker, degradation, breadcrumb, or file-read security gate: the degrade rule enumerates the malformed-shape matrix
+literal:ec7542793e48b15b0947b1ad9cf0e7b5911a4f4e4a4066986071a4b5afb9eb37	boundary	At-cap state transition.
 literal:ecd14d9eff152caea3651a08590b8966331834ba6efebc1c9f8917fe1baa1b0d	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: adjudication is write-once per round
 literal:ece839bbf2f58b5a0a55b0b997beb7c6e17706b3d7a40535d0522433badb5981	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7): one-repair (re-dispatch once) sentence
+literal:ed0d0c9599998a2712e4fe17bf5f7b1d9bec5f6389a6b614acf9beb5f90131cc	boundary	Retain routing/state-transition contract: #312 item 2 (broadened #446): create-issue Step 3.5 re-applies the relied-on class.
 literal:ed74dbce82dc4a856ea16ca34fbface51d944f0f4ee88e4ba4af47bf2b737b96	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: an erroneous invalidation needs no amend path
+literal:edd9b54b5cdbe8fbff7a0e229c94b28e15b96cd69774da43391b9582dc9806e9	boundary	Machine-readable discharge-state enum; ambiguous shared target expands over implement, review-and-fix, and receiving-code-review extensions.
 literal:ee4fca0d24e3886ba8b096690e11a9a7a58cd6e2dd307823703d6af51ace1257	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines the disclosure object emitted in deferrals.
 literal:ef767344d40a12d5744b79ab1e684a0db895ad746c3d728ebe07b2c5f7ffdba2	boundary	maintainer adjudication: declared security or interface boundary
+literal:ef81a4a10195ced71258b661eb11af2d5839d26aea6748c8bca4404b27745ba2	boundary	Structured progress-comment field consumed as the reviewed-commit handoff.
 literal:efacc4a611a07c6d895f5efd3208a42021380a922816c942e8359471b444f45b	boundary	maintainer adjudication: declared security or interface boundary
 literal:effde75a679bcdec81eaaf4b441288b830c2bada2edfad94558aba3aedfe1888	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines a persisted fixer-decision enum value.
 literal:f01890f18cf488abecb1468f43417dea5317084a9db2717f07ab922e2211eed9	boundary	maintainer adjudication: agents RT: closed lite-category routing set deliberately excludes absolute_claim
+literal:f031679afdf4c21c925f2aa6139940c013327a3eb216c434ae8385e41886822c	boundary	Retain operative cross-surface contract: #379(AC7): implement extension carries the interpreter-faithful probe rule.
 literal:f03eb6dde1935949b7d8a914160578cac9cea9cd11ef42d7606835611c88f06f	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: file-arm carriage check returns a full-content git hash-object digest for identity compare
 literal:f0d87e6ddde7a58cec357555a6c8c82b5750e7a9b17318bb41e84ff73ea69a14	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4): a failed/out-of-enum threshold read falls through, never defaults to critical
+literal:f1fc85722a85c2ee3303bd0882ef87e712d7c6c701c83df77da68fc2fd5b3cdb	boundary	Shared agent asset; included because Implement Phase 2 dispatches it. Retain operative cross-surface contract: #628 explorer carries the quantitative-claim calibration sentence.
 literal:f21b3fc56a9804ccaa05e46195a060c5a72b86139cd8ef49b882dd15758a6120	boundary	maintainer adjudication: declared security or interface boundary
+literal:f223a6108f35987f417ed48f8aeacc129199ce5d01da952616c909d66b75cfba	boundary	Fail-safe rule applies to both identity and permission operands.
 literal:f22aefc0db1e7fee22b5bde6c5390a2b72af686d1dc7432b3b2e1990aa89a85a	boundary	maintainer adjudication: other-skills cross-phase-operand: Step 4b must consume the diff established in Step 1 rather than a newly derived operand.
+literal:f2eda3b0d61cfeb98a2a2ca040be742fcc8dabdbf184b3f4d9cd6a112aae7360	boundary	Gate firing condition on a named early-exit state.
 literal:f308a8acd96db4b5cc2242c354ced09b61b3858b2352eb01effff98937962258	boundary	maintainer adjudication: prompt-extensions RT: mutation proof protects the same prompt-edit dispatch boundary; RT: prompt-surface edits route through an isolated writing-skills subagent
 literal:f3d9cf25c8b4ad1c3259c73b1673f532c6686282d9328c43c3cc2d428c389efc	boundary	maintainer adjudication: create-issue SO: state-owner producer/consumer contract: the summary line's fields are read from query-summary, never recollected
+literal:f42ec394fb253bc3c192250cd9466e30f15edd6a748e17a473c9d2a28e87e1fa	boundary	Retain executable/helper contract: #235 (B) phase-3.3: the --persist backstop command is actually invoked.
 literal:f4f8332e725d41442406fff4f8f17d584ed88b3d99688788c3f10647cc410623	boundary	maintainer adjudication: review DT: dirty-tree safety boundary: #192 backstop: deleting the snapshot-delta-scoped restore turns its pin RED
 literal:f516e982add44305524d408ae466bda58fabe4e7f88d1775335da40716fd2e2e	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC4/consumer): a marker-shaped string in description prose is NOT a marker
 literal:f5340e4bd7ff525af0bf19584d212e57e0a94a56575fe7fb3f02839223683493	boundary	maintainer adjudication: create-issue GD: generated dispatch pointer or closed regeneration-input schema: the skill invokes the dispatch-instructions generator
@@ -525,9 +736,14 @@ literal:fb28601c06d91d52600f0ecb8603a8271b76ac677a39a5a07e0caf603c38160f	boundar
 literal:fbf08b324f02ef017af860fdeb8a7398bb4518ee228f4f9e916b81c8a5996a40	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Defines the clean prompt-addenda attestation.
 literal:fc07386bf573529b07f2f43e2577484adcdba65f1f449b7e0e7f7895e539c00e	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:fc6fdf54e94b54f2c20be14a893222db45000d4e4bbb8c0414fb2a8854aaf850	boundary	maintainer adjudication: declared security or interface boundary
+literal:fc734e0230a5e2368b24af8fb5fce40cdba51f0dcbe373068c49127675b69526	boundary	maintainer adjudication: final-modules fail-open-contract: Preserves the if-not wrapper that makes detector failure fail open rather than aborting and swallowing the manual review command.
 literal:fd27358bb78165abaf0f6ec900894c216cd773d5a0a45c2431c24f3b166b0d49	boundary	maintainer adjudication: review-and-fix SHADOW_CONTROL: Preserves convergence-only behavior outside engine changes.
+literal:fd42c1574de63b3b4efce0dcb2719b617a2ae3f767789d29f10a4115ac57d1ad	boundary	maintainer adjudication: runtime routing-contract: Executable closed set excludes the referent-less rule from adjudication carry-forward.
+literal:fdec6962fb023e3dc617fa963b81b4c262ade6a32009eb0ddbfb7e163fb09a74	boundary	Machine-consumed section-start sentinel.
+literal:fdf806f3a9e420f4b4eb8e97bb8bee799443b7da863f41acfa8c086bc79483b3	boundary	Retain routing/state-transition contract: #548: loader-failure arm records the dedicated line.
 literal:fe31d0fbfe029cd13e8676d428fc82374153544e5baac2d159babd6d17bb0a5f	boundary	maintainer adjudication: declared security or interface boundary
 literal:fea7ed33e307edc9fd5eef37fef719260dd69cfeb1c4d4627e149d697eb689cb	boundary	maintainer adjudication: create-issue TR: checklist state writer/reader, slug binding, status marker, or creation-time contract: fallback defines exactly the three status markers
+literal:fedc01477ede9168c1be6397f406893c4f02a3260cf25bbf81ce0e9a46d484b4	boundary	maintainer adjudication: final-modules required-copy: CLAUDE.md's grant-flow summary is paired with the canonical cloud-allowlist guide; the coupled summary/canonical-doc contract must not be unpinned alone.
 literal:feec4c36595e251cb0330119baeb79dad69060447552a5bd811a3ed8ca37d764	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:fef55bcc4f0c7ed38b541d1e006888ceff02779e2f4c8b305b0a7ce96dbfcaf6	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: mandate routes to the inline fallback when no task tool is usable
 literal:ff2b58bf7a00f8cd25b0d530f803f31e2d9cbc02898d273ac46b600ef1fbddcd	boundary	maintainer adjudication: review SL: stale-lint helper/sentinel boundary: #466 mla-neutralization: review skill Phase 4.1.7 carries the producer sentinel-neutralization rule
@@ -543,43 +759,3 @@ site:7e37a4f8abce03f059b35edd5b60b227353bcf429b7aea801da9fd41b192fbe9	boundary	m
 site:7f7e5b1691c845213b9d7f0d5dc9e42755f3b5a6d038aad1153b38a8d149c1a2	boundary	maintainer adjudication: dynamic literal is fail-closed pending retirement review
 site:803d470a4f863eedb0862117ddc239d6995b684550e5304716b359b7cffddc92	boundary	maintainer adjudication: dynamic literal is fail-closed pending retirement review
 site:ff4caf73819b43a74484df4f5ff44795305cc273269cf595c0310a2e81a6426a	boundary	maintainer adjudication: dynamic literal is fail-closed pending retirement review
-literal:0280bca412646c896d462fd3fafb39f1ae36f74be5a740512008c45696c98170	boundary	maintainer adjudication: final-modules workflow-routing: Anchors the backstop step used to scope the adjacent workflow gate on both paths.
-literal:0713061e2ef9391f7ae9f11382f3a0e91a9f6d3abb39941b11c867c2b23d5200	boundary	maintainer adjudication: final-modules state-title: Maps the ci-approval-required state to its documented check-run title.
-literal:09fa525320f26c617c3070748e2c583edb7ac693d484a4ac7b6f00f5d29de1ad	boundary	maintainer adjudication: final-modules credential-contract: Defines the two-strike stop condition for expired GitHub App credentials on both implement and review-and-fix execution surfaces.
-literal:14c13992d3c9ad5f4b087d6a9ecddb91f6c7031544bef5add0d7f685026a0174	boundary	maintainer adjudication: final-modules workflow-state: Writes the workflow output that makes the incomplete review eligible for the backstop.
-literal:23257d16eee51ef524d37f33c709c20ccd21d140c8350bfbe9e4e8ca00be166c	boundary	maintainer adjudication: runtime schema-contract: The helper's documented input object includes the provenance discriminator consumed by normalization routing.
-literal:2328d10be70409ed883467060adbd29ed75a6013a5c67b30a3801638791b94aa	boundary	maintainer adjudication: final-modules conflict-state: Defines the fail-closed needs-human-reconciliation transition shared by all three conflict handlers.
-literal:244652f6a1529efd7dc3a2259622df08075aa66e0763e0cf7a98163a18585abe	boundary	maintainer adjudication: runtime sentinel-contract: Exact unknown-CI sentinels are coupled to the summarizer and their fail-closed interpretation.
-literal:3c75f7a6f48a515cae5f474a428f26304c61bc98c4a36240d6c707c33eac56ed	boundary	maintainer adjudication: runtime helper-contract: Resolver sourcing is the executable boundary for honoring the configured GitHub CLI.
-literal:3e072e90fc6c3c9d6b8120db8044cd65af45f46eb83ad01bde6f023cc13632e8	boundary	maintainer adjudication: runtime cross-phase-contract: Prompt contract tells the review engine how API-derived CI conclusions discharge evidence.
-literal:4b193cb86bae5ad205d65e8baa25b8f4fb7c2154492632d61d1fa130f5b6534d	boundary	maintainer adjudication: runtime execution-boundary: Prompt contract describes the harness's deny behavior and prevents unsafe command planning.
-literal:50f946020a4a1c4253eb2408ae8140375dbcc7ff036833e2a032989377ef21da	boundary	maintainer adjudication: runtime state-vocabulary: Closed state vocabulary prevents a merged prerequisite from being treated as blocked.
-literal:587bacb0dcaffd8c9588453e9d9ebda3be0a766c16f493c69ad73d8d07e96414	boundary	maintainer adjudication: final-modules routing-anchor: The section heading is the extraction and cross-reference anchor for the byte-identical generated-artifact conflict rule.
-literal:5ee3aac1887b395910b0c88884d104e7cf002bdb54ab5e12c8be0ac098eb2da3	boundary	maintainer adjudication: final-modules generated-security: Forbids bypassing the manifest generator by hand-editing a generated allowlist.
-literal:65fa1e8ab03a98ce86c052f0e29a9a4d2690c432020ddaf591dcc6ebb0fcff62	boundary	maintainer adjudication: final-modules success-sentinel: The exact post-helper breadcrumb is the success signal that prevents a failed POST from being reported as a fired re-trigger.
-literal:776a66a5273f86484823a0383a9fe9d816014a9863b3d9e33bb4b931e10e0ff1	boundary	maintainer adjudication: final-modules helper-routing: Routes the agents-seam probe verdict through its tested helper.
-literal:7ca31849e728bb739643144b8ad6577055de1ee3f9acd113302353c82219c41d	boundary	maintainer adjudication: runtime fail-closed-sentinel: Operative prompt rule prevents missing CI evidence from being interpreted as green.
-literal:827a7dc5efcff82873a8b16f5143ef5f23bd2c4f766cd9cbe0f218604b481564	boundary	maintainer adjudication: final-modules vendored-routing: Keeps workflow dedupe routed through the vendored shared detector.
-literal:84839b6cd76d3bafa51af8e15b4b47ad749ff073d129c7bebd95a67da0d398f0	boundary	maintainer adjudication: runtime state-routing: Executable provenance arm distinguishes post-shadow parked records.
-literal:86371a75961059db6bca0b442e7ab1451d1497811b8f3d0204c412e7c5c5afde	boundary	maintainer adjudication: runtime producer-consumer: Exact warning sentinel is consumed by the hard-stop guard after push rejection and failed restore.
-literal:8ad66665f48f5eb43451cfc8c7891adb55afbf019538e6a02d830f5dbc190d6b	boundary	maintainer adjudication: runtime security-boundary: Renderer-owned containment applies to the allowlist interpolation independently of callers.
-literal:90f0b0ee408323163871cbb5f9f3cdd911dad306142fc66081568fd0f12b1c6e	boundary	maintainer adjudication: runtime security-boundary: Companion rule preserves trust in API conclusions while distrusting names.
-literal:92f15c33cc771e6c583ace81b75185c71e18d2366e67ed5f96caf80eef1e542e	boundary	maintainer adjudication: final-modules credential-sentinel: Names the compaction-immune wrapper diagnostic that exposes bad credentials.
-literal:94854c3eba43bbfec73d946c777b2b24c741dbe4e48b66fbe12614af0db08650	boundary	maintainer adjudication: runtime schema-contract: Expected-field constant defines the synthesized-shadow completeness schema.
-literal:966aca9e1b7296c3f5b60f406219f4717004da34871aeb3ad0a9d37c68cabf7d	boundary	maintainer adjudication: final-modules runtime-sentinel: Asserts the runtime launch-failure classification emitted for every unlaunchable row.
-literal:9eab0e3cb2549fbe7669d25322921b6b5b916c11c5c1e5e6b585cfcf35ad5f6a	boundary	maintainer adjudication: final-modules oracle-command: Names the non-writing registry oracle used to classify generated-artifact conflicts.
-literal:a821c8a82b7e95df209be67586e5477e13e2d048767a377ed254db061399661e	boundary	maintainer adjudication: runtime schema-contract: The helper's documented input object carries the source-authored excerpt field across the verifier boundary.
-literal:aa550b738271c486fe7566596000d221d24d42d916449ad2f51927a272b9862d	boundary	maintainer adjudication: runtime state-routing: Executable provenance arm routes shadow records into the shadow classification.
-literal:abcfd22ee1a96cf6112493d0c9d90edcc440fd8940499cec1416dcefb336c9ce	boundary	maintainer adjudication: runtime security-boundary: Executable sanitizer prevents attacker-controlled check names from closing the prompt fence.
-literal:b2b215ef3f0fc86339286a5b67ac0c62360ee8eedf9879e0d3676ed3f3f86cad	boundary	maintainer adjudication: final-modules registry-contract: Defines the same-PR registration obligation for suite-gated generated artifacts.
-literal:b3cc9cd00a0fa26a232b540b172572255b6ee6a0e156572931563408004cbd04	boundary	maintainer adjudication: final-modules helper-routing: Routes the ScheduleWakeup probe verdict through its tested helper.
-literal:b4a1a35916166c210f5c13a646bad2995b0ad2f390728c106960a6b069d0e92e	boundary	maintainer adjudication: runtime helper-contract: Resolver sourcing is the executable boundary for honoring the configured jq binary.
-literal:b9e7f8120dc1e314824299b0b122cb6e34066fe4e1f6555722c1924a8d95e853	boundary	maintainer adjudication: runtime routing-contract: Executable predicate scopes mutation to the Resolves-anchored run link.
-literal:c385cc83d6f7baab10591b0a99158b18d4525a4f254d54392f39b23c61b39296	boundary	maintainer adjudication: final-modules helper-routing: Keeps the standalone command resolver routed through the single shared detector.
-literal:cede004b2ee18d36e5dc8218f6a43aec4d554595669a1126798cbf8f93d803c4	boundary	maintainer adjudication: runtime helper-contract: Explicit parser class preserves the exit-3 preflight error contract instead of argparse's exit 2.
-literal:d630464de9fe6278a82c187ebad9e5d47dc4765c50543dae976c3b0898ae42d6	boundary	maintainer adjudication: runtime security-boundary: Renderer-owned containment prevents the reviewed revision from closing inline-code spans.
-literal:d6ef2310e0b827bd3f1056f869aee681fc27c298f228e3c06c057f5c4060d5e3	boundary	maintainer adjudication: runtime security-boundary: Prompt-injection defense treats attacker-controlled check names as quoted data.
-literal:e5eb0b99653963ebb40db4b2bcc5ce4e35234443ba68d156834fdde5a716c867	boundary	maintainer adjudication: final-modules write-scope: Declares the helper's single-file write boundary.
-literal:fc734e0230a5e2368b24af8fb5fce40cdba51f0dcbe373068c49127675b69526	boundary	maintainer adjudication: final-modules fail-open-contract: Preserves the if-not wrapper that makes detector failure fail open rather than aborting and swallowing the manual review command.
-literal:fd42c1574de63b3b4efce0dcb2719b617a2ae3f767789d29f10a4115ac57d1ad	boundary	maintainer adjudication: runtime routing-contract: Executable closed set excludes the referent-less rule from adjudication carry-forward.
-literal:fedc01477ede9168c1be6397f406893c4f02a3260cf25bbf81ce0e9a46d484b4	boundary	maintainer adjudication: final-modules required-copy: CLAUDE.md's grant-flow summary is paired with the canonical cloud-allowlist guide; the coupled summary/canonical-doc contract must not be unpinned alone.

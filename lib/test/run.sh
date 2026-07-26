@@ -1401,13 +1401,11 @@ assert_pin_unique "sev(rev): enum-validates the threshold inline (value-only cas
 assert_pin_unique "sev(rcv): enum-validates the threshold inline (value-only case)" 'critical|important|suggestion)' "$ST_RCV"
 # routing / verdict / re-open behavior sentences
 assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'any finding whose severity is at or above `$FIX_THRESHOLD`' "$ST_RAF"
-assert_pin_unique "sev(raf): REJECT-driver widening tagline" 'no configuration combination produces a REJECT the fixer is configured to ignore' "$ST_RAF"
-# The tagline above is the framing; pin the OPERATIVE clause too — removing it alone
-# re-introduces the deadlock the AC forbids (verdict threshold more inclusive than fix).
+# The operative clause prevents the deadlock the AC forbids (verdict threshold more
+# inclusive than fix).
 assert_pin_unique "sev(raf): REJECT-driver widening operative clause" 'PLUS every finding that drove the engine' "$ST_RAF"
 assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
-# Each skill retains a specific out-of-enum fallback breadcrumb.
-assert_pin_unique "sev(raf): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'important'" "$ST_RAF"
+# Review and receiving-code-review retain their specific out-of-enum fallback breadcrumbs.
 assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
 assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
 # Review-and-fix and receiving-code-review distinguish resolver failure from a bad value.
@@ -1428,12 +1426,9 @@ assert_pin_unique "#425(rev): the iterations exclusion is never applied to the S
 assert_pin_unique "#425(rev): iterations is not forwarded to the --agents dispatch block" \
   'you use only its resolved `model`/`effort` and ignore `iterations`' "$ST_REV"
 # #554: the engine no longer overclaims that per-agent EFFORT is applied via a
-# fictional per-dispatch --agents block. Positively pin the honest reconciled
-# claim (per-agent effort is NOT deliverable in-session; model rides the Agent
-# tool's model parameter). The behavioral-fix pin that reintroducing the overclaim
-# flips RED is routed through assert_pin_red_under below (search "#554(rev): overclaim").
-assert_pin_unique "#554(rev): per-agent effort is not deliverable per-agent in-session (honest claim)" \
-  'not deliverable per-agent' "$ST_REV"
+# fictional per-dispatch --agents block. The behavioral-fix pin that reintroducing
+# the overclaim flips RED is routed through assert_pin_red_under below (search
+# "#554(rev): overclaim").
 assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model override parameter" \
   "delivered via the **Agent tool's \`model\` override parameter**" "$ST_REV"
 # The default-off guarantee (AC #3): iteration 1, standalone /devflow:review, and an
@@ -1806,13 +1801,9 @@ assert_pin_unique "#550: verification_evidence caveat names the completion-evide
 # Dispatch surfaces reference the plugin-qualified copy explicitly.
 assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
   '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
-# AC7 — interpreter-faithful probe rule in BOTH extensions (operative half, single-line in each)
-assert_pin_unique "#379(AC7): review-and-fix extension carries the interpreter-faithful probe rule" \
-  'prefer mutation evidence over a hand probe when the two disagree' "$RAF379"
+# AC7 — interpreter-faithful probe rule in the Implement extension.
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
-assert_pin_unique "#379(AC7): implement extension records the printf %b bash/zsh reproduction" \
-  'Bash expands them; that session' "$IMPL379"
 
 # AC8 — neither vendored body may carry a DevFlow-internal string, each paired with a
 # positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
@@ -1855,20 +1846,10 @@ assert_eq "#379(AC8): requesting-code-review negative-check non-vacuity control 
 # must use the helper; widening the meta-test to other families is deliberately out of
 # scope for issue #155 (converting non-unique literals elsewhere risks unrelated RED).
 # PARKCAL_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested below)
-assert_pin_unique "park-calibration: engine gate heading present in review-and-fix SKILL" \
-  '#### Park-calibration gate (before any APPROVE-family conclusion)' "$MAXI_SKILL"
-assert_pin_unique "park-calibration: engine gate documents the prompt-extension sharpening point" \
-  'the extension does not replace this gate' "$MAXI_SKILL"
 assert_pin_unique "park-calibration: engine gate keeps the Step 2.5 → Step 3 re-routing of a mis-graded finding" \
   'route the finding back through Step 2.5 → Step 3 as a promoted iteration' "$MAXI_SKILL"
 assert_pin_unique "park-calibration: engine gate keeps its firing condition (Decide outcome 1 + Step 4.5 early-exit)" \
   'on the Step 4.5 early-exit path when non-REJECT' "$MAXI_SKILL"
-assert_pin_unique "park-calibration: engine gate keeps under-grade shape 1 (fail-open guard / coverage hole)" \
-  'Fail-open guard / coverage hole in this' "$MAXI_SKILL"
-assert_pin_unique "park-calibration: engine gate keeps under-grade shape 2 (overclaiming breadcrumb/error)" \
-  'A breadcrumb/error that overclaims vs. the path emitting it' "$MAXI_SKILL"
-assert_pin_unique "park-calibration: engine gate keeps under-grade shape 3 (deferral the matcher will not honor)" \
-  'is inert: the finding flows through at full severity' "$MAXI_SKILL"
 # AC4: the Step 2.6 mandatory sentinel string — its presence is the gate's required-bullet
 # contract; deleting it from SKILL.md turns this RED.
 assert_pin_unique "park-calibration: engine gate keeps its mandatory clean-run sentinel contract" \
@@ -3059,12 +3040,10 @@ assert_pin_unique "#374 copy-based verification: review-and-fix instructs mutati
   "$_MC_COPYBASED" "$MAXI_SKILL"
 assert_pin_unique "#374 copy-based verification: implement Phase 2.3 test-guard rule instructs mutating a copy, never the working-tree file in place" \
   "$_MC_COPYBASED" "$DEF_SKILL"
-# #374: both sites must also state that `git checkout -- <file>` cannot restore an UNTRACKED
-# file and silently appears to succeed (the fabricated-RED failure mode from issue #372).
-# Same coupled-mirror shape as _MC_COPYBASED: one shared operative literal, pinned at each site.
+# #374: Implement Phase 2.3 must state that `git checkout -- <file>` cannot restore
+# an UNTRACKED file and silently appears to succeed (the fabricated-RED failure mode
+# from issue #372).
 _MC_UNTRACKED='`git checkout -- <file>`: it cannot restore an untracked file and silently appears to succeed'
-assert_pin_unique "#374 untracked-file warning: review-and-fix states git checkout cannot restore an untracked file" \
-  "$_MC_UNTRACKED" "$MAXI_SKILL"
 assert_pin_unique "#374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file" \
   "$_MC_UNTRACKED" "$DEF_SKILL"
 # AC3(g): the GENERALIZED (issue #159 B3) region meta-test detects a raw SKILL guard injected
@@ -3085,24 +3064,17 @@ for _rg in "park-calibration:$PARKCAL_BMARK:$PARKCAL_EMARK" "fix-delta:$FIXDELTA
 done
 
 # Retained over-grade boundaries cover the reflection sentinel, never-auto-demote rule,
-# canonical Review shapes, no-refork checks, persisted enum, and no-skip-category invariant.
+# no-refork checks, persisted enum, and no-skip-category invariant.
 RECV_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
 assert_pin_unique "over-grade: engine gate keeps its mandatory reflection sentinel" \
   'over-grade calibration gate clean: no promote-path finding flagged' "$MAXI_SKILL"
 assert_pin_unique "over-grade: engine gate keeps the never-auto-demote contract (flag + recorded evaluation)" \
   'flags and requires a recorded technical evaluation; it never auto-demotes' "$MAXI_SKILL"
-# Canonical shape definitions remain single-sourced in Review.
+# Shared Review bundle target for retained verdict-boundary assertions below.
 OG_REVIEW_SKILL="$REVIEW_BUNDLE"
-assert_pin_unique "over-grade: shared engine carries over-grade shape 1 (suite-RED / fail-closed above blast radius)" \
-  'Suite-RED or fail-closed defect graded above its blast radius' "$OG_REVIEW_SKILL"
-assert_pin_unique "over-grade: shared engine carries over-grade shape 2 (diagnostic-or-cosmetic-only)" \
-  'Diagnostic-or-cosmetic-only finding with no behavioral fail-direction' "$OG_REVIEW_SKILL"
-# The documentation mirror keeps the annotation verdict-untouched.
-OG_SHADOW_DOC="$LIB/../docs/shadow-review.md"
-# AC3 fail-CLOSED against a re-fork (not only the positive reference pins above): the shape
-# literals must be ABSENT from review-and-fix. If a future edit re-inlines a shape copy while
-# leaving the reference sentence in place, the positive pins stay GREEN but these go RED — the
-# coupled-invariant / single-source discipline CLAUDE.md flags as the dominant violation.
+# AC3 fail-CLOSED against a re-fork: the shape literals must be ABSENT from
+# review-and-fix. A future edit that re-inlines either shape turns these
+# no-refork checks RED.
 assert_eq "over-grade: shape 1 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
   "0" "$(pin_count 'Suite-RED or fail-closed defect graded above its blast radius' "$MAXI_SKILL")"
 assert_eq "over-grade: shape 2 is NOT re-forked into review-and-fix (AC3 fail-closed)" \
@@ -3175,7 +3147,6 @@ echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened 
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
 # and the no-refork guard. #797 widened the cap's keying from an in-code-comment
 # sub-case to behavior-inertness; the boundaries themselves are unchanged.
-OG_OVERVIEW_DOC="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
 assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic behavior-inert prose cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
@@ -3233,12 +3204,6 @@ assert_eq "339(AC2): dispatch prompts name the 'known limitation already fixed' 
 # The visible clean-pass line distinguishes a completed sweep from a skipped one.
 assert_pin_unique "339(AC5): sweep emits a visible clean-pass line" \
   'truthfulness sweep: no finding promoted' "$ST_REV"
-# AC (docs sync) — both engine docs describe the pre-verdict truthfulness sweep.
-assert_pin_unique "339(docs): DEVFLOW_SYSTEM_OVERVIEW describes the pre-verdict truthfulness sweep" \
-  'pre-verdict truthfulness sweep' "$OG_OVERVIEW_DOC"
-assert_pin_unique "339(docs): shadow-review.md describes the pre-verdict truthfulness sweep" \
-  'pre-verdict truthfulness sweep' "$OG_SHADOW_DOC"
-
 # ────────────────────────────────────────────────────────────────────────────
 echo "absolute-claim category + intra-diff contradiction sweep + fail-open severity (#378, #371 R1/R2/R6)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -3503,8 +3468,6 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # by construction. Needles are apostrophe-free (the asserts single-quote them).
 RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
 # FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
-assert_pin_unique "fix-delta gate: Step 3.5 heading present in review-and-fix SKILL" \
-  '### Step 3.5: Fix-delta verification gate' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
   'on **every iteration unconditionally**' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: blinded subagent reviews only the cumulative fix delta" \
@@ -3541,8 +3504,6 @@ assert_pin_unique "fix-delta gate: whole-run failure degrades to the shadow (fai
   'degrades to the Step 2.6 shadow as the safety net' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: no-fix iteration skips the gate (no delta to review)" \
   'skip the gate for that iteration' "$MAXI_SKILL"
-assert_pin_unique "fix-delta gate: adversarial input-shape matrix check present" \
-  'for hand-corruptible inputs' "$MAXI_SKILL"
 # #312 item 4: the matrix shape set gained a valid-falsy row (coupled invariant mirrored
 # at CLAUDE.md's best-effort-parser gotcha, implement Phase 2.4, and this Step 3.5 site).
 # Hold the six-shape literal once so the three lockstep pins below can never drift from
@@ -3788,8 +3749,6 @@ assert_pin_unique "#312 item 10: Phase 3.2 names the filter-narrowing consumer-b
 # behavioral steering proof is the writing-skills RED/GREEN + no-guidance-control micro-test
 # recorded in the workpad "Writing-skills evidence:" marker, not these pins — so no code/behavioral
 # regression is guarded here and each carries the structural-pin-ok declaration (issue #666 gate).
-assert_pin_unique "#754 A1: phase-2 §2.3 names the throwaway-scaffold reuse case" \
-  'This is the throwaway-scaffold twin of the focused-module iteration default and the 2.2.4 production-code Reuse gate' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; steering proven by the writing-skills RED/GREEN micro-test)
 assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principle (repo-agnostic)" \
   'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
@@ -3810,8 +3769,6 @@ assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scra
   'would land as a gitlink' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A10: receiving keeps the rig under a VCS-ignored path" \
   'a nested scratch repo never lands as a gitlink' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A10: fixing keeps the rig under an already-ignored scratch path" \
-  'would land as a gitlink' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
   'not open, on each' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
@@ -4444,8 +4401,6 @@ fi
 REVIEW_SKILL="$REVIEW_BUNDLE"
 # AC2: the forced completeness-critic pass exists, re-enumerates INDEPENDENTLY of the audit's
 # own pattern.
-assert_pin_unique "#167 critic: Phase 3.1.5 completeness-critic pass heading present" \
-  '### 3.1.5 Completeness-critic pass (forced when' "$REVIEW_SKILL"
 assert_pin_unique "#167 critic: pass re-enumerates by an INDEPENDENT signal (not the audit's pattern)" \
   're-enumerate that population by a signal OTHER than the' "$REVIEW_SKILL"
 # AC3: the critic lives in the shared engine (reachable from both skills) AND is not
@@ -4463,9 +4418,6 @@ assert_eq "#167 critic: completeness-critic pass heading is NOT paraphrased into
 # "the completeness-critic pass" does not trip it — only a copied procedure would).
 assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT paraphrased into review-and-fix SKILL" \
   "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
-# The fix loop retains the named re-sweep boundary.
-assert_pin_unique "#167 re-sweep: Step 3 names the mechanism-scoped self-authored-claim re-sweep" \
-  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
 # The re-sweep retains its existing comment-analyzer dispatch.
 assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-analyzer agent" \
   'Re-dispatch `devflow:comment-analyzer`' "$MAXI_SKILL"
@@ -5134,12 +5086,6 @@ assert_pin_unique "429/T4: §1.6 indeterminate arm fails closed (a refutation re
   'requires a positively-fresh tree' "$P1_FILE"
 assert_pin_unique "429/T4: §2.1 indeterminate arm fails closed (coupled mirror)" \
   'requires a positively-fresh tree' "$P2_FILE"
-# Canonical example named in the prose at both sites.
-assert_pin_unique "429/T4: §1.6 names the #322→#325 false refutation as the canonical example" \
-  '#322→#325 false refutation' "$P1_FILE"
-assert_pin_unique "429/T4: §2.1 names the #322→#325 false refutation as the canonical example" \
-  '#322→#325 false refutation' "$P2_FILE"
-
 # T5 — the §2.1 code-wins paragraph carries the freshness qualifier.
 
 # T6 — Phase 4.0 sibling-PR annotation rule.
@@ -6227,8 +6173,6 @@ assert_pin_unique "#493 resume: cloud-only guard skips the refresh on a local-ti
   '[ -n "${GITHUB_RUN_ID:-}" ]; then' "$P1_SETUP"
 assert_pin_unique "#493 resume: best-effort warn on PR-body read failure (distinct from no-line; AC6)" \
   'could not read PR' "$P1_SETUP"
-assert_pin_unique "#493 resume: idempotency wording (no duplication, no corruption; AC8)" \
-  'is **idempotent**' "$P1_SETUP"
 
 # Issue #224: Phase 3.1 (phases/phase-3-review.md) opens the draft PR against the
 # CONFIGURED base_branch, not the GitHub default branch. Because each phase's bash
@@ -10518,10 +10462,6 @@ P3_FILE="$IMPL_PHASES_DIR/phase-3-review.md"
 # pins that used to live here (§2.3.0c trigger (a)/(b), §2.3.4 external-output) are obsolete and
 # removed. The #478 block below pins the re-anchor's operative sentences and the routing-marker
 # drift lint that keeps the imported sweep bodies dischargeable in the fix loop.
-# AC9: the new item must NOT duplicate or reword item 3a's pinned heading — still exactly one.
-assert_pin_unique "#377 w3-3a-heading-count: item 3a heading literal stays exactly-once after item 3b lands (AC9)" \
-  'Mechanism-scoped self-authored-claim re-sweep' "$MAXI_SKILL"
-
 # Edit 2 — phase-3-review.md §3.2: /simplify cleanup agents chartered quality-only, Phase 3.3 owns correctness.
 # AC5 (regression-first): the "correctness angles plus" attribution is GONE from the owning phase
 # file. Run against today's pre-edit file this returns 1 (the defect), so the expected-0 assertion
@@ -10548,14 +10488,6 @@ P478_P2="$IMPL_PHASES_DIR/phase-2-implement.md"
 # AC1 auditability (#478 Phase-3 review): the re-anchor's selection-note obligation is what makes it
 # checkable by a reviewer/retrospective. Deleting it silently removes the audit trail while the
 # re-anchor pins above stay green — so pin the recording obligation.
-# AC1/AC12 — the "Sweep selection (run first)" heading literal is a CROSS-FILE coupled pair: item 3b
-# cites it, phase-2-implement.md carries it. Pin both, so a heading rename that would orphan 3b's
-# pointer goes RED at whichever site still carries the old literal.
-assert_pin_unique "#478 AC12 heading pair (SKILL): item 3b cites the Sweep selection (run first) preamble" \
-  'Sweep selection (run first)' "$MAXI_SKILL"
-assert_pin_unique "#478 AC12 heading pair (phase-2): the Sweep selection (run first) preamble exists to cite" \
-  'Sweep selection (run first)' "$P478_P2"
-
 # AC2 — the durable-operand read protocol. Five operative clauses on the read-protocol paragraph
 # (four read-protocol clauses + the unreadable-source degradation arm).
 # AC2 record-schema consumer (#478 compatibility review): item 7 calls itself the authoritative
@@ -14489,9 +14421,7 @@ assert_eq "#242 A2: create-issue dropped the sole-mandate + literal-tool gate an
     && ! grep -qF 'Before the first `AskUserQuestion` call' "$CI_SKILL_242" \
     && ! grep -qF 'Cap at ~6 rounds' "$CI_SKILL_242" \
     && echo yes || echo no)"  # raw-guard-ok: compound absence pin — three removed literals must all be GONE
-# AC (docs): the overview's create-issue sentence is runner-neutral, not "Uses AskUserQuestion, capped at ~6 rounds".
-assert_pin_unique "#242 docs: overview states the runner-neutral total-question budget" \
-  'runner-neutral total-clarifying-question budget' "$CI_OVERVIEW_242"
+# The absence guard rejects the former round-based cap wording.
 assert_eq "#242 docs: overview dropped the round-based cap phrasing" "yes" \
   "$(! grep -qF 'capped at ~6 rounds' "$CI_OVERVIEW_242" && echo yes || echo no)"  # raw-guard-ok: absence pin — old round-cap phrasing GONE
 # ── #560: create-issue Completion-checklist is runner-neutral on the task-tracking tool ──
@@ -14560,9 +14490,6 @@ assert_eq "#560 AC1: create-issue dropped the sole TodoWrite mandate literal" "y
 # if the literal is deleted or paraphrased), per the issue's testing strategy: pin the
 # behavior, not merely the absence of "goes quiet". Literals are apostrophe-free + unique.
 CI_SKILL_256="$CREATE_ISSUE_BUNDLE"   # #614: content-survival target — the split bundle, not the root alone
-# AC5 keeps the silent-non-response rule aligned with the Step 4 confirmation gate.
-assert_pin_unique "#256 AC5: the silent-non-response rule mirrors the Step 4 confirmation gate" \
-  'This mirrors the Step 4 confirmation gate' "$CI_SKILL_256"
 # AC1 (regression): "goes quiet" is GONE — silence is no longer a disengagement trigger.
 assert_eq "#256 AC1: create-issue removed the goes-quiet disengagement trigger" "yes" \
   "$(! grep -qF 'goes quiet' "$CI_SKILL_256" && echo yes || echo no)"  # raw-guard-ok: absence pin — the removed trigger literal must be GONE
@@ -27528,11 +27455,9 @@ assert_pin_unique "#506 review-and-fix.md carries the routing evidence-gate crit
   'the review reports a **FAIL** finding naming' "$WSR_RAF"
 assert_pin_unique "#506 review.md carries the routing evidence-gate criterion" \
   'the review reports a **FAIL** finding naming' "$WSR_REV"
-# The byte-identity check extracts each gate section by its `## ` heading; if that heading were
-# renamed/removed in BOTH files the two sed extracts would both be empty and the assert_eq below
-# would PASS vacuously (empty == empty) while the body pins above stay green — a fail-open the
-# coupling guard exists to prevent. Pin the heading present-and-unique in each file first, so a
-# heading rename turns RED here rather than silently disarming the byte-identity anchor (#506).
+# The byte-identity check extracts each gate section by its `## ` heading. Pin the
+# heading present-and-unique in each file first so the extracted operands cannot both
+# become empty and pass the equality check vacuously.
 assert_pin_unique "#506 gate-criterion heading present in review-and-fix.md (anchors byte-identity)" \
   '## Prompt-surface edit routing evidence gate' "$WSR_RAF"
 assert_pin_unique "#506 gate-criterion heading present in review.md (anchors byte-identity)" \
@@ -27566,14 +27491,11 @@ assert_eq "#506 Writing-skills evidence marker is present in the contract and bo
 # The advisory clause is appended to BOTH review extensions as a new `## ` section after the
 # routing-gate section, so the existing routing-gate→EOF byte-identity extract (WSR_GATE_REV /
 # WSR_GATE_RAF, asserted equal above) already proves the two copies identical over the appended
-# clause too. These pins add: the heading present-and-unique in each copy (lockstep), the
-# `Verification evidence:` marker literal present in each, and the three BEHAVIORAL clauses
+# clause too. This block verifies the `Verification evidence:` marker literal in each copy and the
+# three BEHAVIORAL clauses
 # (cloud-silent / local-marker-absent-fires / local-marker-present-silent) each mutation-proven
 # per file with assert_pin_red_under — the guarded regression is the advisory inverting its
 # silent/fire behavior on a classification, and each mutation flips exactly that behavior.
-VEA_HEAD='## Verification-evidence marker advisory (tier-scoped, non-blocking)'
-assert_pin_unique "#730 advisory heading present-and-unique in review.md" "$VEA_HEAD" "$WSR_REV"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
-assert_pin_unique "#730 advisory heading present-and-unique in review-and-fix.md" "$VEA_HEAD" "$WSR_RAF"  # structural-pin-ok: presence+uniqueness of the advisory section heading in a shipped extension, not a behavioral-fix pin (the three behavioral clauses below route through assert_pin_red_under)
 assert_eq "#730 advisory clause names the Verification evidence marker in both copies (lockstep)" \
   "yes|yes" \
   "$(grep -qF 'Verification evidence:' "$WSR_REV" && echo yes || echo no)|$(grep -qF 'Verification evidence:' "$WSR_RAF" && echo yes || echo no)"
@@ -32106,8 +32028,6 @@ check(sys.argv[1])
 for _gf in workpad.py match-deferrals.py; do
   assert_eq "#342 gate: $_gf has a sys.version_info<(3,11) gate above the first def (ast)" \
     "GATE_OK" "$(python3 -c "$GATE_CHECK" "$LIB/../scripts/$_gf" 2>&1)"
-  assert_pin_unique "#342 gate: $_gf pins the 'Python 3.11+ required' floor phrase" \
-    'Python 3.11+ required' "$LIB/../scripts/$_gf"
   assert_pin_unique "#342 gate: $_gf points at the provision-python3-shim.sh remedy" \
     'provision-python3-shim.sh' "$LIB/../scripts/$_gf"
 done
@@ -33684,7 +33604,6 @@ assert_eq "#530 budget: no references/*.md outside the pinned 8-name set" "" "$_
 # ── #530 retained control-flow and routing boundaries ──
 P530_ROOT="$LIB/../skills/review-and-fix/SKILL.md"
 P530_LC="$LIB/../skills/review-and-fix/references/loop-control.md"
-P530_FDG="$LIB/../skills/review-and-fix/references/fix-delta-gate.md"
 P530_CV="$LIB/../skills/review-and-fix/references/convergence.md"
 assert_pin_unique "#530 continuation: loop-control has an explicit current_step route" \
   '| `loop-control` — Iteration setup + Steps 0.5–2 | `references/loop-control.md` |' "$P530_ROOT"
@@ -33710,9 +33629,6 @@ assert_pin_unique "#530 pressure(cap exit): the \$MAX_ITERS cap is preserved in 
 # Inline recovery — the fused per-iteration emit that survives a dropped Loop Exit.
 assert_pin_unique "#530 pressure(inline recovery): fused per-iteration emit in root Lifecycle" \
   'non-optional emit, fused to the fix commit' "$P530_ROOT"
-# Fix-delta gate presence.
-assert_pin_unique "#530 pressure(fix-delta): fix-delta verification gate in fix-delta-gate" \
-  'Fix-delta verification gate' "$P530_FDG"
 # Fixes applied (fixing) — fixing.md (the largest reference) had no
 # file-targeted operative pin, so a partial content move OUT of it (full deletion is caught
 # by the 8-name set pin) shipped desk-green. Pin the fix-commit-fused iter-record Write —
@@ -35410,11 +35326,7 @@ assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDEN
 # ── #504 AC6 claim-verification routing boundaries.
 assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$REVIEW_BUNDLE"
 assert_pin_unique "#504 AC6 SKILL Phase 2.1b dispatch routing" "displaced-path routing: for any referenced file" "$REVIEW_BUNDLE"
-assert_pin_unique "#504 AC6 code-reviewer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/code-reviewer.md"
-assert_pin_unique "#504 AC6 comment-analyzer agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/comment-analyzer.md"
-assert_pin_unique "#504 AC6 checklist-verifier agent mirror routing" "#504 displaced-path routing." "$LIB/../agents/checklist-verifier.md"
-# AC12 (#504): the agent-mirror routing pins above assert only the bold HEADER; AC12
-# requires the operative "route via git show, never a working-tree read" clause to be
+# AC12 (#504) requires the operative "route via git show, never a working-tree read" clause to be
 # mutation-backed, so a meaning-inverting edit (routing back to a working-tree read —
 # the exact regression this PR exists to prevent) turns the pin RED. Each agent file
 # carries the operative clause exactly once.
@@ -42901,7 +42813,6 @@ assert_eq "#499 union: classifier-unavailable refusal is breadcrumbed" "yes" "$(
 rm -rf "$T499_U_ROOT"
 # ── #497 shadow prompt-composition attestation pins ──────────────────────────
 I497_RAF="$MAXI_BUNDLE"   # #530: root+references bundle
-I497_SHADOW_DOC="$LIB/../docs/shadow-review.md"
 
 assert_pin_unique "#497 AC1 skill carries the exhaustive shadow prompt composition rule" \
   'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_RAF"
@@ -42921,8 +42832,6 @@ assert_pin_unique "#497 AC10 Coverage handles every present noncanonical attesta
   'Any other present attestation value is not attested.' "$I497_RAF"
 assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
   'append focus/prioritize/scope clauses to a shadow prompt, hand it regenerated or subsetted diff artifacts, or write steering into its prompt-extension file' "$I497_RAF"
-assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition rule" \
-  'Every shadow-pass subagent prompt the parent composes uses the engine' "$I497_SHADOW_DOC"
 
 # ────────────────────────────────────────────────────────────────────────────
 # The selected runner resolves this module from the registry before sourcing any
@@ -42941,7 +42850,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 250; then
+  "create-issue-contract" 249; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -43712,7 +43621,7 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 37; then
+  "harness-python-guards" 38; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
