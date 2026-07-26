@@ -68,8 +68,7 @@ Coverage-map ownership for the moved labels is recorded in
   therefore include implement-tier and installer surfaces the rest of the module
   does not own: `.github/workflows/devflow-runner.yml` (new `$WFRUN801`), plus the
   already-owned `$WFI415` / `$WFD408` / `$IMPL_SKILL415` / `$RGB408`, and
-  `skills/review/SKILL.md` (`$REVIEW_ROOT801`),
-  `skills/create-issue/references/step-3-6-audit.md` (`$AUDIT801`) and `install.sh`
+  `skills/review/SKILL.md` (`$REVIEW_ROOT801`) and `install.sh`
   (`$INSTALL801`). Consequence to know when running this module as the focused test
   for an implement-tier change: `coverage-map.json` routes label `801` here, so an
   implement-side regression in those surfaces surfaces in a review-scoped module.
