@@ -178,6 +178,7 @@ def make_args(**overrides):
         # reads raise AttributeError on every test that builds args this way.
         scope_decision_deferred=[], scope_decision_rewritten=[],
         bind_scope_decisions=None,
+        print_body=False,
     )
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -863,8 +864,11 @@ assert_eq("#169 TD-1: _TickMatchError is still an Exception",
 # runs end-to-end with no gh. _run serves three call shapes — the paginated comments
 # list (one marker-matching comment), the body fetch (--jq .body → the fixture body),
 # and the PATCH (read the -F body=@<tmp> file back so the test sees the patched body).
-# Returns (exit_code, stderr, patched_body); patched_body is None when no PATCH ran.
-def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
+# Returns (exit_code, stdout, stderr, patched_body); patched_body is None when no PATCH
+# ran. stdout is CAPTURED and returned (issue #814) so the default-suppression and
+# --print-body arms of `update`'s echo are assertable at the unit level — the only
+# level that drives the `_NoOpReplay` checkpoint-replay arm.
+def _drive_cmd_update(body, patch_fails=False, patch_response=None, **arg_overrides):
     marker = '<!-- devflow:workpad -->'
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
     workpad._repo_full = lambda: 'owner/repo'
@@ -881,26 +885,34 @@ def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
                 if tok.startswith('body=@'):
                     with open(tok[len('body=@'):]) as fh:
                         state['patched'] = fh.read()
+            # `patch_response` overrides what the PATCH call RETURNS, independently of
+            # the body it stored — the only way to drive `cmd_update`'s issue-#814
+            # Status read-back arms, which parse the RESPONSE (a throttled/oversized
+            # write can return an empty or Status-less body while the stored body is
+            # fine). Default None keeps the echo-the-stored-body behaviour.
+            if patch_response is not None:
+                return _FakeRun(patch_response)
             return _FakeRun(state['patched'] or '')
         return _FakeRun(body)   # the body fetch
     workpad._run = _run
+    out = io.StringIO()
     err = io.StringIO()
     code = None
     try:
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             workpad.cmd_update(make_args(issue=999, **arg_overrides))
     except SystemExit as e:
         code = e.code
     finally:
         workpad._run, workpad._repo_full, workpad._workpad_marker = saved
-    return code, err.getvalue(), state['patched']
+    return code, out.getvalue(), err.getvalue(), state['patched']
 
 
 # Finding 2/(a) (review): the volatile-failure TAIL of cmd_update — the non-zero
 # exit + stderr report — is the observable contract ACs 2/5 promise the orchestrator.
 # The isolation tests above assert the failed_ticks LIST is populated; these assert
 # the process-level exit code and stderr the orchestrator actually consumes.
-_code, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
 assert_eq("#169 cmd_update: a volatile tick miss exits non-zero (AC 2)", 1, _code)
 assert_eq("#169 cmd_update: the volatile-miss stderr names the failed tick (AC 2)", True,
           'NO_SUCH_AC' in _err and 'did not resolve' in _err)
@@ -908,7 +920,7 @@ assert_eq("#169 cmd_update: the PATCH still landed (status applied despite the m
           _patched is not None and '🚀 Reviewing' in _patched)
 
 # A fully-resolving tick call exits 0 — the gate's evidence-based pass condition.
-_code, _err, _patched = _drive_cmd_update(IDX_BODY, tick_ac_n=[2])
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, tick_ac_n=[2])
 assert_eq("#169 cmd_update: a fully-resolving tick call exits 0", None, _code)
 assert_eq("#169 cmd_update: the resolving index ticked its row", True,
           _patched is not None and '- [x] AC two' in _patched)
@@ -927,7 +939,7 @@ F1_BODY = """<!-- devflow:workpad -->
 - [ ] AC one
 - [ ] AC two
 """
-_code, _err, _patched = _drive_cmd_update(F1_BODY, tick_ac=['NO_SUCH_AC'], note=['n'])
+_code, _out, _err, _patched = _drive_cmd_update(F1_BODY, tick_ac=['NO_SUCH_AC'], note=['n'])
 assert_eq("#169 F1: a structural abort after a volatile miss still exits non-zero", 1, _code)
 assert_eq("#169 F1: the structural-abort message is reported", True,
           "section '## Progress' not found" in _err)
@@ -988,7 +1000,7 @@ print("issue #169 (shadow): PATCH-failure echo + structural/test-completeness")
 # PATCH-failure path reported only the PATCH error and exited, discarding the
 # collected misses — the very no-silent-loss invariant this command establishes,
 # re-opened on the API-failure path. Now cmd_update echoes them before _fail exits.
-_code, _err, _patched = _drive_cmd_update(
+_code, _out, _err, _patched = _drive_cmd_update(
     IDX_BODY, patch_fails=True, status='Reviewing', tick_ac=['NO_SUCH_AC'])
 assert_eq("#169 shadow-F1: a PATCH failure still exits non-zero", 1, _code)
 assert_eq("#169 shadow-F1: the PATCH-failure path echoes the collected volatile tick miss", True,
@@ -998,14 +1010,14 @@ assert_eq("#169 shadow-F1: the PATCH-failure breadcrumb says nothing was persist
 assert_eq("#169 shadow-F1: no body was persisted (PATCH failed)", True, _patched is None)
 # A PATCH failure with NO pending tick miss still reports the PATCH error (and does
 # not fabricate a tick report) — the echo is gated on a non-empty failed_ticks.
-_code, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, tick_ac_n=[2])
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, tick_ac_n=[2])
 assert_eq("#169 shadow-F1: a clean PATCH failure (no tick miss) still exits non-zero", 1, _code)
 assert_eq("#169 shadow-F1: a clean PATCH failure emits no spurious tick report", False,
           'did not resolve' in _err or 'had also not resolved' in _err)
 
 # The volatile-PATCHed breadcrumb tells the caller to re-tick only the row(s), NOT
 # re-send the whole call (Finding 2 — re-sending would double-write append-only notes).
-_code, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], tick_ac=['NO_SUCH_AC'])
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], tick_ac=['NO_SUCH_AC'])
 assert_eq("#169 shadow-F2: the volatile-PATCHed breadcrumb says re-tick only, do not re-send", True,
           'do not' in _err and 're-tick only' in _err and _patched is not None)
 
@@ -1217,12 +1229,12 @@ assert_eq("#258: --status Documenting over an unticked AC is not gated", True,
 
 # CLI-level: the AC hard-fail routes through cmd_update's abort path — non-zero exit,
 # NO PATCH (uses the existing #169 _drive_cmd_update harness).
-_code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete')
+_code, _out, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete')
 assert_eq("#258 cmd_update: --status Complete over an unticked AC exits non-zero", 1, _code)
 assert_eq("#258 cmd_update: the rejected finalize made NO PATCH", True, _patched is None)
 assert_eq("#258 cmd_update: the abort stderr names the offending AC", True, 'AC two' in _err)
 # CLI-level: a post-merge-only outstanding AC finalizes (PATCH lands, Status flipped).
-_code, _err, _patched = _drive_cmd_update(_AC_POSTMERGE, status='Complete')
+_code, _out, _err, _patched = _drive_cmd_update(_AC_POSTMERGE, status='Complete')
 assert_eq("#258 cmd_update: a post-merge-only finalize succeeds (exit 0)", None, _code)
 assert_eq("#258 cmd_update: the post-merge finalize PATCHed Status → Complete", True,
           _patched is not None and '🎉 Complete' in _patched)
@@ -1250,7 +1262,7 @@ assert_eq("#258: ticking the last Plan row in the Complete call suppresses the P
 assert_eq("#258: the one-shot Plan tick+Complete flipped Status and ticked the row", True,
           '🎉 Complete' in _statusline(out) and '- [x] Plan step two' in out)
 # CLI-level: the same one-shot tick+Complete routes cleanly through cmd_update (PATCH lands).
-_code, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete', tick_ac=['AC two'])
+_code, _out, _err, _patched = _drive_cmd_update(_AC_UNTICKED, status='Complete', tick_ac=['AC two'])
 assert_eq("#258 cmd_update: one-shot tick-last-AC + Complete finalizes (exit 0)", None, _code)
 assert_eq("#258 cmd_update: the one-shot finalize PATCHed Status → Complete with the AC ticked", True,
           _patched is not None and '🎉 Complete' in _patched and '- [x] AC two' in _patched)
@@ -7137,7 +7149,7 @@ assert_raises("#537 checkpoint AC14: an empty/whitespace body is structural",
 
 # AC16 (failure isolation at the process level): a checkpoint-only replay through
 # cmd_update makes NO PATCH and exits 0.
-_code, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
+_code, _out, _err, _patched = _drive_cmd_update(_CP_BODY.replace(
     "  - 02:00:00 — /devflow:implement run started",
     "  - 02:00:00 — /devflow:implement run started\n  - 02:01:00 — invoke " + _MK),
     checkpoint=[[_CPKEY, "x"]])
@@ -7148,7 +7160,7 @@ assert_eq("#537 checkpoint AC16: a checkpoint-only replay exits 0", None, _code)
 # through cmd_update DOES issue a PATCH carrying the new row — the counterpart to the
 # replay-makes-no-PATCH negative above, so a mutant that silently swallowed inserts
 # (never PATCHing) would be caught. `_CP_BODY` has ## Progress but not _MK.
-_code, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
+_code, _out, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
 assert_eq("#537 checkpoint AC16: an absent-key checkpoint insert issues a PATCH carrying the new row",
           (True, True),
           (_patched is not None, _patched is not None and _MK in _patched and "invoked" in _patched))
@@ -7158,7 +7170,7 @@ assert_eq("#537 checkpoint AC16: an absent-key checkpoint insert issues a PATCH 
 # precondition-pass -> insert -> single-PATCH composition the isolated tests never
 # exercise together. The fake body-fetch returns comment id 7, so the precondition
 # passes and the insert rides the same PATCH.
-_code, _err, _patched = _drive_cmd_update(
+_code, _out, _err, _patched = _drive_cmd_update(
     _CP_BODY, checkpoint=[[_CPKEY, "hydrated"]], status="Setup",
     note=["Phase 1 workpad hydrated"], expect_comment_id="7")
 assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert land in one PATCH",
@@ -7169,7 +7181,7 @@ assert_eq("#537 checkpoint AC16: a matching precondition + a checkpoint insert l
 # AC13: a checkpoint on a legacy body lacking ## Progress fails structurally (no
 # PATCH) — the caller (Phase 1) migrates then retries, so the helper never aborts
 # the run here, it just declines to write.
-_code, _err, _patched = _drive_cmd_update(
+_code, _out, _err, _patched = _drive_cmd_update(
     """<!-- devflow:workpad -->
 # DevFlow Workpad — Issue #999
 
@@ -7218,13 +7230,13 @@ for _fname, _fval in _mut_flag_values:
 _RACE_BODY = _CP_BODY  # id 7, Status 🚀 Setup
 
 # Matching preconditions: the update proceeds and PATCHes.
-_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="7",
+_code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="7",
                                           expect_status="Setup", note=["ok"])
 assert_eq("#537 AC24: matching comment-id + status precondition proceeds (PATCH ran)",
           True, _patched is not None)
 
 # Changed comment id: abort before mutation/PATCH, exit 4.
-_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="999",
+_code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_comment_id="999",
                                           note=["should not land"])
 assert_eq("#537 AC24: a changed comment id aborts before PATCH (exit 4)",
           (4, None), (_code, _patched))
@@ -7232,7 +7244,7 @@ assert_eq("#537 AC24: the comment-id mismatch names the precondition",
           True, "precondition mismatch" in _err and "comment" in _err)
 
 # Changed status (terminal backstop / operator flip): abort before mutation/PATCH.
-_code, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_status="Reviewing",
+_code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, expect_status="Reviewing",
                                           note=["should not land"])
 assert_eq("#537 AC24: a changed Status aborts before PATCH (exit 4)",
           (4, None), (_code, _patched))
@@ -7250,7 +7262,7 @@ _NO_STATUS_BODY = """<!-- devflow:workpad -->
 ## Progress
 - [ ] **Setup** — branch & workpad
 """
-_code, _err, _patched = _drive_cmd_update(_NO_STATUS_BODY, expect_status="Setup",
+_code, _out, _err, _patched = _drive_cmd_update(_NO_STATUS_BODY, expect_status="Setup",
                                           note=["should not land"])
 assert_eq("#537 AC24: --expect-status against a no-Status-line body aborts before PATCH (exit 4)",
           (4, None), (_code, _patched))
@@ -7259,7 +7271,7 @@ assert_eq("#537 AC24: the no-Status-line abort names the Status precondition",
 
 # AC23 (shared-helper compatibility): a plain update with neither new flag behaves
 # exactly as before — the default checkpoint=[]/expect_*=None never alter the path.
-_code, _err, _patched = _drive_cmd_update(_RACE_BODY, note=["plain"])
+_code, _out, _err, _patched = _drive_cmd_update(_RACE_BODY, note=["plain"])
 assert_eq("#537 AC23: a plain update (no #537 flags) still PATCHes normally",
           True, _patched is not None and "plain" in _patched)
 
@@ -17024,6 +17036,333 @@ def _row792_skipped_step(r):
 
 _with_run792(_row792_skipped_step)
 
+
+# ---------------------------------------------------------------------------
+# #814: `update` suppresses the workpad-body echo on stdout by default; the new
+# `--print-body` flag restores it byte-for-byte. The unit level is the ONLY level
+# that drives the `_NoOpReplay` checkpoint-replay arm (lib/test/run.sh issues no
+# --checkpoint call), so the replay assertions live here; the subprocess-level
+# stdout bytes are asserted by the run.sh #814 block.
+# ---------------------------------------------------------------------------
+
+# The checkpoint-replay arm: a checkpoint-only call whose key already exists.
+_REPLAY_BODY = _CP_BODY.replace(
+    "  - 02:00:00 — /devflow:implement run started",
+    "  - 02:00:00 — /devflow:implement run started\n  - 02:01:00 — invoke " + _MK)
+
+_code, _out, _err, _patched = _drive_cmd_update(_REPLAY_BODY, checkpoint=[[_CPKEY, "x"]])
+assert_eq("#814: the checkpoint-replay arm writes nothing to stdout by default",
+          "", _out)
+assert_eq("#814: the checkpoint-replay arm keeps its existing breadcrumb and adds no "
+          "second success line",
+          (True, 0),
+          ("checkpoint replay" in _err, _err.count("workpad.py update: PATCHed comment ")))
+assert_eq("#814: the checkpoint replay still makes no PATCH and exits 0",
+          (None, None), (_patched, _code))
+
+# One drive establishes both halves: `--print-body` restores the replay arm's echo,
+# AND — because it is absent from `_has_non_checkpoint_mutation`'s allowlist — a
+# checkpoint-only call carrying it still short-circuits as a replay with no PATCH.
+_code, _out, _err, _patched = _drive_cmd_update(
+    _REPLAY_BODY, checkpoint=[[_CPKEY, "x"]], print_body=True)
+assert_eq("#814: --print-body restores the checkpoint-replay arm's body echo",
+          (True, True), (_out != "", _out.startswith("<!-- devflow:workpad -->")))
+assert_eq("#814: --print-body is absent from the mutation allowlist, so a "
+          "checkpoint-only call carrying it still replays with no PATCH",
+          (None, None), (_patched, _code))
+
+# The clean PATCH path: stdout suppressed, one breadcrumb naming the comment id.
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'])
+assert_eq("#814: a clean PATCH writes nothing to stdout by default", "", _out)
+assert_eq("#814: a clean PATCH still PATCHes and exits 0",
+          (True, None), (_patched is not None, _code))
+assert_eq("#814: a clean PATCH writes exactly one success breadcrumb naming the "
+          "PATCHed comment id",
+          (1, True),
+          (_err.count("workpad.py update: PATCHed comment "),
+           "workpad.py update: PATCHed comment 7" in _err))
+# Scoped to the breadcrumb LINE, not the whole stderr stream: an unrelated future
+# diagnostic mentioning "Status:" must not turn this RED for a reason that has
+# nothing to do with the breadcrumb contract.
+assert_eq("#814: a breadcrumb for a call that set no --status carries no Status clause",
+          ["workpad.py update: PATCHed comment 7"],
+          [ln for ln in _err.splitlines()
+           if ln.startswith("workpad.py update: PATCHed comment ")])
+
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], print_body=True)
+assert_eq("#814: --print-body restores the clean-PATCH body echo",
+          (True, True), (_out != "", "**Status:**" in _out))
+assert_eq("#814: the breadcrumb is written independently of --print-body",
+          1, _err.count("workpad.py update: PATCHed comment "))
+
+# The breadcrumb carries the Status value read back from the PATCH response, which is
+# the one read-back an exit code cannot discharge (the SKILL.md landed-Status rule).
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing')
+assert_eq("#814: a --status call's breadcrumb carries the Status value read back from "
+          "the PATCH response",
+          True, "workpad.py update: PATCHed comment 7; Status: 🚀 Reviewing" in _err)
+
+# The volatile-tick-miss exception: no breadcrumb (a success-shaped line beside a
+# failing exit code would re-create the split the exit-code rule prevents), and the
+# body IS still written, because the mandated positional re-resolution reads it.
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], tick_ac=['NO_SUCH_AC'])
+assert_eq("#814: the volatile-tick-miss path exits non-zero and writes no success "
+          "breadcrumb", (1, 0),
+          (_code, _err.count("workpad.py update: PATCHed comment ")))
+assert_eq("#814: the volatile-tick-miss path still writes the patched body to stdout "
+          "under the default — it is the row inventory the re-tick resolution reads",
+          (True, True), (_out != "", "AC two" in _out))
+assert_eq("#814: the volatile-tick-miss stderr report is unchanged under the default",
+          True, "NO_SUCH_AC" in _err and "did not resolve" in _err)
+
+# Non-writing exit paths keep their exit codes and write nothing to stdout.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY.replace("## Plan\n", "").replace("- [ ] Plan step one\n", "")
+            .replace("- [ ] Plan step two\n", ""),
+    replace_plan_file='/nonexistent/plan.md')
+assert_eq("#814: a structural abort exits 1 with empty stdout", (1, ""), (_code, _out))
+# Attribute the rejection: the fixture strips ## Plan AND names an unreadable file, so
+# two different guards could produce the (1, "") above. Pin the unreadable-file guard's
+# own signal so a mutant that dropped it — leaving the missing-section guard to reject
+# the same fixture — turns this RED instead of passing on the wrong rejection.
+assert_eq("#814: ... and the abort is attributable to the unreadable --replace-plan-file, "
+          "not to some other guard rejecting the same fixture",
+          True, "plan.md" in _err)
+
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, note=['n'])
+assert_eq("#814: a PATCH-call failure exits 1 with empty stdout and no breadcrumb",
+          (1, "", 0),
+          (_code, _out, _err.count("workpad.py update: PATCHed comment ")))
+
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, expect_status="Reviewing", note=['n'])
+assert_eq("#814: an --expect-status precondition mismatch exits 4 with empty stdout "
+          "and no success breadcrumb",
+          (4, "", 0),
+          (_code, _out, _err.count("workpad.py update: PATCHed comment ")))
+
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, expect_comment_id="999", note=['n'])
+assert_eq("#814: an --expect-comment-id precondition mismatch exits 4 with empty stdout",
+          (4, ""), (_code, _out))
+
+# The breadcrumb assertion is shape-scoped, not a stderr line count: a --status
+# Complete finalize over unticked ## Plan rows still writes its existing warning, and
+# the breadcrumb sits beside it.
+_code, _out, _err, _patched = _drive_cmd_update(
+    GATE_BODY.replace('- [x] Plan step two', '- [ ] Plan step two'), status='Complete')
+assert_eq("#814: a --status Complete finalize keeps its unticked-Plan warning and the "
+          "breadcrumb sits beside it",
+          (True, 1),
+          ("unticked ## Plan row" in _err,
+           _err.count("workpad.py update: PATCHed comment ")))
+
+# The other conditional exit-0 warning — the un-mirrored AC placeholder — is driven
+# too, so both co-resident warnings are shown not to displace the breadcrumb. The
+# assertion stays shape-scoped (a count of breadcrumb-shaped lines), never a stderr
+# line count, so a third warning could not make it brittle.
+_code, _out, _err, _patched = _drive_cmd_update(
+    GATE_BODY.replace('- [x] AC one\n- [x] AC two',
+                      '- [x] ' + workpad._AC_PENDING_PLACEHOLDER),
+    status='Complete')
+assert_eq("#814: a --status Complete finalize over an un-mirrored AC placeholder keeps "
+          "that warning and the breadcrumb sits beside it",
+          (True, 1),
+          ("un-mirrored placeholder" in _err,
+           _err.count("workpad.py update: PATCHed comment ")))
+
+
+# `cmd_body` is untouched: it writes to stdout unconditionally, with no flag to gate
+# it. Driven behaviourally rather than by reading the source, so the assertion fails
+# only when the observable stdout changes.
+def _drive_cmd_body(payload):
+    saved = workpad._run
+    workpad._run = lambda cmd, **kw: _FakeRun(payload)
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out):
+            workpad.cmd_body(argparse.Namespace(comment_id=7))
+    finally:
+        workpad._run = saved
+    return out.getvalue()
+
+
+assert_eq("#814: cmd_body still writes its body to stdout unconditionally",
+          "the body\n", _drive_cmd_body("the body\n"))
+
+
+# The breadcrumb's three read-back arms, each driven — they are the operands
+# skills/implement/SKILL.md's rewritten "Always verify a Status PATCH actually
+# landed" rule reads, so an undriven arm is a prose contract with no coverage.
+# `_drive_cmd_update`'s stub answers the PATCH by echoing the body it was handed, so
+# a fixture whose Status line is stripped produces a Status-less PATCH response.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing',
+    patch_response="<!-- devflow:workpad -->\n# DevFlow Workpad\n\nno status line here\n")
+assert_eq("#814: a PATCH response carrying no Status line renders '(not found)', "
+          "never a bare empty clause",
+          True, "workpad.py update: PATCHed comment 7; Status: (not found)" in _err)
+assert_eq("#814: ... and the unreadable read-back also raises the landed-Status "
+          "mismatch WARNING, carrying the same distinct token the clause did",
+          True, "the PATCH response reads Status '(not found)'" in _err)
+
+# An EMPTY PATCH response (a throttled/oversized write) is reported distinctly from a
+# response whose body simply carries no Status line: pointing the reader at a corrupt
+# comment body when the RESPONSE was empty sends them after the wrong fault.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', patch_response="")
+assert_eq("#814: an empty PATCH response renders '(empty response)', not '(not found)'",
+          (True, False),
+          ("; Status: (empty response)" in _err, "; Status: (not found)" in _err))
+assert_eq("#814: ... and the empty-response read-back raises the WARNING too, with the "
+          "same distinct token — the two unobserved states stay distinguishable on "
+          "both lines",
+          True, "the PATCH response reads Status '(empty response)'" in _err)
+
+# The landed-Status comparison is machine-observable, not prose-only. Both halves are
+# driven, because a predicate that compared the requested status against itself would
+# stay green on the matching half alone: a PATCH that returns 200 while the comment
+# body still carries the OLD status must warn, and a PATCH that landed must not.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', patch_response=IDX_BODY)
+assert_eq("#814: a PATCH response still carrying the OLD Status raises the "
+          "landed-Status mismatch WARNING naming both values",
+          True,
+          "the PATCH response reads Status 'implementing', not the requested 'reviewing'"
+          in _err)
+assert_eq("#814: ... and its breadcrumb reports the stale value it read back",
+          True, "; Status: 🚀 Implementing" in _err)
+
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing')
+assert_eq("#814: a matching read-back raises no landed-Status mismatch warning",
+          False, "the PATCH response reads Status" in _err)
+
+# The WARNING is NOT gated on the clean path: it is failure-shaped, so it composes
+# with the volatile-miss report rather than re-creating the success/failure split —
+# and the combined --status + tick shape is where a stale Status is most likely.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'], patch_response=IDX_BODY)
+assert_eq("#814: the landed-Status mismatch WARNING fires on the volatile-tick-miss "
+          "path too, beside the miss report and without a success breadcrumb",
+          (True, True, 0),
+          ("the PATCH response reads Status 'implementing'" in _err,
+           "NO_SUCH_AC" in _err,
+           _err.count("workpad.py update: PATCHed comment ")))
+# ... and it is still a MISMATCH guard on that path, not an unconditional miss-path
+# line: the same shape with a read-back that agrees raises nothing. Without this the
+# sibling above is satisfied by a mutant that fires the WARNING whenever a tick missed.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#814: ... while a MATCHING read-back on that same volatile-miss path raises "
+          "no WARNING",
+          (True, False),
+          ("NO_SUCH_AC" in _err, "the PATCH response reads Status" in _err))
+
+# The breadcrumb fires on EVERY exit-0 PATCH path, including a checkpoint INSERT —
+# the shape .github/workflows/devflow-implement.yml's gate-adopted / claude-invoke
+# calls issue, which carry no --status and no --note.
+_code, _out, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
+assert_eq("#814: an absent-key checkpoint insert PATCHes and writes the success "
+          "breadcrumb, so a cloud checkpoint call is never byte-silent",
+          (True, 1),
+          (_patched is not None,
+           _err.count("workpad.py update: PATCHed comment ")))
+# ... and the read-back guard is gated on `--status` having been REQUESTED, not merely
+# on a Status line existing in the response. This same call carries no --status while
+# its fixture body does carry a Status row, so a guard that compared the read-back
+# unconditionally would fire a WARNING about a status this caller never asked for.
+assert_eq("#814: a call carrying no --status raises no landed-Status mismatch WARNING",
+          False, "the PATCH response reads Status" in _err)
+
+# The success breadcrumb is the caller's "it landed" signal, so the paths that never
+# PATCH must not emit it — otherwise the absent-breadcrumb rule the skill routes on
+# reads a success line on a run that persisted nothing. The stdout-silence half of
+# each path is asserted in run.sh's #814 block; these cover the stderr half.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, replace_plan_file="/nonexistent/devflow-814-x")
+assert_eq("#814: a structural abort makes no PATCH and writes no success breadcrumb",
+          (True, None, 0),
+          (_code != 0, _patched,
+           _err.count("workpad.py update: PATCHed comment ")))
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, note=['n'], expect_comment_id="999")
+assert_eq("#814: a failed --expect-comment-id precondition makes no PATCH and writes "
+          "no success breadcrumb",
+          (True, None, 0),
+          (_code != 0, _patched,
+           _err.count("workpad.py update: PATCHed comment ")))
+
+
+# `cmd_patch` carries an independent copy of the same write, and real consumers
+# capture it (scripts/flip-review-progress-failed.sh, skills/pr-description). Driven
+# behaviourally too, so a later "let's be consistent" gate on it turns this RED.
+def _drive_cmd_patch(payload):
+    saved = workpad._run
+    workpad._run = lambda cmd, **kw: _FakeRun(payload)
+    out = io.StringIO()
+    with _tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as tf:
+        tf.write('body file contents\n')
+        path = tf.name
+    try:
+        with contextlib.redirect_stdout(out):
+            workpad.cmd_patch(argparse.Namespace(comment_id=7, body_file=path))
+    finally:
+        workpad._run = saved
+        _os.unlink(path)
+    return out.getvalue()
+
+
+assert_eq("#814: cmd_patch still writes its response to stdout unconditionally",
+          "patched\n", _drive_cmd_patch("patched\n"))
+
+# Echo SOURCE, not merely echo presence. `--print-body` must reproduce what the PATCH
+# RESPONSE carried — the bytes the pre-#814 code wrote — never the body this process
+# just composed locally. run.sh cannot ask this: its gh stub answers a PATCH by teeing
+# back the body it received, so the two sources are identical there and a comparison
+# passes either way. Here `patch_response` is a sentinel that is deliberately NOT the
+# stored body, so echoing the local mutation turns this RED.
+_RESP_SENTINEL = "PATCH RESPONSE SENTINEL — not the locally mutated body\n"
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, note=['n'], print_body=True, patch_response=_RESP_SENTINEL)
+assert_eq("#814: --print-body echoes the PATCH RESPONSE bytes, not the locally mutated body",
+          (_RESP_SENTINEL, True, True),
+          (_out, _patched is not None, _out != _patched))
+
+# Argparse rejection: `--print-body` belongs to `update` alone, so a subcommand that
+# does not define it exits 2. Driven through the real `main()` parser.
+def _run_workpad_cli(argv):
+    # The gh-facing globals are stubbed the way the sibling argv drivers in this file
+    # do it, so an argv that DOES parse fails deterministically in-process instead of
+    # shelling out to a real `gh` — the assertion is about argparse's verdict, and a
+    # network call would make its result depend on the host's auth state.
+    saved_argv = sys.argv
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    workpad._run = lambda cmd, **kw: _FakeRun('')
+    sys.argv = ['workpad.py'] + argv
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            workpad.main()
+    except SystemExit as e:
+        return e.code
+    finally:
+        sys.argv = saved_argv
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return None
+
+
+assert_eq("#814: --print-body on a subcommand that does not define it exits 2",
+          2, _run_workpad_cli(['body', '7', '--print-body']))
+# The positive control drives the REAL parser with the flag on the `update`
+# subcommand — `update --help` would exit 0 whether or not the flag was ever
+# registered, so it proves nothing about registration. Exit 2 is argparse's
+# unrecognized-argument verdict, so "not 2" is what distinguishes a registered flag
+# from an unregistered one; the stubbed `_run` keeps the parsed call from reaching a
+# real `gh`. Registering `--print-body` on the wrong subparser turns this RED.
+assert_eq("#814: --print-body is registered on the update subparser (the real parser "
+          "accepts it, rather than exiting 2 on an unrecognized argument)",
+          True, _run_workpad_cli(['update', '999', '--print-body', '--note', 'n']) != 2)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
