@@ -1,0 +1,127 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T02:51:14Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase3_agent_fanout",
+  "pending_dispatch": {
+    "kind": "phase3_agent_fanout",
+    "roster": [
+      "devflow:checklist-generator",
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-26T03:05:00Z"
+  },
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "dispatched_effort": [
+    {
+      "agent": "devflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: this tier's in-session Agent-tool dispatch has no per-agent effort seam"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: this tier's in-session Agent-tool dispatch has no per-agent effort seam"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: this tier's in-session Agent-tool dispatch has no per-agent effort seam"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: this tier's in-session Agent-tool dispatch has no per-agent effort seam"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: this tier's in-session Agent-tool dispatch has no per-agent effort seam"
+    }
+  ],
+  "checklist": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "pending"
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "reference_reads": {},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "notes": {
+    "acceptance_criteria_source": "workpad",
+    "acceptance_criteria_divergence": "none",
+    "stale_prose_lint": "exit 0, no STALE rows (7 UNRESOLVABLE recognition-only rows, non-gating)",
+    "type_design_analyzer": "gated out — has_new_types is false",
+    "pr_test_analyzer": "dispatched — test-relevance predicate branch 1 (lib/test/run.sh, lib/test/modules/review-and-fix-contract.sh match *test*)",
+    "completeness_critic": "ran (detect_all_audit forced). Independent signal: the §2.3 sweep population re-enumerated from phase-2-implement.md '#### 2.3.x' headings (13 sweeps), rather than from run.sh assertion names. (a) §2.3.0d falls inside the #478 routing-marker lint's population region (preamble..'### 2.4 Test') by construction and that lint is GREEN, so the new sweep body is covered. (b) Per-sweep doc-mirror assertions cover 5 of 13 sweeps, but that set asserts no completeness property over the sweep population, so the shortfall is by design, not a vacuous detect-all. (c) RESIDUAL FINDING: the class §2.3.0d names — prose a change falsified without editing it — is strictly larger than the two triggers it arms on; a premise sentence invalidated by a reconciliation elsewhere in the same file (this PR's own fixing.md Command-forms premise) matches neither a set-member removal nor a weakened universal."
+  },
+  "telemetry": "unavailable"
+}
