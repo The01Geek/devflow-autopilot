@@ -648,7 +648,7 @@ _unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
 # The third entry is a FILE, not a directory. `lib/test/mutation-pin-corpus-adjudications.tsv`
 # is rendered output of `lib/test/mutation-pin-census.py --format adjudication-tsv`, and it
 # lives beside its generator rather than under `.devflow/logs/` (where its `master_sha256`
-# counterpart, the retirement manifest, does sit). Its `logical_call` column embeds each
+# counterpart, the mutation-pin corpus inventory, does sit). Its `logical_call` column embeds each
 # censused pin's source text verbatim — pin names included, and many of those carry counts —
 # so the count-locked rule resolves a quoted numeral against the surrounding TSV rows, which
 # are not that claim's referent. That is exactly the issue-#672 shape: a machine-rendered

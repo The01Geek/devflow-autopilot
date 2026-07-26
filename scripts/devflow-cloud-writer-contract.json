@@ -16,7 +16,7 @@
     "scripts/react-to-trigger.sh": "652b657c01693bb854bbdabb841ce08dd30f5f146d2b4dd25d13b9bf1d8b7802",
     "scripts/resolve-review-overrides.py": "696933822bf5f8b62d664df3e84082878243e059516b4d4005ec38686a6e37c3",
     "scripts/run-jq.sh": "1bcf3697f7fb24a50cbc246ef42ab9503be8fef4478103da0d183dcd971ad1fd",
-    "scripts/stale-prose-lint.py": "8771401b8c98af4ee522dd335a295da254e3053a2ac18c99392477895ead671a",
+    "scripts/stale-prose-lint.py": "1a7a8d06f2650e122ce43f8ec829de1d06526f15ae81e1500e4d4f595234d197",
     "scripts/update-branch-checkpoint.sh": "2d442145329f91167daa7446596117d2bc11895f8f2938b2f672f732a94ce767",
     "scripts/workpad.py": "45a7dbc23516be568826a6d5aaa4bee1b950dff042ed16e40820e047a33fa02c",
     "skills/docs-release-notes/SKILL.md": "6299f8cae38d5d5bffb4559ed86d11bd84621a86d0e3409fc00deaae6e945fc5",
