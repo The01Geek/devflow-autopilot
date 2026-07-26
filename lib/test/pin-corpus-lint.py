@@ -119,6 +119,8 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 
 from __future__ import annotations
 
+import ast
+import difflib
 import json
 import os
 import re
@@ -245,9 +247,11 @@ def build_var_maps(text, lib, overrides):
     path_vars: NAME -> resolved filesystem path (from `--var` overrides and from
     `VAR="$LIB/..."` / `VAR=$OTHER` assignments).
     literal_vars: NAME -> literal string value (from `VAR='single-quoted'`).
+
+    This intentionally models only the supported straight-line assignment
+    subset: the latest syntactic assignment wins. It does not attempt to
+    evaluate conditional shell control flow.
     """
-    path_vars = dict(overrides)
-    literal_vars = {}
     # First pass: collect raw RHS of simple `NAME=...` assignments at line start.
     assigns = {}
     for _, line in join_logical_lines(text):
@@ -255,7 +259,16 @@ def build_var_maps(text, lib, overrides):
         if not m:
             continue
         name, rhs = m.group(1), m.group(2).strip()
-        assigns.setdefault(name, rhs)  # first assignment wins (definition order)
+        # Callers that need the value at a particular site pass only the prefix
+        # preceding that site, so overwriting here yields the latest syntactic
+        # assignment in the supported straight-line subset.
+        assigns[name] = rhs
+    return _maps_from_assigns(assigns, lib, overrides)
+
+
+def _maps_from_assigns(assigns, lib, overrides):
+    path_vars = dict(overrides)
+    literal_vars = {}
     # Literal vars: RHS is a single-quoted string (no interpolation).
     for name, rhs in assigns.items():
         if len(rhs) >= 2 and rhs[0] == "'" and rhs.endswith("'") and "'" not in rhs[1:-1]:
@@ -273,6 +286,21 @@ def build_var_maps(text, lib, overrides):
         if not changed:
             break
     return path_vars, literal_vars
+
+
+def variable_maps_by_line(text, lib, overrides):
+    """Return straight-line syntactic variable maps before each logical line."""
+    maps = {}
+    assigns = {}
+    path_vars, literal_vars = _maps_from_assigns(assigns, lib, overrides)
+    for lineno, line in join_logical_lines(text):
+        maps[lineno] = (path_vars, literal_vars)
+        match = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
+        if match is None:
+            continue
+        assigns[match.group(1)] = match.group(2).strip()
+        path_vars, literal_vars = _maps_from_assigns(assigns, lib, overrides)
+    return maps
 
 
 def _resolve_path_rhs(rhs, lib, path_vars):
@@ -1032,6 +1060,7 @@ class GuardSite(NamedTuple):
     family: str
     helper: str | None
     literal: str | None
+    target_path: str | None
     declaration: StructuralDeclaration | None
     declaration_error: str | None
 
@@ -1045,6 +1074,102 @@ class FilePatch(NamedTuple):
 
 class InfrastructureError(RuntimeError):
     """The blocking gate could not establish the population or comparison."""
+
+
+_FUNCTION_BODY_RE = re.compile(
+    r"(?ms)^([A-Za-z_]\w*)\s*\(\)\s*\{(.*?)(?:^\s*\}|\})"
+)
+_POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
+_ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
+
+
+def _token_value(token):
+    return "".join(value for _, value in token)
+
+
+def _helper_call(tokens, helper_specs):
+    """Return (token-index, helper-name) for the first executable helper token.
+
+    Shell control prefixes such as ``if`` and ``!`` remain separate bare
+    tokens, so scanning the token stream covers guarded calls without treating
+    a helper name inside an assertion label as executable.
+    """
+    for index, token in enumerate(tokens):
+        if not token or any(kind != "bare" for kind, _ in token):
+            continue
+        value = _token_value(token)
+        if value in helper_specs:
+            return index, value
+    return None, None
+
+
+def helper_specs_for_source(text):
+    """Return built-in plus source-local wrapper helper specifications.
+
+    A focused module may wrap the shared pin API. Enumerating function
+    definitions independently of call spellings keeps those wrappers in the
+    audited population. Wrappers are inferred from the supported positional or
+    ``$@`` forwarding forms to an already-known helper; conventional
+    ``*_pin_*`` wrappers provide the small fallback needed for wrappers
+    implemented via lower-level counters (for example ``_raf_pin_unique``).
+    """
+    specs = dict(HELPERS)
+    bodies = {
+        match.group(1): match.group(2) for match in _FUNCTION_BODY_RE.finditer(text)
+    }
+    for name in bodies:
+        if name.endswith(("_pin_unique", "_pin_present")):
+            specs.setdefault(name, (1, 2, None))
+        elif name.endswith("_pin_count"):
+            specs.setdefault(name, (0, 1, None))
+        elif name.endswith("_pin_red_under"):
+            specs.setdefault(name, (1, 3, None))
+
+    for _ in range(len(bodies) + 1):
+        changed = False
+        for name, body in bodies.items():
+            if name in specs:
+                continue
+            for _, logical_line in join_logical_lines(body):
+                tokens = tokenize(logical_line.strip())
+                index, callee = _helper_call(tokens, specs)
+                if callee is None:
+                    continue
+                args = tokens[index + 1 :]
+                if len(args) == 1 and _ALL_POSITIONAL_RE.match(
+                    _token_value(args[0]).rstrip(";")
+                ):
+                    specs[name] = specs[callee]
+                    changed = True
+                    break
+                lit_index, file_index, default_file = specs[callee]
+                if lit_index >= len(args):
+                    continue
+                lit_ref = _POSITIONAL_RE.match(_token_value(args[lit_index]))
+                if lit_ref is None:
+                    continue
+                wrapper_file_index = 10**6
+                wrapper_default = default_file
+                if file_index < len(args):
+                    file_value = _token_value(args[file_index])
+                    file_ref = _POSITIONAL_RE.match(file_value)
+                    if file_ref is not None:
+                        wrapper_file_index = int(file_ref.group(1)) - 1
+                        wrapper_default = None
+                    else:
+                        var_ref = _VARREF.match(file_value)
+                        if var_ref is not None:
+                            wrapper_default = var_ref.group(1)
+                specs[name] = (
+                    int(lit_ref.group(1)) - 1,
+                    wrapper_file_index,
+                    wrapper_default,
+                )
+                changed = True
+                break
+        if not changed:
+            break
+    return specs
 
 
 def parse_structural_declaration(physical_lines):
@@ -1213,17 +1338,32 @@ def parse_unified_diff(difftext):
         added = set()
         deleted = set()
 
+    def diff_path(value, prefix):
+        value = value.split("\t", 1)[0]
+        if value.startswith('"') and value.endswith('"'):
+            try:
+                value = ast.literal_eval(value)
+                # Git C-quotes non-ASCII UTF-8 bytes as octal escapes. Python's
+                # literal parser maps each escape to a Latin-1 code point, so
+                # reconstruct the original byte sequence before path matching.
+                value = value.encode("latin-1").decode("utf-8")
+            except (SyntaxError, ValueError):
+                return value
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+        return re.sub(rf"^{prefix}/", "", value)
+
     for raw in difftext.splitlines():
         if raw.startswith("diff --git "):
             finish()
             continue
         if raw.startswith("--- "):
             value = raw[4:].split("\t", 1)[0]
-            old_path = None if value == "/dev/null" else re.sub(r"^a/", "", value)
+            old_path = None if value == "/dev/null" else diff_path(value, "a")
             continue
         if raw.startswith("+++ "):
             value = raw[4:].split("\t", 1)[0]
-            new_path = None if value == "/dev/null" else re.sub(r"^b/", "", value)
+            new_path = None if value == "/dev/null" else diff_path(value, "b")
             continue
         if raw.startswith("@@ "):
             match = re.match(
@@ -1256,9 +1396,13 @@ def _helper_family(helper):
 
 
 _RAW_PRESENCE_RE = re.compile(
-    r"""grep\s+-qF\s+(?:--\s+)?(?P<quote>['"])(?P<literal>.*?)(?P=quote)\s+
-        (?P<target>"?(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s"]+)?|[A-Za-z0-9_.-]+(?:/[^\s"]+)*)"?)
-        \s+&&\s+echo\s+yes\s+\|\|\s+echo\s+no""",
+    r"""(?P<prefix>\$\(|\bif\s+|\bthen\s+|(?:^|;|&&)\s*)
+        grep\s+
+        (?P<options>(?:(?:-[A-Za-z]+|--[a-z-]+)\s+)+)
+        (?:--\s+)?
+        (?P<literal_token>'[^']*'|"[^"]*"|[^\s]+)\s+
+        (?P<target>"?(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)"?)
+        (?P<tail>\s*(?:;|\)|&&|\|\||$))""",
     re.VERBOSE | re.DOTALL,
 )
 
@@ -1267,60 +1411,190 @@ def _line_end(start, logical_line):
     return start + logical_line.count("\n")
 
 
+def _raw_options_are_fixed_quiet(options):
+    fixed = quiet = False
+    for option in options.split():
+        if option == "--fixed-strings":
+            fixed = True
+        elif option == "--quiet":
+            quiet = True
+        elif option.startswith("-") and not option.startswith("--"):
+            fixed = fixed or "F" in option[1:]
+            quiet = quiet or "q" in option[1:]
+    return fixed and quiet
+
+
+def _resolve_guard_target(args, spec, literal_vars, path_vars, lib):
+    _, file_index, default_file = spec
+    if file_index < len(args):
+        target = resolve_arg(
+            args[file_index], literal_vars, path_vars, want_path=True, lib=lib
+        )
+        return target.rstrip(";") if target is not None else None
+    if default_file is not None:
+        return path_vars.get(default_file)
+    return None
+
+
+def _markdown_prose_text(text):
+    """Return Markdown text outside closed fences and HTML comments.
+
+    A properly closed fenced block is machine-facing content for this boundary.
+    An unterminated fence fails closed: its content remains prose-eligible
+    rather than allowing a stray opener to exempt the rest of a document.
+    """
+    lines = text.splitlines(keepends=True)
+    excluded = set()
+    fence = None
+    fence_start = None
+    for index, line in enumerate(lines):
+        match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line.rstrip("\r\n"))
+        if fence is None:
+            if match and not (
+                match.group(1)[0] == "`" and "`" in match.group(2)
+            ):
+                fence = (match.group(1)[0], len(match.group(1)))
+                fence_start = index
+            continue
+        if (
+            match
+            and match.group(1)[0] == fence[0]
+            and len(match.group(1)) >= fence[1]
+            and match.group(2).strip() == ""
+        ):
+            excluded.update(range(fence_start, index + 1))
+            fence = None
+            fence_start = None
+
+    visible = "".join(
+        line for index, line in enumerate(lines) if index not in excluded
+    )
+    return re.sub(r"<!--.*?-->", "", visible, flags=re.DOTALL)
+
+
+def _markdown_literal_is_prose(text, literal):
+    """Detect visible Markdown headings and whitespace-bearing prose phrases."""
+    visible = _markdown_prose_text(text)
+    for line in visible.splitlines():
+        if literal not in line:
+            continue
+        if re.match(r"^ {0,3}#{1,6}(?:\s+|$)", line):
+            return True
+        if re.search(r"\s", literal):
+            return True
+    return False
+
+
+def _typed_pin_protects_prose(site, repo_root):
+    """Return True when a declaration matches the conservative prose boundary.
+
+    The issue-810 boundary is semantic: a category marker does not turn an
+    advisory phrase into an executable contract. For statically resolved
+    targets, literal location and Markdown syntax are decisive: headings,
+    whitespace-bearing visible Markdown phrases, and hash-comment text are
+    never declaration-exempt. A standalone non-heading token is treated as a
+    sentinel; fenced Markdown machine content and operative source text also
+    retain the typed structural path.
+    """
+    if (
+        site.declaration is None
+        or site.literal is None
+        or site.target_path is None
+    ):
+        return False
+    target = Path(site.target_path)
+    if not target.is_absolute():
+        target = Path(repo_root) / target
+    ext = target.suffix.lower()
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        # When the target cannot be inspected, preserve only the locally
+        # decidable conservative boundary: a whitespace-bearing Markdown phrase
+        # is prose-like, while a standalone token remains sentinel-eligible.
+        return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
+    if site.literal not in text:
+        return False
+    if ext in COMMENT_MD_EXTS:
+        return _markdown_literal_is_prose(text, site.literal)
+    if ext in COMMENT_HASH_EXTS:
+        return any(
+            site.literal in comment
+            for _, comment in hash_comment_regions(text.splitlines())
+        )
+    return False
+
+
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
     repo_root = os.path.abspath(repo_root)
     lib = os.path.join(repo_root, "lib")
-    path_vars, literal_vars = build_var_maps(text, lib, {})
+    helper_specs = helper_specs_for_source(text)
+    maps_by_line = variable_maps_by_line(text, lib, {})
     physical = text.splitlines()
     sites = []
     for lineno, logical_line in join_logical_lines(text):
         stripped = logical_line.lstrip()
         if not stripped or stripped.startswith("#") or _DEF_LINE_RE.match(stripped):
             continue
-        first = stripped.split(None, 1)[0]
+        path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
-        if first in HELPERS or first in MUTATION_TAKING_HELPERS:
-            toks = tokenize(stripped)
-            args = toks[1:] if toks else []
+        toks = tokenize(stripped)
+        helper_index, helper = _helper_call(toks, helper_specs)
+        if helper is not None:
+            args = toks[helper_index + 1 :]
             literal = None
-            if first in HELPERS:
-                lit_idx = HELPERS[first][0]
-            else:
-                lit_idx = 1
+            spec = helper_specs[helper]
+            lit_idx = spec[0]
             if lit_idx < len(args):
                 literal = resolve_arg(
                     args[lit_idx], literal_vars, path_vars, want_path=False, lib=lib
                 )
+            target = _resolve_guard_target(
+                args, spec, literal_vars, path_vars, lib
+            )
             declaration, error = parse_structural_declaration(lines)
             sites.append(
                 GuardSite(
                     source_path,
                     lineno,
                     _line_end(lineno, logical_line),
-                    _helper_family(first),
-                    first,
+                    _helper_family(helper),
+                    helper,
                     literal,
+                    target,
                     declaration,
                     error,
                 )
             )
             continue
-        if first != "assert_eq" or "| grep" in logical_line:
-            continue
-        # The complement is deliberate: only a positive yes/no fixed-string check
-        # over a direct, statically resolved repository file is a raw presence pin.
-        before_grep = logical_line.split("grep", 1)[0]
-        if not re.search(r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?:"yes"|'yes')""", before_grep):
-            continue
         match = _RAW_PRESENCE_RE.search(logical_line)
-        if not match:
+        if not match or not _raw_options_are_fixed_quiet(match.group("options")):
             continue
+        # Negative assertions are absence guards, not presence pins. Canonical
+        # yes/no and 1/0 renderings are recognized; an `if grep ...` branch is
+        # positive unless explicitly negated.
+        before_grep = logical_line[: match.start()]
+        expected = re.search(
+            r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?P<q>['"])(?P<value>yes|no|1|0)(?P=q)""",
+            before_grep,
+        )
+        if re.search(r"!\s*$", before_grep):
+            continue
+        echo_pair = re.search(
+            r"&&\s+echo\s+(?P<on_match>yes|no|1|0)"
+            r"\s+\|\|\s+echo\s+(?P<on_miss>yes|no|1|0)",
+            logical_line[match.start() :],
+        )
+        if expected:
+            if echo_pair:
+                if expected.group("value") != echo_pair.group("on_match"):
+                    continue
+            elif expected.group("value") in {"no", "0"}:
+                continue
         target_token = match.group("target").strip('"')
         var_match = _VARREF.match(target_token)
         var_name = var_match.group(1) if var_match else ""
-        if re.search(r"(?:TMP|TEMP|FIXTURE|RESULT|OUTPUT|CAPTURE)", var_name):
-            continue
         target = path_vars.get(var_name) if var_name else None
         if target is None:
             target = _resolve_inline_var_path(target_token, lib, path_vars)
@@ -1333,9 +1607,23 @@ def extract_guard_sites(text, source_path, repo_root):
         if target is None:
             continue
         target_abs = os.path.abspath(target)
-        if os.path.commonpath((repo_root, target_abs)) != repo_root:
+        try:
+            inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
+        except ValueError:
+            inside_repo = False
+        if not inside_repo:
             continue
         declaration, error = parse_structural_declaration(lines)
+        literal_tokens = tokenize(match.group("literal_token"))
+        raw_literal = None
+        if literal_tokens:
+            raw_literal = resolve_arg(
+                literal_tokens[0],
+                literal_vars,
+                path_vars,
+                want_path=False,
+                lib=lib,
+            )
         sites.append(
             GuardSite(
                 source_path,
@@ -1343,7 +1631,8 @@ def extract_guard_sites(text, source_path, repo_root):
                 _line_end(lineno, logical_line),
                 "raw-presence",
                 None,
-                match.group("literal"),
+                raw_literal,
+                target_abs,
                 declaration,
                 error,
             )
@@ -1364,6 +1653,8 @@ def _move_class(site):
 
 
 def _move_compatible(old, new):
+    if old.target_path != new.target_path:
+        return False
     old_class = _move_class(old)
     new_class = _move_class(new)
     if old_class[0] != new_class[0]:
@@ -1379,29 +1670,92 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
     old_candidates = []
     new_candidates = []
     for patch in patches:
+        old_sites = []
+        new_sites = []
         if patch.old_path in base_sources:
+            old_sites = extract_guard_sites(
+                base_sources[patch.old_path], patch.old_path, repo_root
+            )
             old_candidates.extend(
-                site
-                for site in extract_guard_sites(
-                    base_sources[patch.old_path], patch.old_path, repo_root
-                )
-                if _site_changed(site, patch.deleted_lines)
+                site for site in old_sites if _site_changed(site, patch.deleted_lines)
             )
         if patch.new_path in current_sources:
-            new_candidates.extend(
-                site
-                for site in extract_guard_sites(
-                    current_sources[patch.new_path], patch.new_path, repo_root
-                )
-                if _site_changed(site, patch.added_lines)
+            new_sites = extract_guard_sites(
+                current_sources[patch.new_path], patch.new_path, repo_root
             )
+            new_candidates.extend(
+                site for site in new_sites if _site_changed(site, patch.added_lines)
+            )
+        # A changed assignment can alter an unchanged call's effective literal
+        # or target. Compare sites connected by the unchanged-line mapping so
+        # semantic changes enter the same policy path even when the call line is
+        # diff context.
+        if (
+            patch.old_path == patch.new_path
+            and patch.old_path in base_sources
+            and patch.new_path in current_sources
+            and (patch.added_lines or patch.deleted_lines)
+        ):
+            old_lines = base_sources[patch.old_path].splitlines()
+            new_lines = current_sources[patch.new_path].splitlines()
+            line_map = {}
+            for block in difflib.SequenceMatcher(
+                None, old_lines, new_lines, autojunk=False
+            ).get_matching_blocks():
+                for offset in range(block.size):
+                    line_map[block.a + offset + 1] = block.b + offset + 1
+            new_by_line = {site.line_start: site for site in new_sites}
+            for old_site in old_sites:
+                new_site = new_by_line.get(line_map.get(old_site.line_start))
+                if new_site is None:
+                    continue
+                old_effective = (
+                    old_site.family,
+                    old_site.helper,
+                    old_site.literal,
+                    old_site.target_path,
+                    old_site.declaration,
+                    old_site.declaration_error,
+                )
+                new_effective = (
+                    new_site.family,
+                    new_site.helper,
+                    new_site.literal,
+                    new_site.target_path,
+                    new_site.declaration,
+                    new_site.declaration_error,
+                )
+                if old_effective == new_effective:
+                    continue
+                if old_site not in old_candidates:
+                    old_candidates.append(old_site)
+                if new_site not in new_candidates:
+                    new_candidates.append(new_site)
 
     unused_old = list(old_candidates)
     findings = []
     for site in new_candidates:
         if site.family in ("mutation-helper", "count-helper"):
             continue
-        if site.declaration is not None and site.declaration_error is None:
+        if (
+            site.declaration is not None
+            and site.declaration_error is None
+            and not _typed_pin_protects_prose(site, repo_root)
+        ):
+            continue
+        if _typed_pin_protects_prose(site, repo_root):
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
+                "typed structural declaration cannot exempt prose presence"
+            )
+            continue
+        if site.declaration_error != "missing structural declaration":
+            detail = site.declaration_error
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+            )
             continue
         move_index = next(
             (
@@ -1426,9 +1780,23 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
 
 def validate_audited_population(registry, audited_sources, enumerated_sources):
     """Return population closure findings; an empty list means exact closure."""
-    registered = {"lib/test/run.sh"} | {
-        row["path"] for row in registry.get("test_modules", {}).values()
-    }
+    if not isinstance(registry, dict):
+        raise InfrastructureError("registry schema: root must be an object")
+    modules = registry.get("test_modules")
+    if not isinstance(modules, dict):
+        raise InfrastructureError("registry schema: test_modules must be an object")
+    registered = {"lib/test/run.sh"}
+    for name, row in modules.items():
+        if (
+            not isinstance(name, str)
+            or not isinstance(row, dict)
+            or not isinstance(row.get("path"), str)
+            or not row["path"]
+        ):
+            raise InfrastructureError(
+                f"registry schema: invalid test_modules row: {name!r}"
+            )
+        registered.add(row["path"])
     audited = set(audited_sources)
     enumerated = set(enumerated_sources)
     findings = []
@@ -1476,7 +1844,15 @@ def scan_worktree(
         # A missing local main is the normal Actions checkout shape. Other ancestry
         # failures remain infrastructure failures rather than green skips.
         local_main = git_runner(
-            ["git", "-C", str(repo_root), "rev-parse", "--verify", "refs/heads/main"],
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "show-ref",
+                "--verify",
+                "--quiet",
+                "refs/heads/main",
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -1589,13 +1965,22 @@ def scan_worktree(
                     + "\n".join(f"+{line}" for line in lines)
                     + "\n"
                 )
-        scratch.write(difftext)
-        scratch.flush()
+        try:
+            scratch.write(difftext)
+        except OSError as exc:
+            raise InfrastructureError(f"scratch write failed: {exc}") from exc
+        try:
+            scratch.flush()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch flush failed: {exc}") from exc
         return scan_changed_sources(
             current_sources, base_sources, difftext, str(repo_root)
         )
     finally:
-        scratch.close()
+        try:
+            scratch.close()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch close failed: {exc}") from exc
 
 
 def _read(path):

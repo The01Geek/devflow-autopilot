@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 LINTER = HERE / "pin-corpus-lint.py"
@@ -145,6 +147,57 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
             self.assertEqual([], findings)
 
+    def test_typed_declaration_cannot_launder_prose(self):
+        marker = (
+            "# structural-pin-ok: cross-file-phase-contract -- "
+            "the sentence is claimed to connect two phases"
+        )
+        for target_path, target_text in (
+            ("docs/x.md", "## Advisory heading\n\nThis is human-facing prose.\n"),
+            ("docs/x.md", "## Overview\n"),
+            ("lib/x.sh", "# Advisory heading\nprintf '%s\\n' runtime\n"),
+        ):
+            with self.subTest(target=target_path), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                target = root / target_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(target_text, encoding="utf-8")
+                literal = "Overview" if target_text == "## Overview\n" else "Advisory heading"
+                source = (
+                    f"F=\"$LIB/../{target_path}\"\n"
+                    f"assert_pin_unique \"heading\" '{literal}' \"$F\"  {marker}"
+                )
+                findings = self.mod.scan_changed_sources(
+                    {"lib/test/a.sh": source},
+                    {"lib/test/a.sh": ""},
+                    one_file_diff("lib/test/a.sh", "", source),
+                    repo_root=root,
+                )
+                self.assertEqual(1, len(findings))
+                self.assertIn("prose", findings[0])
+
+    def test_typed_markdown_machine_token_in_code_fence_is_not_prose(self):
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fenced token is parsed by a consumer"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
+            source = (
+                "F=\"$LIB/../docs/x.md\"\n"
+                f"assert_pin_unique \"sentinel\" 'MACHINE SENTINEL' \"$F\"  {marker}"
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual([], findings)
+
     def test_direct_inline_repository_file_is_a_raw_presence_pin(self):
         source = (
             "assert_eq \"wording\" \"yes\" "
@@ -153,6 +206,81 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
         self.assertEqual(["raw-presence"], [site.family for site in sites])
+
+    def test_equivalent_helper_and_raw_command_forms_are_extracted(self):
+        sources = {
+            "helper under if": (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "if assert_pin_unique \"wording\" 'literal' \"$F\"; then :; fi"
+            ),
+            "private wrapper": (
+                "_raf_pin_unique() { devflow_module_pin_unique \"$@\"; }\n"
+                "F=\"$LIB/../docs/x.md\"\n"
+                "_raf_pin_unique \"wording\" 'literal' \"$F\""
+            ),
+            "opaque forwarding wrapper": (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "contract_surface() { "
+                "devflow_module_pin_present \"wrapped $1\" \"$2\" \"$F\"; }\n"
+                "contract_surface \"wording\" 'literal'"
+            ),
+            "generic forwarding wrapper": (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "contract_surface() { devflow_module_pin_present \"$@\"; }\n"
+                "contract_surface \"wording\" 'literal' \"$F\""
+            ),
+            "short flags reversed": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep -Fq -- 'literal' \"$DOC\" && echo yes || echo no)\""
+            ),
+            "short flags split": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep -q -F -- 'literal' \"$DOC\" && echo yes || echo no)\""
+            ),
+            "long flags": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep --fixed-strings --quiet -- 'literal' \"$DOC\" "
+                "&& echo yes || echo no)\""
+            ),
+            "numeric boolean": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "assert_eq \"wording\" \"1\" "
+                "\"$(grep -Fq -- 'literal' \"$DOC\" && echo 1 || echo 0)\""
+            ),
+            "if control flow": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "if grep -Fq -- 'literal' \"$DOC\"; then "
+                "assert_eq \"wording\" \"yes\" \"yes\"; fi"
+            ),
+            "literal variable": (
+                "DOC=\"$LIB/../docs/x.md\"\n"
+                "LIT='literal'\n"
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep -Fq -- $LIT \"$DOC\" && echo yes || echo no)\""
+            ),
+        }
+        for label, source in sources.items():
+            with self.subTest(label=label):
+                sites = self.mod.extract_guard_sites(
+                    source, "lib/test/a.sh", repo_root="/repo"
+                )
+                self.assertEqual(1, len(sites))
+                self.assertEqual("literal", sites[0].literal)
+
+        reversed_output = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "assert_eq \"absence\" \"yes\" "
+            "\"$(grep -Fq -- 'literal' \"$DOC\" && echo no || echo yes)\""
+        )
+        self.assertEqual(
+            [],
+            self.mod.extract_guard_sites(
+                reversed_output, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
 
     def test_runtime_pipe_count_absence_and_temp_greps_are_not_raw_presence_pins(self):
         source = "\n".join(
@@ -189,6 +317,98 @@ class PinCorpusLint810Tests(unittest.TestCase):
             repo_root="/repo",
         )
         self.assertEqual(1, len(findings))
+
+    def test_invalid_declaration_is_never_exempted_as_a_move(self):
+        old = "assert_pin_unique \"legacy\" 'L' \"$F\""
+        invalid = (
+            "assert_pin_unique \"moved\" 'L' \"$F\"  "
+            "# structural-pin-ok: prose-presence -- invalid category"
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/new.sh": invalid},
+            {"lib/test/old.sh": old},
+            one_file_diff("lib/test/old.sh", old, "")
+            + one_file_diff("lib/test/new.sh", "", invalid),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("unknown structural category", findings[0])
+
+    def test_move_exemption_rejects_a_changed_target_surface(self):
+        old = (
+            "F=\"$LIB/../scripts/tool.sh\"\n"
+            "assert_pin_unique \"legacy\" 'TOKEN' \"$F\""
+        )
+        new = (
+            "F=\"$LIB/../docs/tool.md\"\n"
+            "assert_pin_unique \"moved\" 'TOKEN' \"$F\""
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/new.sh": new},
+            {"lib/test/old.sh": old},
+            one_file_diff("lib/test/old.sh", old, "")
+            + one_file_diff("lib/test/new.sh", "", new),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+
+    def test_assignment_only_literal_change_reclassifies_unchanged_call(self):
+        old = "LIT='old wording'\nassert_pin_unique \"wording\" \"$LIT\" \"$F\""
+        new = "LIT='new wording'\nassert_pin_unique \"wording\" \"$LIT\" \"$F\""
+        diff = (
+            "diff --git a/lib/test/a.sh b/lib/test/a.sh\n"
+            "--- a/lib/test/a.sh\n+++ b/lib/test/a.sh\n"
+            "@@ -1 +1 @@\n-LIT='old wording'\n+LIT='new wording'\n"
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": new},
+            {"lib/test/a.sh": old},
+            diff,
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("new wording", findings[0])
+
+    def test_inserted_site_does_not_shift_semantic_pairing_of_existing_sites(self):
+        marker = "# structural-pin-ok: helper-contract -- executable helper token"
+        existing = f"assert_pin_unique \"existing\" 'TOKEN' \"$F\"  {marker}"
+        inserted = "assert_pin_unique \"new\" 'wording' \"$F\""
+        new = inserted + "\n" + existing
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": new},
+            {"lib/test/a.sh": existing},
+            one_file_diff("lib/test/a.sh", existing, new),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("wording", findings[0])
+
+    def test_latest_assignment_before_call_controls_effective_literal(self):
+        source = (
+            "LIT='stale wording'\n"
+            "LIT='effective wording'\n"
+            "assert_pin_unique \"wording\" \"$LIT\" \"$F\""
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/a.sh", repo_root="/repo"
+        )
+        self.assertEqual("effective wording", sites[0].literal)
+
+    def test_git_quoted_unified_diff_paths_are_decoded(self):
+        for encoded, decoded in (
+            ('"b/lib/test/quoted name.sh"', "lib/test/quoted name.sh"),
+            ('"b/lib/test/\\303\\251.sh"', "lib/test/é.sh"),
+        ):
+            with self.subTest(encoded=encoded):
+                diff = (
+                    f'diff --git "a/lib/test/old.sh" {encoded}\n'
+                    "--- a/lib/test/old.sh\n"
+                    f"+++ {encoded}\n"
+                    "@@ -0,0 +1 @@\n"
+                    "+assert_pin_unique \"wording\" 'literal' \"$F\"\n"
+                )
+                patches = self.mod.parse_unified_diff(diff)
+                self.assertEqual(decoded, patches[0].new_path)
 
     def test_mutation_to_static_and_one_delete_to_two_adds_are_not_exempt(self):
         old = "assert_pin_red_under \"behavior\" 'L' 's/x/y/' \"$F\""
@@ -278,6 +498,198 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
             )
 
+    def _worktree_fixture(self, root, registry):
+        for path in self.mod.AUDITED_PIN_SOURCES:
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("", encoding="utf-8")
+        registry_path = root / "scripts/workflow-flight-recorder-registry.json"
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+        audited = "\n".join(sorted(self.mod.AUDITED_PIN_SOURCES)) + "\n"
+
+        def runner(args, **_kwargs):
+            rendered = " ".join(args)
+            if "show-ref --verify --quiet refs/heads/main" in rendered:
+                return subprocess.CompletedProcess(args, 1, "", "")
+            if "refs/heads/main" in rendered:
+                return subprocess.CompletedProcess(args, 128, "", "missing")
+            if "merge-base origin/main HEAD" in rendered:
+                return subprocess.CompletedProcess(args, 0, "mergebase\n", "")
+            if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
+                return subprocess.CompletedProcess(args, 0, audited, "")
+            if "show mergebase:" in rendered:
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        return runner
+
+    def test_missing_local_main_is_a_normal_detached_checkout_shape(self):
+        registry = {
+            "test_modules": {
+                path: {"path": path}
+                for path in self.mod.AUDITED_PIN_SOURCES
+                if path != "lib/test/run.sh"
+            }
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._worktree_fixture(root, registry)
+            findings = self.mod.scan_worktree(
+                root,
+                git_runner=self._worktree_fixture(root, registry),
+                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+            )
+        self.assertEqual([], findings)
+
+    def test_scratch_write_flush_and_close_failures_are_infrastructure_errors(self):
+        registry = {
+            "test_modules": {
+                path: {"path": path}
+                for path in self.mod.AUDITED_PIN_SOURCES
+                if path != "lib/test/run.sh"
+            }
+        }
+
+        class BrokenScratch:
+            def __init__(self, failure):
+                self.failure = failure
+
+            def write(self, _value):
+                if self.failure == "write":
+                    raise OSError("write failed")
+
+            def flush(self):
+                if self.failure == "flush":
+                    raise OSError("flush failed")
+
+            def close(self):
+                if self.failure == "close":
+                    raise OSError("close failed")
+
+        for failure in ("write", "flush", "close"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._worktree_fixture(root, registry)
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError, f"scratch {failure} failed"
+                ):
+                    self.mod.scan_worktree(
+                        root,
+                        git_runner=self._worktree_fixture(root, registry),
+                        scratch_factory=lambda f=failure: BrokenScratch(f),
+                    )
+
+    def test_malformed_registry_shapes_are_infrastructure_errors(self):
+        malformed = (
+            {"test_modules": []},
+            {"test_modules": {"x": []}},
+            {"test_modules": {"x": {}}},
+        )
+        for registry in malformed:
+            with self.subTest(registry=registry), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                runner = self._worktree_fixture(root, registry)
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError, "registry schema"
+                ):
+                    self.mod.scan_worktree(
+                        root,
+                        git_runner=runner,
+                        scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+                    )
+
+    def test_public_worktree_command_maps_infrastructure_and_findings_to_exit_codes(self):
+        with mock.patch.object(
+            self.mod, "scan_worktree", side_effect=self.mod.InfrastructureError("boom")
+        ):
+            self.assertEqual(
+                2, self.mod.main(["pin-corpus-lint.py", "mutation-routing-worktree", "/repo"])
+            )
+        with mock.patch.object(
+            self.mod, "scan_worktree", return_value=["MUTATION-ROUTING\tfinding"]
+        ):
+            self.assertEqual(
+                3, self.mod.main(["pin-corpus-lint.py", "mutation-routing-worktree", "/repo"])
+            )
+
+    def _real_worktree_repo(self, root, base_run_sh):
+        for path in self.mod.AUDITED_PIN_SOURCES:
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                base_run_sh if path == "lib/test/run.sh" else "",
+                encoding="utf-8",
+            )
+        modules = {
+            path: {"path": path}
+            for path in self.mod.AUDITED_PIN_SOURCES
+            if path != "lib/test/run.sh"
+        }
+        registry = root / "scripts/workflow-flight-recorder-registry.json"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(json.dumps({"test_modules": modules}), encoding="utf-8")
+        docs = root / "docs/x.md"
+        docs.parent.mkdir(parents=True, exist_ok=True)
+        docs.write_text("TOKEN\n", encoding="utf-8")
+        commands = (
+            ("init", "-q"),
+            ("config", "user.email", "test@example.com"),
+            ("config", "user.name", "Test"),
+            ("add", "."),
+            ("commit", "-qm", "base"),
+            ("branch", "-M", "main"),
+            ("update-ref", "refs/remotes/origin/main", "HEAD"),
+            ("checkout", "-qb", "feature"),
+            ("branch", "-D", "main"),
+        )
+        for args in commands:
+            subprocess.run(
+                ["git", "-C", str(root), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+    def test_public_required_gate_planted_defect_matrix(self):
+        cases = (
+            (
+                "wording-only",
+                "",
+                "assert_pin_unique \"wording\" 'human prose' \"$F\"\n",
+                3,
+            ),
+            (
+                "typed executable boundary",
+                "",
+                "F=\"$LIB/../docs/x.md\"\n"
+                "assert_pin_unique \"sentinel\" 'TOKEN' \"$F\"  "
+                "# structural-pin-ok: machine-sentinel-provenance -- parsed token\n",
+                0,
+            ),
+            (
+                "mutation downgrade",
+                "assert_pin_red_under \"behavior\" 'L' 's/x/y/' \"$F\"\n",
+                "assert_pin_unique \"wording\" 'L' \"$F\"\n",
+                3,
+            ),
+        )
+        for label, old, new, expected_rc in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._real_worktree_repo(root, old)
+                (root / "lib/test/run.sh").write_text(new, encoding="utf-8")
+                with mock.patch("sys.stdout", new_callable=io.StringIO):
+                    rc = self.mod.main(
+                        [
+                            "pin-corpus-lint.py",
+                            "mutation-routing-worktree",
+                            str(root),
+                        ]
+                    )
+                self.assertEqual(expected_rc, rc)
+
     def test_required_path_has_no_classifier_or_inventory_dependency(self):
         text = LINTER.read_text(encoding="utf-8")
         start = text.index("def scan_worktree")
@@ -286,8 +698,16 @@ class PinCorpusLint810Tests(unittest.TestCase):
         self.assertNotIn("pin-corpus-inventory.tsv", required_path)
 
     def test_registry_fixture_is_json_serializable(self):
-        # Keeps the registry fixture shape coupled to the production JSON boundary.
-        json.dumps({"test_modules": {"x": {"path": "lib/test/modules/x.sh"}}})
+        # Sanity-check the same shape used by the production population validator.
+        registry = {"test_modules": {"x": {"path": "lib/test/modules/x.sh"}}}
+        self.assertEqual(
+            [],
+            self.mod.validate_audited_population(
+                registry,
+                {"lib/test/run.sh", "lib/test/modules/x.sh"},
+                {"lib/test/run.sh", "lib/test/modules/x.sh"},
+            ),
+        )
 
 
 if __name__ == "__main__":

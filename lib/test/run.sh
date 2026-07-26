@@ -32079,9 +32079,8 @@ assert_eq "#248 preflight: empty DEVFLOW_BASH is a no-op — not surfaced (AC2/A
 #    prints the remedy naming the supported bashes + DEVFLOW_BASH and exits non-zero,
 #    BEFORE the bash-only `${BASH_SOURCE[0]}` would abort with a cryptic error.
 #    Exercised with a real non-bash sh when one exists (dash/busybox, invoked by
-#    absolute path); on a bash-only host the dynamic arm is skipped (recorded, never
-#    silently green) and the source-level recovery contract below still covers every
-#    supported recovery option. ──
+#    absolute path); on a bash-only host the dynamic arm is skipped and recorded,
+#    never replaced by a wording-only source assertion. ──
 NONBASH=""
 if command -v dash >/dev/null 2>&1; then NONBASH="$(command -v dash)"
 elif command -v busybox >/dev/null 2>&1; then NONBASH="$(command -v busybox) sh"
@@ -32101,17 +32100,10 @@ if [ -n "$NONBASH" ]; then
     "$(printf '%s' "$PF248R_OUT" | grep -qi 'bad substitution\|BASH_SOURCE' && echo yes || echo no)"
 else
   # No non-bash sh on this host: record an explicit skip so the missing dynamic
-  # coverage is visible (never a silent green); the source-level remedy contract
-  # below still covers every supported recovery option.
-  # Route the recorded PASS through assert_eq (a trivially-true comparison) rather
-  # than hand-inlining its tally/print contract, so this site tracks any change to
-  # how the helper records a pass.
-  assert_eq "#248 preflight: non-bash remedy dynamic arm SKIPPED (no dash/busybox on host) — source contract below covers the recovery options" "skip" "skip"
+  # coverage is visible rather than substituting a wording-only fallback.
+  skip "#248 preflight: non-bash remedy dynamic arm" host-capability \
+    "no dash/busybox on host"
 fi
-
-# Source-level recovery contract for hosts without a second shell.
-assert_eq "#248 pin: remedy names all three supported bashes + the DEVFLOW_BASH override (AC3)" "yes" \
-  "$(grep -q 'WSL bash' "$PF248" && grep -q 'Git Bash' "$PF248" && grep -q 'MSYS2 bash' "$PF248" && grep -q 'DEVFLOW_BASH' "$PF248" && echo yes || echo no)"
 
 rm -rf "$T248"
 
