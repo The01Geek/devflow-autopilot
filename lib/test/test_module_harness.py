@@ -667,6 +667,8 @@ class SignalCleanupMatrixTests(unittest.TestCase):
         signal_pause = (
             "# Test-only signal fixture: exercise a real foreground helper process.\n"
             'trap -p INT > "$DEVFLOW_TEST_MODULE_STATE_FILE.trap"\n'
+            'DEVFLOW_MODULE_SCRATCH_ROOT="$_ci_tmp_root"\n'
+            "export DEVFLOW_MODULE_SCRATCH_ROOT\n"
             '_ci_signal_fixture="$_ci_tmp_root/signal-source"\n'
             'printf \'operative\\n\' > "$_ci_signal_fixture"\n'
             'devflow_module_pin_red_under "signal helper" "operative" '
