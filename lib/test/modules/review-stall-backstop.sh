@@ -1214,7 +1214,7 @@ unset _t812p _t812d
 
 # #839 AC1 — the recorded verdict has TWO docs mirrors, and only DEVFLOW_SYSTEM_OVERVIEW.md
 # was gated (recorded_verdict812 above). docs/implement-skill.md carries the SAME run
-# identifiers and FOREGROUND claim as a second copy — the coupled-mirror class CLAUDE.md
+# identifiers as a second copy of that dated observation — the coupled-mirror class CLAUDE.md
 # warns about — so a re-probe that updates one file and not the other would ship two
 # disagreeing dated observations with the suite green. Assert the two run identifiers recorded
 # in the overview also appear in implement-skill.md's background-tasks-probe record, so the
@@ -1270,7 +1270,7 @@ assert_eq "#839 bgv: main() emits the named breadcrumb when GITHUB_STEP_SUMMARY 
 assert_eq "#839 bgv: the verdict table still reaches stdout when GITHUB_STEP_SUMMARY is unwritable" "yes" \
   "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
 # EXECUTION_FILE env-var fallback: with NO argv path, main() reads the fixture from the env var
-# (its `or ""` normalization keeps an empty argv from masking a set env var).
+# (it reads the fixture from the env var only when no argv path is given).
 assert_eq "#839 bgv: main() reads the execution file from the EXECUTION_FILE env var when no argv path is given" "yes" \
   "$(EXECUTION_FILE="$BGV_F2" python3 "$BGV_PY" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
 rm -f "$BGV_F2" "$BGV_SUM"
