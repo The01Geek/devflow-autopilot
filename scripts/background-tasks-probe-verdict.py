@@ -197,8 +197,12 @@ def compute_verdict(denials, tool_uses, note_top):
     """Return (verdict, record, dispatch_attempted, result_in_hand, ack_only,
     control_before, control_after). Every marker match is case-insensitive so a decorated
     or lower-cased recording still reads as present."""
+    # Lowercase each entry ONCE: the per-entry list below and the joined text must not
+    # lowercase through two separate expressions, or a later edit can make the two match
+    # surfaces disagree about case handling.
+    lowered_uses = [t.lower() for t in tool_uses]
     denial_text = "\n".join(denials).lower()
-    tooluse_text = "\n".join(tool_uses).lower()
+    tooluse_text = "\n".join(lowered_uses)
     both_text = tooluse_text + "\n" + denial_text
 
     control_before = CONTROL_BEFORE.lower() in tooluse_text
@@ -221,7 +225,7 @@ def compute_verdict(denials, tool_uses, note_top):
     # Only Action 3's in-hand branch emits both tokens in one Bash command.
     result_in_hand = any(
         RESULT_IN_HAND.lower() in entry and SUBAGENT_MARKER.lower() in entry
-        for entry in (t.lower() for t in tool_uses)
+        for entry in lowered_uses
     )
     ack_only = ACK_ONLY.lower() in tooluse_text
 

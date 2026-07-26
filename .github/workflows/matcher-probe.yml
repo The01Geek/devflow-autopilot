@@ -1202,18 +1202,15 @@ jobs:
   # reaches. It shipped unconditionally rather than probe-gated because it is inert when
   # ignored, which left the premise owed but unobserved. This job pays that debt.
   #
-  # The measurement borrows the agents-seam-probe technique (#610) rather than reading a
-  # tool-RESULT field this repository has not established as harness-recorded (see
-  # docs/execution-file-shape.md, itself a dated observation and not a contract): the probe
-  # subagent's ENTIRE final response is one marker line, and the top-level session echoes
-  # what it actually received back through Bash. A Bash tool_use carrying the subagent's OWN
-  # marker is harness-recorded proof the completed result was in hand within the turn; an
-  # acknowledgment-only dispatch cannot produce one. Two positive controls bracket the
-  # dispatch so a run that never reached the echo step reads INCONCLUSIVE rather than
-  # collapsing onto a verdict. The verdict is derived DETERMINISTICALLY from the execution
-  # file by the unit-tested helper scripts/background-tasks-probe-verdict.py (extracted so
-  # each verdict arm the helper can emit is driven in lib/test/modules/review-stall-backstop.sh — same rationale as the
-  # #415 and #610 siblings); the model's text is NEVER the measurement.
+  # Why the prompt below dispatches a subagent and then echoes the marker it got back,
+  # instead of reading a tool-RESULT field: scripts/background-tasks-probe-verdict.py's
+  # module docstring owns that explanation and is the single place it is maintained. What
+  # matters here is only the coupling — the marker vocabulary in this prompt and the
+  # constants at the top of that helper are one contract and are edited together. The
+  # verdict is derived DETERMINISTICALLY from the execution file by that unit-tested helper
+  # (extracted so each verdict arm it can emit is driven in
+  # lib/test/modules/review-stall-backstop.sh — same rationale as the #415 and #610
+  # siblings); the model's text is NEVER the measurement.
   #
   # The variable under test is set as a step-scoped `env:` on the claude-code-action step —
   # the same shape the three engine workflows carry — NOT folded into claude_args, because
