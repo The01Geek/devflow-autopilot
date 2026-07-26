@@ -226,4 +226,34 @@ OUTPUT="$(
   '
 )" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (jq exited non-zero — e.g. a malformed pattern view; the former oversized-operand arg-limit overflow is now mitigated via --slurpfile)" >&2; exit 1; }
 
+# ── Liveness warning (issue #788) ─────────────────────────────────────────────
+# When the actionable (eligible) set is EMPTY while at least one pattern is
+# suppressed-but-recurring — occurrence_count >= min AND status in
+# {dismissed, declined, fixed} — the loop is silently producing nothing on inputs
+# that should raise something. Emit a loud ::warning:: naming the count and the
+# highest-occurrence suppressed slug, and print a `liveness:` line to stdout's
+# sibling stderr so the orchestrator can surface it in the report. `filed` is
+# deliberately EXCLUDED: an open meta-issue is the loop working correctly.
+# In --full mode this diagnostic is suppressed (the caller wants the raw view).
+if [ "$FULL" -eq 0 ]; then
+    _ELIGIBLE_N="$(printf '%s' "$OUTPUT" | "$DEVFLOW_JQ" 'length')"
+    if [ "${_ELIGIBLE_N:-0}" -eq 0 ]; then
+        printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
+        _SUPPRESSED="$(
+          "$DEVFLOW_JQ" -c -n --slurpfile pv "$_JQ_TMP/pv_live.json" --argjson min "$MIN" '
+            [ $pv[0] | to_entries[]
+              | select(.value.occurrence_count >= $min)
+              | select(.value.status == "dismissed" or .value.status == "declined" or .value.status == "fixed")
+              | {slug: .key, occ: .value.occurrence_count} ]
+            | sort_by(-.occ)'
+        )" || _SUPPRESSED='[]'
+        _SUP_N="$(printf '%s' "$_SUPPRESSED" | "$DEVFLOW_JQ" 'length')"
+        if [ "${_SUP_N:-0}" -gt 0 ]; then
+            _TOP="$(printf '%s' "$_SUPPRESSED" | "$DEVFLOW_JQ" -r '.[0].slug')"
+            echo "::warning::actionable-patterns: no pattern is eligible to file, yet ${_SUP_N} pattern(s) recur at/above min_occurrences while suppressed (dismissed/declined/fixed) — highest: ${_TOP}. Nothing will be filed; investigate the lifecycle state." >&2
+            echo "liveness: ${_SUP_N} suppressed-but-recurring pattern(s), highest ${_TOP}" >&2
+        fi
+    fi
+fi
+
 printf '%s\n' "$OUTPUT"

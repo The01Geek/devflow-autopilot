@@ -571,7 +571,7 @@ cp_run() {
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit"],"descriptors":["orphaned fetch in handleEvent"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit","doc-accuracy"],"descriptors":["stale count not propagated"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "two open occurrences → status=open" \
   "open" \
   "$(echo "$RESULT" | jq -r '.["incomplete-edit"].status')"
@@ -591,7 +591,7 @@ assert_eq "a second category from the same PR forms its own pattern" \
 RESULT=$(cp_run \
   '{"schema_version":1,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","theme_tags":["doc-accuracy"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
   "2" \
   "$(echo "$RESULT" | jq -r '.["doc-accuracy"].occurrence_count')"
@@ -600,7 +600,7 @@ assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
 {"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["lenient-verdict"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "occ then fix → status=fixed" \
   "fixed" \
   "$(echo "$RESULT" | jq -r '.["lenient-verdict"].status')"
@@ -612,7 +612,7 @@ RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["outstanding-reject"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-05-02T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
 {"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-05-03T00:00:00Z","verdict":"imperfect","categories":["deferred-verification"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "split slug outstanding-reject aggregates (count=1)" \
   "1" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
 assert_eq "split slug lenient-verdict aggregates (count=1)" \
@@ -626,7 +626,7 @@ assert_eq "removed split slug never aggregates" \
 # NONE of the three successor slugs.
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":9,"merged_at":"2026-05-09T00:00:00Z","verdict":"imperfect","categories":["other"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "gate-absent PR → no outstanding-reject pattern" \
   "null" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
 assert_eq "gate-absent PR → no lenient-verdict pattern" \
@@ -844,7 +844,7 @@ fi
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"audit","pr":1,"merged_at":"2026-04-01T00:00:00Z","fixes_patterns":["convention-violation"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-15T00:00:00Z","verdict":"imperfect","categories":["convention-violation"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "fix then occ → status=regressed" \
   "regressed" \
   "$(echo "$RESULT" | jq -r '.["convention-violation"].status')"
@@ -852,7 +852,7 @@ assert_eq "fix then occ → status=regressed" \
 # Override → status "dismissed"
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}' \
-  '{"schema_version":1,"dismissed":{"tooling-gap":{"reason":"meta-plugin-issue"}}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{"tooling-gap":{"reason":"meta-plugin-issue"}}}')
 assert_eq "override → status=dismissed" \
   "dismissed" \
   "$(echo "$RESULT" | jq -r '.["tooling-gap"].status')"
@@ -862,7 +862,7 @@ assert_eq "override → status=dismissed" \
 # whole "Blocked" workpad-status branch invisible to the audit.
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"blocked","categories":["unmet-acceptance-criteria"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "blocked verdict counts as occurrence" \
   "1" \
   "$(echo "$RESULT" | jq -r '.["unmet-acceptance-criteria"].occurrence_count')"
@@ -872,7 +872,7 @@ assert_eq "blocked verdict counts as occurrence" \
 RESULT=$(cp_run \
   '{"schema_version":1,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","theme_tags":["Foo-Bar-IN-Clause"]}
 {"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["foo-bar-in-clause"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "slug normalization: mixed-case theme_tag matched by lowercase fixes_pattern → fixed" \
   "fixed" \
   "$(echo "$RESULT" | jq -r '.["foo-bar-in-clause"].status')"
@@ -882,7 +882,7 @@ assert_eq "slug normalization: mixed-case theme_tag matched by lowercase fixes_p
 RESULT=$(cp_run \
   '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-15T00:00:00Z","verdict":"imperfect","categories":["other"]}
 {"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","categories":["other"]}' \
-  '{"schema_version":1,"dismissed":{}}')
+  '{"schema_version":2,"patterns":{},"dismissed":{}}')
 assert_eq "missing merged_at filtered out (count=1)" \
   "1" \
   "$(echo "$RESULT" | jq -r '.["other"].occurrence_count')"
@@ -14233,7 +14233,7 @@ printf '%s\n' \
   '{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit"],"descriptors":["stale count not propagated"]}' \
   '{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-04-11T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' \
   > "$AP_TMP/r.jsonl"
-echo '{"schema_version":1,"dismissed":{}}' > "$AP_TMP/o.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$AP_TMP/o.json"
 cat > "$AP_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in *"pr list"*) echo '[]' ;; *) echo '[]' ;; esac
@@ -14414,7 +14414,7 @@ rm -rf "$MR_TMP"
 echo "meta-issue.sh"
 # ────────────────────────────────────────────────────────────────────────────
 MI_TMP="$(mktemp -d)"
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov.json"
 # #152: the body is the Stage-B-authored issue spec, filed VERBATIM. Use a body
 # with backticks, $, and newlines to prove it round-trips unmangled (written to a
 # file, never inlined into shell) and is NOT wrapped in any prepend/append.
@@ -14462,9 +14462,12 @@ assert_eq "meta-issue stamps Retrospective label (REST labels[] field)" "true" \
   "$(grep -qF -- 'labels[]=Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
 assert_eq "meta-issue applies via REST issues/4242/labels (not gh issue edit)" "true" \
   "$(grep -qF -- 'issues/4242/labels' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
-assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
-assert_eq "override dismissed_by"          "retrospective-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
+# #788: the filing records a `filed` lifecycle entry (number-keyed) on the slug's
+# patterns[] record — NOT a `.dismissed` entry (that map is human-owned now).
+assert_eq "lifecycle entry recorded with url" "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].url' "$MI_TMP/ov.json")"
+assert_eq "lifecycle entry keyed by number"   "4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].number' "$MI_TMP/ov.json")"
+assert_eq "lifecycle record state is filed"   "filed" "$(jq -r '.patterns["review-reject-bypassed"].state' "$MI_TMP/ov.json")"
+assert_eq "filing writes NO dismissed entry"  "false" "$(jq -e '.dismissed | has("review-reject-bypassed")' "$MI_TMP/ov.json" >/dev/null 2>&1 && echo true || echo false)"
 # existing-issue path (de-dup): comments instead of re-filing, still stamps labels
 rm -f "$MI_TMP/edit-args"
 cat > "$MI_TMP/gh" <<'STUB'
@@ -14489,7 +14492,7 @@ assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/la
 # an issue that never existed (the "never report unfiled as filed" invariant). The
 # guard must exit non-zero so the orchestrator records a blocker, and must NOT have
 # written a dismissal for the slug.
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov2.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov2.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -14502,8 +14505,8 @@ chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
 assert_eq "meta-issue fails closed on empty create URL (non-zero exit)" "true" \
   "$([ "$EMPTY_RC" -ne 0 ] && echo true || echo false)"
-assert_eq "meta-issue wrote NO cooldown on empty create URL" "false" \
-  "$(jq -e '.dismissed | has("empty-url")' "$MI_TMP/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
+assert_eq "meta-issue wrote NO lifecycle record on empty create URL" "false" \
+  "$(jq -e '.patterns | has("empty-url")' "$MI_TMP/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
 # garbage (non-URL) stdout → same fail-closed
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -14545,7 +14548,7 @@ DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug no
 assert_eq "meta-issue fails closed on a non-JSON de-dup body (non-zero exit)" "true" \
   "$([ "$NONJSON_RC" -ne 0 ] && echo true || echo false)"
 # --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov3.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov3.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
@@ -14581,7 +14584,7 @@ assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" 
 # rather than commenting on / pinning the cooldown to the wrong issue. Here the
 # only open issue's slug is `widget-foobar`; the requested tag is `widget` →
 # no exact match → create path (returns the freshly created URL, not #88).
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-loose.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-loose.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -14620,10 +14623,10 @@ assert_eq "meta-issue still prints the filed URL on a cooldown-write failure" "h
 assert_eq "meta-issue leaves a 'WAS filed' breadcrumb on a cooldown-write failure" "true" \
   "$(grep -q 'issue WAS filed' "$MI_TMP/ov-fail.err" && echo true || echo false)"
 
-# #152: --dry-run must NOT mutate the real overrides.json — a dry run that records
-# the DRYRUN sentinel as a dismissal would make a later live run skip the real
-# filing. The dismissed map must stay empty after a dry run.
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-dry.json"
+# #152/#788: --dry-run must NOT mutate the real overrides.json — a dry run that
+# records the DRYRUN sentinel as a lifecycle entry would make a later live run skip
+# the real filing. The patterns map must stay empty after a dry run.
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-dry.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -14633,8 +14636,8 @@ esac
 STUB
 chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1
-assert_eq "meta-issue --dry-run writes NO cooldown to overrides" "false" \
-  "$(jq -e '.dismissed | has("dry-ov")' "$MI_TMP/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
+assert_eq "meta-issue --dry-run writes NO lifecycle record to overrides" "false" \
+  "$(jq -e '.patterns | has("dry-ov")' "$MI_TMP/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
 
 # #152: TAG carrying a GitHub search qualifier / whitespace is rejected at
 # arg-parse (before it reaches the de-dupe --search), so a drift fails loud
@@ -14642,25 +14645,28 @@ assert_eq "meta-issue --dry-run writes NO cooldown to overrides" "false" \
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
 assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
   "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
-# #152: the overrides `dismissed_at` records WHEN the pattern was first dismissed
-# (a permanent cross-run exclusion an auditor reads). The Step-1 de-dupe re-runs
-# the Step-2 write on every recurrence, so the ORIGINAL stamp must be PRESERVED,
-# never bumped to "now" — otherwise the dismissal age drifts perpetually forward.
-echo '{"schema_version":1,"dismissed":{"recur":{"dismissed_at":"2020-01-01T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/acme/example-repo/issues/55"}}}' > "$MI_TMP/ov-recur.json"
+# #788: on a recurrence the Step-1 de-dupe hits the SAME open issue and re-runs the
+# Step-2 write. The lifecycle entry is keyed by issue number, so the record must
+# still hold exactly ONE meta-issue entry (no duplicate append that would exhaust
+# max_open_per_category against one issue), and the record's `provenance` (first
+# filing) must be PRESERVED rather than bumped forward.
+printf '%s' '{"schema_version":2,"patterns":{"recur":{"state":"filed","fixed_at":null,"provenance":"2020-01-01T00:00:00Z","meta_issues":[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$MI_TMP/ov-recur.json"
 cat > "$MI_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","title":"[devflow-retrospective] meta: recur — x"}]' ;;  # de-dup HIT
   *"issue comment"*) echo 'commented' ;;
-  *"issue edit"*) : ;;
-  *"label create"*) echo 'created' ;;
+  *"issues/"*"/labels"*) : ;;
+  *"--method POST"*"/labels"*) echo '{}' ;;
   *) echo '' ;;
 esac
 STUB
 chmod +x "$MI_TMP/gh"
 DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-recur.json" >/dev/null 2>&1
-assert_eq "meta-issue preserves the original dismissed_at on a recurrence" "2020-01-01T00:00:00Z" \
-  "$(jq -r '.dismissed["recur"].dismissed_at' "$MI_TMP/ov-recur.json")"
+assert_eq "meta-issue recurrence keeps exactly one number-keyed entry" "1" \
+  "$(jq -r '.patterns["recur"].meta_issues | length' "$MI_TMP/ov-recur.json")"
+assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-01-01T00:00:00Z" \
+  "$(jq -r '.patterns["recur"].provenance' "$MI_TMP/ov-recur.json")"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -41085,6 +41091,15 @@ fi
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
   "capability-profiles" 61; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
+  exit 1
+fi
+
+# retrospective issue-closure lifecycle coverage (issue #788). The registry and this
+# full-suite call share the same lower-bound contract; test_module_runner.py parses
+# this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/retrospective-lifecycle.sh" \
+  "retrospective-lifecycle" 34; then
+  printf 'ERROR: retrospective-lifecycle boundary could not record its result\n'
   exit 1
 fi
 

@@ -67,8 +67,11 @@ devflow_render_report() {
               ((.summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)'
     fi
 
-    # Patterns — full picture: acted-on / cooldown / dismissed / below-threshold
-    # (omitted when the caller did not pass `patterns`)
+    # Patterns — the UNFILTERED view (issue #788): the orchestrator passes the whole
+    # pattern picture (every lifecycle state — filed/fixed/declined/regressed/open,
+    # plus dismissed and below-threshold), each carrying its filing outcome for this
+    # run and, where it was withheld, the cap that withheld it. Omitted when the
+    # caller did not pass `patterns`.
     local patterns_n
     patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length')"
     if [ "$patterns_n" -gt 0 ]; then
@@ -77,7 +80,32 @@ devflow_render_report() {
             (.patterns // [])
             | sort_by(-(.occurrence_count // 0))[]
             | "- `\(.tag // .slug)` — \(.occurrence_count // 0)× (status: \(.status // "open"))"
+              + (if (.filing_outcome // "") != "" then " — \(.filing_outcome)" else "" end)
+              + (if (.withheld_by // "") != "" then " — withheld by `\(.withheld_by)`" else "" end)
               + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
+    fi
+
+    # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line
+    # (no pattern eligible while a suppressed pattern recurs at/above threshold), the
+    # orchestrator carries it into the summary so the report surfaces the silent
+    # exhaustion rather than reading like a genuinely quiet week.
+    local liveness
+    liveness="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.liveness_warning // ""')"
+    if [ -n "$liveness" ]; then
+        printf '\n## Liveness warning\n\n'
+        printf -- '- %s\n' "$liveness"
+    fi
+
+    # Won't-fix re-raised (issue #788) — patterns re-filed this run whose meta-issue
+    # was previously closed NOT_PLANNED. The lifecycle deliberately re-raises a
+    # recurring won't-fix; name each one and the one durable off-switch (a human
+    # `dismissed{}` entry) so the maintainer's decision is re-raised visibly.
+    local declined_refiled_n
+    declined_refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // []) | length')"
+    if [ "$declined_refiled_n" -gt 0 ]; then
+        printf '\n## Won'"'"'t-fix patterns re-raised this run\n\n'
+        printf 'These recurred after being closed not-planned. To stop one permanently, add a human `dismissed{}` entry to `.devflow/learnings/overrides.json`.\n\n'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // [])[] | "- `\(.)`"'
     fi
 
     # Recurring intervention targets (issue #520) — report-only: the files/areas
