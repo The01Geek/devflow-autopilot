@@ -11104,20 +11104,15 @@ assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resid
   'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
   'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
-# #815 relocated §4.0 into the predicate-gated reference; both pins follow their literals
-# there. The guarded regressions are unchanged.
-assert_pin_red_under "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
-  'Landing this requires a human/PAT push carrying the `workflows` scope' \
-  's#\*\*Landing this requires a human/PAT push carrying the `workflows` scope\*\*#It can be landed by any run#' \
-  "$LIB/../skills/implement/references/deferred-ac-followups.md"
-# #350 (pr-test-analyzer): the byte-identical duplicate here masked a coverage gap — it
-# re-pinned the *template placeholder* bullet (line 44) while the normative OBLIGATION prose
-# (the "MUST state explicitly" instruction) was itself unpinned, so deleting the obligation
-# would leave the suite green. Re-point the second pin at the obligation sentence.
-assert_pin_red_under "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
-  'the follow-up body MUST state explicitly that' \
-  's#the follow-up body MUST state explicitly that#the follow-up body may mention that#' \
-  "$LIB/../skills/implement/references/deferred-ac-followups.md"
+# #815 relocated §4.0 into the predicate-gated reference. The two Phase 4.0 pins that used
+# to sit here — the capability-deferral template bullet and the credential-boundary
+# OBLIGATION sentence — are RETIRED rather than retargeted. Both guarded prompt prose with
+# no executable surface, and a relocation is not a move the #810 gate can exempt (a move is
+# one-to-one only within the same target file), so re-landing either would be authoring a
+# fresh wording-only pin: as a presence pin it is one by name, and as a mutation pin the
+# only mutation either literal admits rewrites its own carrier line, which proves the
+# sentence is present and nothing else. The Phase 2 half of the #346 contract, which is
+# where the workflow-residence decision is actually made, is pinned above and is untouched.
 # Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
 # every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
 # subset with no executable stop, so the run could fall through to a near-empty PR. The
@@ -29025,16 +29020,11 @@ assert_pin_unique "#506 CLAUDE.md carries the autonomous-run routing sentence" \
 assert_pin_red_on_removal "#506 CLAUDE.md autonomous-run sentence pin is removal-proof" \
   'Autonomous `/devflow:implement` runs satisfy this mandate differently' "$WSR_CLAUDE"
 
-# (d) lockstep — the trigger-glob list literal is present-and-unique (hence identical) in all three.
-assert_pin_red_under "#506 trigger-glob list present-and-unique in implement.md" "$WSR_TGL" \
-  's#, `skills/implement/references/\*\.md`##' \
-  "$WSR_IMPL"
-assert_pin_red_under "#506 trigger-glob list present-and-unique in review-and-fix.md" "$WSR_TGL" \
-  's#, `skills/implement/references/\*\.md`##' \
-  "$WSR_RAF"
-assert_pin_red_under "#506 trigger-glob list present-and-unique in review.md" "$WSR_TGL" \
-  's#, `skills/implement/references/\*\.md`##' \
-  "$WSR_REV"
+# (d) lockstep — the trigger-glob list literal is identical across all three.
+# #815 widened the literal (it gained `skills/implement/references/*.md`). The three
+# per-file present-and-unique pins that used to sit here are gone rather than re-dressed
+# as mutation pins: the only mutation the widened literal admits deletes the glob from the
+# carrier line, which proves the literal is present and nothing else.
 assert_eq "#506 trigger-glob list is identical across all three extensions (lockstep)" \
   "yes|yes|yes" \
   "$(grep_present "$WSR_TGL" "$WSR_IMPL")|$(grep_present "$WSR_TGL" "$WSR_RAF")|$(grep_present "$WSR_TGL" "$WSR_REV")"
@@ -35989,72 +35979,35 @@ fi
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 96623 ] && echo yes || echo no)"
-# The stub's contract elements, pinned SEPARATELY: a stub that keeps the path while
-# dropping the predicate would load the reference unconditionally (erasing the change), and
-# one that keeps both while dropping the degraded arm would halt Phase 4 on a read failure.
-assert_pin_red_under "#815 the stub asks the predicate before deciding the load" \
-  '/../../scripts/workpad.py deferred-presence $ISSUE_NUMBER' \
-  's#/\.\./\.\./scripts/workpad\.py deferred-presence \$ISSUE_NUMBER#/../../scripts/workpad.py body $ISSUE_NUMBER#' \
-  "$I480_P4"
+# The stub's prose contract elements — that it asks the predicate before deciding, reads
+# the reference through this file's own entry-gate anchor, and degrades rather than halting
+# on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
+# line carrying the pinned literal, so the assertion proves the sentence is present and
+# nothing more: the wording-only class #810 prohibits, wearing a mutation costume. What IS
+# machine-checkable about the stub is pinned below (the anchored path count, and the
+# fence's variable expansion).
 # The path is named twice by design (the opening sentence and the exit-0 arm), so this is a
 # COUNT, not a uniqueness pin: dropping either occurrence leaves the stub naming the
 # reference on only one of the two paths a reader reaches it by.
 assert_eq "#815 the stub names the reference through the <skill-dir> anchor on both paths" "2" \
   "$(grep -cF '<skill-dir>/references/deferred-ac-followups.md' "$I480_P4" || true)"  # structural-pin-ok: routing-dispatch-contract -- the anchored path the stub's exit-0 arm resolves the gated load from
-assert_pin_red_under "#815 the exit-0 arm reads the reference through this file's own entry-gate anchor" \
-  'via the same `<skill-dir>` anchor this file'"'"'s entry-gate uses' \
-  's#via the same `<skill-dir>` anchor this file'"'"'s entry-gate uses#via any path#' \
-  "$I480_P4"
-assert_pin_red_under "#815 the stub degrades on a failed reference read instead of halting" \
-  'continue to §4.0.5 without halting Phase 4' \
-  's#continue to §4\.0\.5 without halting Phase 4#halt Phase 4#' \
-  "$I480_P4"
 # AC116/117: the PR operand must be emitted as a decimal literal. A `$PR_NUMBER` there
 # arrives empty on the cloud tier, argparse exits 2, and the unestablished arm absorbs it —
 # so the reference loads on EVERY run and the change's whole benefit is erased with nothing
-# red. That is the one regression this stub cannot survive silently, so it gets both a
-# mutation pin on the instruction and a zero-count guard on the fence itself.
-assert_pin_red_under "#815 the stub requires the PR operand as a decimal literal" \
-  'the PR number as a decimal literal' \
-  's#the PR number as a decimal literal#the PR number#' \
-  "$I480_P4"
+# red. The guard is the zero-count over the fence's OWN variable expansions, which reads the
+# emitted shape rather than the sentence describing it.
 assert_eq "#815 the predicate fence expands no shell variable but the orchestrator-substituted ones" "0" \
   "$(grep -F 'scripts/workpad.py deferred-presence' "$I480_P4" \
      | grep -o '\$[A-Za-z_][A-Za-z0-9_]*' | grep -cvx -e '\$ISSUE_NUMBER' -e '\$CLAUDE_SKILL_DIR' || true)"
-# The unestablished arm exits before the outstanding set is computed, so the reference must
-# read the `filed:` projection or a never-bound workpad re-files on every fresh entry.
-assert_pin_red_under "#815 the reference skips criteria a filed: line already names" \
-  'not named by a `filed:` line' \
-  's#not named by a `filed:` line#already deferred#' \
-  "$I815_REF"
-# A marker written for a criterion whose create never landed suppresses the next entry
-# permanently — the one irreversible direction in this whole channel.
-assert_pin_red_under "#815 a criterion whose create did not land gets no filed marker" \
-  'gets **no** marker, so the next Phase 4 entry re-files it' \
-  's#gets \*\*no\*\* marker, so the next Phase 4 entry re-files it#is marked filed anyway#' \
-  "$I815_REF"
-# The unestablished arm is the one that keeps deferred work from being stranded silently:
-# without it an unresolvable operand reads as "nothing was deferred" and nothing is filed.
-assert_pin_red_under "#815 an unestablished predicate loads the reference anyway" \
-  'never** read as "nothing was deferred"' \
-  's#never\*\* read as "nothing was deferred"#read as "nothing was deferred"#' \
-  "$I480_P4"
-# The filed marker is what stops a SECOND Phase 4 entry re-filing the same criteria — the
-# predicate is monotonic without it, because nothing else discharges a scope-decision
-# record. The obligation sentence is the operative one; the fence and its explanation are
-# the other two occurrences, so the flag itself is pinned as a count.
-assert_pin_red_under "#815 the reference writes a filed marker in the SAME call that records the numbers" \
-  'in the SAME `workpad.py update` call, write one `--mark-deferred-filed` marker per criterion you filed' \
-  's#in the SAME `workpad\.py update` call, write one `--mark-deferred-filed` marker per criterion you filed#nothing further#' \
-  "$I815_REF"
+# The reference's own instruction prose — skip criteria a `filed:` line already names, write
+# no marker for a criterion whose create did not land, source criterion text from the 2.2.5
+# note, and write the marker in the same `update` call — carries NO pin, for the reason given
+# at the stub above: each admits only a carrier-line mutation. The behaviour those sentences
+# describe is exercised where it is executable, against `workpad.py` itself, in
+# `lib/test/test_python_scripts.py`. What stays here is the count of the flag literal, which
+# is a machine-consumed lifecycle boundary rather than a sentence.
 assert_eq "#815 the reference carries the filed-marker flag at its obligation, fence, and contract sites" "3" \
   "$(grep -cF -- '--mark-deferred-filed' "$I815_REF" || true)"  # structural-pin-ok: lifecycle-state-transition -- the write that discharges a deferral and makes a second Phase 4 entry file no duplicate
-# The reference reproduces criteria from the free-text note, not from the projection: the
-# projection is normalized, so sourcing it would strip a trailing (post-merge) tag.
-assert_pin_red_under "#815 the reference sources criterion text from the 2.2.5 free-text note" \
-  'copy each criterion from the Phase 2.2.5 note, never from the `criterion:` projection' \
-  's#copy each criterion from the Phase 2\.2\.5 note, never from the `criterion:` projection#copy each criterion from the `criterion:` projection#' \
-  "$I815_REF"
 # The relocated procedure may not reintroduce an issue-body fetch of its own (the Phase 1.1
 # cache is the hand-off), which `lib/test/lint-issue-body-refetch.py` audits repo-wide.
 assert_pin_unique "#815 the reference sources parent-derived slots from the Phase 1.1 cache" \
