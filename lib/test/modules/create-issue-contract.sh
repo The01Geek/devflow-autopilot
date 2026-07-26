@@ -513,9 +513,21 @@ for _ci803_sub in query-final-byte record-final-byte-offer; do
   assert_eq "#803: '$_ci803_sub' (invoked by the create-issue final-byte prose) is a registered issue-audit-state.py subcommand" \
     0 "$_ci803_rc"
 done
-python3 "$_ci803_state_owner" query-final-byte-UNREGISTERED --help >/dev/null 2>&1; _ci803_neg_rc=$?
+# Negative control. Capture stderr because exit 2 alone is ambiguous: CPython emits 2 for an
+# argparse `invalid choice` rejection AND for a `can't open file … [Errno 2]` when the script
+# path misresolves — so a rc-2 assertion alone would pass vacuously on a moved/renamed/unreadable
+# state owner (a CI_ROOT misresolution), the exact input this control exists to guard against.
+# Assert BOTH the exit code and that the rejection came from the argparse dispatcher, proving the
+# script loaded and the subcommand was genuinely refused.
+_ci803_neg_err=$(python3 "$_ci803_state_owner" query-final-byte-UNREGISTERED --help 2>&1 >/dev/null); _ci803_neg_rc=$?
 assert_eq "#803 negative control: an unregistered subcommand fails dispatch (exit 2), so the registry checks above are not vacuous" \
   2 "$_ci803_neg_rc"
+case "$_ci803_neg_err" in
+  *"invalid choice"*) _ci803_neg_disc=argparse ;;
+  *) _ci803_neg_disc="$_ci803_neg_err" ;;
+esac
+assert_eq "#803 negative control: the exit-2 rejection came from the argparse dispatcher (invalid choice), not a can't-open-file error on a misresolved state-owner path" \
+  "argparse" "$_ci803_neg_disc"
 
 # ── issue #768: the file-arm audit dispatch path is named exactly ──────────────
 # Each pin below asserts one new operative statement the #768 rewrite of the
