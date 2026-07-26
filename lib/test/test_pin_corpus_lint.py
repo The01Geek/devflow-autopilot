@@ -458,7 +458,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
         sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
         self.assertEqual([], [site for site in sites if site.family == "raw-presence"])
 
-    def test_move_exemption_preserves_classification_one_to_one(self):
+    def test_moves_are_reclassified_under_the_current_site_policy(self):
         marker = "# structural-pin-ok: helper-contract -- the helper name is invoked"
         prefix = "F=\"$LIB/../docs/x.md\"\n"
         legacy = prefix + "assert_pin_unique \"legacy\" 'L' \"$F\""
@@ -468,15 +468,24 @@ class PinCorpusLint810Tests(unittest.TestCase):
             target = root / "docs/x.md"
             target.parent.mkdir(parents=True)
             target.write_text("L\nT\n", encoding="utf-8")
-            for old, new in ((legacy, legacy), (typed, typed)):
-                findings = self.mod.scan_changed_sources(
-                    {"lib/test/new.sh": new},
-                    {"lib/test/old.sh": old},
-                    one_file_diff("lib/test/old.sh", old, "")
-                    + one_file_diff("lib/test/new.sh", "", new),
-                    repo_root=root,
-                )
-                self.assertEqual([], findings)
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/new.sh": legacy},
+                {"lib/test/old.sh": legacy},
+                one_file_diff("lib/test/old.sh", legacy, "")
+                + one_file_diff("lib/test/new.sh", "", legacy),
+                repo_root=root,
+            )
+            self.assertEqual(1, len(findings))
+            self.assertIn("missing structural declaration", findings[0])
+
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/new.sh": typed},
+                {"lib/test/old.sh": typed},
+                one_file_diff("lib/test/old.sh", typed, "")
+                + one_file_diff("lib/test/new.sh", "", typed),
+                repo_root=root,
+            )
+            self.assertEqual([], findings)
 
             downgraded = prefix + "assert_pin_unique \"typed\" 'T' \"$F\""
             findings = self.mod.scan_changed_sources(
@@ -488,7 +497,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
             self.assertEqual(1, len(findings))
 
-    def test_invalid_declaration_is_never_exempted_as_a_move(self):
+    def test_invalid_declaration_fails_after_a_move(self):
         old = "assert_pin_unique \"legacy\" 'L' \"$F\""
         invalid = (
             "assert_pin_unique \"moved\" 'L' \"$F\"  "
@@ -504,7 +513,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
         self.assertEqual(1, len(findings))
         self.assertIn("unknown structural category", findings[0])
 
-    def test_move_exemption_rejects_a_changed_target_surface(self):
+    def test_untyped_move_to_a_changed_target_surface_fails(self):
         old = (
             "F=\"$LIB/../scripts/tool.sh\"\n"
             "assert_pin_unique \"legacy\" 'TOKEN' \"$F\""
@@ -521,6 +530,29 @@ class PinCorpusLint810Tests(unittest.TestCase):
             repo_root="/repo",
         )
         self.assertEqual(1, len(findings))
+
+    def test_untyped_reformat_is_reclassified_and_no_move_matcher_remains(self):
+        old = (
+            'F="$LIB/../docs/x.md"\n'
+            "assert_pin_unique \"legacy\" 'TOKEN' \"$F\""
+        )
+        new = (
+            'F="$LIB/../docs/x.md"\n'
+            "assert_pin_unique \\\n"
+            "  \"legacy\" \\\n"
+            "  'TOKEN' \\\n"
+            "  \"$F\""
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": new},
+            {"lib/test/a.sh": old},
+            one_file_diff("lib/test/a.sh", old, new),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("missing structural declaration", findings[0])
+        self.assertFalse(hasattr(self.mod, "_move_class"))
+        self.assertFalse(hasattr(self.mod, "_move_compatible"))
 
     def test_assignment_only_literal_change_reclassifies_unchanged_call(self):
         old = "LIT='old wording'\nassert_pin_unique \"wording\" \"$LIT\" \"$F\""
@@ -1094,6 +1126,13 @@ class PinCorpusLint810Tests(unittest.TestCase):
         adjudications = root / "lib/test/pin-corpus-adjudications.tsv"
         adjudications.parent.mkdir(parents=True, exist_ok=True)
         adjudications.write_text(adjudication_text, encoding="utf-8")
+        retirement_manifests = {}
+        for path in self.mod._RETIREMENT_MANIFEST_SPECS:
+            payload = (REPO_ROOT / path).read_bytes()
+            retirement_manifests[path] = payload
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
         for path in tuple(python_tracked) + tuple(python_untracked):
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1140,6 +1179,20 @@ class PinCorpusLint810Tests(unittest.TestCase):
                     "lib/test/pin-corpus-adjudications.tsv\n",
                     "",
                 )
+            for path, payload in retirement_manifests.items():
+                if f"ls-tree mergebase -- {path}" in rendered:
+                    return subprocess.CompletedProcess(
+                        args, 0, f"100644 blob object\t{path}\n", ""
+                    )
+                if f"ls-tree HEAD -- {path}" in rendered:
+                    return subprocess.CompletedProcess(
+                        args, 0, f"100644 blob object\t{path}\n", ""
+                    )
+                if (
+                    f"show mergebase:{path}" in rendered
+                    or f"show HEAD:{path}" in rendered
+                ):
+                    return subprocess.CompletedProcess(args, 0, payload, b"")
             if "show HEAD:lib/test/pin-corpus-adjudications.tsv" in rendered:
                 return subprocess.CompletedProcess(
                     args, 0, adjudication_text.encode("utf-8"), b""
@@ -2055,6 +2108,369 @@ class AdjudicationChangeScanTests(unittest.TestCase):
                     self._scan(root, base)
 
 
+class RetiredPinRevivalTests(unittest.TestCase):
+    LITERAL = "MACHINE SENTINEL"
+    RATIONALE = "the fenced token is consumed as a machine sentinel"
+    MARKER = (
+        "# structural-pin-ok: machine-sentinel-provenance -- "
+        + RATIONALE
+    )
+    SOURCE = (
+        'F="$LIB/../docs/x.md"\n'
+        "assert_pin_unique \"sentinel\" 'MACHINE SENTINEL' \"$F\"  "
+        + MARKER
+        + "\n"
+    )
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+        cls.literal_key = (
+            "literal:" + hashlib.sha256(cls.LITERAL.encode("utf-8")).hexdigest()
+        )
+
+    def _commit(self, root, message):
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=root, check=True)
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def _write_retirement_manifests(self, root):
+        manifests = {
+            ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tsurface\tdisposition\trationale\n"
+                '"lib/test/old.sh"\tassert_pin_unique\t"old"\t'
+                f'"""{self.LITERAL}"""\t"docs/x.md"\tfalse\tReview\t'
+                "RETIRE_PROSE\tretired prose\n"
+            ),
+            ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tdisposition\trationale\n"
+                '"lib/test/kept.sh"\tassert_pin_unique\t"kept"\t'
+                '"""NOT RETIRED"""\t"docs/x.md"\tfalse\tRETAIN_BOUNDARY\tkept\n'
+            ),
+            ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+                "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
+                "target_defaulted\tdisposition\tcall_sha256\n"
+                '"lib/test/converted.sh"\tassert_pin_red_on_removal\t"converted"\t'
+                '"""NOT RETIRED EITHER"""\t"docs/x.md"\tfalse\tconvert_presence\t-\n'
+            ),
+        }
+        for relative, text in manifests.items():
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+
+    def _repo(self, root, *, base_source="", active_adjudication=True):
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"],
+            cwd=root,
+            check=True,
+        )
+        self._write_retirement_manifests(root)
+        target = root / "docs/x.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
+        source = root / "lib/test/old.sh"
+        source.parent.mkdir(parents=True)
+        source.write_text(base_source, encoding="utf-8")
+        table = root / "lib/test/pin-corpus-adjudications.tsv"
+        table.write_text(
+            "adjudication_key\tbucket_final\trationale\n"
+            + (
+                f"{self.literal_key}\tboundary\tlegacy rationale\n"
+                if active_adjudication
+                else ""
+            ),
+            encoding="utf-8",
+        )
+        base = self._commit(root, "base")
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", base],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+        return base, table
+
+    def _write_authorization_bundle(
+        self,
+        root,
+        *,
+        include_delta=True,
+        include_revival=True,
+        duplicate_revival=False,
+        added_adjudication=False,
+    ):
+        bundle = (
+            root
+            / ".devflow/logs/pin-corpus-adjudication-changes/revive-machine-sentinel"
+        )
+        bundle.mkdir(parents=True, exist_ok=True)
+        if include_delta:
+            base_state = (
+                "null"
+                if added_adjudication
+                else '["boundary","legacy rationale"]'
+            )
+            (bundle / "adjudication-delta.tsv").write_text(
+                "adjudication_key\tbase_state\tcurrent_state\n"
+                f"{self.literal_key}\t{base_state}\t"
+                '["boundary","deliberate machine-boundary revival"]\n',
+                encoding="utf-8",
+            )
+        if include_revival:
+            row = (
+                "lib/test/new.sh\tstatic-helper\tassert_pin_unique\t"
+                f"{self.literal_key}\tdocs/x.md\tmachine-sentinel-provenance\t"
+                f"{self.RATIONALE}\n"
+            )
+            (bundle / "retired-pin-revivals.tsv").write_text(
+                "source_path\tfamily\thelper\tliteral_key\ttarget_path\t"
+                "structural_category\tstructural_rationale\n"
+                + row
+                + (row if duplicate_revival else ""),
+                encoding="utf-8",
+            )
+
+    def _scan_sources(self, root, base, analysis):
+        diff = subprocess.run(
+            ["git", "diff", "--no-color", "--unified=0", base, "HEAD", "--", "lib/test"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        current = {}
+        base_sources = {}
+        for relative in ("lib/test/old.sh", "lib/test/new.sh"):
+            path = root / relative
+            if path.exists():
+                current[relative] = path.read_text(encoding="utf-8")
+            result = subprocess.run(
+                ["git", "show", f"{base}:{relative}"],
+                cwd=root,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                base_sources[relative] = result.stdout
+        return self.mod.scan_changed_sources(
+            current,
+            base_sources,
+            diff,
+            root,
+            retired_literal_keys=self.mod.load_retired_wording_literal_keys(
+                root, base
+            ),
+            revival_authorizations=analysis.revival_authorizations,
+            adjudication_delta=analysis.delta,
+            current_adjudications=analysis.current,
+        )
+
+    def _commit_revival(
+        self,
+        root,
+        table,
+        *,
+        source=None,
+        delta=False,
+        revival=False,
+        duplicate_revival=False,
+        added_adjudication=False,
+    ):
+        if source is None:
+            source = self.SOURCE
+        new_source = root / "lib/test/new.sh"
+        new_source.write_text(source, encoding="utf-8")
+        if delta:
+            table.write_text(
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{self.literal_key}\tboundary\tdeliberate machine-boundary revival\n",
+                encoding="utf-8",
+            )
+        if delta or revival:
+            self._write_authorization_bundle(
+                root,
+                include_delta=delta,
+                include_revival=revival,
+                duplicate_revival=duplicate_revival,
+                added_adjudication=added_adjudication,
+            )
+        self._commit(root, "revive")
+
+    def _analysis(self, root, base):
+        return self.mod.analyze_adjudication_changes(
+            root, base, "origin/main"
+        )
+
+    def test_retired_literal_requires_both_authorizations_not_just_a_marker(self):
+        cases = (
+            ("marker only", False, False),
+            ("adjudication only", True, False),
+        )
+        for label, delta, revival in cases:
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root)
+                self._commit_revival(
+                    root, table, delta=delta, revival=revival
+                )
+                analysis = self._analysis(root, base)
+                findings = self._scan_sources(root, base, analysis)
+                self.assertEqual(1, len(findings))
+                self.assertIn("retired wording-pin", findings[0])
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, active_adjudication=False)
+            self._commit_revival(root, table)
+            analysis = self._analysis(root, base)
+            findings = self._scan_sources(root, base, analysis)
+            self.assertEqual(1, len(findings))
+            self.assertIn("same-branch boundary adjudication", findings[0])
+
+    def test_copied_and_moved_retired_literals_are_revival_candidates(self):
+        for operation in ("copy", "move"):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root, base_source=self.SOURCE)
+                if operation == "move":
+                    (root / "lib/test/old.sh").write_text("", encoding="utf-8")
+                self._commit_revival(root, table)
+                analysis = self._analysis(root, base)
+                findings = self._scan_sources(root, base, analysis)
+                self.assertEqual(1, len(findings))
+                self.assertIn("retired wording-pin", findings[0])
+
+    def test_exact_authorized_genuine_machine_boundary_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root)
+            self._commit_revival(root, table, delta=True, revival=True)
+            analysis = self._analysis(root, base)
+            self.assertEqual([], analysis.findings)
+            self.assertEqual([], self._scan_sources(root, base, analysis))
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, active_adjudication=False)
+            self._commit_revival(
+                root,
+                table,
+                delta=True,
+                revival=True,
+                added_adjudication=True,
+            )
+            analysis = self._analysis(root, base)
+            self.assertEqual([], self._scan_sources(root, base, analysis))
+
+    def test_duplicate_or_unconsumed_revival_authorization_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root)
+            self._commit_revival(
+                root,
+                table,
+                delta=True,
+                revival=True,
+                duplicate_revival=True,
+            )
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "duplicate revival"
+            ):
+                self._analysis(root, base)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root)
+            self._commit_revival(root, table, delta=True, revival=True)
+            analysis = self._analysis(root, base)
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "unconsumed revival"
+            ):
+                self.mod.scan_changed_sources(
+                    {},
+                    {},
+                    "",
+                    root,
+                    retired_literal_keys=self.mod.load_retired_wording_literal_keys(
+                        root, base
+                    ),
+                    revival_authorizations=analysis.revival_authorizations,
+                    adjudication_delta=analysis.delta,
+                    current_adjudications=analysis.current,
+                )
+
+    def test_duplicate_normalized_revival_sites_fail_closed_as_ambiguous(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root)
+            self._commit_revival(
+                root,
+                table,
+                source=self.SOURCE + self.SOURCE,
+                delta=True,
+                revival=True,
+            )
+            analysis = self._analysis(root, base)
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "revival site is ambiguous"
+            ):
+                self._scan_sources(root, base, analysis)
+
+    def test_historical_retirement_manifests_are_immutable_regular_blobs(self):
+        mutations = ("committed edit", "dirty edit", "symlink")
+        relative = ".devflow/logs/residual-prose-retirement-manifest.tsv"
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, _table = self._repo(root)
+                path = root / relative
+                if mutation == "committed edit":
+                    path.write_text(
+                        path.read_text(encoding="utf-8") + "# changed\n",
+                        encoding="utf-8",
+                    )
+                    self._commit(root, mutation)
+                elif mutation == "dirty edit":
+                    path.write_text(
+                        path.read_text(encoding="utf-8") + "# dirty\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    external = root / "external.tsv"
+                    external.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+                    path.unlink()
+                    path.symlink_to(external)
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.load_retired_wording_literal_keys(root, base)
+
+    def test_convert_presence_is_not_a_retired_wording_disposition(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, _table = self._repo(root)
+            retired = self.mod.load_retired_wording_literal_keys(root, base)
+            converted = (
+                "literal:"
+                + hashlib.sha256("NOT RETIRED EITHER".encode("utf-8")).hexdigest()
+            )
+            self.assertNotIn(converted, retired)
+
+
 class StaticPinWorktreeCompositionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -2067,6 +2483,9 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             "lib/test/pin-corpus-lint.py",
             "lib/test/test_pin_corpus_lint.py",
             "lib/test/pin-corpus-adjudications.tsv",
+            ".devflow/logs/residual-prose-retirement-manifest.tsv",
+            ".devflow/logs/residual-required-copy-retirement-manifest.tsv",
+            ".devflow/logs/red-on-removal-retirement-manifest.tsv",
             ".devflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
@@ -2269,9 +2688,8 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
     def test_pin_relocated_into_a_newly_committed_source_is_not_double_counted(self):
         """A pin source committed after the merge base appears in the real
-        ``git diff`` output; synthesizing a second ``/dev/null`` hunk for it used
-        to duplicate its sites, consume the one-to-one move exemption with the
-        first copy, and fail a legitimate relocation."""
+        ``git diff`` output; it must be classified exactly once under the strict
+        current-site policy rather than duplicated by a synthetic hunk."""
         pin = (
             "\nclass RelocatedFixtureTest(unittest.TestCase):\n"
             "    def test_wording(self):\n"
@@ -2310,8 +2728,8 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             subprocess.run(["git", "add", "."], cwd=root, check=True)
             subprocess.run(["git", "commit", "-qm", "relocate"], cwd=root, check=True)
             rc, stdout, stderr = self._public_rc(root)
-        self.assertEqual(0, rc, f"stdout={stdout!r} stderr={stderr!r}")
-        self.assertEqual("", stdout)
+        self.assertEqual(3, rc, f"stdout={stdout!r} stderr={stderr!r}")
+        self.assertEqual(1, stdout.count("MUTATION-ROUTING"))
 
 
 class RetiredMutationHelperBanTests(unittest.TestCase):

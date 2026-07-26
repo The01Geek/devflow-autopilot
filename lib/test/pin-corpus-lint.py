@@ -137,6 +137,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -1097,8 +1098,69 @@ _FINAL_ADJUDICATION_BUCKETS = frozenset(
 )
 _CURRENT_ADJUDICATION_HEADER = ("adjudication_key", "bucket_final", "rationale")
 _ADJUDICATION_DELTA_HEADER = ("adjudication_key", "base_state", "current_state")
+_RETIRED_PIN_REVIVAL_HEADER = (
+    "source_path",
+    "family",
+    "helper",
+    "literal_key",
+    "target_path",
+    "structural_category",
+    "structural_rationale",
+)
 _ADJUDICATION_BUNDLE_ROOT = ".devflow/logs/pin-corpus-adjudication-changes"
 _ADJUDICATION_TABLE_PATH = "lib/test/pin-corpus-adjudications.tsv"
+_RETIREMENT_MANIFEST_SPECS = {
+    ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "surface",
+            "disposition",
+            "rationale",
+        ),
+        frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
+        frozenset({"RETIRE_PROSE"}),
+    ),
+    ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "disposition",
+            "rationale",
+        ),
+        frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
+        frozenset({"RETIRE_PROSE"}),
+    ),
+    ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "disposition",
+            "call_sha256",
+        ),
+        frozenset(
+            {
+                "convert_presence",
+                "prose_retire",
+                "redundant_retire",
+                "replace_behavioral",
+            }
+        ),
+        frozenset({"prose_retire", "redundant_retire"}),
+    ),
+}
 _MIGRATION_BUNDLE_ID = "2026-07-26-pr-849"
 _MIGRATION_CERTIFICATE_PATH = (
     f"{_ADJUDICATION_BUNDLE_ROOT}/{_MIGRATION_BUNDLE_ID}/migration.tsv"
@@ -1117,6 +1179,27 @@ _MIGRATION_CERTIFICATE_BYTES = (
     f"{_LEGACY_ADJUDICATION_SHA256}\t{_RESOLVED_ADJUDICATION_SHA256}\t"
     f"{_RESOLVED_ADJUDICATION_SEMANTIC_SHA256}\n"
 ).encode("ascii")
+
+
+class RevivalAuthorization(NamedTuple):
+    source_path: str
+    family: str
+    helper: str
+    literal_key: str
+    target_path: str
+    structural_category: str
+    structural_rationale: str
+
+
+class AdjudicationAnalysis(NamedTuple):
+    findings: list[str]
+    base: dict[str, tuple[str, str]]
+    current: dict[str, tuple[str, str]]
+    delta: dict[
+        str,
+        tuple[tuple[str, str] | None, tuple[str, str] | None],
+    ]
+    revival_authorizations: frozenset[RevivalAuthorization]
 
 
 def _parse_exact_tsv(text, header, label):
@@ -1226,6 +1309,198 @@ def parse_adjudication_delta_manifest(text):
     return result
 
 
+def _validate_repo_relative_path(path, label):
+    if (
+        not path
+        or path.startswith("/")
+        or "\\" in path
+        or path != Path(path).as_posix()
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
+        raise InfrastructureError(f"{label} has invalid repository-relative path: {path!r}")
+
+
+def parse_retired_pin_revivals(text):
+    """Parse exact normalized current-site revival authorizations."""
+    result = set()
+    for number, row in enumerate(
+        _parse_exact_tsv(
+            text,
+            _RETIRED_PIN_REVIVAL_HEADER,
+            "retired-pin revival manifest",
+        ),
+        start=2,
+    ):
+        (
+            source_path,
+            family,
+            helper,
+            literal_key,
+            target_path,
+            category,
+            rationale,
+        ) = row
+        _validate_repo_relative_path(
+            source_path, f"retired-pin revival manifest line {number}"
+        )
+        _validate_repo_relative_path(
+            target_path, f"retired-pin revival manifest line {number}"
+        )
+        if not family or family != family.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid family"
+            )
+        if helper != helper.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid helper"
+            )
+        _validate_adjudication_key(
+            literal_key, f"retired-pin revival manifest line {number}"
+        )
+        if not literal_key.startswith("literal:"):
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} requires a literal key"
+            )
+        if category not in STRUCTURAL_PIN_CATEGORIES:
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid structural category"
+            )
+        if not rationale or rationale != rationale.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid structural rationale"
+            )
+        authorization = RevivalAuthorization(*row)
+        if authorization in result:
+            raise InfrastructureError(
+                f"retired-pin revival manifest has duplicate revival: {authorization}"
+            )
+        result.add(authorization)
+    return frozenset(result)
+
+
+def _literal_adjudication_key(literal):
+    return f"literal:{hashlib.sha256(literal.encode('utf-8')).hexdigest()}"
+
+
+def _strict_retirement_manifest_literals(text, path, spec):
+    header, allowed_dispositions, retired_dispositions = spec
+    if "\r" in text:
+        raise InfrastructureError(f"retirement manifest contains carriage returns: {path}")
+    lines = text.splitlines()
+    while lines and lines[0].startswith("#"):
+        lines.pop(0)
+    if not lines or any(line.startswith("#") for line in lines):
+        raise InfrastructureError(f"retirement manifest has ambiguous comments: {path}")
+    try:
+        rows = list(
+            csv.reader(
+                io.StringIO("\n".join(lines) + "\n", newline=""),
+                delimiter="\t",
+                strict=True,
+            )
+        )
+    except csv.Error as exc:
+        raise InfrastructureError(f"retirement manifest is malformed TSV: {path}: {exc}") from exc
+    if not rows or tuple(rows[0]) != header:
+        raise InfrastructureError(f"retirement manifest has invalid header: {path}")
+    literal_index = header.index("literal")
+    disposition_index = header.index("disposition")
+    retired = set()
+    for number, row in enumerate(rows[1:], start=2):
+        if len(row) != len(header) or any("\n" in cell for cell in row):
+            raise InfrastructureError(
+                f"retirement manifest has invalid row shape: {path}:{number}"
+            )
+        disposition = row[disposition_index]
+        if disposition not in allowed_dispositions:
+            raise InfrastructureError(
+                f"retirement manifest has invalid disposition: {path}:{number}"
+            )
+        try:
+            literal = json.loads(row[literal_index])
+        except json.JSONDecodeError as exc:
+            raise InfrastructureError(
+                f"retirement manifest literal is invalid JSON: {path}:{number}"
+            ) from exc
+        if literal is not None and not isinstance(literal, str):
+            raise InfrastructureError(
+                f"retirement manifest literal is not a string or null: {path}:{number}"
+            )
+        if disposition in retired_dispositions and literal is not None:
+            retired.add(_literal_adjudication_key(literal))
+    return retired
+
+
+def _regular_blob_bytes(repo_root, revision, path, git_runner, label):
+    listing = _run_git(git_runner, repo_root, "ls-tree", revision, "--", path)
+    try:
+        mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+    except ValueError as exc:
+        raise InfrastructureError(f"{label} is not a regular blob: {path}") from exc
+    if mode != "100644" or kind != "blob" or listed_path != path:
+        raise InfrastructureError(f"{label} is not a regular blob: {path}")
+    return _run_git_bytes(git_runner, repo_root, "show", f"{revision}:{path}")
+
+
+def load_retired_wording_literal_keys(
+    repo_root,
+    merge_base,
+    *,
+    git_runner=subprocess.run,
+):
+    """Derive retired literals from byte-frozen historical static manifests."""
+    repo_root = Path(repo_root)
+    retired = set()
+    for path, spec in _RETIREMENT_MANIFEST_SPECS.items():
+        status = _run_git(
+            git_runner,
+            repo_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            path,
+        )
+        if status:
+            raise InfrastructureError(
+                f"historical retirement manifest worktree differs from HEAD: {path}"
+            )
+        base_bytes = _regular_blob_bytes(
+            repo_root, merge_base, path, git_runner, "base retirement manifest"
+        )
+        head_bytes = _regular_blob_bytes(
+            repo_root, "HEAD", path, git_runner, "HEAD retirement manifest"
+        )
+        if head_bytes != base_bytes:
+            raise InfrastructureError(
+                f"historical retirement manifest changed since merge base: {path}"
+            )
+        live_path = repo_root / path
+        try:
+            live_stat = live_path.lstat()
+            live_bytes = live_path.read_bytes()
+        except OSError as exc:
+            raise InfrastructureError(
+                f"historical retirement manifest worktree is unreadable: {path}: {exc}"
+            ) from exc
+        if (
+            not stat.S_ISREG(live_stat.st_mode)
+            or live_stat.st_mode & 0o111
+            or live_bytes != head_bytes
+        ):
+            raise InfrastructureError(
+                f"historical retirement manifest worktree is not the exact regular blob: {path}"
+            )
+        retired.update(
+            _strict_retirement_manifest_literals(
+                _decode_utf8(head_bytes, f"retirement manifest {path}"),
+                path,
+                spec,
+            )
+        )
+    return frozenset(retired)
+
+
 def canonical_adjudication_table_state(adjudications):
     """Render a table map independently of TSV ordering or transport bytes."""
     if not isinstance(adjudications, dict):
@@ -1330,6 +1605,7 @@ def discover_new_adjudication_delta_manifests(
     merge_base,
     *,
     include_migration=False,
+    include_revivals=False,
     git_runner=subprocess.run,
 ):
     """Return parsed HEAD payloads from only newly-added immutable bundles."""
@@ -1395,12 +1671,15 @@ def discover_new_adjudication_delta_manifests(
         ):
             raise InfrastructureError(f"adjudication bundle has unsafe bundle ID: {change_id!r}")
         delta_path = f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        revival_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
+        )
         is_migration = (
             include_migration
             and change_id == _MIGRATION_BUNDLE_ID
             and path == _MIGRATION_CERTIFICATE_PATH
         )
-        if path != delta_path and not is_migration:
+        if path not in {delta_path, revival_path} and not is_migration:
             raise InfrastructureError(f"adjudication bundle has unexpected bundle path: {path!r}")
         if status != "A" or change_id in historical_ids:
             raise InfrastructureError(
@@ -1408,48 +1687,65 @@ def discover_new_adjudication_delta_manifests(
             )
         new_paths.setdefault(change_id, set()).add(path)
     for change_id, paths in new_paths.items():
-        expected_paths = {
-            (
-                _MIGRATION_CERTIFICATE_PATH
-                if change_id == _MIGRATION_BUNDLE_ID
-                else f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        if change_id == _MIGRATION_BUNDLE_ID:
+            expected_paths = {_MIGRATION_CERTIFICATE_PATH}
+            valid = paths == expected_paths
+        else:
+            delta_path = (
+                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
             )
-        }
-        if paths != expected_paths:
+            revival_path = (
+                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
+            )
+            expected_paths = {delta_path, revival_path}
+            valid = delta_path in paths and paths <= expected_paths
+        if not valid:
             unexpected = sorted(paths - expected_paths or paths)
             raise InfrastructureError(
                 f"adjudication bundle has unexpected bundle path: {unexpected[0]!r}"
             )
     manifests = []
+    revival_authorizations = set()
     migration_bytes = None
     for change_id in sorted(new_paths):
-        payload_path = (
-            _MIGRATION_CERTIFICATE_PATH
-            if change_id == _MIGRATION_BUNDLE_ID
-            else f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
-        )
-        listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", payload_path)
-        try:
-            mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
-        except ValueError as exc:
-            raise InfrastructureError(
-                f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
-            ) from exc
-        if mode != "100644" or kind != "blob" or listed_path != payload_path:
-            raise InfrastructureError(
-                f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
-            )
-        payload = _run_git_bytes(git_runner, repo_root, "show", f"HEAD:{payload_path}")
-        if payload_path == _MIGRATION_CERTIFICATE_PATH:
-            migration_bytes = payload
-        else:
-            manifests.append(
-                parse_adjudication_delta_manifest(
+        for payload_path in sorted(new_paths[change_id]):
+            listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", payload_path)
+            try:
+                mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+            except ValueError as exc:
+                raise InfrastructureError(
+                    f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
+                ) from exc
+            if mode != "100644" or kind != "blob" or listed_path != payload_path:
+                raise InfrastructureError(
+                    f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
+                )
+            payload = _run_git_bytes(git_runner, repo_root, "show", f"HEAD:{payload_path}")
+            if payload_path == _MIGRATION_CERTIFICATE_PATH:
+                migration_bytes = payload
+            elif payload_path.endswith("/adjudication-delta.tsv"):
+                manifests.append(
+                    parse_adjudication_delta_manifest(
+                        _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
+                    )
+                )
+            else:
+                parsed = parse_retired_pin_revivals(
                     _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
                 )
-            )
+                duplicates = revival_authorizations & set(parsed)
+                if duplicates:
+                    raise InfrastructureError(
+                        "adjudication bundles have duplicate revival authorization: "
+                        f"{sorted(duplicates)[0]}"
+                    )
+                revival_authorizations.update(parsed)
+    if include_migration and include_revivals:
+        return manifests, migration_bytes, frozenset(revival_authorizations)
     if include_migration:
         return manifests, migration_bytes
+    if include_revivals:
+        return manifests, frozenset(revival_authorizations)
     return manifests
 
 
@@ -2540,28 +2836,49 @@ def _site_changed(site, changed_lines):
     return any(site.line_start <= line <= site.line_end for line in changed_lines)
 
 
-def _move_class(site):
-    if site.declaration is not None:
-        return (site.family, site.declaration.category)
-    return (site.family, "legacy")
+def _normalized_revival_authorization(site, repo_root):
+    if (
+        site.literal is None
+        or site.target_path is None
+        or site.declaration is None
+        or site.declaration_error is not None
+    ):
+        return None
+    repo_root = os.path.abspath(repo_root)
+    target_path = os.path.abspath(site.target_path)
+    try:
+        if os.path.commonpath((repo_root, target_path)) != repo_root:
+            return None
+    except ValueError:
+        return None
+    relative_target = os.path.relpath(target_path, repo_root).replace(os.sep, "/")
+    return RevivalAuthorization(
+        site.source_path,
+        site.family,
+        site.helper or "",
+        _literal_adjudication_key(site.literal),
+        relative_target,
+        site.declaration.category,
+        site.declaration.rationale,
+    )
 
 
-def _move_compatible(old, new):
-    if old.target_path != new.target_path:
-        return False
-    old_class = _move_class(old)
-    new_class = _move_class(new)
-    if old_class[0] != new_class[0]:
-        return False
-    if old_class[1] == "legacy":
-        return new_class[1] == "legacy" or new.declaration is not None
-    return old_class == new_class
-
-
-def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
+def scan_changed_sources(
+    current_sources,
+    base_sources,
+    difftext,
+    repo_root,
+    *,
+    retired_literal_keys=frozenset(),
+    revival_authorizations=frozenset(),
+    adjudication_delta=None,
+    current_adjudications=None,
+):
     """Classify changed complete sites and return blocking finding strings."""
+    adjudication_delta = adjudication_delta or {}
+    current_adjudications = current_adjudications or {}
+    revival_authorizations = frozenset(revival_authorizations)
     patches = parse_unified_diff(difftext)
-    old_candidates = []
     new_candidates = []
     for patch in patches:
         old_sites = []
@@ -2569,9 +2886,6 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
         if patch.old_path in base_sources:
             old_sites = extract_guard_sites(
                 base_sources[patch.old_path], patch.old_path, repo_root
-            )
-            old_candidates.extend(
-                site for site in old_sites if _site_changed(site, patch.deleted_lines)
             )
         if patch.new_path in current_sources:
             new_sites = extract_guard_sites(
@@ -2621,16 +2935,63 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
                 )
                 if old_effective == new_effective:
                     continue
-                if old_site not in old_candidates:
-                    old_candidates.append(old_site)
                 if new_site not in new_candidates:
                     new_candidates.append(new_site)
 
-    unused_old = list(old_candidates)
+    normalized_revivals = {}
+    for site in new_candidates:
+        if site.literal is None:
+            continue
+        literal_key = _literal_adjudication_key(site.literal)
+        if literal_key not in retired_literal_keys:
+            continue
+        normalized = _normalized_revival_authorization(site, repo_root)
+        if normalized is None:
+            continue
+        if normalized in normalized_revivals:
+            raise InfrastructureError(
+                "retired wording-pin revival site is ambiguous: "
+                f"{normalized.source_path} {normalized.literal_key}"
+            )
+        normalized_revivals[normalized] = site
+
+    consumed_revivals = set()
     findings = []
     for site in new_candidates:
         if site.family == "count-helper":
             continue
+        literal_key = (
+            _literal_adjudication_key(site.literal)
+            if site.literal is not None
+            else None
+        )
+        if literal_key in retired_literal_keys:
+            normalized = _normalized_revival_authorization(site, repo_root)
+            exact_authorization = (
+                normalized is not None and normalized in revival_authorizations
+            )
+            if exact_authorization:
+                consumed_revivals.add(normalized)
+            delta = adjudication_delta.get(literal_key)
+            current_state = current_adjudications.get(literal_key)
+            deliberate_boundary_decision = (
+                delta is not None
+                and delta[1] == current_state
+                and current_state is not None
+                and current_state[0] == "boundary"
+            )
+            if not exact_authorization or not deliberate_boundary_decision:
+                missing = []
+                if not exact_authorization:
+                    missing.append("exact revival authorization")
+                if not deliberate_boundary_decision:
+                    missing.append("same-branch boundary adjudication change")
+                findings.append(
+                    f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                    f"{site.helper or site.family}\t{site.literal}\t"
+                    "retired wording-pin revival lacks " + " and ".join(missing)
+                )
+                continue
         inspection_error = _typed_pin_inspection_error(site, repo_root)
         if inspection_error is not None:
             findings.append(
@@ -2659,23 +3020,17 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
                 f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
             )
             continue
-        move_index = next(
-            (
-                index
-                for index, old in enumerate(unused_old)
-                if site.literal is not None
-                and old.literal == site.literal
-                and _move_compatible(old, site)
-            ),
-            None,
-        )
-        if move_index is not None:
-            unused_old.pop(move_index)
-            continue
         detail = site.declaration_error or "wording-only presence pin"
         findings.append(
             f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
             f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+        )
+    unconsumed = revival_authorizations - consumed_revivals
+    if unconsumed:
+        first = sorted(unconsumed)[0]
+        raise InfrastructureError(
+            "adjudication bundle has unconsumed revival authorization: "
+            f"{first.source_path} {first.literal_key}"
         )
     return findings
 
@@ -2993,7 +3348,7 @@ def _decode_utf8(payload, label):
         raise InfrastructureError(f"{label} is not UTF-8: {exc}") from exc
 
 
-def scan_adjudication_changes(
+def analyze_adjudication_changes(
     repo_root,
     merge_base,
     base_ref="origin/main",
@@ -3054,10 +3409,15 @@ def scan_adjudication_changes(
         "show",
         f"{merge_base}:{_ADJUDICATION_TABLE_PATH}",
     )
-    manifests, migration_bytes = discover_new_adjudication_delta_manifests(
+    (
+        manifests,
+        migration_bytes,
+        revival_authorizations,
+    ) = discover_new_adjudication_delta_manifests(
         repo_root,
         merge_base,
         include_migration=True,
+        include_revivals=True,
         git_runner=git_runner,
     )
     base_digest = hashlib.sha256(base_bytes).hexdigest()
@@ -3079,7 +3439,7 @@ def scan_adjudication_changes(
             raise InfrastructureError(
                 "adjudication migration does not match the exact bootstrap certificate"
             )
-        return []
+        return AdjudicationAnalysis([], current, current, {}, frozenset())
 
     if migration_bytes is not None:
         raise InfrastructureError(
@@ -3089,16 +3449,39 @@ def scan_adjudication_changes(
         _decode_utf8(base_bytes, "base adjudication table")
     )
     actual = compute_adjudication_delta(base, current)
-    if actual:
+    if actual or revival_authorizations:
         require_current_adjudication_base(
             repo_root,
             base_ref,
             merge_base=merge_base,
             git_runner=git_runner,
         )
+    findings = []
     if not is_exactly_authorized_adjudication_delta(base, current, manifests):
-        return ["MUTATION-ROUTING\tunauthorized pin adjudication delta"]
-    return []
+        findings.append("MUTATION-ROUTING\tunauthorized pin adjudication delta")
+    return AdjudicationAnalysis(
+        findings,
+        base,
+        current,
+        actual,
+        revival_authorizations,
+    )
+
+
+def scan_adjudication_changes(
+    repo_root,
+    merge_base,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+):
+    """Return policy findings for the exact current-state table delta."""
+    return analyze_adjudication_changes(
+        repo_root,
+        merge_base,
+        base_ref,
+        git_runner=git_runner,
+    ).findings
 
 
 def scan_static_pin_changes(
@@ -3139,10 +3522,15 @@ def scan_static_pin_changes(
     ).strip()
     if not merge_base:
         raise InfrastructureError("comparison merge base resolved to empty output")
-    adjudication_findings = scan_adjudication_changes(
+    adjudication_analysis = analyze_adjudication_changes(
         repo_root,
         merge_base,
         base_ref,
+        git_runner=git_runner,
+    )
+    retired_literal_keys = load_retired_wording_literal_keys(
+        repo_root,
+        merge_base,
         git_runner=git_runner,
     )
     python_tracked = set(
@@ -3238,10 +3626,8 @@ def scan_static_pin_changes(
     # ``git diff <merge_base>`` already carries a hunk for every TRACKED path,
     # including one added after the merge base; only an UNTRACKED path is absent
     # from it and needs the synthetic ``/dev/null`` hunk. Synthesizing for every
-    # not-in-base path double-represented a newly-committed pin source in the
-    # classifier input, which duplicated its MUTATION-ROUTING emits and consumed
-    # the one-to-one ``unused_old.pop`` move exemption with the first copy, so a
-    # legitimate relocation into such a file failed the gate spuriously.
+    # not-in-base path double-represents a newly committed pin source and emits
+    # duplicate policy findings for one physical site.
     untracked_sources = python_untracked | untracked
 
     current_sources = {}
@@ -3267,8 +3653,15 @@ def scan_static_pin_changes(
                     + "\n".join(f"+{line}" for line in lines)
                     + "\n"
                 )
-    return adjudication_findings + scan_changed_sources(
-        current_sources, base_sources, difftext, str(repo_root)
+    return adjudication_analysis.findings + scan_changed_sources(
+        current_sources,
+        base_sources,
+        difftext,
+        str(repo_root),
+        retired_literal_keys=retired_literal_keys,
+        revival_authorizations=adjudication_analysis.revival_authorizations,
+        adjudication_delta=adjudication_analysis.delta,
+        current_adjudications=adjudication_analysis.current,
     )
 
 
