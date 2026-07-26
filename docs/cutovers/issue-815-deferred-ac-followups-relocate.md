@@ -18,7 +18,7 @@ kind: relocate
 ## Destination
 
 - `skills/implement/references/deferred-ac-followups.md` (`implement-conditional`,
-  `reference` — a genuinely conditional file) — 26,705 bytes, reached only when
+  `reference` — a genuinely conditional file) — 27,636 bytes, reached only when
   `scripts/workpad.py deferred-presence <issue> <pr>` reports an outstanding or an
   unestablished answer, behind a first-line/last-line boundary-marker entry gate that
   degrades best-effort rather than halting. Trigger: at least one `kind=deferred`
@@ -33,11 +33,11 @@ degraded arm.
 
 | File | Before | After |
 | --- | --- | --- |
-| `skills/implement/phases/phase-4-documentation.md` | 116,879 | 96,269 |
-| `skills/implement/references/deferred-ac-followups.md` | — | 26,705 |
+| `skills/implement/phases/phase-4-documentation.md` | 116,879 | 96,264 |
+| `skills/implement/references/deferred-ac-followups.md` | — | 27,636 |
 
-Removing section 4.0 alone leaves 93,638, so the routing stub is 2,631 bytes — inside the
-acceptance criterion's ~3,200-byte allowance — and the phase file lands 354 bytes under its
+Removing section 4.0 alone leaves 93,638, so the routing stub is 2,626 bytes — inside the
+acceptance criterion's ~3,200-byte allowance — and the phase file lands 359 bytes under its
 96,623 ceiling. The stub was trimmed twice: once at authoring time, and again after the base
 merge added 256 bytes to §4.1 and pushed the file over the ceiling. Every remaining element
 is one the acceptance criteria require it to carry separately — the predicate call, each of

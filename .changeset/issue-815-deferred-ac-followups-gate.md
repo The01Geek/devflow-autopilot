@@ -10,7 +10,7 @@ type: Changed
   which counts the `kind=deferred` scope-decision records bound to this run's PR that carry no
   filed marker and answers through its exit code plus one count line. A run that deferred
   nothing no longer carries the ~23 KB procedure it cannot execute, and the phase file drops
-  from 116,879 to 96,269 bytes. An unestablished answer (records still reading `pr=pending`,
+  from 116,879 to 96,264 bytes. An unestablished answer (records still reading `pr=pending`,
   bound to a superseded PR, corrupted, or an unreadable workpad) loads the reference anyway and
   records a `note` reflection naming the operand, so deferred work is never silently stranded;
   a failed reference read degrades with a `dropped-failed` reflection instead of halting the
