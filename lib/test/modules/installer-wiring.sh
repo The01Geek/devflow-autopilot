@@ -477,8 +477,8 @@ assert_eq "#690: the relaxed arm tests equality against the literal nt, never a 
 # wrapper (output 4/7), so the mode-setting count must be exactly zero.
 assert_eq "#690: install-gh-wrapper.sh contains no mode-setting chmod at all (only the wrapper's chmod +x)" "0" \
   "$(grep -vE '^[[:space:]]*#' "$INSTALL533" | grep 'chmod' | grep -vc 'chmod +x')"
-# Behavioral mutation proof (issue #690). devflow_module_pin_red_under cannot express this:
-# it seds a copy and re-greps a literal, never EXECUTING the mutated file, so it
+# Behavioral mutation proof (issue #690). This executes the mutated file rather than
+# merely re-grepping a literal, so it
 # cannot observe a behavioral case change verdict. Mirroring the #533 AC22
 # mutated-installer block instead — mutate the nt disjunct out of a copy, RUN it
 # under the stubbed-nt fixture, and observe the reported bug reappear.

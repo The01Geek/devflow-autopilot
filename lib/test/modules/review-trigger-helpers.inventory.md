@@ -39,7 +39,8 @@ delete the checks that prove it is selected and executed.
 Rewrite performed during extraction: the 4 `assert_pin_unique` calls became
 `devflow_module_pin_unique` and the 2 `assert_pin_red_under` calls became
 `devflow_module_pin_red_under` — a mechanical 1:1 rename onto the namespaced module
-pin API, with the pinned literals, mutations and target paths unchanged. One run.sh
+pin API, with the pinned literals, mutations and target paths unchanged. Those
+mutation-taking helpers were retired in the later issue-#810 follow-up. One run.sh
 global is re-derived in the module header rather than inherited: `CG` — the
 `scripts/config-get.sh` resolver path that the `#329`/`#409` key-read assertions
 invoke — is bound from `LIB` exactly as the monolith binds it. The extracted body

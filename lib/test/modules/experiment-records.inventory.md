@@ -20,13 +20,10 @@ drift out of it silently.
 
 ## The extraction is deliberately partial
 
-The section's trailing `#431 producer pins` block **stays in
-`lib/test/run.sh`**. Its `assert_pin_red_under` pins assert against
-`lib/efficiency-trace.jq`, `lib/efficiency-trace.sh`,
-`.github/workflows/devflow-review.yml`, `lib/open-state-pr.sh` and the
-review-and-fix skill bundle — none of which is this assembler's own surface — and
-one of them binds the run.sh-global `$MAXI_BUNDLE`. The module therefore ends at
-the last assertion belonging to the helper itself.
+The remaining `#431` producer-side executable assertions **stay in
+`lib/test/run.sh`**. They exercise configuration-fingerprint selection and
+efficiency-trace emission outside this assembler's own surface. The module therefore
+ends at the last assertion belonging to the helper itself.
 
 Consequence, recorded rather than accidental: the `#431` coverage-map label is only
 *partially* extracted, so its `run_sh_blocks` owner stays `unmodularized`.
@@ -40,7 +37,7 @@ violation.
 | Joined record fields | `#431` join rows | join section | each joined field of the unified experiment record resolves from the expected source |
 | Config fingerprint | `#431` `config_fingerprint` rows | fingerprint section | the stamp's partial-flag arm, its `None` arm, and the canonical hash |
 | Batch failure honesty | `#431` `Tfail` rows | failure section | an all-candidates-failed batch exits non-zero rather than reporting a silent success, and prior store lines are left unchanged |
-| Producer pins | `#431 producer pins` | **stays in `lib/test/run.sh`** | the cross-surface `assert_pin_red_under` pins listed above |
+| Producer behavior | remaining `#431` assertions | **stays in `lib/test/run.sh`** | executable configuration-fingerprint and efficiency-trace coverage |
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also

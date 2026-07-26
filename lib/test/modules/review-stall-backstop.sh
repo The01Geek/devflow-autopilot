@@ -749,8 +749,8 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # The manual path derives HEAD_SHA as a step-local shell var and forwards it as a command
 # PREFIX (`HEAD_SHA="$HEAD_SHA" bash "$HELPER"`); without the prefix the helper reads an empty
 # HEAD_SHA and the decision helper takes its unscoped no-fire arm — the manual-path auto-resume
-# is silently defeated (safe direction, but defeated). Pin the prefix through devflow_module_pin_red_under
-# with a mutation that DROPS the `HEAD_SHA="$HEAD_SHA" ` prefix, so the suite goes RED the moment
+# is silently defeated (safe direction, but defeated). The executable fixture drops the
+# `HEAD_SHA="$HEAD_SHA" ` prefix, so the suite goes RED the moment
 # the prefix is removed (issue #435 AC-6). The auto path (devflow-review.yml) delivers HEAD_SHA via
 # the step env: block and needs no prefix — no symmetric PREFIX pin there (a false mirror); its
 # own load-bearing delivery, the step-scoped env: line, gets the scoped pin below.
@@ -758,7 +758,7 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # ── #435 shadow finding: the AUTO path's HEAD_SHA delivery to the backstop step is pinned
 # STEP-SCOPED. The literal `HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}` recurs three
 # times in devflow-review.yml (create_check, finalize_check, and the backstop step), so a
-# whole-file pin (devflow_module_pin_unique / devflow_module_pin_red_under) would stay green when the
+# whole-file presence pin would stay green when the
 # BACKSTOP step's own line is dropped — the drop that silently defeats auto-resume on the
 # primary path (the helper reads an empty HEAD_SHA and the decision helper takes its
 # unscoped no-fire arm). Extract the step's block (its `- name:` line through the
@@ -913,8 +913,8 @@ unset _site801 _t801p
 # workflow would silently stop shipping the floor, and one that GAINED matcher-probe.yml
 # would ship a repo-internal probe to consumers.
 # The POSITIVE half — that the copy loop still lists the three engine workflows — is deliberately
-# NOT re-pinned here: lib/test/run.sh already pins that exact literal through the stronger
-# mutation-taking assert_pin_red_under, and a second counted home for an existence-only pin is
+# NOT re-pinned here: lib/test/run.sh already covers that behavior directly, and a second
+# counted home for an existence-only pin is
 # what CONTRIBUTING.md's existence-pin rule exists to prevent. Only the negative half below is
 # new coverage.
 # The negative half matches `matcher-probe` ANYWHERE on the copy-loop line, in either order —

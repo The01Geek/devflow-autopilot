@@ -37,7 +37,7 @@ CAPABILITY_PROFILES_MODULE_SOURCE = ROOT / "lib/test/modules/capability-profiles
 MONOLITH_HELPER_RE = re.compile(
     r"(?:^|[^A-Za-z0-9_])"
     r"(pin_count|grep_present"
-    r"|assert_pin_unique|assert_pin_red_under|assert_pin_red_on_removal)"
+    r"|assert_pin_unique|assert_pin_red_on_removal)"
     r"(?:[^A-Za-z0-9_]|$)"
 )
 
@@ -1634,7 +1634,6 @@ class ModuleRunnerTests(unittest.TestCase):
             "x=$(pin_count 'a' \"$F\")\n",
             "g=$(grep_present 'a' \"$F\")\n",
             "assert_pin_unique n l f\n",
-            "assert_pin_red_under n l m f\n",
             "assert_pin_red_on_removal n l f\n",
         ):
             self.assertIsNotNone(
@@ -1645,7 +1644,6 @@ class ModuleRunnerTests(unittest.TestCase):
         for sanctioned in (
             "devflow_module_pin_count 'a' \"$F\"\n",
             "devflow_module_pin_unique n l f\n",
-            "devflow_module_pin_red_under n l m f\n",
             # Promoted to module-harness.sh by issue #695 — harness API, not monolith.
             "t=$(probe_tmp 'a')\n",
             "b=$(probe_assert devflow_module_pin_unique p l f)\n",

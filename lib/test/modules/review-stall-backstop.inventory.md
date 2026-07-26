@@ -34,7 +34,8 @@ delete the checks that prove it is selected and executed.
 Rewrite performed during extraction: every `assert_pin_unique` call became
 `devflow_module_pin_unique` and every `assert_pin_red_under` call became
 `devflow_module_pin_red_under` — a mechanical 1:1 rename onto the namespaced module
-pin API, literals, mutations and targets unchanged. Two run.sh globals are
+pin API, literals, mutations and targets unchanged. Those mutation-taking helpers
+were retired in the later issue-#810 follow-up. Two run.sh globals are
 re-derived in the module header rather than inherited:
 
 - `REPO_ROOT`, derived from `LIB` but spelled `$LIB/..` — deliberately NOT the
