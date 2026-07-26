@@ -40923,7 +40923,7 @@ fi
 # full-suite call share the same lower-bound contract; test_module_runner.py parses
 # this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/retrospective-lifecycle.sh" \
-  "retrospective-lifecycle" 130; then
+  "retrospective-lifecycle" 133; then
   printf 'ERROR: retrospective-lifecycle boundary could not record its result\n'
   exit 1
 fi

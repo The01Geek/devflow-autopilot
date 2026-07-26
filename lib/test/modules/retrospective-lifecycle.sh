@@ -800,6 +800,39 @@ DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/sr3.json" >/dev
 assert_eq "#788 reconcile: reopening an entry clears its stale state_reason" "null" \
   "$(jq -r '.patterns["reopened"].meta_issues[0].state_reason' "$RL_TMP/sr3.json")"
 
+# Prefetch HIT path: every reconcile assertion above runs against a stub whose
+# `issue list` returns [], so only the by-number fallback leg is exercised. This
+# stub answers the prefetch instead and makes `issue view` FAIL, so a transition
+# here can only have come from the prefetch — the primary leg, otherwise
+# untested. (Attributing the leg is the point: without the failing `view`, a
+# broken prefetch would silently fall back and the assertion would stay green.)
+cat > "$RL_TMP/gh-prefetch.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then
+  echo '[{"number":601,"state":"CLOSED","stateReason":"COMPLETED","closedAt":"2026-06-11T00:00:00Z"},{"number":602,"state":"OPEN","stateReason":null,"closedAt":null}]'
+  exit 0
+fi
+# The fallback leg must NOT be able to satisfy these — any transition below is
+# attributable to the prefetch alone.
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then echo 'prefetch-test: view must not be reached' >&2; exit 1; fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-prefetch.sh"
+printf '%s' "$(rl_record prefetch-closed 601)" > "$RL_TMP/pf1.json"
+DEVFLOW_GH="$RL_TMP/gh-prefetch.sh" bash "$RL_PS" reconcile "$RL_TMP/pf1.json" >/dev/null 2>&1
+assert_eq "#788 prefetch hit: a COMPLETED row transitions from the prefetch alone" "fixed" \
+  "$(jq -r '.patterns["prefetch-closed"].state' "$RL_TMP/pf1.json")"
+assert_eq "#788 prefetch hit: fixed_at comes from the prefetch row's closedAt" "2026-06-11T00:00:00Z" \
+  "$(jq -r '.patterns["prefetch-closed"].fixed_at' "$RL_TMP/pf1.json")"
+# Positive control on the same fixture+stub: a slug the prefetch page does NOT
+# cover makes no transition here, because the fallback leg is unavailable. This
+# is what proves the two assertions above were satisfied by the prefetch rather
+# than by a permissive stub answering everything.
+printf '%s' "$(rl_record prefetch-missing 999)" > "$RL_TMP/pf2.json"
+DEVFLOW_GH="$RL_TMP/gh-prefetch.sh" bash "$RL_PS" reconcile "$RL_TMP/pf2.json" >/dev/null 2>&1
+assert_eq "#788 prefetch miss + unavailable fallback → no transition (control)" "filed" \
+  "$(jq -r '.patterns["prefetch-missing"].state' "$RL_TMP/pf2.json")"
+
 # NOTE (deliberately untested): actionable-patterns.sh's `_ELIGIBLE_N` guard is
 # defense-in-depth for a path that is UNREACHABLE through the script's own
 # control flow — the `OUTPUT="$( ... )" || { ...; exit 1; }` assignment above it
