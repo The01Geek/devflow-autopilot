@@ -13,9 +13,10 @@
 #                behavior every pre-existing caller depends on.
 #
 # The --section extraction rule (issue #611) is SPECIFIED in
-# skills/create-issue/SKILL.md (Step 2's `## Evidence axes` forwarding paragraph)
-# and IMPLEMENTED here; that skill sentence is the specification of record and this
-# helper is its single implementation — a coupled pair, edited together. The rule:
+# skills/create-issue/references/step-2-clarify.md (the `## Evidence axes`
+# forwarding paragraph, moved there at issue #614) and IMPLEMENTED here; that
+# reference sentence is the specification of record and this helper is its single
+# implementation — a coupled pair, edited together. The rule:
 #   * a section spans its heading line to the next line beginning '## ' (two hashes
 #     PLUS A SPACE, so a '###' sub-heading line is section content, not a
 #     terminator), else to end of file;

@@ -34893,6 +34893,86 @@ for _s in $REVIEW_PHASE_STEMS; do
     "$(grep -qF "phases/${_s}.md" "$REVIEW_ROOT" && echo yes || echo no)"
 done
 
+# ── #802: the Phase-3 dispatch supplies the vendored-literal prompt-extension command ──
+# The final-pass reviewer runs as a general-purpose Task with no $CLAUDE_SKILL_DIR, so the
+# orchestrator resolves the helper path and supplies it. These assertions pin the emitted-shape
+# guarantees (literal-not-slot head, bash-info-string fence, no denied shape) and the operative
+# prose (substitution rule, anchor prohibition), plus the coupled refusal-literal contract and
+# the loader-header drift fix.
+P3AGENTS_802="$LIB/../skills/review/phases/phase-3-agents.md"
+RQ_802="$LIB/../skills/requesting-code-review/SKILL.md"
+RCV_802="$LIB/../skills/receiving-code-review/SKILL.md"
+IMPL_802="$LIB/../skills/implement/SKILL.md"
+LPE_802="$LIB/../scripts/load-prompt-extension.sh"
+
+# A1 — requesting-code-review + receiving-code-review (in the heads roster but historically in
+# NO shape corpus) are now members of the review-profile shapes corpus, alongside phase-3-agents:
+# zero denied shapes across all three.
+assert_eq "#802 A1: requesting/receiving-code-review + phase-3-agents report no denied shape (review profile)" \
+  "" "$(python3 "$LIB/test/extract-command-shapes.py" --profile review \
+        "$P3AGENTS_802" "$RQ_802" "$RCV_802" 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+
+# A9 — the supplied-command fence carries the LITERAL vendored path (a granted head), not a
+# placeholder slot: the head roster is empty over the real file, and replacing the literal with a
+# slot token turns it RED (the slot is an ungranted head).
+assert_eq "#802 A9: the supplied-command fence has no ungranted head (real file, review profile)" \
+  "" "$(python3 "$ECH" ungranted "$P3AGENTS_802" \
+        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+sed -E 's#\.devflow/vendor/devflow/scripts/load-prompt-extension\.sh requesting-code-review#{RESOLVED_HELPER_COMMAND} requesting-code-review#' \
+  "$P3AGENTS_802" > "$E363/p3-slot.md"
+assert_eq "#802 A9: replacing the literal path with a placeholder slot turns the head roster RED (anti-vacuity)" \
+  "{RESOLVED_HELPER_COMMAND}" "$(python3 "$ECH" ungranted "$E363/p3-slot.md" \
+        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
+
+# A10 — the command is scanned only BECAUSE its fence info string is exactly `bash`; a bare fence
+# hides it from the extractor, so the bash fence is what makes the emitted-shape criteria enforceable.
+printf '%s\n' '```bash' '.devflow/vendor/devflow/scripts/load-prompt-extension.sh requesting-code-review' '```' > "$E363/lpe-bash.md"
+printf '%s\n' '```' '.devflow/vendor/devflow/scripts/load-prompt-extension.sh requesting-code-review' '```' > "$E363/lpe-bare.md"
+assert_eq "#802 A10: a bash-info-string fence exposes the command head to the extractor" "yes" \
+  "$(python3 "$ECH" heads "$E363/lpe-bash.md" | grep -qF 'load-prompt-extension.sh' && echo yes || echo no)"  # raw-guard-ok: asserts extractor stdout (a command's output), not source prose presence
+assert_eq "#802 A10: a bare fence hides the command from the extractor (the bash fence is load-bearing)" "no" \
+  "$(python3 "$ECH" heads "$E363/lpe-bare.md" | grep -qF 'load-prompt-extension.sh' && echo yes || echo no)"  # raw-guard-ok: asserts extractor stdout (a command's output), not source prose presence
+
+# Coupled sites — the refusal literal is byte-identical in the Phase-3 dispatch and implement/SKILL.md
+# (one refusal contract, two mirrors — the marker the orchestrator matches must not drift between them).
+# Expressed as two mutation-taking pins over the SAME literal string: both files must carry that exact
+# marker, so a drift at either site turns its pin RED (byte-identity by shared comparand). Routed through
+# assert_pin_red_under (mutation-helper) rather than a raw grep because the marker is a whitespace-bearing
+# sentence and the #810 prose gate rejects a raw presence pin on it — the coupled contract is real, but
+# the machine-consumed sentinel is proven by its removal-regression, not by a bare grep.
+_refusal_802='load-prompt-extension.sh was refused by the matcher; the consumer prompt extension could not be loaded'
+assert_pin_red_under "#802 coupled sites: phase-3-agents.md carries the refusal-marker literal" \
+  "$_refusal_802" \
+  '/EXTENSION-STATUS: load-prompt-extension.sh was refused by the matcher/d' \
+  "$P3AGENTS_802"
+assert_pin_red_under "#802 coupled sites: implement/SKILL.md carries the byte-identical refusal-marker literal" \
+  "$_refusal_802" \
+  '/retain the exact pending note/d' \
+  "$IMPL_802"
+
+# A2 (behavioral-fix pin) — the substitution rule beside the fence: vendored literal when present,
+# the orchestrator's own anchor-resolved path otherwise. Removing it leaves the literal command with
+# no substitution rule, re-introducing exit-127 on every local/interactive-tier run.
+assert_pin_red_under "#802 A2: the fence carries the vendored-literal-when-present / anchor-resolved-otherwise substitution rule" \
+  'otherwise (the local and interactive tiers, where `.devflow/vendor/` is gitignored and absent) it substitutes its **own** anchor-resolved helper path' \
+  '/gitignored and absent/d' \
+  "$P3AGENTS_802"
+
+# A3 (behavioral-fix pin) — the dispatch prompt forbids the subagent resolving the anchor for this
+# helper. Removing it re-opens the improvise-a-shell-shape defect (the named regression).
+assert_pin_red_under "#802 A3: the dispatch prompt forbids anchor resolution for the supplied helper" \
+  'do NOT resolve the skill-directory anchor for it yourself' \
+  '/do NOT resolve the skill-directory anchor for it yourself/d' \
+  "$P3AGENTS_802"
+
+# A6 (behavioral-fix pin) — the loader header names references/step-2-clarify.md as the --section
+# rule location; mutating it back to the stale skills/create-issue/SKILL.md pointer re-introduces the
+# documented-falsehood the drift bullet named.
+assert_pin_red_under "#802 A6: the loader header names references/step-2-clarify.md for the --section rule" \
+  'references/step-2-clarify.md (the `## Evidence axes`' \
+  's#references/step-2-clarify\.md#SKILL.md#' \
+  "$LPE_802"
+
 # The two scenarios the ROOT itself must decide (they pick which reference runs, so
 # their routing rule cannot live in a reference — that would be unreachable).
 assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)" \
@@ -35086,8 +35166,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # alone would not catch a duplicate head silently gained (or lost). Whoever next adds
 # a command to a review-skill fence updates these two numbers in the same commit,
 # per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142, then split that fence's call into PR-mode and current-branch arms, whose added test guard takes 142 -> 143; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
-  "143" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #802 added the Phase-3 final-pass supplied-command fence in phase-3-agents.md, whose one load-prompt-extension.sh head takes 143 -> 144 — already granted and already in the distinct set, so the distinct count is unchanged)" \
+  "144" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
 assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
