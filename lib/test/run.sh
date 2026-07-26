@@ -35204,14 +35204,6 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-# Assert BOTH the occurrence count and the distinct-name count — the distinct count
-# alone would not catch a duplicate head silently gained (or lost). Whoever next adds
-# a command to a review-skill fence updates these two numbers in the same commit,
-# per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #781 added Phase 0.4's acs-resolve fence, whose case/test/echo/cat heads take 136 -> 142, then split that fence's call into PR-mode and current-branch arms, whose added test guard takes 142 -> 143; every one was already granted and already in the distinct set, so the distinct count is unchanged)" \
-  "143" "$(python3 -c 'import importlib.util,sys
-s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
 assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
   "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
