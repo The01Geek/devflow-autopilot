@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.1] — 2026-07-26
+
+### Fixed
+- **Audited test sources are temporarily deletion-only.** The required gate rejects additions, edits, reformats, and moves in the 12 frozen sources until the legacy mutation-pin census and remediation are complete.
+
 ## [2.22.0] — 2026-07-26
 
 ### Changed
