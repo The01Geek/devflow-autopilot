@@ -1,0 +1,101 @@
+{
+  "iter": 1,
+  "source": "review-and-fix",
+  "loop_role": "fix",
+  "current_step": "3",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not-run", "reason": "no fixes applied"},
+  "test_first_gate": [],
+  "checklist": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": true,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "dispatched_effort": [
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:requesting-code-review", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "The edited clause restates the carve-out's two grounds inline while also deferring to the source file, creating a second copy of prose whose canonical home is step-3-6-audit.md; suggests trimming to the deferral plus a one-word class label.",
+      "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [609, 609], "kind": "style"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "pushed_back",
+      "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+      "claim_text": "the clause restates the source's two grounds inline; trim to the deferral plus a one-word class label",
+      "skip_category": "claim-quality",
+      "evidence": "The prescription contradicts the run's own documented specification: issue #828 AC1 requires the clause to carry the carve-out's reasons — 'a distinct security class outranking the authoring-discipline classes, and orthogonality to every environment and discipline dimension'. Trimming to a one-word class label would drop the orthogonality ground and fail AC1. The finding's stated motivation (that #825 is 'about to rewrite' the source paragraph) is also stale: issue #825 is CLOSED and its rewrite has landed, so the summarized wording is settled, not in flux.",
+      "parking_evidence": {
+        "basis": "the reviewer's prescription contradicts the acceptance criterion that mandates the restated grounds, and its stated risk premise (a pending #825 rewrite) is factually stale",
+        "failing_input": "trimming the two grounds to a one-word class label, which drops the orthogonality reason AC1 names",
+        "source": "issue #828 AC1 (workpad `## Acceptance Criteria`, criterion 1); issue #825 state CLOSED per `gh issue view 825 --json state`",
+        "finding_ref": {"iter": 1, "index": 0}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "bash lib/test/run.sh",
+    "result": "skipped",
+    "reason": "no-fix iteration — no fix delta to re-verify; the full suite was already run green on this HEAD before the review (12234 passed, 0 failed, 0 skipped; capture at .devflow/tmp/verification-828.log)",
+    "duration_s": null,
+    "skipped_checks": []
+  },
+  "stale_prose_check": {
+    "rows": ["UNRESOLVABLE\tR3\tdocs/DEVFLOW_SYSTEM_OVERVIEW.md\t610\tcount-locked: recognition-only (3 rules) — pin or drift-proof this claim"],
+    "note": "one UNRESOLVABLE row (informational, never gates); it targets the pre-existing 'Three authoring-discipline rules' header this diff did not author. No STALE rows."
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 4, "tokens": 261007, "wall_clock_s": 60},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}
