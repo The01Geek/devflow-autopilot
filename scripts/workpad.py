@@ -28,7 +28,7 @@ Usage:
     workpad.py create    ISSUE BODY_FILE
     workpad.py new-body  ISSUE [--run-link V] [--branch V] [--marker M]
     workpad.py now
-    workpad.py update    ISSUE [mutations...] [--marker M]
+    workpad.py update    ISSUE [mutations...] [--print-body] [--marker M]
     workpad.py handoff-state FILE --issue N --run-id ID --run-attempt ATTEMPT
 
 Subcommands that locate the workpad by its marker comment (`id`, `new-body`,
@@ -48,6 +48,12 @@ mutations, auto-updates `Last updated`, and PATCHes the result. A *structural*
 failure (missing section/front-matter line) aborts the call before any PATCH; a
 *volatile* per-row tick miss (a `--tick-*`/`--tick-*-n` that does not resolve)
 is reported and exits non-zero, but the call's other mutations still PATCH.
+`update` writes nothing to stdout by default (issue #814) — the exit code is the
+success signal, and a short stderr breadcrumb naming the PATCHed comment id (with
+the read-back `Status:` value on a `--status` call) distinguishes a successful call
+from one a permission matcher silently refused. `--print-body` restores the body
+echo; the volatile-tick-miss path echoes it regardless, because the caller must
+re-resolve a section-scoped checkbox index against that row inventory.
 Notes (`--note`) are append-only and nest under their lifecycle phase inside
 the ## Progress section; Devflow Reflection accumulates bullets; checkbox
 sections are mutated in place rather than rewritten. See `workpad.py update
@@ -1185,14 +1191,26 @@ def _strip_status_glyph(status: str) -> str:
     return s
 
 
+def _status_value_from_body(body: str) -> str:
+    """Return the live Status VALUE from a workpad body **with its glyph intact**,
+    trimmed, or '' when there is no Status line. Every reader of the Status *value*
+    goes through here: `_status_word_from_body` below delegates to it and strips the
+    glyph, and `cmd_update`'s issue-#814 success breadcrumb reports it verbatim (the
+    breadcrumb is the caller's read-back that a `--status` PATCH landed, and the glyph
+    is what makes '🎉 Complete' recognisable at a glance). `cmd_status`'s separate
+    `_STATUS_VALUE_RE` use answers a different question — is a Status LINE present at
+    all — and shares the compiled pattern rather than this function."""
+    m = _STATUS_VALUE_RE.search(body)
+    return m.group(1).strip() if m else ''
+
+
 def _status_word_from_body(body: str) -> str:
     """Return the live Status word (glyph-stripped, trimmed) from a workpad body,
     or '' when there is no Status line. The single source of the "what is the live
     Status word in this body" rule — `cmd_status`, `_apply_mutations`'s note-phase
     resolution, and `cmd_update`'s `--expect-status` precondition all read it here
     so glyph/whitespace handling can never drift between the reader and the checker."""
-    m = _STATUS_VALUE_RE.search(body)
-    return _strip_status_glyph(m.group(1).strip()).strip() if m else ''
+    return _strip_status_glyph(_status_value_from_body(body)).strip()
 
 
 def _status_glyph(status: str) -> str:
@@ -1940,16 +1958,23 @@ def cmd_update(args):
         body = _apply_mutations(body, args, failed_ticks)
     except _NoOpReplay:
         # A checkpoint-only call whose every key already exists (issue #537, AC14):
-        # a pure replay. Do NOT refresh `Last updated` and do NOT PATCH — write the
-        # unchanged live body to stdout (so callers reading stdout still get the
-        # body) and exit 0. A replay COMBINED with any other mutation never reaches
-        # here (`_has_non_checkpoint_mutation` is true), so it applies that mutation
-        # once and PATCHes normally without duplicating the checkpoint.
+        # a pure replay. Do NOT refresh `Last updated` and do NOT PATCH — echo the
+        # unchanged live body to stdout only under `--print-body` (issue #814
+        # suppressed the echo by default; the class docstring owns that rationale),
+        # then exit 0. The non-obvious point here: this arm's OWN replay message
+        # (written three lines down) is deliberately NOT the `PATCHed comment <id>`
+        # success breadcrumb, which the PATCH tail writes and this arm never reaches,
+        # because no PATCH happened. A replay COMBINED with any other mutation never
+        # reaches here (`_has_non_checkpoint_mutation` is true — `print_body` is
+        # deliberately absent from its allowlist, so the flag alone never makes a call
+        # a mutation), so it applies that mutation once and PATCHes normally without
+        # duplicating the checkpoint.
         sys.stderr.write(
             "workpad.py update: checkpoint replay — all requested checkpoint "
             "key(s) already present; no Last updated refresh, no PATCH.\n"
         )
-        sys.stdout.write(body)
+        if args.print_body:
+            sys.stdout.write(body)
         return
     except _UpdateError as e:
         sys.stderr.write(f"workpad.py update: {e}\n")
@@ -1996,7 +2021,70 @@ def cmd_update(args):
         _fail('update patch', e)
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-    sys.stdout.write(r.stdout)
+    # Issue #814: the patched body is echoed only under `--print-body`, or on the
+    # volatile-tick-miss path below. This one statement is reached by BOTH the clean
+    # return and the miss exit (the `failed_ticks` branch is evaluated after it), so
+    # a flag-only condition here would also silence the miss path — which keeps its
+    # echo deliberately, because the failure-isolation contract requires the caller
+    # to re-resolve a section-scoped checkbox index before re-ticking and the body is
+    # the row inventory that resolution reads.
+    if args.print_body or failed_ticks:
+        sys.stdout.write(r.stdout)
+
+    # Issue #814: one short success breadcrumb on the exit-0 PATCH path, so a
+    # successful call is never byte-identical to one the cloud permission matcher
+    # silently refused (a denial prints nothing). It carries the Status value read
+    # back from the PATCH response on a `--status` call: that read-back is the one
+    # check an exit code cannot discharge, because `gh api -X PATCH` can return
+    # success while the comment body is unchanged. Written independently of
+    # `--print-body`, and NOT written on the volatile-miss path below — a
+    # success-shaped line beside a failing exit code would re-create on stderr the
+    # split the exit-code rule exists to prevent.
+    # Read the Status back from the PATCH response on ANY `--status` call that
+    # PATCHed — including one whose tick missed. Three unobserved states are reported
+    # distinctly rather than collapsed onto one token: an EMPTY response (a throttled
+    # or oversized write — the comment itself may be perfectly healthy, so pointing
+    # the reader at a corrupt body would misdirect them), a non-empty response
+    # carrying no Status line, and a resolved value. None renders as a bare empty
+    # clause a reader could mistake for "no --status was set". The read goes through
+    # the shared value reader, never a second regex site.
+    _status_clause = ''
+    _live = ''
+    _read_back = ''
+    if args.status:
+        if not r.stdout:
+            _read_back = '(empty response)'
+        else:
+            _live = _status_value_from_body(r.stdout)
+            _read_back = _live or '(not found)'
+        _status_clause = f"; Status: {_read_back}"
+    if not failed_ticks:
+        sys.stderr.write(
+            f"workpad.py update: PATCHed comment {comment_id}{_status_clause}\n"
+        )
+    # The read-back is only a guard if something compares it. Leaving the comparison
+    # to prose alone lets a reader skim the line for "breadcrumb present, exit 0" and
+    # advance over a PATCH that returned 200 with the comment body unchanged, so the
+    # mismatch is made machine-observable here. Unlike the success breadcrumb above,
+    # this line is written on the volatile-tick-miss path too: it is failure-shaped,
+    # so it composes with the miss report instead of re-creating the success/failure
+    # split — and that path is where a `--status` write is most likely to ride along
+    # with a tick, so suppressing it would fail open exactly where the mismatch is
+    # most likely. It is a WARNING, not a failure: the PATCH call itself succeeded and
+    # the caller owns the re-issue decision. The comparison reads `_live` — the value
+    # the reader above resolved — never a re-parse of the rendered clause, so the
+    # guard and the breadcrumb cannot disagree about what was read back, and it
+    # reports the same distinct unreadable token the clause carries rather than
+    # collapsing the two unobserved states.
+    if args.status:
+        _want = _strip_status_glyph(args.status).strip().lower()
+        _got = _strip_status_glyph(_live).strip().lower()
+        if _want != _got:
+            sys.stderr.write(
+                f"workpad.py update: WARNING: the PATCH response reads Status "
+                f"{_got or _read_back!r}, not the requested {_want!r} — the write "
+                f"may not have landed; re-issue the update.\n"
+            )
 
     # Volatile tick failures: the PATCH landed (other mutations applied), but
     # report each unresolved tick to stderr and exit non-zero so the orchestrator
@@ -2237,8 +2325,10 @@ def _checkpoint_marker(key: str) -> str:
 class _NoOpReplay(Exception):
     """Signals a checkpoint-only call whose every key already exists — a pure
     replay. Raised by `_apply_mutations` BEFORE it mutates anything; `cmd_update`
-    catches it, writes the unchanged body to stdout, and exits 0 WITHOUT refreshing
-    `Last updated` and WITHOUT issuing a PATCH (the AC14 idempotency guarantee).
+    catches it, writes its replay breadcrumb to stderr, echoes the unchanged body to
+    stdout only under `--print-body` (issue #814 suppressed that echo by default),
+    and exits 0 WITHOUT refreshing `Last updated` and WITHOUT issuing a PATCH (the
+    AC14 idempotency guarantee).
     Deliberately NOT an `_UpdateError` subclass: it is a success no-op, not a
     structural failure, so the structural `except _UpdateError` never captures it."""
 
@@ -3126,6 +3216,16 @@ def main():
                         'before any mutation/PATCH (exit 4) if the live workpad '
                         'Status word differs from this value (concurrent status '
                         'change / terminal backstop transition).')
+    u.add_argument('--print-body', action='store_true',
+                   help='Write the patched workpad body to stdout (issue #814). '
+                        'Off by default, because the echo costs a caller the whole '
+                        'workpad body on every call. The replacement verification '
+                        'channel is stderr: the exit code is the success signal, and '
+                        'a short breadcrumb naming the PATCHed comment id (plus the '
+                        'read-back Status value, and a WARNING when it does not match '
+                        'the requested status) confirms the write landed. The '
+                        'volatile-tick-miss path echoes the body regardless, because '
+                        'the caller must re-resolve a checkbox index against it.')
     u.add_argument('--marker', default=None, help=_marker_help)
     u.set_defaults(func=cmd_update)
 
