@@ -236,8 +236,19 @@ OUTPUT="$(
 # deliberately EXCLUDED: an open meta-issue is the loop working correctly.
 # In --full mode this diagnostic is suppressed (the caller wants the raw view).
 if [ "$FULL" -eq 0 ]; then
-    _ELIGIBLE_N="$(printf '%s' "$OUTPUT" | "$DEVFLOW_JQ" 'length')"
-    if [ "${_ELIGIBLE_N:-0}" -eq 0 ]; then
+    # Fail CLOSED on an unestablished count: an empty $OUTPUT (an upstream
+    # producer that failed) makes `jq length` print nothing and exit 0, and
+    # `${_ELIGIBLE_N:-0}` would launder that unknown into a genuine "0 eligible"
+    # — firing a spurious liveness warning about a run whose eligible set was
+    # never measured. Unknown is not zero (CLAUDE.md): a non-numeric count skips
+    # the diagnostic and says so, rather than diagnosing on unmeasured input.
+    _ELIGIBLE_N="$(printf '%s' "$OUTPUT" | "$DEVFLOW_JQ" 'length' 2>/dev/null || true)"
+    case "$_ELIGIBLE_N" in
+        ''|*[!0-9]*)
+            echo "actionable-patterns: eligible-set size could not be established (empty or non-numeric jq result) — liveness diagnostic skipped" >&2
+            _ELIGIBLE_N=-1 ;;
+    esac
+    if [ "$_ELIGIBLE_N" -eq 0 ]; then
         printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
         # One jq pass emits the count and the highest-occurrence slug as a single
         # "N slug" line (empty when nothing is suppressed-but-recurring).

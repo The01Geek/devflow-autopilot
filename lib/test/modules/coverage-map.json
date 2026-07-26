@@ -43,6 +43,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/filing-decisions.sh": {
+      "note": "issue #788 retrospective issue-closure lifecycle",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/generate-capability-profiles.py": {
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
@@ -1661,7 +1665,7 @@
     },
     "88": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "retrospective-lifecycle"
     },
     "91": {
       "note": "",
@@ -1673,7 +1677,7 @@
     },
     "99": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "retrospective-lifecycle"
     },
     "unlabeled": {
       "note": "aggregate of lib/test/run.sh assertion names carrying no issue-number token; a visible line item, not an absence.",

@@ -300,10 +300,16 @@ unreconciled state is what broke the loop).
 
 ```bash
 bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json
+# stderr is CAPTURED, not discarded: actionable-patterns.sh writes its
+# `liveness:` line there (issue #788), and the report's liveness line is
+# rendered from that capture. `2>` a file rather than a pipe so the exit
+# status stays the script's own. The capture is also echoed to the console
+# so the ::warning:: still reaches the CI log.
 bash $LIB/actionable-patterns.sh \
   .devflow/learnings/retrospectives.jsonl \
   .devflow/learnings/overrides.json \
-  > .devflow/tmp/patterns.json
+  > .devflow/tmp/patterns.json 2> .devflow/tmp/patterns.stderr
+cat .devflow/tmp/patterns.stderr >&2 || true
 # The UNFILTERED whole-pattern view (every lifecycle state, below-threshold and
 # suppressed included) for the run report; --full drops the actionable filters.
 bash $LIB/actionable-patterns.sh \
@@ -524,16 +530,33 @@ OPEN_TOTAL="$($LIB/../scripts/run-jq.sh -r '[(.patterns // {})[] | (.meta_issues
 Track `filed_this_run` (starts at 0) and, for each slug, its current per-category
 `filed` count (`[.patterns[<slug>].meta_issues[]? | select(.state=="filed")] | length`).
 
-For each `(pattern, result)` pair, in any order, **first apply the caps**:
+Also snapshot the pre-filing overrides file — `cp .devflow/learnings/overrides.json
+.devflow/tmp/overrides-prefiling.json` — before the first filing. Step 9 reads the
+won't-fix re-raise state from that snapshot; read after the run's own filings are
+appended, every re-raised pattern would look freshly `filed` instead.
 
-- If `filed_this_run >= MAX_PER_RUN` → withhold, record `{tag, cap: "max_issues_per_run"}` in `withheld`, skip.
-- If the pattern's per-category `filed` count `>= MAX_PER_CAT` → withhold with `cap: "max_open_per_category"`, skip.
-- If the pattern's `status` is **not** `regressed` and `OPEN_TOTAL >= MAX_OPEN` → withhold with `cap: "max_open_issues"`, skip. A `regressed` pattern **bypasses** `max_open_issues` (a post-fix regression is the highest-value signal), but still honours the per-run and per-category caps above.
+For each `(pattern, result)` pair, in any order, **first apply the caps**. The cap
+decision is not prose here — it is `devflow_filing_cap_verdict` in
+`lib/filing-decisions.sh`, which owns the arm order, the `regressed` bypass, and
+its fail-closed handling of an underived count, and which the suite drives over
+every arm (issue #788):
 
-Only if no cap withholds it do you file (below), then increment `filed_this_run`,
-`OPEN_TOTAL`, and that slug's per-category count. Carry `withheld` into the Step 9
-summary as `withheld_patterns` (each `{tag, cap}`) so the report names every pattern
-withheld together with the cap that withheld it.
+```bash
+source $LIB/filing-decisions.sh
+VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" \
+                                      "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
+```
+
+`file` means no cap withheld this pattern. Any other token is the cap that withheld
+it (`max_issues_per_run` / `max_open_per_category` / `max_open_issues`, or
+`invalid-operand` when a count could not be established): record
+`{tag, cap: "$VERDICT"}` in `withheld` and skip to the next pattern.
+
+Only on `file` do you file (below), then increment `filed_this_run`, `OPEN_TOTAL`,
+and that slug's per-category count, and append the slug to `filed_slugs`. Carry
+`withheld` into the Step 9 summary as `withheld_patterns` (each `{tag, cap}`) so the
+report names every pattern withheld together with the cap that withheld it, and carry
+`filed_slugs` so Step 9 can annotate each pattern with its filing outcome.
 
 Write the subagent's raw result to `.devflow/tmp/result-${SLUG}.json` with the
 **Write tool** (it can contain quotes, backticks, newlines, and `$` — never
@@ -617,8 +640,22 @@ ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imper
 # The report's `.patterns` is the UNFILTERED whole-pattern view (patterns-full.json),
 # not the filtered actionable list, so the report surfaces suppressed/below-threshold
 # patterns instead of reading like a quiet week (issue #788).
-PATTERNS_JSON="$(cat .devflow/tmp/patterns-full.json)"
+# Annotate that view with each pattern's filing outcome for this run and, where a
+# cap withheld it, that cap — the two per-pattern fields render-report.sh reads
+# (issue #788). The `--full` view carries neither, so without this join both reads
+# render nothing on every pattern.
+source $LIB/filing-decisions.sh
+FILED_SLUGS_JSON="$(printf '%s\n' "${filed_slugs[@]:-}" | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))')"
+WITHHELD_JSON="$(printf '%s\n' "${withheld[@]:-}" | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))')"
+PATTERNS_JSON="$(devflow_annotate_patterns .devflow/tmp/patterns-full.json "$FILED_SLUGS_JSON" "$WITHHELD_JSON")"
 RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .devflow/learnings/retrospectives.jsonl)"
+
+# The liveness line actionable-patterns.sh wrote to stderr in Step 6, and the
+# won't-fix patterns this run re-raised — the two remaining report sections
+# (issue #788). Both come from the same tested helper; both are empty on a run
+# that produced neither, and render-report.sh then omits their sections.
+LIVENESS_WARNING="$(devflow_liveness_warning .devflow/tmp/patterns.stderr)"
+DECLINED_REFILED_JSON="$(devflow_declined_refiled .devflow/tmp/overrides-prefiling.json "$FILED_SLUGS_JSON")"
 ```
 
 `recurring-targets.sh` groups every accumulated entry's
@@ -642,6 +679,12 @@ trap 'rm -rf "$_SUMMARY_TMP"' EXIT
 : "${ANALYZED_JSON:?devflow retrospective Step 9: ANALYZED_JSON is empty — upstream Stage-A analysis failed}"
 : "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — Step 6 patterns.json missing/empty}"
 : "${RECURRING_TARGETS_JSON:?devflow retrospective Step 9: RECURRING_TARGETS_JSON is empty — recurring-targets.sh failed}"
+# Same fail-loud property for the two #788 operands: both helpers print at
+# minimum `[]` on success, so an empty string is producer failure, not "nothing
+# to report". (LIVENESS_WARNING is deliberately NOT guarded — an empty string is
+# its normal no-warning value, and it is passed as --arg, never slurped.)
+: "${WITHHELD_JSON:?devflow retrospective Step 9: WITHHELD_JSON is empty — the Step 8c withheld producer failed}"
+: "${DECLINED_REFILED_JSON:?devflow retrospective Step 9: DECLINED_REFILED_JSON is empty — devflow_declined_refiled failed}"
 printf '%s\n' "${skip_records[@]:-}"        | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/skips.json"
 printf '%s' "$ANALYZED_JSON"                > "$_SUMMARY_TMP/analyzed.json"
 printf '%s' "$PATTERNS_JSON"                > "$_SUMMARY_TMP/patterns.json"
@@ -649,9 +692,11 @@ printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.j
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
 printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/blockers.json"
-# withheld_patterns (issue #788): each {tag, cap} the Step-8 caps held back. An
-# empty bash array writes `[]`, which render-report omits.
-printf '%s\n' "${withheld[@]:-}"            | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))' > "$_SUMMARY_TMP/withheld_patterns.json"
+# withheld_patterns (issue #788): each {tag, cap} the Step-8 caps held back, and
+# declined_refiled: the slugs whose meta-issue was previously closed NOT_PLANNED.
+# Both are `[]` on a run that produced neither, which render-report omits.
+printf '%s' "$WITHHELD_JSON"                > "$_SUMMARY_TMP/withheld_patterns.json"
+printf '%s' "$DECLINED_REFILED_JSON"        > "$_SUMMARY_TMP/declined_refiled.json"
 # Same fail-loud property for the four INLINE producers above. Their `> file` redirect
 # truncates the file before the pipeline runs, so a failing jq (unresolvable binary, a
 # malformed element under -sc '.') leaves the file EMPTY — and an empty --slurpfile
@@ -680,13 +725,16 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --slurpfile cooldown_skipped    "$_SUMMARY_TMP/cooldown_skipped.json" \
   --slurpfile blockers            "$_SUMMARY_TMP/blockers.json" \
   --slurpfile withheld_patterns   "$_SUMMARY_TMP/withheld_patterns.json" \
+  --slurpfile declined_refiled    "$_SUMMARY_TMP/declined_refiled.json" \
+  --arg       liveness_warning    "$LIVENESS_WARNING" \
   --argjson state_pr              "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     skipped_count:$skipped_count,skips:$skips[0],
     analyzed:$analyzed[0],patterns:$patterns[0],recurring_targets:$recurring_targets[0],
     intervention_issues:$intervention_issues[0],
     cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],
-    withheld_patterns:$withheld_patterns[0],state_pr:$state_pr}')"
+    withheld_patterns:$withheld_patterns[0],declined_refiled:$declined_refiled[0],
+    liveness_warning:$liveness_warning,state_pr:$state_pr}')"
 rm -rf "$_SUMMARY_TMP"
 ```
 

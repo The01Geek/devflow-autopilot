@@ -21,12 +21,13 @@
 #     "schema_version": 2,
 #     "patterns": {                       # machine-owned lifecycle map
 #       "<slug>": {
-#         "state": "filed|fixed|declined|open",
+#         "state": "filed|fixed|declined",
 #         "fixed_at": "<iso8601|null>",   # the fix/closure timestamp compute-patterns.jq reads
 #         "provenance": "<iso8601|null>", # carried from the v1 dismissed_at
 #         "meta_issues": [                # the SET of issues filed for this slug
 #           {"number": <int>, "url": "<https url>",
-#            "state": "filed|fixed|declined", "closedAt": "<iso8601|null>"}
+#            "state": "filed|fixed|declined", "closedAt": "<iso8601|null>",
+#            "state_reason": "<COMPLETED|NOT_PLANNED|DUPLICATE|null>"}
 #         ]
 #       }
 #     },
@@ -250,9 +251,9 @@ _reconcile() {  # $1 = overrides path, $2 = limit
                     . as $e
                     | ($res[(($e.number // "")|tostring)] // {unresolved:true}) as $r
                     | if ($e.number == null) or ($r.unresolved == true) then $e
-                      elif ($r.state == "OPEN") then ($e + {state: "filed", closedAt: null, fixed_at: null})
-                      elif ($r.stateReason == "COMPLETED") then ($e + {state: "fixed", closedAt: $r.closedAt, fixed_at: $r.closedAt})
-                      elif (["NOT_PLANNED","DUPLICATE"] | index($r.stateReason)) then ($e + {state: "declined", closedAt: $r.closedAt, fixed_at: $r.closedAt})
+                      elif ($r.state == "OPEN") then ($e + {state: "filed", closedAt: null, fixed_at: null, state_reason: null})
+                      elif ($r.stateReason == "COMPLETED") then ($e + {state: "fixed", closedAt: $r.closedAt, fixed_at: $r.closedAt, state_reason: $r.stateReason})
+                      elif (["NOT_PLANNED","DUPLICATE"] | index($r.stateReason)) then ($e + {state: "declined", closedAt: $r.closedAt, fixed_at: $r.closedAt, state_reason: $r.stateReason})
                       else $e end
                   )
                 )

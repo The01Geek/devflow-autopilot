@@ -20,3 +20,10 @@ liveness warning fires when nothing is eligible while a pattern recurs suppresse
 and the run report renders the whole pattern picture with each pattern's state,
 filing outcome, and withholding cap. Migration happens on read, so consumer repos
 get the same lifecycle with no manual step.
+
+The filing decisions and the report fields they feed have one executable owner,
+`lib/filing-decisions.sh`: the back-pressure cap arms and their order, the
+`regressed` bypass, the liveness line the report renders, the won't-fix patterns
+re-raised this run, and the per-pattern filing-outcome annotation. Each was
+previously prose in the retrospective skill with no test, so a mis-ordered cap
+check or a lost bypass would have shipped green.
