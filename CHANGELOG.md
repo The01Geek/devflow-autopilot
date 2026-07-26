@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.6] — 2026-07-26
+
+### Removed
+- **Retired the tautological `assert_pin_red_on_removal` helper family**, replacing it with ordinary boundaries or executable-behavior checks. (#810)
+
 ## [2.22.5] — 2026-07-26
 
 ### Changed
