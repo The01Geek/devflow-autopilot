@@ -76,7 +76,7 @@ Contract (issue #600):
   delivery is positionally detectable: any tail cut drops the terminal marker,
   whatever the render's last block happens to be (the consumer section is last
   only in checklist/extract mode — the dispatch arms follow it with the
-  verdict/cap block). ``status-only`` prints
+  verdict block). ``status-only`` prints
   exactly the one status line (it IS one line; no end marker).
   ``dispatch-instructions`` has its OWN positional marker pair — first line
   ``dispatch-instructions:`` with the format version, last line ``render-end:``

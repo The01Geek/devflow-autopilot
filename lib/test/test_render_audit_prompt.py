@@ -150,8 +150,7 @@ class DispatchArms(unittest.TestCase):
         # the generic dimension bullets are present (count guard-locked by A3).
         self.assertIn("**Consumer-repo setup variance**", out)
         self.assertIn("**Authoring-discipline defects**", out)
-        # No arm carriage / out-of-bounds / cap material.
-        self.assertNotIn("at most five findings", out)
+        # No arm carriage / out-of-bounds material.
         self.assertNotIn(READ_INSTRUCTION, out)
         self.assertNotIn(FILE_ARM_OOB, out)
 
@@ -670,7 +669,6 @@ class TemplateFileOwnership(unittest.TestCase):
             "write the autopsy",
             HASH_OBJECT,
             DRAFT_UNREADABLE_EMIT,
-            "at most five findings",
             '"Quiet Killer"',
             "whose only three legal values are exactly",
             "judge the draft at **issue altitude**",
