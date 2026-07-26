@@ -228,12 +228,21 @@ OUTPUT="$(
 
 # ── Liveness warning (issue #788) ─────────────────────────────────────────────
 # When the actionable (eligible) set is EMPTY while at least one pattern is
-# suppressed-but-recurring — occurrence_count >= min AND status in
+# suppressed at/above the threshold — occurrence_count >= min AND status in
 # {dismissed, declined, fixed} — the loop is silently producing nothing on inputs
 # that should raise something. Emit a loud ::warning:: naming the count and the
 # highest-occurrence suppressed slug, and print a `liveness:` line to stdout's
 # sibling stderr so the orchestrator can surface it in the report. `filed` is
 # deliberately EXCLUDED: an open meta-issue is the loop working correctly.
+#
+# The condition is deliberately NOT phrased as a recurrence. `occurrence_count`
+# is cumulative history, so a `fixed` pattern whose occurrences all predate its
+# `fixed_at` satisfies `occurrence_count >= min` indefinitely — and a `fixed`
+# pattern that DID recur would have derived `regressed` (an eligible status),
+# which empties this branch's precondition. Including `fixed` is what the issue
+# asks for (a lifecycle-state audit prompt on a run that filed nothing), but
+# calling that state "recurring" would over-state it, so the emitted text says
+# "occurred at/above min_occurrences and are currently suppressed" instead.
 # In --full mode this diagnostic is suppressed (the caller wants the raw view).
 if [ "$FULL" -eq 0 ]; then
     # Fail CLOSED on an unestablished count: an empty $OUTPUT (an upstream
@@ -266,8 +275,8 @@ if [ "$FULL" -eq 0 ]; then
         if [ -n "$_LIVE" ]; then
             _SUP_N="${_LIVE%% *}"
             _TOP="${_LIVE#* }"
-            echo "::warning::actionable-patterns: no pattern is eligible to file, yet ${_SUP_N} pattern(s) recur at/above min_occurrences while suppressed (dismissed/declined/fixed) — highest: ${_TOP}. Nothing will be filed; investigate the lifecycle state." >&2
-            echo "liveness: ${_SUP_N} suppressed-but-recurring pattern(s), highest ${_TOP}" >&2
+            echo "::warning::actionable-patterns: no pattern is eligible to file, yet ${_SUP_N} pattern(s) have occurred at/above min_occurrences and are currently suppressed (dismissed/declined/fixed) — highest: ${_TOP}. Nothing will be filed; investigate the lifecycle state." >&2
+            echo "liveness: ${_SUP_N} suppressed pattern(s) at/above min_occurrences, highest ${_TOP}" >&2
         fi
     fi
 fi

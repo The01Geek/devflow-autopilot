@@ -82,8 +82,20 @@ _usage() {
 _atomic_write() {  # $1 = dest path, $2 = source tmp holding new content
     local dest="$1" src="$2"
     local final
-    final="$(mktemp "${TMPDIR:-/tmp}/overrides.XXXXXX")" \
-      || { echo "::error::pattern-state: could not create a temp file to write ${dest}" >&2; return 1; }
+    # The staging file lives BESIDE the destination, never under $TMPDIR: `mv`
+    # is an atomic rename only within one filesystem. On a runner where /tmp is
+    # a separate filesystem (common in CI/cloud), a $TMPDIR staging file makes
+    # the `mv` a copy-then-unlink that writes straight into the destination, so
+    # a mid-copy failure (the disk-full case) leaves the previous file
+    # TRUNCATED — exactly the "byte-unchanged on a failed write" guarantee this
+    # helper exists to provide. A same-directory rename cannot half-apply.
+    # The directory is derived with a bash builtin, never `dirname`: a
+    # non-preflight PATH tool that silently yielded empty here would relocate
+    # the staging file to the filesystem root and defeat the guarantee above.
+    local destdir="${dest%/*}"
+    [ "$destdir" = "$dest" ] && destdir="."
+    final="$(mktemp "$destdir/.overrides.XXXXXX")" \
+      || { echo "::error::pattern-state: could not create a temp file beside ${dest}" >&2; return 1; }
     if ! cat "$src" > "$final"; then
         rm -f "$final"
         echo "::error::pattern-state: failed to stage the new contents for ${dest}" >&2
@@ -175,9 +187,15 @@ _reconcile() {  # $1 = overrides path, $2 = limit
     fi
 
     # Prefetch map keyed by number → {state,stateReason,closedAt}.
+    # A jq failure inside a command substitution is NOT caught by `set -e`: the
+    # assignment succeeds with an empty value, which would silently degrade every
+    # number to the by-number fallback with no diagnostic. Check explicitly.
     local prefetch_map
     prefetch_map="$(printf '%s' "$prefetch_raw" | "$DEVFLOW_JQ" -c '
-        reduce .[] as $r ({}; . + {($r.number|tostring): {state: $r.state, stateReason: $r.stateReason, closedAt: $r.closedAt}})')"
+        reduce .[] as $r ({}; . + {($r.number|tostring): {state: $r.state, stateReason: $r.stateReason, closedAt: $r.closedAt}})')" \
+      || { echo "::error::pattern-state: could not build the prefetch map (jq exited non-zero) — no transition applied" >&2; return 1; }
+    [ -n "$prefetch_map" ] \
+      || { echo "::error::pattern-state: the prefetch map came out empty (jq produced no output) — no transition applied" >&2; return 1; }
 
     # Walk every slug's every entry, resolving each number. We drive the loop in
     # bash so an uncovered number can fall back to `gh issue view`. Each resolved
@@ -185,7 +203,8 @@ _reconcile() {  # $1 = overrides path, $2 = limit
     # the transitions and derives record states from that resolution map.
     local numbers
     numbers="$("$DEVFLOW_JQ" -r '
-        (.patterns // {}) | to_entries[] | .value.meta_issues // [] | .[] | .number // empty' "$ov")"
+        (.patterns // {}) | to_entries[] | .value.meta_issues // [] | .[] | .number // empty' "$ov")" \
+      || { echo "::error::pattern-state: could not enumerate the meta-issue numbers in ${ov} (jq exited non-zero) — no transition applied" >&2; return 1; }
 
     # Build a resolution map covering every number, using the prefetch first and
     # the by-number fallback for uncovered numbers. A number that resolves through
@@ -200,17 +219,20 @@ _reconcile() {  # $1 = overrides path, $2 = limit
         [ -n "${_seen[$num]:-}" ] && continue
         _seen[$num]=1
         local cover
-        cover="$(printf '%s' "$prefetch_map" | "$DEVFLOW_JQ" -c --arg n "$num" '.[$n] // empty')"
+        cover="$(printf '%s' "$prefetch_map" | "$DEVFLOW_JQ" -c --arg n "$num" '.[$n] // empty')" \
+          || { echo "::error::pattern-state: prefetch lookup for meta-issue ${num} failed (jq exited non-zero) — no transition applied" >&2; return 1; }
         if [ -z "$cover" ]; then
             # By-number fallback — bounded by the number of records.
             cover="$("$DEVFLOW_GH" issue view "$num" --json number,state,stateReason,closedAt 2>/dev/null \
                      | "$DEVFLOW_JQ" -c '{state: .state, stateReason: .stateReason, closedAt: .closedAt}' 2>/dev/null || true)"
             if [ -z "$cover" ] || [ "$cover" = "null" ]; then
-                resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" '. + {($n): {unresolved: true}}')"
+                resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" '. + {($n): {unresolved: true}}')" \
+                  || { echo "::error::pattern-state: could not record meta-issue ${num} as unresolved (jq exited non-zero) — no transition applied" >&2; return 1; }
                 continue
             fi
         fi
-        resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" --argjson c "$cover" '. + {($n): $c}')"
+        resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" --argjson c "$cover" '. + {($n): $c}')" \
+          || { echo "::error::pattern-state: could not record the resolution of meta-issue ${num} (jq exited non-zero) — no transition applied" >&2; return 1; }
     done <<< "$numbers"
 
     # Apply transitions + derive record states in one jq pass. Warnings for
@@ -260,6 +282,17 @@ _reconcile() {  # $1 = overrides path, $2 = limit
               # Derive the record state from the (now reconciled) entry set:
               # filed if any entry is filed; else the state of the entry with
               # the newest closedAt; record.fixed_at is that newest entry fixed_at.
+              #
+              # Deliberate trade-off (issue #788): an entry that could NOT be
+              # resolved keeps its PRIOR state, so a record holding one genuinely
+              # `fixed` entry plus one permanently-inaccessible `filed` entry
+              # derives to `filed` and masks the fix for as long as the entry
+              # stays unresolvable. That direction is chosen on purpose: deriving
+              # the optimistic state instead would CLEAR the suppression of a
+              # pattern whose issue may still be open, re-filing a duplicate. The
+              # conservative direction only delays a re-file, and each unresolved
+              # entry already fires a per-slug ::warning:: naming it, so the
+              # condition is visible in the run log rather than silent.
               | .value as $rec2
               | ($rec2.meta_issues // []) as $es
               | if ($es | any(.state == "filed")) then
@@ -287,11 +320,18 @@ CMD="$1"; OVERRIDES="$2"; shift 2
 LIMIT=200
 while [ $# -gt 0 ]; do
     case "$1" in
-        --limit) LIMIT="$2"; shift 2 ;;
+        # `--limit` with no value must not reach `$2` under `set -u` (an
+        # "unbound variable" abort diagnoses nothing); reject it here by name.
+        --limit) [ $# -ge 2 ] || { echo "pattern-state: --limit requires a value" >&2; exit 2; }
+                 LIMIT="$2"; shift 2 ;;
         *) echo "pattern-state: unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-case "$LIMIT" in ''|*[!0-9]*) echo "pattern-state: --limit must be a positive integer (got '${LIMIT}')" >&2; exit 2 ;; esac
+# Positive integer: `0` is all digits but is not positive, and `gh --limit 0` is
+# itself an error — reject it here rather than shipping it to gh.
+case "$LIMIT" in
+    ''|*[!0-9]*|0|0[0-9]*) echo "pattern-state: --limit must be a positive integer (got '${LIMIT}')" >&2; exit 2 ;;
+esac
 
 case "$CMD" in
     migrate)   _migrate "$OVERRIDES" ;;

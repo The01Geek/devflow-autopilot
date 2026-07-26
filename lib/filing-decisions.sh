@@ -19,9 +19,17 @@
 #                                 closed NOT_PLANNED (a re-raised won't-fix)
 #   devflow_annotate_patterns   — per-pattern filing_outcome / withheld_by on the
 #                                 unfiltered view the report renders
+#   devflow_open_filed_total    — the max_open_issues comparand
+#   devflow_open_filed_in_category — the max_open_per_category comparand
 #
 # Pure: no gh calls, no writes outside caller-supplied stdout.
-set -euo pipefail
+#
+# This file is SOURCED into a caller's shell and therefore deliberately sets no
+# shell options: a `set -euo pipefail` here would leak into the orchestrator that
+# sources it, where a later benign non-zero (a grep that matches nothing, an
+# unset optional variable) would abort the whole retrospective run. Every
+# function below is written to be safe without it — each validates its own
+# operands and returns a value rather than relying on `-e` to stop the caller.
 
 # jq binary: resolved once via the sourced sibling resolver (issue #247);
 # best-effort — a copied/vendored deployment without lib/ falls back to bare
@@ -165,4 +173,38 @@ devflow_annotate_patterns() {
                elif ($wmap[$k] // "") != "" then {withheld_by: $wmap[$k]}
                else {filing_outcome: "not filed"} end)
           )' "$patterns_file" 2>/dev/null || printf '[]\n'
+}
+
+# devflow_open_filed_total <overrides-path>
+# devflow_open_filed_in_category <overrides-path> <slug>
+#
+# The two comparands `devflow_filing_cap_verdict` reads: the count of `filed`
+# meta-issue entries across every lifecycle record (the `max_open_issues`
+# comparand), and the count within one record (the `max_open_per_category`
+# comparand). Both are derived from the lifecycle state, never from a label
+# query — a closed-but-still-labelled issue must not consume a cap slot.
+#
+# These live here rather than as inline jq in the skill for the same reason the
+# cap arms do: a mis-shaped count decides whether an issue is filed, and inline
+# jq in a prose surface is a decision the suite cannot catch defeated.
+#
+# Fails CLOSED by printing NOTHING (not `0`) on a missing, unreadable, or
+# malformed overrides file, and on any jq failure. An unestablished count is
+# unknown, never zero: `devflow_filing_cap_verdict` rejects the empty operand as
+# `invalid-operand` and withholds, whereas a laundered `0` would report an empty
+# backlog and file right past both caps.
+devflow_open_filed_total() {
+    local ov="${1:-}"
+    [ -n "$ov" ] && [ -r "$ov" ] || return 0
+    "$DEVFLOW_JQ" -r '
+        [ (.patterns // {})[] | (.meta_issues // [])[] | select(.state == "filed") ] | length
+      ' "$ov" 2>/dev/null || return 0
+}
+
+devflow_open_filed_in_category() {
+    local ov="${1:-}" slug="${2:-}"
+    [ -n "$ov" ] && [ -r "$ov" ] && [ -n "$slug" ] || return 0
+    "$DEVFLOW_JQ" -r --arg s "$slug" '
+        [ ((.patterns // {})[$s].meta_issues // [])[] | select(.state == "filed") ] | length
+      ' "$ov" 2>/dev/null || return 0
 }
