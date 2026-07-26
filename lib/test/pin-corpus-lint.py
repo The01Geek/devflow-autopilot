@@ -47,7 +47,7 @@ authoring time:
 * ``mutation-routing-worktree`` — the retained mutation-boundary ratchet for the
   committed audited test-source population (issues #666 and #810). It builds the
   opaque mutation-call census and requires the checked-in inventory to match it
-  exactly. Only the eleven explicitly adjudicated retained identities are allowed;
+  exactly. Only the fifteen explicitly adjudicated retained identities are allowed;
   adding, changing, reformatting, or moving a mutation call to another source path
   is a policy finding.
   Deleting a retained call passes when the inventory is refreshed in the same
