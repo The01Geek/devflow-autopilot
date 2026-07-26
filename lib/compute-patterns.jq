@@ -100,7 +100,11 @@ def fixes_for($entries; $slug):
   | sort_by(.ts);
 
 . as $entries
-| (($overrides[0] // {}) | .dismissed // {}) as $dismissed
+# Canonicalize dismissed keys through the SAME slugify the membership test uses
+# (issue #788: one canonicalization, symmetric with $records below), so a
+# human-added non-canonical dismissed key (e.g. "Flaky Timing") still suppresses
+# the canonical slug rather than silently defeating the one permanent off-switch.
+| (($overrides[0] // {}) | .dismissed // {} | with_entries(.key |= slugify)) as $dismissed
 # $records: the machine-owned v2 lifecycle map (overrides.patterns{}), keyed by
 # category slug. Absent on a v1 file / a file pattern-state.sh has not migrated,
 # in which case every slug falls through to the legacy fixed/regressed/open arms.

@@ -301,14 +301,22 @@ becomes `declined`, still-open stays `filed`, each stamped with the issue's
 `closedAt` as `fixed_at`. It runs **before** `actionable-patterns.sh` so the derived
 view already reflects this run's reconciliation:
 
+**Check its exit status — the fail-closed policy is executable, not narrated.** A
+wholesale prefetch failure (`gh` non-zero, or a non-JSON body) emits an `::error::`
+and exits non-zero, leaving `overrides.json` unmigrated/unreconciled. Deriving
+patterns from that stale state is the exact defect #788 fixes, so on a non-zero exit
+you MUST **append a blocker and skip Steps 6–8** (jump to Step 9's report) rather
+than run `actionable-patterns.sh` over unreconciled state:
+
 ```bash
-bash $LIB/pattern-state.sh --overrides .devflow/learnings/overrides.json
+bash $LIB/pattern-state.sh --overrides .devflow/learnings/overrides.json; RECONCILE_RC=$?
 ```
 
-A wholesale prefetch failure (`gh` non-zero, or a non-JSON body) emits an
-`::error::` and exits non-zero — deriving patterns from unreconciled state is the
-defect #788 fixes, so this fails closed and aborts the derivation (record a
-per-run blocker for Step 9). A per-slug unresolvable issue emits a `::warning::`
+If `RECONCILE_RC` is non-zero, **stop the filing path for this run**: do not run
+`actionable-patterns.sh` (Step 6 below), do not derive or file patterns (Steps 6–8),
+and jump straight to Step 9, recording the reconciliation failure as a run blocker in
+the report (`blockers` there). Only continue into the derivation below when
+`RECONCILE_RC` is 0. A per-slug unresolvable issue emits a `::warning::`
 and continues.
 
 ```bash

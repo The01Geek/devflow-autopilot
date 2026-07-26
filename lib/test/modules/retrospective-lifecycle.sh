@@ -164,6 +164,27 @@ RL_NOURL_ERR=$(DEVFLOW_GH="$RL_TMP/gh" bash "$PS" --overrides "$RL_TMP/ov-nourl.
 assert_eq "#788 record with no issue URL warns naming the slug" "true" \
   "$(case "$RL_NOURL_ERR" in *"::warning::"*"nourl"*) echo true ;; *) echo false ;; esac)"
 
+# A by-number fallback whose `gh issue view` fails is distinguished from not-found:
+# the warning names the failing leg (gh-error), and no transition is applied.
+cat > "$RL_TMP/gh-viewfail" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then echo "gh version 2.0.0 (stub)"; exit 0; fi
+case "$*" in
+  *"issue list"*) echo '[]' ;;
+  *"issue view"*) exit 1 ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$RL_TMP/gh-viewfail"
+cat > "$RL_TMP/ov-vf.json" <<'JSON'
+{"schema_version":2,"patterns":{"vf":{"state":"fixed","fixed_at":"2026-01-01T00:00:00Z","provenance_at":"p","meta_issues":[{"number":999,"url":"https://github.com/o/r/issues/999","state":"fixed"}]}},"dismissed":{}}
+JSON
+RL_VF_ERR=$(DEVFLOW_GH="$RL_TMP/gh-viewfail" bash "$PS" --overrides "$RL_TMP/ov-vf.json" 2>&1 >/dev/null)
+assert_eq "#788 by-number gh failure names the failing leg (gh-error), no transition" "true" \
+  "$(case "$RL_VF_ERR" in *"::warning::"*"gh-error"*) echo true ;; *) echo false ;; esac)"
+assert_eq "#788 by-number gh failure leaves the entry state unchanged (fixed)" "fixed" \
+  "$(jq -r '.patterns["vf"].meta_issues[0].state' "$RL_TMP/ov-vf.json")"
+
 # Wholesale prefetch failure (non-zero gh exit) → ::error:: and non-zero exit, no write.
 cat > "$RL_TMP/gh-fail" <<'STUB'
 #!/usr/bin/env bash

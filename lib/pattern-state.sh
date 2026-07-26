@@ -190,20 +190,25 @@ for r in rows:
 
 
 def resolve_issue(num):
-    """Return the issue's {state,stateReason,closedAt} row, or None if unresolvable."""
+    """Resolve an issue to (row, leg): row is its {state,stateReason,closedAt} dict
+    or None when unresolvable, and leg names WHICH leg failed so the caller's
+    ::warning:: can distinguish a gh-execution failure ('gh-error') from a genuine
+    not-found ('not-found') — the AC's 'naming the slug and the failing leg'."""
     if num in prefetch:
-        return prefetch[num]
+        return prefetch[num], None
     p = subprocess.run(
         [GH, "issue", "view", str(num), "--json", "state,stateReason,closedAt"],
         capture_output=True, text=True,
     )
     if p.returncode != 0:
-        return None
+        return None, "gh-error"
     try:
         row = json.loads(p.stdout or "null")
     except ValueError:
-        return None
-    return row if isinstance(row, dict) else None
+        return None, "parse-error"
+    if isinstance(row, dict):
+        return row, None
+    return None, "not-found"
 
 
 def newer(a, b):
@@ -221,17 +226,21 @@ for slug in sorted(patterns.keys()):
     if not isinstance(rec, dict):
         continue
     entries = rec.get("meta_issues")
-    if not entries:
+    if not isinstance(entries, list) or not entries:
         warn("pattern '%s' holds no issue URL — no transition" % slug)
         continue
     for entry in entries:
+        if not isinstance(entry, dict):
+            warn("pattern '%s' has a malformed (non-object) meta_issues entry — no transition" % slug)
+            continue
         num = parse_number(entry)
         if num is None:
             warn("pattern '%s' entry has no resolvable issue number/URL — no transition" % slug)
             continue
-        row = resolve_issue(num)
+        row, leg = resolve_issue(num)
         if row is None:
-            warn("pattern '%s' issue #%s resolved through neither prefetch nor by-number fallback — no transition" % (slug, num))
+            warn("pattern '%s' issue #%s could not be resolved (failing leg: %s) — no transition"
+                 % (slug, num, leg))
             continue
         state = row.get("state")
         reason = row.get("stateReason")
