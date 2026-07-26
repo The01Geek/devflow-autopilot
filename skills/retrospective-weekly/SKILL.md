@@ -429,8 +429,8 @@ git checkout main
 
 The working tree now has the updated
 `.devflow/learnings/retrospectives.jsonl` (and possibly a modified
-`.devflow/learnings/overrides.json` from meta-issue dismissals in a previous
-run). These changes are in-place on `main`'s working tree and have **never
+`.devflow/learnings/overrides.json` from meta-issue lifecycle records written in
+a previous run). These changes are in-place on `main`'s working tree and have **never
 been committed to `main`** — `open-state-pr.sh` handles committing them onto
 a separate branch.
 
@@ -523,12 +523,26 @@ best-effort label failed still counts:
 MAX_PER_RUN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_issues_per_run' 3)"
 MAX_OPEN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
 MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_per_category' 2)"
-# Total `filed` entries across every record, and per-slug `filed` counts.
-OPEN_TOTAL="$($LIB/../scripts/run-jq.sh -r '[(.patterns // {})[] | (.meta_issues // [])[] | select(.state=="filed")] | length' .devflow/learnings/overrides.json)"
+# Both cap comparands come from `lib/filing-decisions.sh`, which the suite drives
+# over its arms — never from inline jq here. It is sourced at top level so its
+# functions persist in this shell, which is safe because the helper deliberately
+# sets NO shell options: an earlier `set -euo pipefail` in it leaked into this
+# orchestrator, where a later benign non-zero would have aborted the run. If you
+# ever add options to that helper, source it in a subshell instead.
+source $LIB/filing-decisions.sh
+# Total `filed` entries across every record.
+OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
 ```
 
 Track `filed_this_run` (starts at 0) and, for each slug, its current per-category
-`filed` count (`[.patterns[<slug>].meta_issues[]? | select(.state=="filed")] | length`).
+`filed` count via `PER_CAT="$(devflow_open_filed_in_category
+.devflow/learnings/overrides.json "$SLUG")"`.
+
+Both count helpers fail **closed** by printing nothing — never `0` — when the
+overrides file is missing, unreadable, or malformed. Do not default an empty
+count to `0`: `devflow_filing_cap_verdict` reads the empty operand as
+`invalid-operand` and withholds, whereas a laundered `0` would report an empty
+backlog and file straight past both caps.
 
 Also snapshot the pre-filing overrides file — `cp .devflow/learnings/overrides.json
 .devflow/tmp/overrides-prefiling.json` — before the first filing. Step 9 reads the
@@ -593,7 +607,7 @@ else
     #    returned no usable issue URL. An overrides-write failure AFTER a
     #    successful create is the one exception: the issue genuinely exists, so it
     #    reports FILED (exit 0 + URL + a loud ::error:: breadcrumb), not blocked —
-    #    the next run's de-dupe recovers the missing cooldown.
+    #    the next run's de-dupe recovers the missing lifecycle entry.
     if ISSUE_URL="$(bash $LIB/meta-issue.sh \
             --tag "$TAG" \
             --slug "$SLUG" \
@@ -621,7 +635,7 @@ issue — filed issues await human triage.
 
 (`meta-issue.sh` mutates `.devflow/learnings/overrides.json` in your `main`
 checkout's working tree. That happens **after** the Step 7 state PR was opened,
-so the new cooldown lands in next week's state PR — see § Notes for the optional
+so the new lifecycle record lands in next week's state PR — see § Notes for the optional
 follow-up commit if you want it in this run's PR.)
 
 ---
@@ -804,7 +818,7 @@ so the loop is well-suited to an unattended run. For a fully unattended run, add
   orchestrator files exactly one GitHub issue per pattern via `meta-issue.sh`.
   No worktrees, no commits, no PRs — the loop proposes; a human implements.
 - **Overrides after Stage B.** `meta-issue.sh` records each filed pattern's
-  cooldown in `.devflow/learnings/overrides.json` in your `main` working tree
+  lifecycle entry in `.devflow/learnings/overrides.json` in your `main` working tree
   **after** the Step 7 state PR was opened, so the change lands in next week's
   state PR automatically. If you want it in *this* run's PR, after Step 8 push a
   follow-up commit onto the same `devflow/learnings-<date>` branch:
@@ -823,8 +837,8 @@ so the loop is well-suited to an unattended run. For a fully unattended run, add
 - **Idempotent.** Re-running re-processes only PRs whose number is not already
   in `retrospectives.jsonl` on `main`. A pattern already filed this cycle is not
   re-filed: `meta-issue.sh` finds the open issue and adds a recurrence comment
-  instead of a duplicate, and the `overrides.json` cooldown excludes the pattern
-  on subsequent runs.
+  instead of a duplicate, and the pattern's `filed` lifecycle record in
+  `overrides.json` excludes it on subsequent runs.
 - **Never auto-merge, never auto-implement.** The maintainer merges the state PR
   manually after CI, and triages each filed issue manually — the loop never
   starts an implement run for you.

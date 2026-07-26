@@ -120,6 +120,129 @@ assert_eq "#788 reconcile wholesale prefetch failure → non-zero exit" "true" "
 assert_eq "#788 reconcile wholesale failure → ::error:: breadcrumb" "true" "$(grep -q '::error::' "$RL_TMP/t8.err" && echo true || echo false)"
 assert_eq "#788 reconcile wholesale failure → file byte-unchanged" "true" "$(diff -q "$RL_TMP/t8-before.json" "$RL_TMP/t8.json" >/dev/null 2>&1 && echo true || echo false)"
 
+# Prefetch that EXITS 0 with a non-array body (an auth interstitial, an object
+# error payload). The rejection is attributed to the non-array guard by its own
+# message — a bare exit-code assertion could not tell it from the exit-non-zero
+# guard ten lines above, which the t8 case already covers.
+cat > "$RL_TMP/gh-listobj.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '{"message":"Bad credentials"}'; exit 0; fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-listobj.sh"
+printf '%s' "$(rl_record nonarray 501)" > "$RL_TMP/t9.json"
+cp "$RL_TMP/t9.json" "$RL_TMP/t9-before.json"
+DEVFLOW_GH="$RL_TMP/gh-listobj.sh" bash "$RL_PS" reconcile "$RL_TMP/t9.json" 2>"$RL_TMP/t9.err" >/dev/null; RL_T9_RC=$?
+assert_eq "#788 reconcile non-array prefetch body at exit 0 → non-zero exit" "true" "$([ "$RL_T9_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 reconcile non-array prefetch → rejection attributed to the array guard" "true" \
+  "$(grep -q 'did not parse as a JSON array' "$RL_TMP/t9.err" && echo true || echo false)"
+assert_eq "#788 reconcile non-array prefetch → file byte-unchanged" "true" "$(diff -q "$RL_TMP/t9-before.json" "$RL_TMP/t9.json" >/dev/null 2>&1 && echo true || echo false)"
+# Positive control on the SAME fixture: with a well-formed prefetch body the very
+# same record reconciles, so the rejections above are the array guard firing and
+# not an unrelated precondition rejecting the fixture.
+printf '%s' "$(rl_record nonarray 504)" > "$RL_TMP/t9ok.json"
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/t9ok.json" >/dev/null 2>&1; RL_T9OK_RC=$?
+assert_eq "#788 reconcile non-array prefetch: positive control reconciles (exit 0)" "0" "$RL_T9OK_RC"
+
+# A jq failure inside a command substitution is NOT caught by `set -e`. This jq
+# wrapper fails ONLY on the prefetch-map reduce, so the guard under test is the
+# one that must reject — an always-failing jq would be rejected by the first jq
+# call instead and prove nothing about this accumulation.
+cat > "$RL_TMP/jq-nomap.sh" <<'STUB'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in *'reduce .[] as $r'*) echo "jq: simulated failure" >&2; exit 5 ;; esac
+done
+exec jq "$@"
+STUB
+chmod +x "$RL_TMP/jq-nomap.sh"
+printf '%s' "$(rl_record mapfail 504)" > "$RL_TMP/t10.json"
+cp "$RL_TMP/t10.json" "$RL_TMP/t10-before.json"
+DEVFLOW_JQ="$RL_TMP/jq-nomap.sh" DEVFLOW_GH="$RL_TMP/gh-view.sh" \
+  bash "$RL_PS" reconcile "$RL_TMP/t10.json" 2>"$RL_TMP/t10.err" >/dev/null; RL_T10_RC=$?
+assert_eq "#788 reconcile prefetch-map jq failure → non-zero exit (not a silent degrade)" "true" \
+  "$([ "$RL_T10_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 reconcile prefetch-map jq failure → rejection attributed to the map build" "true" \
+  "$(grep -q 'could not build the prefetch map' "$RL_TMP/t10.err" && echo true || echo false)"
+assert_eq "#788 reconcile prefetch-map jq failure → file byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/t10-before.json" "$RL_TMP/t10.json" >/dev/null 2>&1 && echo true || echo false)"
+
+# The staging file for the rewrite lives BESIDE the destination, never under
+# $TMPDIR: `mv` is an atomic rename only within one filesystem. Pointing TMPDIR
+# at a path that does not exist makes a $TMPDIR-staged write fail outright, so a
+# successful reconcile here is the discriminating evidence that it is not used.
+printf '%s' "$(rl_record tmpdir-free 501)" > "$RL_TMP/t11.json"
+TMPDIR="$RL_TMP/no-such-tmpdir" DEVFLOW_GH="$RL_TMP/gh-view.sh" \
+  bash "$RL_PS" reconcile "$RL_TMP/t11.json" >/dev/null 2>&1; RL_T11_RC=$?
+assert_eq "#788 atomic write: reconcile succeeds with an unusable \$TMPDIR" "0" "$RL_T11_RC"
+assert_eq "#788 atomic write: the transition still applied with an unusable \$TMPDIR" "fixed" \
+  "$(jq -r '.patterns["tmpdir-free"].state' "$RL_TMP/t11.json")"
+# The staging file is cleaned up — a `.overrides.*` left beside the destination
+# would be committed into .devflow/learnings/ by the state PR.
+assert_eq "#788 atomic write: no staging file is left beside the destination" "0" \
+  "$(set -- "$RL_TMP"/.overrides.*; [ -e "$1" ] && echo 1 || echo 0)"
+# (The unwritable-destination-directory arm is deliberately NOT asserted with a
+# `chmod 500` fixture: a root-run container ignores the mode bits, which would
+# make the assertion pass or fail on the host rather than on the code. The
+# fail-closed-on-unwritable path is the same `mktemp` rc the t8 byte-unchanged
+# assertion already covers; the discriminating property for THIS change — that
+# the staging file is not taken from $TMPDIR — is the arm asserted above.)
+
+# ── --limit: parsing, validation, and the truncation → fallback interaction ──
+printf '%s' "$(rl_record limit-arg 504)" > "$RL_TMP/lim.json"
+cp "$RL_TMP/lim.json" "$RL_TMP/lim-before.json"
+rl_limit_rc() { # <args...> -> "rc|stderr-matched"
+  DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/lim.json" "$@" \
+    2>"$RL_TMP/lim.err" >/dev/null
+  printf '%s' "$?"
+}
+assert_eq "#788 --limit with no value → usage exit 2 (never a set -u abort)" "2" "$(rl_limit_rc --limit)"
+assert_eq "#788 --limit with no value → rejection attributed to the missing value" "true" \
+  "$(grep -q 'requires a value' "$RL_TMP/lim.err" && echo true || echo false)"
+assert_eq "#788 --limit 0 → usage exit 2 (0 is not positive)" "2" "$(rl_limit_rc --limit 0)"
+assert_eq "#788 --limit non-numeric → usage exit 2" "2" "$(rl_limit_rc --limit abc)"
+assert_eq "#788 --limit rejections leave the file byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/lim-before.json" "$RL_TMP/lim.json" >/dev/null 2>&1 && echo true || echo false)"
+# Positive control on the same fixture: a valid --limit reconciles it.
+assert_eq "#788 --limit 5 → accepted (positive control on the same fixture)" "0" "$(rl_limit_rc --limit 5)"
+assert_eq "#788 --limit 5 → the transition applied" "filed" \
+  "$(jq -r '.patterns["limit-arg"].state' "$RL_TMP/lim.json")"
+# Truncation: the prefetch is capped and OMITS the record's number, so the
+# by-number `gh issue view` fallback is what resolves it. The stub records every
+# view call, so the assertion is that the fallback actually ran for this number.
+cat > "$RL_TMP/gh-trunc.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then
+  # A truncated page: a real issue, but not the one this record names.
+  echo '[{"number":999,"state":"OPEN","stateReason":null,"closedAt":null}]'
+  exit 0
+fi
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  echo "view $3" >> "$GH_TRUNC_LOG"
+  echo '{"number":'"$3"',"state":"CLOSED","stateReason":"COMPLETED","closedAt":"2026-06-09T00:00:00Z"}'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-trunc.sh"
+: > "$RL_TMP/trunc.log"
+printf '%s' "$(rl_record truncated 777)" > "$RL_TMP/trunc.json"
+GH_TRUNC_LOG="$RL_TMP/trunc.log" DEVFLOW_GH="$RL_TMP/gh-trunc.sh" \
+  bash "$RL_PS" reconcile "$RL_TMP/trunc.json" --limit 1 >/dev/null 2>&1
+assert_eq "#788 --limit truncation → the by-number fallback resolves the uncovered number" "true" \
+  "$(grep -q '^view 777$' "$RL_TMP/trunc.log" && echo true || echo false)"
+assert_eq "#788 --limit truncation → the fallback's state is applied" "fixed" \
+  "$(jq -r '.patterns["truncated"].state' "$RL_TMP/trunc.json")"
+# Prefetch HIT leg: the number IS covered by the prefetch, so no view call is made.
+: > "$RL_TMP/hit.log"
+printf '%s' "$(rl_record covered 999)" > "$RL_TMP/hit.json"
+GH_TRUNC_LOG="$RL_TMP/hit.log" DEVFLOW_GH="$RL_TMP/gh-trunc.sh" \
+  bash "$RL_PS" reconcile "$RL_TMP/hit.json" >/dev/null 2>&1
+assert_eq "#788 prefetch hit → no by-number fallback call is made" "0" \
+  "$(grep -c '^view 999$' "$RL_TMP/hit.log" || true)"
+assert_eq "#788 prefetch hit → the prefetched state is applied" "filed" \
+  "$(jq -r '.patterns["covered"].state' "$RL_TMP/hit.json")"
+
 # ── compute-patterns.jq status arms ──────────────────────────────────────────
 # Arm order: a lifecycle record at fixed + a later occurrence → regressed (against
 # today's pre-#788 arm order this would report the record state; the fixture
@@ -203,6 +326,29 @@ assert_eq "#788 liveness: fixed-but-recurring with empty eligible set → ::warn
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live.err" && echo true || echo false)"
 assert_eq "#788 liveness: warning names the highest suppressed slug" "true" \
   "$(grep -q 'doc-accuracy' "$RL_TMP/live.err" && echo true || echo false)"
+# The emitted text says "occurred at/above", not "recur": occurrence_count is
+# cumulative, so a `fixed` pattern whose occurrences all predate its fixed_at
+# satisfies this condition indefinitely — and one that genuinely recurred would
+# have derived `regressed`, which is eligible and empties this branch. This
+# fixture IS that steady state (fixed_at is in the future, every occurrence
+# before it), so a "recurs" claim here would be false of the very run emitting it.
+assert_eq "#788 liveness: the warning claims occurrence, not recurrence" "true" \
+  "$(grep -q 'have occurred at/above min_occurrences and are currently suppressed' "$RL_TMP/live.err" && echo true || echo false)"
+# Producer → parser join on the REAL capture: the `liveness:` line this run wrote
+# is the line the report renders from. The synthetic fixture in the
+# filing-decisions block below exercises the parser; this exercises the contract
+# between the two, which a wording change on either side alone would break.
+cp "$RL_TMP/live.err" "$RL_TMP/live-real.err"
+(
+  set +e
+  # shellcheck source=../../filing-decisions.sh
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  RL_REAL_LIVE="$(devflow_liveness_warning "$RL_TMP/live-real.err")"
+  assert_eq "#788 liveness: the real emitted line is extracted for the report" "true" \
+    "$([ -n "$RL_REAL_LIVE" ] && echo true || echo false)"
+  assert_eq "#788 liveness: the extracted line carries the count and the slug" "true" \
+    "$(case "$RL_REAL_LIVE" in "1 suppressed pattern(s) at/above min_occurrences, highest doc-accuracy") echo true ;; *) echo false ;; esac)"
+)
 # Negative case: a `filed` pattern (open meta-issue) recurring does NOT warn.
 printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":9,"url":"https://o/r/issues/9","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/live-ov2.json"
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov2.json" 2>"$RL_TMP/live2.err" >/dev/null
@@ -662,14 +808,17 @@ rm -rf "$MI_TMP"
 # filing-decisions.sh — the executable owner of the Step 8c cap decision and of
 # the three report fields whose producers were missing (issue #788).
 # ────────────────────────────────────────────────────────────────────────────
-# Sourced inside a subshell, like run.sh's render-report.sh blocks, for two
-# reasons: the helper carries `set -euo pipefail` (which must not leak into the
-# harness — run.sh deliberately does not run under `set -e`), and a sourced file
-# COMPLETING fires this module's own `trap ... RETURN`, which would delete
-# $RL_TMP out from under every later assertion. `set +e` inside restores the
+# Sourced inside a subshell, like run.sh's render-report.sh blocks: a sourced
+# file COMPLETING fires this module's own `trap ... RETURN`, which would delete
+# $RL_TMP out from under every later assertion. `set +e` inside keeps the
 # harness's own semantics so one failing command cannot silently skip the rest
 # of the block. assert_eq records through $RESULTS_FILE, so a subshell's results
 # still count.
+#
+# The helper itself sets NO shell options — deliberately, because the
+# orchestrator sources it at top level and a leaked `set -euo pipefail` would
+# abort the retrospective run on a later benign non-zero. That property is
+# asserted below rather than relied on here.
 (
 set +e
 # shellcheck source=../../filing-decisions.sh
@@ -707,6 +856,56 @@ assert_eq "#788 caps: non-numeric count fails closed (withholds)" "invalid-opera
   "$(devflow_filing_cap_verdict open abc 3 0 2 0 10)"
 assert_eq "#788 caps: wrong argument count fails closed (withholds)" "invalid-operand" \
   "$(devflow_filing_cap_verdict open 0 3)"
+
+# ── The cap COMPARANDS (issue #788) ──────────────────────────────────────────
+# The two counts the verdict above compares are derived here, not by inline jq
+# in the skill: a mis-shaped count decides whether an issue is filed, and inline
+# jq in a prose surface is a decision the suite cannot catch defeated.
+RL_CAPOV="$RL_TMP/capcounts.json"
+printf '%s' '{"schema_version":2,"patterns":{"a":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"filed"},{"number":3,"state":"fixed"}]},"b":{"state":"filed","meta_issues":[{"number":4,"state":"filed"}]},"c":{"state":"declined","meta_issues":[{"number":5,"state":"declined"}]}},"dismissed":{}}' > "$RL_CAPOV"
+assert_eq "#788 counts: total open = filed entries across every record" "3" \
+  "$(devflow_open_filed_total "$RL_CAPOV")"
+assert_eq "#788 counts: a closed entry does not consume a cap slot" "1" \
+  "$(devflow_open_filed_in_category "$RL_CAPOV" b)"
+assert_eq "#788 counts: per-category counts only that record's filed entries" "2" \
+  "$(devflow_open_filed_in_category "$RL_CAPOV" a)"
+assert_eq "#788 counts: a record with no filed entry counts 0" "0" \
+  "$(devflow_open_filed_in_category "$RL_CAPOV" c)"
+assert_eq "#788 counts: a slug with no record at all counts 0" "0" \
+  "$(devflow_open_filed_in_category "$RL_CAPOV" never-seen)"
+# Fail CLOSED: an unestablished count is EMPTY, never 0. A laundered 0 would
+# report an empty backlog and file straight past both caps.
+printf '%s' 'not json at all' > "$RL_TMP/cap-malformed.json"
+assert_eq "#788 counts: a malformed overrides file yields empty, not 0" "" \
+  "$(devflow_open_filed_total "$RL_TMP/cap-malformed.json")"
+assert_eq "#788 counts: an absent overrides file yields empty, not 0" "" \
+  "$(devflow_open_filed_total "$RL_TMP/no-such-file.json")"
+assert_eq "#788 counts: an absent file yields empty for the per-category count too" "" \
+  "$(devflow_open_filed_in_category "$RL_TMP/no-such-file.json" a)"
+# Composition: that empty count reaches the verdict as `invalid-operand`, so an
+# underived backlog withholds instead of filing. This is the join the two
+# helpers exist to make safe.
+assert_eq "#788 counts: an underived total withholds at the verdict" "invalid-operand" \
+  "$(devflow_filing_cap_verdict open 0 3 0 2 "$(devflow_open_filed_total "$RL_TMP/no-such-file.json")" 10)"
+assert_eq "#788 counts: a derived total files when it is under the cap" "file" \
+  "$(devflow_filing_cap_verdict open 0 3 0 2 "$(devflow_open_filed_total "$RL_CAPOV")" 10)"
+assert_eq "#788 counts: a derived total withholds when it reaches the cap" "max_open_issues" \
+  "$(devflow_filing_cap_verdict open 0 3 0 2 "$(devflow_open_filed_total "$RL_CAPOV")" 3)"
+
+# ── The helper leaks no shell options into the shell that sources it ─────────
+# Step 8c/9 source this file at TOP LEVEL so its functions persist. An earlier
+# `set -euo pipefail` in it leaked into the orchestrator, where a later benign
+# non-zero (a grep that matches nothing) would have aborted the whole run.
+# Asserted at the observable surface — the caller's own shell state — rather
+# than by grepping the source for the string.
+for _rl_opt in errexit nounset pipefail; do
+  assert_eq "#788 filing-decisions: sourcing leaks no ${_rl_opt} into the caller" "clean" \
+    "$(bash -c ". '$REPO_ROOT/lib/filing-decisions.sh'; if [[ -o $_rl_opt ]]; then echo leaked; else echo clean; fi")"
+done
+# The consequence, at the surface that matters: a benign non-zero after sourcing
+# does not abort the sourcing shell.
+assert_eq "#788 filing-decisions: a benign non-zero after sourcing does not abort the caller" "survived" \
+  "$(bash -c ". '$REPO_ROOT/lib/filing-decisions.sh'; false; echo survived")"
 
 # Liveness capture: the `liveness:` line actionable-patterns.sh writes to stderr
 # is what the report's liveness line renders from.
