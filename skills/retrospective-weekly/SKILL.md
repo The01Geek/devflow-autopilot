@@ -288,13 +288,29 @@ The script prints `"materialized: appended N, replaced M"` to stdout.
 
 ---
 
-### Step 6 — Derive actionable patterns
+### Step 6 — Reconcile lifecycle, then derive actionable patterns
+
+First reconcile every pattern's lifecycle record against the live state of its
+filed meta-issue (issue #788): `pattern-state.sh run` migrates the overrides file
+to schema v2 in place (on first read) and refreshes each `filed`/`fixed`/`declined`
+state, so the pattern view derived below already reflects this run's reconciliation.
+It runs **before** `actionable-patterns.sh`; a wholesale reconcile failure exits
+non-zero and aborts the derivation (fail-closed — deriving patterns from
+unreconciled state is what broke the loop).
 
 ```bash
+bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json
 bash $LIB/actionable-patterns.sh \
   .devflow/learnings/retrospectives.jsonl \
   .devflow/learnings/overrides.json \
   > .devflow/tmp/patterns.json
+# The UNFILTERED whole-pattern view (every lifecycle state, below-threshold and
+# suppressed included) for the run report; --full drops the actionable filters.
+bash $LIB/actionable-patterns.sh \
+  .devflow/learnings/retrospectives.jsonl \
+  .devflow/learnings/overrides.json \
+  --full \
+  > .devflow/tmp/patterns-full.json
 ```
 
 Print a summary line to the console, for example:
@@ -562,13 +578,18 @@ follow-up commit if you want it in this run's PR.)
 ### Step 9 — Status report
 
 Collect the per-analyzed-PR digest lines (verdict + a one-line summary) and the
-full pattern list (acted-on, cooldown-skipped, dismissed, and below-threshold —
-the same `patterns.json` from Step 6) so the report shows the whole picture, not
-just the PRs that produced an intervention:
+**unfiltered** whole-pattern view produced by `actionable-patterns.sh --full` in
+Step 6 (`patterns-full.json`) — every pattern with its lifecycle status
+(`filed`/`fixed`/`declined`/`regressed`/`open`/`dismissed`), including the
+suppressed and below-threshold ones — so `render-report.sh` shows the whole
+picture, not just the actionable subset that produced an intervention:
 
 ```bash
 ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
-PATTERNS_JSON="$(cat .devflow/tmp/patterns.json)"
+# The report's `.patterns` is the UNFILTERED whole-pattern view (patterns-full.json),
+# not the filtered actionable list, so the report surfaces suppressed/below-threshold
+# patterns instead of reading like a quiet week (issue #788).
+PATTERNS_JSON="$(cat .devflow/tmp/patterns-full.json)"
 RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .devflow/learnings/retrospectives.jsonl)"
 ```
 
