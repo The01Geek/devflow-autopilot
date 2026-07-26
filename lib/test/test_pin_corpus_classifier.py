@@ -596,16 +596,14 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             if literal is not None:
                 literal_buckets.setdefault(literal, set()).add(row["bucket_final"])
         self.assertTrue(all(len(buckets) == 1 for buckets in literal_buckets.values()))
-        for required_literal in (
-            "SPDX-FileCopyrightText: 2026 Daniel Radman",
-            "SPDX-License-Identifier: MIT",
+        for boundary_literal in (
             "whether by a Phase-3 review finding **or by the issue",
             (
                 '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner '
                 'reports in context>}"/../../scripts/config-get.sh .docs.internal'
             ),
         ):
-            self.assertEqual({"required-copy"}, literal_buckets[required_literal])
+            self.assertEqual({"boundary"}, literal_buckets[boundary_literal])
         self.assertNotIn(str(repo_root), inventory.read_text(encoding="utf-8"))
 
         with tempfile.TemporaryDirectory() as raw:
@@ -632,6 +630,41 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             )
             self.assertEqual(raw_lines, reproduced_lines)
 
+    def test_adjudication_events_replace_or_deactivate_only_known_active_keys(self):
+        base = "adjudication_key\tbucket_final\trationale\n"
+        active = base + "literal:a\trequired-copy\told decision\n"
+        self.assertEqual(
+            {"literal:a": ("boundary", "new decision")},
+            self.mod.parse_adjudications(
+                active + "supersede:literal:a\tboundary\tnew decision\n"
+            ),
+        )
+        self.assertEqual(
+            {},
+            self.mod.parse_adjudications(
+                active + "tombstone:literal:a\ttombstone\tretired decision\n"
+            ),
+        )
+        tombstoned = active + "tombstone:literal:a\ttombstone\tretired decision\n"
+        for resurrection in (
+            tombstoned + "literal:a\tboundary\tordinary resurrection\n",
+            tombstoned + "supersede:literal:a\tboundary\tresurrected event\n",
+        ):
+            with self.subTest(resurrection=resurrection):
+                with self.assertRaises(ValueError):
+                    self.mod.parse_adjudications(resurrection)
+        for invalid in (
+            "literal:a\tboundary\tordinary duplicate\n",
+            "supersede:literal:missing\tboundary\tunknown target\n",
+            "tombstone:literal:missing\ttombstone\tunknown target\n",
+            "tombstone:literal:a\tboundary\tbad event bucket\n",
+            "supersede:literal:a\tboundary\t\n",
+            "supersede:literal:a\tboundary\tnew decision\n"
+            "supersede:literal:a\tboundary\trepeated event\n",
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    self.mod.parse_adjudications(active + invalid)
 
 if __name__ == "__main__":
     unittest.main()

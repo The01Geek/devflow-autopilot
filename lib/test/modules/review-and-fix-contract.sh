@@ -25,7 +25,6 @@ RAF_ROOT="${DEVFLOW_RAF_CONTRACT_ROOT:-${LIB%/lib}}"
 RAF_SKILL_ROOT="$RAF_ROOT/skills/review-and-fix/SKILL.md"
 RAF_REFS_DIR="$RAF_ROOT/skills/review-and-fix/references"
 RAF_RECEIVING_SKILL="$RAF_ROOT/skills/receiving-code-review/SKILL.md"
-RAF_REQUESTING_SKILL="$RAF_ROOT/skills/requesting-code-review/SKILL.md"
 RAF_EXTENSION="$RAF_ROOT/.devflow/prompt-extensions/review-and-fix.md"
 RAF_SCHEMA="$RAF_ROOT/.devflow/config.schema.json"
 RAF_EXAMPLE="$RAF_ROOT/.devflow/config.example.json"
@@ -263,5 +262,3 @@ _raf_pin_unique "raf prompt composition: topic priming stays visible in overview
   'Topic-priming is a second, distinct leak channel' "$RAF_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 _raf_pin_unique "raf prompt composition: receiving guidance remains coupled" \
   'mutation-check every new test before completion is claimed' "$RAF_RECEIVING_SKILL"
-_raf_pin_unique "raf prompt composition: requesting guidance remains coupled" \
-  'State the **mutation evidence** for each test you present' "$RAF_REQUESTING_SKILL"
