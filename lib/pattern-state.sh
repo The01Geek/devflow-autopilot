@@ -228,10 +228,9 @@ _reconcile() {  # $1 = overrides path, $2 = limit
               | ($res[($n|tostring)] // {unresolved:true}) as $r
               | if ($n == null) or ($r.unresolved == true) then
                   "::warning::pattern-state: pattern " + $slug + " meta-issue " + (($n // "?")|tostring) + " could not be resolved via the prefetch or the by-number fallback — no transition applied"
-                elif ($r.state == "OPEN") then empty
-                elif ($r.stateReason == "COMPLETED") then empty
-                elif ($r.stateReason == "NOT_PLANNED") then empty
-                elif ($r.stateReason == "DUPLICATE") then empty
+                # The recognized set (open, plus the three closed stateReasons) all
+                # transition cleanly — no warning; anything else is unrecognized.
+                elif ($r.state == "OPEN") or (["COMPLETED","NOT_PLANNED","DUPLICATE"] | index($r.stateReason)) then empty
                 else
                   "::warning::pattern-state: pattern " + $slug + " meta-issue #" + ($n|tostring) + " is closed with an unrecognized stateReason " + ($r.stateReason|tostring) + " — no transition applied"
                 end
@@ -253,8 +252,7 @@ _reconcile() {  # $1 = overrides path, $2 = limit
                     | if ($e.number == null) or ($r.unresolved == true) then $e
                       elif ($r.state == "OPEN") then ($e + {state: "filed", closedAt: null, fixed_at: null})
                       elif ($r.stateReason == "COMPLETED") then ($e + {state: "fixed", closedAt: $r.closedAt, fixed_at: $r.closedAt})
-                      elif ($r.stateReason == "NOT_PLANNED") then ($e + {state: "declined", closedAt: $r.closedAt, fixed_at: $r.closedAt})
-                      elif ($r.stateReason == "DUPLICATE") then ($e + {state: "declined", closedAt: $r.closedAt, fixed_at: $r.closedAt})
+                      elif (["NOT_PLANNED","DUPLICATE"] | index($r.stateReason)) then ($e + {state: "declined", closedAt: $r.closedAt, fixed_at: $r.closedAt})
                       else $e end
                   )
                 )

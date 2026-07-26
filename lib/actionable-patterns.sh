@@ -239,19 +239,22 @@ if [ "$FULL" -eq 0 ]; then
     _ELIGIBLE_N="$(printf '%s' "$OUTPUT" | "$DEVFLOW_JQ" 'length')"
     if [ "${_ELIGIBLE_N:-0}" -eq 0 ]; then
         printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
-        _SUPPRESSED="$(
+        # One jq pass emits the count and the highest-occurrence slug as a single
+        # "N slug" line (empty when nothing is suppressed-but-recurring).
+        _LIVE="$(
           # argjson-ok: min -- a bounded small int (the occurrence threshold);
           # the corpus-sized pattern view uses --slurpfile.
-          "$DEVFLOW_JQ" -c -n --slurpfile pv "$_JQ_TMP/pv_live.json" --argjson min "$MIN" '
+          "$DEVFLOW_JQ" -r -n --slurpfile pv "$_JQ_TMP/pv_live.json" --argjson min "$MIN" '
             [ $pv[0] | to_entries[]
               | select(.value.occurrence_count >= $min)
               | select(.value.status == "dismissed" or .value.status == "declined" or .value.status == "fixed")
               | {slug: .key, occ: .value.occurrence_count} ]
-            | sort_by(-.occ)'
-        )" || _SUPPRESSED='[]'
-        _SUP_N="$(printf '%s' "$_SUPPRESSED" | "$DEVFLOW_JQ" 'length')"
-        if [ "${_SUP_N:-0}" -gt 0 ]; then
-            _TOP="$(printf '%s' "$_SUPPRESSED" | "$DEVFLOW_JQ" -r '.[0].slug')"
+            | sort_by(-.occ)
+            | if length > 0 then "\(length) \(.[0].slug)" else "" end'
+        )" || _LIVE=""
+        if [ -n "$_LIVE" ]; then
+            _SUP_N="${_LIVE%% *}"
+            _TOP="${_LIVE#* }"
             echo "::warning::actionable-patterns: no pattern is eligible to file, yet ${_SUP_N} pattern(s) recur at/above min_occurrences while suppressed (dismissed/declined/fixed) — highest: ${_TOP}. Nothing will be filed; investigate the lifecycle state." >&2
             echo "liveness: ${_SUP_N} suppressed-but-recurring pattern(s), highest ${_TOP}" >&2
         fi
