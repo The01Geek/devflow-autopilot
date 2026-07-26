@@ -4709,25 +4709,31 @@ assert_eq("#635: the marker short-circuits before the move-awareness join (marke
 # nothing. This recognition-only tier surfaces the shape so Phase 2's §2.3.4b sweep has an
 # EXECUTED seed list rather than a remembered one; it resolves no referent, never emits STALE,
 # and never affects the exit code.
-def _rows_818(path, body_lines, move=None):
-    """(verdict, rule) for every row examine_file produces over `body_lines` (all added)."""
-    added = {i + 1: t for i, t in enumerate(body_lines)}
-    rows = []
-    stale_prose_lint.examine_file(path, added, list(body_lines), rows, move=move)
-    return [(r.verdict, r.rule) for r in rows]
-
-
 def _full_rows_818(path, body_lines, move=None):
-    """The full Row objects, for assertions that read `detail`."""
+    """The single driver: every Row examine_file produces over `body_lines` (all added). The two
+    projections below read it rather than re-running examine_file, so there is one place where
+    the fixture is turned into rows."""
     added = {i + 1: t for i, t in enumerate(body_lines)}
     rows = []
     stale_prose_lint.examine_file(path, added, list(body_lines), rows, move=move)
     return rows
 
 
+def _rows_818(path, body_lines, move=None):
+    """(verdict, rule) for every row, for assertions about which tiers fired."""
+    return [(r.verdict, r.rule) for r in _full_rows_818(path, body_lines, move)]
+
+
 def _cu_rows_818(path, body_lines, move=None):
     """Only the new tier's seed rows (rule token ``CU``)."""
     return [r for r in _full_rows_818(path, body_lines, move) if r.rule == "CU"]
+
+
+# Fixture lines bound once — the same literals were otherwise retyped at five call sites, which
+# is the copy-paste-with-variation shape this very tier exists to surface.
+_CU_LINE_818 = "Every call site is updated."
+_RT_LINE_818 = _CU_LINE_818 + "  <!-- stale-prose-lint: rule-text -->"
+_EX_LINE_818 = _CU_LINE_818 + "  <!-- stale-prose-lint: example -->"
 
 
 # test_coverage_universal_tier_recognizes_planted_claim — a planted coverage universal in a
@@ -4741,12 +4747,12 @@ assert_eq("#818: the shape admits a numeral modifier between the quantifier and 
           1, len(_cu_rows_818("docs/x.md", ["All four arms are handled."])))
 assert_eq("#818: the row's detail names the tier and the grounding remedy",
           True,
-          _cu_rows_818("docs/x.md", ["Every call site is updated."])[0]
+          _cu_rows_818("docs/x.md", [_CU_LINE_818])[0]
           .detail.startswith("coverage-universal: recognition-only"))
 
 # test_coverage_universal_tier_never_gates — a diff containing only coverage-universal rows
 # exits 0, and no emitted row carries the STALE verdict.
-_cu_only = _rows_818("docs/x.md", ["Every call site is updated.", "Each consumer is reached."])
+_cu_only = _rows_818("docs/x.md", [_CU_LINE_818, "Each consumer is reached."])
 assert_eq("#818 test_coverage_universal_tier_never_gates: the tier emits no STALE verdict",
           [], [r for r in _cu_only if r[0] == stale_prose_lint.STALE])
 assert_eq("#818 test_coverage_universal_tier_never_gates: every emitted row is UNRESOLVABLE, "
@@ -4757,7 +4763,7 @@ assert_eq("#818 test_coverage_universal_tier_never_gates: every emitted row is U
 # pre-evaluation exclusion, each asserting NO row from the new tier.
 assert_eq("#818 test_coverage_universal_tier_honors_existing_exclusions: prose_mask — a "
           "universal inside a fenced code block emits no CU row",
-          [], _cu_rows_818("docs/x.md", ["```", "Every call site is updated.", "```"]))
+          [], _cu_rows_818("docs/x.md", ["```", _CU_LINE_818, "```"]))
 assert_eq("#818 exclusions: prose_mask — a universal on a .sh CODE line emits no CU row",
           [], _cu_rows_818("lib/test/run.sh", ['printf "Every call site is updated."']))
 assert_eq("#818 exclusions: prose_mask — a universal in a .py DOCSTRING is examined while the "
@@ -4768,8 +4774,7 @@ assert_eq("#818 exclusions: prose_mask — a universal in a .py DOCSTRING is exa
 assert_eq("#818 exclusions: the `stale-prose-lint: example` marker suppresses the CU tier too "
           "(only the EX audit row remains)",
           [(stale_prose_lint.UNRESOLVABLE, "EX")],
-          _rows_818("docs/x.md",
-                    ["Every call site is updated.  <!-- stale-prose-lint: example -->"]))
+          _rows_818("docs/x.md", [_EX_LINE_818]))
 # The `.devflow/learnings/` and `.devflow/logs/` path exclusion is applied in `run()` BEFORE
 # `examine_file` is reached, so it is asserted at that boundary rather than through the helper.
 assert_eq("#818 exclusions: the machine-appended-corpus paths are excluded before examination",
@@ -4780,7 +4785,7 @@ assert_eq("#818 exclusions: the machine-appended-corpus paths are excluded befor
 # The #629 relocation exemption is INERT for this tier — it demotes STALE to UNRESOLVABLE, and
 # this tier never emits STALE — so a byte-identical relocated line STILL emits its CU row. This
 # case is deliberately NOT one of the exclusions above; it asserts the opposite.
-_reloc818 = "Every call site is updated."
+_reloc818 = _CU_LINE_818
 _reloc_mv818 = stale_prose_lint.MoveIndex(frozenset({_reloc818}),
                                           {_reloc818: frozenset({"docs/x.md"})})
 assert_eq("#818: the issue-#629 relocation exemption is INERT here — a byte-identical relocated "
@@ -4793,13 +4798,10 @@ assert_eq("#818: the issue-#629 relocation exemption is INERT here — a byte-id
 assert_eq("#818 test_rule_text_marker_emits_visible_audit_row: a marked line emits exactly one "
           "non-gating 'RT' audit row and NO 'CU' seed row",
           [(stale_prose_lint.UNRESOLVABLE, "RT")],
-          _rows_818("docs/x.md",
-                    ["Every call site is updated.  <!-- stale-prose-lint: rule-text -->"]))
+          _rows_818("docs/x.md", [_RT_LINE_818]))
 assert_eq("#818: the audit row's detail names the declared exemption marker",
           True,
-          "stale-prose-lint: rule-text" in _full_rows_818(
-              "docs/x.md",
-              ["Every call site is updated.  <!-- stale-prose-lint: rule-text -->"])[0].detail)
+          "stale-prose-lint: rule-text" in _full_rows_818("docs/x.md", [_RT_LINE_818])[0].detail)
 assert_eq("#818: the rule-text marker is language-agnostic, case-insensitive, and token-pinned "
           "(`rule-texts` / `rule-text-driven` do not opt out)",
           [True, True, True, False, False],
@@ -4883,11 +4885,7 @@ def _spl_main_818(argv, stdin_bytes=b""):
     """(rc, stdout, stderr) for a real `main()` invocation with `stdin_bytes` on stdin."""
     out, err = io.StringIO(), io.StringIO()
     saved_stdin = sys.stdin
-
-    class _FakeStdin:
-        def __init__(self, data):
-            self.buffer = io.BytesIO(data)
-
+    # `_FakeStdin` is the module-level shim `_reflect_stdin` already uses — one stdin stub.
     sys.stdin = _FakeStdin(stdin_bytes)
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):

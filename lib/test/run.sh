@@ -11403,9 +11403,6 @@ assert_pin_red_under "#818 marker-not-a-discharge: §2.3.4b states the rule-text
 assert_pin_red_under "#818 three-outcome: §2.3.4b distinguishes rows / zero-rows-clean / exit-2-or-no-output-degraded, so an empty row set cannot read as clean" \
   'Three outcomes, never two' \
   's/\*\*Three outcomes, never two\*\* — an empty row set must not read as clean\.//' "$P2_FILE"
-# The always-on index row is a STRUCTURAL pin, not a behavioral sentence: it is the registry
-# entry `skills/review-and-fix/references/fixing.md` item 3b re-anchors sweep SELECTION onto,
-# so the fix loop inherits §2.3.4b through this row and no `fixing.md` edit.
 # The always-on index row is the entry `skills/review-and-fix/references/fixing.md` item 3b
 # re-anchors sweep SELECTION onto, so the fix loop inherits §2.3.4b through this row and no
 # `fixing.md` edit. Dropping 2.3.4b from the row is therefore not a wording change — it

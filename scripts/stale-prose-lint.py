@@ -491,20 +491,29 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 # substring (optional whitespace after the colon) so it is language-agnostic; the trailing
 # `(?![\w-])` pins the exact token so `examples` / `example-driven` do not incidentally opt a line
 # out. See the module header's #635 design record for the mechanism and disclosed non-goals.
-_EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example(?![\w-])", re.IGNORECASE)
+def _marker_re(token):
+    """The shared opt-out-marker grammar: the plain `stale-prose-lint: <token>` substring with a
+    trailing negative lookahead pinning the exact token (so `examples` / `rule-texts` do not opt a
+    line out), matched case-insensitively and independent of comment syntax. One owner, because the
+    lookahead is the property every marker must keep identical — a hand-mirrored second copy is the
+    coupled pair that drifts."""
+    return re.compile(rf"stale-prose-lint:\s*{token}(?![\w-])", re.IGNORECASE)
+
+
+_EXAMPLE_MARKER_RE = _marker_re("example")
 
 # ── Coverage-universal recognition tier (issue #818), non-gating ───────────────────────
 # The two closed sets below are the tier's authoritative shape; the module header is their
 # authoritative spec. Kept as module-level constants for the same reason `_COUNT_NOUNS` is:
 # one place to read, one place to change.
 # The universal-quantifier tokens — exactly these, complete by construction.
-_CU_QUANT = (r"(?:every|all|each|any|both|no|none|exactly|only|complete|entire|whole)")
-# The coverage-referent nouns — exactly these, complete by construction. `call site` is listed
-# FIRST so the alternation prefers the two-word form over the bare `site` that follows it
-# (Python's `|` is leftmost-first, so a later `site` would otherwise claim `call site`'s tail
-# and the reported noun would misname the referent). Each noun matches singular or plural.
+_CU_QUANT = r"(?:every|all|each|any|both|no|none|exactly|only|complete|entire|whole)"
+# The coverage-referent nouns — exactly these, complete by construction. Each matches singular
+# or plural. `call site` is expressed as an OPTIONAL prefix on `site` rather than as a separate
+# earlier alternative, so the alternation is order-independent: a leftmost-first `|` cannot let
+# a bare `sites?` claim `call site`'s tail and misname the reported referent.
 _CU_NOUN = (
-    r"(?:call sites?|sites?|arms?|branch(?:es)?|cases?|paths?|files?|rules?|peers?"
+    r"(?:(?:call )?sites?|arms?|branch(?:es)?|cases?|paths?|files?|rules?|peers?"
     r"|consumers?|callers?|members?|mirrors?|occurrences?|instances?|surfaces?"
     r"|checkpoints?)"
 )
@@ -518,10 +527,10 @@ _CU_RE = re.compile(
     r"\b" + _CU_QUANT + r"\b\s+(?:" + _RECOG_MOD + r"){0,2}" + _CU_NOUN + r"\b",
     re.IGNORECASE,
 )
-# Declared opt-out for the coverage-universal tier (issue #818). Mirrors `_EXAMPLE_MARKER_RE`'s
-# plain-substring, trailing-negative-lookahead shape so it is language-agnostic. Scoped to THIS
-# tier only — it never disarms a gating rule (see the module header's #818 record).
-_RULE_TEXT_MARKER_RE = re.compile(r"stale-prose-lint:\s*rule-text(?![\w-])", re.IGNORECASE)
+# Declared opt-out for the coverage-universal tier (issue #818). Built from the same
+# `_marker_re` grammar as the example marker, so the two cannot drift. Scoped to THIS tier only
+# — it never disarms a gating rule (see the module header's #818 record).
+_RULE_TEXT_MARKER_RE = _marker_re("rule-text")
 
 # Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
 # (``verdict == STALE`` in ``run``). The process exit code hinges on the STALE literal
@@ -1183,7 +1192,7 @@ def _recognize_coverage_universal(text):
     phrase for a universal claim about the change's own coverage, or ``None``. NON-GATING — the
     caller emits an ``UNRESOLVABLE`` row and never resolves a referent."""
     m = _CU_RE.search(text)
-    return " ".join(m.group(0).split()) if m else None
+    return _excerpt(m.group(0)) if m else None
 
 
 def _excerpt(text):
@@ -1367,29 +1376,17 @@ def examine_file(path, added, lines, rows, move=None):
                 else:
                     rows.append(Row(VERIFIED, "R4", path, post_ln,
                                     f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
-                # `continue` ONLY when R4 actually CLAIMED the line — i.e. it found an
-                # operator token and emitted a row. The `continue` of each other gating rule
-                # — R1, R2, R3b, R3 — sits inside its own matched branch, whose every arm
-                # appends a Row (enumerated at the four sites, not recalled); R4's used to sit
-                # on the outer `_DENY_RE` match instead, so
-                # a deny-absolute carrying NO operator token — R4 examined it and decided it
-                # was not R4's — still short-circuited the two non-gating recognition tiers
-                # below. That is a silent swallow, not a claim: R4 emitted nothing, so the
-                # line simply vanished from the recognition tiers' view. It blinded them on
-                # every line containing `never` / `no` / `not`, which for the issue-#818
-                # coverage-universal tier is most of its population (a sentence asserting
-                # total coverage routinely says what is NEVER missed). Narrowing the
-                # `continue` to the claimed case adds only non-gating rows and cannot change
-                # the exit code; R4 still runs and still emits BEFORE either recognition
-                # tier, so the ordering rationale the module header records is preserved.
+                # `continue` ONLY when R4 actually CLAIMED the line — found an operator token
+                # and emitted a row. A deny-absolute carrying no operator token is a line R4
+                # examined and emitted nothing for: a silent swallow, not a claim. See the
+                # module header's #818 record for why the outer-match placement blinded both
+                # recognition tiers and why narrowing it cannot change the exit code.
                 continue
 
         # Coverage-universal recognition tier (issue #818) — NON-GATING, and deliberately
-        # placed BEFORE the R3 recognition tier below WITHOUT a `continue`. The two tiers
-        # overlap (`arms`/`files`/`rules`/`sites` are in both noun sets) and the R3 tier
-        # terminates on a match, so a tier placed after it would never be reached on the very
-        # collision shape; falling through instead lets a line matching both emit both rows,
-        # and neither tier terminates the other. Both still sit after the gating rules.
+        # placed BEFORE the R3 recognition tier below WITHOUT a `continue`, so a line the two
+        # overlapping noun sets both claim emits both rows. See the module header's #818
+        # "Precedence, decided explicitly" record. Both still sit after the gating rules.
         cov = _recognize_coverage_universal(text)
         if cov is not None:
             if _RULE_TEXT_MARKER_RE.search(text):
