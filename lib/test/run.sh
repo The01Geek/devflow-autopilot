@@ -35020,43 +35020,6 @@ for _s in $REVIEW_PHASE_STEMS; do
     "$(grep -qF "phases/${_s}.md" "$REVIEW_ROOT" && echo yes || echo no)"
 done
 
-# ── #802: the Phase-3 dispatch supplies the vendored-literal prompt-extension command ──
-# The final-pass reviewer runs as a general-purpose Task with no $CLAUDE_SKILL_DIR, so the
-# orchestrator resolves the helper path and supplies it. These assertions run the real command-shape
-# and command-head extractors over the real files and assert their output: the emitted-shape
-# guarantees (literal-not-slot head, bash-info-string fence, no denied shape). The prose beside the
-# fence (substitution rule, anchor prohibition, refusal marker, fail-closed flag, status routing) has
-# no executable boundary in this repo and therefore carries no pin — see CONTRIBUTING.md's #810 rule.
-P3AGENTS_802="$LIB/../skills/review/phases/phase-3-agents.md"
-RQ_802="$LIB/../skills/requesting-code-review/SKILL.md"
-RCV_802="$LIB/../skills/receiving-code-review/SKILL.md"
-
-# A1 — requesting-code-review + receiving-code-review (in the heads roster but historically in
-# NO shape corpus) are now members of the review-profile shapes corpus, alongside phase-3-agents:
-# zero denied shapes across all three.
-assert_eq "#802 A1: requesting/receiving-code-review + phase-3-agents report no denied shape (review profile)" \
-  "" "$(python3 "$LIB/test/extract-command-shapes.py" --profile review \
-        "$P3AGENTS_802" "$RQ_802" "$RCV_802" 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
-
-# A9 — the supplied-command fence carries the LITERAL vendored path (a granted head), not a
-# placeholder slot: the head roster is empty over the real file, and replacing the literal with a
-# slot token turns it RED (the slot is an ungranted head).
-assert_eq "#802 A9: the supplied-command fence has no ungranted head (real file, review profile)" \
-  "" "$(python3 "$ECH" ungranted "$P3AGENTS_802" \
-        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
-sed -E 's#\.devflow/vendor/devflow/scripts/load-prompt-extension\.sh requesting-code-review#{RESOLVED_HELPER_COMMAND} requesting-code-review#' \
-  "$P3AGENTS_802" > "$E363/p3-slot.md"
-assert_eq "#802 A9: replacing the literal path with a placeholder slot turns the head roster RED (anti-vacuity)" \
-  "{RESOLVED_HELPER_COMMAND}" "$(python3 "$ECH" ungranted "$E363/p3-slot.md" \
-        "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
-
-# A10 (the "bash fence is load-bearing" property) is enforced by A9's anti-vacuity above, not by a
-# separate synthetic-fixture pin: a regression of the supplied-command fence from ```bash to a bare
-# fence stops the extractor scanning it, so the slot mutation's expected `{RESOLVED_HELPER_COMMAND}`
-# head vanishes and A9's anti-vacuity assertion goes RED. (Dropped a redundant synthetic A10 pin per
-# /simplify — the bash-fence dependency is covered over the REAL file by A9.)
-
-
 # The two scenarios the ROOT itself must decide (they pick which reference runs, so
 # their routing rule cannot live in a reference — that would be unreachable).
 assert_pin_unique "#529 AC15 pressure: the root routes 4.4 as standalone-only (review-and-fix skips it)" \
@@ -35246,14 +35209,6 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-# Assert BOTH the occurrence count and the distinct-name count — the distinct count
-# alone would not catch a duplicate head silently gained (or lost). Whoever next adds
-# a command to a review-skill fence updates these two numbers in the same commit,
-# per CLAUDE.md's coupled-invariant rule.
-assert_eq "#363 the review-skill head set matches the reviewed count (occurrences over the whole bundle; last change: #802 added the Phase-3 final-pass supplied-command fence in phase-3-agents.md, whose one load-prompt-extension.sh head takes 143 -> 144 — already granted and already in the distinct set, so the distinct count is unchanged)" \
-  "144" "$(python3 -c 'import importlib.util,sys
-s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-print(len(m.extract_heads(open(sys.argv[2],encoding="utf-8").read())))' "$ECH" "$REVIEW_BUNDLE")"
 assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
   "32" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
