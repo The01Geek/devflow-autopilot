@@ -173,7 +173,7 @@ proc = subprocess.run(
     capture_output=True, text=True,
 )
 if proc.returncode != 0:
-    err("wholesale prefetch failed (gh issue list exited %d): %s"
+    err("wholesale prefetch failed (the issue-list query exited %d): %s"
         % (proc.returncode, (proc.stderr or "").strip()[:200]))
     sys.exit(1)
 try:

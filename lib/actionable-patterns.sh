@@ -72,7 +72,7 @@ COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"
 if [ ! -f "$OVERRIDES_FILE" ] || [ ! -s "$OVERRIDES_FILE" ]; then
-    printf '{"schema_version":1,"dismissed":{}}' > "$_JQ_TMP/overrides.json"
+    printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$_JQ_TMP/overrides.json"
     _OVERRIDES_ACTUAL="$_JQ_TMP/overrides.json"
 fi
 
@@ -96,9 +96,10 @@ fi
 # Each pattern the loop files becomes an open issue titled
 # "[devflow-retrospective] meta: <slug> — <title>" (see lib/meta-issue.sh). A
 # pattern with such an issue still open and created within cooldown_days is in
-# cooldown — don't re-file it this run. (The permanent overrides.json dismissal
-# meta-issue.sh writes is the cross-run guard; this is the within-window one,
-# meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+# cooldown — don't re-file it this run. (The cross-run guard is now the lifecycle
+# record lib/pattern-state.sh reconciles against live meta-issue state, plus the
+# human-owned overrides.json dismissed{} map; this is the within-window one, a
+# short re-file suppressor independent of that lifecycle.)
 # Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
 # non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
 # fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque
