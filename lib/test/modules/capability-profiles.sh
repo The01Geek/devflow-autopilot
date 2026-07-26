@@ -4,8 +4,8 @@
 # Sourceable capability-profiles contract module (issue #591 seed extraction).
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq plus its two domain-private
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present).
+# This module uses assert_eq plus its two domain-private
 # helpers below (_cap_fail, _cap_noncomment_hits) — it references NO monolith helper.
 # The module owns its private fixture root and cleanup; it never invokes the runner
 # or the full-suite boundary. The inventory in capability-profiles.inventory.md maps

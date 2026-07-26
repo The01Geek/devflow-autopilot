@@ -4,8 +4,8 @@
 # Sourceable #431 experiment-records contract module (issue #746 tranche).
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq alone — the #431
+# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present).
+# This module uses assert_eq alone — the #431
 # producer pins stay in lib/test/run.sh because they target files this helper does
 # not own (see the DELIBERATELY PARTIAL EXTRACTION note below), so nothing here needs
 # a pin primitive and it references NO monolith helper. Every path derives from LIB.
@@ -33,8 +33,8 @@
 # contract) and a per-scenario repo-root, then asserts the joined record fields.
 # The producer additions (config_fingerprint stamp, verification_evidence
 # obligation, the finalize-summary denial line, the open-state-pr staging entry)
-# carry pins — the behavioral ones through assert_pin_red_under; those five
-# producer pins stay in lib/test/run.sh (see this module's header).
+# carry ordinary executable assertions; those producer tests stay in
+# lib/test/run.sh (see this module's header).
 BXR="$LIB/../scripts/build-experiment-records.py"
 
 if [ ! -x "$BXR" ]; then

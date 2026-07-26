@@ -18,10 +18,22 @@ from unittest import mock
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 LINTER = HERE / "pin-corpus-lint.py"
+EXTRACTOR = HERE / "extract-command-heads.py"
 
 
 def load_linter():
     spec = importlib.util.spec_from_file_location("pin_corpus_lint_810", LINTER)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_extractor():
+    spec = importlib.util.spec_from_file_location(
+        "extract_command_heads_687", EXTRACTOR
+    )
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     sys.modules[spec.name] = module
@@ -37,6 +49,85 @@ def one_file_diff(path: str, old: str, new: str) -> str:
     body.extend(f"-{line}" for line in old_lines)
     body.extend(f"+{line}" for line in new_lines)
     return "\n".join(body) + "\n"
+
+
+class Issue687OutputRoutingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.linter = load_linter()
+        cls.extractor = load_extractor()
+
+    def test_pin_corpus_clean_scans_route_accounting_only_to_stderr(self):
+        with tempfile.TemporaryDirectory() as td:
+            pin_source = Path(td) / "pins.sh"
+            pin_source.write_text("", encoding="utf-8")
+            for scan in (self.linter.run_lint, self.linter.run_wrapped):
+                with (
+                    self.subTest(scan=scan.__name__),
+                    mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                    mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+                ):
+                    rc = scan(
+                        str(pin_source),
+                        str(REPO_ROOT),
+                        {},
+                        set(),
+                        strict=True,
+                    )
+                    self.assertEqual(0, rc)
+                    self.assertEqual("", stdout.getvalue())
+                    self.assertEqual(
+                        "UNRESOLVED-COUNT\t0\nRESOLVED-COUNT\t0\n",
+                        stderr.getvalue(),
+                    )
+
+    def test_extract_heads_stdout_is_only_the_sorted_data_product(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "commands.md"
+            source.write_text(
+                "```bash\n"
+                "git status\n"
+                "echo ready\n"
+                "```\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            ):
+                rc = self.extractor.main(
+                    ["extract-command-heads.py", "heads", str(source)]
+                )
+            self.assertEqual(0, rc)
+            self.assertEqual("echo\ngit status\n", stdout.getvalue())
+            self.assertEqual("", stderr.getvalue())
+
+    def test_ungranted_strict_exit_tracks_the_emitted_finding(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "commands.md"
+            allowlist = root / "allowlist.txt"
+            source.write_text(
+                "```bash\nzzcmd687 --flag\n```\n",
+                encoding="utf-8",
+            )
+            allowlist.write_text("Bash(othercmd:*)\n", encoding="utf-8")
+            with (
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+                mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+            ):
+                rc = self.extractor.main(
+                    [
+                        "extract-command-heads.py",
+                        "ungranted",
+                        "--strict",
+                        str(source),
+                        str(allowlist),
+                    ]
+                )
+            self.assertEqual(3, rc)
+            self.assertEqual("zzcmd687\n", stdout.getvalue())
+            self.assertEqual("", stderr.getvalue())
 
 
 class PinCorpusLint810Tests(unittest.TestCase):
@@ -638,62 +729,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         self.assertEqual((), self.mod.parse_unified_diff(diff))
 
-    def test_mutation_to_static_and_one_delete_to_two_adds_are_not_exempt(self):
-        old = "assert_pin_red_under \"behavior\" 'L' 's/x/y/' \"$F\""
-        new = "assert_pin_unique \"wording\" 'L' \"$F\""
-        doubled = new + "\n" + new
-        findings = self.mod.scan_changed_sources(
-            {"lib/test/new.sh": doubled},
-            {"lib/test/old.sh": old},
-            one_file_diff("lib/test/old.sh", old, "")
-            + one_file_diff("lib/test/new.sh", "", doubled),
-            repo_root="/repo",
-        )
-        self.assertEqual(2, len(findings))
-
-    def test_forwarding_wrapper_preserves_mutation_helper_family(self):
-        source = (
-            "wrap() { devflow_module_pin_red_under \"$@\"; }\n"
-            "wrap \"behavior\" 'TOKEN' 's/x/y/' \"$F\""
-        )
-        sites = self.mod.extract_guard_sites(
-            source, "lib/test/a.sh", repo_root="/repo"
-        )
-        self.assertEqual(1, len(sites))
-        self.assertEqual("mutation-helper", sites[0].family)
-        findings = self.mod.scan_changed_sources(
-            {"lib/test/a.sh": source},
-            {"lib/test/a.sh": ""},
-            one_file_diff("lib/test/a.sh", "", source),
-            repo_root="/repo",
-        )
-        self.assertEqual([], findings)
-
-    def test_invoked_wrapper_does_not_hide_additional_body_pin(self):
-        source = (
-            "F=\"$LIB/../docs/x.md\"\n"
-            "wrap() {\n"
-            "  devflow_module_pin_red_under \"$@\"\n"
-            "  devflow_module_pin_present \"wording\" 'HUMAN PROSE' \"$F\"\n"
-            "}\n"
-            "wrap \"behavior\" 'TOKEN' 's/x/y/' \"$F\""
-        )
-        sites = self.mod.extract_guard_sites(
-            source, "lib/test/a.sh", repo_root="/repo"
-        )
-        self.assertEqual(
-            ["mutation-helper", "static-helper"],
-            sorted(site.family for site in sites),
-        )
-        findings = self.mod.scan_changed_sources(
-            {"lib/test/a.sh": source},
-            {"lib/test/a.sh": ""},
-            one_file_diff("lib/test/a.sh", "", source),
-            repo_root="/repo",
-        )
-        self.assertEqual(1, len(findings))
-        self.assertIn("HUMAN PROSE", findings[0])
-
     def test_wrapper_family_comes_from_body_not_name_suffix(self):
         for name in ("fake_pin_red_under", "fake_pin_count"):
             with self.subTest(name=name):
@@ -1061,7 +1096,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
 
 
-class RetainedBoundaryRatchetTests(unittest.TestCase):
+class RetiredMutationHelperBanTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = load_linter()
@@ -1091,39 +1126,7 @@ class RetainedBoundaryRatchetTests(unittest.TestCase):
             )
         return rc, stdout.getvalue(), stderr.getvalue()
 
-    def _census(self, root):
-        return self.mod._load_mutation_census_module().build_census(root)
-
-    def _rewrite_inventory(self, root):
-        census = self.mod._load_mutation_census_module()
-        inventory = root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
-        inventory.write_text(
-            census.render_adjudication_tsv(
-                census.build_census(root),
-                "a" * 40,
-            ),
-            encoding="utf-8",
-        )
-
-    def _first_retained_row(self, root):
-        return self._census(root).rows[0]
-
-    def _replace_call(self, root, row, replacement):
-        path = root / row.path
-        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        replacement_lines = [replacement + "\n"] if replacement else []
-        path.write_text(
-            "".join(
-                [
-                    *lines[: row.line_start - 1],
-                    *replacement_lines,
-                    *lines[row.line_end :],
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-    def test_current_census_and_unrelated_edits_pass(self):
+    def test_zero_population_and_unrelated_edits_pass(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._repo(root)
@@ -1131,83 +1134,62 @@ class RetainedBoundaryRatchetTests(unittest.TestCase):
             outside = root / "docs/unfrozen.md"
             outside.parent.mkdir(parents=True)
             outside.write_text("ordinary unrelated addition\n", encoding="utf-8")
-            self.assertEqual((0, "", ""), self._public_rc(root))
-            row = self._first_retained_row(root)
-            audited = root / row.path
+            audited = root / sorted(self.mod.AUDITED_PIN_SOURCES)[0]
             audited.write_text(
-                "# unrelated audited-source line before retained calls\n"
+                "# ordinary non-helper edit\n"
                 + audited.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
 
-    def test_deletion_passes_when_inventory_is_updated(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            row = self._first_retained_row(root)
-            self._replace_call(root, row, "")
-            self._rewrite_inventory(root)
-            self.assertEqual((0, "", ""), self._public_rc(root))
-
-    def test_new_changed_and_reformatted_calls_are_policy_findings(self):
-        def append_call(root, row, call):
-            path = root / row.path
-            path.write_text(
-                path.read_text(encoding="utf-8") + "\n" + call + "\n",
-                encoding="utf-8",
-            )
-
-        mutations = {
-            "new generic": lambda root, row: append_call(
-                root,
-                row,
-                "assert_pin_red_under new literal mutation target",
-            ),
-            "new count": lambda root, row: append_call(
-                root,
-                row,
-                "assert_count_red_under new count mutation target",
-            ),
-            "changed": lambda root, row: self._replace_call(
-                root,
-                row,
-                row.logical_call + " changed",
-            ),
-            "reformatted": lambda root, row: self._replace_call(
-                root,
-                row,
-                row.logical_call.replace(" ", "  ", 1),
-            ),
-        }
-        for label, mutate in mutations.items():
-            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+    def test_every_retired_helper_invocation_is_a_policy_finding(self):
+        for helper in (
+            "assert_pin_red_under",
+            "devflow_module_pin_red_under",
+            "assert_count_red_under",
+            "_ra_conflict_red_under",
+        ):
+            with self.subTest(helper=helper), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 self._repo(root)
-                row = self._first_retained_row(root)
-                mutate(root, row)
+                source = root / sorted(self.mod.AUDITED_PIN_SOURCES)[0]
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\n{helper} new retired helper call\n",
+                    encoding="utf-8",
+                )
                 rc, stdout, stderr = self._public_rc(root)
                 self.assertEqual(3, rc, stderr)
                 self.assertIn("MUTATION-ROUTING", stdout)
 
-    def test_same_file_byte_identical_move_is_the_documented_identity_limit(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            row = self._first_retained_row(root)
-            self._replace_call(root, row, "")
-            path = root / row.path
-            path.write_text(
-                path.read_text(encoding="utf-8")
-                + "\n"
-                + row.logical_call
-                + "\n",
-                encoding="utf-8",
-            )
-            self.assertEqual((0, "", ""), self._public_rc(root))
+    def test_retired_helper_definition_or_wrapper_fails_closed(self):
+        cases = (
+            (
+                "definition",
+                "lib/test/module-harness.sh",
+                "\nassert_pin_red_under() { :; }\n",
+            ),
+            (
+                "wrapper",
+                sorted(self.mod.AUDITED_PIN_SOURCES)[0],
+                '\nwrap() { assert_pin_red_under "$@"; }\n',
+            ),
+        )
+        for label, relative, addition in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                path = root / relative
+                path.write_text(
+                    path.read_text(encoding="utf-8") + addition,
+                    encoding="utf-8",
+                )
+                rc, _stdout, stderr = self._public_rc(root)
+                self.assertEqual(2, rc)
+                self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
 
-    def test_inventory_missing_malformed_duplicate_or_mismatched_is_infrastructure(self):
-        cases = ("missing", "malformed", "duplicate", "mismatch")
+    def test_inventory_missing_malformed_or_nonempty_is_infrastructure(self):
+        cases = ("missing", "malformed", "nonempty")
         for case in cases:
             with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -1222,51 +1204,18 @@ class RetainedBoundaryRatchetTests(unittest.TestCase):
                         "not\ta\tvalid\tinventory\n",
                         encoding="utf-8",
                     )
-                elif case == "duplicate":
-                    lines = inventory.read_text(encoding="utf-8").splitlines()
-                    lines.insert(4, lines[3])
-                    inventory.write_text(
-                        "\n".join(lines) + "\n",
-                        encoding="utf-8",
-                    )
                 else:
-                    lines = inventory.read_text(encoding="utf-8").splitlines()
                     inventory.write_text(
-                        "\n".join([*lines[:3], *lines[4:]]) + "\n",
+                        inventory.read_text(encoding="utf-8")
+                        + "lib/test/run.sh\tassert_pin_red_under\t"
+                        '"assert_pin_red_under n l m f"\t1\t1\t'
+                        + "a" * 64
+                        + "\tretain_executable_boundary\tstale row\n",
                         encoding="utf-8",
                     )
                 rc, _stdout, stderr = self._public_rc(root)
                 self.assertEqual(2, rc)
                 self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
-
-    def test_nonretain_inventory_disposition_is_infrastructure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            inventory = root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
-            text = inventory.read_text(encoding="utf-8")
-            inventory.write_text(
-                text.replace(
-                    "\tretain_executable_boundary\t",
-                    "\tretire_presence_equivalent\t",
-                    1,
-                ),
-                encoding="utf-8",
-            )
-            self.assertEqual(2, self._public_rc(root)[0])
-
-    def test_census_ambiguity_is_infrastructure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            row = self._first_retained_row(root)
-            path = root / row.path
-            path.write_text(
-                path.read_text(encoding="utf-8")
-                + "\ncommand assert_count_red_under ambiguous call\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(2, self._public_rc(root)[0])
 
     def test_required_path_runs_only_git_enumeration_not_mutation_semantics(self):
         with tempfile.TemporaryDirectory() as td:

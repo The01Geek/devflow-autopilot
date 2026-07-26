@@ -456,27 +456,16 @@ engine-self-modifying shadow skeptically and run the standalone review — still
 local check can decide. The target-uniqueness guard is also the deterministic, guarantee-class form of
 the prose "pin a *target-unique* phrase" advice in the mutation-check rule.
 
-The prose mutation-check rule itself carries two further requirements beyond "break it and watch it go
-RED," shared verbatim between the implement test-first gate (`skills/implement/phases/phase-2-implement.md`) and the fix
-loop (`skills/review-and-fix/references/fixing.md` Step 3). First, **bake the half-revert into the suite**: a
-mutation-check run once by hand proves the pin caught the regression only at authoring time, so the pin
-must instead be expressed through the framework's targeted mutation-taking assertion
-`assert_pin_red_under`
-(`name literal mutation [file]`): it applies a specific `sed -E` regression — one that deletes *only*
-the operative sentence — to a scratch copy and asserts the pin flips PASS→FAIL under *that* mutation,
-so a framing-only pin the operative mutation leaves present-and-unique is reported RED for vacuity —
-a distinction a generic whole-line deletion check cannot make. That mutation mandate is itself now **mechanically
-enforced** (issues #666 and #810): a path-aware declaration gate reports a finding for
-new helper-based or direct raw source-presence pins that do not represent an executable
-structural boundary. A wording-only pin protects a literal that can change without
-changing executable behavior or a machine-consumed contract and is not accepted. A
-permitted static pin carries
+The test-first rule carries two further requirements beyond "break it and watch it go
+RED," shared between the implement gate (`skills/implement/phases/phase-2-implement.md`)
+and the fix loop (`skills/review-and-fix/references/fixing.md` Step 3). First,
+**bake the behavioral proof into the suite**: exercise the rendered interface or
+machine-observable contract with an ordinary executable test, break the behavior in
+a scratch fixture, and observe that test go RED. Wording-only presence pins remain
+prohibited. A permitted static machine-boundary pin carries
 `# structural-pin-ok: <category> -- <non-empty rationale>` with a category from the
-closed structural set; behavioral prompt regressions use a mutation-taking helper that
-removes the operative text and demonstrates the named regression. The required path also
-fails closed on comparison, diff, source-enumeration, or scratch setup failure.
-A companion runtime overbreadth guard rejects a mutation that blanks its target — the loophole where
-`1,$d` or `s/.*//` flips any pin PASS→FAIL by destroying the file rather than the guarded content.
+closed structural set. The retired mutation-taking helper census and checked-in
+inventory must remain empty, and enumeration failures fail closed.
 Second, **confirm the guard
 registered**: a green suite is not evidence a guard *ran*, so after adding any guard, confirm its named
 assertion appears in the run as a PASS *and* that the suite's assertion count rose by what was added — a

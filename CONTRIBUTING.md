@@ -149,17 +149,15 @@ map does not carry, never the reverse. A map entry with no derivation behind it 
 block whose assertions were deleted or renamed — is a curated historical record, so it is
 neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
 
-**Mutation-pin census / identity ratchet (issue #810 follow-up).** The required
+**Retired mutation-pin helpers (issue #810 follow-up).** The required
 `mutation-routing-worktree` gate builds the audited test-source census and requires
-the checked-in inventory to match it exactly. Legacy mutation sites are frozen by
-normalized identity: deleting one is allowed when the inventory is refreshed in the
-same change, while new, changed, reformatted, or moved-to-another-audited-source-path
-sites — including wrapper identities — are rejected. Identity excludes line number,
-so same-file line-position shifts and byte-identical same-file relocations are not
-tracked as moves. The gate preserves the exact audited-source/module-registry
-population check and fails closed when its census or inventory cannot be established.
-It does not claim semantic classification, execute mutations, or infer assignment
-dependencies; follow-up remediation continues through ordinary executable boundaries.
+both it and the checked-in inventory to remain empty. The former mutation-taking
+helpers and wrappers are retired: adding any definition or invocation fails closed.
+Write an ordinary executable behavioral test instead. The gate preserves the exact
+audited-source/module-registry population check and does not execute or interpret
+mutations, classify mutation effects, or infer assignment dependencies. Historical
+dispositions remain in the adjudication manifest; a consistency test derives their
+totals and verifies the live inventory summary rather than trusting repeated counts.
 
 A new static helper or direct positive source-presence assertion is allowed only for
 an executable structural boundary and must carry
