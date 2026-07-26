@@ -1219,38 +1219,47 @@ def helper_specs_for_source(
                     origins[name] = body_lineno
                     changed = True
                     break
-                if any(
-                    _ALL_POSITIONAL_RE.match(_token_value(arg).rstrip(";"))
-                    for arg in args
-                ):
-                    # A splat combined with other arguments has no stable
-                    # positional mapping for the wrapper invocation.
-                    continue
-                lit_selector, file_index, default_file = specs[callee]
-                if isinstance(lit_selector, int):
-                    if lit_selector >= len(args):
-                        continue
-                    lit_token = args[lit_selector]
-                    lit_ref = _POSITIONAL_RE.match(
-                        _token_value(lit_token).rstrip(";")
+                splat_indexes = [
+                    arg_index
+                    for arg_index, arg in enumerate(args)
+                    if _ALL_POSITIONAL_RE.match(
+                        _token_value(arg).rstrip(";")
                     )
-                    if lit_ref is not None:
-                        wrapper_lit_selector = int(lit_ref.group(1)) - 1
+                ]
+                lit_selector, file_index, default_file = specs[callee]
+                if len(splat_indexes) > 1:
+                    continue
+                splat_index = splat_indexes[0] if splat_indexes else None
+                if isinstance(lit_selector, int):
+                    if splat_index is not None and lit_selector >= splat_index:
+                        wrapper_lit_selector = lit_selector - splat_index
+                    elif lit_selector >= len(args):
+                        continue
                     else:
-                        fixed_literal = resolve_arg(
-                            lit_token,
-                            literal_vars={},
-                            path_vars={},
-                            want_path=False,
+                        lit_token = args[lit_selector]
+                        lit_ref = _POSITIONAL_RE.match(
+                            _token_value(lit_token).rstrip(";")
                         )
-                        if fixed_literal is None:
-                            continue
-                        wrapper_lit_selector = fixed_literal
+                        if lit_ref is not None:
+                            wrapper_lit_selector = int(lit_ref.group(1)) - 1
+                        else:
+                            fixed_literal = resolve_arg(
+                                lit_token,
+                                literal_vars={},
+                                path_vars={},
+                                want_path=False,
+                            )
+                            if fixed_literal is None:
+                                continue
+                            wrapper_lit_selector = fixed_literal
                 else:
                     wrapper_lit_selector = lit_selector
                 wrapper_file_index = 10**6
                 wrapper_default = default_file
-                if file_index < len(args):
+                if splat_index is not None and file_index >= splat_index:
+                    wrapper_file_index = file_index - splat_index
+                    wrapper_default = None
+                elif file_index < len(args):
                     file_value = _token_value(args[file_index]).rstrip(";")
                     file_ref = _POSITIONAL_RE.match(file_value)
                     if file_ref is not None:
@@ -1838,16 +1847,44 @@ def _typed_pin_inspection_error(site, repo_root):
     return None
 
 
-def _python_reads_text(node):
-    return any(
-        isinstance(child, ast.Call)
-        and isinstance(child.func, ast.Attribute)
-        and child.func.attr in {"read", "read_text"}
-        for child in ast.walk(node)
-    )
+def _python_read_target(node, repo_root):
+    """Return (contains file-text read, statically resolved target or None)."""
+    for child in ast.walk(node):
+        if not (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr in {"read", "read_text"}
+        ):
+            continue
+        receiver = child.func.value
+        path_arg = None
+        if (
+            child.func.attr == "read_text"
+            and isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "Path"
+            and receiver.args
+        ):
+            path_arg = receiver.args[0]
+        elif (
+            child.func.attr == "read"
+            and isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and receiver.func.id == "open"
+            and receiver.args
+        ):
+            path_arg = receiver.args[0]
+        target = None
+        if isinstance(path_arg, ast.Constant) and isinstance(path_arg.value, str):
+            target = Path(path_arg.value)
+            if not target.is_absolute():
+                target = Path(repo_root) / target
+            target = str(target)
+        return True, target
+    return False, None
 
 
-def extract_python_guard_sites(text, source_path):
+def extract_python_guard_sites(text, source_path, repo_root):
     """Extract direct Python assertions over file text."""
     try:
         tree = ast.parse(text)
@@ -1856,17 +1893,35 @@ def extract_python_guard_sites(text, source_path):
             f"Python pin source cannot be parsed: {source_path}: {exc}"
         ) from exc
     physical = text.splitlines()
+    assigned_reads = {}
+    for assignment in ast.walk(tree):
+        if (
+            isinstance(assignment, ast.Assign)
+            and len(assignment.targets) == 1
+            and isinstance(assignment.targets[0], ast.Name)
+        ):
+            is_read, target = _python_read_target(assignment.value, repo_root)
+            if is_read:
+                assigned_reads[assignment.targets[0].id] = target
     sites = []
     for node in ast.walk(tree):
         literal = haystack = helper = None
         if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Attribute)
-            and node.func.attr in {"assertIn", "assertRegex"}
+            and node.func.attr == "assertIn"
             and len(node.args) >= 2
         ):
             literal, haystack = node.args[:2]
             helper = f"python-{node.func.attr}"
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "assertRegex"
+            and len(node.args) >= 2
+        ):
+            haystack, literal = node.args[:2]
+            helper = "python-assertRegex"
         elif isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
             comparison = node.test
             if (
@@ -1877,13 +1932,23 @@ def extract_python_guard_sites(text, source_path):
                 literal = comparison.left
                 haystack = comparison.comparators[0]
                 helper = "python-assert-in"
+        direct_read, target_path = (
+            _python_read_target(haystack, repo_root)
+            if haystack is not None
+            else (False, None)
+        )
+        assigned_read = (
+            isinstance(haystack, ast.Name) and haystack.id in assigned_reads
+        )
         if (
             not isinstance(literal, ast.Constant)
             or not isinstance(literal.value, str)
             or haystack is None
-            or not _python_reads_text(haystack)
+            or not (direct_read or assigned_read)
         ):
             continue
+        if assigned_read:
+            target_path = assigned_reads[haystack.id]
         line_end = getattr(node, "end_lineno", node.lineno)
         declaration, error = parse_structural_declaration(
             physical[node.lineno - 1 : line_end]
@@ -1896,7 +1961,7 @@ def extract_python_guard_sites(text, source_path):
                 "raw-presence",
                 helper,
                 literal.value,
-                None,
+                target_path,
                 declaration,
                 error,
             )
@@ -1907,7 +1972,7 @@ def extract_python_guard_sites(text, source_path):
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
     if source_path.endswith(".py"):
-        return extract_python_guard_sites(text, source_path)
+        return extract_python_guard_sites(text, source_path, repo_root)
     repo_root = os.path.abspath(repo_root)
     lib = os.path.join(repo_root, "lib")
     helper_specs, helper_families, wrapper_origins = helper_specs_for_source(

@@ -797,6 +797,26 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 )
                 self.assertEqual(1, len(findings))
 
+    def test_fixed_prefix_before_splat_wrapper_is_inferred(self):
+        source = (
+            "F=\"$LIB/../docs/x.md\"\n"
+            "wrap() { devflow_module_pin_present \"label\" \"$@\"; }\n"
+            "wrap 'HUMAN PROSE' \"$F\""
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/a.sh", repo_root="/repo"
+        )
+        self.assertEqual(1, len(sites))
+        self.assertEqual("HUMAN PROSE", sites[0].literal)
+        self.assertEqual("/repo/docs/x.md", sites[0].target_path)
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": ""},
+            one_file_diff("lib/test/a.sh", "", source),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+
     def test_raw_presence_unresolved_indented_and_quoted_targets_fail_closed(self):
         cases = (
             (
@@ -854,6 +874,58 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         self.assertEqual(1, len(findings))
         self.assertIn("advisory wording", findings[0])
+
+    def test_python_regex_and_assigned_file_text_share_policy(self):
+        cases = (
+            (
+                "regex",
+                "self.assertRegex(Path('docs/x.md').read_text(), 'advisory wording')",
+            ),
+            (
+                "assigned pathlib",
+                "text = Path('docs/x.md').read_text()\n"
+                "self.assertIn('advisory wording', text)",
+            ),
+            (
+                "assigned open",
+                "text = open('docs/x.md').read()\n"
+                "self.assertIn('advisory wording', text)",
+            ),
+        )
+        for label, body in cases:
+            with self.subTest(label=label):
+                source = "from pathlib import Path\n" + body + "\n"
+                findings = self.mod.scan_changed_sources(
+                    {"lib/test/test_wording.py": source},
+                    {"lib/test/test_wording.py": ""},
+                    one_file_diff("lib/test/test_wording.py", "", source),
+                    repo_root="/repo",
+                )
+                self.assertEqual(1, len(findings))
+                self.assertIn("advisory wording", findings[0])
+
+    def test_python_direct_file_assertion_can_use_valid_typed_boundary(self):
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the token is parsed by the consumer"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir()
+            target.write_text("TOKEN\n", encoding="utf-8")
+            source = (
+                "from pathlib import Path\n"
+                "self.assertIn('TOKEN', Path('docs/x.md').read_text())  "
+                f"{marker}\n"
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/test_wording.py": source},
+                {"lib/test/test_wording.py": ""},
+                one_file_diff("lib/test/test_wording.py", "", source),
+                repo_root=root,
+            )
+        self.assertEqual([], findings)
 
     def test_scanner_population_is_exactly_registry_closed(self):
         registry = {
