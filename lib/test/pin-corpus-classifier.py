@@ -365,21 +365,43 @@ def parse_adjudications(text: str) -> dict[str, tuple[str, str]]:
             "adjudications must have columns: adjudication_key, bucket_final, rationale"
         )
     result = {}
+    defined_keys = set()
+    seen_events = set()
     for number, row in enumerate(rows, start=2):
         key = row["adjudication_key"]
         bucket = row["bucket_final"]
         rationale = row["rationale"].strip()
         if not key:
             raise ValueError(f"empty adjudication key at line {number}")
-        if key in result:
+        if not rationale:
+            raise ValueError(f"empty adjudication rationale: {key}")
+        event, separator, target = key.partition(":")
+        if event in {"supersede", "tombstone"}:
+            if not separator or not target or target not in result:
+                raise ValueError(f"unknown event target: {key}")
+            if key in result or key in seen_events:
+                raise ValueError(f"repeated adjudication event: {key}")
+            if event == "supersede":
+                if bucket == "unclear" or bucket not in FINAL_BUCKETS:
+                    raise ValueError(f"unknown supersession bucket {bucket!r}: {key}")
+                result[target] = (bucket, rationale)
+            else:
+                if bucket != "tombstone":
+                    raise ValueError(f"tombstone requires tombstone bucket: {key}")
+                del result[target]
+            seen_events.add(key)
+            continue
+        # A tombstone is final: retain the declaration history separately from
+        # the active result so a later ordinary row cannot silently resurrect
+        # a retired adjudication key.
+        if key in defined_keys:
             raise ValueError(f"duplicate adjudication: {key}")
         if bucket == "unclear":
             raise ValueError(f"adjudication cannot be unclear: {key}")
         if bucket not in FINAL_BUCKETS:
             raise ValueError(f"unknown final bucket {bucket!r}: {key}")
-        if not rationale:
-            raise ValueError(f"empty adjudication rationale: {key}")
         result[key] = (bucket, rationale)
+        defined_keys.add(key)
     return result
 
 
