@@ -2841,7 +2841,16 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 self.assertEqual((0, "", ""), self._public_rc(root))
 
     def test_time_prefixed_direct_helper_is_not_skipped(self):
-        for prefix in ("time", "time -p", "PIN_LABEL=fixture time", "PIN_LABEL=fixture time -p"):
+        for prefix in (
+            "time",
+            "time -p",
+            "PIN_LABEL=fixture time",
+            "PIN_LABEL=fixture time -p",
+            "time command",
+            "time command --",
+            "time -p command -p",
+            "X=1 time command",
+        ):
             with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 self._repo(root)
@@ -2859,6 +2868,9 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
         for mention in (
             "echo time assert_pin_unique",
             "printf '%s' time assert_pin_unique",
+            "time -v assert_pin_unique",
+            "time command -v assert_pin_unique",
+            "time command -V assert_pin_unique",
         ):
             with self.subTest(mention=mention), tempfile.TemporaryDirectory() as td:
                 root = Path(td)

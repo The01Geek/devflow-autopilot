@@ -1823,6 +1823,20 @@ def _token_value(token):
     return "".join(value for _, value in token)
 
 
+def _is_executable_helper_prefix(tokens):
+    """Recognize the closed Bash execution-prefix grammar before a helper."""
+    index = 0
+    if index < len(tokens) and tokens[index] == "time":
+        index += 1
+        if index < len(tokens) and tokens[index] == "-p":
+            index += 1
+    if index < len(tokens) and tokens[index] == "command":
+        index += 1
+        if index < len(tokens) and tokens[index] in {"--", "-p"}:
+            index += 1
+    return index == len(tokens)
+
+
 def _helper_calls(tokens, helper_specs):
     """Return every executable supported helper token on a shell fragment.
 
@@ -1859,14 +1873,7 @@ def _helper_calls(tokens, helper_specs):
         segment = before[segment_start:]
         while segment and assignment.match(segment[0]):
             segment.pop(0)
-        executable = not segment or segment in (
-            ["command"],
-            ["command", "--"],
-            ["command", "-p"],
-            ["time"],
-            ["time", "-p"],
-        )
-        if executable:
+        if _is_executable_helper_prefix(segment):
             calls.append((index, value))
     return tuple(calls)
 
