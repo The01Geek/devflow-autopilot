@@ -339,6 +339,24 @@ devflow_run_focused_python_test \
 rm -f "$_HPG_RETIREMENT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#810 residual prose-pin retirement manifest"
+# ────────────────────────────────────────────────────────────────────────────
+# This independent census freezes the post-#832 prose buckets before their
+# wording-only calls are removed: its frozen inventory selector and reconciled
+# Review / Implement-Create-Issue / other-shared partition make an omission or
+# a surface reassignment RED, while its current-tree arm requires every retained
+# literal to have a semantic boundary adjudication rather than a prose fallback.
+_HPG_RESIDUAL_PROSE_OUT="$(mktemp "$_hpg_tmp_root/residual-prose-manifest-unit.XXXXXX")" || {
+  printf 'could not allocate the #810 residual-prose manifest unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test \
+  "#810 residual prose-pin retirement manifest: focused Python tests pass" \
+  "$LIB/test/test_residual_prose_retirement_manifest.py" \
+  "$_HPG_RESIDUAL_PROSE_OUT"
+rm -f "$_HPG_RESIDUAL_PROSE_OUT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
 # ────────────────────────────────────────────────────────────────────────────
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units
