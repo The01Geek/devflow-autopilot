@@ -1,0 +1,171 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T16:41:28Z",
+  "fix_commit_sha": "f4e3474b",
+  "fix_files": [
+    "scripts/background-tasks-probe-verdict.py",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/modules/review-stall-backstop.sh",
+    "scripts/workflow-flight-recorder-registry.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id": "VC-1", "claim": "AC1 probe job present with the variable under test", "file": ".github/workflows/matcher-probe.yml", "verification_mode": "agent", "claim_signature": "issue_acceptance:matcher-probe.yml:ac1-background-tasks-probe-job", "verdict": "PASS", "evidence": "background-tasks-probe job present; step-scoped env sets the variable; one Agent dispatch; if:/checkout/verdict-step shape matches schedulewakeup-probe"},
+    {"id": "VC-2", "claim": "AC2 verdict recorded in the stall-backstop bullet with run id + re-probe caveat", "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "verification_mode": "agent", "claim_signature": "issue_acceptance:DEVFLOW_SYSTEM_OVERVIEW.md:ac2-verdict-recorded-in-bullet", "verdict": "PASS", "evidence": "Executed (issue #812) sentence beside the #418 record; run 30210679122; both-verdicts version-dependence caveat"},
+    {"id": "VC-3", "claim": "AC3 no shipped sentence claims an unobserved state", "file": "docs/implement-skill.md", "verification_mode": "agent", "claim_signature": "issue_acceptance:implement-skill.md:ac3-no-unobserved-claim-remains", "verdict": "PASS", "evidence": "tree-wide grep for the pre-change claim text found four sites; all four reconciled (incl. devflow-runner.yml, which no AC named)"},
+    {"id": "VC-4", "claim": "AC4 probe-row and recorded-verdict pins present", "file": "lib/test/modules/review-stall-backstop.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:review-stall-backstop.sh:ac4-two-pins-present", "verdict": "PASS", "evidence": "probe_row_present812 + recorded_verdict812, each with planted-defect controls (3 for the recorded-verdict conjuncts); all unconditional"},
+    {"id": "VC-23", "claim": "the run-id planted-defect control is not vacuous", "file": "lib/test/modules/review-stall-backstop.sh", "verification_mode": "lite", "claim_signature": "api_contract:review-stall-backstop.sh:run-id-control-not-vacuous", "verdict": "PASS", "evidence": "after the sed, no surviving 'run <8+digits>' on the Executed-#812 line; the neighbouring #418 text reads 'runs 291...', which the regex does not match"},
+    {"id": "VC-34", "claim": "engine-surface change requires a changeset", "file": ".changeset", "verification_mode": "lite", "claim_signature": "api_contract:pr:changeset-present-for-engine-surface", "verdict": "PASS", "raw_verdict": "FAIL", "normalized": true, "evidence": "was absent; .changeset/issue-812-background-tasks-probe.md added during this iteration"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "docstring claimed 'tool RESULTS are not fields this repository has established as harness-recorded; only tool_use inputs and permission_denials are' — false: docs/execution-file-shape.observed.txt records tool_use_result", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [24, 27], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "'which is why the probe grants both' inverts causality — the grant predates the observation and matcher-probe.yml states a different prior rationale", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [715, 715], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "docs record says 'harness-recorded proof' while the helper's own docstring says it is a cooperative-model measurement that proves no such thing", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [715, 715], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "the rewrite left the #418 ScheduleWakeup verdict in the same bullet with no version-dependence caveat, so it reads as a standing platform fact", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [715, 715], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "ack_only used a bare whole-file substring test while result_in_hand required per-entry co-occurrence — the leak class closed on one arm left open on the arm that manufactures a NEGATIVE finding about a shipped safety floor", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [227, 231], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "collect()'s recursive walk was the one unguarded path in a module contractually 'always exits 0' — a RecursionError would raise through render()/main() under set -euo pipefail", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [263, 267], "kind": "unhandled_exception"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the six marker constants are declared 'kept in lockstep with matcher-probe.yml's prompt' but nothing enforced the workflow direction — a prompt-side rename would yield INCONCLUSIVE forever with the suite green", "defect_signature": {"file": "lib/test/modules/review-stall-backstop.sh", "line_range": [946, 1010], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the probe job's Task,Agent grant was unpinned — dropping Agent makes every re-probe a denied dispatch with no test going RED", "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [1290, 1294], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "present-but-empty regular file distinguished in a code comment but had no fixture", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [128, 137], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Suggestion", "description": "new helper committed mode 100755 with no shebang while both siblings are 100644", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [1, 1], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the docs/implement-skill.md mirror of the recorded verdict is ungated — a future re-probe could update one file and not the other", "defect_signature": {"file": "lib/test/modules/review-stall-backstop.sh", "line_range": [1150, 1176], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the denial-side secondary tool-name net is untested — its only fixture passes via the primary token", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [214, 218], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "main()'s GITHUB_STEP_SUMMARY side-output is untested on both arms; the EXECUTION_FILE env fallback is untested", "defect_signature": {"file": "scripts/background-tasks-probe-verdict.py", "line_range": [370, 390], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "the module's assertion floor now has zero slack while two arms are conditionally skipped (root hosts report 2 fewer and trip the floor)", "defect_signature": {"file": "scripts/workflow-flight-recorder-registry.json", "line_range": [51, 52], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the chmod-000 arm self-skips via a bare echo, so dropped assertions are laundered into a clean 0-skipped pass, evading the #456 skip accounting", "defect_signature": {"file": "lib/test/modules/review-stall-backstop.sh", "line_range": [1108, 1120], "kind": "test_gap"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "f4e3474b"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "f4e3474b"},
+    {
+      "finding_id": "F-11",
+      "decision": "deferred",
+      "source_file": "lib/test/modules/review-stall-backstop.sh",
+      "claim_text": "the docs/implement-skill.md mirror of the recorded verdict is ungated",
+      "skip_category": "out-of-scope",
+      "evidence": "a real coupled-mirror gap, but gating a second docs file is new coverage beyond AC4, which names one pin home; filed as a follow-up rather than widened here",
+      "parking_evidence": {
+        "basis": "AC4 scopes the pins to the probe row and the recorded verdict; a second-file mirror gate is additive coverage outside that scope",
+        "failing_input": "a future re-probe that updates DEVFLOW_SYSTEM_OVERVIEW.md's run id but not implement-skill.md's",
+        "source": "lib/test/modules/review-stall-backstop.sh recorded_verdict812",
+        "finding_ref": {"iter": 1, "index": 10}
+      }
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "deferred",
+      "source_file": "scripts/background-tasks-probe-verdict.py",
+      "claim_text": "the denial-side secondary tool-name net is untested",
+      "skip_category": "out-of-scope",
+      "evidence": "the analyst verified the branch works today; it is untested, not broken. Adding the fixture is additive coverage of a fallback net, filed as a follow-up",
+      "parking_evidence": {
+        "basis": "verified working at HEAD by the reporting analyst; the gap is coverage, not behavior",
+        "failing_input": "a denied input-less dispatch after a json.dumps separator or tool_name key change",
+        "source": "scripts/background-tasks-probe-verdict.py dispatch_attempted",
+        "finding_ref": {"iter": 1, "index": 11}
+      }
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "deferred",
+      "source_file": "scripts/background-tasks-probe-verdict.py",
+      "claim_text": "main()'s GITHUB_STEP_SUMMARY side-output and the EXECUTION_FILE env fallback are untested",
+      "skip_category": "out-of-scope",
+      "evidence": "the analyst confirmed both behave correctly today (28 lines appended; rc=0 with a breadcrumb on an unwritable path); additive coverage filed as a follow-up",
+      "parking_evidence": {
+        "basis": "both arms verified working at HEAD by the reporting analyst",
+        "failing_input": "a refactor that lets the summary append raise under set -euo pipefail",
+        "source": "scripts/background-tasks-probe-verdict.py main()",
+        "finding_ref": {"iter": 1, "index": 12}
+      }
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "deferred",
+      "source_file": "scripts/workflow-flight-recorder-registry.json",
+      "claim_text": "the module's assertion floor has zero slack while two arms are conditionally skipped",
+      "skip_category": "out-of-scope",
+      "evidence": "pre-existing shape — the #415 and #610 arms at lines 390/538 do the same, and the module's own comment records it as a deliberate non-root host requirement rather than a portability accommodation; a fix belongs to all three arms at once",
+      "parking_evidence": {
+        "basis": "pre-existing repo-decided host requirement, documented in the module; this change replicates the established pattern rather than introducing it",
+        "failing_input": "running the module as root, where chmod 000 does not deny reads",
+        "source": "lib/test/modules/review-stall-backstop.sh, the #415 arm's own NOTE (issue #746)",
+        "finding_ref": {"iter": 1, "index": 13}
+      }
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "deferred",
+      "source_file": "lib/test/modules/review-stall-backstop.sh",
+      "claim_text": "the chmod-000 arm self-skips via a bare echo, evading the #456 skip accounting",
+      "skip_category": "out-of-scope",
+      "evidence": "three-agent-corroborated and real, but this PR adds a third instance of a pattern already at lines 390 and 538; converting one of three would leave the accounting gap open while implying it was closed, so all three convert together in a follow-up",
+      "parking_evidence": {
+        "basis": "replication of a pre-existing pattern; a correct fix converts all three arms and confirms skip() is reachable from a standalone run-module.sh run",
+        "failing_input": "running the module on a host where chmod 000 does not deny reads, which reports 0 skipped while assertions did not execute",
+        "source": "lib/test/modules/review-stall-backstop.sh lines 390, 538, and the new #812 arm",
+        "finding_ref": {"iter": 1, "index": 14}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 10,
+    "fix_diff_lines": 118,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 2, "tokens": 216721, "wall_clock_s": 209},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 30},
+    "phase_3": {"calls": 5, "tokens": 604695, "wall_clock_s": 290},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}
