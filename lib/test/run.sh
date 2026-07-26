@@ -5706,6 +5706,17 @@ assert_eq "#781: acs prints every criterion unfiltered (tick state + (post-merge
   '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
   "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
 
+# The COMPOSED --emit-source-token output on a criteria-BEARING fixture: the
+# other --emit-source-token assertions all use zero-criteria fixtures (sentinel,
+# unmirrored, colon, noheading, empty), so only the bare token line is ever
+# checked. Here the `workpad` source token must lead, followed by the rendered
+# criteria — exactly the two-part shape cmd_acs's `out` list assembles and that
+# Phase 0.4 parses positionally (token line first, criteria after).
+run781 "$S781/wp-real.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: acs --emit-source-token composes the source token line ABOVE the rendered criteria" \
+  'workpad|- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+
 # The reviewer-facing form: post-merge criteria excluded, every box neutralized.
 _c="$(run781 "$S781/wp-real.md" acs 999 --exclude-post-merge --neutralize-boxes)"
 assert_eq "#781: acs --exclude-post-merge --neutralize-boxes drops tagged rows and unticks the rest" \
@@ -30291,7 +30302,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 182; then
+  "review-stall-backstop" 190; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
