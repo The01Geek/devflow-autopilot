@@ -668,7 +668,9 @@ def branch_state(args: argparse.Namespace) -> int:
         if _flag in state and not isinstance(state[_flag], bool):
             return _unavailable_state(
                 f"branch-state '{_flag}' must be a JSON boolean (true/false), not "
-                f"{type(state[_flag]).__name__} — a quoted \"false\" reads as a refutation "
+                f"{type(state[_flag]).__name__} — a quoted \"false\" is truthy, so on a "
+                f"truthiness-read flag it would VOUCH for history the caller never "
+                f"vouched for, and on an identity-read flag it reads as a refutation "
                 f"the caller never established"
             )
     # `open_pr_branch` / `open_pr_selected_by` are string operands, so they take a
