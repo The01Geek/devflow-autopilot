@@ -96,6 +96,15 @@ devflow_render_report() {
         printf -- '- %s\n' "$liveness"
     fi
 
+    # Withheld by a filing cap (issue #788) — every pattern the back-pressure caps
+    # held back this run, named with the cap that withheld it.
+    local withheld_n
+    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // []) | length')"
+    if [ "$withheld_n" -gt 0 ]; then
+        printf '\n## Patterns withheld by a filing cap\n\n'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // [])[] | "- `\(.tag // .slug)` — withheld by `\(.cap)`"'
+    fi
+
     # Won't-fix re-raised (issue #788) — patterns re-filed this run whose meta-issue
     # was previously closed NOT_PLANNED. The lifecycle deliberately re-raises a
     # recurring won't-fix; name each one and the one durable off-switch (a human

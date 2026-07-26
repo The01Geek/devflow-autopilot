@@ -209,5 +209,23 @@ DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/
 assert_eq "#788 liveness: all-filed recurring set emits NO warning" "false" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live2.err" && echo true || echo false)"
 
+# ── caps: open-count derivation + report rendering ───────────────────────────
+# The cap counts are derived from `filed` lifecycle entries across records, never
+# from a label query. A record with two `filed` entries and one `fixed` entry
+# contributes 2 to max_open_issues and 2 to that category's max_open_per_category.
+CAP_OV='{"schema_version":2,"patterns":{"a":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":1,"url":"u","state":"filed","closedAt":null},{"number":2,"url":"u","state":"filed","closedAt":null},{"number":3,"url":"u","state":"fixed","closedAt":"2026-01-01T00:00:00Z"}]},"b":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":4,"url":"u","state":"filed","closedAt":null}]}},"dismissed":{}}'
+assert_eq "#788 caps: total open = filed entries across all records" "3" \
+  "$(printf '%s' "$CAP_OV" | jq -r '[(.patterns // {})[] | (.meta_issues // [])[] | select(.state=="filed")] | length')"
+assert_eq "#788 caps: per-category open = filed entries in one record" "2" \
+  "$(printf '%s' "$CAP_OV" | jq -r '[.patterns["a"].meta_issues[]? | select(.state=="filed")] | length')"
+# render-report names each withheld pattern with its cap.
+( . "$REPO_ROOT/lib/render-report.sh"
+  WSUM='{"prs_scanned":1,"clean_count":0,"analyzed_count":1,"withheld_patterns":[{"tag":"tooling-gap","cap":"max_issues_per_run"}]}'
+  WREP="$(devflow_render_report "$WSUM")"
+  assert_eq "#788 report: withheld section names the pattern" "true" \
+    "$(printf '%s' "$WREP" | grep -q 'tooling-gap' && echo true || echo false)"
+  assert_eq "#788 report: withheld section names the cap" "true" \
+    "$(printf '%s' "$WREP" | grep -q 'max_issues_per_run' && echo true || echo false)" )
+
 rm -rf "$RL_TMP"
 trap - RETURN

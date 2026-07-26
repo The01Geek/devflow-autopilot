@@ -504,9 +504,36 @@ subagent's prompt:
 
 Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
-#### 8c — File one issue per pattern (serial)
+#### 8c — File one issue per pattern (serial, under the filing back-pressure caps)
 
-For each `(pattern, result)` pair, in any order:
+Before filing, read the three back-pressure caps and the current open-issue counts
+from the lifecycle records (issue #788). The counts are derived from the
+`overrides.json` lifecycle records — the meta-issue entries whose reconciled state
+is `filed` — never from the `Retrospective` label query or a title parse, so a
+human-applied label cannot consume the loop's budget and a loop-filed issue whose
+best-effort label failed still counts:
+
+```bash
+MAX_PER_RUN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_issues_per_run' 3)"
+MAX_OPEN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
+MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_per_category' 2)"
+# Total `filed` entries across every record, and per-slug `filed` counts.
+OPEN_TOTAL="$($LIB/../scripts/run-jq.sh -r '[(.patterns // {})[] | (.meta_issues // [])[] | select(.state=="filed")] | length' .devflow/learnings/overrides.json)"
+```
+
+Track `filed_this_run` (starts at 0) and, for each slug, its current per-category
+`filed` count (`[.patterns[<slug>].meta_issues[]? | select(.state=="filed")] | length`).
+
+For each `(pattern, result)` pair, in any order, **first apply the caps**:
+
+- If `filed_this_run >= MAX_PER_RUN` → withhold, record `{tag, cap: "max_issues_per_run"}` in `withheld`, skip.
+- If the pattern's per-category `filed` count `>= MAX_PER_CAT` → withhold with `cap: "max_open_per_category"`, skip.
+- If the pattern's `status` is **not** `regressed` and `OPEN_TOTAL >= MAX_OPEN` → withhold with `cap: "max_open_issues"`, skip. A `regressed` pattern **bypasses** `max_open_issues` (a post-fix regression is the highest-value signal), but still honours the per-run and per-category caps above.
+
+Only if no cap withholds it do you file (below), then increment `filed_this_run`,
+`OPEN_TOTAL`, and that slug's per-category count. Carry `withheld` into the Step 9
+summary as `withheld_patterns` (each `{tag, cap}`) so the report names every pattern
+withheld together with the cap that withheld it.
 
 Write the subagent's raw result to `.devflow/tmp/result-${SLUG}.json` with the
 **Write tool** (it can contain quotes, backticks, newlines, and `$` — never
@@ -536,8 +563,9 @@ else
     TITLE="$($LIB/../scripts/run-jq.sh -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
 
     # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
-    #    (best-effort), records the overrides.json cooldown, is idempotent (an
-    #    open issue for this pattern → recurrence comment, not a duplicate), and
+    #    (best-effort), records a number-keyed `filed` overrides.json lifecycle
+    #    entry, is idempotent (an open issue for this pattern → recurrence comment
+    #    updating the same entry in place, not a duplicate), and
     #    fails CLOSED (non-zero exit) on a de-dup-lookup error or a create that
     #    returned no usable issue URL. An overrides-write failure AFTER a
     #    successful create is the one exception: the issue genuinely exists, so it
@@ -621,6 +649,9 @@ printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.j
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
 printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/blockers.json"
+# withheld_patterns (issue #788): each {tag, cap} the Step-8 caps held back. An
+# empty bash array writes `[]`, which render-report omits.
+printf '%s\n' "${withheld[@]:-}"            | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))' > "$_SUMMARY_TMP/withheld_patterns.json"
 # Same fail-loud property for the four INLINE producers above. Their `> file` redirect
 # truncates the file before the pipeline runs, so a failing jq (unresolvable binary, a
 # malformed element under -sc '.') leaves the file EMPTY — and an empty --slurpfile
@@ -648,12 +679,14 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --slurpfile intervention_issues "$_SUMMARY_TMP/intervention_issues.json" \
   --slurpfile cooldown_skipped    "$_SUMMARY_TMP/cooldown_skipped.json" \
   --slurpfile blockers            "$_SUMMARY_TMP/blockers.json" \
+  --slurpfile withheld_patterns   "$_SUMMARY_TMP/withheld_patterns.json" \
   --argjson state_pr              "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     skipped_count:$skipped_count,skips:$skips[0],
     analyzed:$analyzed[0],patterns:$patterns[0],recurring_targets:$recurring_targets[0],
     intervention_issues:$intervention_issues[0],
-    cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],state_pr:$state_pr}')"
+    cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],
+    withheld_patterns:$withheld_patterns[0],state_pr:$state_pr}')"
 rm -rf "$_SUMMARY_TMP"
 ```
 
