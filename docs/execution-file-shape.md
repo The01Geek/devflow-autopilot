@@ -188,8 +188,14 @@ is reconstructable from the harness's own output, with no agent cooperation.
   `claude-code-action` upgrade, matching the existing matcher-probe contract. (The AC7
   transcript check is **not** a workflow job: it needs a real local Claude Code `Stop`, so it
   is refreshed by re-running `scripts/stop-hook-probe.sh` locally, not by a dispatch. The
-  other jobs in `matcher-probe.yml` — `probe`, `schedulewakeup-probe` — predate #437 and
-  belong to other issues.)
+  file's other jobs belong to other issues — some predating #437 (`probe`,
+  `schedulewakeup-probe`), some added after it (`implement-probe`, `cancel-probe`, and the
+  issue-#812 `background-tasks-probe`). Several of those later jobs also derive their verdict
+  from the execution file rather than from the model's text, so this record's shape
+  observations are load-bearing beyond the two #437 jobs; each such job's recorded result
+  lives with its own issue — the `background-tasks-probe` verdict in
+  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s
+  `devflow_implement.stall_backstop` bullet — not here.)
 
 ---
 
