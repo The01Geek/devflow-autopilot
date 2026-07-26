@@ -245,7 +245,12 @@ https://code.claude.com/docs/en/sub-agents on 2026-07-24 and not re-derived here
 completion notification **in a later turn** — which a headless `claude -p` cloud run never reaches,
 so the dispatched work is discarded and the run can end with no verdict. Two layers cover this:
 the cloud engine workflow steps set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"`, documented upstream
-as keeping subagents in the foreground; and each engine root states the requirement behaviorally, so
+as keeping subagents in the foreground (and, since issue #812, no longer resting on that upstream
+documentation alone — a `background-tasks-probe` job in `.github/workflows/matcher-probe.yml`
+observed the variable's effect inside `claude-code-action`; the dated verdict, its run identifiers,
+and its re-probe caveat are recorded once, in
+[`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s `devflow_implement.stall_backstop`
+bullet); and each engine root states the requirement behaviorally, so
 it holds on runtimes with no equivalent switch. The workflow variable is the floor, not the only
 lever: the corresponding **per-dispatch** parameter (`run_in_background: false` on this runner) is
 the one the dispatching engine can set itself, and the injected review grounding block names it as

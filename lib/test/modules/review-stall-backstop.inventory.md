@@ -25,7 +25,7 @@ source, so a count copied here could drift out of it silently.
 | Grounding-block coupling | `#408` `render-grounding-block.sh` rows | wiring section | the resume path carries the rendered grounding block rather than a second hand-copied one |
 | Review-skill coupling | `#408` bundle pins | bundle-pin section | the headless-wait discipline sentences survive somewhere in the review engine bundle |
 | Post-and-annotate helper | `#414` head | post-and-annotate section | `post-review-backstop-comment.sh` posts and annotates as one extracted helper |
-| Probe verdict readers | `#414` `schedulewakeup-probe-verdict.py` / `agents-seam-probe-verdict.py` rows | probe-verdict section | each reader's verdict arms, including the unestablished-measurement arm |
+| Probe verdict readers | `#414` `schedulewakeup-probe-verdict.py` / `agents-seam-probe-verdict.py` rows, plus the `#812` `background-tasks-probe-verdict.py` rows added after extraction | probe-verdict section | the verdict arms each reader's own closed arm set defines, including its unestablished-measurement arm |
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
