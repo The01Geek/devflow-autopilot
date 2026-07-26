@@ -3836,9 +3836,12 @@ assert_pin_red_under "fix-delta gate: Suggestion/Minor from the two pre-existing
 # #816: the routing block's scoping sentence itself — removing it restores the state the ACs call
 # out, where the severity-graded arms and the added-assertion disposition are both applicable to
 # the same input and contradict each other.
+# Pin the OPERATIVE scoping clause, not the trailing consequence sentence: deleting the
+# consequence leaves the scoping fully intact, so a pin on it would be a framing-only pin that
+# stays green over the very re-widening it names. The mutation re-widens the arms to every check.
 assert_pin_red_under "#816 gate-routing-scoped: the fix-delta gate's severity arms are scoped to the two pre-existing checks, the added-assertion check carrying its own disposition" \
-  'so every input has exactly one applicable disposition rather than two applicable and contradicting ones' \
-  's/so every input has exactly one applicable disposition rather than two applicable and contradicting ones//'
+  'apply to the **#62/#98 operand-contract check and the adversarial input-shape matrix**' \
+  's/apply to the \*\*#62\/#98 operand-contract check and the adversarial input-shape matrix\*\*/apply to every check this gate carries/'
 # #816: the added-assertion disposition inherits the gate's termination machinery. Mutating the
 # inheritance clause to an exemption re-introduces a check whose findings never terminate under the
 # 2-attempt cap — the regression the AC names.
@@ -11461,7 +11464,7 @@ assert_pin_red_under "#816 fix-delta-preserved-invariants-qualified: item 3b's P
 # mutation restores that ungranted instruction, re-introducing the named defect.
 assert_pin_red_under "#816 item-3a-granted-form: fixing.md item 3a's locate step instructs the granted command forms item 3b names, not the ungranted git grep" \
   'using the granted command forms item 3b'"'"'s **Command forms** paragraph names' \
-  's/Search for the identifier\(s\) in the files this PR'"'"'s diff touched — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names \(the \*\*Grep tool\*\* first, `rg` when it resolves on the host, `grep -rnE` last with the directory-exclusion obligation\) —/`git grep -n` the identifier(s) in the files this PR'"'"'s diff touched/'
+  's/ — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names//'
 
 # The gate's dispatch scope is what makes the added-assertion check dischargeable: an assertion
 # guarding untouched text has its target OUTSIDE the delta by construction, so a delta-only scope
@@ -11476,18 +11479,10 @@ assert_pin_red_under "#816 gate-assertion-unestablished: an added assertion whos
   'report that assertion **unestablished** — never clean' \
   's/report that assertion \*\*unestablished\*\* — never clean/report that assertion clean/'
 
-# The gate's third check and its three reportable outcomes are a contract this file states and the
-# blinded Step 3.5 subagent dispatch consumes; the outcome vocabulary is what makes a report
-# attributable to a specific failure shape rather than a free-text opinion.
-assert_pin_red_under "#816 gate-assertion-check: the fix-delta gate carries the added-assertion attribution check" \
-  'identify the regression that assertion'"'"'s **own name and description** claim it catches' \
-  's/identify the regression that assertion'"'"'s \*\*own name and description\*\* claim it catches/note that the assertion exists/'
-# The third reportable outcome is the one that catches a sibling-arm identity collision — the
-# defect shape whose two arms carried identical labels, so a failure was not attributable to one.
-# The mutation deletes that outcome, restoring a two-outcome vocabulary that cannot report it.
-assert_pin_red_under "#816 gate-assertion-outcome-nonattributable: the check names the non-attributable-sibling-arm outcome" \
-  'does not distinguish it from a sibling arm' \
-  's/\*\*\(iii\)\*\* the assertion'"'"'s \*\*reported identity does not distinguish it from a sibling arm\*\*/**(iii)** the assertion reports under its own distinct name/'
+# The gate's third check and its three reportable outcomes are pinned once, in
+# lib/test/modules/review-and-fix-contract.sh — the focused module that owns the review-and-fix
+# reference surface. A second copy here would target the same bundle bytes with the same mutation,
+# so it would add no coverage and would make every future wording change a two-file lockstep edit.
 
 # The two Sweep-selection trigger arms are what make §2.3.0d reachable from the classification step
 # rather than only from its own heading. Each mutation deletes its arm, restoring the state in which
