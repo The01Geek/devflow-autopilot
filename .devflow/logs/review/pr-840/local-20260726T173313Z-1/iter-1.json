@@ -1,0 +1,281 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T17:33:13Z",
+  "fix_commit_sha": "review-fix-pass-1",
+  "fix_files": [
+    "scripts/preflight.py",
+    "skills/implement/phases/phase-1-setup.md",
+    "docs/implement-skill.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "a head-branch-query-selected resume PR carrying no closing linkage is terminally DECISION_BLOCKED — the outcome the change exists to remove",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "reblocked_population"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "'gather all three or none' had no mechanism: a partial gather was indistinguishable from a genuine refutation",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "policy_without_mechanism"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "surviving mutant: `is True` -> `!= False` on the closes-issue conjunct stayed green (no absent-field arm)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "surviving_mutant"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "derived payload keys provenance_source / pr_linkage_vouches asserted by nothing",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "unasserted_contract"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "the widened routing prose (the only thing making the helper run on the landed-resume arm) was unguarded after the negative-control pin was retired",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "documented falsehood: the new identity-checked flags were said to 'fail open' on a quoted \"false\"; they fail closed",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "self-contradicting diff: the preflight header said the threat model is 'stated once ... do not restate it here' while the same diff shipped it in three places",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "overstated universal 'every landed resume' in two files; a workpad-vouched landed resume is unaffected",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "overclaim"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "the new assert_pin_unique protects secondary rationale prose, not behavior or a machine-consumed contract",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "wording_only_pin"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "stale run.sh comment (g) forward-references the pin this same diff deleted",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "stale_self_reference"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "the shipped prose advertised a branch-mismatch screen that is unreachable by construction on the landed-resume arm",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "open_pr_branch was the one gate operand with no typed refusal, so a malformed value failed closed silently",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "unattributed_failure"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "§1.4.0.5's arm gate read shell variables the same file argues do not survive across fences",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "kind": "prose_incoherence"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "JSON null vs omitted untested for the new operands; no positive control carrying them",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "matrix_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "a PR-vouched stop reports the reason slug 'matching-verdict-tip-unreachable' naming a verdict the code synthesized rather than observed",
+      "defect_signature": {
+        "file": "scripts/preflight.py",
+        "kind": "diagnosability"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "precedence asserted at one workpad-verdict shape only",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "kind": "coverage_depth"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "adding isCrossRepository to both --json lists creates a whole-query failure mode on a gh too old to know the field; no documented version floor",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-1-setup.md",
+        "kind": "boundary_assumption"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-15",
+      "decision": "deferred",
+      "source_file": "scripts/preflight.py",
+      "claim_text": "give the PR-vouched tip-unreachable stop its own reason slug",
+      "skip_category": "out-of-scope",
+      "evidence": "a new reason slug is an addition to an enumerated value set, arming the §2.3.0b doc-mirror reconciliation sweep across the phase file and two docs; the payload already carries provenance_source in the same object, so the attribution is available at zero vocabulary cost"
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "assert precedence at a second workpad-verdict shape",
+      "skip_category": "uncategorized",
+      "evidence": "the existing both_wp_precedence arm already kills the PR-precedence mutant (a PR-precedence implementation returns VALIDATED_RESUME there instead of divergent-nonexistent); a second point adds a subprocess without a distinct mutant"
+    },
+    {
+      "finding_id": "F-17",
+      "decision": "deferred",
+      "source_file": "skills/implement/phases/phase-1-setup.md",
+      "claim_text": "document or guard a gh version floor for isCrossRepository",
+      "skip_category": "out-of-scope",
+      "evidence": "pre-existing class — the same two queries already request closingIssuesReferences with no floor, and lib/preflight.sh checks gh presence only; isCrossRepository is long-standing in gh 2.x. Recorded as an unverified boundary rather than fixed here"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "fix_diff_lines": 240,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "reason": "single-pass inline review driven from /devflow:implement Phase 3.3; the five-agent Phase 3 roster ran with full coverage, but no separate post-fix shadow fan-out was dispatched",
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
