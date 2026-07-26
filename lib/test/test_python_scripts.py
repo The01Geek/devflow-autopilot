@@ -16661,6 +16661,13 @@ _code, _out, _err, _patched = _drive_cmd_update(
             .replace("- [ ] Plan step two\n", ""),
     replace_plan_file='/nonexistent/plan.md')
 assert_eq("#814: a structural abort exits 1 with empty stdout", (1, ""), (_code, _out))
+# Attribute the rejection: the fixture strips ## Plan AND names an unreadable file, so
+# two different guards could produce the (1, "") above. Pin the unreadable-file guard's
+# own signal so a mutant that dropped it — leaving the missing-section guard to reject
+# the same fixture — turns this RED instead of passing on the wrong rejection.
+assert_eq("#814: ... and the abort is attributable to the unreadable --replace-plan-file, "
+          "not to some other guard rejecting the same fixture",
+          True, "plan.md" in _err)
 
 _code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, patch_fails=True, note=['n'])
 assert_eq("#814: a PATCH-call failure exits 1 with empty stdout and no breadcrumb",
@@ -16719,8 +16726,8 @@ assert_eq("#814: a PATCH response carrying no Status line renders '(not found)',
           "never a bare empty clause",
           True, "workpad.py update: PATCHed comment 7; Status: (not found)" in _err)
 assert_eq("#814: ... and the unreadable read-back also raises the landed-Status "
-          "mismatch WARNING",
-          True, "the PATCH response reads Status '(unreadable)'" in _err)
+          "mismatch WARNING, carrying the same distinct token the clause did",
+          True, "the PATCH response reads Status '(not found)'" in _err)
 
 # An EMPTY PATCH response (a throttled/oversized write) is reported distinctly from a
 # response whose body simply carries no Status line: pointing the reader at a corrupt
@@ -16730,12 +16737,40 @@ _code, _out, _err, _patched = _drive_cmd_update(
 assert_eq("#814: an empty PATCH response renders '(empty response)', not '(not found)'",
           (True, False),
           ("; Status: (empty response)" in _err, "; Status: (not found)" in _err))
+assert_eq("#814: ... and the empty-response read-back raises the WARNING too, with the "
+          "same distinct token — the two unobserved states stay distinguishable on "
+          "both lines",
+          True, "the PATCH response reads Status '(empty response)'" in _err)
 
-# The landed-Status comparison is machine-observable, not prose-only: a PATCH that
-# returns success while the comment body still carries the OLD status warns.
+# The landed-Status comparison is machine-observable, not prose-only. Both halves are
+# driven, because a predicate that compared the requested status against itself would
+# stay green on the matching half alone: a PATCH that returns 200 while the comment
+# body still carries the OLD status must warn, and a PATCH that landed must not.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', patch_response=IDX_BODY)
+assert_eq("#814: a PATCH response still carrying the OLD Status raises the "
+          "landed-Status mismatch WARNING naming both values",
+          True,
+          "the PATCH response reads Status 'implementing', not the requested 'reviewing'"
+          in _err)
+assert_eq("#814: ... and its breadcrumb reports the stale value it read back",
+          True, "; Status: 🚀 Implementing" in _err)
+
 _code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing')
 assert_eq("#814: a matching read-back raises no landed-Status mismatch warning",
           False, "the PATCH response reads Status" in _err)
+
+# The WARNING is NOT gated on the clean path: it is failure-shaped, so it composes
+# with the volatile-miss report rather than re-creating the success/failure split —
+# and the combined --status + tick shape is where a stale Status is most likely.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'], patch_response=IDX_BODY)
+assert_eq("#814: the landed-Status mismatch WARNING fires on the volatile-tick-miss "
+          "path too, beside the miss report and without a success breadcrumb",
+          (True, True, 0),
+          ("the PATCH response reads Status 'implementing'" in _err,
+           "NO_SUCH_AC" in _err,
+           _err.count("workpad.py update: PATCHed comment ")))
 
 # The breadcrumb fires on EVERY exit-0 PATCH path, including a checkpoint INSERT —
 # the shape .github/workflows/devflow-implement.yml's gate-adopted / claude-invoke

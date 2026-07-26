@@ -7369,7 +7369,7 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 "$@" --print-body >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 --print-body "$@" >"$S258/out" 2>"$S258/err"
   echo $?
 }
 
@@ -7977,10 +7977,10 @@ cat > "$S781U/base.md" <<'WPMD'
 </details>
 WPMD
 WP_BODY="$S781U/base.md" DEVFLOW_GH="$S781U/gh" python3 "$WP_PY" update 999 \
+  --print-body \
   --note 'scope decision: this PR delivers A only' \
   --scope-decision-deferred pending 'Criterion B' \
   --scope-decision-rewritten pending 'Criterion A' 'Criterion A2' \
-  --print-body \
   >"$S781U/out" 2>"$S781U/err"
 _c781u=$?
 assert_eq "#781: an update writing scope-decision records exits 0" "0" "$_c781u"
@@ -8421,7 +8421,7 @@ run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlo
   local body="$1"; shift
   : > "$S356/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
-    python3 "$WP_PY" update 888 "$@" --print-body >"$S356/out" 2>"$S356/err"
+    python3 "$WP_PY" update 888 --print-body "$@" >"$S356/out" 2>"$S356/err"
   echo $?
 }
 
@@ -9154,6 +9154,18 @@ PY
 assert_eq "#814: ... while the default run's stdout capture is zero bytes" "yes" "$_defaultout_empty"
 assert_eq "#814: ... and the --print-body run's stdout capture is not" "yes" \
   "$([ -s "$S356/out8" ] && echo yes || echo no)"
+# Identity, not merely non-emptiness: --print-body must echo the PATCH RESPONSE (what
+# the pre-#814 code wrote), never the locally mutated body. The 15 existing readers are
+# content probes and would stay green on either, so this is the only assertion that
+# distinguishes them. Same clock normalisation, same preflight-guaranteed python3.
+assert_eq "#814: --print-body echoes the PATCH response bytes, not the locally mutated body" "yes" \
+  "$(python3 - "$S356/out8" "$S356/patchbody8" <<'PY814'
+import re, sys
+def norm(p):
+    return re.sub(r'(?m)^\*\*Last updated:\*\*.*$', '**Last updated:** X', open(p, encoding='utf-8').read())
+print('yes' if norm(sys.argv[1]) == norm(sys.argv[2]) else 'no')
+PY814
+)"
 # The pair only proves invariance if the recordings are real, not two empty files.
 assert_eq "#814: the payload-invariance comparison ran over a non-empty recorded PATCH body" "yes" \
   "$([ -s "$S356/pb-default" ] && echo yes || echo no)"
@@ -9191,6 +9203,11 @@ assert_eq "#814: a structural abort exits non-zero" "no" \
   "$([ "$_c" = "0" ] && echo yes || echo no)"
 assert_eq "#814: a structural abort writes nothing to stdout" "yes" \
   "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+# Attribute the rejection (guard-class 3): more than one structural guard could reject
+# this fixture, so pin the unreadable-file guard's own signal. Without it a mutant that
+# dropped that guard — leaving a sibling to reject the same input — would stay green.
+assert_eq "#814: ... and the abort is attributable to the unreadable --replace-plan-file" "yes" \
+  "$(grep -q 'no-such-plan.md' "$S356/err8" && echo yes || echo no)"
 : > "$S356/patchlog"; : > "$S356/patchbody8"
 WP_BODY="$S356/interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCH_FAIL=1 DEVFLOW_GH="$S356/gh" \
   python3 "$WP_PY" update 888 --note 'n' >"$S356/out8" 2>"$S356/err8"; _c=$?
@@ -9979,7 +9996,7 @@ run338() {
   local body="$1"; shift
   : > "$S338/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S338/patchlog" DEVFLOW_GH="$S338/gh" \
-    python3 "$WP_PY" update 999 "$@" --print-body >"$S338/out" 2>"$S338/err"
+    python3 "$WP_PY" update 999 --print-body "$@" >"$S338/out" 2>"$S338/err"
   echo $?
 }
 

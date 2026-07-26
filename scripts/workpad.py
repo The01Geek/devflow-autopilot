@@ -1959,17 +1959,15 @@ def cmd_update(args):
     except _NoOpReplay:
         # A checkpoint-only call whose every key already exists (issue #537, AC14):
         # a pure replay. Do NOT refresh `Last updated` and do NOT PATCH — echo the
-        # unchanged live body to stdout only under `--print-body` (issue #814: the
-        # echo is suppressed by default because no caller consumes it and it costs
-        # the orchestrator the whole workpad body per call), then exit 0. This arm's
-        # OWN replay message (written three lines down) is unconditional, so a replay
-        # is never byte-silent — but it is deliberately NOT the `PATCHed comment <id>`
+        # unchanged live body to stdout only under `--print-body` (issue #814
+        # suppressed the echo by default; the class docstring owns that rationale),
+        # then exit 0. The non-obvious point here: this arm's OWN replay message
+        # (written three lines down) is deliberately NOT the `PATCHed comment <id>`
         # success breadcrumb, which the PATCH tail writes and this arm never reaches,
-        # because no PATCH happened here. A
-        # replay COMBINED with any other mutation never reaches here
-        # (`_has_non_checkpoint_mutation` is true — `print_body` is deliberately
-        # absent from its allowlist, so the flag alone never makes a call a
-        # mutation), so it applies that mutation once and PATCHes normally without
+        # because no PATCH happened. A replay COMBINED with any other mutation never
+        # reaches here (`_has_non_checkpoint_mutation` is true — `print_body` is
+        # deliberately absent from its allowlist, so the flag alone never makes a call
+        # a mutation), so it applies that mutation once and PATCHes normally without
         # duplicating the checkpoint.
         sys.stderr.write(
             "workpad.py update: checkpoint replay — all requested checkpoint "
@@ -2042,43 +2040,51 @@ def cmd_update(args):
     # `--print-body`, and NOT written on the volatile-miss path below — a
     # success-shaped line beside a failing exit code would re-create on stderr the
     # split the exit-code rule exists to prevent.
+    # Read the Status back from the PATCH response on ANY `--status` call that
+    # PATCHed — including one whose tick missed. Three unobserved states are reported
+    # distinctly rather than collapsed onto one token: an EMPTY response (a throttled
+    # or oversized write — the comment itself may be perfectly healthy, so pointing
+    # the reader at a corrupt body would misdirect them), a non-empty response
+    # carrying no Status line, and a resolved value. None renders as a bare empty
+    # clause a reader could mistake for "no --status was set". The read goes through
+    # the shared value reader, never a second regex site.
+    _status_clause = ''
+    _live = ''
+    _read_back = ''
+    if args.status:
+        if not r.stdout:
+            _read_back = '(empty response)'
+        else:
+            _live = _status_value_from_body(r.stdout)
+            _read_back = _live or '(not found)'
+        _status_clause = f"; Status: {_read_back}"
     if not failed_ticks:
-        _status_clause = ''
-        _live = ''
-        if args.status:
-            # Glyph-preserving read through the shared value reader, never a second
-            # regex site. Three unobserved states are reported distinctly rather than
-            # collapsed onto one string: an EMPTY PATCH response (a throttled or
-            # oversized write — the comment itself may be perfectly healthy, so
-            # pointing the reader at a corrupt body would misdirect them), a non-empty
-            # response carrying no Status line, and a resolved value. None of the
-            # three renders as a bare empty clause a reader could mistake for "no
-            # --status was set".
-            if not r.stdout:
-                _status_clause = '; Status: (empty response)'
-            else:
-                _live = _status_value_from_body(r.stdout)
-                _status_clause = f"; Status: {_live}" if _live else '; Status: (not found)'
         sys.stderr.write(
             f"workpad.py update: PATCHed comment {comment_id}{_status_clause}\n"
         )
-        # The read-back is only a guard if something compares it. Leaving the
-        # comparison to prose alone lets a reader skim the line for "breadcrumb
-        # present, exit 0" and advance over a PATCH that returned 200 with the
-        # comment body unchanged, so the mismatch is made machine-observable here.
-        # It is a WARNING, not a failure: the PATCH call itself succeeded and the
-        # caller owns the re-issue decision. The comparison reads `_live` — the value
-        # the reader above resolved — never a re-parse of the rendered clause, so the
-        # guard and the breadcrumb cannot disagree about what was read back.
-        if args.status:
-            _want = _strip_status_glyph(args.status).strip().lower()
-            _got = _strip_status_glyph(_live).strip().lower()
-            if _want != _got:
-                sys.stderr.write(
-                    f"workpad.py update: WARNING: the PATCH response reads Status "
-                    f"{_got or '(unreadable)'!r}, not the requested {_want!r} — the "
-                    f"write may not have landed; re-issue the update.\n"
-                )
+    # The read-back is only a guard if something compares it. Leaving the comparison
+    # to prose alone lets a reader skim the line for "breadcrumb present, exit 0" and
+    # advance over a PATCH that returned 200 with the comment body unchanged, so the
+    # mismatch is made machine-observable here. Unlike the success breadcrumb above,
+    # this line is written on the volatile-tick-miss path too: it is failure-shaped,
+    # so it composes with the miss report instead of re-creating the success/failure
+    # split — and that path is where a `--status` write is most likely to ride along
+    # with a tick, so suppressing it would fail open exactly where the mismatch is
+    # most likely. It is a WARNING, not a failure: the PATCH call itself succeeded and
+    # the caller owns the re-issue decision. The comparison reads `_live` — the value
+    # the reader above resolved — never a re-parse of the rendered clause, so the
+    # guard and the breadcrumb cannot disagree about what was read back, and it
+    # reports the same distinct unreadable token the clause carries rather than
+    # collapsing the two unobserved states.
+    if args.status:
+        _want = _strip_status_glyph(args.status).strip().lower()
+        _got = _strip_status_glyph(_live).strip().lower()
+        if _want != _got:
+            sys.stderr.write(
+                f"workpad.py update: WARNING: the PATCH response reads Status "
+                f"{_got or _read_back!r}, not the requested {_want!r} — the write "
+                f"may not have landed; re-issue the update.\n"
+            )
 
     # Volatile tick failures: the PATCH landed (other mutations applied), but
     # report each unresolved tick to stderr and exit non-zero so the orchestrator
@@ -3212,11 +3218,12 @@ def main():
                         'change / terminal backstop transition).')
     u.add_argument('--print-body', action='store_true',
                    help='Write the patched workpad body to stdout (issue #814). '
-                        'Off by default: the echo costs a caller the whole workpad '
-                        'body per call and nothing consumes it, so the exit code is '
-                        'the success signal and a short stderr breadcrumb naming the '
-                        'PATCHed comment id (plus the read-back Status value on a '
-                        '--status call) confirms the write landed. The '
+                        'Off by default, because the echo costs a caller the whole '
+                        'workpad body on every call. The replacement verification '
+                        'channel is stderr: the exit code is the success signal, and '
+                        'a short breadcrumb naming the PATCHed comment id (plus the '
+                        'read-back Status value, and a WARNING when it does not match '
+                        'the requested status) confirms the write landed. The '
                         'volatile-tick-miss path echoes the body regardless, because '
                         'the caller must re-resolve a checkbox index against it.')
     u.add_argument('--marker', default=None, help=_marker_help)
