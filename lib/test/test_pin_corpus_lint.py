@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import shutil
 import subprocess
 import sys
@@ -1049,6 +1050,228 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
         )
 
+    def _static_registry(self):
+        return {
+            "schema_version": 1,
+            "test_modules": {
+                path.removeprefix("lib/test/modules/").removesuffix(".sh"): {
+                    "path": path,
+                    "minimum_assertions": 1,
+                }
+                for path in self.mod.AUDITED_PIN_SOURCES
+                if path != "lib/test/run.sh"
+            },
+        }
+
+    def _static_worktree_fixture(self, root, registry=None, calls=None):
+        for path in self.mod.AUDITED_PIN_SOURCES:
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("", encoding="utf-8")
+        registry_path = root / "scripts/workflow-flight-recorder-registry.json"
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(
+            json.dumps(registry or self._static_registry()),
+            encoding="utf-8",
+        )
+        audited = "\n".join(sorted(self.mod.AUDITED_PIN_SOURCES)) + "\n"
+
+        def runner(args, **_kwargs):
+            rendered = " ".join(args)
+            if calls is not None:
+                calls.append(rendered)
+            if "show-ref --verify --quiet refs/heads/main" in rendered:
+                return subprocess.CompletedProcess(args, 1, "", "")
+            if "merge-base origin/main HEAD" in rendered:
+                return subprocess.CompletedProcess(args, 0, "mergebase\n", "")
+            if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
+                return subprocess.CompletedProcess(args, 0, audited, "")
+            if "show mergebase:" in rendered:
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        return runner
+
+    def test_static_worktree_git_and_population_failures_are_infrastructure(self):
+        commands = (
+            "rev-parse --verify origin/main",
+            "merge-base --is-ancestor",
+            "merge-base origin/main HEAD",
+            "diff --no-color",
+            "ls-files --others",
+            "ls-files --cached",
+            "ls-tree -r",
+        )
+        for failed_command in commands:
+            with self.subTest(command=failed_command):
+
+                def runner(args, **_kwargs):
+                    rendered = " ".join(args)
+                    rc = 1 if failed_command in rendered else 0
+                    stdout = (
+                        "mergebase\n"
+                        if "merge-base origin/main HEAD" in rendered
+                        else ""
+                    )
+                    return subprocess.CompletedProcess(args, rc, stdout, "injected")
+
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.scan_static_pin_changes(
+                        "/repo",
+                        git_runner=runner,
+                        scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+                    )
+
+        with self.assertRaisesRegex(
+            self.mod.InfrastructureError,
+            "scratch allocation failed",
+        ):
+            self.mod.scan_static_pin_changes(
+                "/repo",
+                git_runner=lambda args, **_kwargs: subprocess.CompletedProcess(
+                    args,
+                    0,
+                    "base\n",
+                    "",
+                ),
+                scratch_factory=lambda: (_ for _ in ()).throw(OSError("injected")),
+            )
+
+        def broken_local_main(args, **_kwargs):
+            rendered = " ".join(args)
+            if "refs/heads/main" in rendered:
+                return subprocess.CompletedProcess(args, 2, "", "injected")
+            return subprocess.CompletedProcess(args, 0, "base\n", "")
+
+        with self.assertRaisesRegex(
+            self.mod.InfrastructureError,
+            "local main resolution failed",
+        ):
+            self.mod.scan_static_pin_changes(
+                "/repo",
+                git_runner=broken_local_main,
+                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+            )
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            registry = self._static_registry()
+            registry["test_modules"].pop(next(iter(registry["test_modules"])))
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "stale audited pin source absent from registry",
+            ):
+                self.mod.scan_static_pin_changes(
+                    root,
+                    git_runner=self._static_worktree_fixture(root, registry),
+                    scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+                )
+
+    def _public_static_failure(self, runner):
+        def static_only(repo_root, base_ref="origin/main", **_kwargs):
+            return self.mod.scan_static_pin_changes(
+                repo_root,
+                base_ref,
+                git_runner=runner,
+                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+            )
+
+        with (
+            mock.patch.object(self.mod, "scan_worktree", side_effect=static_only),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            try:
+                rc = self.mod.main(
+                    ["pin-corpus-lint.py", "mutation-routing-worktree", "/repo"]
+                )
+            except (OSError, UnicodeDecodeError) as exc:
+                self.fail(
+                    "public static gate leaked "
+                    f"{type(exc).__name__} instead of infrastructure exit 2: {exc}"
+                )
+        return rc, stdout.getvalue(), stderr.getvalue()
+
+    def test_public_static_git_spawn_failure_is_attributed_infrastructure(self):
+        def runner(args, **_kwargs):
+            raise OSError("injected spawn failure")
+
+        rc, stdout, stderr = self._public_static_failure(runner)
+        self.assertEqual(2, rc)
+        self.assertEqual("", stdout)
+        self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
+        self.assertIn("git rev-parse --verify origin/main", stderr)
+        self.assertIn("injected spawn failure", stderr)
+
+    def test_public_static_git_decode_failure_is_attributed_infrastructure(self):
+        def runner(args, **_kwargs):
+            rendered = " ".join(args)
+            if "show-ref --verify --quiet refs/heads/main" in rendered:
+                raise UnicodeDecodeError(
+                    "utf-8",
+                    b"\xff",
+                    0,
+                    1,
+                    "injected decode failure",
+                )
+            return subprocess.CompletedProcess(args, 0, "base\n", "")
+
+        rc, stdout, stderr = self._public_static_failure(runner)
+        self.assertEqual(2, rc)
+        self.assertEqual("", stdout)
+        self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
+        self.assertIn(
+            "git show-ref --verify --quiet refs/heads/main",
+            stderr,
+        )
+        self.assertIn("injected decode failure", stderr)
+
+    def test_static_worktree_reads_merge_base_blobs_without_local_main(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            calls = []
+            findings = self.mod.scan_static_pin_changes(
+                root,
+                git_runner=self._static_worktree_fixture(root, calls=calls),
+                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
+            )
+        self.assertEqual([], findings)
+        self.assertTrue(
+            any("merge-base origin/main HEAD" in call for call in calls),
+            calls,
+        )
+        self.assertTrue(any("show mergebase:" in call for call in calls), calls)
+
+    def test_static_worktree_scratch_failures_are_infrastructure(self):
+        class BrokenScratch:
+            def __init__(self, failure):
+                self.failure = failure
+
+            def write(self, _value):
+                if self.failure == "write":
+                    raise OSError("write failed")
+
+            def flush(self):
+                if self.failure == "flush":
+                    raise OSError("flush failed")
+
+            def close(self):
+                if self.failure == "close":
+                    raise OSError("close failed")
+
+        for failure in ("write", "flush", "close"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError,
+                    f"scratch {failure} failed",
+                ):
+                    self.mod.scan_static_pin_changes(
+                        root,
+                        git_runner=self._static_worktree_fixture(root),
+                        scratch_factory=lambda f=failure: BrokenScratch(f),
+                    )
+
     def test_duplicate_registry_keys_are_rejected_at_load_boundary(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "registry.json"
@@ -1096,6 +1319,179 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
 
 
+class StaticPinWorktreeCompositionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+
+    def _repo(self, root):
+        for relative in (
+            *sorted(self.mod.AUDITED_PIN_SOURCES),
+            "lib/test/module-harness.sh",
+            "lib/test/pin-corpus-lint.py",
+            "lib/test/test_pin_corpus_lint.py",
+            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            "scripts/workflow-flight-recorder-registry.json",
+        ):
+            source = REPO_ROOT / relative
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+        fixture = root / "lib/test/static-pin-fixture.sh"
+        fixture.write_text("STATIC_PIN_FIXTURE=1\n", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=root,
+            check=True,
+        )
+        subprocess.run(["git", "add", "."], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+            cwd=root,
+            check=True,
+        )
+
+    def _public_rc(self, root):
+        with (
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            rc = self.mod.main(
+                ["pin-corpus-lint.py", "mutation-routing-worktree", str(root)]
+            )
+        return rc, stdout.getvalue(), stderr.getvalue()
+
+    def test_undeclared_static_pin_is_a_public_worktree_policy_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'new static pin' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(3, rc, stderr)
+        self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_typed_static_boundary_passes_public_worktree_policy(self):
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fixture token is consumed as an executable sentinel"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'typed static pin' 'STATIC_PIN_FIXTURE=1' "
+                + f"\"$LIB/test/static-pin-fixture.sh\"  {marker}\n",
+                encoding="utf-8",
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_unrelated_edit_passes_public_worktree_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8") + "\n# unrelated fixture edit\n",
+                encoding="utf-8",
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_retired_helper_remains_a_public_worktree_policy_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_red_under new retired helper call\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(3, rc, stderr)
+        self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_public_worktree_scans_tracked_and_untracked_python_tests(self):
+        source = (
+            "\nclass StaticPinFixtureTest(unittest.TestCase):\n"
+            "    def test_wording(self):\n"
+            "        self.assertIn(\n"
+            "            'STATIC_PIN_FIXTURE=1',\n"
+            "            Path('lib/test/static-pin-fixture.sh').read_text(),\n"
+            "        )\n"
+        )
+        for state in ("tracked", "untracked"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                if state == "tracked":
+                    path = root / "lib/test/test_pin_corpus_lint.py"
+                    path.write_text(
+                        path.read_text(encoding="utf-8") + source,
+                        encoding="utf-8",
+                    )
+                else:
+                    path = root / "lib/test/test_static_pin_fixture.py"
+                    path.write_text(
+                        "from pathlib import Path\n"
+                        "import unittest\n"
+                        + source,
+                        encoding="utf-8",
+                    )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(3, rc, stderr)
+                self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_composition_preserves_subgate_order_and_infrastructure_precedence(self):
+        retired = ["MUTATION-ROUTING\tretired"]
+        static = ["MUTATION-ROUTING\tstatic"]
+        with (
+            mock.patch.object(
+                self.mod,
+                "scan_retired_mutation_population",
+                return_value=retired,
+            ),
+            mock.patch.object(
+                self.mod,
+                "scan_static_pin_changes",
+                return_value=static,
+            ),
+        ):
+            self.assertEqual(retired + static, self.mod.scan_worktree("/repo"))
+
+        with (
+            mock.patch.object(
+                self.mod,
+                "scan_retired_mutation_population",
+                return_value=retired,
+            ),
+            mock.patch.object(
+                self.mod,
+                "scan_static_pin_changes",
+                side_effect=self.mod.InfrastructureError("static unavailable"),
+            ),
+        ):
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "static unavailable",
+            ):
+                self.mod.scan_worktree("/repo")
+
+
 class RetiredMutationHelperBanTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1116,21 +1512,14 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q"], cwd=root, check=True)
         subprocess.run(["git", "add", "."], cwd=root, check=True)
 
-    def _public_rc(self, root):
-        with (
-            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
-            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
-        ):
-            rc = self.mod.main(
-                ["pin-corpus-lint.py", "mutation-routing-worktree", str(root)]
-            )
-        return rc, stdout.getvalue(), stderr.getvalue()
-
     def test_zero_population_and_unrelated_edits_pass(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._repo(root)
-            self.assertEqual((0, "", ""), self._public_rc(root))
+            self.assertEqual(
+                [],
+                self.mod.scan_retired_mutation_population(root),
+            )
             outside = root / "docs/unfrozen.md"
             outside.parent.mkdir(parents=True)
             outside.write_text("ordinary unrelated addition\n", encoding="utf-8")
@@ -1140,7 +1529,10 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                 + audited.read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
-            self.assertEqual((0, "", ""), self._public_rc(root))
+            self.assertEqual(
+                [],
+                self.mod.scan_retired_mutation_population(root),
+            )
 
     def test_every_retired_helper_invocation_is_a_policy_finding(self):
         for helper in (
@@ -1158,9 +1550,11 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                     + f"\n{helper} new retired helper call\n",
                     encoding="utf-8",
                 )
-                rc, stdout, stderr = self._public_rc(root)
-                self.assertEqual(3, rc, stderr)
-                self.assertIn("MUTATION-ROUTING", stdout)
+                findings = self.mod.scan_retired_mutation_population(root)
+                self.assertTrue(findings)
+                self.assertTrue(
+                    all(finding.startswith("MUTATION-ROUTING\t") for finding in findings)
+                )
 
     def test_retired_helper_definition_or_wrapper_fails_closed(self):
         cases = (
@@ -1184,9 +1578,8 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                     path.read_text(encoding="utf-8") + addition,
                     encoding="utf-8",
                 )
-                rc, _stdout, stderr = self._public_rc(root)
-                self.assertEqual(2, rc)
-                self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.scan_retired_mutation_population(root)
 
     def test_inventory_missing_malformed_or_nonempty_is_infrastructure(self):
         cases = ("missing", "malformed", "nonempty")
@@ -1213,9 +1606,8 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                         + "\tretain_executable_boundary\tstale row\n",
                         encoding="utf-8",
                     )
-                rc, _stdout, stderr = self._public_rc(root)
-                self.assertEqual(2, rc)
-                self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.scan_retired_mutation_population(root)
 
     def test_required_path_runs_only_git_enumeration_not_mutation_semantics(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1232,7 +1624,10 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                 "run",
                 side_effect=git_only,
             ):
-                self.assertEqual((0, "", ""), self._public_rc(root))
+                self.assertEqual(
+                    [],
+                    self.mod.scan_retired_mutation_population(root),
+                )
 
 
 if __name__ == "__main__":

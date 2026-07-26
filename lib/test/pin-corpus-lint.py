@@ -127,6 +127,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
@@ -2491,9 +2492,8 @@ def _parse_mutation_inventory(path, census):
     return rows, lines[1][len(master_prefix) :]
 
 
-def scan_worktree(repo_root, base_ref="origin/main", **_unused):
+def scan_retired_mutation_population(repo_root):
     """Require an empty retired-helper census and byte-matching empty inventory."""
-    del base_ref
     root = Path(repo_root)
     census = _load_mutation_census_module()
     try:
@@ -2557,6 +2557,214 @@ def scan_worktree(repo_root, base_ref="origin/main", **_unused):
                 f"mutation-pin inventory identity is not a retained boundary: {identity}"
             )
     return []
+
+
+def _invoke_git(git_runner, repo_root, *args):
+    command = ["git", "-C", str(repo_root), *args]
+    try:
+        return git_runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InfrastructureError(
+            f"git {' '.join(args)} invocation failed: {exc}"
+        ) from exc
+
+
+def _run_git(git_runner, repo_root, *args):
+    result = _invoke_git(git_runner, repo_root, *args)
+    if result.returncode != 0:
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def scan_static_pin_changes(
+    repo_root,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+    scratch_factory=None,
+):
+    """Run the fail-closed static pin classifier over worktree changes."""
+    repo_root = Path(repo_root)
+    scratch_factory = scratch_factory or (
+        lambda: tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8")
+    )
+    try:
+        scratch = scratch_factory()
+    except OSError as exc:
+        raise InfrastructureError(f"scratch allocation failed: {exc}") from exc
+    try:
+        _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
+        # A missing local main is the normal Actions checkout shape. Other ancestry
+        # failures remain infrastructure failures rather than green skips.
+        local_main = _invoke_git(
+            git_runner,
+            repo_root,
+            "show-ref",
+            "--verify",
+            "--quiet",
+            "refs/heads/main",
+        )
+        if local_main.returncode == 0:
+            _run_git(
+                git_runner,
+                repo_root,
+                "merge-base",
+                "--is-ancestor",
+                "refs/heads/main",
+                base_ref,
+            )
+        elif local_main.returncode != 1:
+            raise InfrastructureError(
+                "local main resolution failed "
+                f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
+            )
+        merge_base = _run_git(
+            git_runner, repo_root, "merge-base", base_ref, "HEAD"
+        ).strip()
+        if not merge_base:
+            raise InfrastructureError("comparison merge base resolved to empty output")
+        python_tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        python_untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
+        difftext = _run_git(
+            git_runner,
+            repo_root,
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--unified=0",
+            merge_base,
+            "--",
+            *sorted(scan_sources),
+        )
+        untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    *sorted(AUDITED_PIN_SOURCES),
+                ).splitlines(),
+            )
+        )
+        base_paths = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-tree",
+                    "-r",
+                    "--name-only",
+                    merge_base,
+                    "--",
+                    *sorted(scan_sources),
+                ).splitlines(),
+            )
+        )
+        registry = load_registry(
+            repo_root / "scripts/workflow-flight-recorder-registry.json"
+        )
+        population_findings = validate_audited_population(
+            registry, AUDITED_PIN_SOURCES, tracked | untracked
+        )
+        if population_findings:
+            raise InfrastructureError("; ".join(population_findings))
+
+        current_sources = {}
+        base_sources = {}
+        for path in sorted(scan_sources):
+            try:
+                current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as exc:
+                raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+            if path in base_paths:
+                base_sources[path] = _run_git(
+                    git_runner, repo_root, "show", f"{merge_base}:{path}"
+                )
+            else:
+                base_sources[path] = ""
+                lines = current_sources[path].splitlines()
+                difftext += (
+                    f"\ndiff --git a/{path} b/{path}\n"
+                    "--- /dev/null\n"
+                    f"+++ b/{path}\n"
+                    f"@@ -0,0 +1,{len(lines)} @@\n"
+                    + "\n".join(f"+{line}" for line in lines)
+                    + "\n"
+                )
+        try:
+            scratch.write(difftext)
+        except OSError as exc:
+            raise InfrastructureError(f"scratch write failed: {exc}") from exc
+        try:
+            scratch.flush()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch flush failed: {exc}") from exc
+        return scan_changed_sources(
+            current_sources, base_sources, difftext, str(repo_root)
+        )
+    finally:
+        try:
+            scratch.close()
+        except OSError as exc:
+            raise InfrastructureError(f"scratch close failed: {exc}") from exc
+
+
+def scan_worktree(repo_root, base_ref="origin/main", **kwargs):
+    """Run both required worktree subgates, preserving infrastructure failures."""
+    retired_findings = scan_retired_mutation_population(repo_root)
+    static_findings = scan_static_pin_changes(repo_root, base_ref, **kwargs)
+    return retired_findings + static_findings
 
 
 def _read(path):
