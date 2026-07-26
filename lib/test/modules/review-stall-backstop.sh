@@ -1004,6 +1004,17 @@ printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGP
 assert_eq "#812 bgv: the subagent marker leaking from the dispatch prompt alone does not make FOREGROUND" "yes" \
   "$(bgv_has "$BGV_F" '| **INCONCLUSIVE** | no |')"
 
+# The ack marker gets the SAME per-entry discipline as the in-hand arm, and this fixture is
+# why: BGPROBE_ACK_ONLY appears only inside a dispatch INPUT (a description narrating the
+# branch it did NOT take), never in a Bash command. A whole-file substring test would read
+# that as BACKGROUNDED and tell a maintainer to record the #801 harness floor as INEFFECTIVE
+# — a manufactured negative finding about a shipped safety floor.
+# Mutation-proven: rewriting ack_only back to the bare `ACK_ONLY.lower() in tooluse_text`
+# form flips this fixture to BACKGROUNDED/record=yes — observed RED under that mutation.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Agent","input":{"description":"not BGPROBE_ACK_ONLY — the result was in hand","prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: an ack marker mentioned only inside a dispatch input does not manufacture BACKGROUNDED" "yes" \
+  "$(bgv_has "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
 # Arm: NOT_DISPATCHED — both controls ran but no dispatch was recorded at all. Presumptive
 # (a compliant model may have skipped step 2), and it is NEVER read as BACKGROUNDED: an
 # unexercised dispatch is an unestablished measurement, not evidence against the floor.
@@ -1040,6 +1051,14 @@ assert_eq "#812 bgv: INCONCLUSIVE (not NOT_DISPATCHED) when only the after-contr
 # Arm: INCONCLUSIVE — execution file absent (the note_top floor). Never NOT_DISPATCHED.
 assert_eq "#812 bgv: INCONCLUSIVE when the execution file is absent" "yes" \
   "$(bgv_has "/no/such/background-tasks-execfile.json" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — a present but ZERO-BYTE regular file. parse_execution_file's comment
+# explicitly says this is NOT the absent-path branch (isfile() is true, so it flows to the
+# read/parse path and surfaces "present but unparseable"); this fixture enforces that
+# documented distinction instead of leaving it asserted only in prose.
+: > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE when the execution file is present but zero-byte" "yes" \
+  "$(bgv_has "$BGV_F" '| **INCONCLUSIVE** | no |')"
 
 # Arm: INCONCLUSIVE — a present regular file that is wholly unparseable.
 printf '%s\n' 'not json at all, not a single object' > "$BGV_F"
@@ -1154,7 +1173,7 @@ assert_eq "#812 probe-row: dropping the variable from the probe job turns the ro
 recorded_verdict812() {  # file -> yes|no : all three halves on the recorded-verdict line
   grep -F -- 'Executed (issue #812)' "$1" | grep -qF 'background-tasks-probe' \
     && grep -F -- 'Executed (issue #812)' "$1" | grep -qE 'run [0-9]{8,}' \
-    && grep -F -- 'Executed (issue #812)' "$1" | grep -qF 're-probe it via the `background-tasks-probe` job after a `claude-code-action` upgrade' \
+    && grep -F -- 'Executed (issue #812)' "$1" | grep -qF 'via the `background-tasks-probe` job, after a `claude-code-action` upgrade' \
     && echo yes || echo no
 }
 assert_eq "#812 recorded-verdict: the stall-backstop bullet records the probe verdict with its run id and re-probe caveat" \
@@ -1167,8 +1186,56 @@ assert_eq "#812 recorded-verdict: repointing the record at another job turns the
 sed -E 's/real cloud run [0-9]+/real cloud run/' "$DSO812" > "$_t812d"
 assert_eq "#812 recorded-verdict: stripping the run identifier turns the check RED" \
   "no" "$(recorded_verdict812 "$_t812d")"
-sed -E 's/re-probe it via the `background-tasks-probe` job after a `claude-code-action` upgrade//' "$DSO812" > "$_t812d"
+sed -E 's/via the `background-tasks-probe` job, after a `claude-code-action` upgrade//' "$DSO812" > "$_t812d"
 assert_eq "#812 recorded-verdict: stripping the version-dependence re-probe caveat turns the check RED" \
   "no" "$(recorded_verdict812 "$_t812d")"
 rm -f "$_t812p" "$_t812d"
 unset _t812p _t812d
+
+# ── #812: the helper's marker constants and the workflow prompt are ONE contract, and until
+# now only the helper direction was gated. Every fixture above hardcodes the markers, so a
+# helper-side rename goes RED — but a PROMPT-side rename left no gate at all: the live probe
+# would record markers the helper never matches, reporting INCONCLUSIVE on every future run
+# while the whole suite stayed green, discovered only after burning a paid cloud run.
+# The literals are read from the helper's own constants rather than re-typed here, so this
+# asserts the coupling instead of adding a third place to keep in sync.
+# structural-pin-ok: cross-file-phase-contract -- the verdict helper's marker constants
+# (consumer) and matcher-probe.yml's probe prompt (producer) must name the same six tokens;
+# neither file alone can hold the contract and each is separately mutable.
+BGV_PY812="$REPO_ROOT/scripts/background-tasks-probe-verdict.py"
+marker_in_prompt812() {  # constant-name -> yes|no : the helper's value appears in the probe prompt
+  local val
+  val=$(grep -E "^$1 = \"" "$BGV_PY812" | sed -E 's/^[A-Z_]+ = "//; s/"$//')
+  [ -n "$val" ] || { echo no; return; }
+  awk '/^  background-tasks-probe:/,/^[[:space:]]*claude_args:/' "$MPROBE812" | grep -qF -- "$val" && echo yes || echo no
+}
+for _m812 in CONTROL_BEFORE CONTROL_AFTER DISPATCH_MARKER SUBAGENT_MARKER RESULT_IN_HAND ACK_ONLY; do
+  assert_eq "#812 marker-lockstep: the helper's $_m812 value appears in matcher-probe.yml's probe prompt" \
+    "yes" "$(marker_in_prompt812 "$_m812")"
+done
+unset _m812
+# Planted-defect control on a COPY of the HELPER: renaming a constant's value there must turn
+# the lockstep check RED, proving it reads the helper rather than asserting a literal twice.
+_t812m="$(probe_tmp '#812 marker-lockstep positive control')"
+sed -E 's/^ACK_ONLY = "BGPROBE_ACK_ONLY"/ACK_ONLY = "BGPROBE_RENAMED_ACK"/' "$BGV_PY812" > "$_t812m"
+assert_eq "#812 marker-lockstep: renaming a marker in the helper alone turns the lockstep check RED" \
+  "no" "$(val=$(grep -E '^ACK_ONLY = "' "$_t812m" | sed -E 's/^[A-Z_]+ = "//; s/"$//'); awk '/^  background-tasks-probe:/,/^[[:space:]]*claude_args:/' "$MPROBE812" | grep -qF -- "$val" && echo yes || echo no)"
+rm -f "$_t812m"
+unset _t812m
+
+# The probe grants BOTH dispatch tool names. The live run recorded the dispatch as `Agent`,
+# so dropping either name would make every re-probe a denied dispatch — INCONCLUSIVE forever,
+# with the docs record still asserting the both-names rationale and no test going RED.
+grants_both_names812() {  # file -> yes|no : the job's --allowed-tools names Task AND Agent
+  awk '/^  background-tasks-probe:/,/^[[:space:]]*--allowed-tools/' "$1" | grep -F -- '--allowed-tools' \
+    | grep -qE 'Task' && awk '/^  background-tasks-probe:/,/^[[:space:]]*--allowed-tools/' "$1" \
+    | grep -F -- '--allowed-tools' | grep -qE 'Agent' && echo yes || echo no
+}
+assert_eq "#812 probe-grant: the probe job grants both Task and Agent as dispatch tool names" \
+  "yes" "$(grants_both_names812 "$MPROBE812")"
+_t812g="$(probe_tmp '#812 probe-grant positive control')"
+sed -E 's/--allowed-tools "Bash\(printf:\*\),Task,Agent"/--allowed-tools "Bash(printf:*),Task"/' "$MPROBE812" > "$_t812g"
+assert_eq "#812 probe-grant: dropping Agent from the probe's --allowed-tools turns the grant check RED" \
+  "no" "$(grants_both_names812 "$_t812g")"
+rm -f "$_t812g"
+unset _t812g BGV_PY812

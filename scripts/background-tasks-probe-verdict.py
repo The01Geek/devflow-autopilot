@@ -21,16 +21,21 @@ keeping subagents in the foreground, and #801 shipped it on the three engine wor
 unconditionally because it is inert when ignored. Whether it takes effect INSIDE
 `claude-code-action` was never observed. This probe observes it.
 
-How "returned a completed result within the same turn" is made measurable. Effort, turn
-boundaries, and tool RESULTS are not fields this repository has established as
-harness-recorded; only `tool_use` inputs and `permission_denials` are (see
-docs/execution-file-shape.md, itself a dated observation rather than a contract). So the
-probe borrows #610's technique instead of reading a field that may not exist: the probe
-subagent's ENTIRE final response is one marker line, and the top-level session echoes
-what it actually received back through a Bash call. A Bash `tool_use` carrying the
-subagent's OWN marker is the harness-recorded signal that the completed result was in
-hand before the turn continued: a compliant model reaches Action 3's in-hand branch only
-when it actually holds the subagent's text. The model's prose is never the measurement.
+How "returned a completed result within the same turn" is made measurable. The repository's
+observed shape record (docs/execution-file-shape.md and its committed
+docs/execution-file-shape.observed.txt) does list a `tool_use_result` key alongside
+`tool_input`/`tool_name` — so a result field is not absent. What that record does NOT
+establish is the one thing this probe would need from it: that a `tool_use_result` on a
+subagent dispatch carries the subagent's final TEXT, and that its presence distinguishes a
+completed return from a launch acknowledgment. Turn boundaries are likewise unrecorded, and
+the whole record is a dated observation of one action version rather than a contract. So the
+probe borrows #610's technique rather than resting on a field whose semantics are unestablished:
+the probe subagent's ENTIRE final response is one marker line, and the top-level session echoes
+what it actually received back through a Bash call. A Bash `tool_use` carrying the subagent's
+OWN marker is the harness-recorded evidence — under this probe's cooperative-model assumption
+— that the completed result was in hand before the turn continued: a compliant model reaches
+Action 3's in-hand branch only when it actually holds the subagent's text. The model's prose is
+never the measurement.
 
 What that co-occurrence does and does not buy. The two in-hand tokens are required in the
 SAME recorded tool_use entry, which rules out the marker leaking from Action 2's dispatch
@@ -228,7 +233,17 @@ def compute_verdict(denials, tool_uses, note_top):
         RESULT_IN_HAND.lower() in entry and SUBAGENT_MARKER.lower() in entry
         for entry in lowered_uses
     )
-    ack_only = ACK_ONLY.lower() in tooluse_text
+    # The ack marker gets the SAME per-entry discipline as the in-hand arm above, and for a
+    # sharper reason: this arm manufactures a NEGATIVE finding about a shipped safety floor.
+    # A bare whole-file substring test would let any recorded input that merely MENTIONS the
+    # token — a `description` narrating "not BGPROBE_ACK_ONLY", a retry that restates Action
+    # 3's branch text, a future prompt edit that moves the branch instructions into a recorded
+    # input — read as BACKGROUNDED and instruct a maintainer to record the floor as
+    # ineffective. Requiring the token in an entry that also carries a `command` key scopes it
+    # to the Bash call the prompt actually asks for; anything else floors to INCONCLUSIVE.
+    ack_only = any(
+        ACK_ONLY.lower() in entry and '"command"' in entry for entry in lowered_uses
+    )
 
     if note_top:
         verdict = "INCONCLUSIVE"
@@ -262,7 +277,19 @@ def compute_verdict(denials, tool_uses, note_top):
 
 def render(exec_file):
     parsed, note_top = parse_execution_file(exec_file)
-    denials, tool_uses = collect(parsed)
+    try:
+        denials, tool_uses = collect(parsed)
+    except Exception as e:
+        # collect()'s recursive walk is the one path the read/summary guards do not cover.
+        # A document json.loads accepts but that nests deeper than the walk's frame budget
+        # raises RecursionError straight through render()/main() — under the verdict step's
+        # `set -euo pipefail` that is a red step with NO verdict table, on exactly the
+        # degraded run this probe exists to characterize. Route it to the existing note_top
+        # -> INCONCLUSIVE floor instead, the direction every other arm already takes.
+        denials, tool_uses = [], []
+        note_top = (note_top + "; " if note_top else "") + (
+            "execution file could not be walked (%s)" % e.__class__.__name__
+        )
     (verdict, record, dispatch_attempted, result_in_hand, ack_only,
      control_before, control_after) = compute_verdict(denials, tool_uses, note_top)
 
@@ -291,9 +318,9 @@ def render(exec_file):
     out.append(
         "Deterministic verdict from the execution file's recorded `tool_use` inputs and "
         "`permission_denials`. The measurement is whether the top-level session echoed the "
-        "probe subagent's OWN returned marker back through Bash — harness-recorded proof "
-        "that the completed result was in hand before the turn continued. The model's text "
-        "is never the measurement."
+        "probe subagent's OWN returned marker back through Bash — harness-recorded evidence, "
+        "under this probe's cooperative-model assumption, that the completed result was in "
+        "hand before the turn continued. The model's text is never the measurement."
     )
     out.append("")
     out.append("> [!IMPORTANT]")
