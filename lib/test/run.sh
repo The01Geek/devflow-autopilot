@@ -34924,14 +34924,11 @@ assert_eq "#802 A9: replacing the literal path with a placeholder slot turns the
   "{RESOLVED_HELPER_COMMAND}" "$(python3 "$ECH" ungranted "$E363/p3-slot.md" \
         "$LIB/../.github/workflows/devflow-runner.yml" tools-line 2>&1 | tr '\n' ' ' | sed 's/ *$//')"
 
-# A10 — the command is scanned only BECAUSE its fence info string is exactly `bash`; a bare fence
-# hides it from the extractor, so the bash fence is what makes the emitted-shape criteria enforceable.
-printf '%s\n' '```bash' '.devflow/vendor/devflow/scripts/load-prompt-extension.sh requesting-code-review' '```' > "$E363/lpe-bash.md"
-printf '%s\n' '```' '.devflow/vendor/devflow/scripts/load-prompt-extension.sh requesting-code-review' '```' > "$E363/lpe-bare.md"
-assert_eq "#802 A10: a bash-info-string fence exposes the command head to the extractor" "yes" \
-  "$(python3 "$ECH" heads "$E363/lpe-bash.md" | grep -qF 'load-prompt-extension.sh' && echo yes || echo no)"  # raw-guard-ok: asserts extractor stdout (a command's output), not source prose presence
-assert_eq "#802 A10: a bare fence hides the command from the extractor (the bash fence is load-bearing)" "no" \
-  "$(python3 "$ECH" heads "$E363/lpe-bare.md" | grep -qF 'load-prompt-extension.sh' && echo yes || echo no)"  # raw-guard-ok: asserts extractor stdout (a command's output), not source prose presence
+# A10 (the "bash fence is load-bearing" property) is enforced by A9's anti-vacuity above, not by a
+# separate synthetic-fixture pin: a regression of the supplied-command fence from ```bash to a bare
+# fence stops the extractor scanning it, so the slot mutation's expected `{RESOLVED_HELPER_COMMAND}`
+# head vanishes and A9's anti-vacuity assertion goes RED. (Dropped a redundant synthetic A10 pin per
+# /simplify — the bash-fence dependency is covered over the REAL file by A9.)
 
 # Coupled sites — the refusal literal is byte-identical in the Phase-3 dispatch and implement/SKILL.md
 # (one refusal contract, two mirrors — the marker the orchestrator matches must not drift between them).
