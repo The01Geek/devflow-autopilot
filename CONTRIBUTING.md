@@ -185,9 +185,9 @@ manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each ide
 helper, assertion name, literal, target — against the base revision's committed pin-corpus
 inventory, so a manifest row is **never** edited: an edit there breaks the historical partition
 permanently. When a retained pin's guarded rule is legitimately renamed, declare the rename in
-`lib/test/pin-identity-refreshes.tsv` — hand-maintained maintainer intent, so it sits beside
-its sibling `lib/test/pin-corpus-adjudications.tsv` rather than under the machine-generated
-`.devflow/logs/` — in the **same commit** as the source
+`lib/test/pin-identity-refreshes.tsv` — live hand-maintained maintainer intent, so it sits
+beside its sibling `lib/test/pin-corpus-adjudications.tsv` rather than under `.devflow/logs/`,
+which holds frozen audit artifacts — in the **same commit** as the source
 rename. `lib/test/test_residual_prose_retirement_manifest.py` applies the declared mapping when
 it realizes retained identities against the current tree, and admits a row only when the old
 identity names a `RETAIN_BOUNDARY` identity in the frozen manifest, the old name is gone from
