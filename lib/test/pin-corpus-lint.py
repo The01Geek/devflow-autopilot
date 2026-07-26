@@ -1823,17 +1823,28 @@ def _token_value(token):
     return "".join(value for _, value in token)
 
 
-def _helper_call(tokens, helper_specs):
-    """Return (token-index, helper-name) for the first executable helper token.
+def _helper_calls(tokens, helper_specs):
+    """Return every executable supported helper token on a shell fragment.
 
     Shell control prefixes such as ``if`` and ``!`` remain separate bare
     tokens, so scanning the token stream covers guarded calls without treating
     a helper name inside an assertion label as executable.
     """
-    command_prefixes = {
-        "if", "then", "elif", "while", "until", "do", "!", "&&", "||", ";", "{"
+    command_boundaries = {
+        "if",
+        "then",
+        "elif",
+        "while",
+        "until",
+        "do",
+        "!",
+        "&&",
+        "||",
+        ";",
+        "{",
     }
     assignment = re.compile(r"^[A-Za-z_]\w*=.*$")
+    calls = []
     for index, token in enumerate(tokens):
         if not token or any(kind != "bare" for kind, _ in token):
             continue
@@ -1841,15 +1852,31 @@ def _helper_call(tokens, helper_specs):
         if value not in helper_specs:
             continue
         before = [_token_value(item) for item in tokens[:index]]
-        executable = (
-            not before
-            or before[-1] in command_prefixes
-            or before[-1].endswith(";")
-            or all(assignment.match(item) for item in before)
+        segment_start = 0
+        for prior_index, prior in enumerate(before):
+            if prior in command_boundaries or prior.endswith(";"):
+                segment_start = prior_index + 1
+        segment = before[segment_start:]
+        while segment and assignment.match(segment[0]):
+            segment.pop(0)
+        executable = not segment or segment in (
+            ["command"],
+            ["command", "--"],
+            ["command", "-p"],
         )
         if executable:
-            return index, value
-    return None, None
+            calls.append((index, value))
+    return tuple(calls)
+
+
+def _helper_call(tokens, helper_specs):
+    """Return one executable helper, failing closed on ambiguous fragments."""
+    calls = _helper_calls(tokens, helper_specs)
+    if len(calls) > 1:
+        raise InfrastructureError(
+            "multiple supported helper calls occur on one logical line"
+        )
+    return calls[0] if calls else (None, None)
 
 
 def helper_specs_for_source(
@@ -3348,6 +3375,83 @@ def _decode_utf8(payload, label):
         raise InfrastructureError(f"{label} is not UTF-8: {exc}") from exc
 
 
+def _source_tree_entries(repo_root, revision, paths, git_runner):
+    """Return exact regular source blobs for one committed tree snapshot."""
+    if not paths:
+        return {}
+    output = _run_git(
+        git_runner,
+        repo_root,
+        "ls-tree",
+        "-r",
+        "-z",
+        revision,
+        "--",
+        *sorted(paths),
+    )
+    entries = {}
+    for row in filter(None, output.split("\0")):
+        try:
+            metadata, path = row.split("\t", 1)
+            mode, kind, _object = metadata.split()
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"scanned source tree row is malformed at {revision}: {row!r}"
+            ) from exc
+        if path in entries:
+            raise InfrastructureError(
+                f"scanned source tree has duplicate path at {revision}: {path}"
+            )
+        if mode not in {"100644", "100755"} or kind != "blob":
+            raise InfrastructureError(
+                f"scanned source is not a regular blob at {revision}: {path}"
+            )
+        entries[path] = mode
+    return entries
+
+
+def _read_source_blob(repo_root, revision, path, git_runner):
+    return _decode_utf8(
+        _run_git_bytes(git_runner, repo_root, "show", f"{revision}:{path}"),
+        f"scanned source {revision}:{path}",
+    )
+
+
+def _read_worktree_source(repo_root, path, expected_mode=None):
+    source_root = Path(repo_root)
+    source = source_root / path
+    try:
+        parent = source_root
+        for component in Path(path).parts[:-1]:
+            parent /= component
+            parent_stat = parent.lstat()
+            if stat.S_ISLNK(parent_stat.st_mode):
+                raise InfrastructureError(
+                    f"pin source has symlinked worktree parent: {path}"
+                )
+            if not stat.S_ISDIR(parent_stat.st_mode):
+                raise InfrastructureError(
+                    f"pin source has non-directory worktree parent: {path}"
+                )
+        source_stat = source.lstat()
+        payload = source.read_bytes()
+    except InfrastructureError:
+        raise
+    except OSError as exc:
+        raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+    if not stat.S_ISREG(source_stat.st_mode):
+        raise InfrastructureError(f"pin source is not a regular worktree file: {path}")
+    executable = bool(source_stat.st_mode & 0o111)
+    if expected_mode is not None and executable != (expected_mode == "100755"):
+        raise InfrastructureError(
+            f"pin source worktree mode differs from HEAD: {path}"
+        )
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+
+
 def analyze_adjudication_changes(
     repo_root,
     merge_base,
@@ -3522,6 +3626,9 @@ def scan_static_pin_changes(
     ).strip()
     if not merge_base:
         raise InfrastructureError("comparison merge base resolved to empty output")
+    head_revision = _run_git(git_runner, repo_root, "rev-parse", "HEAD").strip()
+    if not head_revision:
+        raise InfrastructureError("HEAD source snapshot resolved to empty output")
     adjudication_analysis = analyze_adjudication_changes(
         repo_root,
         merge_base,
@@ -3533,19 +3640,20 @@ def scan_static_pin_changes(
         merge_base,
         git_runner=git_runner,
     )
-    python_tracked = set(
-        filter(
-            None,
-            _run_git(
-                git_runner,
-                repo_root,
-                "ls-files",
-                "--cached",
-                "--",
-                "lib/test/test_*.py",
-            ).splitlines(),
-        )
+    head_tree_entries = _source_tree_entries(
+        repo_root, head_revision, {"lib/test"}, git_runner
     )
+    head_entries = {
+        path: mode
+        for path, mode in head_tree_entries.items()
+        if path in AUDITED_PIN_SOURCES
+        or re.fullmatch(r"lib/test/test_[^/]*[.]py", path)
+    }
+    python_tracked = {
+        path
+        for path in head_entries
+        if re.fullmatch(r"lib/test/test_[^/]*[.]py", path)
+    }
     python_untracked = set(
         filter(
             None,
@@ -3561,7 +3669,44 @@ def scan_static_pin_changes(
         )
     )
     scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
-    difftext = _run_git(
+    staged_drift = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--cached",
+        "--name-status",
+        "--no-renames",
+        head_revision,
+        "--",
+        "lib/test",
+    )
+    for row in filter(None, staged_drift.splitlines()):
+        try:
+            _status, path = row.split("\t", 1)
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"scanned source index diff is malformed: {row!r}"
+            ) from exc
+        if path in AUDITED_PIN_SOURCES or re.fullmatch(
+            r"lib/test/test_[^/]*[.]py", path
+        ):
+            raise InfrastructureError(
+                "scanned source index differs from HEAD: "
+                f"{row}"
+            )
+    head_diff = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=0",
+        merge_base,
+        head_revision,
+        "--",
+        *sorted(scan_sources),
+    )
+    worktree_diff = _run_git(
         git_runner,
         repo_root,
         "diff",
@@ -3586,34 +3731,21 @@ def scan_static_pin_changes(
             ).splitlines(),
         )
     )
-    tracked = set(
-        filter(
-            None,
-            _run_git(
-                git_runner,
-                repo_root,
-                "ls-files",
-                "--cached",
-                "--",
-                *sorted(AUDITED_PIN_SOURCES),
-            ).splitlines(),
-        )
+    tracked = set(AUDITED_PIN_SOURCES) & set(head_entries)
+    base_entries = _source_tree_entries(
+        repo_root,
+        merge_base,
+        scan_sources,
+        git_runner,
     )
-    base_paths = set(
-        filter(
-            None,
-            _run_git(
-                git_runner,
-                repo_root,
-                "ls-tree",
-                "-r",
-                "--name-only",
-                merge_base,
-                "--",
-                *sorted(scan_sources),
-            ).splitlines(),
+    missing_base_audited = set(AUDITED_PIN_SOURCES) - set(base_entries)
+    missing_head_audited = set(AUDITED_PIN_SOURCES) - set(head_entries)
+    if missing_base_audited or missing_head_audited:
+        missing = sorted(missing_base_audited or missing_head_audited)[0]
+        snapshot = merge_base if missing_base_audited else "HEAD"
+        raise InfrastructureError(
+            f"audited pin source absent from committed snapshot {snapshot}: {missing}"
         )
-    )
     registry = load_registry(
         repo_root / "scripts/workflow-flight-recorder-registry.json"
     )
@@ -3629,40 +3761,71 @@ def scan_static_pin_changes(
     # not-in-base path double-represents a newly committed pin source and emits
     # duplicate policy findings for one physical site.
     untracked_sources = python_untracked | untracked
+    worktree_diff_snapshot = worktree_diff
 
-    current_sources = {}
-    base_sources = {}
+    head_sources = {
+        path: _read_source_blob(repo_root, head_revision, path, git_runner)
+        for path in sorted(set(head_entries) & scan_sources)
+    }
+    worktree_sources = {}
+    base_sources = {
+        path: _read_source_blob(repo_root, merge_base, path, git_runner)
+        for path in sorted(base_entries)
+    }
     for path in sorted(scan_sources):
-        try:
-            current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
-        if path in base_paths:
-            base_sources[path] = _run_git(
-                git_runner, repo_root, "show", f"{merge_base}:{path}"
+        worktree_sources[path] = _read_worktree_source(
+            repo_root, path, head_entries.get(path)
+        )
+        if path in untracked_sources:
+            lines = worktree_sources[path].splitlines()
+            worktree_diff += (
+                f"\ndiff --git a/{path} b/{path}\n"
+                "--- /dev/null\n"
+                f"+++ b/{path}\n"
+                f"@@ -0,0 +1,{len(lines)} @@\n"
+                + "\n".join(f"+{line}" for line in lines)
+                + "\n"
             )
-        else:
-            base_sources[path] = ""
-            if path in untracked_sources:
-                lines = current_sources[path].splitlines()
-                difftext += (
-                    f"\ndiff --git a/{path} b/{path}\n"
-                    "--- /dev/null\n"
-                    f"+++ b/{path}\n"
-                    f"@@ -0,0 +1,{len(lines)} @@\n"
-                    + "\n".join(f"+{line}" for line in lines)
-                    + "\n"
-                )
-    return adjudication_analysis.findings + scan_changed_sources(
-        current_sources,
+    verified_worktree_diff = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=0",
+        merge_base,
+        "--",
+        *sorted(scan_sources),
+    )
+    if worktree_diff_snapshot != verified_worktree_diff:
+        raise InfrastructureError("scanned source worktree changed during diff analysis")
+    if _run_git(git_runner, repo_root, "rev-parse", "HEAD").strip() != head_revision:
+        raise InfrastructureError("HEAD source snapshot changed during diff analysis")
+
+    source_findings = scan_changed_sources(
+        head_sources,
         base_sources,
-        difftext,
+        head_diff,
         str(repo_root),
         retired_literal_keys=retired_literal_keys,
         revival_authorizations=adjudication_analysis.revival_authorizations,
         adjudication_delta=adjudication_analysis.delta,
         current_adjudications=adjudication_analysis.current,
     )
+    source_findings.extend(
+        scan_changed_sources(
+            worktree_sources,
+            base_sources,
+            worktree_diff,
+            str(repo_root),
+            retired_literal_keys=retired_literal_keys,
+            revival_authorizations=adjudication_analysis.revival_authorizations,
+            adjudication_delta=adjudication_analysis.delta,
+            current_adjudications=adjudication_analysis.current,
+        )
+    )
+    unique_findings = list(dict.fromkeys(source_findings))
+    return adjudication_analysis.findings + unique_findings
 
 
 def scan_worktree(repo_root, base_ref="origin/main", **kwargs):

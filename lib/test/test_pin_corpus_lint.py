@@ -1149,6 +1149,11 @@ class PinCorpusLint810Tests(unittest.TestCase):
         def _lines(paths):
             return "".join(f"{path}\n" for path in sorted(paths))
 
+        def _tree_rows(paths):
+            return "".join(
+                f"100644 blob object\t{path}\0" for path in sorted(paths)
+            )
+
         def runner(args, **_kwargs):
             rendered = " ".join(args)
             if calls is not None:
@@ -1159,6 +1164,22 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, "", "")
             if "merge-base origin/main HEAD" in rendered:
                 return subprocess.CompletedProcess(args, 0, merge_base, "")
+            if "rev-parse HEAD" in rendered:
+                return subprocess.CompletedProcess(args, 0, "head\n", "")
+            if "ls-tree -r -z head" in rendered:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    _tree_rows(set(self.mod.AUDITED_PIN_SOURCES) | set(python_tracked)),
+                    "",
+                )
+            if "ls-tree -r -z mergebase" in rendered:
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    _tree_rows(set(self.mod.AUDITED_PIN_SOURCES) | set(python_tracked)),
+                    "",
+                )
             if python_glob in rendered:
                 population = (
                     python_untracked
@@ -1216,8 +1237,8 @@ class PinCorpusLint810Tests(unittest.TestCase):
             "merge-base --is-ancestor",
             "merge-base origin/main HEAD",
             "diff --no-color",
+            "diff --cached",
             "ls-files --others",
-            "ls-files --cached",
             "ls-tree -r",
         )
         for failed_command in commands:
@@ -1414,13 +1435,12 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
         self.assertEqual([], findings)
         glob_calls = [call for call in calls if "lib/test/test_*.py" in call]
-        self.assertEqual(2, len(glob_calls), calls)
-        self.assertEqual(
-            1, sum(1 for call in glob_calls if "ls-files --others" in call), glob_calls
-        )
-        # Both populations reached the scan: each is read from disk, and only the
-        # untracked one is synthesized into the diff (see the dedup regression
-        # test in the composition suite).
+        self.assertEqual(1, len(glob_calls), calls)
+        self.assertIn("ls-files --others", glob_calls[0])
+        self.assertTrue(any("ls-tree -r -z head -- lib/test" in call for call in calls))
+        # Both populations reached the scan: tracked Python leaves come from the
+        # exact HEAD tree, while only the untracked population uses the glob and
+        # receives a synthetic diff stanza.
         self.assertTrue(
             any("lib/test/test_tracked_fixture.py" in call for call in calls), calls
         )
@@ -2370,6 +2390,8 @@ class RetiredPinRevivalTests(unittest.TestCase):
             analysis = self._analysis(root, base)
             self.assertEqual([], analysis.findings)
             self.assertEqual([], self._scan_sources(root, base, analysis))
+            (root / "unrelated.txt").write_text("worktree-only edit\n", encoding="utf-8")
+            self.assertEqual([], self._scan_sources(root, base, analysis))
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2652,6 +2674,171 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 rc, stdout, stderr = self._public_rc(root)
                 self.assertEqual(3, rc, stderr)
                 self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_committed_head_pin_cannot_be_hidden_by_worktree_restore(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'hidden committed pin' "
+                + "'STATIC_PIN_FIXTURE=1' \"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", str(source)], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "commit undeclared pin"],
+                cwd=root,
+                check=True,
+            )
+            subprocess.run(
+                [
+                    "git",
+                    "restore",
+                    "--worktree",
+                    "--source=origin/main",
+                    "lib/test/run.sh",
+                ],
+                cwd=root,
+                check=True,
+            )
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(3, rc, stderr)
+        self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
+        self.assertIn("missing structural declaration", stdout)
+
+    def test_staged_pin_cannot_be_hidden_by_worktree_restore(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'hidden staged pin' "
+                + "'STATIC_PIN_FIXTURE=1' \"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", str(source)], cwd=root, check=True)
+            subprocess.run(
+                [
+                    "git",
+                    "restore",
+                    "--worktree",
+                    "--source=HEAD",
+                    "lib/test/run.sh",
+                ],
+                cwd=root,
+                check=True,
+            )
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(2, rc)
+        self.assertEqual("", stdout)
+        self.assertIn("index differs from HEAD", stderr)
+
+    def test_scanned_source_symlinks_fail_closed(self):
+        cases = (
+            "audited worktree",
+            "audited HEAD",
+            "untracked Python",
+            "symlinked parent",
+        )
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
+                root = Path(td) / "repo"
+                root.mkdir()
+                self._repo(root)
+                external = Path(td) / "external.txt"
+                external.write_text("# harmless external target\n", encoding="utf-8")
+                if case == "symlinked parent":
+                    test_dir = root / "lib/test"
+                    real_dir = root / "lib/test-real"
+                    test_dir.rename(real_dir)
+                    test_dir.symlink_to(real_dir.name)
+                    with self.assertRaisesRegex(
+                        self.mod.InfrastructureError,
+                        "symlinked worktree parent",
+                    ):
+                        self.mod._read_worktree_source(
+                            root,
+                            "lib/test/run.sh",
+                            "100755",
+                        )
+                elif case.startswith("audited"):
+                    source = root / "lib/test/run.sh"
+                    source.unlink()
+                    source.symlink_to(external)
+                    if case.endswith("HEAD"):
+                        subprocess.run(
+                            ["git", "switch", "-qc", "topic"],
+                            cwd=root,
+                            check=True,
+                        )
+                        subprocess.run(["git", "add", str(source)], cwd=root, check=True)
+                        subprocess.run(
+                            ["git", "commit", "-qm", "symlink audited source"],
+                            cwd=root,
+                            check=True,
+                        )
+                else:
+                    source = root / "lib/test/test_symlink_leaf.py"
+                    source.symlink_to(external)
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(2, rc)
+                self.assertEqual("", stdout)
+                self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
+
+    def test_multiple_direct_helpers_on_one_logical_line_fail_closed(self):
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fixture token is an executable sentinel"
+        )
+        for separator in (";", "&&"):
+            with self.subTest(separator=separator), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + "\nassert_pin_unique 'typed first' 'STATIC_PIN_FIXTURE=1' "
+                    + f"\"$LIB/test/static-pin-fixture.sh\" {separator} "
+                    + "assert_pin_unique 'undeclared second' 'STATIC_PIN_FIXTURE=1' "
+                    + f"\"$LIB/test/static-pin-fixture.sh\" {marker}\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(2, rc)
+                self.assertEqual("", stdout)
+                self.assertIn("multiple supported helper calls", stderr)
+
+    def test_command_prefixed_direct_helper_is_not_skipped(self):
+        for prefix in ("command", "command --", "command -p"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\n{prefix} assert_pin_unique 'command-prefixed pin' "
+                    + "'STATIC_PIN_FIXTURE=1' \"$LIB/test/static-pin-fixture.sh\"\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(3, rc, stderr)
+                self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
+
+        for lookup in ("command -v", "command -V", "echo command"):
+            with self.subTest(lookup=lookup), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\n{lookup} assert_pin_unique\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual((0, "", ""), self._public_rc(root))
 
     def test_composition_preserves_subgate_order_and_infrastructure_precedence(self):
         retired = ["MUTATION-ROUTING\tretired"]
