@@ -9,6 +9,7 @@ import importlib.util
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -1064,7 +1065,25 @@ class PinCorpusLint810Tests(unittest.TestCase):
             },
         }
 
-    def _static_worktree_fixture(self, root, registry=None, calls=None):
+    def _static_worktree_fixture(
+        self,
+        root,
+        registry=None,
+        calls=None,
+        *,
+        local_main_rc=1,
+        merge_base="mergebase\n",
+        python_tracked=(),
+        python_untracked=(),
+        show_rc=0,
+    ):
+        """Build a git_runner stub for ``scan_static_pin_changes``.
+
+        The ``lib/test/test_*.py`` glob reads are answered from
+        ``python_tracked``/``python_untracked`` and are kept distinct from the
+        audited-source reads that share the same ``ls-files`` subcommand, so a
+        test can drive the two populations independently.
+        """
         for path in self.mod.AUDITED_PIN_SOURCES:
             target = root / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1075,6 +1094,10 @@ class PinCorpusLint810Tests(unittest.TestCase):
         adjudications = root / "lib/test/pin-corpus-adjudications.tsv"
         adjudications.parent.mkdir(parents=True, exist_ok=True)
         adjudications.write_text(adjudication_text, encoding="utf-8")
+        for path in tuple(python_tracked) + tuple(python_untracked):
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("", encoding="utf-8")
         registry_path = root / "scripts/workflow-flight-recorder-registry.json"
         registry_path.parent.mkdir(parents=True, exist_ok=True)
         registry_path.write_text(
@@ -1082,15 +1105,28 @@ class PinCorpusLint810Tests(unittest.TestCase):
             encoding="utf-8",
         )
         audited = "\n".join(sorted(self.mod.AUDITED_PIN_SOURCES)) + "\n"
+        python_glob = "lib/test/test_*.py"
+
+        def _lines(paths):
+            return "".join(f"{path}\n" for path in sorted(paths))
 
         def runner(args, **_kwargs):
             rendered = " ".join(args)
             if calls is not None:
                 calls.append(rendered)
             if "show-ref --verify --quiet refs/heads/main" in rendered:
-                return subprocess.CompletedProcess(args, 1, "", "")
+                return subprocess.CompletedProcess(args, local_main_rc, "", "")
+            if "merge-base --is-ancestor" in rendered:
+                return subprocess.CompletedProcess(args, 0, "", "")
             if "merge-base origin/main HEAD" in rendered:
-                return subprocess.CompletedProcess(args, 0, "mergebase\n", "")
+                return subprocess.CompletedProcess(args, 0, merge_base, "")
+            if python_glob in rendered:
+                population = (
+                    python_untracked
+                    if "ls-files --others" in rendered
+                    else python_tracked
+                )
+                return subprocess.CompletedProcess(args, 0, _lines(population), "")
             if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
                 return subprocess.CompletedProcess(args, 0, audited, "")
             if (
@@ -1116,7 +1152,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
                     args, 0, adjudication_text.encode("utf-8"), b""
                 )
             if "show mergebase:" in rendered:
-                return subprocess.CompletedProcess(args, 0, "", "")
+                return subprocess.CompletedProcess(args, show_rc, "", "injected")
             return subprocess.CompletedProcess(args, 0, "", "")
 
         return runner
@@ -1148,23 +1184,7 @@ class PinCorpusLint810Tests(unittest.TestCase):
                     self.mod.scan_static_pin_changes(
                         "/repo",
                         git_runner=runner,
-                        scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
                     )
-
-        with self.assertRaisesRegex(
-            self.mod.InfrastructureError,
-            "scratch allocation failed",
-        ):
-            self.mod.scan_static_pin_changes(
-                "/repo",
-                git_runner=lambda args, **_kwargs: subprocess.CompletedProcess(
-                    args,
-                    0,
-                    "base\n",
-                    "",
-                ),
-                scratch_factory=lambda: (_ for _ in ()).throw(OSError("injected")),
-            )
 
         def broken_local_main(args, **_kwargs):
             rendered = " ".join(args)
@@ -1179,7 +1199,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
             self.mod.scan_static_pin_changes(
                 "/repo",
                 git_runner=broken_local_main,
-                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
             )
 
         with tempfile.TemporaryDirectory() as td:
@@ -1193,7 +1212,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 self.mod.scan_static_pin_changes(
                     root,
                     git_runner=self._static_worktree_fixture(root, registry),
-                    scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
                 )
 
     def _public_static_failure(self, runner):
@@ -1202,7 +1220,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 repo_root,
                 base_ref,
                 git_runner=runner,
-                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
             )
 
         with (
@@ -1262,7 +1279,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
             findings = self.mod.scan_static_pin_changes(
                 root,
                 git_runner=self._static_worktree_fixture(root, calls=calls),
-                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
             )
         self.assertEqual([], findings)
         self.assertTrue(
@@ -1271,35 +1287,93 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         self.assertTrue(any("show mergebase:" in call for call in calls), calls)
 
-    def test_static_worktree_scratch_failures_are_infrastructure(self):
-        class BrokenScratch:
-            def __init__(self, failure):
-                self.failure = failure
+    def test_static_worktree_with_local_main_present_verifies_ancestry(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            calls = []
+            findings = self.mod.scan_static_pin_changes(
+                root,
+                git_runner=self._static_worktree_fixture(
+                    root, calls=calls, local_main_rc=0
+                ),
+            )
+        self.assertEqual([], findings)
+        self.assertTrue(
+            any(
+                "merge-base --is-ancestor refs/heads/main origin/main" in call
+                for call in calls
+            ),
+            calls,
+        )
 
-            def write(self, _value):
-                if self.failure == "write":
-                    raise OSError("write failed")
+    def test_static_worktree_empty_merge_base_is_infrastructure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "comparison merge base resolved to empty output",
+            ):
+                self.mod.scan_static_pin_changes(
+                    root,
+                    git_runner=self._static_worktree_fixture(root, merge_base="  \n"),
+                )
 
-            def flush(self):
-                if self.failure == "flush":
-                    raise OSError("flush failed")
+    def test_static_worktree_base_blob_read_failure_is_infrastructure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                r"git show mergebase:.* failed \(exit 1\)",
+            ):
+                self.mod.scan_static_pin_changes(
+                    root,
+                    git_runner=self._static_worktree_fixture(root, show_rc=1),
+                )
 
-            def close(self):
-                if self.failure == "close":
-                    raise OSError("close failed")
+    def test_static_worktree_unreadable_pin_source_is_infrastructure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runner = self._static_worktree_fixture(root)
+            # The fixture materialized every audited source as a file; replacing
+            # one with a directory makes read_text raise IsADirectoryError, the
+            # OSError arm of the pin-source read.
+            victim = root / sorted(self.mod.AUDITED_PIN_SOURCES)[0]
+            victim.unlink()
+            victim.mkdir()
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "pin source unreadable: " + re.escape(sorted(self.mod.AUDITED_PIN_SOURCES)[0]),
+            ):
+                self.mod.scan_static_pin_changes(root, git_runner=runner)
 
-        for failure in ("write", "flush", "close"):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                with self.assertRaisesRegex(
-                    self.mod.InfrastructureError,
-                    f"scratch {failure} failed",
-                ):
-                    self.mod.scan_static_pin_changes(
-                        root,
-                        git_runner=self._static_worktree_fixture(root),
-                        scratch_factory=lambda f=failure: BrokenScratch(f),
-                    )
+    def test_static_worktree_reads_python_glob_populations_separately(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            calls = []
+            findings = self.mod.scan_static_pin_changes(
+                root,
+                git_runner=self._static_worktree_fixture(
+                    root,
+                    calls=calls,
+                    python_tracked=("lib/test/test_tracked_fixture.py",),
+                    python_untracked=("lib/test/test_untracked_fixture.py",),
+                ),
+            )
+        self.assertEqual([], findings)
+        glob_calls = [call for call in calls if "lib/test/test_*.py" in call]
+        self.assertEqual(2, len(glob_calls), calls)
+        self.assertEqual(
+            1, sum(1 for call in glob_calls if "ls-files --others" in call), glob_calls
+        )
+        # Both populations reached the scan: each is read from disk, and only the
+        # untracked one is synthesized into the diff (see the dedup regression
+        # test in the composition suite).
+        self.assertTrue(
+            any("lib/test/test_tracked_fixture.py" in call for call in calls), calls
+        )
+        self.assertTrue(
+            any("lib/test/test_untracked_fixture.py" in call for call in calls), calls
+        )
 
     def test_duplicate_registry_keys_are_rejected_at_load_boundary(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2153,6 +2227,91 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 "static unavailable",
             ):
                 self.mod.scan_worktree("/repo")
+
+        # The retired subgate runs first, so its infrastructure failure preempts
+        # the static subgate rather than being masked by it.
+        with (
+            mock.patch.object(
+                self.mod,
+                "scan_retired_mutation_population",
+                side_effect=self.mod.InfrastructureError("retired unavailable"),
+            ),
+            mock.patch.object(
+                self.mod,
+                "scan_static_pin_changes",
+                side_effect=self.mod.InfrastructureError("static unavailable"),
+            ) as static,
+        ):
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "retired unavailable",
+            ):
+                self.mod.scan_worktree("/repo")
+            static.assert_not_called()
+
+    def test_public_retired_subgate_infrastructure_failure_exits_two(self):
+        with (
+            mock.patch.object(
+                self.mod,
+                "scan_retired_mutation_population",
+                side_effect=self.mod.InfrastructureError("retired census unavailable"),
+            ),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
+        ):
+            rc = self.mod.main(
+                ["pin-corpus-lint.py", "mutation-routing-worktree", "/repo"]
+            )
+        self.assertEqual(2, rc)
+        self.assertEqual("", stdout.getvalue())
+        self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr.getvalue())
+        self.assertIn("retired census unavailable", stderr.getvalue())
+
+    def test_pin_relocated_into_a_newly_committed_source_is_not_double_counted(self):
+        """A pin source committed after the merge base appears in the real
+        ``git diff`` output; synthesizing a second ``/dev/null`` hunk for it used
+        to duplicate its sites, consume the one-to-one move exemption with the
+        first copy, and fail a legitimate relocation."""
+        pin = (
+            "\nclass RelocatedFixtureTest(unittest.TestCase):\n"
+            "    def test_wording(self):\n"
+            "        self.assertIn(\n"
+            "            'STATIC_PIN_FIXTURE=1',\n"
+            "            Path('lib/test/static-pin-fixture.sh').read_text(),\n"
+            "        )\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            origin = root / "lib/test/test_pin_corpus_lint.py"
+            origin.write_text(
+                origin.read_text(encoding="utf-8") + pin, encoding="utf-8"
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "add pin"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+                cwd=root,
+                check=True,
+            )
+            # Commit the relocation on a topic branch so local main stays at the
+            # merge base and the ancestry precheck holds.
+            subprocess.run(["git", "checkout", "-qb", "topic"], cwd=root, check=True)
+            # Relocate the pin into a Python leaf committed in the same change:
+            # tracked at HEAD, absent at the merge base, so it is already carried
+            # by the real `git diff` output.
+            origin.write_text(
+                origin.read_text(encoding="utf-8").replace(pin, ""), encoding="utf-8"
+            )
+            (root / "lib/test/test_relocated_fixture.py").write_text(
+                "from pathlib import Path\nimport unittest\n" + pin,
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "relocate"], cwd=root, check=True)
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(0, rc, f"stdout={stdout!r} stderr={stderr!r}")
+        self.assertEqual("", stdout)
 
 
 class RetiredMutationHelperBanTests(unittest.TestCase):
