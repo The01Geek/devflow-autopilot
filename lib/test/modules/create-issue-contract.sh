@@ -500,13 +500,21 @@ devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit
 #       The Queries always exit 0 regardless of call order, so the ordering is not
 #       machine-enforced and has no behavioral surface; it is left unguarded. The
 #       subcommands the line names are all registered (guarded below and by #792).
-# The one guard this module adds is the cross-file dispatch contract for C1/C5: the
-# create-issue reference prose invokes `query-final-byte` and `record-final-byte-offer`,
-# so both must remain dispatchable subcommands of scripts/issue-audit-state.py. This is an
-# ordinary executable test (it runs the argparse dispatcher and reads its exit code), not a
-# source-presence pin: a rename/removal of either subcommand in the state owner — which a
-# helper-internal suite would update in lockstep, leaving the create-issue prose silently
-# dangling — turns it RED. The negative control proves the check discriminates.
+# The one guard this module adds is the state-owner half of the C1/C5 cross-file dispatch
+# contract: the create-issue reference prose invokes `query-final-byte` and
+# `record-final-byte-offer`, so both must remain dispatchable subcommands of
+# scripts/issue-audit-state.py. This is an ordinary executable test (it runs the argparse
+# dispatcher and reads its exit code), not a source-presence pin: a rename/removal of either
+# subcommand in the state owner — which a helper-internal suite would update in lockstep,
+# leaving the create-issue prose silently dangling — turns it RED. The negative control
+# proves the check discriminates.
+#   Scope, stated exactly: the guard is ONE-DIRECTIONAL. The two names below are literals
+#   held by this module, checked against the state owner alone; the prose side is never
+#   read. So the reverse drift — the create-issue prose edited to name a differently-spelled
+#   subcommand while the state owner keeps these names — stays GREEN here. That gap is
+#   deliberate, not an oversight: closing it would mean asserting the reference prose
+#   contains a literal token, which is exactly the wording-only presence pin issue #810
+#   prohibits. The one-sided check is the largest guarantee available without one.
 _ci803_state_owner="$CI_ROOT/scripts/issue-audit-state.py"
 for _ci803_sub in query-final-byte record-final-byte-offer; do
   python3 "$_ci803_state_owner" "$_ci803_sub" --help >/dev/null 2>&1; _ci803_rc=$?
