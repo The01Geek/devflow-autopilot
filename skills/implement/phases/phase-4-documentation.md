@@ -6,23 +6,21 @@ Output: `Phase 4/4: Documentation — updating docs and finalizing PR...`
 
 ### 4.0 File Follow-Up Issues for Deferred Work
 
-The Phase 4.0 procedure lives in `<skill-dir>/references/deferred-ac-followups.md` and is **read only when a durable predicate says work is outstanding**. Ask it first, as a single statement whose leading token is the helper path, substituting **both** operands as decimal literals — never a shell variable a later statement reads, which arrives **empty** on the cloud tier:
+The Phase 4.0 procedure lives in `<skill-dir>/references/deferred-ac-followups.md` and is **read only when a durable predicate says work is outstanding**. Ask it first, as a single statement whose leading token is the helper path, substituting the PR number as a decimal literal — a shell variable a later statement reads arrives **empty** on the cloud tier, and the helper's integer-typed PR argument turns that into a usage error the unestablished arm absorbs, loading the reference every run with nothing red. `$ISSUE_NUMBER` is substituted per your standing substitution rule:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py deferred-presence $ISSUE_NUMBER <this-run's-PR-number>
 ```
 
-Read the **exit code and printed count line from the tool result** — never capture either into a shell variable a later statement reads. Do **not** read the workpad body to decide this. Route on the exit code:
+Read the **exit code and printed count line from the tool result**, never a captured shell variable. Do **not** read the workpad body to decide this. Route on the exit code:
 
 - **exit 1 — `not-outstanding: <n>`.** Do **not** read the reference; continue to §4.0.5.
 - **exit 0 — `outstanding: <n>`, followed by one `criterion:` line each.** `Read` `<skill-dir>/references/deferred-ac-followups.md` — via the same `<skill-dir>` anchor this file's entry-gate uses — and follow it for **exactly** the projected criteria.
-- **exit 2 — `unestablished: reason=<token> unbound=<u> corrupted=<c>`, or no count line at all.** Read the reference **anyway**, and record `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "…"` naming **which operand** could not be established, quoting the reason token and both counts. An unavailable operand is **never** read as "nothing was deferred": that reading silently strands deferred work, while a needless load costs one read.
+- **exit 2 — `unestablished: reason=<token> unbound=<u> corrupted=<c>`, or no count line at all.** Read the reference **anyway**, and record `workpad.py update $ISSUE_NUMBER --reflection-kind note --reflection "…"` naming **which operand** could not be established, quoting the reason token and both counts. The count line may be followed by `filed:` lines; the reference files only for criteria those lines do not name. An unavailable operand is **never** read as "nothing was deferred": that reading silently strands deferred work, while a needless load costs one read.
 
 **Marker contract.** Accept the load only when the file's **first line is its `start` boundary marker and its last line the matching `end` marker**, each naming that file's own path.
 
-**Degraded arm — degrade, never halt.** When the predicate holds and the reference read fails — absent, empty, harness-refused, or mismatched boundary markers — record `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "…"` naming the reference path `skills/implement/references/deferred-ac-followups.md` and stating the deferred criteria were **not** filed, then **continue to §4.0.5 without halting Phase 4**. Accepted residual: on that arm the criteria reach no follow-up issue and no merge gate consumes the reflection, but the run still reaches `Complete` and the PR still ships. `dropped-failed` is reserved for this arm; the unestablished arm uses `note`.
-
-§4.0 sits before every mid-phase re-anchor with no safety net behind it, so this stub must be self-sufficient.
+**Degraded arm — degrade, never halt.** When the predicate holds and the reference read fails — absent, empty, harness-refused, or mismatched boundary markers — record `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "…"` naming the reference path `skills/implement/references/deferred-ac-followups.md` and stating the deferred criteria were **not** filed, then **continue to §4.0.5 without halting Phase 4**. `dropped-failed` is reserved for this arm; the unestablished arm uses `note`.
 
 ### 4.0.5 File Follow-Up Issues for Deferred Review Findings
 

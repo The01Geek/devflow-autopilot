@@ -35974,6 +35974,12 @@ if [ "$I815_S40" != "/dev/null" ]; then
     "$([ -s "$I815_S40" ] && echo yes || echo no)"
   assert_eq "#815 section 4.0 no longer carries the follow-up-issue create fence" "0" \
     "$(grep -cF 'gh issue create' "$I815_S40" || true)"
+else
+  # Scratch allocation failed, so the slice cannot be cut. Route through the #456 skip
+  # helper rather than letting the only assertion that the create fence LEFT section 4.0
+  # silently vanish — a check that neither passes nor fails must say so.
+  skip "#815 section 4.0 no longer carries the follow-up-issue create fence" host-capability \
+    "could not allocate a scratch file for the section-4.0 slice"
 fi
 # An enforcement constant, registered per the #656 exception: 96623 is issue #815's
 # acceptance ceiling, fixed by the issue against the 116,623 the file measured when it was
@@ -36003,6 +36009,30 @@ assert_pin_red_under "#815 the stub degrades on a failed reference read instead 
   'continue to §4.0.5 without halting Phase 4' \
   's#continue to §4\.0\.5 without halting Phase 4#halt Phase 4#' \
   "$I480_P4"
+# AC116/117: the PR operand must be emitted as a decimal literal. A `$PR_NUMBER` there
+# arrives empty on the cloud tier, argparse exits 2, and the unestablished arm absorbs it —
+# so the reference loads on EVERY run and the change's whole benefit is erased with nothing
+# red. That is the one regression this stub cannot survive silently, so it gets both a
+# mutation pin on the instruction and a zero-count guard on the fence itself.
+assert_pin_red_under "#815 the stub requires the PR operand as a decimal literal" \
+  'the PR number as a decimal literal' \
+  's#the PR number as a decimal literal#the PR number#' \
+  "$I480_P4"
+assert_eq "#815 the predicate fence expands no shell variable but the orchestrator-substituted ones" "0" \
+  "$(grep -F 'scripts/workpad.py deferred-presence' "$I480_P4" \
+     | grep -o '\$[A-Za-z_][A-Za-z0-9_]*' | grep -cvx -e '\$ISSUE_NUMBER' -e '\$CLAUDE_SKILL_DIR' || true)"
+# The unestablished arm exits before the outstanding set is computed, so the reference must
+# read the `filed:` projection or a never-bound workpad re-files on every fresh entry.
+assert_pin_red_under "#815 the reference skips criteria a filed: line already names" \
+  'not named by a `filed:` line' \
+  's#not named by a `filed:` line#already deferred#' \
+  "$I815_REF"
+# A marker written for a criterion whose create never landed suppresses the next entry
+# permanently — the one irreversible direction in this whole channel.
+assert_pin_red_under "#815 a criterion whose create did not land gets no filed marker" \
+  'gets **no** marker, so the next Phase 4 entry re-files it' \
+  's#gets \*\*no\*\* marker, so the next Phase 4 entry re-files it#is marked filed anyway#' \
+  "$I815_REF"
 # The unestablished arm is the one that keeps deferred work from being stranded silently:
 # without it an unresolvable operand reads as "nothing was deferred" and nothing is filed.
 assert_pin_red_under "#815 an unestablished predicate loads the reference anyway" \
@@ -36021,8 +36051,10 @@ assert_eq "#815 the reference carries the filed-marker flag at its obligation, f
   "$(grep -cF -- '--mark-deferred-filed' "$I815_REF" || true)"  # structural-pin-ok: lifecycle-state-transition -- the write that discharges a deferral and makes a second Phase 4 entry file no duplicate
 # The reference reproduces criteria from the free-text note, not from the projection: the
 # projection is normalized, so sourcing it would strip a trailing (post-merge) tag.
-assert_pin_unique "#815 the reference sources criterion text from the 2.2.5 free-text note" \
-  'normalize_criterion' "$I815_REF"  # structural-pin-ok: cross-file-phase-contract -- names the normalizer whose lossiness is why the verbatim note, not the projection, is the reproduction source
+assert_pin_red_under "#815 the reference sources criterion text from the 2.2.5 free-text note" \
+  'copy each criterion from the Phase 2.2.5 note, never from the `criterion:` projection' \
+  's#copy each criterion from the Phase 2\.2\.5 note, never from the `criterion:` projection#copy each criterion from the `criterion:` projection#' \
+  "$I815_REF"
 # The relocated procedure may not reintroduce an issue-body fetch of its own (the Phase 1.1
 # cache is the hand-off), which `lib/test/lint-issue-body-refetch.py` audits repo-wide.
 assert_pin_unique "#815 the reference sources parent-derived slots from the Phase 1.1 cache" \
