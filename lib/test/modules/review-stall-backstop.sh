@@ -1269,8 +1269,9 @@ assert_eq "#839 bgv: main() emits the named breadcrumb when GITHUB_STEP_SUMMARY 
   "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>&1 >/dev/null | grep -qF 'could not append to GITHUB_STEP_SUMMARY' && echo yes || echo no)"
 assert_eq "#839 bgv: the verdict table still reaches stdout when GITHUB_STEP_SUMMARY is unwritable" "yes" \
   "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
-# EXECUTION_FILE env-var fallback: with NO argv path, main() reads the fixture from the env var
-# (it reads the fixture from the env var only when no argv path is given).
+# EXECUTION_FILE env-var fallback: with NO argv path, main() reads the fixture from the env var.
+# argv wins whenever it is present at all -- an empty argv[1] selects "" and never consults the
+# env var -- so this arm is reachable only with no argv path, which is what the fixture drives.
 assert_eq "#839 bgv: main() reads the execution file from the EXECUTION_FILE env var when no argv path is given" "yes" \
   "$(EXECUTION_FILE="$BGV_F2" python3 "$BGV_PY" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
 rm -f "$BGV_F2" "$BGV_SUM"
