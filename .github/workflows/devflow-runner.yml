@@ -1692,8 +1692,10 @@ jobs:
           # work is discarded (run 30138268273 burned a full eight-agent fleet and
           # produced no verdict). The vendor documents this variable as keeping
           # subagents in the FOREGROUND, so results are in hand before the model's turn
-          # continues; whether it takes effect inside claude-code-action is NOT yet
-          # observed in this repository and is tracked by issue #812. Note the
+          # continues; that it takes effect inside claude-code-action is OBSERVED, not
+          # assumed — matcher-probe.yml's background-tasks-probe job measured FOREGROUND
+          # on run 30210679122 (issue #812). That verdict is version-dependent: re-probe
+          # via that job after a claude-code-action upgrade. Note the
           # documented scope is wider than subagents: it disables ALL background task
           # functionality, including the Bash tool's run_in_background. No engine
           # surface requests a backgrounded Bash today, so that is inert here — but a

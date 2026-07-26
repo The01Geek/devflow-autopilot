@@ -1120,3 +1120,55 @@ fi
 chmod 644 "$BGV_UNREAD" 2>/dev/null || true
 rm -f "$BGV_UNREAD" "$BGV_F"
 unset BGV_UNREAD BGV_F
+
+# ── #812 AC4 second half — the probe row and its RECORDED VERDICT are one contract.
+# A probe job with no recorded verdict is a paid run nobody read; a recorded verdict with no
+# probe row is a claim with no re-derivation route. Neither half is checkable alone, so this
+# asserts the COUPLING: the job exists in matcher-probe.yml carrying the variable under test,
+# AND the docs record names the same job and carries a run identifier plus the re-probe
+# caveat. That cross-file producer/consumer coupling — not the prose wording — is what is
+# pinned; the rendered verdict text itself is already driven by the arms above.
+# structural-pin-ok: cross-file-phase-contract -- the matcher-probe.yml job (producer) and the
+# DEVFLOW_SYSTEM_OVERVIEW.md verdict record (consumer of that job's only output) are a
+# two-sided contract that no single-file assertion can hold; each half is separately mutable.
+DSO812="$REPO_ROOT/docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+probe_row_present812() {  # file -> yes|no : the job exists AND carries the variable under test
+  # The window ENDS on the job's own claude_args key, never on a generic job-header
+  # pattern: `  background-tasks-probe:` would match such a pattern itself, collapsing the
+  # awk range to a single line and making the check RED for the wrong reason.
+  awk '/^  background-tasks-probe:/,/^[[:space:]]*claude_args:/' "$1" \
+    | grep -qF 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' && echo yes || echo no
+}
+assert_eq "#812 probe-row: matcher-probe.yml carries a background-tasks-probe job setting the variable under test" \
+  "yes" "$(probe_row_present812 "$MPROBE812")"
+# Planted-defect control on a COPY: a job whose env no longer sets the variable is not a probe
+# of it, and the scoped awk window is what makes the check say so — a bare file-wide grep would
+# stay green on the variable's appearance in any of the three engine workflows' own text.
+_t812p="$(probe_tmp '#812 probe-row positive control')"
+sed -E 's/          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"//' "$MPROBE812" > "$_t812p"
+assert_eq "#812 probe-row: dropping the variable from the probe job turns the row check RED" \
+  "no" "$(probe_row_present812 "$_t812p")"
+# Recorded verdict: the docs record must name the producing job and carry BOTH a run
+# identifier and the re-probe caveat — a verdict without its version context reads as a
+# platform contract it is not (the issue's own stated gotcha).
+recorded_verdict812() {  # file -> yes|no : all three halves on the recorded-verdict line
+  grep -F -- 'Executed (issue #812)' "$1" | grep -qF 'background-tasks-probe' \
+    && grep -F -- 'Executed (issue #812)' "$1" | grep -qE 'run [0-9]{8,}' \
+    && grep -F -- 'Executed (issue #812)' "$1" | grep -qF 're-probe it via the `background-tasks-probe` job after a `claude-code-action` upgrade' \
+    && echo yes || echo no
+}
+assert_eq "#812 recorded-verdict: the stall-backstop bullet records the probe verdict with its run id and re-probe caveat" \
+  "yes" "$(recorded_verdict812 "$DSO812")"
+# Three planted-defect controls on a COPY, one per conjunct, so no half can go vacuous.
+_t812d="$(probe_tmp '#812 recorded-verdict positive control')"
+sed -E 's/background-tasks-probe/some-other-probe/g' "$DSO812" > "$_t812d"
+assert_eq "#812 recorded-verdict: repointing the record at another job turns the check RED" \
+  "no" "$(recorded_verdict812 "$_t812d")"
+sed -E 's/real cloud run [0-9]+/real cloud run/' "$DSO812" > "$_t812d"
+assert_eq "#812 recorded-verdict: stripping the run identifier turns the check RED" \
+  "no" "$(recorded_verdict812 "$_t812d")"
+sed -E 's/re-probe it via the `background-tasks-probe` job after a `claude-code-action` upgrade//' "$DSO812" > "$_t812d"
+assert_eq "#812 recorded-verdict: stripping the version-dependence re-probe caveat turns the check RED" \
+  "no" "$(recorded_verdict812 "$_t812d")"
+rm -f "$_t812p" "$_t812d"
+unset _t812p _t812d
