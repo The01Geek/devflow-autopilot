@@ -3801,12 +3801,16 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # delta-regression catch — after each iteration's fix commit a blinded subagent re-reviews
 # ONLY the cumulative fix delta (with the loop's prior findings/fix-decisions/fixer reasoning
 # withheld), so a fix-introduced #62/#98-class regression is caught in the SAME iteration
-# instead of riding out to the end-of-loop shadow. Per issue #159 B3, every pin below routes
-# through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
-# assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
-# by construction. Needles are apostrophe-free (the asserts single-quote them).
+# instead of riding out to the end-of-loop shadow. Per issue #159 B3, every pin below asserts
+# literal uniqueness inside the FIXDELTA region, so a non-gate-unique literal FAILS by
+# construction. Two helpers satisfy that: `assert_pin_unique` directly, and (since #816) the
+# mutation-taking `assert_pin_red_under`, which asserts the same uniqueness internally before
+# running its mutation — the post-#810 corpus policy requires the mutation-taking form for a new
+# operative-prose pin, so the region admits both rather than forcing a policy-barred bare presence
+# pin. The meta-test above counts the bare form only; a `assert_pin_red_under` call is invisible to
+# it and carries its own uniqueness guarantee. Needles are apostrophe-free (the asserts single-quote them).
 RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
-# FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
+# FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST assert literal uniqueness: assert_pin_unique (meta-tested above) or assert_pin_red_under (asserts uniqueness internally; required by the post-#810 policy for a new operative-prose pin)
 assert_pin_unique "fix-delta gate: Step 3.5 heading present in review-and-fix SKILL" \
   '### Step 3.5: Fix-delta verification gate' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
@@ -6169,9 +6173,11 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # same two-mirror shape as 2.3.0b above: adding a sweep to the §2.3 set is itself an instance of
 # 2.3.0b, so the sweep set's doc mirrors are asserted per sweep rather than trusted to a reviewer.
 # Both are expressed through the mutation-taking helper rather than the bare presence shape the
-# 2.3.0b siblings above use: the post-#810 pin corpus refuses a new prose-presence assertion, and a
-# mutation that strips the mirror row proves the pin catches the named regression (the sweep set
-# gaining a member whose docs mirror was never written) rather than merely its own line vanishing.
+# 2.3.0b siblings above use, because the post-#810 pin corpus refuses a new prose-presence assertion.
+# For a doc mirror the row's PRESENCE is itself the guarded property, so the mutation that deletes the
+# row IS the named regression (a sweep added to the §2.3 set whose docs mirror was never written);
+# no operative-vs-framing contrast applies here, unlike a prose pin whose line can survive its own
+# operative clause being removed.
 assert_pin_red_under "sweep 2.3.0d: docs/implement-skill.md keeps the rationale table row" \
   '| 2.3.0d Describing-prose reconciliation |' \
   's/^\| 2\.3\.0d Describing-prose reconciliation \|.*$//' "$IMPL_DOC"
@@ -11464,7 +11470,7 @@ assert_pin_red_under "#816 fix-delta-preserved-invariants-qualified: item 3b's P
 # mutation restores that ungranted instruction, re-introducing the named defect.
 assert_pin_red_under "#816 item-3a-granted-form: fixing.md item 3a's locate step instructs the granted command forms item 3b names, not the ungranted git grep" \
   'using the granted command forms item 3b'"'"'s **Command forms** paragraph names' \
-  's/ — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names//'
+  's/Search for the identifier\(s\) in the files this PR'"'"'s diff touched — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names \(the \*\*Grep tool\*\* first, `rg` when it resolves on the host, `grep -rnE` last with the directory-exclusion obligation\)/`git grep -n` the identifier(s) in the files this PR'"'"'s diff touched/'
 
 # The gate's dispatch scope is what makes the added-assertion check dischargeable: an assertion
 # guarding untouched text has its target OUTSIDE the delta by construction, so a delta-only scope
@@ -11473,13 +11479,7 @@ assert_pin_red_under "#816 gate-dispatch-scope-widened: the fix-delta gate admit
   'the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target' \
   's/\*\*For the added-assertion check below, the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target\*\*/For the added-assertion check below, the scope is the delta alone/'
 
-# An added assertion whose target cannot be read is an UNESTABLISHED measurement. The mutation
-# grades it clean instead, re-introducing exactly the fail-open the arm exists to close.
-assert_pin_red_under "#816 gate-assertion-unestablished: an added assertion whose target cannot be read is reported unestablished, never clean" \
-  'report that assertion **unestablished** — never clean' \
-  's/report that assertion \*\*unestablished\*\* — never clean/report that assertion clean/'
-
-# The gate's third check and its three reportable outcomes are pinned once, in
+# The gate's third check, its three reportable outcomes, AND its unestablished arm are pinned once, in
 # lib/test/modules/review-and-fix-contract.sh — the focused module that owns the review-and-fix
 # reference surface. A second copy here would target the same bundle bytes with the same mutation,
 # so it would add no coverage and would make every future wording change a two-file lockstep edit.
@@ -11488,11 +11488,26 @@ assert_pin_red_under "#816 gate-assertion-unestablished: an added assertion whos
 # rather than only from its own heading. Each mutation deletes its arm, restoring the state in which
 # the sweep is reachable only from its own heading and never from the classification step.
 assert_pin_red_under "#816 sweep-selection-removal-arm: the §2.3 preamble routes a membership removal to 2.3.0d" \
-  '**Removes a value from an enumerated set**' \
+  'a permissions list*) → run **2.3.0d** (describing-prose reconciliation sweep)' \
   's/^- \*\*Removes a value from an enumerated set\*\*.*$//' "$P2_FILE"
 assert_pin_red_under "#816 sweep-selection-weakened-arm: the §2.3 preamble routes a weakened universal to 2.3.0d" \
-  '**Weakens a universal it previously asserted**' \
+  'scopes it (an unqualified claim gains a qualifier), or removes it outright → run **2.3.0d**' \
   's/^- \*\*Weakens a universal it previously asserted\*\*.*$//' "$P2_FILE"
+# §2.3.0d's repo-wide search domain is the OPERAND the two fixing.md enumeration-scope pins read:
+# item 3b's exception says a sweep may exceed the delta "where that sweep's own Phase 2.3 definition
+# states a repo-wide domain", so scoping this sentence to the diff would silently make §2.3.0d
+# delta-bounded while both of those pins stayed green — a guard reading a field its producer does not
+# guarantee. The mutation scopes the domain to the diff, which the sweep's own rationale says makes it
+# structurally unable to find a surviving copy in another directory.
+assert_pin_red_under "#816 sweep-2.3.0d-repo-wide-domain: §2.3.0d states a whole-repository search domain (the operand item 3b's enumeration-scope exception reads)" \
+  'The domain is **the whole repository**, not the diff' \
+  's/The domain is \*\*the whole repository\*\*, not the diff/The domain is the diff/' "$P2_FILE"
+# The per-fired-trigger termination rule: a removal-only diff must not owe the deletion-hunk search
+# (evidence for a search with no input), and a both-trigger diff owes both. The mutation restores the
+# unconditional both-enumerations demand.
+assert_pin_red_under "#816 sweep-2.3.0d-per-trigger-termination: §2.3.0d terminates per fired trigger, never demanding both enumerations unconditionally" \
+  'Termination is per fired trigger, never both unconditionally' \
+  's/\*\*Termination is per fired trigger, never both unconditionally\.\*\*/**Termination always demands both enumerations.**/' "$P2_FILE"
 # The rename assignment is what keeps a single diff shape from arming two sweeps with different
 # search domains. The mutation removes the assignment, restoring the ambiguity the AC names.
 assert_pin_red_under "#816 sweep-2.3.0d-rename-precedence: §2.3.0d assigns a rename to exactly one sweep" \
