@@ -129,6 +129,11 @@ def load_classifier():
 _HISTORICAL_INVENTORY_CACHE: dict[str, str] = {}
 
 
+def encode_tracked_paths(paths: list[str]) -> bytes:
+    """Encode Git paths without newline or platform line-ending ambiguity."""
+    return b"".join(path.encode("utf-8") + b"\0" for path in paths)
+
+
 def historical_inventory(revision: str) -> str:
     """Run a recorded revision's classifier, linter, table, and tracked tree together."""
     cached = _HISTORICAL_INVENTORY_CACHE.get(revision)
@@ -165,7 +170,7 @@ def historical_inventory(revision: str) -> str:
                 "historical classifier fixture is incomplete: " + ", ".join(sorted(missing))
             )
         tracked = scratch / "tracked-files.txt"
-        tracked.write_text("\n".join(tracked_paths) + "\n", encoding="utf-8")
+        tracked.write_bytes(encode_tracked_paths(tracked_paths))
         inventory = scratch / "inventory.tsv"
         result = subprocess.run(
             [

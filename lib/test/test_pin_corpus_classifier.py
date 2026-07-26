@@ -31,6 +31,11 @@ def load_classifier():
     return module
 
 
+def encode_tracked_paths(paths: list[str]) -> bytes:
+    """Encode Git paths without newline or platform line-ending ambiguity."""
+    return b"".join(path.encode("utf-8") + b"\0" for path in paths)
+
+
 class PinCorpusClassifierTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -253,6 +258,15 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
                 ["--source", "lib/test/run.sh", *remaining],
                 ("lib/test/run.sh",),
             ),
+        )
+
+    def test_historical_tracked_path_fixture_is_nul_delimited(self):
+        encoded = encode_tracked_paths(["plain/path", "legal\nnewline"])
+        self.assertEqual(b"plain/path\0legal\nnewline\0", encoded)
+        self.assertNotIn(b"\r", encoded)
+        self.assertEqual(
+            ["plain/path", "legal\nnewline"],
+            [part.decode("utf-8") for part in encoded.split(b"\0") if part],
         )
 
     def test_cli_debundles_homes_applies_only_exact_count_exclusions(self):
@@ -653,7 +667,7 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             ):
                 self.assertIn(relative, tracked_paths)
             tracked = scratch / "tracked-files.txt"
-            tracked.write_text("\n".join(tracked_paths) + "\n", encoding="utf-8")
+            tracked.write_bytes(encode_tracked_paths(tracked_paths))
             command[1] = str(scratch / "lib/test/pin-corpus-classifier.py")
             repo_index = command.index("--repo-root") + 1
             command[repo_index] = str(scratch)
