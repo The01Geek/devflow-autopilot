@@ -869,6 +869,24 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 )
                 self.assertEqual(1, len(findings))
 
+    def test_shell_cat_membership_presence_assertion_shares_policy(self):
+        source = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "[[ \"$(cat \"$DOC\")\" == *'HUMAN PROSE'* ]]"
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/a.sh", repo_root="/repo"
+        )
+        self.assertEqual(1, len(sites))
+        self.assertEqual("HUMAN PROSE", sites[0].literal)
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": ""},
+            one_file_diff("lib/test/a.sh", "", source),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+
     def test_python_file_text_presence_assertion_shares_policy(self):
         source = (
             "from pathlib import Path\n"

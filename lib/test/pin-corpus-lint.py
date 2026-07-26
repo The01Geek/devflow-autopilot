@@ -1698,6 +1698,16 @@ _RAW_PRESENCE_RE = re.compile(
     re.VERBOSE | re.DOTALL,
 )
 
+_RAW_CAT_PRESENCE_RE = re.compile(
+    r"""(?P<prefix>\[\[\s+)
+        ["']?\$\(cat\s+
+        (?P<target>"[^"]+"|'[^']+'|[^\s)]+)
+        \s*\)["']?\s+==\s+
+        \*(?P<literal_token>'[^']*'|"[^"]*"|[^\s*]+)\*
+        \s+\]\]""",
+    re.VERBOSE,
+)
+
 
 def _line_end(start, logical_line):
     return start + logical_line.count("\n")
@@ -2073,29 +2083,35 @@ def extract_guard_sites(text, source_path, repo_root):
             )
             continue
         match = _RAW_PRESENCE_RE.search(logical_line)
-        if not match or not _raw_options_are_fixed_quiet(match.group("options")):
+        cat_match = _RAW_CAT_PRESENCE_RE.search(logical_line)
+        if match is None and cat_match is None:
             continue
-        # Negative assertions are absence guards, not presence pins. Canonical
-        # yes/no and 1/0 renderings are recognized; an `if grep ...` branch is
-        # positive unless explicitly negated.
-        before_grep = logical_line[: match.start()]
-        expected = re.search(
-            r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?P<q>['"])(?P<value>yes|no|1|0)(?P=q)""",
-            before_grep,
-        )
-        if re.search(r"!\s*$", before_grep):
-            continue
-        echo_pair = re.search(
-            r"&&\s+echo\s+(?P<on_match>yes|no|1|0)"
-            r"\s+\|\|\s+echo\s+(?P<on_miss>yes|no|1|0)",
-            logical_line[match.start() :],
-        )
-        if expected:
-            if echo_pair:
-                if expected.group("value") != echo_pair.group("on_match"):
-                    continue
-            elif expected.group("value") in {"no", "0"}:
+        if match is not None:
+            if not _raw_options_are_fixed_quiet(match.group("options")):
                 continue
+            # Negative assertions are absence guards, not presence pins. Canonical
+            # yes/no and 1/0 renderings are recognized; an `if grep ...` branch is
+            # positive unless explicitly negated.
+            before_grep = logical_line[: match.start()]
+            expected = re.search(
+                r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?P<q>['"])(?P<value>yes|no|1|0)(?P=q)""",
+                before_grep,
+            )
+            if re.search(r"!\s*$", before_grep):
+                continue
+            echo_pair = re.search(
+                r"&&\s+echo\s+(?P<on_match>yes|no|1|0)"
+                r"\s+\|\|\s+echo\s+(?P<on_miss>yes|no|1|0)",
+                logical_line[match.start() :],
+            )
+            if expected:
+                if echo_pair:
+                    if expected.group("value") != echo_pair.group("on_match"):
+                        continue
+                elif expected.group("value") in {"no", "0"}:
+                    continue
+        else:
+            match = cat_match
         target_token = match.group("target")
         if (
             len(target_token) >= 2
