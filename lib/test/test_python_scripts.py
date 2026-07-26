@@ -16676,8 +16676,10 @@ assert_eq("#814: a PATCH-call failure exits 1 with empty stdout and no breadcrum
 
 _code, _out, _err, _patched = _drive_cmd_update(
     IDX_BODY, expect_status="Reviewing", note=['n'])
-assert_eq("#814: an --expect-status precondition mismatch exits 4 with empty stdout",
-          (4, ""), (_code, _out))
+assert_eq("#814: an --expect-status precondition mismatch exits 4 with empty stdout "
+          "and no success breadcrumb",
+          (4, "", 0),
+          (_code, _out, _err.count("workpad.py update: PATCHed comment ")))
 
 _code, _out, _err, _patched = _drive_cmd_update(
     IDX_BODY, expect_comment_id="999", note=['n'])
@@ -16843,6 +16845,19 @@ def _drive_cmd_patch(payload):
 
 assert_eq("#814: cmd_patch still writes its response to stdout unconditionally",
           "patched\n", _drive_cmd_patch("patched\n"))
+
+# Echo SOURCE, not merely echo presence. `--print-body` must reproduce what the PATCH
+# RESPONSE carried — the bytes the pre-#814 code wrote — never the body this process
+# just composed locally. run.sh cannot ask this: its gh stub answers a PATCH by teeing
+# back the body it received, so the two sources are identical there and a comparison
+# passes either way. Here `patch_response` is a sentinel that is deliberately NOT the
+# stored body, so echoing the local mutation turns this RED.
+_RESP_SENTINEL = "PATCH RESPONSE SENTINEL — not the locally mutated body\n"
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, note=['n'], print_body=True, patch_response=_RESP_SENTINEL)
+assert_eq("#814: --print-body echoes the PATCH RESPONSE bytes, not the locally mutated body",
+          (_RESP_SENTINEL, True, True),
+          (_out, _patched is not None, _out != _patched))
 
 # Argparse rejection: `--print-body` belongs to `update` alone, so a subcommand that
 # does not define it exits 2. Driven through the real `main()` parser.

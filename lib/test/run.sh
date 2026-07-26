@@ -9154,18 +9154,13 @@ PY
 assert_eq "#814: ... while the default run's stdout capture is zero bytes" "yes" "$_defaultout_empty"
 assert_eq "#814: ... and the --print-body run's stdout capture is not" "yes" \
   "$([ -s "$S356/out8" ] && echo yes || echo no)"
-# Identity, not merely non-emptiness: --print-body must echo the PATCH RESPONSE (what
-# the pre-#814 code wrote), never the locally mutated body. The 15 existing readers are
-# content probes and would stay green on either, so this is the only assertion that
-# distinguishes them. Same clock normalisation, same preflight-guaranteed python3.
-assert_eq "#814: --print-body echoes the PATCH response bytes, not the locally mutated body" "yes" \
-  "$(python3 - "$S356/out8" "$S356/patchbody8" <<'PY814'
-import re, sys
-def norm(p):
-    return re.sub(r'(?m)^\*\*Last updated:\*\*.*$', '**Last updated:** X', open(p, encoding='utf-8').read())
-print('yes' if norm(sys.argv[1]) == norm(sys.argv[2]) else 'no')
-PY814
-)"
+# The echo-SOURCE question — does --print-body write the PATCH RESPONSE or the locally
+# mutated body? — is deliberately NOT asked here. This stub answers a PATCH by teeing the
+# body it received, so the response and the recording are the same bytes by construction
+# and any comparison between them at this level passes whichever source the code reads.
+# It is asked where it can actually fail: test_python_scripts.py drives cmd_update with a
+# `patch_response` that differs from the stored body, so a code path echoing the mutation
+# instead of the response turns that assertion RED.
 # The pair only proves invariance if the recordings are real, not two empty files.
 assert_eq "#814: the payload-invariance comparison ran over a non-empty recorded PATCH body" "yes" \
   "$([ -s "$S356/pb-default" ] && echo yes || echo no)"
