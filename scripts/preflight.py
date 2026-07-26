@@ -234,6 +234,23 @@ def dependencies(args: argparse.Namespace) -> int:
 # The two-payload verdicts (AMBIGUOUS/DECISION_BLOCKED) additionally print a
 # `<verdict> <payload-file>` where the payload file captures the gathered +
 # derived state and the classification reason for the human deciding the stop.
+#
+# Two provenance sources may vouch for ahead-of-base history (issue #780): the
+# workpad (`provenance_established`), and the OPEN-PR LINKAGE — an open PR in THIS
+# repository whose head branch is the working branch, which is not
+# cross-repository, and which is tied to this issue either by closing
+# it or by having been selected by the §1.4 pre-check's head-branch query
+# (`open_pr_branch` / `open_pr_closes_issue` / `open_pr_cross_repository` /
+# `open_pr_selected_by`). Operative rules, enforced below: every conjunct of the PR
+# source fails CLOSED; a PARTIAL gather of those four operands is refused rather
+# than read as a refutation; the workpad takes precedence when both vouch; and on a
+# PR-vouched-only path the untrusted workpad is neutralized rather than consulted.
+# The threat model this admission rests on — who can write each source, and the
+# population overlap that bounds what it defends against — has its CANONICAL
+# statement in docs/implement-skill.md's "Two provenance sources for ahead history"
+# section. This header states only the operative rules above; the skill body and the
+# system overview carry coupled summaries. Edit those three together, and do not add
+# a fourth copy of the rationale here — a security rationale copied further drifts.
 
 # The workpad front-matter Branch line: `**Branch:** `<name>`` (a real branch)
 # or `**Branch:** _(creating…)_` (the 1.3 placeholder, no backticks). Match the
@@ -476,18 +493,80 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
     # ahead > 0: the branch carries commits not on the base. They are legitimate
     # only if they are this run's own prior work; otherwise §1.5 would publish
     # foreign history into the PR (the PR #524 incident). Validate before proceed.
-    if not state.get("provenance_established", False):
-        # The workpad's recorded branch / verdict are the only signals that could
-        # vouch for the ahead history, and unestablished provenance means they may
+    # Open-PR linkage — the second provenance source (issue #780), which is what
+    # lets the landed-resume arm be classified at all: that arm's workpad
+    # provenance is unestablished across two large populations (a cloud run whose
+    # HANDOFF record is `unknown`, and a local resumed run that did not create its
+    # own workpad), so a workpad-only gate would convert ordinarily-resumable runs
+    # into terminal stops. Every conjunct fails CLOSED, and a caller that gathered
+    # the PR operands only partially is refused upstream in `branch_state` rather
+    # than silently reaching here — so an absent field is never read as an answer.
+    #
+    # ISSUE-LINKAGE IS A DISJUNCTION, and that is not a weakening — it mirrors the
+    # §1.4 resume pre-check's own selection contract, which admits a PR found by the
+    # HEAD-BRANCH query as "a resume target by construction" and applies the
+    # closes-issue predicate only to a PR found *solely* by the body-reference query.
+    # Requiring `open_pr_closes_issue` unconditionally would therefore hand a
+    # terminal `DECISION_BLOCKED` to a run the pre-check had just blessed and landed
+    # — a PR whose body reads "Part of #N" rather than "Closes #N" — which is the
+    # very outcome admitting this source exists to remove. So the head-query
+    # selection stands in for the linkage exactly where the pre-check says it does.
+    # It is not forgeable by the wider issue-commenter population either: the
+    # conjuncts below still require a same-repo PR whose head is the branch actually
+    # in the tree.
+    pr_branch = state.get("open_pr_branch")
+    wp_vouched = bool(state.get("provenance_established", False))
+    pr_issue_linked = (
+        state.get("open_pr_closes_issue") is True
+        or state.get("open_pr_selected_by") == "head"
+    )
+    pr_vouched = (
+        isinstance(pr_branch, str)
+        and pr_branch == current_branch
+        and pr_issue_linked
+        and state.get("open_pr_cross_repository") is False
+    )
+    # `pr_linkage_vouches` records whether the PR source *could* vouch;
+    # `provenance_source` records which source the operands below actually came
+    # from. They differ when both vouch, so a human reading a stop payload is never
+    # shown a PR-derived provenance that the classification did not in fact use.
+    derived["pr_linkage_vouches"] = pr_vouched
+    if not wp_vouched and not pr_vouched:
+        # Neither source vouches. The workpad's recorded branch / verdict are then
+        # the only remaining signals, and unestablished provenance means they may
         # be marker-forged — so they cannot be trusted to validate anything.
+        derived["provenance_source"] = None
         return ("DECISION_BLOCKED", "unverified-provenance", derived)
 
-    recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
+    # PRECEDENCE — deliberate, and asymmetric: the workpad wins when both vouch.
+    # The two sources are not interchangeable. The workpad carries a run's own
+    # recorded branch and proceed verdict, which resolve a strictly finer set of
+    # verdicts (`matching-without-verdict`, `divergent-*`) than the PR can; the PR
+    # source collapses both onto one fact and therefore screens only through
+    # published-tip reachability. Preferring the workpad where it is trusted keeps
+    # an established-provenance run classifying exactly as it did before issue #780
+    # — the PR source only ever *adds* a path where there was previously a terminal
+    # stop, and never relaxes one that already had a finer answer.
+    if wp_vouched:
+        derived["provenance_source"] = "workpad"
+        recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
+        has_verdict = bool(state.get("has_proceed_verdict", False))
+    else:
+        # PR-vouched only. The workpad is untrusted here, so neither its Branch line
+        # nor a workpad-derived proceed verdict may vouch for anything — consulting
+        # them would let a forged comment steer the classification the PR was
+        # admitted to decide. The PR supplies both operands instead. Reusing the
+        # shared arms below rather than returning early is deliberate: it keeps ONE
+        # published-tip-reachability call site and ONE reason slug for the
+        # diverged-tip stop, so that screen cannot drift between the two sources.
+        # Because `pr_vouched` already required `pr_branch == current_branch`, this
+        # path lands on the matching-branch arm by construction.
+        derived["provenance_source"] = "open-pr"
+        recorded, duplicate = pr_branch, False
+        has_verdict = True
     derived["recorded_branch"] = recorded
     if duplicate:
         return ("AMBIGUOUS", "duplicate-branch-line", derived)
-
-    has_verdict = bool(state.get("has_proceed_verdict", False))
 
     # Published-tip reachability is only consulted on the absent and matching
     # arms below; the divergent arm never reads it, so it is derived inside those
@@ -570,12 +649,66 @@ def branch_state(args: argparse.Namespace) -> int:
     # manufacture a proceed verdict the run never earned. Both are silent: no
     # exception, no exit-code deviation, just the unsafe verdict. So a present
     # non-bool is refused here rather than coerced downstream.
-    for _flag in ("provenance_established", "has_proceed_verdict"):
+    # `open_pr_closes_issue` / `open_pr_cross_repository` join the list for a
+    # DIFFERENT reason than the two original flags, and the difference matters: the
+    # originals are read through truthiness, so a quoted `"false"` genuinely fails
+    # OPEN there. The two #780 flags are read through IDENTITY (`is True` / `is
+    # False`), so a quoted `"false"` already fails closed on its own. They are
+    # refused here anyway because failing closed with a *misleading*
+    # `unverified-provenance` cause hides an encoding error behind a verdict that
+    # reads as a real refutation — the caller is told the PR did not vouch when in
+    # fact the operand was never legible. The refusal names the encoding error
+    # instead.
+    for _flag in (
+        "provenance_established",
+        "has_proceed_verdict",
+        "open_pr_closes_issue",
+        "open_pr_cross_repository",
+    ):
         if _flag in state and not isinstance(state[_flag], bool):
             return _unavailable_state(
                 f"branch-state '{_flag}' must be a JSON boolean (true/false), not "
-                f"{type(state[_flag]).__name__} — a quoted \"false\" is truthy and would fail open"
+                f"{type(state[_flag]).__name__} — a quoted \"false\" is truthy, so on a "
+                f"truthiness-read flag it would VOUCH for history the caller never "
+                f"vouched for, and on an identity-read flag it reads as a refutation "
+                f"the caller never established"
             )
+    # `open_pr_branch` / `open_pr_selected_by` are string operands, so they take a
+    # string refusal rather than the boolean one above. Without it a malformed value
+    # is the one gate operand whose failure is SILENT — it fails closed through the
+    # `isinstance` conjunct, but into a generic `unverified-provenance` that names no
+    # cause, so the caller reads a real refutation where an encoding error occurred.
+    if "open_pr_branch" in state and not isinstance(state["open_pr_branch"], str):
+        return _unavailable_state(
+            "branch-state 'open_pr_branch' must be a JSON string (the PR's headRefName), not "
+            f"{type(state['open_pr_branch']).__name__}"
+        )
+    if "open_pr_selected_by" in state and state["open_pr_selected_by"] not in ("head", "body"):
+        return _unavailable_state(
+            "branch-state 'open_pr_selected_by' must be the string 'head' or 'body' (which §1.4 "
+            f"resume-pre-check query selected the PR), not {state['open_pr_selected_by']!r}"
+        )
+    # PARTIAL-GATHER REFUSAL — the mechanism behind §1.4.0.5's "gather all four or
+    # none" rule, which is otherwise an unobservable prose instruction. Without it,
+    # a caller that gathered a PR but omitted one field is INDISTINGUISHABLE from a
+    # caller whose PR genuinely did not vouch: both emit `unverified-provenance`, so
+    # a stop payload asserts "the linkage was evaluated and refuted" about an operand
+    # that was never written (the repo's unknown-is-not-zero rule). Refusing names
+    # the omission instead, and it is what makes the fail-closed-on-ungathered
+    # behavior a decided contract rather than an accident of `dict.get`.
+    _pr_keys = (
+        "open_pr_branch",
+        "open_pr_closes_issue",
+        "open_pr_cross_repository",
+        "open_pr_selected_by",
+    )
+    _present = [k for k in _pr_keys if k in state]
+    if _present and len(_present) != len(_pr_keys):
+        _missing = ", ".join(k for k in _pr_keys if k not in state)
+        return _unavailable_state(
+            "branch-state open-PR provenance operands must be gathered together or omitted "
+            f"together; present: {', '.join(_present)}; missing: {_missing}"
+        )
 
     verdict, reason, derived = _classify_branch_state(state)
     if verdict == "UNAVAILABLE":

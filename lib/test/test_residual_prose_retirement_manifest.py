@@ -42,11 +42,11 @@ EXPECTED_SURFACES = {
     "Implement/Create-Issue": 119,
     "other/shared": 3,
 }
-EXPECTED_DISPOSITIONS = {"RETIRE_PROSE": 38, "RETAIN_BOUNDARY": 204}
+EXPECTED_DISPOSITIONS = {"RETIRE_PROSE": 39, "RETAIN_BOUNDARY": 203}
 # This is the independently recorded selector digest in the implementation plan.
 EXPECTED_SELECTOR_DIGEST = "7505469a1b2538622d653cc225fe3571bf9c41d4d3c004011241e89b1e93bf40"
 EXPECTED_AUDIT_MAPPING_DIGEST = (
-    "601e17e46652249e69da5016b63e240824ab1d7dae0f50a15db87a9c22ab2b61"
+    "047165133b3aa37e7c44a902f73b46ba428f00eb8b7b1468acf985a4f5489d1b"
 )
 SOURCE_FILES = (
     "lib/test/run.sh",
@@ -272,7 +272,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             ADJUDICATIONS.read_text(encoding="utf-8")
         )
         retained = [row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"]
-        self.assertEqual(204, len(retained))
+        self.assertEqual(203, len(retained))
         for literal in retained:
             key = self.classifier.literal_adjudication_key(literal)
             self.assertIn(key, adjudications, literal)

@@ -4234,9 +4234,12 @@ assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the
 assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
   "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
 # Both queries must request `closingIssuesReferences`, so this remaining count guard keeps
-# the selector's required predicate input available.
-assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
-  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+# the selector's required predicate input available. Issue #780 added `isCrossRepository` to
+# the same two `--json` lists — §1.4.0.5's open-PR-linkage provenance source requires a
+# same-repo-headed PR and fails CLOSED on an ungathered field, so a query that stops fetching
+# it silently costs every landed resume its classification. Same guarantee, one more field.
+assert_eq "#362/#780: both resume-pre-check queries fetch the predicate/provenance inputs they read" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences,isCrossRepository)' "$P362_P1")"
 
 # (6) The two vendored superpowers skills stay untouched by this change (AC).
 assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
@@ -4629,10 +4632,25 @@ assert_pin_unique "#779: the checkpoint helper fetches the base with the same fo
 assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; surrounding static contract checks cover the behavior it explains
 
-# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to the relocated
-# checkpoint. Without it the arm reads "skip both signals entirely" and falls through to §1.5,
-# reproducing #779 exactly; the negative-control pin below does NOT catch that, because its literal
-# is a PREFIX of the same line and survives the clause's deletion.
+# #780 revisited that routing now that Verdict B classifies the landed-resume arm, and decided it
+# STAYS. No new pin is added for the decision: the operative routing sentence is unchanged, so the
+# mutation pin already guarding it is exactly what asserts the decision. Pinning the *rationale*
+# clause instead would protect a literal that can be reworded with zero behavior change — the
+# secondary-prose class this repo prohibits.
+
+# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to §1.4.0.5's
+# Verdict B classification and then to the relocated checkpoint. Without it the arm reads "skip
+# both signals entirely" and falls through to §1.5, reproducing #779 and leaving #780's screen
+# unreachable. Nothing else in the file catches that: the scope-boundary pin that used to sit
+# adjacent was retired by #780 (block (e) below), and the classifier's own unit arms all pass on a
+# tree where no run ever invokes it on this arm.
+assert_pin_unique "#780: the LANDED-resume bullet routes that arm through Verdict B before the checkpoint" \
+  "then run §1.4.0.5's Verdict B classification and then take the" "$P1_FILE"  # structural-pin-ok: routing-dispatch-contract -- this bullet is the sole dispatch site entering §1.4.0.5 on the landed-resume arm (§1.4.0.5 states it is entered by explicit routing, never by a shell-variable test); losing it leaves the arm's ahead history unscreened while every classifier unit test stays green
+
+# (g, cont.) The landed-resume BRIDGING clause is now asserted directly, by the pin above:
+# issue #780 retired the adjacent scope-boundary negative control (whose literal was a PREFIX of
+# the same line and survived the clause's deletion), so there is no longer a nearby pin whose
+# non-coverage needs explaining here.
 
 # (h) Checkpoint 4's CONFLICT re-invocation BOUND — without it the gate is a resolve-and-re-invoke
 # loop with no exit on a persistently conflicting base.
@@ -4662,10 +4680,9 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # compounds a failed restore instead of clearing a transient blip.
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
-# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check;
-# this remaining assertion keeps the adopted-branch scope boundary explicit.
-assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
-  'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
+# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check.
+# The former Verdict-B scope-boundary pin here was retired by issue #780, which widened
+# §1.4.0.5 to the landed-resume arm — the boundary it asserted no longer exists.
 
 # (f) Phase 4.3 publish gate. The leading-word read is the operative shape: a whole-line test
 # against `UPDATED` is false for every real merge (`emit "UPDATED $BEHIND"` prints `UPDATED 3`)
@@ -8734,6 +8751,108 @@ emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "
 commit(work, "local-only")
 emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# ── issue #780: open-PR-linkage provenance (the landed-resume arm) ────────────
+# A landed resume has ahead history by definition, and its workpad provenance is
+# unestablished across two large populations (a cloud run whose HANDOFF record is
+# `unknown`; a local resumed run that did not create its own workpad) — so the
+# workpad-only gate returned DECISION_BLOCKED for them, which is why Verdict B
+# could not be widened to that arm. The PR-linkage source admits them. Its own
+# fixture repo (pushed feat, ahead>0, tip reachable) so the arms are independent
+# of the `resume` repo's trailing local-only commit above.
+_, pwork = base_repo("prprov"); git(["checkout", "-qb", "feat", "main"], pwork); commit(pwork, "a1")
+git(["push", "-q", "-u", "origin", "feat"], pwork)
+_PRV = {"open_pr_branch": "feat", "open_pr_closes_issue": True, "open_pr_cross_repository": False,
+        "open_pr_selected_by": "body"}
+_PS = {"base": "main", "current_branch": "feat", "provenance_established": False}
+# The two populations #780 must NOT re-block. They are byte-equivalent through the
+# classifier — the PR-vouched path never reads has_proceed_verdict — so this pair is
+# NOT distinguishing coverage; both arms exist because the issue names both
+# populations by name and each is asserted individually against the new gate.
+emit("pr_cloud_handoff_unknown", pwork, {**_PS, **_PRV})
+emit("pr_local_no_workpad", pwork, {**_PS, **_PRV, "has_proceed_verdict": False})
+# The issue-linkage DISJUNCTION: a head-branch-query-selected PR vouches without a
+# closing linkage, mirroring the §1.4 pre-check's "resume target by construction"
+# rule. Without this, a landed resume whose PR body reads "Part of #N" is handed a
+# terminal stop by the very change that exists to remove one.
+emit("pr_head_query_no_closes", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False,
+     "open_pr_selected_by": "head"})
+# The untrusted workpad is NEUTRALIZED on the PR-vouched path, not consulted: both
+# bodies below would steer the classification if they were read (a divergent
+# nonexistent name → DECISION_BLOCKED, a duplicate Branch line → AMBIGUOUS).
+emit("pr_forged_wp_divergent", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False})
+emit("pr_forged_wp_duplicate", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `a`\n**Branch:** `b`"})
+# Negative direction — every conjunct of the source is required and fails CLOSED.
+emit("pr_no_source", pwork, _PS)
+emit("pr_branch_mismatch", pwork, {**_PS, **_PRV, "open_pr_branch": "other"})
+emit("pr_not_closing", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False})
+emit("pr_cross_repo", pwork, {**_PS, **_PRV, "open_pr_cross_repository": True})
+# PARTIAL GATHER — each of the four operands omitted in turn. What these assert is the
+# REFUSAL itself: without it an ungathered field would silently vouch, which is the PR
+# #524 shape on the arm #780 just widened. Refusal (not a DECISION_BLOCKED) is the point
+# — a stop that names the omission, rather than one that reads as a real refutation of
+# the PR the run never evaluated. They do NOT kill the `is True`/`is False` identity
+# mutants: the refusal returns before `_classify_branch_state` runs, so an omitted
+# operand never reaches the identity expression at all. Those mutants are equivalent
+# under the two upstream guards — the boolean type-guard (any PRESENT non-bool is
+# refused) and the `isinstance(pr_branch, str)` conjunct — which between them leave
+# `None` as the only distinguishing value, and `None` arises only on the omission the
+# gather guard already refuses. The mutation-sensitive operand here is the string
+# comparison `open_pr_selected_by == "head"`, covered by its own arms.
+_PG = {**_PS, **_PRV}
+for _k in ("open_pr_branch", "open_pr_closes_issue", "open_pr_cross_repository", "open_pr_selected_by"):
+    emit("pr_partial_" + _k, pwork, {k: v for k, v in _PG.items() if k != _k})
+# GUARD-BEFORE-PRECEDENCE: a partial PR gather while the WORKPAD independently vouches.
+# The gather refusal is unconditional, so this run stops UNAVAILABLE rather than falling
+# back to the trusted workpad — an ordering the prose leaves implicit. Pinned so a later
+# "the workpad vouched anyway, just proceed" relaxation is a visible test change rather
+# than a silent widening of what a partial gather may be read as.
+emit("pr_partial_wp_vouches", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True,
+     **{k: v for k, v in _PRV.items() if k != "open_pr_selected_by"}})
+# Established workpad provenance is unchanged by the new source (control).
+emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# PRECEDENCE, both sources vouching. The two are NOT interchangeable, so the shipped
+# prose states the workpad wins; this arm is what makes that statement checkable
+# rather than a documented claim nothing exercises. The workpad names a divergent
+# nonexistent branch with no verdict, so a PR-precedence implementation would return
+# VALIDATED_RESUME here instead of the workpad's finer divergent-nonexistent stop.
+emit("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# The two derived payload keys are a stated contract ("a human reading a stop payload
+# is never shown a PR-derived provenance the classification did not in fact use"), so
+# read them out of the payload rather than leaving the claim unexercised. Emitted as
+# `prov_<arm> <provenance_source> <pr_linkage_vouches>` lines.
+def emit_prov(arm, work, state):
+    word, rc, out = run(work, state)
+    parts = out.split()
+    src = vouch = "-"
+    if word in ("AMBIGUOUS", "DECISION_BLOCKED") and len(parts) > 1:
+        try:
+            d = json.load(open(parts[-1])).get("derived", {})
+            src = str(d.get("provenance_source")); vouch = str(d.get("pr_linkage_vouches"))
+        except Exception:
+            pass
+    lines.append(f"prov_{arm} {src} {vouch}")
+# Both vouch → the payload must say the WORKPAD supplied the operands, while still
+# recording that the PR linkage COULD have. One key alone cannot express that.
+emit_prov("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# Workpad vouches while the PR operands are present but do NOT → the source key must
+# still read `workpad` while the linkage key reads False. An implementation hard-coding
+# `pr_linkage_vouches` True on the workpad-precedence path passes every other payload
+# arm and only this one.
+emit_prov("wp_only_pr_refutes", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False,
+          **{**_PRV, "open_pr_cross_repository": True}})
+# Neither vouches → no source, and the linkage is recorded as not vouching.
+emit_prov("pr_no_source", pwork, _PS)
+# PR-vouched but the published tip no longer reaches HEAD: the run reaches the
+# recorded-branch + proceed-verdict arms rather than short-circuiting to proceed,
+# so a diverged branch still stops.
+commit(pwork, "local-only")
+emit("pr_tip_diverged", pwork, {**_PS, **_PRV})
+emit_prov("pr_tip_diverged", pwork, {**_PS, **_PRV})
 # aheadN + mixed ahead/behind
 _, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
 for i in range(3): commit(work, f"a{i}")
@@ -8839,7 +8958,28 @@ bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bw
 bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
          "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
 bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
+# issue #780's two boolean operands are read through IDENTITY (`is True`/`is False`),
+# so a quoted "false" already fails closed on its own — unlike the two originals,
+# which use truthiness and genuinely fail OPEN. They are refused anyway so the stop
+# NAMES the encoding error instead of emitting `unverified-provenance`, which would
+# read as a real refutation of a PR the run never actually evaluated.
+_PRB = {"open_pr_branch": "feat", "open_pr_closes_issue": True,
+        "open_pr_cross_repository": False, "open_pr_selected_by": "body"}
+bad_file("iv_prclosesstr", json.dumps({**_B, **_PRB, "open_pr_closes_issue": "false"}), bwork)
+bad_file("iv_prcrossstr", json.dumps({**_B, **_PRB, "open_pr_cross_repository": "false"}), bwork)
+# JSON null takes a DIFFERENT path from an omitted key (refused as a non-bool, vs the
+# partial-gather refusal), and `gh pr list --json` can serialize a null field — so the
+# two are distinguished rather than assumed equivalent.
+bad_file("iv_prcrossnull", json.dumps({**_B, **_PRB, "open_pr_cross_repository": None}), bwork)
+# The one string operand with no boolean guard: without its own refusal a malformed
+# value is the sole gate operand whose failure is silent.
+bad_file("iv_prbranchnum", json.dumps({**_B, **_PRB, "open_pr_branch": 123}), bwork)
+bad_file("iv_prselectedbad", json.dumps({**_B, **_PRB, "open_pr_selected_by": "search"}), bwork)
 emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
+# Positive control for the NEW operands specifically: real booleans + a valid
+# selected-by survive every refusal above and reach the classifier, so those arms are
+# the guards firing rather than a blanket rejection of any state carrying open_pr_*.
+emit("iv_prbool_ok", bwork, {**_B, "provenance_established": False, **_PRB})
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
@@ -8914,6 +9054,81 @@ assert_eq "#576 reason: matching branch + verdict but unreachable tip carries 'm
 assert_eq "#576 reason: divergent existing branch WITH a verdict carries 'divergent-existing-with-verdict'" \
   "divergent-existing-with-verdict" "$(_bs576v reason_wp_divergent_exist_verdict)"
 
+# ── #780: the open-PR-linkage provenance source, driven in BOTH directions. The
+# admitting direction is what lets §1.4.0.5 run on the landed-resume arm at all;
+# the refusing direction is what keeps the screen a screen rather than a
+# pass-by-construction. The two populations Current Behavior names get their own
+# arms so the fix is shown not to re-block the runs it exists to unblock.
+assert_eq "#780: cloud resume whose HANDOFF is unknown, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_cloud_handoff_unknown)"
+assert_eq "#780: local resume with no workpad of its own, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_local_no_workpad)"
+assert_eq "#780: a forged workpad naming a divergent branch is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_divergent)"
+assert_eq "#780: a forged duplicate Branch line is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_duplicate)"
+assert_eq "#780: no provenance source at all still → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_no_source)"
+assert_eq "#780: PR head branch != working branch → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_branch_mismatch)"
+assert_eq "#780: PR that does not close this issue → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_not_closing)"
+assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
+assert_eq "#780: a head-branch-query-selected PR vouches without a closing linkage → VALIDATED_RESUME" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_head_query_no_closes)"
+# Each operand omitted in turn is REFUSED, not silently read as an answer. These four
+# are what kill the identity-check mutants (`is True` → `!= False`, `is False` →
+# `!= True`): under either mutant an ungathered field would vouch.
+assert_eq "#780 partial gather: an omitted open_pr_branch is refused, not read as an answer" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_branch)"
+assert_eq "#780 partial gather: an omitted open_pr_closes_issue is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_closes_issue)"
+assert_eq "#780 partial gather: an omitted open_pr_cross_repository is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
+assert_eq "#780 partial gather: an omitted open_pr_selected_by is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_selected_by)"
+assert_eq "#780 partial gather: the refusal precedes workpad precedence — a partial PR gather stops even when the workpad independently vouches" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_wp_vouches)"
+# Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
+# collapse onto the same verdict word + rc, so a single joined comparison would name
+# all five on any one arm's regression and leave the reader re-running by hand.
+assert_eq "#780 reason: no provenance source carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_no_source)"
+assert_eq "#780 reason: a PR head-branch mismatch carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_branch_mismatch)"
+assert_eq "#780 reason: a PR that does not close this issue carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_not_closing)"
+assert_eq "#780 reason: a cross-repository PR carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_cross_repo)"
+# The two derived payload keys carry DIFFERENT facts — "could the PR vouch" vs "which
+# source actually supplied the operands" — so a payload can never show a PR-derived
+# provenance the classification did not use. Asserted from the payload itself, since
+# an implementation collapsing them to one key would otherwise stay green.
+_bs780p() { awk -v k="prov_$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+assert_eq "#780 payload: both sources vouching records the WORKPAD as the source used, PR linkage as available" \
+  "workpad True" "$(_bs780p both_wp_precedence)"
+assert_eq "#780 payload: a workpad-sourced stop whose PR operands refute records the workpad with a non-vouching linkage" \
+  "workpad False" "$(_bs780p wp_only_pr_refutes)"
+assert_eq "#780 payload: neither source vouching records no source and a non-vouching linkage" \
+  "None False" "$(_bs780p pr_no_source)"
+assert_eq "#780 payload: a PR-vouched stop records the open-PR source" \
+  "open-pr True" "$(_bs780p pr_tip_diverged)"
+assert_eq "#780: established workpad provenance classifies exactly as before (control)" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_wp_prov_control)"
+assert_eq "#780 precedence: with BOTH sources vouching the workpad's finer verdict wins" \
+  "DECISION_BLOCKED 2" "$(_bs576 both_wp_precedence)"
+assert_eq "#780 precedence: the workpad-sourced arm keeps its own reason slug (not a PR-vouched proceed)" \
+  "divergent-nonexistent" "$(_bs576v reason_both_wp_precedence)"
+# The admitting direction reaches the recorded-branch + proceed-verdict arms — it
+# does not short-circuit to proceed. This arm is what proves that: same PR-vouched
+# state, unreachable published tip, and the run STOPS on the matching-branch arm's
+# own reason slug.
+assert_eq "#780: PR-vouched but the published tip no longer reaches HEAD → AMBIGUOUS/stop" \
+  "AMBIGUOUS 2" "$(_bs576 pr_tip_diverged)"
+assert_eq "#780: the PR-vouched path lands on the recorded-branch/proceed-verdict arm's slug" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_pr_tip_diverged)"
+
 # ── branch-state input-validation matrix (#576 Important #2). Every shape fails
 # closed to the SAME `UNAVAILABLE state` / exit 3 contract, so each arm also pins
 # the specific stderr cause that attributes WHICH guard rejected it — a bare
@@ -8959,6 +9174,36 @@ assert_eq "#576 input-val: the truthy-string verdict cause names that specific f
   "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
 assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
+assert_eq "#780 input-val: quoted-string 'open_pr_closes_issue' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prclosesstr)"
+assert_eq "#780 input-val: the quoted-string closes-issue cause names that specific flag" "yes" \
+  "$(_bs576err iv_prclosesstr "'open_pr_closes_issue' must be a JSON boolean")"
+assert_eq "#780 input-val: quoted-string 'open_pr_cross_repository' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossstr)"
+assert_eq "#780 input-val: the quoted-string cross-repository cause names that specific flag" "yes" \
+  "$(_bs576err iv_prcrossstr "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: JSON null takes the non-bool refusal, distinct from an omitted key" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossnull)"
+assert_eq "#780 input-val: the null cause names the flag (not the partial-gather cause)" "yes" \
+  "$(_bs576err iv_prcrossnull "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: a non-string 'open_pr_branch' is refused by name, not silently" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prbranchnum)"
+assert_eq "#780 input-val: the non-string branch cause names that specific operand" "yes" \
+  "$(_bs576err iv_prbranchnum "'open_pr_branch' must be a JSON string")"
+assert_eq "#780 input-val: an out-of-enum 'open_pr_selected_by' is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prselectedbad)"
+assert_eq "#780 input-val: the out-of-enum selected-by cause names that specific operand" "yes" \
+  "$(_bs576err iv_prselectedbad "'open_pr_selected_by' must be the string 'head' or 'body'")"
+# Positive control for the NEW operands: real booleans + a valid selected-by still
+# reach the classifier, so the arms above are the new guards firing, not a blanket
+# rejection of any state carrying open_pr_* keys. The verdict is AMBIGUOUS rather
+# than a proceed because this fixture's branch is deliberately unpushed (the #576
+# bool-flags repo never pushes `feat`), so the PR source vouches and the run lands on
+# the tip-reachability arm — which is itself the proof it got past every refusal.
+assert_eq "#780 input-val: well-formed open_pr_* operands still classify (new guards are not blanket)" \
+  "AMBIGUOUS 2" "$(_bs576 iv_prbool_ok)"
+assert_eq "#780 input-val: the positive control lands on the tip-reachability arm, not a refusal" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_iv_prbool_ok)"
 # Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
 # arms above are the flag guard firing, not a blanket rejection of the fixture.
 assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
