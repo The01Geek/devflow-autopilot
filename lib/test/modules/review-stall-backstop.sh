@@ -919,3 +919,216 @@ sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ need
 assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
   "no" "$(bstep_headsha "$T435WF")"
 rm -f "$T435WF"
+
+
+# ── #801: harness floor + runner-agnostic dispatch barrier ───────────────────
+# Two coordinated layers keep a cloud engine run from ending its turn with dispatched
+# subagents still in flight. (1) The HARNESS FLOOR: each cloud workflow step that runs a
+# DevFlow engine sets CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, which the vendor documents as
+# keeping subagents in the foreground — so results are in hand before the turn continues,
+# without depending on the model choosing correctly. (2) The RUNNER-AGNOSTIC BARRIER: each
+# engine root states, once, that a dispatch blocks until the completed result is in hand and
+# that a launch acknowledgment is never the return — with the per-runner mechanism named as a
+# current example, so the requirement survives a parameter rename and holds on runtimes with
+# no equivalent switch. The barrier pins target each ROOT's own path rather than
+# $REVIEW_BUNDLE: a bundle pin would stay green on a sentence surviving anywhere in the
+# bundle, and this criterion is location-sensitive (the statement is canonical in the root,
+# and the dispatch sites carry pointers, never copies).
+echo "#801 harness floor + dispatch barrier"
+# Only the paths this block is the first to need get a new variable. devflow.yml,
+# devflow-implement.yml, skills/implement/SKILL.md and the grounding renderer already have
+# module-scoped variables ($WFD408, $WFI415, $IMPL_SKILL415, $RGB408) — reuse them so a
+# workflow or skill rename has one home in this module rather than two that can diverge.
+WFRUN801="$REPO_ROOT/.github/workflows/devflow-runner.yml"
+REVIEW_ROOT801="$REPO_ROOT/skills/review/SKILL.md"
+INSTALL801="$REPO_ROOT/install.sh"
+
+# env-floor-runner / env-floor-implement / env-floor-command — one mutation pin per engine
+# workflow. The mutation deletes the env entry, so a pin that survives it is reported RED.
+# The three-workflow population is a CLOSED LIST, the same residual shape the pointer-coverage
+# block below discloses: a fourth workflow step that runs a DevFlow engine would ship with no
+# harness floor and nothing here would go red. It is a closed list rather than a
+# `claude-code-action`-derived scan because the two probe workflows (matcher-probe.yml,
+# agents-seam-probe.yml) are a deliberate exclusion — their purpose is observing harness
+# behavior, so their subagent mode is left unpinned — and a derived scan would have to
+# re-encode that exclusion anyway.
+devflow_module_pin_red_under "#801 env-floor-runner: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-runner.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFRUN801"
+devflow_module_pin_red_under "#801 env-floor-implement: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-implement.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFI415"
+devflow_module_pin_red_under "#801 env-floor-command: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow.yml flips its pin RED" \
+  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
+  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFD408"
+
+# The three whole-file pins above prove the literal is PRESENT and load-bearing, but not that
+# it sits on the claude-code-action STEP — a copy parked in an unrelated job would keep them
+# green while the floor never reaches the agent's process. Scope the check to the step block
+# (its `- name: Run Claude Code` line through the `uses:` + `with:` boundary) and pair it with
+# a range-scoped deletion probe, the #435 idiom above.
+cca_step_env801() {  # file -> yes|no : the env line present inside the Run Claude Code step
+  awk '/- name: Run Claude Code/,/^[[:space:]]*with:/' "$1" | \
+    grep -qF -- 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' && echo yes || echo no
+}
+for _wf801 in "$WFRUN801" "$WFI415" "$WFD408"; do
+  assert_eq "#801 harness floor present inside the Run Claude Code step of ${_wf801##*/}" \
+    "yes" "$(cca_step_env801 "$_wf801")"
+  _t801="$(probe_tmp "#801 step-scoped env-floor mutation setup (${_wf801##*/})")"
+  sed -E '/- name: Run Claude Code/,/^[[:space:]]*with:/{/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d;}' \
+    "$_wf801" > "$_t801"
+  assert_eq "#801 dropping the step-scoped harness-floor env line turns the scoped check RED (${_wf801##*/})" \
+    "no" "$(cca_step_env801 "$_t801")"
+  rm -f "$_t801"
+done
+unset _wf801 _t801
+
+# barrier-review-root / barrier-implement-root — the canonical statement, one pin per engine
+# root, each proven RED under a mutation that removes ONLY the barrier sentence.
+devflow_module_pin_red_under "#801 barrier-review-root: removing the dispatch-barrier sentence from skills/review/SKILL.md flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$REVIEW_ROOT801"
+devflow_module_pin_red_under "#801 barrier-implement-root: removing the dispatch-barrier sentence from skills/implement/SKILL.md flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_SKILL415"
+# The launch-acknowledgment half is a second operative clause of the same requirement (a
+# reword could keep the blocking sentence while dropping the rule that an acknowledgment is
+# never the return), so it gets its own pin per the one-pin-per-operative-sentence rule.
+devflow_module_pin_red_under "#801 barrier-review-root: removing the launch-acknowledgment clause flips its pin RED" \
+  'a launch acknowledgment is never treated as the return' \
+  '/a launch acknowledgment is never treated as the return/d' "$REVIEW_ROOT801"
+devflow_module_pin_red_under "#801 barrier-implement-root: removing the launch-acknowledgment clause flips its pin RED" \
+  'a launch acknowledgment is never treated as the return' \
+  '/a launch acknowledgment is never treated as the return/d' "$IMPL_SKILL415"
+
+# barrier-cloud-scoped — the barrier must sit INSIDE each root's cloud-conditioned block, not
+# float free as an unconditional rule. Bound the region by the block's own first and last
+# lines (its heading and its closing "This discipline" paragraph) rather than by the next
+# markdown heading, which is many paragraphs away and would accept a barrier moved out of the
+# block. Keeping the barrier cloud-scoped is what keeps step-3-6-audit.md's cross-reference —
+# which contrasts its own unconditional wait with "the cloud-tier headless-wait discipline" —
+# accurate without editing that file.
+barrier_in_cloud_block801() {  # file -> yes|no
+  awk '/Cloud headless-wait discipline/,/^This discipline/' "$1" | \
+    grep -qF -- "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no
+}
+assert_eq "#801 barrier-cloud-scoped: review root's barrier sits inside the cloud-conditioned block" \
+  "yes" "$(barrier_in_cloud_block801 "$REVIEW_ROOT801")"
+assert_eq "#801 barrier-cloud-scoped: implement root's barrier sits inside the cloud-conditioned block" \
+  "yes" "$(barrier_in_cloud_block801 "$IMPL_SKILL415")"
+# Positive control, run over BOTH roots rather than one. Deleting the barrier only from within
+# the block and appending it after the block reproduces exactly the relocation the check exists
+# to catch, so the check is proven to bind on placement, not mere presence. Both roots need
+# their own control because the awk end-anchor `/^This discipline/` matches a DIFFERENT closing
+# sentence in each ("This discipline reduces…" in the review root, "This discipline only
+# reduces…" in the implement root): a control that binds on one carries no evidence that the
+# other's range is still bounded, and an unbounded range silently degrades the scoped check
+# into the whole-file presence check it was written to be stronger than.
+for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
+  _root801_label="${_root801#*/skills/}"   # e.g. review/SKILL.md — the basename alone is SKILL.md for BOTH roots
+  _t801s="$(probe_tmp "#801 barrier-cloud-scoped relocation control ($_root801_label)")"
+  sed -E "/A dispatch blocks until the subagent's completed result is in hand/d" "$_root801" > "$_t801s"
+  printf '%s\n' "A dispatch blocks until the subagent's completed result is in hand." >> "$_t801s"
+  assert_eq "#801 barrier-cloud-scoped: a barrier relocated outside the cloud-conditioned block turns the scoped check RED ($_root801_label)" \
+    "no" "$(barrier_in_cloud_block801 "$_t801s")"
+  rm -f "$_t801s"
+done
+unset _root801 _root801_label _t801s
+# grounding-barrier-present — the injected engine-ground-truth block is the one prompt surface
+# guaranteed resident on the cloud review tier, so it carries the barrier too. Pinned on the
+# RENDERED surface (the #375 discipline the sibling #408 grounding pins follow) plus a
+# source-level mutation pin proving the sentence is load-bearing.
+assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
+  "$(printf '%s\n' "$GB408_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
+devflow_module_pin_red_under "#801 grounding: deleting the dispatch-barrier sentence from the renderer flips its pin RED" \
+  "A dispatch blocks until the subagent's completed result is in hand" \
+  "/A dispatch blocks until the subagent's completed result is in hand/d" "$RGB408"
+
+# barrier-pointer-coverage — every LISTED dispatch site carries a pointer to its engine root's
+# barrier statement rather than a copy. The check matches the pointer phrase AND the root path
+# that pointer names, on the same line: matching the root-agnostic phrase alone would stay green
+# while a review-tier reference pointed at the implement root, or while a backtick path rotted to
+# a moved root — the reader then follows a wrong or dead pointer and the barrier goes unread.
+#
+# The population is a closed path list, NOT a live grep: no repo artifact enumerates dispatch
+# sites, so a detector claiming to catch a site added later would be unbacked. It is NOT
+# identical to issue #801's acceptance criterion, which enumerated ten paths as "complete by
+# construction" — review found that enumeration under-inclusive, so `pre-fix-gates.md` (the
+# parked-class sweep's semantic-batch dispatch) and `fixing.md` (its comment-analyzer
+# re-dispatch) are carried here beyond the criterion's ten. Two residuals, stated rather than
+# hidden:
+#   1. FORWARD-LOOKING — a dispatch added in a file outside this list is not caught; the list is
+#      revisited whenever a phase or reference file is added to either engine.
+#   2. PRESENT-DAY — `skills/requesting-code-review/SKILL.md` is a cloud-reachable dispatcher
+#      (phase-3-agents.md's final pass dispatches it, and it dispatches a reviewer of its own),
+#      deliberately EXCLUDED rather than missed: it is a vendored skill whose body must stay
+#      repo-agnostic (CLAUDE.md), so it may carry no DevFlow-internal pointer. Its impact is
+#      bounded — an acknowledgment-as-return there yields an evidence-empty return that
+#      phase-3-agents.md already handles fail-closed as a failed agent.
+_dispatch_sites801=(
+  "skills/review/phases/phase-1-checklist.md|skills/review/SKILL.md"
+  "skills/review/phases/phase-2-verification.md|skills/review/SKILL.md"
+  "skills/review/phases/phase-3-agents.md|skills/review/SKILL.md"
+  "skills/review/phases/phase-0-3-6-blocker-recheck.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/shadow-review.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/fix-delta-gate.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/loop-exit.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/loop-control.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/pre-fix-gates.md|skills/review/SKILL.md"
+  "skills/review-and-fix/references/fixing.md|skills/review/SKILL.md"
+  "skills/implement/phases/phase-2-implement.md|skills/implement/SKILL.md"
+  "skills/implement/phases/phase-4-documentation.md|skills/implement/SKILL.md"
+)
+has_barrier_pointer801() {  # file expected-root -> yes|no : both on ONE line
+  grep -F -- 'barrier statement in the engine root' "$1" | grep -qF -- "$2" && echo yes || echo no
+}
+for _site801 in "${_dispatch_sites801[@]}"; do
+  assert_eq "#801 barrier-pointer-coverage: ${_site801%%|*} points at ${_site801##*|}" \
+    "yes" "$(has_barrier_pointer801 "$REPO_ROOT/${_site801%%|*}" "${_site801##*|}")"
+done
+# Two planted-defect positive controls on a COPY, so neither half of the matcher can be vacuous:
+# stripping the pointer entirely, and repointing it at the OTHER engine root.
+_t801p="$(probe_tmp '#801 barrier-pointer-coverage positive control')"
+sed -E '/barrier statement in the engine root/d' "$REPO_ROOT/skills/review/phases/phase-1-checklist.md" > "$_t801p"
+assert_eq "#801 barrier-pointer-coverage: stripping the pointer from a listed site turns the coverage check RED" \
+  "no" "$(has_barrier_pointer801 "$_t801p" "skills/review/SKILL.md")"
+sed -E 's#skills/review/SKILL\.md#skills/implement/SKILL.md#' "$REPO_ROOT/skills/review/phases/phase-1-checklist.md" > "$_t801p"
+assert_eq "#801 barrier-pointer-coverage: repointing a review-tier site at the implement root turns the coverage check RED" \
+  "no" "$(has_barrier_pointer801 "$_t801p" "skills/review/SKILL.md")"
+rm -f "$_t801p"
+unset _site801 _t801p
+
+# install-loop-unchanged — consumers receive the harness floor with no install.sh edit,
+# because the copy loop already carries all three engine workflows; matcher-probe.yml stays
+# repo-internal and absent from it. Both halves are asserted: a loop that lost an engine
+# workflow would silently stop shipping the floor, and one that GAINED matcher-probe.yml
+# would ship a repo-internal probe to consumers.
+# The POSITIVE half — that the copy loop still lists the three engine workflows — is deliberately
+# NOT re-pinned here: lib/test/run.sh already pins that exact literal through the stronger
+# mutation-taking assert_pin_red_under, and a second counted home for an existence-only pin is
+# what CONTRIBUTING.md's existence-pin rule exists to prevent. Only the negative half below is
+# new coverage.
+# The negative half matches `matcher-probe` ANYWHERE on the copy-loop line, in either order —
+# `grep -qE 'for w in devflow.*matcher-probe'` would only fire when the probe name follows
+# `devflow`, so `for w in matcher-probe devflow …` stayed green. It carries a planted-defect
+# positive control, because a negative assertion with no control proves only that it can say
+# "no", never that it can ever say "yes". Both halves are single-line-scoped by construction:
+# the sibling structural pin above asserts the whole loop line verbatim, so a wrapped or
+# array-built rewrite of that line turns THAT pin RED first.
+loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop line
+  # Anchor on the loop HEAD (`for w in`), not on `for w in devflow`: anchoring on the first
+  # workflow name is itself order-dependent, so a reordered list would slip the anchor and the
+  # absence check would read "no" for the wrong reason. The positive control below reorders the
+  # list precisely to prove this anchor survives it.
+  # Scoped to the WORKFLOW copy loop by requiring devflow-runner on the same line, so an
+  # unrelated future `for w in …` loop naming matcher-probe cannot false-RED this check.
+  grep -F -- 'for w in ' "$1" | grep -F -- 'devflow-runner' | grep -qF -- 'matcher-probe' && echo yes || echo no
+}
+assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
+  "no" "$(loop_ships_probe801 "$INSTALL801")"
+_t801i="$(probe_tmp '#801 install-loop negative-assertion positive control')"
+sed -E 's/for w in devflow /for w in matcher-probe devflow /' "$INSTALL801" > "$_t801i"
+assert_eq "#801 install-loop-unchanged: adding matcher-probe to the copy loop in LEADING position (a reorder the old devflow-anchored form missed) turns the absence check RED" \
+  "yes" "$(loop_ships_probe801 "$_t801i")"
+rm -f "$_t801i"
+unset _t801i

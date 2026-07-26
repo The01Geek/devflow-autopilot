@@ -34,6 +34,8 @@ Record the single object ID printed by `git hash-object` as `{GIT_SNAP_BEFORE_OI
 
 This scopes the assertion to the agent-dispatch window only, so it never flags the orchestrator's own edits outside it. (Under `/devflow:review` the agents are contractually read-only and normally leave matching snapshots; the backstop earns its keep when that contract is violated, and runs verbatim in the write-enabled `/devflow:review-and-fix` and `/devflow:implement` tiers — including the Step 2.6 shadow pass, which re-executes these same Phases 0–4.3.)
 
+**Dispatch barrier.** Every subagent dispatch described here is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/review/SKILL.md`) — read the requirement there; it is deliberately not restated here.
+
 Launch all agents in a single message using multiple Agent tool calls, passing each a prompt to review the changes.
 
 **Resolve overrides for the Phase-3 roster first.** After the Phase 3.1 applicability gates decide which agents launch this run, pass that exact roster (the always-on four — `code-reviewer`, `silent-failure-hunter`, `comment-analyzer`, and the final-pass `devflow:requesting-code-review` dispatched as a `general-purpose` Task — plus any gated-in `type-design-analyzer` / `pr-test-analyzer`) to `resolve-review-overrides.py` per **Per-Subagent Model/Effort Overrides** above. Dispatch each Phase-3 agent via the Agent tool, applying its resolved `model` as the Agent-tool `model` override; do **not** request overrides for a gated-out agent (emit overrides only for dispatched agents). The final-pass reviewer's override is keyed under `devflow:requesting-code-review`, not `general-purpose` (see its dispatch note below).
