@@ -37,6 +37,7 @@ import argparse
 import ast
 import contextlib
 import importlib.util
+import inspect
 import io
 import os
 import re
@@ -16611,9 +16612,23 @@ def _dp_rec(pr, kind, text):
 
 DP_CRIT = 'ship the widget'
 
+
+def _dp_records(body, pr):
+    """Drive the record reader the way `cmd_deferred_presence` does — resolve the
+    ## Progress section from the whole body first — so the section-scoping half of
+    the injection defense stays under test rather than being assumed away by
+    handing the reader a pre-narrowed slice."""
+    return workpad._bound_deferred_records(
+        workpad._progress_content_or_none(body) or '', pr)
+
+
+def _dp_filed(body):
+    return workpad._filed_criteria(workpad._progress_content_or_none(body) or '')
+
+
 # Row 1 (RED-first): a bound kind=deferred record with no filed marker is OUTSTANDING,
 # and its normalized criterion text is projected.
-_dp_out = workpad._bound_deferred_records(
+_dp_out = _dp_records(
     _dp_body(progress_extra=_dp_note(_dp_rec(42, 'deferred', DP_CRIT))), 42)
 assert_eq("#815 a bound kind=deferred record with no filed marker is outstanding",
           ([DP_CRIT], 0, 0), _dp_out)
@@ -16623,29 +16638,29 @@ _dp_filed_body = _dp_body(
     progress_extra=_dp_note(_dp_rec(42, 'deferred', DP_CRIT))
     + _dp_note(workpad._render_deferred_filed(DP_CRIT)))
 assert_eq("#815 a filed marker discharges its matching deferred record",
-          {DP_CRIT}, workpad._filed_criteria(_dp_filed_body))
+          {DP_CRIT}, _dp_filed(_dp_filed_body))
 
 # Row 3: a record still reading pr=pending is UNESTABLISHED, never a confident zero.
 assert_eq("#815 a pr=pending kind=deferred record counts as unbound (unestablished)",
           ([], 1, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(_dp_rec('pending', 'deferred', DP_CRIT))), 42))
 
 # Row 4: a record bound to a superseded PR is equally unbound, not not-outstanding.
 assert_eq("#815 a kind=deferred record bound to another PR counts as unbound",
           ([], 1, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(_dp_rec(41, 'deferred', DP_CRIT))), 42))
 
 # Row 5/6: an undecodable payload and an empty-decoding payload are both corrupted.
 assert_eq("#815 an undecodable text= payload counts as corrupted (unestablished)",
           ([], 0, 1),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(
                   '<!-- devflow:scope-decision pr=42 kind=deferred text=a -->')), 42))
 assert_eq("#815 a text= payload decoding to the empty string counts as corrupted",
           ([], 0, 1),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(
                   '<!-- devflow:scope-decision pr=42 kind=deferred text= -->')), 42))
 
@@ -16653,13 +16668,13 @@ assert_eq("#815 a text= payload decoding to the empty string counts as corrupted
 # filed for one, so it may not appear in any of the three buckets.
 assert_eq("#815 a kind=rewritten record is excluded from every bucket",
           ([], 0, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(
                   workpad._render_scope_decision('42', 'rewritten', DP_CRIT, 'new text'))), 42))
 
 # Row 8: no records at all is a decided not-outstanding, not an unestablished.
 assert_eq("#815 a workpad with no scope-decision records is a decided empty set",
-          ([], 0, 0), workpad._bound_deferred_records(_dp_body(), 42))
+          ([], 0, 0), _dp_records(_dp_body(), 42))
 
 # Injection rows — a syntactically well-formed record literal sitting in a free-text
 # region must leave the counts unchanged. These regions store their text UNENCODED
@@ -16668,19 +16683,19 @@ assert_eq("#815 a workpad with no scope-decision records is a decided empty set"
 _dp_inject = _dp_rec(42, 'deferred', 'injected criterion')
 assert_eq("#815 a record literal embedded in free-text note prose is not counted",
           ([], 0, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(progress_extra=_dp_note(f"see {_dp_inject} for context")), 42))
 assert_eq("#815 a record literal in the mirrored Acceptance Criteria is not counted",
           ([], 0, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(acs_extra=f"- [ ] a criterion mentioning {_dp_inject}\n"), 42))
 assert_eq("#815 a record literal inside a Devflow Reflection bullet is not counted",
           ([], 0, 0),
-          workpad._bound_deferred_records(
+          _dp_records(
               _dp_body(reflection_extra=f"- ℹ️ {_dp_inject}\n"), 42))
 assert_eq("#815 an injected filed-marker literal in free-text prose discharges nothing",
           set(),
-          workpad._filed_criteria(_dp_body(
+          _dp_filed(_dp_body(
               progress_extra=_dp_note(
                   f"filed: {workpad._render_deferred_filed(DP_CRIT)} maybe"))))
 
@@ -16707,10 +16722,10 @@ assert_eq("#815 the filed marker uses its own comment marker, not devflow:scope-
 # The decisive value is derived in Python, never through a tool the preflight does
 # not guarantee — a `grep`/`tr`/`sed`/`wc`/`cut`/`head` derivation would fail OPEN to
 # an empty value on a host lacking it and strand the deferred work silently.
-_dp_src = (SCRIPTS / 'workpad.py').read_text(encoding='utf-8')
 _dp_decision_src = '\n'.join(
-    _dp_src.split('\ndef ' + n)[1].split('\ndef ')[0]
-    for n in ('_bound_deferred_records', '_filed_criteria', 'cmd_deferred_presence'))
+    inspect.getsource(f) for f in (workpad._bound_deferred_records,
+                                   workpad._filed_criteria,
+                                   workpad.cmd_deferred_presence))
 assert_eq("#815 the presence-mode decision path shells out to no un-guaranteed PATH tool",
           [],
           [t for t in ('grep', 'tr', 'sed', 'wc', 'cut', 'head')
@@ -16786,8 +16801,7 @@ _dp_written = apply_mut(
     _dp_body(), make_args(mark_deferred_filed=[DP_CRIT], status='Documenting'))
 assert_eq("#815 --mark-deferred-filed writes the marker as a whole isolated Progress bullet",
           True,
-          any(ln.strip().endswith(workpad._render_deferred_filed(DP_CRIT))
-              and ln.strip().split(' — ', 1)[1] == workpad._render_deferred_filed(DP_CRIT)
+          any(ln.strip().split(' — ', 1)[1] == workpad._render_deferred_filed(DP_CRIT)
               for ln in _dp_written.split('\n') if 'devflow:deferred-filed' in ln))
 assert_eq("#815 a written filed marker is read back by the predicate as a discharge",
           (1, "not-outstanding: 1\n"),

@@ -11104,14 +11104,20 @@ assert_pin_unique "#346: 2.2.5 backstop catches planning-surfaced workflow-resid
   'also catch any AC whose workflow-residence surfaced only during planning' "$IMPL_PHASES_DIR/phase-2-implement.md"
 assert_pin_unique "#346: a Phase 2.3-discovered workflow edit re-routes through 2.2.5 before committing" \
   'if Phase 2.3 code-writing *itself* later reveals a required `.github/workflows/` edit' "$IMPL_PHASES_DIR/phase-2-implement.md"
-assert_pin_unique "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
-  'Landing this requires a human/PAT push carrying the `workflows` scope' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+# #815 relocated §4.0 into the predicate-gated reference; both pins follow their literals
+# there. The guarded regressions are unchanged.
+assert_pin_red_under "#346: Phase 4.0 template bullet states landing a capability-deferral needs a human/PAT workflows-scope push" \
+  'Landing this requires a human/PAT push carrying the `workflows` scope' \
+  's#\*\*Landing this requires a human/PAT push carrying the `workflows` scope\*\*#It can be landed by any run#' \
+  "$LIB/../skills/implement/references/deferred-ac-followups.md"
 # #350 (pr-test-analyzer): the byte-identical duplicate here masked a coverage gap — it
 # re-pinned the *template placeholder* bullet (line 44) while the normative OBLIGATION prose
 # (the "MUST state explicitly" instruction) was itself unpinned, so deleting the obligation
 # would leave the suite green. Re-point the second pin at the obligation sentence.
-assert_pin_unique "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
-  'the follow-up body MUST state explicitly that' "$IMPL_PHASES_DIR/phase-4-documentation.md"
+assert_pin_red_under "#346: Phase 4.0 OBLIGATION requires the follow-up body to state the credential boundary" \
+  'the follow-up body MUST state explicitly that' \
+  's#the follow-up body MUST state explicitly that#the follow-up body may mention that#' \
+  "$LIB/../skills/implement/references/deferred-ac-followups.md"
 # Review iter 3 (shadow): the all-blocked decline was executable only at Phase 1.6; when
 # every-AC-blocked is discovered late (at 2.2.5/2.3), narrowing yields an EMPTY pushable
 # subset with no executable stop, so the run could fall through to a near-empty PR. The
@@ -29020,9 +29026,15 @@ assert_pin_red_on_removal "#506 CLAUDE.md autonomous-run sentence pin is removal
   'Autonomous `/devflow:implement` runs satisfy this mandate differently' "$WSR_CLAUDE"
 
 # (d) lockstep — the trigger-glob list literal is present-and-unique (hence identical) in all three.
-assert_pin_unique "#506 trigger-glob list present-and-unique in implement.md" "$WSR_TGL" "$WSR_IMPL"
-assert_pin_unique "#506 trigger-glob list present-and-unique in review-and-fix.md" "$WSR_TGL" "$WSR_RAF"
-assert_pin_unique "#506 trigger-glob list present-and-unique in review.md" "$WSR_TGL" "$WSR_REV"
+assert_pin_red_under "#506 trigger-glob list present-and-unique in implement.md" "$WSR_TGL" \
+  's#, `skills/implement/references/\*\.md`##' \
+  "$WSR_IMPL"
+assert_pin_red_under "#506 trigger-glob list present-and-unique in review-and-fix.md" "$WSR_TGL" \
+  's#, `skills/implement/references/\*\.md`##' \
+  "$WSR_RAF"
+assert_pin_red_under "#506 trigger-glob list present-and-unique in review.md" "$WSR_TGL" \
+  's#, `skills/implement/references/\*\.md`##' \
+  "$WSR_REV"
 assert_eq "#506 trigger-glob list is identical across all three extensions (lockstep)" \
   "yes|yes|yes" \
   "$(grep_present "$WSR_TGL" "$WSR_IMPL")|$(grep_present "$WSR_TGL" "$WSR_RAF")|$(grep_present "$WSR_TGL" "$WSR_REV")"
@@ -35907,9 +35919,9 @@ assert_eq "#480 the cross-line phantom is closed on the REVIEW tier too (R2 stil
 # #815 relocated Phase 4.0's fence into the gated reference, so this pin follows the
 # literal to its new home. Bundle-scoping it instead would let the 4.0.5 sentinel satisfy
 # it, which is the vacuity the count pin below exists to refuse.
-I815_REF="$IMPL_DIR/references/deferred-ac-followups.md"
+I815_REF="$LIB/../skills/implement/references/deferred-ac-followups.md"
 assert_eq "#480 phase 4.0's create fence prints its unconditional sentinel (the comparand its routing reads)" "yes" \
-  "$(grep -qF 'echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"' "$I815_REF" && echo yes || echo no)"
+  "$(grep -qF 'echo "phase 4.0 create fence ran; create=[${CREATE_STATE}]"' "$I815_REF" && echo yes || echo no)"  # structural-pin-ok: machine-sentinel-provenance -- the emitted sentinel the reference's three-state routing literal-matches; without it "refused" and "nothing to create" are indistinguishable
 assert_eq "#480 phase 3.1 prints the draft PR number sentinel (the comparand its routing reads)" "yes" \
   "$(grep -qF 'draft PR number: [' "$IMPL_DIR/phases/phase-3-review.md" && echo yes || echo no)"
 # The design rests on more than the three fence sentinels: the label channels' routing tables also
@@ -35951,22 +35963,40 @@ assert_eq "#815 the reference's first line is its own start boundary marker" \
 assert_eq "#815 the reference's last line is the matching end boundary marker" \
   '<!-- devflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->' \
   "$(tail -1 "$I815_REF")"  # structural-pin-ok: routing-dispatch-contract -- the closing half of the same accept-the-load contract
-# The move is what buys the reduction, so assert the procedure actually LEFT the phase
-# file rather than being duplicated into the reference.
-assert_eq "#815 the phase file no longer carries Phase 4.0's gh issue create fence" "0" \
-  "$(grep -cF 'gh issue create' "$I480_P4" || true)"
+# The move is what buys the reduction, so assert the procedure actually LEFT the phase file
+# rather than being duplicated into the reference. SECTION-scoped, not file-scoped: §4.0.5
+# stays in the phase file and discusses `gh issue create` in its own prose, so a whole-file
+# count would be asserting that a section this change never touched stopped mentioning it.
+I815_S40="$(probe_tmp '#815 phase-file section 4.0 slice')"
+if [ "$I815_S40" != "/dev/null" ]; then
+  sed -n '/^### 4.0 File Follow-Up/,/^### 4.0.5/p' "$I480_P4" > "$I815_S40"
+  assert_eq "#815 the section-4.0 slice is non-empty (the count below is not vacuous)" "yes" \
+    "$([ -s "$I815_S40" ] && echo yes || echo no)"
+  assert_eq "#815 section 4.0 no longer carries the follow-up-issue create fence" "0" \
+    "$(grep -cF 'gh issue create' "$I815_S40" || true)"
+fi
+# An enforcement constant, registered per the #656 exception: 96623 is issue #815's
+# acceptance ceiling (at least 20,000 bytes below the 116,623 the file measured before the
+# move). It is pinned rather than rendered because a rendered figure would move with the
+# file and enforce nothing. Provenance and the measured delta:
+# docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
   "$([ "$(wc -c < "$I480_P4")" -le 96623 ] && echo yes || echo no)"
-# The stub's three contract elements, pinned SEPARATELY: a stub that keeps the path while
+# The stub's contract elements, pinned SEPARATELY: a stub that keeps the path while
 # dropping the predicate would load the reference unconditionally (erasing the change), and
 # one that keeps both while dropping the degraded arm would halt Phase 4 on a read failure.
 assert_pin_red_under "#815 the stub asks the predicate before deciding the load" \
   '/../../scripts/workpad.py deferred-presence $ISSUE_NUMBER' \
   's#/\.\./\.\./scripts/workpad\.py deferred-presence \$ISSUE_NUMBER#/../../scripts/workpad.py body $ISSUE_NUMBER#' \
   "$I480_P4"
-assert_pin_red_under "#815 the stub names the reference through the <skill-dir> anchor" \
-  '<skill-dir>/references/deferred-ac-followups.md' \
-  's#<skill-dir>/references/deferred-ac-followups\.md#the Phase 4.0 procedure below#g' \
+# The path is named twice by design (the opening sentence and the exit-0 arm), so this is a
+# COUNT, not a uniqueness pin: dropping either occurrence leaves the stub naming the
+# reference on only one of the two paths a reader reaches it by.
+assert_eq "#815 the stub names the reference through the <skill-dir> anchor on both paths" "2" \
+  "$(grep -cF '<skill-dir>/references/deferred-ac-followups.md' "$I480_P4" || true)"  # structural-pin-ok: routing-dispatch-contract -- the anchored path the stub's exit-0 arm resolves the gated load from
+assert_pin_red_under "#815 the exit-0 arm reads the reference through this file's own entry-gate anchor" \
+  'via the same `<skill-dir>` anchor this file'"'"'s entry-gate uses' \
+  's#via the same `<skill-dir>` anchor this file'"'"'s entry-gate uses#via any path#' \
   "$I480_P4"
 assert_pin_red_under "#815 the stub degrades on a failed reference read instead of halting" \
   'continue to §4.0.5 without halting Phase 4' \
@@ -35979,23 +36009,30 @@ assert_pin_red_under "#815 an unestablished predicate loads the reference anyway
   's#never\*\* read as "nothing was deferred"#read as "nothing was deferred"#' \
   "$I480_P4"
 # The filed marker is what stops a SECOND Phase 4 entry re-filing the same criteria — the
-# predicate is monotonic without it, because nothing else discharges a scope-decision record.
-assert_pin_red_under "#815 the reference records the durable filed marker when it completes" \
-  '--mark-deferred-filed' \
-  's#--mark-deferred-filed [^ ]*#--note#g' \
+# predicate is monotonic without it, because nothing else discharges a scope-decision
+# record. The obligation sentence is the operative one; the fence and its explanation are
+# the other two occurrences, so the flag itself is pinned as a count.
+assert_pin_red_under "#815 the reference writes a filed marker in the SAME call that records the numbers" \
+  'in the SAME `workpad.py update` call, write one `--mark-deferred-filed` marker per criterion you filed' \
+  's#in the SAME `workpad\.py update` call, write one `--mark-deferred-filed` marker per criterion you filed#nothing further#' \
   "$I815_REF"
+assert_eq "#815 the reference carries the filed-marker flag at its obligation, fence, and contract sites" "3" \
+  "$(grep -cF -- '--mark-deferred-filed' "$I815_REF" || true)"  # structural-pin-ok: lifecycle-state-transition -- the write that discharges a deferral and makes a second Phase 4 entry file no duplicate
 # The reference reproduces criteria from the free-text note, not from the projection: the
 # projection is normalized, so sourcing it would strip a trailing (post-merge) tag.
 assert_pin_unique "#815 the reference sources criterion text from the 2.2.5 free-text note" \
-  'normalize_criterion' "$I815_REF"
+  'normalize_criterion' "$I815_REF"  # structural-pin-ok: cross-file-phase-contract -- names the normalizer whose lossiness is why the verbatim note, not the projection, is the reproduction source
 # The relocated procedure may not reintroduce an issue-body fetch of its own (the Phase 1.1
 # cache is the hand-off), which `lib/test/lint-issue-body-refetch.py` audits repo-wide.
 assert_pin_unique "#815 the reference sources parent-derived slots from the Phase 1.1 cache" \
-  '.devflow/tmp/issue-body/issue-' "$I815_REF"
+  '.devflow/tmp/issue-body/issue-' "$I815_REF"  # structural-pin-ok: cross-file-phase-contract -- the Phase 1.1 cache path this reference reads by hand-off instead of re-fetching the issue body
 # Each widened population, asserted per population rather than by one aggregate count — a
 # single count would go green while one scanner silently stopped covering the new surface.
-assert_eq "#815 the concatenated implement bundle reaches the gated reference" "yes" \
-  "$(grep -qF 'phase 4.0 create fence ran' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"
+# The BUNDLE population needs no assertion of its own: the bundle-scoped deferred.labels
+# pins above resolve `captured no issue numbers` (now reference-resident) against
+# $IMPL_SKILL_BUNDLE, so a bundle that stopped spanning skills/implement/references/*.md
+# already goes RED there — an extra pin here would restate that with a target the
+# mutation-routing gate cannot inspect.
 assert_eq "#815 the phases/ directory reconciliation is untouched (the reference is NOT a phase stem)" "yes" \
   "$([ ! -e "$IMPL_PHASES_DIR/deferred-ac-followups.md" ] && \
      [ "$IMPL_PHASE_STEMS" = "phase-1-setup phase-2-implement phase-3-review phase-4-documentation" ] \
@@ -36008,13 +36045,12 @@ assert_eq "#815 the create-issue contract module's implement bundle reaches the 
   "$(grep -qF 'skills/implement/references/*.md' "$LIB/../lib/test/modules/create-issue-contract.sh" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the module builds its own copy of the implement bundle; a narrower member list resolves the same pins against fewer files
 assert_eq "#815 the module-runner fixture materialises the gated reference" "yes" \
   "$(grep -qF 'skills/implement/references' "$LIB/../lib/test/test_module_runner.py" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the fixture's partial copy must carry every bundle member or its emptied-phase proof is confounded
-assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" \
-  "$(grep -qF '{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}' \
-     "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- required:false records that a predicate-gated surface is correctly absent from most runs
-for I815_DOC in docs/DEVFLOW_SYSTEM_OVERVIEW.md docs/cloud-allowlist.md lib/intervention-surfaces.md; do
-  assert_eq "#815 $I815_DOC names the implement references surface" "yes" \
-    "$(grep -qF 'skills/implement/references' "$LIB/../$I815_DOC" && echo yes || echo no)"  # raw-guard-ok: loop body: presence pin over the enumerated $I815_DOC loop variable
-done
+I815_REG='{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}'
+assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" "$(grep -qF "$I815_REG" "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- the registry row's own load_class/required vocabulary; required:false records that a predicate-gated surface is correctly absent from most runs
+# The three prose mirrors (docs/DEVFLOW_SYSTEM_OVERVIEW.md, docs/cloud-allowlist.md,
+# lib/intervention-surfaces.md) are updated by this change but deliberately carry NO pin:
+# a documentation-presence assertion is exactly the wording-only class the #810 authoring
+# policy prohibits, and the #434 stale-prose self-scan is what covers doc drift.
 # The masker's paren-depth arithmetic inside a code frame had no nested fixture.
 { printf '%s\n' '```bash' "gh issue create --body \"\$(cat <<'EOF'" 'prose $(echo nested) more' 'EOF' ')"' 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" DevFlow; done' '```'; } > "$E363/i-nested-subst.md"
 assert_eq "#480 a NESTED substitution inside the heredoc body does not unbalance the masker (the loop after it still flags IR1)" "yes" \
