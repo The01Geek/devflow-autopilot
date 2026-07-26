@@ -70,10 +70,8 @@ What the detected set does NOT cover, and which path handles it instead:
   * a subagent-side `WebFetch` of the issue URL — a subagent tool call, not a
     shell statement; out of reach.
   * a re-pasted issue body in a dispatch prompt — plain prose, not a command;
-    out of reach. The re-paste regression (the one the headline saving depends
-    on) is guarded instead by `assert_pin_red_under` prose pins on each of the
-    three dispatch sites in `lib/test/run.sh`, whose mutation restores the
-    pasted body and is observed turning the pin RED.
+    out of reach. The dispatch contract is covered by ordinary executable
+    tests in `lib/test/run.sh`.
 
 The statement model is SHARED with the #363/#401/#664 guards — this scanner
 imports `extract-command-heads.py`'s splitter, substitution walker, tokenizer,

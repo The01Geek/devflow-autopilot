@@ -565,21 +565,21 @@ class LabelDerivationTest(unittest.TestCase):
         )
         lint = importlib.util.module_from_spec(lint_spec)
         lint_spec.loader.exec_module(lint)
-        missing = sorted(set(lint.HELPERS) - set(guard._BASE_ASSERTION_HEADS))
+        live_helpers = set(lint.HELPERS) - set(lint.MUTATION_TAKING_HELPERS)
+        missing = sorted(live_helpers - set(guard._BASE_ASSERTION_HEADS))
         self.assertEqual(
             missing,
             [],
-            "pin-corpus-lint.py HELPERS the label derivation does not recognize: "
+            "live pin-corpus-lint.py HELPERS the label derivation does not recognize: "
             f"{missing} — add them to _BASE_ASSERTION_HEADS",
         )
 
     def test_derives_from_the_namespaced_harness_api(self):
         text = (
             'devflow_module_pin_unique "#201 a" \'lit\' "$F"\n'
-            'devflow_module_pin_red_under "#202 b" \'lit\' \'/x/d\' "$F"\n'
             'devflow_module_pin_present "#203 c" \'lit\' "$F"\n'
         )
-        self.assertEqual(guard.derive_labels(text), {"201", "202", "203"})
+        self.assertEqual(guard.derive_labels(text), {"201", "203"})
 
     def test_derives_from_a_module_private_assertion_wrapper(self):
         # The head-coverage criterion: a wrapper around assert_eq must be discovered,
@@ -675,15 +675,6 @@ class LabelDerivationTest(unittest.TestCase):
         # so a future rewrite of either side is caught.
         module = (ROOT / "lib/test/modules/capability-profiles.sh").read_text(encoding="utf-8")
         self.assertIn("_cap_fail", guard._assertion_heads(module.split("\n")))
-
-    def test_assert_count_red_under_is_a_recognized_head(self):
-        # lib/test/run.sh's assert_count_red_under takes the assertion NAME first, exactly
-        # like assert_pin_red_under; the completeness critic found it absent from the head
-        # set, which would leave any label asserted only through it underived.
-        text = (
-            'assert_count_red_under "#704 counted" START END PAT -eq 2 \'s/x/y/\' "$F"\n'
-        )
-        self.assertEqual(guard.derive_labels(text), {"704"})
 
     def test_a_name_argument_wrapped_by_a_line_continuation_is_derived(self):
         # _call_pattern's separator class admits `\`-continuation + newline so a call whose
