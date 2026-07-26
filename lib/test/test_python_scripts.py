@@ -16695,6 +16695,21 @@ assert_eq("#814: a --status Complete finalize keeps its unticked-Plan warning an
           ("unticked ## Plan row" in _err,
            _err.count("workpad.py update: PATCHed comment ")))
 
+# The other conditional exit-0 warning — the un-mirrored AC placeholder — is driven
+# too, so both co-resident warnings are shown not to displace the breadcrumb. The
+# assertion stays shape-scoped (a count of breadcrumb-shaped lines), never a stderr
+# line count, so a third warning could not make it brittle.
+_code, _out, _err, _patched = _drive_cmd_update(
+    GATE_BODY.replace('- [x] AC one\n- [x] AC two',
+                      '- [x] ' + workpad._AC_PENDING_PLACEHOLDER),
+    status='Complete')
+assert_eq("#814: a --status Complete finalize over an un-mirrored AC placeholder keeps "
+          "that warning and the breadcrumb sits beside it",
+          (True, 1),
+          ("un-mirrored placeholder" in _err,
+           _err.count("workpad.py update: PATCHed comment ")))
+
+
 # `cmd_body` is untouched: it writes to stdout unconditionally, with no flag to gate
 # it. Driven behaviourally rather than by reading the source, so the assertion fails
 # only when the observable stdout changes.
