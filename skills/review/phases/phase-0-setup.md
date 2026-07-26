@@ -207,12 +207,16 @@ If `$ISSUE_NUM` is still empty, attempt the derivations below in order.
 
 If a PR number was provided:
 ```bash
-ISSUE_NUM=$(gh pr view $PR_NUMBER --json body --jq '.body' | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ -z "$ISSUE_NUM" ]; then
+  ISSUE_NUM=$(gh pr view $PR_NUMBER --json body --jq '.body' | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
+fi
 ```
 
 If no PR number:
 ```bash
-ISSUE_NUM=$(gh pr view HEAD --json body --jq '.body' 2>/dev/null | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
+if [ -z "$ISSUE_NUM" ]; then
+  ISSUE_NUM=$(gh pr view HEAD --json body --jq '.body' 2>/dev/null | grep -oiE '(resolves|fixes|closes)[[:space:]]+#[0-9]+' | grep -oE '[0-9]+' | head -1)
+fi
 ```
 
 **From branch name** (fallback — matches `issue-{number}` pattern set by `/devflow:implement`):
