@@ -1951,9 +1951,7 @@ count_region_pins() {  # file [bmark] [emark] -> prints count of in-region asser
   region_lines "$1" "${2:-$PARKCAL_BMARK}" "${3:-$PARKCAL_EMARK}" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
-# Issue #159 B3: the literal-uniqueness invariant (satisfiable by assert_pin_unique, or — in the
-# fix-delta region since #816 — by assert_pin_red_under, which asserts the same uniqueness
-# internally; park-calibration stays assert_pin_unique-only) is now enforced for EVERY registered
+# Issue #159 B3: the assert_pin_unique-only invariant is now enforced for EVERY registered
 # pin region, not just park-calibration. The fix-delta region (defined with the pins below)
 # uses split-built markers so the definition lines carry no contiguous marker string.
 FIXDELTA_BMARK="FIXDELTA_GUARD_REGION_""BEGIN"
@@ -3803,16 +3801,12 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # delta-regression catch — after each iteration's fix commit a blinded subagent re-reviews
 # ONLY the cumulative fix delta (with the loop's prior findings/fix-decisions/fixer reasoning
 # withheld), so a fix-introduced #62/#98-class regression is caught in the SAME iteration
-# instead of riding out to the end-of-loop shadow. Per issue #159 B3, every pin below asserts
-# literal uniqueness inside the FIXDELTA region, so a non-gate-unique literal FAILS by
-# construction. Two helpers satisfy that: `assert_pin_unique` directly, and (since #816) the
-# mutation-taking `assert_pin_red_under`, which asserts the same uniqueness internally before
-# running its mutation — the post-#810 corpus policy requires the mutation-taking form for a new
-# operative-prose pin, so the region admits both rather than forcing a policy-barred bare presence
-# pin. The meta-test above counts the bare form only; a `assert_pin_red_under` call is invisible to
-# it and carries its own uniqueness guarantee. Needles are apostrophe-free (the asserts single-quote them).
+# instead of riding out to the end-of-loop shadow. Per issue #159 B3, every pin below routes
+# through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
+# assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
+# by construction. Needles are apostrophe-free (the asserts single-quote them).
 RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
-# FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST assert literal uniqueness: assert_pin_unique (meta-tested above) or assert_pin_red_under (asserts uniqueness internally; required by the post-#810 policy for a new operative-prose pin)
+# FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
 assert_pin_unique "fix-delta gate: Step 3.5 heading present in review-and-fix SKILL" \
   '### Step 3.5: Fix-delta verification gate' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
@@ -3833,27 +3827,8 @@ assert_pin_unique "fix-delta gate: promoted iteration still terminates under the
   'still terminates under the cap' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: at-cap unresolved finding carried into the shadow (fail-closed)" \
   'the unresolved finding is **not** dropped' "$MAXI_SKILL"
-# #816 scoped the severity-graded arms to the two checks that predate the added-assertion check,
-# so the pin is reconciled onto the scoped wording rather than the bare advisory clause it used to
-# match — a routing arm that silently re-widened to every check would otherwise stay green.
-assert_pin_red_under "fix-delta gate: Suggestion/Minor from the two pre-existing checks recorded as advisory, no re-fix (#816-scoped)" \
-  'gate finding from either of those two checks is **recorded as advisory and does not trigger a re-fix**' \
-  's/A \*\*Suggestion\/Minor\*\* gate finding from either of those two checks is/A **Suggestion\/Minor** gate finding from any check is/'
-# #816: the routing block's scoping sentence itself — removing it restores the state the ACs call
-# out, where the severity-graded arms and the added-assertion disposition are both applicable to
-# the same input and contradict each other.
-# Pin the OPERATIVE scoping clause, not the trailing consequence sentence: deleting the
-# consequence leaves the scoping fully intact, so a pin on it would be a framing-only pin that
-# stays green over the very re-widening it names. The mutation re-widens the arms to every check.
-assert_pin_red_under "#816 gate-routing-scoped: the fix-delta gate's severity arms are scoped to the two pre-existing checks, the added-assertion check carrying its own disposition" \
-  'apply to the **#62/#98 operand-contract check and the adversarial input-shape matrix**' \
-  's/apply to the \*\*#62\/#98 operand-contract check and the adversarial input-shape matrix\*\*/apply to every check this gate carries/'
-# #816: the added-assertion disposition inherits the gate's termination machinery. Mutating the
-# inheritance clause to an exemption re-introduces a check whose findings never terminate under the
-# 2-attempt cap — the regression the AC names.
-assert_pin_red_under "#816 gate-assertion-disposition-terminates: the added-assertion disposition inherits the 2-attempt cap, the cap-counting promotion, and the at-cap shadow carry" \
-  'inherits this gate'"'"'s existing termination machinery' \
-  's/inherits this gate'"'"'s existing termination machinery/is exempt from this gate'"'"'s termination machinery/'
+assert_pin_unique "fix-delta gate: Suggestion/Minor recorded as advisory, no re-fix" \
+  'recorded as advisory and does not trigger a re-fix' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: not counted toward the cap (verification of current iteration)" \
   'Step 3.5 and its inner attempts are verification of the current iteration' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: blinded subagent withholds prior findings/decisions/reasoning" \
@@ -4186,7 +4161,7 @@ assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Re
   'fix-delta gate clean' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-code-review" \
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
-# FIXDELTA_GUARD_REGION_END — end of the literal-uniqueness fix-delta pin region (assert_pin_unique or assert_pin_red_under; see the BEGIN marker)
+# FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
 # ── issue #449: the reproduce-first gate keys on a recorded CONTENT classification, not the
 #    `bug` label. The deliverable is agent-executed skill prose (phase-1/phase-2) plus the
@@ -6171,21 +6146,6 @@ assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" 
 # The overview sweep-list entry is the other retained mirror.
 assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
   "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
-# Issue #816's docs and overview mirrors for the describing-prose reconciliation sweep, in the
-# same two-mirror shape as 2.3.0b above: adding a sweep to the §2.3 set is itself an instance of
-# 2.3.0b, so the sweep set's doc mirrors are asserted per sweep rather than trusted to a reviewer.
-# Both are expressed through the mutation-taking helper rather than the bare presence shape the
-# 2.3.0b siblings above use, because the post-#810 pin corpus refuses a new prose-presence assertion.
-# For a doc mirror the row's PRESENCE is itself the guarded property, so the mutation that deletes the
-# row IS the named regression (a sweep added to the §2.3 set whose docs mirror was never written);
-# no operative-vs-framing contrast applies here, unlike a prose pin whose line can survive its own
-# operative clause being removed.
-assert_pin_red_under "sweep 2.3.0d: docs/implement-skill.md keeps the rationale table row" \
-  '| 2.3.0d Describing-prose reconciliation |' \
-  's/^\| 2\.3\.0d Describing-prose reconciliation \|.*$//' "$IMPL_DOC"
-assert_pin_red_under "sweep 2.3.0d: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" \
-  '**2.3.0d** Describing-prose reconciliation sweep (a **removal** from an enumerated set' \
-  's/^  - \*\*2\.3\.0d\*\* Describing-prose reconciliation sweep .*$//' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 
 # Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
@@ -7409,7 +7369,7 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 "$@" >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 --print-body "$@" >"$S258/out" 2>"$S258/err"
   echo $?
 }
 
@@ -8017,6 +7977,7 @@ cat > "$S781U/base.md" <<'WPMD'
 </details>
 WPMD
 WP_BODY="$S781U/base.md" DEVFLOW_GH="$S781U/gh" python3 "$WP_PY" update 999 \
+  --print-body \
   --note 'scope decision: this PR delivers A only' \
   --scope-decision-deferred pending 'Criterion B' \
   --scope-decision-rewritten pending 'Criterion A' 'Criterion A2' \
@@ -8460,7 +8421,7 @@ run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlo
   local body="$1"; shift
   : > "$S356/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
-    python3 "$WP_PY" update 888 "$@" >"$S356/out" 2>"$S356/err"
+    python3 "$WP_PY" update 888 --print-body "$@" >"$S356/out" 2>"$S356/err"
   echo $?
 }
 
@@ -9119,6 +9080,137 @@ assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on 
 # into steps.engine, mirroring devflow-runner.yml's own parse step.
 assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
   "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
+# ── issue #814: `update` suppresses the stdout body echo by default ──────────────
+# Reuses the #356 gh stub (it is the only one of the four that tees the PATCH body
+# it received to WP_PATCHBODY, which is what makes the payload-invariance pair below
+# able to fail) and the #356 interim fixture. run814 deliberately does NOT pass
+# --print-body, so the default arm is what these assertions observe.
+run814() {  # <body-file> <args...> → prints exit code; leaves out/err/patchbody on disk.
+  local body="$1"; shift
+  : > "$S356/patchlog"; : > "$S356/patchbody8"
+  WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" WP_PATCHBODY="$S356/patchbody8" \
+  DEVFLOW_GH="$S356/gh" \
+    python3 "$WP_PY" update 888 "$@" >"$S356/out8" 2>"$S356/err8"
+  echo $?
+}
+
+# (default) a clean PATCH writes a zero-byte stdout capture, still PATCHes, exit 0.
+_c="$(run814 "$S356/interim.md" --note 'a note')"
+assert_eq "#814: a clean update PATCHes and exits 0 under the default" "0" "$_c"
+assert_eq "#814: a clean update writes a zero-byte stdout capture by default" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+assert_eq "#814: a clean update still made a PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+# The success breadcrumb is what keeps a successful call from being byte-identical to
+# one a permission matcher silently refused (which prints nothing on either channel).
+assert_eq "#814: a clean update writes exactly one success breadcrumb naming the comment id" "1" \
+  "$(grep -c '^workpad.py update: PATCHed comment 7' "$S356/err8")"
+
+# (default, --status) the breadcrumb carries the Status value read back from the PATCH
+# response — the one read-back an exit code cannot discharge.
+_c="$(run814 "$S356/interim.md" --status Reviewing)"
+assert_eq "#814: a --status update's breadcrumb carries the read-back Status value" "yes" \
+  "$(grep -q '^workpad.py update: PATCHed comment 7; Status: 🚀 Reviewing$' "$S356/err8" && echo yes || echo no)"
+assert_eq "#814: a --status update still suppresses the body echo" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+
+# (default, volatile tick miss) the stated exception: exit non-zero, the #169 report
+# unchanged, NO success breadcrumb, and the body IS still written — it is the row
+# inventory the mandated positional re-resolution reads before re-ticking.
+_c="$(run814 "$S356/interim.md" --note 'n' --tick-ac 'NO_SUCH_AC')"
+assert_eq "#814: a volatile tick miss still exits non-zero under the default" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: the volatile-tick-miss path still writes the patched body to stdout" "yes" \
+  "$([ -s "$S356/out8" ] && grep -q '^\*\*Status:\*\*' "$S356/out8" && echo yes || echo no)"
+assert_eq "#814: the volatile-tick-miss path writes NO success breadcrumb" "0" \
+  "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")"
+assert_eq "#814: the #169 volatile-miss report is unchanged under the default" "yes" \
+  "$(grep -q 'NO_SUCH_AC' "$S356/err8" && grep -q 'did not resolve' "$S356/err8" && echo yes || echo no)"
+
+# (payload invariance) one fixture driven twice — default, then --print-body. The
+# PATCH body the stub recorded must be byte-identical across the two RUNS (a
+# comparison between a capture and that same run's stub recording would be a
+# tautology), while stdout is zero bytes in the first and non-empty in the second.
+# `Last updated` is minute-granular, so the two runs agree unless a minute boundary
+# falls between them; normalise that one line out of both recordings so the assertion
+# tests the payload rather than the clock.
+run814 "$S356/interim.md" --status Reviewing >/dev/null
+cp "$S356/patchbody8" "$S356/pb-default"
+_defaultout_empty="$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+run814 "$S356/interim.md" --status Reviewing --print-body >/dev/null
+cp "$S356/patchbody8" "$S356/pb-printbody"
+# The normalise-and-compare runs under python3 (preflight-guaranteed) rather than
+# `sed`+`cmp`: it is the value that DECIDES this assertion, and neither of those is a
+# preflight-guaranteed tool, so a host missing one would silently decide the comparison
+# rather than fail attributably.
+assert_eq "#814: suppression changes only the echo — the PATCH payload is byte-identical across a default run and a --print-body run" "yes" \
+  "$(python3 - "$S356/pb-default" "$S356/pb-printbody" <<'PY'
+import re, sys
+def norm(p):
+    return re.sub(r'(?m)^\*\*Last updated:\*\*.*$', '**Last updated:** X', open(p, encoding='utf-8').read())
+print('yes' if norm(sys.argv[1]) == norm(sys.argv[2]) else 'no')
+PY
+)"
+assert_eq "#814: ... while the default run's stdout capture is zero bytes" "yes" "$_defaultout_empty"
+assert_eq "#814: ... and the --print-body run's stdout capture is not" "yes" \
+  "$([ -s "$S356/out8" ] && echo yes || echo no)"
+# The echo-SOURCE question — does --print-body write the PATCH RESPONSE or the locally
+# mutated body? — is deliberately NOT asked here. This stub answers a PATCH by teeing the
+# body it received, so the response and the recording are the same bytes by construction
+# and any comparison between them at this level passes whichever source the code reads.
+# It is asked where it can actually fail: test_python_scripts.py drives cmd_update with a
+# `patch_response` that differs from the stored body, so a code path echoing the mutation
+# instead of the response turns that assertion RED.
+# The pair only proves invariance if the recordings are real, not two empty files.
+assert_eq "#814: the payload-invariance comparison ran over a non-empty recorded PATCH body" "yes" \
+  "$([ -s "$S356/pb-default" ] && echo yes || echo no)"
+
+# (workpad-absent) the id lookup finds no workpad: exit 1, nothing on stdout, and —
+# load-bearing — NO success breadcrumb, so the "success line beside a failure" split
+# the breadcrumb design excludes cannot reappear on the one path that never PATCHes.
+: > "$S356/patchlog"
+WP_BODY="$S356/interim.md" WP_PATCHLOG="$S356/patchlog" WP_ABSENT=1 DEVFLOW_GH="$S356/gh" \
+  python3 "$WP_PY" update 888 --note 'n' >"$S356/out8" 2>"$S356/err8"; _c=$?
+assert_eq "#814: a workpad-absent update exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a workpad-absent update writes nothing to stdout and no success breadcrumb" "yes" \
+  "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+assert_eq "#814: ... and it made no PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+
+# (combined --status + volatile tick miss) the shape Phase 3.4 and Phase 4.3 actually
+# emit. The breadcrumb is suppressed (non-zero exit), so the landed-Status read-back
+# must come from the echoed body — which this path still writes. Asserting BOTH halves
+# is what keeps skills/implement/SKILL.md's absent-breadcrumb rule discharged on the
+# one path where a --status write is most likely to ride along with a tick.
+_c="$(run814 "$S356/interim.md" --status Reviewing --tick-ac 'NO_SUCH_AC')"
+assert_eq "#814: a --status call whose tick misses exits non-zero and writes no breadcrumb" "yes" \
+  "$([ "$_c" != "0" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+assert_eq "#814: ... and the echoed body carries the landed Status, so the read-back is still observable on that path" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 🚀 Reviewing$' "$S356/out8" && echo yes || echo no)"
+assert_eq "#814: ... beside the unchanged volatile-miss report naming the tick" "yes" \
+  "$(grep -q 'NO_SUCH_AC' "$S356/err8" && echo yes || echo no)"
+
+# (non-writing exit paths) a structural abort and a PATCH-call failure keep their exit
+# codes and write nothing to stdout under the default.
+_c="$(run814 "$S356/interim.md" --replace-plan-file "$S356/no-such-plan.md")"
+assert_eq "#814: a structural abort exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a structural abort writes nothing to stdout" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+# Attribute the rejection (guard-class 3): more than one structural guard could reject
+# this fixture, so pin the unreadable-file guard's own signal. Without it a mutant that
+# dropped that guard — leaving a sibling to reject the same input — would stay green.
+assert_eq "#814: ... and the abort is attributable to the unreadable --replace-plan-file" "yes" \
+  "$(grep -q 'no-such-plan.md' "$S356/err8" && echo yes || echo no)"
+: > "$S356/patchlog"; : > "$S356/patchbody8"
+WP_BODY="$S356/interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCH_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  python3 "$WP_PY" update 888 --note 'n' >"$S356/out8" 2>"$S356/err8"; _c=$?
+assert_eq "#814: a PATCH-call failure exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a PATCH-call failure writes nothing to stdout and no success breadcrumb" "yes" \
+  "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+
 rm -rf "$S356"
 
 # ── issue #601: self-hosted Windows runner support — path_to_claude_code_executable ──
@@ -9899,7 +9991,7 @@ run338() {
   local body="$1"; shift
   : > "$S338/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S338/patchlog" DEVFLOW_GH="$S338/gh" \
-    python3 "$WP_PY" update 999 "$@" >"$S338/out" 2>"$S338/err"
+    python3 "$WP_PY" update 999 --print-body "$@" >"$S338/out" 2>"$S338/err"
   echo $?
 }
 
@@ -11436,92 +11528,12 @@ assert_pin_red_under "#377 w3-fix-delta-frequency: Step 3 item 3b runs the sweep
   'on every iteration in which Step 3 applied fixes' \
   's/on every iteration in which Step 3 applied fixes//'
 # AC2: the item scopes the sweeps to the fix delta, and gates each sweep on its own Phase 2.3
-# trigger. Two operative clauses, pinned separately — removing the trigger-scope qualifier
-# re-introduces the unbounded reading in which a sweep may enumerate over pre-existing code with no
-# stated domain to authorize it; removing the per-trigger gating re-introduces running every sweep
-# unconditionally regardless of what the delta touches. Issue #816 qualified the guarantee: the
-# TRIGGER is delta-scoped without exception, while a triggered sweep's ENUMERATION may exceed the
-# delta only for the four sweeps whose own Phase 2.3 definitions state a repo-wide domain — so the
-# pin is re-anchored onto the qualified sentence and its mutation strips the qualifier, restoring
-# the unbounded reading rather than staying green over a reversed contract.
-assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep's TRIGGER to the fix delta, bounding enumeration to the sweeps whose Phase 2.3 definition states a repo-wide domain (AC2, #816-qualified)" \
-  'a sweep'"'"'s **trigger** is scoped to the fix delta *without exception*' \
-  's/a sweep'"'"'s \*\*trigger\*\* is scoped to the fix delta \*without exception\*/a sweep may enumerate wherever it likes/'
-# The unqualified literal the original pin guarded is still present and still operative (it states
-# the delta bound the qualifier then refines), so it keeps its own removal-proof pin.
-assert_pin_red_under "#377 w3-fix-delta-scope-literal: Step 3 item 3b still states the delta bound itself (AC2)" \
+# trigger. Two operative clauses, pinned separately — removing the scope clause re-introduces an
+# unbounded sweep over pre-existing code; removing the per-trigger gating re-introduces running
+# every sweep unconditionally regardless of what the delta touches.
+assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep to the fix delta (AC2)" \
   'Scope every sweep to the fix delta' \
   's/Scope every sweep to the fix delta//'
-# #816: the complement half — every sweep OUTSIDE the four repo-wide-domain sweeps stays
-# delta-bounded. Without it the qualifier reads as an open-ended licence to enumerate repo-wide.
-assert_pin_red_under "#816 fix-delta-enumeration-complement: item 3b states that every other sweep's enumeration stays bounded to the fix delta" \
-  'every other sweep'"'"'s enumeration stays bounded to the fix delta as before' \
-  's/every other sweep'"'"'s enumeration stays bounded to the fix delta as before//'
-# #816: item 3b's second, previously-unpinned statement of the same bound (Preserved invariants)
-# carries the identical distinction — otherwise one sentence in item 3b still asserts an
-# unqualified whole-sweep delta bound and contradicts the qualified one above.
-assert_pin_red_under "#816 fix-delta-preserved-invariants-qualified: item 3b's Preserved invariants sentence carries the trigger-vs-enumeration distinction" \
-  'a triggered sweep'"'"'s **enumeration** is likewise delta-bounded **except** where that sweep'"'"'s own Phase 2.3 definition states a repo-wide search domain' \
-  's/a triggered sweep'"'"'s \*\*enumeration\*\* is likewise delta-bounded \*\*except\*\* where that sweep'"'"'s own Phase 2\.3 definition states a repo-wide search domain/every sweep is delta-bounded/'
-
-# ── issue #816: the §2.3.0d describing-prose reconciliation sweep + the fix-delta gate's
-# added-assertion attribution check + fixing.md's two reconciled contradictions ──
-
-# fixing.md item 3a's locate step used `git grep -n`, which item 3b in the same file prohibits and
-# which no capability profile grants — so the step was silently denied on both cloud tiers. The
-# mutation restores that ungranted instruction, re-introducing the named defect.
-assert_pin_red_under "#816 item-3a-granted-form: fixing.md item 3a's locate step instructs the granted command forms item 3b names, not the ungranted git grep" \
-  'using the granted command forms item 3b'"'"'s **Command forms** paragraph names' \
-  's/Search for the identifier\(s\) in the files this PR'"'"'s diff touched — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names \(the \*\*Grep tool\*\* first, `rg` when it resolves on the host, `grep -rnE` last with the directory-exclusion obligation\)/`git grep -n` the identifier(s) in the files this PR'"'"'s diff touched/'
-
-# The gate's dispatch scope is what makes the added-assertion check dischargeable: an assertion
-# guarding untouched text has its target OUTSIDE the delta by construction, so a delta-only scope
-# leaves the check with no readable operand. The mutation restores the delta-only scope.
-assert_pin_red_under "#816 gate-dispatch-scope-widened: the fix-delta gate admits a bounded read of each added assertion's own target for the added-assertion check" \
-  'the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target' \
-  's/\*\*For the added-assertion check below, the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target\*\*/For the added-assertion check below, the scope is the delta alone/'
-
-# The gate's third check and its unestablished arm are pinned once, in
-# lib/test/modules/review-and-fix-contract.sh — the focused module that owns the review-and-fix
-# reference surface. A second copy here would target the same bundle bytes with the same mutation,
-# so it would add no coverage and would make every future wording change a two-file lockstep edit.
-
-# The two Sweep-selection trigger arms are what make §2.3.0d reachable from the classification step
-# rather than only from its own heading. Each mutation deletes its arm, restoring the state in which
-# the sweep is reachable only from its own heading and never from the classification step.
-assert_pin_red_under "#816 sweep-selection-removal-arm: the §2.3 preamble routes a membership removal to 2.3.0d" \
-  'a permissions list*) → run **2.3.0d** (describing-prose reconciliation sweep)' \
-  's/^- \*\*Removes a value from an enumerated set\*\*.*$//' "$P2_FILE"
-assert_pin_red_under "#816 sweep-selection-weakened-arm: the §2.3 preamble routes a weakened universal to 2.3.0d" \
-  'scopes it (an unqualified claim gains a qualifier), or removes it outright → run **2.3.0d**' \
-  's/^- \*\*Weakens a universal it previously asserted\*\*.*$//' "$P2_FILE"
-# §2.3.0d's repo-wide search domain is the OPERAND the two fixing.md enumeration-scope pins read:
-# item 3b's exception says a sweep may exceed the delta "where that sweep's own Phase 2.3 definition
-# states a repo-wide domain", so scoping this sentence to the diff would silently make §2.3.0d
-# delta-bounded while both of those pins stayed green — a guard reading a field its producer does not
-# guarantee. The mutation scopes the domain to the diff, which the sweep's own rationale says makes it
-# structurally unable to find a surviving copy in another directory.
-assert_pin_red_under "#816 sweep-2.3.0d-repo-wide-domain: §2.3.0d states a whole-repository search domain (the operand item 3b's enumeration-scope exception reads)" \
-  'The domain is **the whole repository**, not the diff' \
-  's/The domain is \*\*the whole repository\*\*, not the diff/The domain is the diff/' "$P2_FILE"
-# The per-fired-trigger termination rule: a removal-only diff must not owe the deletion-hunk search
-# (evidence for a search with no input), and a both-trigger diff owes both. The mutation restores the
-# unconditional both-enumerations demand.
-assert_pin_red_under "#816 sweep-2.3.0d-per-trigger-termination: §2.3.0d terminates per fired trigger, never demanding both enumerations unconditionally" \
-  'Termination is per fired trigger, never both unconditionally' \
-  's/\*\*Termination is per fired trigger, never both unconditionally\.\*\*/**Termination always demands both enumerations.**/' "$P2_FILE"
-# The rename assignment is what keeps a single diff shape from arming two sweeps with different
-# search domains. The mutation removes the assignment, restoring the ambiguity the AC names.
-assert_pin_red_under "#816 sweep-2.3.0d-rename-precedence: §2.3.0d assigns a rename to exactly one sweep" \
-  'is assigned to **§2.3.0b alone**' \
-  's/is assigned to \*\*§2\.3\.0b alone\*\*/arms both sweeps/' "$P2_FILE"
-
-# §2.3.0d's unrunnable arm is the operative half of the sweep's honesty guarantee: `tr` is granted
-# but NOT preflight-guaranteed, so a missing tool empties the pipeline and a never-run search reads
-# byte-identical to a clean one. The mutation deletes the arm, restoring the silent-clean-pass shape.
-assert_pin_red_under "#816 sweep-2.3.0d-unrunnable: §2.3.0d records an unrunnable outcome naming the covering backstop instead of a clean pass" \
-  'do **not** report a clean pass. Record `2.3.0d: unrunnable' \
-  's/do \*\*not\*\* report a clean pass\. Record `2\.3\.0d: unrunnable/report a clean pass. Skip recording `2.3.0d: unrunnable/' "$P2_FILE"
 assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
   'each gated by its own Phase 2.3 trigger condition' \
   's/each gated by its own Phase 2.3 trigger condition//'
@@ -11674,17 +11686,11 @@ assert_pin_red_under "#541 reference_reads: a not_verified fix_delta prohibits a
 #     rather than solely carries the rule — a presence pin is the honest instrument.
 assert_pin_unique "#541 reference_reads: the field is conditional — absence on a no-gate iteration is not a defect" \
   'its absence is not a defect' "$MAXI_SKILL"
-# (c) PRESENCE: the distinct-breadcrumb requirement. Its sentence opens by stating that every
-#     arm yielding the not_verified shape "keeps its **distinct** breadcrumb in `reason`", so this
-#     clause likewise reinforces an already-stated rule. Issue #816 added a third producer of that
-#     shape (an added assertion whose target could not be read), so the sentence — and this pin's
-#     literal with it — is stated over every such arm rather than over a counted two.
-# The literal changed with #816's third producer, so the post-#810 corpus policy routes it through
-# the mutation-taking helper: the mutation licenses collapsing the arms onto one string, which is
-# exactly the laundering the sentence forbids.
-assert_pin_red_under "#541 reference_reads: every not_verified arm keeps a DISTINCT breadcrumb in reason" \
-  'must preserve that distinction rather than collapsing them onto one string' \
-  's/must preserve that distinction rather than collapsing them onto one string/may collapse them onto one string/'
+# (c) The distinct-breadcrumb requirement carried no pin after #816 rewrote its sentence to range
+#     over every arm yielding the not_verified shape (the two original arms plus the added-assertion
+#     check's unestablished arm). The retired pin asserted only that the reworded clause was present
+#     — a wording-only assertion over prompt prose with no executable boundary, which the post-#810
+#     corpus policy prohibits. The rule itself is carried by the prose in fix-delta-gate.md.
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
@@ -44700,7 +44706,7 @@ assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition r
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 70; then
+  "review-and-fix-contract" 68; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi
