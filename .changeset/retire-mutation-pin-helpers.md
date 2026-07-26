@@ -1,5 +1,5 @@
 ---
-"devflow-autopilot": patch
+bump: patch
 ---
 
 Retire the remaining mutation-taking pin helpers, replace their genuine behavioral
