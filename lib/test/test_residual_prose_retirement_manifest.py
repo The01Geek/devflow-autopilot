@@ -24,8 +24,10 @@ BASE_REVISION = "1d4d306bcacd4970df170faeab94e602724943b8"
 MANIFEST = REPO_ROOT / ".devflow/logs/residual-prose-retirement-manifest.tsv"
 # The manifest's own identity set is frozen against BASE_REVISION's committed
 # inventory, so a row there can never be edited to track a rename.  A rename is
-# declared here instead, and only the current-tree realization consumes it.
-IDENTITY_REFRESHES = REPO_ROOT / ".devflow/logs/residual-prose-identity-refreshes.tsv"
+# declared here instead, and only the current-tree realization consumes it.  This
+# is hand-maintained maintainer intent, not classifier output, so it lives beside
+# its sibling pin-corpus-adjudications.tsv rather than under .devflow/logs/.
+IDENTITY_REFRESHES = HERE / "pin-identity-refreshes.tsv"
 ADJUDICATIONS = REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
 CLASSIFIER = HERE / "pin-corpus-classifier.py"
 
@@ -80,15 +82,12 @@ def decode_identity_row(row: dict[str, str]) -> dict[str, object]:
 
 
 def decode_manifest_row(row: dict[str, str]) -> dict[str, object]:
-    decoded: dict[str, object] = decode_identity_row(row)
-    decoded.update(
-        {
-            "surface": row["surface"],
-            "disposition": row["disposition"],
-            "rationale": row["rationale"],
-        }
-    )
-    return decoded
+    return {
+        **decode_identity_row(row),
+        "surface": row["surface"],
+        "disposition": row["disposition"],
+        "rationale": row["rationale"],
+    }
 
 
 def identity(row: dict[str, object]) -> tuple[object, ...]:
@@ -143,6 +142,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.classifier = load_classifier()
+        cls._current_identities = None
 
     def load_manifest(self) -> tuple[dict[str, str], list[dict[str, object]]]:
         raw = MANIFEST.read_text(encoding="utf-8")
@@ -161,7 +161,10 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
     def load_identity_refreshes(self) -> list[dict[str, object]]:
         """Return the declared same-change renames of frozen retained identities."""
         raw = IDENTITY_REFRESHES.read_text(encoding="utf-8")
-        table = [line for line in raw.splitlines() if not line.startswith("# ")]
+        # Drop every "#" line, not only "# " ones: the header wraps its contract
+        # onto indented continuation lines, and a bare "#" left in would parse as
+        # a data row rather than a comment.
+        table = [line for line in raw.splitlines() if not line.startswith("#")]
         reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
         self.assertEqual(REFRESH_COLUMNS, tuple(reader.fieldnames or ()))
         rows = []
@@ -197,16 +200,10 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         for row in reader:
             if row["bucket_final"] not in PROSE_BUCKETS:
                 continue
-            selected.add(
-                (
-                    decode_cell(row["source_file"]),
-                    row["helper"],
-                    decode_cell(row["assertion_name"]),
-                    decode_cell(row["literal"]),
-                    decode_cell(row["resolved_target"]),
-                    row["target_defaulted"] == "true",
-                )
-            )
+            # Decode through the shared identity contract rather than transcribing
+            # the six cells positionally, so a change to IDENTITY_COLUMNS cannot
+            # desync this projection from identity()'s ordering.
+            selected.add(identity(decode_identity_row(row)))
         return selected
 
     def selected_base_raw_canonical(self) -> bytes:
@@ -238,6 +235,12 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         return b"\n".join(sorted(lines)) + b"\n"
 
     def current_source_identities(self) -> set[tuple[object, ...]]:
+        # Re-extracting the sites costs ~250ms (the classifier walks all of
+        # run.sh), and two tests in this class now need the same answer, so
+        # memoize it on the class beside the classifier load in setUpClass.
+        cached = getattr(type(self), "_current_identities", None)
+        if cached is not None:
+            return cached
         source_texts = {
             source_file: (REPO_ROOT / source_file).read_text(encoding="utf-8")
             for source_file in SOURCE_FILES
@@ -245,13 +248,15 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         overrides = {}
         for text in source_texts.values():
             overrides.update(self.classifier.recover_override_names(text))
-        return {
+        identities = {
             site_identity(site)
             for source_file, text in source_texts.items()
             for site in self.classifier.extract_existence_sites(
                 text, source_file, str(REPO_ROOT / "lib"), overrides
             )
         }
+        type(self)._current_identities = identities
+        return identities
 
     def test_manifest_exactly_partitions_the_frozen_prose_selector(self):
         # Break caught: an audited site is silently omitted, duplicated, or reassigned.
