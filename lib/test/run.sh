@@ -11487,7 +11487,7 @@ assert_pin_red_under "#816 gate-assertion-check: the fix-delta gate carries the 
 # The mutation deletes that outcome, restoring a two-outcome vocabulary that cannot report it.
 assert_pin_red_under "#816 gate-assertion-outcome-nonattributable: the check names the non-attributable-sibling-arm outcome" \
   'does not distinguish it from a sibling arm' \
-  's/and \*\*\(iii\)\*\* the assertion'"'"'s \*\*reported identity\*\* does not distinguish it from a sibling arm, so a result is not attributable to one\.//'
+  's/\*\*\(iii\)\*\* the assertion'"'"'s \*\*reported identity does not distinguish it from a sibling arm\*\*/**(iii)** the assertion reports under its own distinct name/'
 
 # The two Sweep-selection trigger arms are what make §2.3.0d reachable from the classification step
 # rather than only from its own heading. Each mutation deletes its arm, restoring the state in which
