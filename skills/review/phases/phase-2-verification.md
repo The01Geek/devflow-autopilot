@@ -57,10 +57,11 @@ Record the result in the same JSON shape as agent verdicts:
 
 ### 2.1b Launch verifier agents in batches
 
+**Dispatch barrier.** Every subagent dispatch described here is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/review/SKILL.md`) — read the requirement there; it is deliberately not restated here.
+
 Split the *agent* items into batches of up to 8; launch each batch's agents in parallel via multiple Agent tool calls in one message.
 
 Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item. Resolve overrides for `devflow:checklist-verifier` once per Phase 2 per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` to the dispatch's Agent-tool `model` override.
-
 
 Pass the following prompt for each:
 ```
