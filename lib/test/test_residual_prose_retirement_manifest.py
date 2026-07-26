@@ -119,6 +119,118 @@ def canonical_mapping(row: dict[str, object]) -> str:
     )
 
 
+class RefreshLedgerError(ValueError):
+    """A refresh-ledger row that cannot be admitted, named by row and cause."""
+
+
+def parse_identity_refreshes(raw: str) -> list[dict[str, object]]:
+    """Parse the refresh ledger, naming the offending row rather than raising raw.
+
+    The ledger is hand-maintained, so every malformed shape a maintainer can
+    produce -- a short row, an unquoted cell, a wrapped continuation line -- is
+    reported with its row number and column instead of surfacing as a bare
+    TypeError or JSONDecodeError from deep inside the decode.
+    """
+    # Drop every "#" line, not only "# " ones: the header wraps its contract
+    # onto indented continuation lines, and a bare "#" left in would parse as
+    # a data row rather than a comment.
+    table = [line for line in raw.splitlines() if not line.startswith("#")]
+    reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
+    fieldnames = tuple(reader.fieldnames or ())
+    if fieldnames != REFRESH_COLUMNS:
+        raise RefreshLedgerError(
+            f"refresh ledger header is {fieldnames!r}, expected {REFRESH_COLUMNS!r}"
+        )
+    rows = []
+    for number, row in enumerate(reader, start=1):
+        if row.get(None) is not None:
+            raise RefreshLedgerError(f"row {number} carries more cells than columns")
+        decoded: dict[str, object] = {}
+        for column in REFRESH_COLUMNS:
+            cell = row[column]
+            # csv.DictReader pads a short row with None. Reject that explicitly:
+            # str(None) is the truthy "None", so a non-empty check downstream
+            # would read an ABSENT cell as a supplied one.
+            if cell is None:
+                raise RefreshLedgerError(f"row {number} is missing the {column!r} cell")
+            if column == "rationale":
+                decoded[column] = cell
+            elif column == "target_defaulted":
+                decoded[column] = cell == "true"
+            elif column == "helper":
+                decoded[column] = cell
+            else:
+                try:
+                    decoded[column] = decode_cell(cell)
+                except json.JSONDecodeError as exc:
+                    raise RefreshLedgerError(
+                        f"row {number} cell {column!r} is not a JSON-encoded cell: {exc}"
+                    ) from exc
+        rows.append(decoded)
+    return rows
+
+
+def refresh_mapping_of(rows: list[dict[str, object]]) -> dict[tuple[object, ...], tuple[object, ...]]:
+    """Project each declared old identity onto the identity the tree now carries."""
+    mapping = {}
+    for row in rows:
+        refreshed = dict(row)
+        refreshed["assertion_name"] = row["new_assertion_name"]
+        mapping[identity(row)] = identity(refreshed)
+    return mapping
+
+
+def refresh_admission_error(
+    rows: list[dict[str, object]],
+    retained: set[tuple[object, ...]],
+    current: set[tuple[object, ...]],
+) -> str | None:
+    """Return why these refresh rows are inadmissible, or None when they are clean.
+
+    This is the single implementation of the admission rule: the live guard calls
+    it over the shipped ledger, and the negative table drives every arm over
+    synthetic rows.  A mirrored second copy would let an inverted arm here stay
+    green there, which is the coupled-mirror hazard the split exists to avoid.
+    """
+    mapping = refresh_mapping_of(rows)
+    # One row per declared old identity: a duplicate would make mapping[old]
+    # resolve to the last row's new name, so an earlier row's missing target
+    # would slip past the per-row liveness arm below.
+    if len(rows) != len(mapping):
+        return "duplicate old identity"
+    # No injectivity arm: `refreshed` rewrites only assertion_name, so two rows
+    # could collide on one new identity only by agreeing on all five other
+    # identity cells -- and the frozen manifest carries no two RETAIN_BOUNDARY
+    # rows sharing those five.  It is digest-pinned and can never grow, so that
+    # collision is decidable now and absent, exactly like the chaining case
+    # below.  Asserting either would be a dead arm.
+    for row in rows:
+        old = identity(row)
+        if old not in retained:
+            # Renaming an already-refreshed pin UPDATES that row's
+            # new_assertion_name in place; it never adds a second row, because
+            # `old` would then name an intermediate the frozen manifest lacks.
+            return "old identity is not a RETAIN_BOUNDARY row"
+        if not str(row["new_assertion_name"]).strip():
+            return "empty new_assertion_name"
+        if row["assertion_name"] == row["new_assertion_name"]:
+            return "self-mapping row"
+        if not str(row["rationale"]).strip():
+            return "empty rationale"
+        # A refresh is only ever a live rename: the old name must be gone from
+        # the tree and the new one present.  A refresh whose old identity still
+        # resolves is stale and would silently outlive the rename it recorded.
+        if old in current:
+            return "stale refresh: the old identity is still live"
+        if mapping[old] not in current:
+            return "refreshed identity is absent from the tree"
+    # Chaining needs no arm of its own: the two liveness checks above make it
+    # unreachable, because a chained hop's middle identity would have to be both
+    # present in the tree (as one row's new name) and absent from it (as the
+    # next row's old name).  So the mapping is always a single hop.
+    return None
+
+
 def site_identity(site: object) -> tuple[object, ...]:
     """Project a current extracted site onto the manifest identity contract."""
     return tuple(getattr(site, column) for column in IDENTITY_COLUMNS)
@@ -160,29 +272,11 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
 
     def load_identity_refreshes(self) -> list[dict[str, object]]:
         """Return the declared same-change renames of frozen retained identities."""
-        raw = IDENTITY_REFRESHES.read_text(encoding="utf-8")
-        # Drop every "#" line, not only "# " ones: the header wraps its contract
-        # onto indented continuation lines, and a bare "#" left in would parse as
-        # a data row rather than a comment.
-        table = [line for line in raw.splitlines() if not line.startswith("#")]
-        reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
-        self.assertEqual(REFRESH_COLUMNS, tuple(reader.fieldnames or ()))
-        rows = []
-        for row in reader:
-            decoded = decode_identity_row(row)
-            decoded["new_assertion_name"] = decode_cell(row["new_assertion_name"])
-            decoded["rationale"] = row["rationale"]
-            rows.append(decoded)
-        return rows
+        return parse_identity_refreshes(IDENTITY_REFRESHES.read_text(encoding="utf-8"))
 
     def refresh_mapping(self) -> dict[tuple[object, ...], tuple[object, ...]]:
         """Project each declared old identity onto the identity the tree now carries."""
-        mapping = {}
-        for row in self.load_identity_refreshes():
-            refreshed = dict(row)
-            refreshed["assertion_name"] = row["new_assertion_name"]
-            mapping[identity(row)] = identity(refreshed)
-        return mapping
+        return refresh_mapping_of(self.load_identity_refreshes())
 
     def selected_base_inventory(self) -> set[tuple[object, ...]]:
         result = subprocess.run(
@@ -235,9 +329,14 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         return b"\n".join(sorted(lines)) + b"\n"
 
     def current_source_identities(self) -> set[tuple[object, ...]]:
-        # Re-extracting the sites costs ~250ms (the classifier walks all of
-        # run.sh), and two tests in this class now need the same answer, so
-        # memoize it on the class beside the classifier load in setUpClass.
+        # Re-extracting the sites is the expensive step here — the classifier
+        # walks all of run.sh — and several tests in this class need the same
+        # answer, so memoize it on the class (the sentinel is initialized in
+        # setUpClass; the fill happens at the end of this method). The cache is
+        # valid only while this class reads one fixed SOURCE_FILES set: the
+        # sibling class's current_source_identities takes a per-call source set
+        # and must not reuse this method. Hand out a frozenset so a caller
+        # cannot mutate the shared answer.
         cached = getattr(type(self), "_current_identities", None)
         if cached is not None:
             return cached
@@ -248,13 +347,13 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         overrides = {}
         for text in source_texts.values():
             overrides.update(self.classifier.recover_override_names(text))
-        identities = {
+        identities = frozenset(
             site_identity(site)
             for source_file, text in source_texts.items()
             for site in self.classifier.extract_existence_sites(
                 text, source_file, str(REPO_ROOT / "lib"), overrides
             )
-        }
+        )
         type(self)._current_identities = identities
         return identities
 
@@ -322,35 +421,105 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             self.assertEqual("boundary", bucket, literal)
             self.assertFalse(rationale.startswith("mechanical:"), literal)
 
-    def test_identity_refreshes_are_declared_live_and_injective(self):
+    def test_identity_refreshes_are_declared_and_live(self):
         # Break caught: a refresh launders a vanished pin, or outlives its rename.
         _, rows = self.load_manifest()
         retained = {
             identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
         }
         current = self.current_source_identities()
-        refreshes = self.load_identity_refreshes()
-        mapping = self.refresh_mapping()
-        # One row per declared old identity, and no two rows collapse onto one
-        # refreshed identity: either would let a rename hide a second vanished pin.
-        self.assertEqual(len(refreshes), len(mapping))
-        self.assertEqual(len(mapping), len(set(mapping.values())))
-        for row in refreshes:
-            old = identity(row)
-            new = mapping[old]
-            self.assertIn(old, retained, f"refresh names no RETAIN_BOUNDARY identity: {old!r}")
-            self.assertTrue(str(row["new_assertion_name"]).strip(), old)
-            self.assertNotEqual(row["assertion_name"], row["new_assertion_name"], old)
-            self.assertTrue(str(row["rationale"]).strip(), old)
-            # A refresh is only ever a live rename: the old name must be gone from
-            # the tree and the new one present.  A refresh whose old identity still
-            # resolves is stale and would silently outlive the rename it recorded.
-            self.assertNotIn(old, current, f"refresh is stale — the old identity is still live: {old!r}")
-            self.assertIn(new, current, f"refreshed identity is absent from the tree: {new!r}")
-        # Chaining needs no check of its own: the two liveness arms above already
-        # make it unreachable, because a chained hop's middle identity would have
-        # to be both present in the tree (as one row's new name) and absent from it
-        # (as the next row's old name).  So the mapping is always a single hop.
+        self.assertIsNone(
+            refresh_admission_error(self.load_identity_refreshes(), retained, current),
+            "the shipped refresh ledger is inadmissible",
+        )
+
+    def test_refresh_admission_rejects_every_malformed_declaration(self):
+        # Break caught: an admission arm is inverted, dropped, or made vacuous.
+        _, manifest = self.load_manifest()
+        retained = {
+            identity(row) for row in manifest if row["disposition"] == "RETAIN_BOUNDARY"
+        }
+        current = self.current_source_identities()
+        live = self.load_identity_refreshes()
+        self.assertIsNone(
+            refresh_admission_error(live, retained, current),
+            "the shipped ledger must itself be admissible",
+        )
+        base = live[0]
+
+        def mutated(**overrides):
+            row = dict(base)
+            row.update(overrides)
+            return [row]
+
+        unretained = dict(base)
+        unretained["literal"] = "a literal no frozen manifest row carries"
+        cases = {
+            "duplicate old identity": [dict(base), dict(base)],
+            "old identity is not a RETAIN_BOUNDARY row": [unretained],
+            "empty new_assertion_name": mutated(new_assertion_name="   "),
+            "self-mapping row": mutated(new_assertion_name=base["assertion_name"]),
+            "empty rationale": mutated(rationale=""),
+            "refreshed identity is absent from the tree": mutated(
+                new_assertion_name="a name the tree does not carry"
+            ),
+        }
+        for expected, rows in cases.items():
+            with self.subTest(case=expected):
+                self.assertEqual(expected, refresh_admission_error(rows, retained, current))
+        # The stale arm needs an old identity that is BOTH retained and still live,
+        # so it is built from a second frozen row the tree still carries unrenamed.
+        stale_source = next(
+            row
+            for row in manifest
+            if row["disposition"] == "RETAIN_BOUNDARY" and identity(row) in current
+        )
+        stale = {column: stale_source[column] for column in IDENTITY_COLUMNS}
+        stale["new_assertion_name"] = "a renamed form the tree does not carry"
+        stale["rationale"] = "stale-refresh probe"
+        self.assertEqual(
+            "stale refresh: the old identity is still live",
+            refresh_admission_error([stale], retained, current),
+        )
+
+    def test_refresh_ledger_parser_names_its_malformed_rows(self):
+        # Break caught: a hand-edit fails with a raw decode error naming no row.
+        def tsv(cells):
+            # Render through csv so the JSON cells carry the same quoting the
+            # real ledger has; a hand-joined row would decode differently.
+            buf = io.StringIO()
+            csv.writer(buf, delimiter="\t", lineterminator="").writerow(cells)
+            return buf.getvalue()
+
+        header = tsv(REFRESH_COLUMNS)
+        good = tsv(
+            (
+                compact_json("lib/test/run.sh"),
+                "assert_pin_unique",
+                compact_json("old name"),
+                compact_json("a literal"),
+                compact_json("a target"),
+                "false",
+                compact_json("new name"),
+                "why",
+            )
+        )
+        self.assertEqual(1, len(parse_identity_refreshes(f"# c\n{header}\n{good}\n")))
+        # A wrapped header continuation is a comment, not a data row.
+        self.assertEqual(
+            1, len(parse_identity_refreshes(f"# c\n#   more\n{header}\n{good}\n"))
+        )
+        cases = {
+            "header": f"# c\n{tsv(IDENTITY_COLUMNS)}\n",
+            "missing the 'rationale' cell": f"# c\n{header}\n{good.rsplit(chr(9), 1)[0]}\n",
+            "more cells than columns": f"# c\n{header}\n{good}\textra\n",
+            "not a JSON-encoded cell": f"# c\n{header}\n{good.replace(tsv([compact_json('a literal')]), 'a literal', 1)}\n",
+        }
+        for expected, text in cases.items():
+            with self.subTest(case=expected):
+                with self.assertRaises(RefreshLedgerError) as caught:
+                    parse_identity_refreshes(text)
+                self.assertIn(expected, str(caught.exception))
 
     def test_current_tree_realizes_the_retirement_manifest(self):
         # Break caught: a retired wording pin remains, or a retained boundary vanishes.

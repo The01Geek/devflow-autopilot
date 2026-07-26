@@ -2220,7 +2220,8 @@ echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened 
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
 # and the no-refork guard. #797 widened the cap's keying from an in-code-comment
 # sub-case to behavior-inertness; the three guarded contracts are unchanged, and the
-# AC4 literal below is renamed to track the widened cap.
+# AC4 literal below is renamed to track the widened cap. The AC1 assertion NAME is a frozen
+# pin identity, so renaming it needs a same-commit row in lib/test/pin-identity-refreshes.tsv.
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
 assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic behavior-inert prose cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
