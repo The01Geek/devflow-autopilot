@@ -149,23 +149,17 @@ map does not carry, never the reverse. A map entry with no derivation behind it 
 block whose assertions were deleted or renamed — is a curated historical record, so it is
 neither reported nor removed by `--fix`. Prune such an entry by hand when you want it gone.
 
-**Temporary audited-test-source freeze (issue #810 follow-up).** The 12 sources in
-`pin-corpus-lint.py`'s `AUDITED_PIN_SOURCES` set are deletion-only until the legacy
-mutation-pin census and remediation are complete. Any addition, edit, replacement,
-reformat, or move in those files is temporarily prohibited. Developers who need new
-behavioral coverage must put an ordinary executable test in an appropriate non-frozen
-test surface, or wait for the replacement gate.
-
-The required `mutation-routing-worktree` gate compares Git name-status and numstat
-views from the merge base to committed `HEAD`. It permits only an ordinary modified
-audited file with zero added lines and at least one deleted line; unexpected file
-states or disagreement between the Git views fail as infrastructure errors.
-Uncommitted working-tree changes are intentionally outside this temporary comparison
-and are enforced only after they are committed (including by CI). This emergency gate
-does not inspect helpers, execute mutations, or determine whether a mutation pin is
-behavioral. It performs no assignment-dependency analysis because additions and edits
-in the frozen files are rejected wholesale. A follow-up PR will replace this
-deliberately coarse restriction with a narrower gate after the legacy cleanup.
+**Mutation-pin census / identity ratchet (issue #810 follow-up).** The required
+`mutation-routing-worktree` gate builds the audited test-source census and requires
+the checked-in inventory to match it exactly. Legacy mutation sites are frozen by
+normalized identity: deleting one is allowed when the inventory is refreshed in the
+same change, while new, changed, reformatted, or moved-to-another-audited-source-path
+sites — including wrapper identities — are rejected. Identity excludes line number,
+so same-file line-position shifts and byte-identical same-file relocations are not
+tracked as moves. The gate preserves the exact audited-source/module-registry
+population check and fails closed when its census or inventory cannot be established.
+It does not claim semantic classification, execute mutations, or infer assignment
+dependencies; follow-up remediation continues through ordinary executable boundaries.
 
 A new static helper or direct positive source-presence assertion is allowed only for
 an executable structural boundary and must carry
@@ -174,10 +168,6 @@ an executable structural boundary and must carry
 `security-credential-boundary`, `machine-sentinel-provenance`,
 `routing-dispatch-contract`, `lifecycle-state-transition`,
 `generated-artifact-identity`, or `cross-file-phase-contract`.
-This structural-pin allowance is suspended in the 12 frozen sources while the
-deletion-only policy is active.
-The gate preserves the exact audited-source/module-registry population check and fails
-closed when its base, Git views, or source population cannot be established.
 
 **Retiring existence-only pins (issue #798).** Use the frozen census in
 `.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the
