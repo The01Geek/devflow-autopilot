@@ -120,16 +120,24 @@ def canonical_mapping(row: dict[str, object]) -> str:
 
 
 class RefreshLedgerError(ValueError):
-    """A refresh-ledger row that cannot be admitted, named by row and cause."""
+    """A structurally malformed refresh-ledger row, named by row and cause.
+
+    Raised only while PARSING.  An admissible-but-wrong declaration is a
+    different failure: `refresh_admission_error` RETURNS its reason as a string
+    and never raises, so nothing in the admission path produces this exception.
+    """
 
 
 def parse_identity_refreshes(raw: str) -> list[dict[str, object]]:
     """Parse the refresh ledger, naming the offending row rather than raising raw.
 
-    The ledger is hand-maintained, so every malformed shape a maintainer can
-    produce -- a short row, an unquoted cell, a wrapped continuation line -- is
-    reported with its row number and column instead of surfacing as a bare
-    TypeError or JSONDecodeError from deep inside the decode.
+    The ledger is hand-maintained, so the decode-level shapes a maintainer can
+    produce -- a short row, a surplus cell, an unquoted cell, a `target_defaulted`
+    that is neither "true" nor "false" -- are reported with the offending row and
+    column instead of surfacing as a bare TypeError or JSONDecodeError from deep
+    inside the decode.  A header mismatch is reported against the header, which
+    has no row number.  A wrapped `#` continuation line is NOT malformed: it is
+    dropped as a comment (see below), so it parses cleanly.
     """
     # Drop every "#" line, not only "# " ones: the header wraps its contract
     # onto indented continuation lines, and a bare "#" left in would parse as
@@ -153,19 +161,36 @@ def parse_identity_refreshes(raw: str) -> list[dict[str, object]]:
             # would read an ABSENT cell as a supplied one.
             if cell is None:
                 raise RefreshLedgerError(f"row {number} is missing the {column!r} cell")
-            if column == "rationale":
+            if column in ("rationale", "helper"):
                 decoded[column] = cell
             elif column == "target_defaulted":
+                # Never `cell == "true"`: that coerces "True"/"TRUE"/"flase" to
+                # False, silently changing the row's IDENTITY.  The failure then
+                # surfaces as "old identity is not a RETAIN_BOUNDARY row", which
+                # sends the maintainer to re-check the manifest disposition when
+                # the real fault is one unrecognized boolean literal.
+                if cell not in ("true", "false"):
+                    raise RefreshLedgerError(
+                        f"row {number} cell 'target_defaulted' is {cell!r}, "
+                        "expected 'true' or 'false'"
+                    )
                 decoded[column] = cell == "true"
-            elif column == "helper":
-                decoded[column] = cell
             else:
                 try:
-                    decoded[column] = decode_cell(cell)
+                    value = decode_cell(cell)
                 except json.JSONDecodeError as exc:
                     raise RefreshLedgerError(
                         f"row {number} cell {column!r} is not a JSON-encoded cell: {exc}"
                     ) from exc
+                # A JSON `null`/number/list decodes to a non-str whose str() is
+                # truthy ("None", "0"), so a downstream `str(...).strip()` check
+                # would read an absent name or rationale as a supplied one.
+                if not isinstance(value, str):
+                    raise RefreshLedgerError(
+                        f"row {number} cell {column!r} decodes to {type(value).__name__}, "
+                        "expected a JSON string"
+                    )
+                decoded[column] = value
         rows.append(decoded)
     return rows
 
@@ -204,26 +229,37 @@ def refresh_admission_error(
     # rows sharing those five.  It is digest-pinned and can never grow, so that
     # collision is decidable now and absent, exactly like the chaining case
     # below.  Asserting either would be a dead arm.
-    for row in rows:
+    for number, row in enumerate(rows, start=1):
         old = identity(row)
+        # Name the offending row in every reason, matching the parser's own
+        # discipline: with more than one declared rename a bare cause tells the
+        # maintainer WHAT is wrong but not WHICH row produced it, and the loop
+        # short-circuits, so a second bad row stays invisible until the first is
+        # fixed.  Callers match the cause with `assertIn`, not equality.
+        def named(cause: str) -> str:
+            return (
+                f"{cause} (row {number}: {row['assertion_name']!r} "
+                f"-> {row['new_assertion_name']!r})"
+            )
+
         if old not in retained:
             # Renaming an already-refreshed pin UPDATES that row's
             # new_assertion_name in place; it never adds a second row, because
             # `old` would then name an intermediate the frozen manifest lacks.
-            return "old identity is not a RETAIN_BOUNDARY row"
+            return named("old identity is not a RETAIN_BOUNDARY row")
         if not str(row["new_assertion_name"]).strip():
-            return "empty new_assertion_name"
+            return named("empty new_assertion_name")
         if row["assertion_name"] == row["new_assertion_name"]:
-            return "self-mapping row"
+            return named("self-mapping row")
         if not str(row["rationale"]).strip():
-            return "empty rationale"
+            return named("empty rationale")
         # A refresh is only ever a live rename: the old name must be gone from
         # the tree and the new one present.  A refresh whose old identity still
         # resolves is stale and would silently outlive the rename it recorded.
         if old in current:
-            return "stale refresh: the old identity is still live"
+            return named("stale refresh: the old identity is still live")
         if mapping[old] not in current:
-            return "refreshed identity is absent from the tree"
+            return named("refreshed identity is absent from the tree")
     # Chaining needs no arm of its own: the two liveness checks above make it
     # unreachable, because a chained hop's middle identity would have to be both
     # present in the tree (as one row's new name) and absent from it (as the
@@ -328,7 +364,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         # Sorting encoded records is deliberately bytewise, matching LC_ALL=C.
         return b"\n".join(sorted(lines)) + b"\n"
 
-    def current_source_identities(self) -> set[tuple[object, ...]]:
+    def current_source_identities(self) -> frozenset[tuple[object, ...]]:
         # Re-extracting the sites is the expensive step here — the classifier
         # walks all of run.sh — and several tests in this class need the same
         # answer, so memoize it on the class (the sentinel is initialized in
@@ -440,12 +476,48 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             identity(row) for row in manifest if row["disposition"] == "RETAIN_BOUNDARY"
         }
         current = self.current_source_identities()
-        live = self.load_identity_refreshes()
-        self.assertIsNone(
-            refresh_admission_error(live, retained, current),
-            "the shipped ledger must itself be admissible",
+        # The base row is SYNTHESIZED from a frozen RETAIN_BOUNDARY row, never
+        # taken from the shipped ledger: the ledger's documented lifetime makes
+        # zero rows a supported steady state (renaming a pin back to its frozen
+        # name DELETES its row), and a `live[0]` read would then turn every arm
+        # below into an IndexError naming neither the ledger nor the cause. The
+        # shipped ledger's own admissibility is asserted by the sibling test.
+        # Reconstruct the (old row, new name) pair STRUCTURALLY: a frozen retained
+        # row the tree no longer carries, paired with the current identity that
+        # differs from it in assertion_name alone.  That is the shape of a live
+        # rename, derived from the manifest and the tree rather than read back
+        # from the declaration under test.
+        base = None
+        by_rest = {
+            tuple(value for column, value in zip(IDENTITY_COLUMNS, site) if column != "assertion_name"): site
+            for site in current
+        }
+        rest_index = IDENTITY_COLUMNS.index("assertion_name")
+        for row in manifest:
+            if row["disposition"] != "RETAIN_BOUNDARY" or identity(row) in current:
+                continue
+            old = identity(row)
+            rest = old[:rest_index] + old[rest_index + 1 :]
+            renamed = by_rest.get(rest)
+            if renamed is None:
+                continue
+            base = {column: row[column] for column in IDENTITY_COLUMNS}
+            base["new_assertion_name"] = renamed[rest_index]
+            base["rationale"] = "negative-table probe"
+            break
+        self.assertIsNotNone(
+            base,
+            "no frozen RETAIN_BOUNDARY identity is renamed in the tree, so the negative "
+            "table has no admissible base row to mutate — the fixture precondition no "
+            "longer holds",
         )
-        base = live[0]
+        # Positive control (guard-class shape 3): the unmutated base row is
+        # ADMISSIBLE, so each rejection below is attributable to the one property
+        # that case mutates rather than to a defect in the fixture itself.
+        self.assertIsNone(
+            refresh_admission_error([dict(base)], retained, current),
+            "the synthesized base row must itself be admissible",
+        )
 
         def mutated(**overrides):
             row = dict(base)
@@ -466,21 +538,56 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         }
         for expected, rows in cases.items():
             with self.subTest(case=expected):
-                self.assertEqual(expected, refresh_admission_error(rows, retained, current))
+                # assertIn, not assertEqual: each reason now names the offending
+                # row and its old/new names after the cause.
+                self.assertIn(
+                    expected, refresh_admission_error(rows, retained, current) or ""
+                )
         # The stale arm needs an old identity that is BOTH retained and still live,
         # so it is built from a second frozen row the tree still carries unrenamed.
         stale_source = next(
-            row
-            for row in manifest
-            if row["disposition"] == "RETAIN_BOUNDARY" and identity(row) in current
+            (
+                row
+                for row in manifest
+                if row["disposition"] == "RETAIN_BOUNDARY" and identity(row) in current
+            ),
+            None,
+        )
+        self.assertIsNotNone(
+            stale_source,
+            "no RETAIN_BOUNDARY identity is still live under its frozen name, so the "
+            "stale-refresh probe has no fixture — the precondition no longer holds",
         )
         stale = {column: stale_source[column] for column in IDENTITY_COLUMNS}
         stale["new_assertion_name"] = "a renamed form the tree does not carry"
         stale["rationale"] = "stale-refresh probe"
-        self.assertEqual(
+        self.assertIn(
             "stale refresh: the old identity is still live",
-            refresh_admission_error([stale], retained, current),
+            refresh_admission_error([stale], retained, current) or "",
         )
+
+    def test_no_two_retained_rows_share_the_five_non_name_identity_cells(self):
+        # Break caught: the premise refresh_admission_error cites for omitting an
+        # injectivity arm stops holding, so two refresh rows could collapse onto
+        # one refreshed identity and refresh_mapping_of would silently drop one.
+        # The manifest is digest-pinned, so this is decidable — assert it rather
+        # than leaving a load-bearing premise living only in a comment.
+        _, manifest = self.load_manifest()
+        rest_index = IDENTITY_COLUMNS.index("assertion_name")
+        seen: dict[tuple[object, ...], object] = {}
+        for row in manifest:
+            if row["disposition"] != "RETAIN_BOUNDARY":
+                continue
+            old = identity(row)
+            rest = old[:rest_index] + old[rest_index + 1 :]
+            self.assertNotIn(
+                rest,
+                seen,
+                f"two RETAIN_BOUNDARY rows share the five non-assertion_name identity "
+                f"cells ({row['assertion_name']!r} and {seen.get(rest)!r}), so the "
+                f"omitted injectivity arm is no longer dead",
+            )
+            seen[rest] = row["assertion_name"]
 
     def test_refresh_ledger_parser_names_its_malformed_rows(self):
         # Break caught: a hand-edit fails with a raw decode error naming no row.
@@ -514,6 +621,17 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             "missing the 'rationale' cell": f"# c\n{header}\n{good.rsplit(chr(9), 1)[0]}\n",
             "more cells than columns": f"# c\n{header}\n{good}\textra\n",
             "not a JSON-encoded cell": f"# c\n{header}\n{good.replace(tsv([compact_json('a literal')]), 'a literal', 1)}\n",
+            # A near-miss boolean silently changes the row's IDENTITY under a
+            # bare `cell == "true"`, so it is rejected by name rather than
+            # resurfacing as a misdirected "not a RETAIN_BOUNDARY row".
+            "'target_defaulted' is 'True', expected 'true' or 'false'": (
+                f"# c\n{header}\n{good.replace(chr(9) + 'false' + chr(9), chr(9) + 'True' + chr(9), 1)}\n"
+            ),
+            # A JSON null decodes to None, whose str() is the truthy "None" — the
+            # emptiness arms downstream would read it as a supplied value.
+            "decodes to NoneType, expected a JSON string": (
+                f"# c\n{header}\n{good.replace(tsv([compact_json('new name')]), 'null', 1)}\n"
+            ),
         }
         for expected, text in cases.items():
             with self.subTest(case=expected):

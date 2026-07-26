@@ -196,6 +196,14 @@ refresh cannot outlive the rename it recorded. This is not the two-commit invent
 above: `.devflow/logs/pin-corpus-inventory.tsv` is a frozen census refreshed by its own
 maintenance commits and owes no same-change update for a rename.
 
+Two scope limits. The ledger covers renames of identities frozen in the **residual prose-pin**
+manifest only — the sibling `.devflow/logs/residual-required-copy-retirement-manifest.tsv` makes
+the same retained-vs-tree assertion with no mapping applied, so renaming a pin frozen *there* has
+no refresh path yet and adding a row for it fails with `old identity is not a RETAIN_BOUNDARY row`.
+And the ledger refreshes an assertion **name** only: changing a retained pin's literal or resolved
+target changes the identity itself, which the ledger cannot express — that is a retirement, handled
+by the manifest protocol, not by editing a refresh row.
+
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
 member of the same declaration-marker family, in the same one-line-reason framing as
 `# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
