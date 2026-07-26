@@ -5732,17 +5732,25 @@ assert_pin_unique "#779: the checkpoint helper fetches the base with the same fo
 assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; this asserts that rationale is present, while the behavior it explains (CONFLICT -> Blocked on every arm) is guarded by the mutation pin above
 
-# #780 revisits that routing now that Verdict B classifies the landed-resume arm, and decides it
-# STAYS. The two contracts disagree on this token (checkpoint 1 overrides the resolve-then-suite-
-# then-commit arm that §1.4.1 hands to checkpoints 2/3/4), so the override sentence is the
-# cross-file phase contract a reader routing by §1.4.1 alone would otherwise resolve the wrong way.
-assert_pin_unique "#780: the checkpoint-1 CONFLICT override is re-decided as STAYING after the Verdict B widening" \
-  'Verdict B now classifies that arm, but the CONFLICT routing here stays at Blocked' "$P1_FILE"  # structural-pin-ok: cross-file-phase-contract -- checkpoint 1 overrides the CONFLICT arm that phase-1-setup.md 1.4.1 hands to checkpoints 2/3/4; without this sentence a reader routing by the inherited contract hand-resolves a merge on an arm whose commits this run did not author
+# #780 revisited that routing now that Verdict B classifies the landed-resume arm, and decided it
+# STAYS. No new pin is added for the decision: the operative routing sentence is unchanged, so the
+# mutation pin already guarding it is exactly what asserts the decision. Pinning the *rationale*
+# clause instead would protect a literal that can be reworded with zero behavior change — the
+# secondary-prose class this repo prohibits.
 
-# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to the relocated
-# checkpoint. Without it the arm reads "skip both signals entirely" and falls through to §1.5,
-# reproducing #779 exactly; the negative-control pin below does NOT catch that, because its literal
-# is a PREFIX of the same line and survives the clause's deletion.
+# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to §1.4.0.5's
+# Verdict B classification and then to the relocated checkpoint. Without it the arm reads "skip
+# both signals entirely" and falls through to §1.5, reproducing #779 and leaving #780's screen
+# unreachable. Nothing else in the file catches that: the scope-boundary pin that used to sit
+# adjacent was retired by #780 (block (e) below), and the classifier's own unit arms all pass on a
+# tree where no run ever invokes it on this arm.
+assert_pin_unique "#780: the LANDED-resume bullet routes that arm through Verdict B before the checkpoint" \
+  "then run §1.4.0.5's Verdict B classification and then take the" "$P1_FILE"  # structural-pin-ok: routing-dispatch-contract -- this bullet is the sole dispatch site entering §1.4.0.5 on the landed-resume arm (§1.4.0.5 states it is entered by explicit routing, never by a shell-variable test); losing it leaves the arm's ahead history unscreened while every classifier unit test stays green
+
+# (g) The landed-resume BRIDGING clause is now asserted directly, by the #780 routing pin above:
+# issue #780 retired the adjacent scope-boundary negative control (whose literal was a PREFIX of
+# the same line and survived the clause's deletion), so there is no longer a nearby pin whose
+# non-coverage needs explaining here.
 
 # (h) Checkpoint 4's CONFLICT re-invocation BOUND — without it the gate is a resolve-and-re-invoke
 # loop with no exit on a persistently conflicting base.
@@ -9918,11 +9926,21 @@ emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch":
 # of the `resume` repo's trailing local-only commit above.
 _, pwork = base_repo("prprov"); git(["checkout", "-qb", "feat", "main"], pwork); commit(pwork, "a1")
 git(["push", "-q", "-u", "origin", "feat"], pwork)
-_PRV = {"open_pr_branch": "feat", "open_pr_closes_issue": True, "open_pr_cross_repository": False}
+_PRV = {"open_pr_branch": "feat", "open_pr_closes_issue": True, "open_pr_cross_repository": False,
+        "open_pr_selected_by": "body"}
 _PS = {"base": "main", "current_branch": "feat", "provenance_established": False}
-# The two populations #780 must NOT re-block.
+# The two populations #780 must NOT re-block. They are byte-equivalent through the
+# classifier — the PR-vouched path never reads has_proceed_verdict — so this pair is
+# NOT distinguishing coverage; both arms exist because the issue names both
+# populations by name and each is asserted individually against the new gate.
 emit("pr_cloud_handoff_unknown", pwork, {**_PS, **_PRV})
 emit("pr_local_no_workpad", pwork, {**_PS, **_PRV, "has_proceed_verdict": False})
+# The issue-linkage DISJUNCTION: a head-branch-query-selected PR vouches without a
+# closing linkage, mirroring the §1.4 pre-check's "resume target by construction"
+# rule. Without this, a landed resume whose PR body reads "Part of #N" is handed a
+# terminal stop by the very change that exists to remove one.
+emit("pr_head_query_no_closes", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False,
+     "open_pr_selected_by": "head"})
 # The untrusted workpad is NEUTRALIZED on the PR-vouched path, not consulted: both
 # bodies below would steer the classification if they were read (a divergent
 # nonexistent name → DECISION_BLOCKED, a duplicate Branch line → AMBIGUOUS).
@@ -9933,7 +9951,14 @@ emit("pr_no_source", pwork, _PS)
 emit("pr_branch_mismatch", pwork, {**_PS, **_PRV, "open_pr_branch": "other"})
 emit("pr_not_closing", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False})
 emit("pr_cross_repo", pwork, {**_PS, **_PRV, "open_pr_cross_repository": True})
-emit("pr_crossrepo_absent", pwork, {**_PS, "open_pr_branch": "feat", "open_pr_closes_issue": True})
+# PARTIAL GATHER — each of the four operands omitted in turn. These are what kill the
+# `is True`/`is False` → `!= False`/`!= True` mutants: without the partial-gather
+# refusal an ungathered field would silently vouch, which is the PR #524 shape on the
+# arm #780 just widened. Refusal (not a DECISION_BLOCKED) is the point — a stop that
+# names the omission, rather than one that reads as a real refutation of the PR.
+_PG = {**_PS, **_PRV}
+for _k in ("open_pr_branch", "open_pr_closes_issue", "open_pr_cross_repository", "open_pr_selected_by"):
+    emit("pr_partial_" + _k, pwork, {k: v for k, v in _PG.items() if k != _k})
 # Established workpad provenance is unchanged by the new source (control).
 emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
@@ -9944,11 +9969,33 @@ emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "pr
 # VALIDATED_RESUME here instead of the workpad's finer divergent-nonexistent stop.
 emit("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# The two derived payload keys are a stated contract ("a human reading a stop payload
+# is never shown a PR-derived provenance the classification did not in fact use"), so
+# read them out of the payload rather than leaving the claim unexercised. Emitted as
+# `prov_<arm> <provenance_source> <pr_linkage_vouches>` lines.
+def emit_prov(arm, work, state):
+    word, rc, out = run(work, state)
+    parts = out.split()
+    src = vouch = "-"
+    if word in ("AMBIGUOUS", "DECISION_BLOCKED") and len(parts) > 1:
+        try:
+            d = json.load(open(parts[-1])).get("derived", {})
+            src = str(d.get("provenance_source")); vouch = str(d.get("pr_linkage_vouches"))
+        except Exception:
+            pass
+    lines.append(f"prov_{arm} {src} {vouch}")
+# Both vouch → the payload must say the WORKPAD supplied the operands, while still
+# recording that the PR linkage COULD have. One key alone cannot express that.
+emit_prov("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# Neither vouches → no source, and the linkage is recorded as not vouching.
+emit_prov("pr_no_source", pwork, _PS)
 # PR-vouched but the published tip no longer reaches HEAD: the run reaches the
 # recorded-branch + proceed-verdict arms rather than short-circuiting to proceed,
 # so a diverged branch still stops.
 commit(pwork, "local-only")
 emit("pr_tip_diverged", pwork, {**_PS, **_PRV})
+emit_prov("pr_tip_diverged", pwork, {**_PS, **_PRV})
 # aheadN + mixed ahead/behind
 _, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
 for i in range(3): commit(work, f"a{i}")
@@ -10054,13 +10101,28 @@ bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bw
 bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
          "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
 bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
-# issue #780 promoted these two from payload-only context to load-bearing gate
-# operands, so they inherit the same refusal — a quoted "false" on either would
-# fail open into a PR-vouched proceed the caller never established.
-bad_file("iv_prclosesstr", json.dumps({**_B, "open_pr_branch": "feat", "open_pr_closes_issue": "false"}), bwork)
-bad_file("iv_prcrossstr", json.dumps({**_B, "open_pr_branch": "feat", "open_pr_closes_issue": True,
-         "open_pr_cross_repository": "false"}), bwork)
+# issue #780's two boolean operands are read through IDENTITY (`is True`/`is False`),
+# so a quoted "false" already fails closed on its own — unlike the two originals,
+# which use truthiness and genuinely fail OPEN. They are refused anyway so the stop
+# NAMES the encoding error instead of emitting `unverified-provenance`, which would
+# read as a real refutation of a PR the run never actually evaluated.
+_PRB = {"open_pr_branch": "feat", "open_pr_closes_issue": True,
+        "open_pr_cross_repository": False, "open_pr_selected_by": "body"}
+bad_file("iv_prclosesstr", json.dumps({**_B, **_PRB, "open_pr_closes_issue": "false"}), bwork)
+bad_file("iv_prcrossstr", json.dumps({**_B, **_PRB, "open_pr_cross_repository": "false"}), bwork)
+# JSON null takes a DIFFERENT path from an omitted key (refused as a non-bool, vs the
+# partial-gather refusal), and `gh pr list --json` can serialize a null field — so the
+# two are distinguished rather than assumed equivalent.
+bad_file("iv_prcrossnull", json.dumps({**_B, **_PRB, "open_pr_cross_repository": None}), bwork)
+# The one string operand with no boolean guard: without its own refusal a malformed
+# value is the sole gate operand whose failure is silent.
+bad_file("iv_prbranchnum", json.dumps({**_B, **_PRB, "open_pr_branch": 123}), bwork)
+bad_file("iv_prselectedbad", json.dumps({**_B, **_PRB, "open_pr_selected_by": "search"}), bwork)
 emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
+# Positive control for the NEW operands specifically: real booleans + a valid
+# selected-by survive every refusal above and reach the classifier, so those arms are
+# the guards firing rather than a blanket rejection of any state carrying open_pr_*.
+emit("iv_prbool_ok", bwork, {**_B, "provenance_established": False, **_PRB})
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
@@ -10156,8 +10218,19 @@ assert_eq "#780: PR that does not close this issue → DECISION_BLOCKED/stop" \
   "DECISION_BLOCKED 2" "$(_bs576 pr_not_closing)"
 assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
   "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
-assert_eq "#780: an UNGATHERED cross-repository field fails closed → DECISION_BLOCKED/stop" \
-  "DECISION_BLOCKED 2" "$(_bs576 pr_crossrepo_absent)"
+assert_eq "#780: a head-branch-query-selected PR vouches without a closing linkage → VALIDATED_RESUME" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_head_query_no_closes)"
+# Each operand omitted in turn is REFUSED, not silently read as an answer. These four
+# are what kill the identity-check mutants (`is True` → `!= False`, `is False` →
+# `!= True`): under either mutant an ungathered field would vouch.
+assert_eq "#780 partial gather: an omitted open_pr_branch is refused, not read as an answer" \
+  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_branch)"
+assert_eq "#780 partial gather: an omitted open_pr_closes_issue is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_closes_issue)"
+assert_eq "#780 partial gather: an omitted open_pr_cross_repository is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
+assert_eq "#780 partial gather: an omitted open_pr_selected_by is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_selected_by)"
 # Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
 # collapse onto the same verdict word + rc, so a single joined comparison would name
 # all five on any one arm's regression and leave the reader re-running by hand.
@@ -10169,8 +10242,17 @@ assert_eq "#780 reason: a PR that does not close this issue carries 'unverified-
   "unverified-provenance" "$(_bs576v reason_pr_not_closing)"
 assert_eq "#780 reason: a cross-repository PR carries 'unverified-provenance'" \
   "unverified-provenance" "$(_bs576v reason_pr_cross_repo)"
-assert_eq "#780 reason: an ungathered cross-repository field carries 'unverified-provenance'" \
-  "unverified-provenance" "$(_bs576v reason_pr_crossrepo_absent)"
+# The two derived payload keys carry DIFFERENT facts — "could the PR vouch" vs "which
+# source actually supplied the operands" — so a payload can never show a PR-derived
+# provenance the classification did not use. Asserted from the payload itself, since
+# an implementation collapsing them to one key would otherwise stay green.
+_bs780p() { awk -v k="prov_$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+assert_eq "#780 payload: both sources vouching records the WORKPAD as the source used, PR linkage as available" \
+  "workpad True" "$(_bs780p both_wp_precedence)"
+assert_eq "#780 payload: neither source vouching records no source and a non-vouching linkage" \
+  "None False" "$(_bs780p pr_no_source)"
+assert_eq "#780 payload: a PR-vouched stop records the open-PR source" \
+  "open-pr True" "$(_bs780p pr_tip_diverged)"
 assert_eq "#780: established workpad provenance classifies exactly as before (control)" \
   "VALIDATED_RESUME 0" "$(_bs576 pr_wp_prov_control)"
 assert_eq "#780 precedence: with BOTH sources vouching the workpad's finer verdict wins" \
@@ -10231,14 +10313,36 @@ assert_eq "#576 input-val: the truthy-string verdict cause names that specific f
   "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
 assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
-assert_eq "#780 input-val: truthy-string 'open_pr_closes_issue' is refused, not coerced" \
+assert_eq "#780 input-val: quoted-string 'open_pr_closes_issue' is refused, not coerced" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_prclosesstr)"
-assert_eq "#780 input-val: the truthy-string closes-issue cause names that specific flag" "yes" \
+assert_eq "#780 input-val: the quoted-string closes-issue cause names that specific flag" "yes" \
   "$(_bs576err iv_prclosesstr "'open_pr_closes_issue' must be a JSON boolean")"
-assert_eq "#780 input-val: truthy-string 'open_pr_cross_repository' is refused, not coerced" \
+assert_eq "#780 input-val: quoted-string 'open_pr_cross_repository' is refused, not coerced" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossstr)"
-assert_eq "#780 input-val: the truthy-string cross-repository cause names that specific flag" "yes" \
+assert_eq "#780 input-val: the quoted-string cross-repository cause names that specific flag" "yes" \
   "$(_bs576err iv_prcrossstr "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: JSON null takes the non-bool refusal, distinct from an omitted key" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossnull)"
+assert_eq "#780 input-val: the null cause names the flag (not the partial-gather cause)" "yes" \
+  "$(_bs576err iv_prcrossnull "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: a non-string 'open_pr_branch' is refused by name, not silently" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prbranchnum)"
+assert_eq "#780 input-val: the non-string branch cause names that specific operand" "yes" \
+  "$(_bs576err iv_prbranchnum "'open_pr_branch' must be a JSON string")"
+assert_eq "#780 input-val: an out-of-enum 'open_pr_selected_by' is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prselectedbad)"
+assert_eq "#780 input-val: the out-of-enum selected-by cause names that specific operand" "yes" \
+  "$(_bs576err iv_prselectedbad "'open_pr_selected_by' must be the string 'head' or 'body'")"
+# Positive control for the NEW operands: real booleans + a valid selected-by still
+# reach the classifier, so the arms above are the new guards firing, not a blanket
+# rejection of any state carrying open_pr_* keys. The verdict is AMBIGUOUS rather
+# than a proceed because this fixture's branch is deliberately unpushed (the #576
+# bool-flags repo never pushes `feat`), so the PR source vouches and the run lands on
+# the tip-reachability arm — which is itself the proof it got past every refusal.
+assert_eq "#780 input-val: well-formed open_pr_* operands still classify (new guards are not blanket)" \
+  "AMBIGUOUS 2" "$(_bs576 iv_prbool_ok)"
+assert_eq "#780 input-val: the positive control lands on the tip-reachability arm, not a refusal" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_iv_prbool_ok)"
 # Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
 # arms above are the flag guard firing, not a blanket rejection of the fixture.
 assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
