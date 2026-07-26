@@ -11453,8 +11453,8 @@ assert_pin_red_under "#816 fix-delta-enumeration-complement: item 3b states that
 # carries the identical distinction — otherwise one sentence in item 3b still asserts an
 # unqualified whole-sweep delta bound and contradicts the qualified one above.
 assert_pin_red_under "#816 fix-delta-preserved-invariants-qualified: item 3b's Preserved invariants sentence carries the trigger-vs-enumeration distinction" \
-  'a triggered sweep'"'"'s **enumeration** is likewise delta-bounded **except** for the four sweeps whose own Phase 2.3 definitions state a repo-wide search domain' \
-  's/a triggered sweep'"'"'s \*\*enumeration\*\* is likewise delta-bounded \*\*except\*\* for the four sweeps whose own Phase 2\.3 definitions state a repo-wide search domain/every sweep is delta-bounded/'
+  'a triggered sweep'"'"'s **enumeration** is likewise delta-bounded **except** where that sweep'"'"'s own Phase 2.3 definition states a repo-wide search domain' \
+  's/a triggered sweep'"'"'s \*\*enumeration\*\* is likewise delta-bounded \*\*except\*\* where that sweep'"'"'s own Phase 2\.3 definition states a repo-wide search domain/every sweep is delta-bounded/'
 
 # ── issue #816: the §2.3.0d describing-prose reconciliation sweep + the fix-delta gate's
 # added-assertion attribution check + fixing.md's two reconciled contradictions ──
@@ -44677,7 +44677,7 @@ assert_pin_unique "#497 AC12 shadow doc mirrors the widened prompt composition r
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 68; then
+  "review-and-fix-contract" 70; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi
