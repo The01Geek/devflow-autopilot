@@ -941,3 +941,184 @@ assert_eq "#801 install-loop-unchanged: adding matcher-probe to the copy loop in
   "yes" "$(loop_ships_probe801 "$_t801i")"
 rm -f "$_t801i"
 unset _t801i
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #801 shipped the harness floor (CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" on the
+# three engine workflows' claude-code-action steps) on the vendor's documented premise that
+# it keeps subagents in the FOREGROUND. That premise was never observed inside
+# claude-code-action. Issue #812 adds the matcher-probe.yml job that observes it and the
+# helper that derives the verdict DETERMINISTICALLY from the execution file — never from the
+# model's prose — exactly as #415's schedulewakeup-probe and #610's agents-seam-probe do.
+#
+# The measurement technique is #610's: the probe subagent's ENTIRE final response is one
+# marker line, and the top-level session echoes what it received back through a Bash call.
+# A Bash tool_use carrying the subagent's own marker is harness-recorded proof that the
+# COMPLETED result was in hand within the same turn; an acknowledgment-only dispatch cannot
+# produce it. That is what makes "returned a completed result within the same turn"
+# measurable at all rather than a claim about model text.
+BGV_PY="$REPO_ROOT/scripts/background-tasks-probe-verdict.py"
+MPROBE812="$REPO_ROOT/.github/workflows/matcher-probe.yml"
+devflow_module_pin_unique "#812 matcher-probe.yml routes the background-tasks verdict through the testable helper" \
+  'python3 scripts/background-tasks-probe-verdict.py "${EXECUTION_FILE}"' "$MPROBE812"
+bgv_row() {  # fixture expected-row-fragment -> yes|no : the verdict row carries the fragment
+  python3 "$BGV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+bgv_has() {  # fixture substring -> yes|no : the rendered output carries it on any line
+  python3 "$BGV_PY" "$1" 2>/dev/null | grep -qF "$2" && echo yes || echo no
+}
+BGV_F="$(probe_tmp '#812 background-tasks verdict fixture')"
+
+# Fixture vocabulary, kept in lockstep with the job's prompt in matcher-probe.yml:
+#   BGPROBE_CONTROL_BEFORE / BGPROBE_CONTROL_AFTER  the two bracketing positive controls
+#   BGPROBE_DISPATCH                                rides in the Task tool_use INPUT, so the
+#                                                   dispatch signal is tool-NAME-agnostic
+#   BGPROBE_SUBAGENT_RETURNED_OK                    the subagent's own returned marker
+#   BGPROBE_RESULT_IN_HAND / BGPROBE_ACK_ONLY       the top-level session's step-3 outcome
+
+# Arm: FOREGROUND — the completed result was in hand this turn (the echoed line carries the
+# subagent's OWN marker), so the harness floor is observed EFFECTIVE on this action version.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"subagent_type":"general-purpose","prompt":"BGPROBE_DISPATCH report your marker"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: FOREGROUND (floor effective) when the completed subagent result was in hand this turn" "yes" \
+  "$(bgv_row "$BGV_F" '| **FOREGROUND** | yes |')"
+
+# Arm: BACKGROUNDED — the dispatch returned only a launch acknowledgment. This is the
+# verdict the whole probe exists to be able to reach: it says the #801 floor did NOT take
+# effect, so the early-quit prevention rests on the headless-wait prose alone.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"subagent_type":"general-purpose","prompt":"BGPROBE_DISPATCH report your marker"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_ACK_ONLY"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+# The "Record it?" column is NOT the siblings' "Ship flag?" column: BACKGROUNDED is a
+# recordable OBSERVATION (the floor was observed ineffective), so it reads `yes` here even
+# though it ships no change. Only an unestablished measurement reads `no`.
+assert_eq "#812 bgv: BACKGROUNDED (floor NOT effective, still a recordable observation) when the dispatch returned only an acknowledgment" "yes" \
+  "$(bgv_row "$BGV_F" '| **BACKGROUNDED** | yes |')"
+
+# The two in-hand tokens must co-occur in ONE recorded tool_use entry. Action 2's dispatch
+# prompt has to NAME the marker it asks the subagent for, so BGPROBE_SUBAGENT_RETURNED_OK is
+# in the file whether or not the result ever came back — a whole-file conjunction would be
+# satisfied by the dispatch alone, collapsing the check to the outcome word by itself. This
+# fixture is that exact shape: the subagent marker appears ONLY in the dispatch input, and
+# the echo carries the outcome word alone. It must NOT read FOREGROUND.
+# Mutation-proven: rewriting the per-entry `any(...)` in compute_verdict back to the
+# whole-text form `RESULT_IN_HAND in tooluse_text and SUBAGENT_MARKER in tooluse_text`
+# flips this fixture to FOREGROUND — observed RED under that mutation on a scratch copy.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH — reply exactly BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: the subagent marker leaking from the dispatch prompt alone does not make FOREGROUND" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: NOT_DISPATCHED — both controls ran but no dispatch was recorded at all. Presumptive
+# (a compliant model may have skipped step 2), and it is NEVER read as BACKGROUNDED: an
+# unexercised dispatch is an unestablished measurement, not evidence against the floor.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: NOT_DISPATCHED (no verdict) when both controls ran but no dispatch was recorded" "yes" \
+  "$(bgv_row "$BGV_F" '| **NOT_DISPATCHED** | no |')"
+
+# Arm: INCONCLUSIVE — a dispatch WAS attempted but neither step-3 outcome marker appeared.
+# The decisive fail-closed arm: absence of in-hand evidence must not collapse onto
+# BACKGROUNDED, because it is equally consistent with the model skipping step 3.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"subagent_type":"general-purpose","prompt":"BGPROBE_DISPATCH report your marker"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE when a dispatch was attempted but neither outcome marker was recorded" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — BOTH outcome markers recorded (a contradictory run). Neither positive
+# arm may win a race here; a self-contradicting measurement is unestablished.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"subagent_type":"general-purpose","prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_ACK_ONLY"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE when BOTH outcome markers were recorded (contradictory run)" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — only the BEFORE control ran, with no dispatch. Guards one conjunct of
+# the NOT_DISPATCHED gate; without it, dropping `control_after` would ship a false
+# NOT_DISPATCHED on a run that never reached step 4.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}}]' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE (not NOT_DISPATCHED) when only the before-control ran" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — only the AFTER control ran. The SYMMETRIC partner of the arm above,
+# guarding the OTHER conjunct: dropping `control_before` would otherwise stay green here.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE (not NOT_DISPATCHED) when only the after-control ran" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — execution file absent (the note_top floor). Never NOT_DISPATCHED.
+assert_eq "#812 bgv: INCONCLUSIVE when the execution file is absent" "yes" \
+  "$(bgv_row "/no/such/background-tasks-execfile.json" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — a present regular file that is wholly unparseable.
+printf '%s\n' 'not json at all, not a single object' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE when a present file is wholly unparseable" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Arm: INCONCLUSIVE — partial JSONL corruption. Both controls AND a full FOREGROUND marker
+# set parse, so the ONLY thing keeping this off the positive FOREGROUND arm is the
+# `dropped -> note_top -> INCONCLUSIVE` precedence in parse_execution_file. A fixture
+# without that full marker set would read INCONCLUSIVE anyway and pin nothing.
+printf '%s\n%s\n%s\n%s\n%s\n' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}}' \
+  '{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH x"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}}' \
+  '{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}' \
+  '{oops-not-json' > "$BGV_F"
+assert_eq "#812 bgv: INCONCLUSIVE on partial JSONL corruption even with a full FOREGROUND marker set" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# Fail-open regression (case): a LOWER-CASED marker set must still read FOREGROUND.
+# Case-sensitive matching would miss it and fall through to INCONCLUSIVE, discarding a real
+# positive observation — the direction that silently loses the measurement.
+printf '%s' '[{"type":"tool_use","name":"bash","input":{"command":"printf %s bgprobe_control_before"}},{"type":"tool_use","name":"task","input":{"prompt":"bgprobe_dispatch x"}},{"type":"tool_use","name":"bash","input":{"command":"printf %s bgprobe_result_in_hand bgprobe_subagent_returned_ok"}},{"type":"tool_use","name":"bash","input":{"command":"printf %s bgprobe_control_after"}}]' > "$BGV_F"
+assert_eq "#812 bgv: a lower-cased marker set still reads FOREGROUND" "yes" \
+  "$(bgv_row "$BGV_F" '| **FOREGROUND** | yes |')"
+
+# Fail-open regression (input-less): a dispatch tool_use carrying no `input` key must still
+# be recorded, so an input-less Task reads as an ATTEMPTED dispatch (INCONCLUSIVE) rather
+# than as no dispatch at all (NOT_DISPATCHED) — the arm that would misreport what ran.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task"},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: an input-less Task tool_use still reads as an attempted dispatch, not NOT_DISPATCHED" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# A dispatch DENIED by the permission matcher is still an attempted dispatch — otherwise a
+# run whose Task grant was missing would report NOT_DISPATCHED and read as a model that
+# skipped step 2, hiding an allowlist defect behind a presumptive verdict.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"permission_denials":[{"tool_name":"Task","tool_input":{"prompt":"BGPROBE_DISPATCH x"}}]},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: a DENIED dispatch reads as attempted (INCONCLUSIVE), not NOT_DISPATCHED" "yes" \
+  "$(bgv_row "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
+# The operator-facing decision text is the output a human transcribes into the docs record,
+# so all three of its distinct decision texts are driven, not just the verdict cells.
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: the FOREGROUND arm tells the operator to record the floor as observed-effective" "yes" \
+  "$(bgv_has "$BGV_F" 'RECORD the harness floor as OBSERVED EFFECTIVE')"
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_ACK_ONLY"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#812 bgv: the BACKGROUNDED arm tells the operator to record the floor as observed-ineffective" "yes" \
+  "$(bgv_has "$BGV_F" 'RECORD the harness floor as OBSERVED INEFFECTIVE')"
+assert_eq "#812 bgv: an unestablished measurement tells the operator to re-run, never to record" "yes" \
+  "$(bgv_has "/no/such/background-tasks-execfile.json" 'DO NOT RECORD')"
+
+# The version-dependence caveat is the verdict's own output, so a transcriber cannot record
+# the result without also seeing that it is re-probed after a claude-code-action upgrade.
+assert_eq "#812 bgv: every verdict table carries the version-dependence / re-probe caveat" "yes" \
+  "$(bgv_has "$BGV_F" 're-probe after a claude-code-action upgrade')"
+
+# The raw tool_use dump is what lets the FIRST live run confirm the harness's actual
+# dispatch tool name against this helper's name-agnostic input match.
+assert_eq "#812 bgv: the table dumps the raw tool_use entries for first-live-run confirmation" "yes" \
+  "$(bgv_has "$BGV_F" '### Raw tool_use entries')"
+
+# Always exits 0 — the verdict step runs under `set -euo pipefail`, so a raised traceback
+# would yield a red step with NO verdict table on exactly the degraded run the probe exists
+# to characterize.
+assert_eq "#812 bgv: helper exits 0 even on an absent execution file" "0" \
+  "$(python3 "$BGV_PY" /no/such/execfile.json >/dev/null 2>&1; echo $?)"
+BGV_UNREAD="$(probe_tmp '#812 background-tasks unreadable fixture')"
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}}]' > "$BGV_UNREAD"
+chmod 000 "$BGV_UNREAD"
+if python3 -c "open('$BGV_UNREAD').read()" 2>/dev/null; then
+  echo "  (skipped #812 bgv unreadable-file arm — reads not denied here, e.g. running as root)"
+else
+  assert_eq "#812 bgv: present-but-unreadable execution file -> INCONCLUSIVE, not a raised traceback" "yes" \
+    "$(bgv_row "$BGV_UNREAD" '| **INCONCLUSIVE** | no |')"
+  assert_eq "#812 bgv: helper still exits 0 on a present-but-unreadable execution file" "0" \
+    "$(python3 "$BGV_PY" "$BGV_UNREAD" >/dev/null 2>&1; echo $?)"
+fi
+chmod 644 "$BGV_UNREAD" 2>/dev/null || true
+rm -f "$BGV_UNREAD" "$BGV_F"
+unset BGV_UNREAD BGV_F

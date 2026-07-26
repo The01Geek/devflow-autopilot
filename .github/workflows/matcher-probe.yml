@@ -22,8 +22,12 @@ name: Matcher probe
 # `execfile-shape-probe` job that captures a real run's execution_file as a
 # REDACTED shape artifact (docs/execution-file-shape.md), and a `hook-probe` job
 # that records whether a base-branch .claude/settings.json Stop hook fires under
-# claude-code-action. A pull_request edit to this file therefore launches a
-# paid Claude session per probe job, not just the original two.
+# claude-code-action. A `background-tasks-probe` job (issue #812) applies the same
+# execution-file measurement to `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` — the
+# issue-#801 harness floor — dispatching one subagent and deriving a
+# FOREGROUND/BACKGROUNDED/NOT_DISPATCHED/INCONCLUSIVE verdict for whether the dispatch
+# returned a completed result within the same turn. A pull_request edit to this file
+# therefore launches a paid Claude session per probe job, not just the original two.
 #
 # An additional `implement-probe` job (issue #450) applies the same
 # execution-file measurement to the SEPARATE read-write `devflow-implement` tool
@@ -1189,3 +1193,116 @@ jobs:
           JOB_STATUS: ${{ job.status }}
         run: |
           echo "cancel-probe: job_status=${JOB_STATUS}"
+
+  # issue #812 — observe whether `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"` actually takes
+  # effect inside claude-code-action. Issue #801 shipped that variable as a harness floor on
+  # the three engine workflows' claude-code-action steps, on the vendor's documented premise
+  # that it keeps subagents in the FOREGROUND — so a dispatch's results are in hand before
+  # the turn continues, rather than arriving on a later turn a headless `claude -p` run never
+  # reaches. It shipped unconditionally rather than probe-gated because it is inert when
+  # ignored, which left the premise owed but unobserved. This job pays that debt.
+  #
+  # The measurement borrows the agents-seam-probe technique (#610) rather than reading a
+  # tool-RESULT field this repository has not established as harness-recorded (see
+  # docs/execution-file-shape.md, itself a dated observation and not a contract): the probe
+  # subagent's ENTIRE final response is one marker line, and the top-level session echoes
+  # what it actually received back through Bash. A Bash tool_use carrying the subagent's OWN
+  # marker is harness-recorded proof the completed result was in hand within the turn; an
+  # acknowledgment-only dispatch cannot produce one. Two positive controls bracket the
+  # dispatch so a run that never reached the echo step reads INCONCLUSIVE rather than
+  # collapsing onto a verdict. The verdict is derived DETERMINISTICALLY from the execution
+  # file by the unit-tested helper scripts/background-tasks-probe-verdict.py (extracted so
+  # each verdict arm the helper can emit is driven in lib/test/modules/review-stall-backstop.sh — same rationale as the
+  # #415 and #610 siblings); the model's text is NEVER the measurement.
+  #
+  # The variable under test is set as a step-scoped `env:` on the claude-code-action step —
+  # the same shape the three engine workflows carry — NOT folded into claude_args, because
+  # it is an environment variable read by the CLI, not a CLI flag.
+  #
+  # Verdict → action mapping (issue #812 AC2/AC3, executed by the maintainer who reads the
+  # run): FOREGROUND or BACKGROUNDED is a recordable observation and is transcribed, with
+  # this job's run identifier and the re-probe caveat, into the prevention-layer paragraph of
+  # docs/DEVFLOW_SYSTEM_OVERVIEW.md's `devflow_implement.stall_backstop` bullet and the
+  # matching sentence in docs/implement-skill.md. NOT_DISPATCHED and INCONCLUSIVE record
+  # nothing and are re-run. Like every verdict in this file the result is version-dependent:
+  # re-probe after a claude-code-action / Claude Code CLI upgrade before trusting it.
+  background-tasks-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (background-tasks harness-floor probe)
+        id: claude
+        env:
+          # The premise under test (issue #801). Inert if the runner ignores it — which is
+          # precisely the possibility this job exists to rule in or out.
+          CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Allow any bot to initiate the probe (same rationale as the sibling jobs): this
+          # diagnostic is same-repo only and mutates nothing, but claude-code-action
+          # otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are a BACKGROUND-TASKS HARNESS PROBE. Do EXACTLY the four numbered
+            actions below, in order, each exactly once, and nothing else.
+
+            Your text output is not measured. Only the harness record of your tool
+            calls is measured — so every marker line MUST be produced through a Bash
+            tool call, not merely written in your reply.
+
+            Action 1 (positive control, BEFORE) — run this Bash command once:
+            printf '%s\n' 'BGPROBE_CONTROL_BEFORE'
+
+            Action 2 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            subagent_type `general-purpose` and this exact prompt:
+            "BGPROBE_DISPATCH — your ENTIRE final response must be exactly one line and
+            nothing else: BGPROBE_SUBAGENT_RETURNED_OK"
+            Dispatch it once. Do not retry it and do not dispatch a second one.
+
+            Action 3 — report what Action 2's tool call actually gave back to you, WITHOUT
+            waiting for anything further and WITHOUT retrying:
+              - If it gave you the subagent's completed final text (a line containing
+                BGPROBE_SUBAGENT_RETURNED_OK), run this Bash command once:
+                    printf '%s\n' 'BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK'
+              - If it gave you only a launch acknowledgment instead — an agent id, a
+                "launched"/"started"/"running in background" notice, or anything that is
+                not the subagent's completed final text — run this Bash command once:
+                    printf '%s\n' 'BGPROBE_ACK_ONLY'
+              - Run exactly ONE of those two commands, never both.
+
+            Action 4 (positive control, AFTER — proves you reached and passed Actions 2
+            and 3) — run this Bash command once:
+            printf '%s\n' 'BGPROBE_CONTROL_AFTER'
+
+            After all four, STOP and reply with the single word DONE.
+
+          # No plugin_marketplaces/plugins: this probe exercises only Bash printf and the
+          # harness's own dispatch tool, neither of which needs the devflow plugin — loading
+          # it would add a marketplace clone + install for zero measurement value. The
+          # subagent_type is the built-in `general-purpose`, so no --agents block is needed
+          # either (unlike the #610 seam probe, whose whole subject was that block).
+          #
+          # Task and Agent are both granted so the allowlist can never be the thing that
+          # prevents the dispatch: a NOT_DISPATCHED or denied verdict is then attributable
+          # to the harness, not to an allowlist omission. --permission-mode acceptEdits so a
+          # granted call does not prompt-deny and masquerade as a denial.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(printf:*),Task,Agent"
+
+      # Deterministic verdict from the execution file only — same measurement core as the
+      # sibling probes. always() so the verdict is produced even if the engine ended in error.
+      - name: Compute background-tasks verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 scripts/background-tasks-probe-verdict.py "${EXECUTION_FILE}"
