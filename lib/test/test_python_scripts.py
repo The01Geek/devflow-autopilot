@@ -4787,12 +4787,18 @@ assert_eq("#818 exclusions: the `stale-prose-lint: example` marker suppresses th
           "(only the EX audit row remains)",
           [(stale_prose_lint.UNRESOLVABLE, "EX")],
           _rows_818("docs/x.md", [_EX_LINE_818]))
-# The `.devflow/learnings/` and `.devflow/logs/` path exclusion is applied in `run()` BEFORE
-# `examine_file` is reached, so it is asserted at that boundary rather than through the helper.
+# The machine-appended-corpus path exclusion is applied in `run()` BEFORE `examine_file` is
+# reached, so it is asserted at that boundary rather than through the helper.
 assert_eq("#818 exclusions: the machine-appended-corpus paths are excluded before examination",
-          [True, True, False],
+          [True, True, True, False, False],
           [stale_prose_lint._is_excluded(".devflow/learnings/x.jsonl"),
            stale_prose_lint._is_excluded(".devflow/logs/y.jsonl"),
+           # The rendered census artifact is a FILE entry, not a directory prefix: its
+           # `logical_call` column quotes each censused pin's source verbatim, so a count a
+           # pin name carries is data about that pin, not a claim about the TSV. A sibling
+           # under lib/test/ sharing the leading path segments must still be graded.
+           stale_prose_lint._is_excluded("lib/test/mutation-pin-corpus-adjudications.tsv"),
+           stale_prose_lint._is_excluded("lib/test/mutation-pin-census.py"),
            stale_prose_lint._is_excluded("docs/x.md")])
 # The #629 relocation exemption is INERT for this tier — it demotes STALE to UNRESOLVABLE, and
 # this tier never emits STALE — so a byte-identical relocated line STILL emits its CU row. This

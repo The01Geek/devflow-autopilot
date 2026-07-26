@@ -25,7 +25,8 @@ prose, trailing comments after code, and ``#`` comments inside ```` ```bash ````
 markdown. None of the four historical escape shapes lived on those surfaces.
 
 **Excluded population: machine-appended corpora (issue #672).** Diff-added lines under
-``.devflow/learnings/`` and ``.devflow/logs/`` are not examined at all. Those files are
+``.devflow/learnings/`` and ``.devflow/logs/``, and in the single rendered census artifact
+``lib/test/mutation-pin-corpus-adjudications.tsv``, are not examined at all. Those files are
 records DevFlow *writes* — a retrospective, an experiment record, a log — each quoting
 reviewed prose verbatim inside a JSON string. The quoted text is data about a past PR, never
 an assertion about the file it now sits in, and no referent for it exists in the post-diff
@@ -34,7 +35,10 @@ replaced an operator home path with ``~``: that re-presented each whole 5 KB JSO
 a diff-*added* line, the unlisted ``.jsonl`` type failed open to examine-every-line as
 designed, and a 2026-07-10 retrospective's narration of a *previous* PR's counted claim
 graded STALE — failing CI on a diff that had authored no claim. Any later rewrite of a corpus
-line re-trips it, so the exclusion is keyed to the path, not to that one edit. Two neighbours
+line re-trips it, so the exclusion is keyed to the path, not to that one edit. The census
+artifact joined the list for the same reason on a different surface: its ``logical_call``
+column quotes each censused pin's source text verbatim, so every count a pin name carries is
+data about that pin, and the adjacent TSV rows are not its referent. Two neighbours
 are deliberately **not** excluded: ``CHANGELOG.md`` and ``.changeset/`` are human-authored
 prose about the current change, exactly the surface this lint exists to grade. The exclusion
 is announced on stderr per run — an intended coverage drop is still a coverage drop, and must
@@ -640,7 +644,20 @@ _unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
 # rationale and for the two neighbours (`.changeset/`, `CHANGELOG.md`) deliberately NOT
 # listed. This is a closed list of PATHS, not of languages: the fail-open rule above governs
 # an unrecognised file TYPE, and nothing here changes it.
-_EXCLUDED_PREFIXES = (".devflow/learnings/", ".devflow/logs/")
+#
+# The third entry is a FILE, not a directory. `lib/test/mutation-pin-corpus-adjudications.tsv`
+# is rendered output of `lib/test/mutation-pin-census.py --format adjudication-tsv`, and it
+# lives beside its generator rather than under `.devflow/logs/` (where its `master_sha256`
+# counterpart, the retirement manifest, does sit). Its `logical_call` column embeds each
+# censused pin's source text verbatim — pin names included, and many of those carry counts —
+# so the count-locked rule resolves a quoted numeral against the surrounding TSV rows, which
+# are not that claim's referent. That is exactly the issue-#672 shape: a machine-rendered
+# record quoting prose as DATA, with no referent in the post-diff state to resolve against.
+_EXCLUDED_PREFIXES = (
+    ".devflow/learnings/",
+    ".devflow/logs/",
+    "lib/test/mutation-pin-corpus-adjudications.tsv",
+)
 
 
 def _is_excluded(path):
