@@ -225,6 +225,16 @@ _raf_pin_unique "raf convergence: fix-delta re-dispatch is bounded" \
   'triggers **exactly one bounded re-dispatch**' "$RAF_SKILL"
 _raf_pin_unique "raf convergence: no-fix iteration bypasses the delta gate" \
   'skip the gate for that iteration' "$RAF_SKILL"
+# issue #816 — the Step 3.5 gate's third check, expressed through the mutation-taking helper so the
+# focused module stays the covering test for this reference surface under the post-#810 regime.
+devflow_module_pin_red_under "raf convergence: fix-delta gate carries the added-assertion attribution check" \
+  'identify the regression that assertion'"'"'s **own name and description** claim it catches' \
+  's/identify the regression that assertion'"'"'s \*\*own name and description\*\* claim it catches/note that the assertion exists/' "$RAF_SKILL"
+# The unestablished arm is the fail-closed half: an assertion whose target cannot be read is an
+# unestablished measurement, and the mutation grades it clean instead.
+devflow_module_pin_red_under "raf convergence: an unreadable assertion target is unestablished, never clean" \
+  'report that assertion **unestablished** — never clean' \
+  's/report that assertion \*\*unestablished\*\* — never clean/report that assertion clean/' "$RAF_SKILL"
 _raf_pin_unique "raf convergence: early shadow trigger is explicit" \
   'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$RAF_SKILL"
 _raf_pin_unique "raf convergence: promoted iteration counts against cap" \

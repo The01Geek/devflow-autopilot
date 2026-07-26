@@ -3827,8 +3827,24 @@ assert_pin_unique "fix-delta gate: promoted iteration still terminates under the
   'still terminates under the cap' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: at-cap unresolved finding carried into the shadow (fail-closed)" \
   'the unresolved finding is **not** dropped' "$MAXI_SKILL"
-assert_pin_unique "fix-delta gate: Suggestion/Minor recorded as advisory, no re-fix" \
-  'recorded as advisory and does not trigger a re-fix' "$MAXI_SKILL"
+# #816 scoped the severity-graded arms to the two checks that predate the added-assertion check,
+# so the pin is reconciled onto the scoped wording rather than the bare advisory clause it used to
+# match — a routing arm that silently re-widened to every check would otherwise stay green.
+assert_pin_red_under "fix-delta gate: Suggestion/Minor from the two pre-existing checks recorded as advisory, no re-fix (#816-scoped)" \
+  'gate finding from either of those two checks is **recorded as advisory and does not trigger a re-fix**' \
+  's/A \*\*Suggestion\/Minor\*\* gate finding from either of those two checks is/A **Suggestion\/Minor** gate finding from any check is/'
+# #816: the routing block's scoping sentence itself — removing it restores the state the ACs call
+# out, where the severity-graded arms and the added-assertion disposition are both applicable to
+# the same input and contradict each other.
+assert_pin_red_under "#816 gate-routing-scoped: the fix-delta gate's severity arms are scoped to the two pre-existing checks, the added-assertion check carrying its own disposition" \
+  'so every input has exactly one applicable disposition rather than two applicable and contradicting ones' \
+  's/so every input has exactly one applicable disposition rather than two applicable and contradicting ones//'
+# #816: the added-assertion disposition inherits the gate's termination machinery. Mutating the
+# inheritance clause to an exemption re-introduces a check whose findings never terminate under the
+# 2-attempt cap — the regression the AC names.
+assert_pin_red_under "#816 gate-assertion-disposition-terminates: the added-assertion disposition inherits the 2-attempt cap, the cap-counting promotion, and the at-cap shadow carry" \
+  'inherits this gate'"'"'s existing termination machinery' \
+  's/inherits this gate'"'"'s existing termination machinery/is exempt from this gate'"'"'s termination machinery/'
 assert_pin_unique "fix-delta gate: not counted toward the cap (verification of current iteration)" \
   'Step 3.5 and its inner attempts are verification of the current iteration' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: blinded subagent withholds prior findings/decisions/reasoning" \
@@ -6146,6 +6162,19 @@ assert_eq "sweep 2.3.0b: docs/implement-skill.md keeps the rationale table row" 
 # The overview sweep-list entry is the other retained mirror.
 assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "yes" \
   "$(grep -qF '**2.3.0b** Enum-enumeration reconciliation sweep (added value to an enumerated set' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md" && echo yes || echo no)"
+# Issue #816's docs and overview mirrors for the describing-prose reconciliation sweep, in the
+# same two-mirror shape as 2.3.0b above: adding a sweep to the §2.3 set is itself an instance of
+# 2.3.0b, so the sweep set's doc mirrors are asserted per sweep rather than trusted to a reviewer.
+# Both are expressed through the mutation-taking helper rather than the bare presence shape the
+# 2.3.0b siblings above use: the post-#810 pin corpus refuses a new prose-presence assertion, and a
+# mutation that strips the mirror row proves the pin catches the named regression (the sweep set
+# gaining a member whose docs mirror was never written) rather than merely its own line vanishing.
+assert_pin_red_under "sweep 2.3.0d: docs/implement-skill.md keeps the rationale table row" \
+  '| 2.3.0d Describing-prose reconciliation |' \
+  's/^\| 2\.3\.0d Describing-prose reconciliation \|.*$//' "$IMPL_DOC"
+assert_pin_red_under "sweep 2.3.0d: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" \
+  '**2.3.0d** Describing-prose reconciliation sweep (a **removal** from an enumerated set' \
+  's/^  - \*\*2\.3\.0d\*\* Describing-prose reconciliation sweep .*$//' "$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 
 # Substrate-agnostic re-anchor (issue #171): the "Sweep selection (run first)" preamble
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
@@ -11396,12 +11425,91 @@ assert_pin_red_under "#377 w3-fix-delta-frequency: Step 3 item 3b runs the sweep
   'on every iteration in which Step 3 applied fixes' \
   's/on every iteration in which Step 3 applied fixes//'
 # AC2: the item scopes the sweeps to the fix delta, and gates each sweep on its own Phase 2.3
-# trigger. Two operative clauses, pinned separately — removing the scope clause re-introduces an
-# unbounded sweep over pre-existing code; removing the per-trigger gating re-introduces running
-# every sweep unconditionally regardless of what the delta touches.
-assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep to the fix delta (AC2)" \
+# trigger. Two operative clauses, pinned separately — removing the trigger-scope qualifier
+# re-introduces the unbounded reading in which a sweep may enumerate over pre-existing code with no
+# stated domain to authorize it; removing the per-trigger gating re-introduces running every sweep
+# unconditionally regardless of what the delta touches. Issue #816 qualified the guarantee: the
+# TRIGGER is delta-scoped without exception, while a triggered sweep's ENUMERATION may exceed the
+# delta only for the four sweeps whose own Phase 2.3 definitions state a repo-wide domain — so the
+# pin is re-anchored onto the qualified sentence and its mutation strips the qualifier, restoring
+# the unbounded reading rather than staying green over a reversed contract.
+assert_pin_red_under "#377 w3-fix-delta-scope: Step 3 item 3b scopes every sweep's TRIGGER to the fix delta, bounding enumeration to the sweeps whose Phase 2.3 definition states a repo-wide domain (AC2, #816-qualified)" \
+  'a sweep'"'"'s **trigger** is scoped to the fix delta *without exception*' \
+  's/a sweep'"'"'s \*\*trigger\*\* is scoped to the fix delta \*without exception\*/a sweep may enumerate wherever it likes/'
+# The unqualified literal the original pin guarded is still present and still operative (it states
+# the delta bound the qualifier then refines), so it keeps its own removal-proof pin.
+assert_pin_red_under "#377 w3-fix-delta-scope-literal: Step 3 item 3b still states the delta bound itself (AC2)" \
   'Scope every sweep to the fix delta' \
   's/Scope every sweep to the fix delta//'
+# #816: the complement half — every sweep OUTSIDE the four repo-wide-domain sweeps stays
+# delta-bounded. Without it the qualifier reads as an open-ended licence to enumerate repo-wide.
+assert_pin_red_under "#816 fix-delta-enumeration-complement: item 3b states that every other sweep's enumeration stays bounded to the fix delta" \
+  'every other sweep'"'"'s enumeration stays bounded to the fix delta as before' \
+  's/every other sweep'"'"'s enumeration stays bounded to the fix delta as before//'
+# #816: item 3b's second, previously-unpinned statement of the same bound (Preserved invariants)
+# carries the identical distinction — otherwise one sentence in item 3b still asserts an
+# unqualified whole-sweep delta bound and contradicts the qualified one above.
+assert_pin_red_under "#816 fix-delta-preserved-invariants-qualified: item 3b's Preserved invariants sentence carries the trigger-vs-enumeration distinction" \
+  'a triggered sweep'"'"'s **enumeration** is likewise delta-bounded **except** for the four sweeps whose own Phase 2.3 definitions state a repo-wide search domain' \
+  's/a triggered sweep'"'"'s \*\*enumeration\*\* is likewise delta-bounded \*\*except\*\* for the four sweeps whose own Phase 2\.3 definitions state a repo-wide search domain/every sweep is delta-bounded/'
+
+# ── issue #816: the §2.3.0d describing-prose reconciliation sweep + the fix-delta gate's
+# added-assertion attribution check + fixing.md's two reconciled contradictions ──
+
+# fixing.md item 3a's locate step used `git grep -n`, which item 3b in the same file prohibits and
+# which no capability profile grants — so the step was silently denied on both cloud tiers. The
+# mutation restores that ungranted instruction, re-introducing the named defect.
+assert_pin_red_under "#816 item-3a-granted-form: fixing.md item 3a's locate step instructs the granted command forms item 3b names, not the ungranted git grep" \
+  'using the granted command forms item 3b'"'"'s **Command forms** paragraph names' \
+  's/Search for the identifier\(s\) in the files this PR'"'"'s diff touched — using the granted command forms item 3b'"'"'s \*\*Command forms\*\* paragraph names \(the \*\*Grep tool\*\* first, `rg` when it resolves on the host, `grep -rnE` last with the directory-exclusion obligation\) —/`git grep -n` the identifier(s) in the files this PR'"'"'s diff touched/'
+
+# The gate's dispatch scope is what makes the added-assertion check dischargeable: an assertion
+# guarding untouched text has its target OUTSIDE the delta by construction, so a delta-only scope
+# leaves the check with no readable operand. The mutation restores the delta-only scope.
+assert_pin_red_under "#816 gate-dispatch-scope-widened: the fix-delta gate admits a bounded read of each added assertion's own target for the added-assertion check" \
+  'the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target' \
+  's/\*\*For the added-assertion check below, the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target\*\*/For the added-assertion check below, the scope is the delta alone/'
+
+# An added assertion whose target cannot be read is an UNESTABLISHED measurement. The mutation
+# grades it clean instead, re-introducing exactly the fail-open the arm exists to close.
+assert_pin_red_under "#816 gate-assertion-unestablished: an added assertion whose target cannot be read is reported unestablished, never clean" \
+  'report that assertion **unestablished** — never clean' \
+  's/report that assertion \*\*unestablished\*\* — never clean/report that assertion clean/'
+
+# The gate's third check and its three reportable outcomes are a contract this file states and the
+# blinded Step 3.5 subagent dispatch consumes; the outcome vocabulary is what makes a report
+# attributable to a specific failure shape rather than a free-text opinion.
+assert_pin_red_under "#816 gate-assertion-check: the fix-delta gate carries the added-assertion attribution check" \
+  'identify the regression that assertion'"'"'s **own name and description** claim it catches' \
+  's/identify the regression that assertion'"'"'s \*\*own name and description\*\* claim it catches/note that the assertion exists/'
+# The third reportable outcome is the one that catches a sibling-arm identity collision — the
+# defect shape whose two arms carried identical labels, so a failure was not attributable to one.
+# The mutation deletes that outcome, restoring a two-outcome vocabulary that cannot report it.
+assert_pin_red_under "#816 gate-assertion-outcome-nonattributable: the check names the non-attributable-sibling-arm outcome" \
+  'does not distinguish it from a sibling arm' \
+  's/and \*\*\(iii\)\*\* the assertion'"'"'s \*\*reported identity\*\* does not distinguish it from a sibling arm, so a result is not attributable to one\.//'
+
+# The two Sweep-selection trigger arms are what make §2.3.0d reachable from the classification step
+# rather than only from its own heading. Each mutation deletes its arm, restoring the state in which
+# the sweep is reachable only from its own heading and never from the classification step.
+assert_pin_red_under "#816 sweep-selection-removal-arm: the §2.3 preamble routes a membership removal to 2.3.0d" \
+  '**Removes a value from an enumerated set**' \
+  's/^- \*\*Removes a value from an enumerated set\*\*.*$//' "$P2_FILE"
+assert_pin_red_under "#816 sweep-selection-weakened-arm: the §2.3 preamble routes a weakened universal to 2.3.0d" \
+  '**Weakens a universal it previously asserted**' \
+  's/^- \*\*Weakens a universal it previously asserted\*\*.*$//' "$P2_FILE"
+# The rename assignment is what keeps a single diff shape from arming two sweeps with different
+# search domains. The mutation removes the assignment, restoring the ambiguity the AC names.
+assert_pin_red_under "#816 sweep-2.3.0d-rename-precedence: §2.3.0d assigns a rename to exactly one sweep" \
+  'is assigned to **§2.3.0b alone**' \
+  's/is assigned to \*\*§2\.3\.0b alone\*\*/arms both sweeps/' "$P2_FILE"
+
+# §2.3.0d's unrunnable arm is the operative half of the sweep's honesty guarantee: `tr` is granted
+# but NOT preflight-guaranteed, so a missing tool empties the pipeline and a never-run search reads
+# byte-identical to a clean one. The mutation deletes the arm, restoring the silent-clean-pass shape.
+assert_pin_red_under "#816 sweep-2.3.0d-unrunnable: §2.3.0d records an unrunnable outcome naming the covering backstop instead of a clean pass" \
+  'do **not** report a clean pass. Record `2.3.0d: unrunnable' \
+  's/do \*\*not\*\* report a clean pass\. Record `2\.3\.0d: unrunnable/report a clean pass. Skip recording `2.3.0d: unrunnable/' "$P2_FILE"
 assert_pin_red_under "#377 w3-fix-delta-trigger-gating: Step 3 item 3b gates each sweep on its own Phase 2.3 trigger (AC2)" \
   'each gated by its own Phase 2.3 trigger condition' \
   's/each gated by its own Phase 2.3 trigger condition//'
