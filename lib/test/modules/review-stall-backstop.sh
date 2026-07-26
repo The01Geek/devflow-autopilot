@@ -1260,19 +1260,21 @@ GITHUB_STEP_SUMMARY="$BGV_SUM" python3 "$BGV_PY" "$BGV_F2" >/dev/null 2>&1
 assert_eq "#839 bgv: main() appends the verdict table to a writable GITHUB_STEP_SUMMARY" "yes" \
   "$(grep -qF 'harness-floor probe (issue #812)' "$BGV_SUM" && echo yes || echo no)"
 # Unwritable GITHUB_STEP_SUMMARY: main() still exits 0, emits the named stderr breadcrumb, and
-# the verdict table still reaches stdout (the authoritative surface).
+# the verdict table still reaches stdout (the authoritative surface). One shared unwritable
+# path across the three arms so they cannot drift.
+BGV_NOSUM=/no/such/dir/summary.md
 assert_eq "#839 bgv: main() exits 0 when GITHUB_STEP_SUMMARY is unwritable" "0" \
-  "$(GITHUB_STEP_SUMMARY=/no/such/dir/summary.md python3 "$BGV_PY" "$BGV_F2" >/dev/null 2>&1; echo $?)"
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" >/dev/null 2>&1; echo $?)"
 assert_eq "#839 bgv: main() emits the named breadcrumb when GITHUB_STEP_SUMMARY is unwritable" "yes" \
-  "$(GITHUB_STEP_SUMMARY=/no/such/dir/summary.md python3 "$BGV_PY" "$BGV_F2" 2>&1 >/dev/null | grep -qF 'could not append to GITHUB_STEP_SUMMARY' && echo yes || echo no)"
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>&1 >/dev/null | grep -qF 'could not append to GITHUB_STEP_SUMMARY' && echo yes || echo no)"
 assert_eq "#839 bgv: the verdict table still reaches stdout when GITHUB_STEP_SUMMARY is unwritable" "yes" \
-  "$(GITHUB_STEP_SUMMARY=/no/such/dir/summary.md python3 "$BGV_PY" "$BGV_F2" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
 # EXECUTION_FILE env-var fallback: with NO argv path, main() reads the fixture from the env var
 # (its `or ""` normalization keeps an empty argv from masking a set env var).
 assert_eq "#839 bgv: main() reads the execution file from the EXECUTION_FILE env var when no argv path is given" "yes" \
   "$(EXECUTION_FILE="$BGV_F2" python3 "$BGV_PY" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
 rm -f "$BGV_F2" "$BGV_SUM"
-unset BGV_F2 BGV_SUM
+unset BGV_F2 BGV_SUM BGV_NOSUM
 
 # ── #812: the helper's marker constants and the workflow prompt are ONE contract, and until
 # now only the helper direction was gated. Every fixture above hardcodes the markers, so a
