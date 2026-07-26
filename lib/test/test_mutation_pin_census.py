@@ -38,6 +38,7 @@ AUDITED = (
     "lib/test/modules/review-trigger-helpers.sh",
     "lib/test/modules/review-stall-backstop.sh",
     "lib/test/modules/experiment-records.sh",
+    "lib/test/modules/retrospective-lifecycle.sh",
 )
 DEFINITIONS = (
     "assert_pin_red_under() { :; }\n"
