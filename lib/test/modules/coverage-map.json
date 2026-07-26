@@ -115,10 +115,6 @@
       "note": "issue #610 cloud seam-probe verdict core; driven directly in lib/test/run.sh (asv arms + fail-open matrix)",
       "owner": "unmodularized"
     },
-    "scripts/background-tasks-probe-verdict.py": {
-      "note": "issue #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict core; driven in lib/test/modules/review-stall-backstop.sh (bgv arms + fail-open matrix)",
-      "owner": "review-stall-backstop"
-    },
     "scripts/analyze-implement-runs.py": {
       "note": "",
       "owner": "unmodularized"
@@ -139,6 +135,10 @@
     "scripts/backfill-telemetry-unavailable.sh": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "scripts/background-tasks-probe-verdict.py": {
+      "note": "issue #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict core; driven in lib/test/modules/review-stall-backstop.sh (bgv arms + fail-open matrix)",
+      "owner": "review-stall-backstop"
     },
     "scripts/branch-for-issue.py": {
       "focused_test": "lib/test/test_python_scripts.py",
@@ -1619,17 +1619,21 @@
       "note": "",
       "owner": "review-stall-backstop"
     },
-    "812": {
-      "note": "",
-      "owner": "review-stall-backstop"
-    },
     "802": {
       "note": "",
       "owner": "unmodularized"
     },
+    "803": {
+      "note": "",
+      "owner": "create-issue-contract"
+    },
     "810": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "812": {
+      "note": "",
+      "owner": "review-stall-backstop"
     },
     "814": {
       "note": "",

@@ -469,6 +469,54 @@ devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declara
 devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
   'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 
+# ── issue #803: the create-issue final-byte prose ↔ issue-audit-state.py registry ─
+# Per-contract determination for issue #792's six agent-executed prose contracts
+# (the deliverable AC1 asks for). Each contract's MACHINE-CONSUMED surface is already
+# exercised by an ordinary executable test — the #792 CLI rows in
+# lib/test/test_python_scripts.py drive query-final-byte / record-final-byte-offer /
+# query-summary end-to-end over a real state file — so the behavioral regression each
+# contract gates is already demonstrated there and needs no second copy here:
+#   C1 (final-byte eval point + dedicated-slot / record-final-byte-offer-not-user-decline
+#       carve-out): the channel and its funding are guarded by #792 AC100/AC101/AC121
+#       (a decline is NOT a user-decline override; the pass spends the dedicated slot,
+#       offerable at the user-round cap) and AC85 (the refund).
+#   C2 (sub-step-4 suppression + return-handling): the return-handling limb — a
+#       verdict-less pass refunds the slot — is guarded by #792 AC85. The one-offer-per-pause
+#       SUPPRESSION limb is pure orchestration the skill performs across two query results;
+#       it drives no issue-audit-state.py branch, so it has no behavioral surface and is
+#       left unguarded (a test of it would be a wording-only pin, which policy forbids).
+#   C3 (sub-step-5 subsumption of the steering offer): the CONDITION the subsumption keys
+#       on — final_byte_coverage=uncovered / reason=steering-unestablished — is guarded by
+#       #792 AC88. The choice of which offer to fire is orchestration with no behavioral
+#       surface, left unguarded.
+#   C4 (summary-line rendering of final_byte_*): query-summary's emission of the
+#       final_byte_passes / final_byte_exhausted / final_byte_coverage triple is guarded by
+#       #792 AC83 and the query-summary rows.
+#   C5 (query-final-byte in the closed Queries enumeration): its Query-class behavior
+#       (exit 0, one decided line) is guarded by #792's r.fb(). Its REGISTRATION as a
+#       dispatchable subcommand is the cross-file coupling to the create-issue prose that
+#       #792 (a helper-internal suite) does not assert — that is the executable guard below.
+#   C6 (the amended canonical call-sequence line): pure agent-executed ORDERING prose.
+#       The Queries always exit 0 regardless of call order, so the ordering is not
+#       machine-enforced and has no behavioral surface; it is left unguarded. The
+#       subcommands the line names are all registered (guarded below and by #792).
+# The one guard this module adds is the cross-file dispatch contract for C1/C5: the
+# create-issue reference prose invokes `query-final-byte` and `record-final-byte-offer`,
+# so both must remain dispatchable subcommands of scripts/issue-audit-state.py. This is an
+# ordinary executable test (it runs the argparse dispatcher and reads its exit code), not a
+# source-presence pin: a rename/removal of either subcommand in the state owner — which a
+# helper-internal suite would update in lockstep, leaving the create-issue prose silently
+# dangling — turns it RED. The negative control proves the check discriminates.
+_ci803_state_owner="$CI_ROOT/scripts/issue-audit-state.py"
+for _ci803_sub in query-final-byte record-final-byte-offer; do
+  python3 "$_ci803_state_owner" "$_ci803_sub" --help >/dev/null 2>&1; _ci803_rc=$?
+  assert_eq "#803: '$_ci803_sub' (invoked by the create-issue final-byte prose) is a registered issue-audit-state.py subcommand" \
+    0 "$_ci803_rc"
+done
+python3 "$_ci803_state_owner" query-final-byte-UNREGISTERED --help >/dev/null 2>&1; _ci803_neg_rc=$?
+assert_eq "#803 negative control: an unregistered subcommand fails dispatch (exit 2), so the registry checks above are not vacuous" \
+  2 "$_ci803_neg_rc"
+
 # ── issue #768: the file-arm audit dispatch path is named exactly ──────────────
 # Each pin below asserts one new operative statement the #768 rewrite of the
 # instruction-generation / record-dispatch-output / dispatch-barrier paragraphs added.
