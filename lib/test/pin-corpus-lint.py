@@ -44,14 +44,15 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing-worktree`` — the required **wording-only pin authoring gate**
-  (issues #666 and #810). It establishes a path-aware worktree diff, validates its
-  audited source population against the module registry, and applies one policy to
-  helper-based and direct raw source-presence pins. A permitted structural boundary
-  declares ``# structural-pin-ok: <category> -- <non-empty rationale>`` with a category
-  from the closed set; a move is exempt one-to-one only when classification is
-  preserved. Base, diff, enumeration, source-read, registry, and scratch failures exit
-  2, policy findings exit 3, and a clean established scan exits 0. The lower-level
+* ``mutation-routing-worktree`` — the required **temporary deletion-only freeze**
+  for the committed audited test-source population (issues #666 and #810). It
+  reconciles Git's name-status and numstat views from the merge base to ``HEAD``.
+  An unchanged audited file or an ordinary modification containing only deletions
+  passes. Any added line is a policy finding; additions, deletions, renames, copies,
+  type/mode-only changes, binary diffs, malformed Git output, or population
+  disagreement are infrastructure failures. The gate deliberately does not inspect
+  helper calls or interpret mutation programs. Infrastructure failures exit 2,
+  policy findings exit 3, and a clean established scan exits 0. The lower-level
   ``mutation-routing`` synthetic-fixture command remains for legacy self-tests.
 
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
@@ -126,7 +127,6 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
@@ -2382,17 +2382,175 @@ def load_registry(path):
 
 
 def _run_git(git_runner, repo_root, *args):
-    result = git_runner(
-        ["git", "-C", str(repo_root), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    command = ["git", "-C", str(repo_root), *args]
+    try:
+        result = git_runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+        raise InfrastructureError(
+            f"git {' '.join(args)} could not run: {exc}"
+        ) from exc
     if result.returncode != 0:
         raise InfrastructureError(
             f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
         )
     return result.stdout
+
+
+class _DiffRecord(NamedTuple):
+    status: str | None
+    additions: int | None
+    deletions: int | None
+    paths: tuple[str, ...]
+
+
+def _parse_population_paths(output, label):
+    """Parse one fixed-path Git enumeration without allowing duplicates."""
+    paths = output.splitlines()
+    if any(not path or "\t" in path or "\0" in path for path in paths):
+        raise InfrastructureError(f"{label} enumeration is malformed")
+    if len(paths) != len(set(paths)):
+        raise InfrastructureError(f"{label} enumeration contains duplicate paths")
+    return set(paths)
+
+
+def _nul_fields(output, label):
+    """Return a complete NUL-delimited record stream or fail closed."""
+    if not output:
+        return []
+    if not output.endswith("\0"):
+        raise InfrastructureError(f"{label} output is not NUL terminated")
+    return output[:-1].split("\0")
+
+
+def _parse_name_status(output):
+    """Parse ``git diff --name-status -z`` into path-aware records."""
+    fields = _nul_fields(output, "name-status")
+    records = []
+    seen_paths = set()
+    index = 0
+    while index < len(fields):
+        status = fields[index]
+        index += 1
+        if re.fullmatch(r"[ACDMRTUXB]", status):
+            path_count = 1
+        elif re.fullmatch(r"[RC](?:100|[1-9]?[0-9])", status):
+            path_count = 2
+        else:
+            raise InfrastructureError(f"name-status contains invalid status: {status!r}")
+        if index + path_count > len(fields):
+            raise InfrastructureError("name-status row is truncated")
+        paths = tuple(fields[index : index + path_count])
+        index += path_count
+        if any(not path for path in paths):
+            raise InfrastructureError("name-status row contains an empty path")
+        duplicate = seen_paths.intersection(paths)
+        if duplicate:
+            raise InfrastructureError(
+                "name-status contains duplicate path: " + sorted(duplicate)[0]
+            )
+        seen_paths.update(paths)
+        records.append(_DiffRecord(status, None, None, paths))
+    return records
+
+
+def _parse_numstat(output):
+    """Parse ``git diff --numstat -z`` including rename/copy path tuples."""
+    fields = _nul_fields(output, "numstat")
+    records = []
+    seen_paths = set()
+    index = 0
+    while index < len(fields):
+        counts_and_path = fields[index].split("\t")
+        index += 1
+        if len(counts_and_path) != 3:
+            raise InfrastructureError("numstat row does not contain three fields")
+        additions_raw, deletions_raw, first_path = counts_and_path
+        if first_path:
+            paths = (first_path,)
+        else:
+            if index + 2 > len(fields):
+                raise InfrastructureError("numstat rename/copy row is truncated")
+            paths = (fields[index], fields[index + 1])
+            index += 2
+        if any(not path for path in paths):
+            raise InfrastructureError("numstat row contains an empty path")
+        duplicate = seen_paths.intersection(paths)
+        if duplicate:
+            raise InfrastructureError(
+                "numstat contains duplicate path: " + sorted(duplicate)[0]
+            )
+        seen_paths.update(paths)
+        if additions_raw.isdecimal() and deletions_raw.isdecimal():
+            additions = int(additions_raw)
+            deletions = int(deletions_raw)
+        elif additions_raw == "-" and deletions_raw == "-":
+            additions = deletions = None
+        else:
+            raise InfrastructureError("numstat row contains nonnumeric counts")
+        records.append(_DiffRecord(None, additions, deletions, paths))
+    return records
+
+
+def _records_by_audited_path(records, label):
+    result = {}
+    for record in records:
+        for path in record.paths:
+            if path not in AUDITED_PIN_SOURCES:
+                continue
+            if path in result:
+                raise InfrastructureError(f"{label} repeats audited path: {path}")
+            result[path] = record
+    return result
+
+
+def _reconcile_audited_diff(name_status_output, numstat_output):
+    """Return deletion-freeze findings after reconciling both Git diff views."""
+    statuses = _records_by_audited_path(
+        _parse_name_status(name_status_output), "name-status"
+    )
+    counts = _records_by_audited_path(_parse_numstat(numstat_output), "numstat")
+    if statuses.keys() != counts.keys():
+        missing_counts = sorted(statuses.keys() - counts.keys())
+        missing_statuses = sorted(counts.keys() - statuses.keys())
+        raise InfrastructureError(
+            "name-status/numstat audited-path disagreement"
+            f" (missing numstat: {missing_counts}; missing name-status: {missing_statuses})"
+        )
+
+    findings = []
+    for path in sorted(statuses):
+        status_record = statuses[path]
+        count_record = counts[path]
+        if (
+            status_record.status != "M"
+            or status_record.paths != (path,)
+            or count_record.paths != (path,)
+        ):
+            raise InfrastructureError(
+                f"audited source has unsupported Git state: {path}: "
+                f"{status_record.status}"
+            )
+        if count_record.additions is None or count_record.deletions is None:
+            raise InfrastructureError(f"audited source has binary numstat: {path}")
+        if count_record.additions > 0:
+            findings.append(
+                f"MUTATION-ROUTING\t{path}\t"
+                f"{count_record.additions} added line(s); audited test sources "
+                "are temporarily deletion-only"
+            )
+            continue
+        if count_record.additions == 0 and count_record.deletions > 0:
+            continue
+        raise InfrastructureError(
+            f"audited source modification is not a line deletion: {path}: "
+            f"+{count_record.additions}/-{count_record.deletions}"
+        )
+    return findings
 
 
 def scan_worktree(
@@ -2402,19 +2560,13 @@ def scan_worktree(
     git_runner=subprocess.run,
     scratch_factory=None,
 ):
-    """Run the required, fail-closed mutation-routing gate over the worktree."""
+    """Apply the fail-closed deletion-only freeze from merge base to ``HEAD``."""
     repo_root = Path(repo_root)
-    scratch_factory = scratch_factory or (
-        lambda: tempfile.NamedTemporaryFile(mode="w+", encoding="utf-8")
-    )
+    del scratch_factory
+    _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
+    # A missing local main is the normal Actions checkout shape. Other ancestry
+    # failures remain infrastructure failures rather than green skips.
     try:
-        scratch = scratch_factory()
-    except OSError as exc:
-        raise InfrastructureError(f"scratch allocation failed: {exc}") from exc
-    try:
-        _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
-        # A missing local main is the normal Actions checkout shape. Other ancestry
-        # failures remain infrastructure failures rather than green skips.
         local_main = git_runner(
             [
                 "git",
@@ -2429,153 +2581,104 @@ def scan_worktree(
             text=True,
             check=False,
         )
-        if local_main.returncode == 0:
-            _run_git(
-                git_runner,
-                repo_root,
-                "merge-base",
-                "--is-ancestor",
-                "refs/heads/main",
-                base_ref,
-            )
-        elif local_main.returncode != 1:
-            raise InfrastructureError(
-                "local main resolution failed "
-                f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
-            )
-        merge_base = _run_git(
-            git_runner, repo_root, "merge-base", base_ref, "HEAD"
-        ).strip()
-        if not merge_base:
-            raise InfrastructureError("comparison merge base resolved to empty output")
-        python_tracked = set(
-            filter(
-                None,
-                _run_git(
-                    git_runner,
-                    repo_root,
-                    "ls-files",
-                    "--cached",
-                    "--",
-                    "lib/test/test_*.py",
-                ).splitlines(),
-            )
-        )
-        python_untracked = set(
-            filter(
-                None,
-                _run_git(
-                    git_runner,
-                    repo_root,
-                    "ls-files",
-                    "--others",
-                    "--exclude-standard",
-                    "--",
-                    "lib/test/test_*.py",
-                ).splitlines(),
-            )
-        )
-        scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
-        difftext = _run_git(
+    except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+        raise InfrastructureError(f"local main resolution could not run: {exc}") from exc
+    if local_main.returncode == 0:
+        _run_git(
             git_runner,
             repo_root,
-            "diff",
-            "--no-color",
-            "--no-ext-diff",
-            "--unified=0",
+            "merge-base",
+            "--is-ancestor",
+            "refs/heads/main",
+            base_ref,
+        )
+    elif local_main.returncode != 1:
+        raise InfrastructureError(
+            "local main resolution failed "
+            f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
+        )
+    merge_base = _run_git(
+        git_runner, repo_root, "merge-base", base_ref, "HEAD"
+    ).strip()
+    if not merge_base or "\n" in merge_base or "\0" in merge_base:
+        raise InfrastructureError("comparison merge base output is malformed")
+
+    audited = sorted(AUDITED_PIN_SOURCES)
+    base_paths = _parse_population_paths(
+        _run_git(
+            git_runner,
+            repo_root,
+            "ls-tree",
+            "-r",
+            "--name-only",
             merge_base,
             "--",
-            *sorted(scan_sources),
+            *audited,
+        ),
+        "merge-base audited population",
+    )
+    head_paths = _parse_population_paths(
+        _run_git(
+            git_runner,
+            repo_root,
+            "ls-tree",
+            "-r",
+            "--name-only",
+            "HEAD",
+            "--",
+            *audited,
+        ),
+        "HEAD audited population",
+    )
+    expected = set(AUDITED_PIN_SOURCES)
+    if base_paths != expected:
+        raise InfrastructureError(
+            "merge-base audited population mismatch "
+            f"(missing: {sorted(expected - base_paths)}; "
+            f"unexpected: {sorted(base_paths - expected)})"
         )
-        untracked = set(
-            filter(
-                None,
-                _run_git(
-                    git_runner,
-                    repo_root,
-                    "ls-files",
-                    "--others",
-                    "--exclude-standard",
-                    "--",
-                    *sorted(AUDITED_PIN_SOURCES),
-                ).splitlines(),
-            )
+    registry = load_registry(
+        repo_root / "scripts/workflow-flight-recorder-registry.json"
+    )
+    population_findings = validate_audited_population(
+        registry, AUDITED_PIN_SOURCES, head_paths
+    )
+    if population_findings:
+        raise InfrastructureError("; ".join(population_findings))
+    if head_paths != expected:
+        raise InfrastructureError(
+            "HEAD audited population mismatch "
+            f"(missing: {sorted(expected - head_paths)}; "
+            f"unexpected: {sorted(head_paths - expected)})"
         )
-        tracked = set(
-            filter(
-                None,
-                _run_git(
-                    git_runner,
-                    repo_root,
-                    "ls-files",
-                    "--cached",
-                    "--",
-                    *sorted(AUDITED_PIN_SOURCES),
-                ).splitlines(),
-            )
-        )
-        base_paths = set(
-            filter(
-                None,
-                _run_git(
-                    git_runner,
-                    repo_root,
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    merge_base,
-                    "--",
-                    *sorted(scan_sources),
-                ).splitlines(),
-            )
-        )
-        registry = load_registry(
-            repo_root / "scripts/workflow-flight-recorder-registry.json"
-        )
-        population_findings = validate_audited_population(
-            registry, AUDITED_PIN_SOURCES, tracked | untracked
-        )
-        if population_findings:
-            raise InfrastructureError("; ".join(population_findings))
 
-        current_sources = {}
-        base_sources = {}
-        for path in sorted(scan_sources):
-            try:
-                current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError) as exc:
-                raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
-            if path in base_paths:
-                base_sources[path] = _run_git(
-                    git_runner, repo_root, "show", f"{merge_base}:{path}"
-                )
-            else:
-                base_sources[path] = ""
-                lines = current_sources[path].splitlines()
-                difftext += (
-                    f"\ndiff --git a/{path} b/{path}\n"
-                    "--- /dev/null\n"
-                    f"+++ b/{path}\n"
-                    f"@@ -0,0 +1,{len(lines)} @@\n"
-                    + "\n".join(f"+{line}" for line in lines)
-                    + "\n"
-                )
-        try:
-            scratch.write(difftext)
-        except OSError as exc:
-            raise InfrastructureError(f"scratch write failed: {exc}") from exc
-        try:
-            scratch.flush()
-        except OSError as exc:
-            raise InfrastructureError(f"scratch flush failed: {exc}") from exc
-        return scan_changed_sources(
-            current_sources, base_sources, difftext, str(repo_root)
-        )
-    finally:
-        try:
-            scratch.close()
-        except OSError as exc:
-            raise InfrastructureError(f"scratch close failed: {exc}") from exc
+    unmerged = _run_git(
+        git_runner,
+        repo_root,
+        "ls-files",
+        "--unmerged",
+        "--",
+        *audited,
+    )
+    if unmerged:
+        raise InfrastructureError("audited source has an unmerged index state")
+
+    diff_args = (
+        "--no-color",
+        "--no-ext-diff",
+        "--find-renames",
+        "--find-copies-harder",
+        merge_base,
+        "HEAD",
+        "--",
+    )
+    name_status = _run_git(
+        git_runner, repo_root, "diff", "--name-status", "-z", *diff_args
+    )
+    numstat = _run_git(
+        git_runner, repo_root, "diff", "--numstat", "-z", *diff_args
+    )
+    return _reconcile_audited_diff(name_status, numstat)
 
 
 def _read(path):
