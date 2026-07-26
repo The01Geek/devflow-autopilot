@@ -290,6 +290,27 @@ The script prints `"materialized: appended N, replaced M"` to stdout.
 
 ### Step 6 — Derive actionable patterns
 
+**First, reconcile the lifecycle state (issue #788).** Before deriving the pattern
+view, run `lib/pattern-state.sh` so every pattern's suppression reflects the live
+state of its own filed meta-issue this run. It migrates a v1 `overrides.json` to v2
+in place (converting only loop-written `dismissed` entries into `patterns{}`
+lifecycle records, preserving a maintainer's hand-written `dismissed{}` keys
+untouched) and then reconciles every meta-issue entry of every record against
+GitHub — a meta-issue closed COMPLETED becomes `fixed`, closed NOT_PLANNED/DUPLICATE
+becomes `declined`, still-open stays `filed`, each stamped with the issue's
+`closedAt` as `fixed_at`. It runs **before** `actionable-patterns.sh` so the derived
+view already reflects this run's reconciliation:
+
+```bash
+bash $LIB/pattern-state.sh --overrides .devflow/learnings/overrides.json
+```
+
+A wholesale prefetch failure (`gh` non-zero, or a non-JSON body) emits an
+`::error::` and exits non-zero — deriving patterns from unreconciled state is the
+defect #788 fixes, so this fails closed and aborts the derivation (record a
+per-run blocker for Step 9). A per-slug unresolvable issue emits a `::warning::`
+and continues.
+
 ```bash
 bash $LIB/actionable-patterns.sh \
   .devflow/learnings/retrospectives.jsonl \
@@ -440,6 +461,10 @@ Initialize Stage B counters:
 ```bash
 intervention_issues=()   # will hold {tag, url} objects — one per filed pattern
 blockers=()              # will hold strings
+withheld=()              # {tag, cap} JSON objects — one per pattern a cap withheld (#788)
+refiled_declined=()      # tags re-filed this run after a NOT_PLANNED won't-fix (#788)
+FILED_THIS_RUN=0         # counts issues actually filed this run (max_issues_per_run)
+LIVENESS_WARNING=""      # set by Step 8.5 when the eligible set is empty but a pattern is suppressed
 ```
 
 ---
@@ -452,6 +477,46 @@ spec and the orchestrator files **exactly one GitHub issue** from it via
 human triages each issue and runs it through the normal `/devflow:implement` →
 review pipeline. Your main checkout stays on `main` and is never edited. The
 drafting subagents (8b) parallelize; the cheap filing (8c) is done serially.
+
+#### 8.0 — Filing back-pressure (caps, issue #788)
+
+Filing is bounded by three config caps (read from `.devflow/config.json` via
+`config-get.sh`, defaulting to 3 / 10 / 2):
+
+```bash
+MAX_PER_RUN=$($LIB/../scripts/config-get.sh .devflow_retrospective.max_issues_per_run 3)
+MAX_OPEN=$($LIB/../scripts/config-get.sh .devflow_retrospective.max_open_issues 10)
+MAX_PER_CAT=$($LIB/../scripts/config-get.sh .devflow_retrospective.max_open_per_category 2)
+```
+
+Both open-issue counts derive from the **lifecycle records** — the meta-issue
+entries whose reconciled state is `filed` — never from the `Retrospective` label
+query or a title parse, so a human-applied label cannot starve the loop and a
+loop-filed issue whose label application failed still counts:
+
+```bash
+# Total filed entries across every record; and filed entries within one slug's record.
+OPEN_TOTAL=$($LIB/../scripts/run-jq.sh '[.patterns[].meta_issues[]? | select(.state=="filed")] | length' .devflow/learnings/overrides.json)
+# per-slug: [.patterns[$slug].meta_issues[]? | select(.state=="filed")] | length
+```
+
+Track `FILED_THIS_RUN` (starts at 0) and a `withheld=()` array. Before filing each
+pattern in 8c, apply the caps **in this order** and, on any withholding, append the
+pattern + the cap that withheld it to `withheld` (Step 9 renders it) and skip
+filing — never file it:
+
+1. **`max_issues_per_run`** — if `FILED_THIS_RUN >= MAX_PER_RUN`, withhold. (Binds
+   every pattern, regressed included.)
+2. **`max_open_per_category`** — if this slug's own record already holds
+   `MAX_PER_CAT` `filed` entries, withhold. (Binds every pattern, regressed
+   included.)
+3. **`max_open_issues`** — if `OPEN_TOTAL >= MAX_OPEN`, withhold — **unless the
+   pattern's status is `regressed`**, which bypasses this ceiling only (a post-fix
+   regression is the loop's highest-value signal and is not starved behind an
+   untriaged backlog). A regressed pattern is still bound by caps 1 and 2.
+
+A pattern that passes all three is filed (8c); increment `FILED_THIS_RUN` and, when
+the filing was for a slug with no prior open entry, `OPEN_TOTAL`, on success.
 
 #### 8a — Gather occurrence bundles
 
@@ -557,14 +622,53 @@ checkout's working tree. That happens **after** the Step 7 state PR was opened,
 so the new cooldown lands in next week's state PR — see § Notes for the optional
 follow-up commit if you want it in this run's PR.)
 
+#### 8.5 — Liveness check (issue #788)
+
+The loop went silently exhausted for four months; this check makes the next such
+breakage loud on the run it happens. Emit a `::warning::` and set
+`LIVENESS_WARNING` when the eligible (actionable, non-cooldown) set is **empty**
+while at least one pattern at or above `min_occurrences` is suppressed as
+`dismissed`, `declined`, or `fixed` (`filed` is deliberately excluded — an open
+meta-issue is the loop working correctly, and a warning that fired on the normal
+pending state would carry no signal):
+
+```bash
+MIN=$($LIB/../scripts/config-get.sh .devflow_retrospective.min_occurrences 2)
+# The full (unfiltered) pattern view: compute-patterns.jq over the reconciled state.
+FULL_VIEW="$($LIB/../scripts/run-jq.sh -sc --slurpfile overrides .devflow/learnings/overrides.json -f $LIB/compute-patterns.jq .devflow/learnings/retrospectives.jsonl 2>/dev/null || echo '{}')"
+ELIGIBLE_N=$($LIB/../scripts/run-jq.sh 'length' .devflow/tmp/patterns.json)
+if [ "${ELIGIBLE_N:-0}" -eq 0 ]; then
+  SUPPRESSED="$(printf '%s' "$FULL_VIEW" | $LIB/../scripts/run-jq.sh -c --argjson min "$MIN" '
+    [ to_entries[] | select(.value.occurrence_count >= $min)
+      | select(.value.status == "dismissed" or .value.status == "declined" or .value.status == "fixed")
+      | {slug: .key, n: .value.occurrence_count} ] | sort_by(-.n)')"
+  SUPPRESSED_N=$(printf '%s' "$SUPPRESSED" | $LIB/../scripts/run-jq.sh 'length')
+  if [ "${SUPPRESSED_N:-0}" -gt 0 ]; then
+    TOP_SLUG=$(printf '%s' "$SUPPRESSED" | $LIB/../scripts/run-jq.sh -r '.[0].slug')
+    LIVENESS_WARNING="Nothing was eligible to file, yet ${SUPPRESSED_N} pattern(s) at or above min_occurrences are suppressed (dismissed/declined/fixed) — highest-occurrence: \`${TOP_SLUG}\`. If the loop should be filing, check the lifecycle reconciliation."
+    echo "::warning::retrospective liveness: ${LIVENESS_WARNING}" >&2
+  fi
+fi
+```
+
+Also, while filing in Step 8, when a pattern whose lifecycle record is `declined`
+(its meta-issue was closed `NOT_PLANNED`) is re-filed, append its tag to
+`refiled_declined` so Step 9's report re-raises the won't-fix visibly.
+
 ---
 
 ### Step 9 — Status report
 
 Collect the per-analyzed-PR digest lines (verdict + a one-line summary) and the
-full pattern list (acted-on, cooldown-skipped, dismissed, and below-threshold —
-the same `patterns.json` from Step 6) so the report shows the whole picture, not
-just the PRs that produced an intervention:
+actionable pattern view from Step 6 (`patterns.json` — the open/regressed patterns
+at or above `min_occurrences`, each carrying its lifecycle status and cooldown
+flag). Alongside it, the summary carries this run's filing outcomes so the report
+shows the whole picture, not just the PRs that produced an intervention: the
+`withheld` array from Step 8's caps (each pattern paired with the cap that withheld
+it), the `refiled_declined` list (patterns re-filed after a `NOT_PLANNED`
+won't-fix), and a `liveness_warning` string (set when the eligible set is empty
+while a pattern at or above the threshold is suppressed as dismissed/declined/fixed
+— `filed` is excluded, being the loop working correctly):
 
 ```bash
 ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imperfect" or .verdict == "blocked") | {pr, verdict, summary}]' .devflow/tmp/new-entries.jsonl)"
@@ -600,6 +704,13 @@ printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.j
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
 printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/blockers.json"
+# Filing-outcome operands (issue #788). `withheld` holds one `{tag, cap}` JSON object
+# per pattern a cap kept from filing (Step 8.0); `refiled_declined` holds the tags
+# re-filed after a NOT_PLANNED won't-fix; LIVENESS_WARNING is the empty-eligible-set
+# breadcrumb (empty string when the loop is healthy). Written as JSON arrays so the
+# object dereferences [0] like the others.
+printf '%s\n' "${withheld[@]:-}"            | $LIB/../scripts/run-jq.sh -sc 'map(select(. != "") | fromjson? // .)' > "$_SUMMARY_TMP/withheld.json"
+printf '%s\n' "${refiled_declined[@]:-}"    | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/refiled.json"
 # Same fail-loud property for the four INLINE producers above. Their `> file` redirect
 # truncates the file before the pipeline runs, so a failing jq (unresolvable binary, a
 # malformed element under -sc '.') leaves the file EMPTY — and an empty --slurpfile
@@ -627,12 +738,17 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --slurpfile intervention_issues "$_SUMMARY_TMP/intervention_issues.json" \
   --slurpfile cooldown_skipped    "$_SUMMARY_TMP/cooldown_skipped.json" \
   --slurpfile blockers            "$_SUMMARY_TMP/blockers.json" \
+  --slurpfile withheld            "$_SUMMARY_TMP/withheld.json" \
+  --slurpfile refiled_declined    "$_SUMMARY_TMP/refiled.json" \
+  --arg       liveness_warning    "${LIVENESS_WARNING:-}" \
   --argjson state_pr              "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     skipped_count:$skipped_count,skips:$skips[0],
     analyzed:$analyzed[0],patterns:$patterns[0],recurring_targets:$recurring_targets[0],
     intervention_issues:$intervention_issues[0],
-    cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],state_pr:$state_pr}')"
+    cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],
+    withheld:$withheld[0],refiled_declined:$refiled_declined[0],
+    liveness_warning:$liveness_warning,state_pr:$state_pr}')"
 rm -rf "$_SUMMARY_TMP"
 ```
 

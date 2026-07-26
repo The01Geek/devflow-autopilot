@@ -67,7 +67,9 @@ devflow_render_report() {
               ((.summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)'
     fi
 
-    # Patterns — full picture: acted-on / cooldown / dismissed / below-threshold
+    # Patterns this run — the array the orchestrator passes in `.patterns` is the
+    # actionable view (lib/actionable-patterns.sh output): open/regressed patterns
+    # at or above min_occurrences, each with its lifecycle status and cooldown flag.
     # (omitted when the caller did not pass `patterns`)
     local patterns_n
     patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length')"
@@ -78,6 +80,38 @@ devflow_render_report() {
             | sort_by(-(.occurrence_count // 0))[]
             | "- `\(.tag // .slug)` — \(.occurrence_count // 0)× (status: \(.status // "open"))"
               + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
+    fi
+
+    # Withheld by a filing cap (issue #788) — every pattern the back-pressure caps
+    # kept from being filed this run, named together with the cap that withheld it.
+    # (omitted when nothing was withheld)
+    local withheld_n
+    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld // []) | length' 2>/dev/null || true)"
+    case "$withheld_n" in ''|*[!0-9]*) withheld_n=0 ;; esac
+    if [ "$withheld_n" -gt 0 ]; then
+        printf '\n## Withheld by a filing cap\n\n'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld // [])[] | "- `\(.tag // .slug)` — withheld by `\(.cap)`"'
+    fi
+
+    # Re-filed after a won't-fix (issue #788) — a pattern whose meta-issue was
+    # previously closed NOT_PLANNED but which keeps recurring is re-raised, not
+    # silently permanent; the maintainer is told, and told the one durable off-switch.
+    local refiled_n
+    refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.refiled_declined // []) | length' 2>/dev/null || true)"
+    case "$refiled_n" in ''|*[!0-9]*) refiled_n=0 ;; esac
+    if [ "$refiled_n" -gt 0 ]; then
+        printf '\n## Re-filed after a won'"'"'t-fix\n\n'
+        printf 'These patterns were re-filed this run after their meta-issue was closed `NOT_PLANNED`. To stop one permanently, add a `dismissed{}` entry to `.devflow/learnings/overrides.json` by hand — no machine path writes that map.\n\n'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.refiled_declined // [])[] | "- `\(.tag // .slug)`"'
+    fi
+
+    # Liveness warning (issue #788) — the eligible set is empty while a pattern at or
+    # above the threshold sits suppressed (dismissed/declined/fixed). (omitted when absent)
+    local liveness
+    liveness="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.liveness_warning // ""' 2>/dev/null || true)"
+    if [ -n "$liveness" ]; then
+        printf '\n## ⚠️ Liveness\n\n'
+        printf -- '- %s\n' "$liveness"
     fi
 
     # Recurring intervention targets (issue #520) — report-only: the files/areas

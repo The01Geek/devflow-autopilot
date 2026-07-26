@@ -47,7 +47,7 @@ Write your own one-paragraph root-cause restatement — do NOT trust the retrosp
 - **Retrospective hallucination?** Does the retrospective's `summary` contradict the primary-source evidence (PR/issue bodies, comments, reviews)? If so, the real fix may be in `skills/retrospective/SKILL.md`, not a downstream rule.
 - **Category vocabulary wrong?** Did failures get forced into `other`, or into a category that doesn't fit, because the fixed `categories` vocabulary in `retrospective/SKILL.md` lacks the right bucket (or has one so broad it's useless)? If so, the fix may be that vocabulary (and possibly `lib/compute-patterns.jq`).
 - **Missing primary source?** Did the retrospective miss context that would have changed the diagnosis (a referenced PR, a CI log, a doc, an issue-comment thread)? If so, the fix may be in `fetch-pr-context.sh`.
-- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences`, or surfaced too aggressively? If so, the fix may be in `.devflow/config.json`.
+- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences`, or by the filing back-pressure caps `max_issues_per_run` / `max_open_issues` / `max_open_per_category`, or surfaced too aggressively? If so, the fix may be in `.devflow/config.json`.
 
 Any of these may legitimately be the highest-leverage proposed change — the issue you file can target the engine's own files, because a human reviews and implements it through the normal pipeline.
 
