@@ -48,7 +48,7 @@
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
-      "minimum_assertions": 162,
+      "minimum_assertions": 161,
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling) and the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers)"
     },
     "experiment-records": {

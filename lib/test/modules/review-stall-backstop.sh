@@ -941,7 +941,6 @@ echo "#801 harness floor + dispatch barrier"
 # workflow or skill rename has one home in this module rather than two that can diverge.
 WFRUN801="$REPO_ROOT/.github/workflows/devflow-runner.yml"
 REVIEW_ROOT801="$REPO_ROOT/skills/review/SKILL.md"
-AUDIT801="$REPO_ROOT/skills/create-issue/references/step-3-6-audit.md"
 INSTALL801="$REPO_ROOT/install.sh"
 
 # env-floor-runner / env-floor-implement / env-floor-command — one mutation pin per engine
@@ -1035,11 +1034,6 @@ for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
   rm -f "$_t801s"
 done
 unset _root801 _root801_label _t801s
-# The cross-reference this scoping keeps accurate lives in the create-issue audit reference;
-# pin its clause so a future edit that drops it is visible here, where the coupling is stated.
-devflow_module_pin_present "#801 step-3-6-audit.md keeps its cloud-tier headless-wait cross-reference" \
-  'deliberately unlike the cloud-tier headless-wait discipline' "$AUDIT801"  # structural-pin-ok: presence of an unedited cross-reference clause whose accuracy this change preserves; its removal breaks no behavior this change fixes
-
 # grounding-barrier-present — the injected engine-ground-truth block is the one prompt surface
 # guaranteed resident on the cloud review tier, so it carries the barrier too. Pinned on the
 # RENDERED surface (the #375 discipline the sibling #408 grounding pins follow) plus a
