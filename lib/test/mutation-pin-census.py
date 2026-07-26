@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-"""Build an opaque census of legacy generic mutation-pin calls.
+"""Build an opaque census of legacy mutation-pin calls.
 
 The census deliberately treats every call as text.  It never executes or
 interprets a mutation, resolves a target, or attempts semantic classification.
@@ -19,7 +19,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-HELPERS = ("assert_pin_red_under", "devflow_module_pin_red_under")
+HELPERS = (
+    "assert_pin_red_under",
+    "devflow_module_pin_red_under",
+    "assert_count_red_under",
+    "_ra_conflict_red_under",
+)
 EXPECTED_SOURCE_COUNT = 12
 _WORD = r"[A-Za-z_][A-Za-z0-9_]*"
 _DEFINITION_RE = {
