@@ -638,8 +638,9 @@ MIN=$($LIB/../scripts/config-get.sh .devflow_retrospective.min_occurrences 2)
 FULL_VIEW="$($LIB/../scripts/run-jq.sh -sc --slurpfile overrides .devflow/learnings/overrides.json -f $LIB/compute-patterns.jq .devflow/learnings/retrospectives.jsonl 2>/dev/null || echo '{}')"
 ELIGIBLE_N=$($LIB/../scripts/run-jq.sh 'length' .devflow/tmp/patterns.json)
 if [ "${ELIGIBLE_N:-0}" -eq 0 ]; then
-  SUPPRESSED="$(printf '%s' "$FULL_VIEW" | $LIB/../scripts/run-jq.sh -c --argjson min "$MIN" '
-    [ to_entries[] | select(.value.occurrence_count >= $min)
+  SUPPRESSED="$(printf '%s' "$FULL_VIEW" | $LIB/../scripts/run-jq.sh -c --arg min "$MIN" '
+    ($min | tonumber) as $min
+    | [ to_entries[] | select(.value.occurrence_count >= $min)
       | select(.value.status == "dismissed" or .value.status == "declined" or .value.status == "fixed")
       | {slug: .key, n: .value.occurrence_count} ] | sort_by(-.n)')"
   SUPPRESSED_N=$(printf '%s' "$SUPPRESSED" | $LIB/../scripts/run-jq.sh 'length')
