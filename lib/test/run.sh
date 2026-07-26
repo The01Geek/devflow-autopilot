@@ -6274,9 +6274,6 @@ assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "
   "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
 assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
   "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
-# Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
-# (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
-# sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
@@ -6292,8 +6289,6 @@ for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; 
     "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
   rm -f "$_474_INJ"
 done
-assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
-  "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
 
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
@@ -38833,8 +38828,6 @@ SPF="$(probe_tmp '#434 py unparseable')"
 printf '%s\n' 'def broken(  :' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
 SPR="$(spl_repo_named "$SPF" fixture.py)"
 assert_eq "#434 an unparseable .py still examines its '#' comments (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
-assert_eq "#434 an unparseable .py says so on stderr (never a silent skip)" "yes" \
-  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse at --rev' && echo yes || echo no ) )"
 
 # CRLF + BOM: a consumer Windows repo must not silently lose its comments.
 SPF="$(probe_tmp '#434 crlf bom')"

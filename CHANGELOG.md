@@ -4,6 +4,19 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.3] — 2026-07-26
+
+### Changed
+### Added
+
+- `/devflow:implement` Phase 2 gains an always-on **§2.3.4b Coverage-claim enumeration sweep**, run after implementing and before the Phase 2.4 tests. Every **coverage universal** the diff's added prose asserts — a sentence claiming a universal about the change's own coverage, on whatever surface the diff touches, `.changeset/*.md` and `CHANGELOG.md` included — is grounded one of three ways: pinned by an *executed* enumeration of the set the quantifier ranges over, scoped to what the change actually covers, or removed. Reading the sentence back does not discharge the obligation. Exempt are two extensional kinds only — mandated-verbatim boilerplate, and text quoted verbatim from another artifact; prose the change authors into a rule surface is outside the carve-out. The sweep derives its population from the uncommitted delta without ever staging, and distinguishes three outcomes so an errored or empty run cannot read as a clean pass. The fix loop inherits the sweep through the existing §2.3 sweep-selection re-anchor, with no edit to its own step reference. (#818)
+- `scripts/stale-prose-lint.py` gains a **recognition-only coverage-universal tier** (TSV rule token `CU`, plus an `RT` row for its declared opt-out marker) that seeds that sweep with an executed list rather than a remembered one. Like the shipped `count-locked` recognition tier it resolves no referent, never emits a `STALE` verdict, and never affects the process exit code, so it changes what the lint *gates* nowhere. The tier is evaluated after the gating rules and does not terminate the shipped recognition tier, so a line matching both emits both rows. One shipped behavior does change, additively: the modality-conflict rule's short-circuit previously fired on any deny-absolute line, including one it examined and emitted nothing for, which hid that line from both non-gating recognition tiers. It now fires only when that rule actually emits a row, so the two recognition tiers see lines carrying `never` / `no` / `not` that they were silently skipping. Only non-gating rows are added; no verdict and no exit code changes.
+
+### Changed
+
+- `scripts/stale-prose-lint.py` accepts a **working-tree post-image mode**, `--worktree`, in which the post-image is the on-disk file rather than `git show <rev>:<path>`, making the helper usable before commit over new, staged, and modified files alike. `--rev` and `--worktree` are now mutually exclusive with exactly one required; `--rev`'s behavior is unchanged for the two call sites that already pass it. Two breadcrumbs that named `--rev` now name the post-image instead, so neither misdirects a reader under the new mode.
+- `docs/implement-skill.md`'s enumeration of the allowed-tools grants is replaced by a pointer to `.devflow/config.json`, its single source. The transcribed list had gone stale — a live specimen of the very defect class §2.3.4b targets.
+
 ## [2.22.2] — 2026-07-26
 
 ### Changed
