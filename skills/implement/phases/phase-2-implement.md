@@ -232,9 +232,9 @@ Write the code. Follow the patterns and conventions described in `CLAUDE.md`. As
 - **Adds a value to an enumerated set** (a new enum/string-union member, status, kind, or verdict value — *or a member of a doc-enumerated configuration set: a workflow trigger list (the `on:` event set), a config-key set, a permissions list*) → run **2.3.0b**.
 - **Adds a guard, predicate, validator, or coverage invariant** (in code), **or** the deliverable is **policy-stating agent-executed prose** (a `SKILL.md` / `phases/*.md` command block) → run **2.3.0c** (operand-trace sweep).
 - **Adds a collection output with ordering, dedup, or aggregation logic** (a sorted list, a deduped set, a grouped or counted tally, a tie-broken ranking) → run **2.3.7** (collection-cardinality sweep).
-- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.4a** (self-authored-claim reconciliation), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
+- **Always**, whatever the diff's shape → run **2.3.3** (convention), **2.3.4** (boundary-assumption), **2.3.4a** (self-authored-claim reconciliation), **2.3.4b** (coverage-claim enumeration), **2.3.5** (simplification & efficiency), **2.3.6** (error-handling & silent-failure).
 
-This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). **The trigger shapes above are substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose / `SKILL.md` / doc / config just as much as in code (this repo's own coupled-invariant rule spans code mirror sites — a constant, a config-key name, a `SKILL.md` contract pin a `run.sh` grep asserts — as well as prose ones), so **classify by what the change replicates across sites, not by whether it is code**. An add-only diff that replicates nothing across sites typically runs just the five always-on sweeps — **but** an add-only prose/doc/config diff that adds a peer-replicated rule, a value to an enumerated set, or a contract literal mirrored elsewhere still trips the contract-completeness sweeps (**2.3.0** / **2.3.0a** / **2.3.0b**), not just the five. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
+This narrows *ceremony*, never *coverage*, and is **fail-safe**: each sweep's heading is authoritative, so if its trigger fires you run it even when this list didn't call it out — if the index ever drifts from a heading, the heading wins (drift can only add a sweep, never skip a warranted one). **The trigger shapes above are substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose / `SKILL.md` / doc / config just as much as in code (this repo's own coupled-invariant rule spans code mirror sites — a constant, a config-key name, a `SKILL.md` contract pin a `run.sh` grep asserts — as well as prose ones), so **classify by what the change replicates across sites, not by whether it is code**. An add-only diff that replicates nothing across sites typically runs just the six always-on sweeps — **but** an add-only prose/doc/config diff that adds a peer-replicated rule, a value to an enumerated set, or a contract literal mirrored elsewhere still trips the contract-completeness sweeps (**2.3.0** / **2.3.0a** / **2.3.0b**), not just the six. **Record the diff shape you classified and the sweeps you are running in a workpad `--note`** — the selection is then an auditable commitment a reviewer or the weekly retrospective can check, not a silent skip; a note reading "add-only" on a diff that in fact deleted a file is a visible error, where an unrecorded mental skip is not.
 
 **Run each selected sweep after implementing and before running tests (Phase 2.4)** — that timing is the same for every sweep.
 
@@ -410,9 +410,61 @@ Scope and discipline mirror the other 2.3.x sweeps: only the claims your diff ad
 
 Record the reconciled surfaces — or an intentional verbatim carve-out, with the reason — in a `## Devflow Reflection` bullet.
 
+#### 2.3.4b Coverage-claim enumeration sweep (mandatory whenever the diff adds prose — which is every diff that ships a rule, a doc, a comment, a changeset, or a CHANGELOG entry)
+
+2.3.4a reconciles the **behavioral** claims the diff authors — assertions about what the shipped *code* does — by tracing the code path each one describes. This sweep owns a claim type that trace never reaches: a **coverage universal**, a sentence asserting a universal about *this change's own coverage* ("every call site is updated", "all four arms are handled", "exactly these files", "complete by construction"). Such a sentence describes the change, not the shipped code, so a run applying 2.3.4a faithfully does not select it — it reads as project description rather than behavioral assertion and slips through. And the verification method 2.3.4a prescribes cannot close it anyway: `agents/checklist-generator.md` already states the reason on the review side — *"a reviewer reading the claim confirms nothing — only a failed attempt to falsify it does."* **Reading the sentence back and finding it plausible does not discharge this sweep's obligation.** Left unclosed, the claim reaches Phase 3.3, where the review engine files it as a `documented_falsehood` and the Phase 4.2 self-contradicting-diff carve-out makes it a non-demotable REJECT — and the fix that removes one such claim can author a fresh one.
+
+**Population.** Every coverage universal the diff's **added prose** asserts, on whatever surface the diff touches — `skills/` and `phases/*.md` rule prose, `docs/`, `CLAUDE.md`, code comments and docstrings, and explicitly **`.changeset/*.md` and `CHANGELOG.md`**, which the helper's own header already declares in scope as *"human-authored prose about the current change, exactly the surface this lint exists to grade."* The operand is the **uncommitted** delta. A coverage universal authored in an **earlier commit of the same branch** is outside this sweep's operand — a decided, accepted boundary, not an oversight: `skills/review-and-fix/references/fixing.md` item 6a recomputes the full branch diff at the just-committed `HEAD` and remains the backstop for that shape.
+
+**Derive the population without staging.** Two legs, and **this sweep never mutates the index** — no `git add -A`, no `git add .`, no intent-to-add. That prohibition is load-bearing rather than stylistic: `fixing.md` item 6 stages by explicit path on the fix-loop path that inherits this sweep, and an unscoped stage earlier in the same iteration would defeat that scoping and land unrelated working-tree state on the branch. The fix loop has no §2.5, so nothing would re-normalize the index there.
+
+```bash
+# Leg 1 — tracked edits (modified and staged alike).
+git diff HEAD -U0 | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --worktree
+# Leg 2 — once per NEW file THIS CHANGE authored, named explicitly:
+git diff --no-index -U0 /dev/null .changeset/issue-<N>-<slug>.md | "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/stale-prose-lint.py --worktree
+```
+
+`--worktree` is the **working-tree post-image mode**, and naming it here is not decoration: under the helper's other mode the post-image is resolved through `git show <rev>:<path>`, which on an uncommitted tree names the *pre*-change file — so a modified file's added lines fail their content anchor and a **new** file resolves to nothing at all. The flag token and the command it belongs to are stated together, in this one place, so they cannot drift apart.
+
+**The untracked leg is scoped to the change, never to the working tree.** Name each new file by path, as leg 2 does. Do **not** substitute a bare `git ls-files --others --exclude-standard`: that returns every untracked non-ignored path a consumer happens to have — editor scratch, local fixtures, an un-ignored vendored directory — and its apparent emptiness in this repository comes from an untracked `.git/info/exclude` entry no clone inherits. If you do enumerate rather than name, the enumeration states its own path scope and carries its own `.claude/worktrees/` exclusion, per this repository's tree-enumeration convention.
+
+**Read the new tier's rows.** The obligation is driven by the helper's **coverage-universal** rows (TSV rule token `CU`) and the declared-opt-out audit rows (`RT`). **Phase 2 adds no new gate on the helper's gating rows** — R1–R4 keep gating exactly where they already do, and nothing here changes what the existing lint gates anywhere. This invocation is **not** gated by `devflow_review.stale_prose.enabled`: that key is namespaced to the review engine's Phase 0.6, and this is an implement-tier authoring duty that stands whether or not a consumer disabled the review-side lint.
+
+**Three outcomes, never two** — an empty row set must not read as clean. Read the **helper's** exit code (the last command in each pipeline), not the `git diff` that fed it:
+
+1. **Rows produced** → ground each, per the treatments below.
+2. **Zero rows, helper exit `0`** → a recorded clean pass. Note that on leg 2 the *producing* `git diff --no-index` exits **1 on every hit** — that is its success path, not a failure; a binary or otherwise hunk-less `--no-index` shape simply yields no added prose lines and lands here.
+3. **Helper exit `2`, or no output at all** → a recorded **degraded** pass, never a clean one. The helper documents exit `2` as an internal error covering an unreadable or non-UTF-8 stdin diff and an unavailable `git`; an empty diff stream produces the same zero rows; and a tier that refuses the invocation reports nothing. None of those may be laundered into a clean result. **The grounding obligation stands when the detector is unavailable** — absent at its expected path, or refused — degrading to the recorded-note arm `skills/review/phases/phase-0-6-stale-prose-lint.md` already ships for its helper-absent case, with the run's own reading as the seed.
+
+**The rows are a seed floor, not the population.** The detector's noun set is closed; a coverage universal it does not recognize (a universal with no referent noun, a phrasing outside the set) remains in this sweep's population and is grounded the same way.
+
+**Ground each one of exactly these three ways — complete by construction:**
+
+1. **Pinned** — by an *executed* enumeration of the set the quantifier ranges over. Run the search, read its result, and scope the sentence to what it returned.
+2. **Scoped** — narrowed to what the change actually covers.
+3. **Removed.**
+
+**Carve-out — exempt are exactly these two kinds, complete by construction:**
+
+1. **Mandated-verbatim boilerplate** (an SPDX header, a template line a generator requires verbatim).
+2. **Text the change quotes verbatim from another artifact** — a sentence reproduced from a file, a spec, or an external source.
+
+Prose the change is **authoring** into a shipped rule surface is **outside** the carve-out, however rule-shaped it reads. That narrowing is load-bearing: on this repository's dominant diff shape — engine prose in `skills/`, `scripts/` headers, `docs/`, `CLAUDE.md` — a broader second kind would be coextensive with the population this sweep exists to grade, exempting it wholesale while the `--note` read as a clean discharge.
+
+Three worked examples, drawn from a real engine diff:
+
+- *Kind 1, exempt* — `# SPDX-License-Identifier: MIT` in a new `scripts/*.py`: mandated verbatim, asserts nothing about coverage.
+- *Kind 2, exempt* — a line quoting the helper's own header, e.g. *"`UNRESOLVABLE` rows are informational and never gate"* reproduced from `scripts/stale-prose-lint.py`: the change did not author the claim, it cited one.
+- *Outside the carve-out* — *"every exclusion this header documents as skipping a line before rule evaluation binds this tier identically"*, authored into that same header by the change: rule-shaped, but the change is asserting it, not quoting it. It is grounded by enumerating the header's pre-evaluation exclusions and scoping the sentence to what that enumeration returned — the class a broader kind-2 reading would have swallowed.
+
+**The declared marker does not discharge the obligation.** A line carrying `stale-prose-lint: rule-text` suppresses the detector's seed row and emits a visible `RT` audit row instead — it controls **detector noise**. Membership in the carve-out is what exempts. A marked line is exempt only when it is in fact one of the two kinds above, and the `--note` records, **per marked line, which kind it is**.
+
+**Record the result via `workpad.py update $ISSUE_NUMBER --note` on the clean path as well as the dirty one** — naming the number of lines examined and the treatment applied to each recognized line. A silent no-op is indistinguishable from a sweep that never ran, so the clean-path note is what makes the discharge auditable rather than assumed.
+
 #### 2.3.5 Simplification & Efficiency sweep (mandatory)
 
-2.3.0–2.3.4a keep the diff correct, dead-line-free, convention-clean, and consistent with the claims it makes; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
+2.3.0–2.3.4b keep the diff correct, dead-line-free, convention-clean, and consistent with the claims it makes; the 2.2.4 gate already settled reuse and altitude at plan time. This sweep handles the two remaining cleanup lenses that only become visible once the code is *assembled*.
 
 After implementing, before running tests, re-read every function your diff added or changed lines in (from `git diff --staged -U0` or `git diff -U0`) and apply both lenses:
 

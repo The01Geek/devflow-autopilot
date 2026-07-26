@@ -62,9 +62,9 @@ byte-equality between a JSON record and a prose line, and so is unreachable in p
   which is the false-positive boundary a named-token scope mismatch stays clear of.
 
 **R3 recognition-only tier (issue #439).** Layered cleanly over the R3 count-locked rule
-above without touching it, and **evaluated last — after every gating rule (R1/R2/R3b/R3/R4),
-each of which ``continue``s on a match — so it is reached only on a line no gating rule
-claimed** (an earlier placement let a line matching both the widened count shape and a gating
+above without touching it, and **evaluated after every gating rule — R1/R2/R3b/R3 each
+``continue`` on a match, and R4 ``continue``s on the match it CLAIMS (issue #818 narrowed it
+to its emit path) — so it is reached only on a line no gating rule emitted a row for** (an earlier placement let a line matching both the widened count shape and a gating
 R4 deny-absolute be consumed here before R4 could run, suppressing a real STALE). A diff-added
 prose/comment line that matches a *widened* claim shape but that no gating rule (including the
 gating ``_COUNT_RE``) claims emits a single ``UNRESOLVABLE`` ``R3`` row whose detail begins
@@ -108,7 +108,9 @@ literal ``Expected total`` legend in a design record, plus a ``both``-summary R3
 in a ``lib/test/run.sh`` fixture comment. The surface most likely to describe a claim shape is
 exactly the one the lint most needs to keep clean, so those pulled against each other. The fix is
 an **explicit author opt-out**: a prose/comment line carrying the marker ``stale-prose-lint: example``
-anywhere on it is skipped for **every** gating rule (R1–R4 *and* the non-gating recognition tier).
+anywhere on it is skipped for **every** gating rule (R1–R4) *and* for both non-gating
+recognition tiers (the issue-#439 ``count-locked`` tier and the issue-#818 coverage-universal
+tier), which is why it is checked before any of them.
 The skip is **not silent** — the line still surfaces one non-gating ``UNRESOLVABLE`` audit row
 (rule ``EX``, never ``STALE``, so the exit code is untouched), so a marker that lands on a real
 claim (mis-placed, or dragged onto an adjacent claim by a relocation) stays visible to a reviewer
@@ -131,6 +133,96 @@ deny-absolute never carries the marker. The marker is a plain substring, so a li
 containing the literal text ``stale-prose-lint: example`` for some *other* reason is also skipped
 (accepted: that string is distinctive enough that its incidental appearance on a real claim line is
 a non-concern, and the failure direction is a false *negative* the author can see and remove).
+
+**Coverage-universal recognition tier (issue #818), non-gating.** A run authoring a change
+routinely writes a sentence asserting a **universal about its own coverage** — "every call site
+is updated", "all four arms are handled", "exactly these files" — and verifies it by *reading it
+back* and finding it plausible. Reading confirms nothing; only a failed attempt to falsify does.
+This tier recognizes the shape so the implement engine's Phase 2 §2.3.4b sweep has an **executed
+seed list** rather than a remembered one. Like the R3 recognition tier above it is
+**recognition-only**: it resolves no referent (no adjacency walk, no table parsing), never emits
+``STALE``, and never affects the exit code. Its rows carry the TSV rule token ``CU``.
+
+*The recognized shape* is a **universal-quantifier token** from a closed set, adjacent to a
+**coverage-referent noun** from a closed set, with up to two intervening bare-word modifiers.
+The quantifier tokens are **exactly these — complete by construction**: ``every`` / ``all`` /
+``each`` / ``any`` / ``both`` / ``no`` / ``none`` / ``exactly`` / ``only`` / ``complete`` /
+``entire`` / ``whole``. The coverage-referent nouns are **exactly these — complete by
+construction**, singular and plural alike: ``site`` / ``arm`` / ``branch`` / ``case`` / ``path``
+/ ``file`` / ``rule`` / ``peer`` / ``consumer`` / ``caller`` / ``member`` / ``mirror`` /
+``occurrence`` / ``instance`` / ``surface`` / ``checkpoint`` / ``call site``. Both sets follow
+the ``_COUNT_RE`` widened-noun-set precedent: they live as module-level constants and this
+header is their authoritative spec.
+
+*Precedence, decided explicitly (against the R3 recognition tier).* The two non-gating tiers
+**overlap by design** — ``arms`` / ``files`` / ``rules`` / ``sites`` sit in both noun sets, so
+``all four arms are handled`` matches both. The shipped R3 tier terminates on a match, so a tier
+placed *after* it would never be reached on exactly the collision shape. This tier is therefore
+evaluated **before** it and **does not ``continue``**: a line matching both emits **both** rows,
+and neither tier terminates the other. Both still sit after every gating rule, so a line a
+gating rule emitted a row for reaches neither.
+
+*Exclusions are inherited unchanged.* Every exclusion this header documents as skipping a line
+**before** rule evaluation binds this tier identically — the ``prose_mask`` prose/code
+predicate, the ``.devflow/learnings/`` and ``.devflow/logs/`` path exclusion, and the
+``stale-prose-lint: example`` marker.
+
+*The issue-#629 relocation exemption is inert here, and that is the decided behavior.* That
+exemption is **Demotion, not deletion** — a ``STALE`` row demoted to ``UNRESOLVABLE``. A tier
+that never emits ``STALE`` has nothing to demote, so a byte-identical relocated line carrying a
+coverage universal **still** emits its ``CU`` row.
+
+*Declared opt-out —* ``stale-prose-lint: rule-text``. A line the author declares exempt carries
+this marker, which suppresses the ``CU`` **seed row** and emits one non-gating ``UNRESOLVABLE``
+``RT`` audit row whose detail names the declared exemption — the #635 visibility property,
+ported: a marker that lands on a real claim stays visible to a reviewer of the lint *output*,
+not only to a reader of the source. Matched as a plain substring with a trailing negative
+lookahead (so ``rule-texts`` / ``rule-text-driven`` do not opt a line out), hence
+language-agnostic across Markdown, Python, and shell comments alike. **Deliberately narrower
+than the ``example`` marker:** ``rule-text`` is scoped to this tier only and never disarms a
+gating rule, because an author declaring a sentence to be rule text has declared nothing about
+a counted claim on the same line. It controls detector noise; it does **not** discharge
+§2.3.4b's grounding obligation, which turns on whether the line is in fact one of that sweep's
+two exempt kinds.
+
+*R4's ``continue`` is narrowed to its claimed case (issue #818).* The ``continue`` of each
+other gating rule — R1, R2, R3b, R3 — sits inside its own matched branch, whose every arm
+appends a row. R4's sat on the outer deny-absolute match instead, so a line R4
+examined and decided was **not** R4's — a deny-absolute carrying no backticked operator token,
+therefore emitting no row — still short-circuited both non-gating recognition tiers. That is a
+silent swallow rather than a claim, and it blinded them on every line containing ``never`` /
+``no`` / ``not``: for a coverage-universal detector that is most of the population, since a
+sentence asserting total coverage routinely says what is never missed. The ``continue`` now
+fires only when R4 emitted a row. This adds only non-gating rows and cannot change the exit
+code, and R4 still runs and still emits before either recognition tier, so the ordering
+rationale recorded above is preserved.
+
+*Disclosed non-goals.* Recognition is deterministic; adjudication is not, which is why this tier
+is non-gating: a gating detector over rule prose would be a false-positive machine. The
+quantifier vocabulary is English-only, inheriting the boundary the recognition-tier record above
+already documents for numeral words. A universal whose referent noun is outside the closed set
+("complete by construction", with no noun) is **not** recognized — the rows are a **floor** for
+§2.3.4b's sweep, never its population.
+
+**Working-tree post-image mode (issue #818).** The post-image file — the answer to "what does
+this file look like after the change?" — is resolved one of two ways, selected by exactly one
+required flag:
+
+* ``--rev <revision>`` (the shipped behavior, unchanged): ``git show <rev>:<path>``. Both
+  pre-#818 call sites pass this and are unaffected.
+* ``--worktree``: the **on-disk** file is read directly, making the helper usable **before
+  commit**, over a diff covering new, staged, and modified files alike.
+
+The mode matters more than a referent source: the post-image answer **gates entry to line
+examination itself**. Under ``--rev`` on an uncommitted tree, a *modified* file resolves to its
+*pre*-change content, so each added line fails its content anchor and is dropped before any
+rule, before ``prose_mask``, and before the opt-out markers; and a **new** file resolves to
+nothing at all, emitting the file-level ``-`` row and skipping examination. A ``.changeset/*.md``
+file — always new, and named in §2.3.4b's population — is exactly that second shape. So a
+recognition-only tier is **not** immune to the skew, and the working-tree mode is what keeps the
+obligation where the decided behavior puts it: before commit. The mode makes **no** history read
+at all (not even ``git show``), so it is shallow-clone safe for the same reason the revision
+mode is.
 
 **Move-awareness (issue #629).** An extraction refactor *relocates* prose without authoring
 it, but a relocated line is an **added** line in the unified diff — so every rule above used to
@@ -401,6 +493,36 @@ _BACKTICK_RE = re.compile(r"`([^`]+)`")
 # out. See the module header's #635 design record for the mechanism and disclosed non-goals.
 _EXAMPLE_MARKER_RE = re.compile(r"stale-prose-lint:\s*example(?![\w-])", re.IGNORECASE)
 
+# ── Coverage-universal recognition tier (issue #818), non-gating ───────────────────────
+# The two closed sets below are the tier's authoritative shape; the module header is their
+# authoritative spec. Kept as module-level constants for the same reason `_COUNT_NOUNS` is:
+# one place to read, one place to change.
+# The universal-quantifier tokens — exactly these, complete by construction.
+_CU_QUANT = (r"(?:every|all|each|any|both|no|none|exactly|only|complete|entire|whole)")
+# The coverage-referent nouns — exactly these, complete by construction. `call site` is listed
+# FIRST so the alternation prefers the two-word form over the bare `site` that follows it
+# (Python's `|` is leftmost-first, so a later `site` would otherwise claim `call site`'s tail
+# and the reported noun would misname the referent). Each noun matches singular or plural.
+_CU_NOUN = (
+    r"(?:call sites?|sites?|arms?|branch(?:es)?|cases?|paths?|files?|rules?|peers?"
+    r"|consumers?|callers?|members?|mirrors?|occurrences?|instances?|surfaces?"
+    r"|checkpoints?)"
+)
+# Up to two intervening bare-word modifiers, reusing `_RECOG_MOD`'s shape so a token carrying
+# sentence punctuation structurally breaks the match. Deliberately NOT routed through
+# `_mods_ok`: that guard disqualifies a NUMERAL-shaped modifier, which is correct for the R3
+# count tier (where the numeral IS the claim) but wrong here — `all four arms` is precisely the
+# coverage universal this tier exists to surface, and disqualifying it would blind the tier to
+# the issue's own worked example.
+_CU_RE = re.compile(
+    r"\b" + _CU_QUANT + r"\b\s+(?:" + _RECOG_MOD + r"){0,2}" + _CU_NOUN + r"\b",
+    re.IGNORECASE,
+)
+# Declared opt-out for the coverage-universal tier (issue #818). Mirrors `_EXAMPLE_MARKER_RE`'s
+# plain-substring, trailing-negative-lookahead shape so it is language-agnostic. Scoped to THIS
+# tier only — it never disarms a gating rule (see the module header's #818 record).
+_RULE_TEXT_MARKER_RE = re.compile(r"stale-prose-lint:\s*rule-text(?![\w-])", re.IGNORECASE)
+
 # Verdict tokens as module constants, referenced by every emit site AND the exit-code gate
 # (``verdict == STALE`` in ``run``). The process exit code hinges on the STALE literal
 # matching identically everywhere it is produced and compared; a bare repeated string would
@@ -544,14 +666,18 @@ def _py_docstring_mask(lines, path):
     counting triple quotes: a naive quote-toggle classifies ANY triple-quoted string as a
     docstring, so fixture data in a test file (claim-shaped text inside a string literal)
     would be examined — re-creating in Python the exact false-positive class this change
-    removes from shell. On a file that does not parse at ``--rev`` the mask is empty
-    (`#`-comments only) and a breadcrumb says so — never a silent skip."""
+    removes from shell. On a file that does not parse in the post-image the mask is empty
+    (`#`-comments only) and a breadcrumb says so — never a silent skip. The breadcrumb names
+    the post-image rather than a flag: under the issue-#818 working-tree mode no ``--rev`` was
+    passed, and naming it would misdirect the reader to an input the invocation never had —
+    the pre-commit window in which a half-written ``.py`` does not parse is exactly that
+    mode's population."""
     mask = [False] * len(lines)
     try:
         tree = ast.parse("\n".join(lines))
     except (SyntaxError, ValueError) as exc:
         sys.stderr.write(
-            f"stale-prose-lint.py: {path} does not parse at --rev ({type(exc).__name__}); "
+            f"stale-prose-lint.py: {path} does not parse in the post-image ({type(exc).__name__}); "
             f"scoping it to '#' comments only (docstring claims in this file are not "
             f"examined)\n")
         return mask
@@ -939,14 +1065,30 @@ def _demote_ok(exempt, added, move, claim_sources, idxs, lines=None):
 
 def post_file_lines(rev, path):
     """Return the post-diff file's lines (1-indexed via index+1), or None when the
-    file cannot be resolved at ``rev`` (e.g. deleted) — an UNRESOLVABLE case, NOT an
-    internal error (only an unreadable REV itself is exit-2, validated up front).
+    file cannot be resolved — an UNRESOLVABLE case, NOT an internal error (only an
+    unreadable REV itself is exit-2, validated up front).
+
+    ``rev`` of ``None`` selects the issue-#818 **working-tree** mode: the post-image is the
+    on-disk file, read directly with no history read at all, so a new or modified uncommitted
+    file resolves to its post-change content. Every other value keeps the shipped
+    ``git show <rev>:<path>`` behavior byte-for-byte.
 
     Every non-zero ``git show`` lands on the same None -> UNRESOLVABLE arm, but the
     reasons are not the same: an expected absence (the file was deleted/renamed at
     ``rev``) reads identically to a transient/environmental failure on a file that IS
     present. The verdict row cannot tell them apart, so git's own reason goes to stderr
-    — the downgrade stays non-gating, but it is never unexplained."""
+    — the downgrade stays non-gating, but it is never unexplained. The working-tree arm
+    below follows the same discipline with the OS error as its reason."""
+    if rev is None:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read().split("\n")
+        except OSError as exc:
+            reason = " ".join(str(exc).split())[:200] or f"{type(exc).__name__}"
+            sys.stderr.write(
+                "stale-prose-lint.py: "
+                f"{path} not readable in the working tree (UNRESOLVABLE): {reason}\n")
+            return None
     rc, out, err = _run_git(["show", f"{rev}:{path}"])
     if rc != 0:
         reason = " ".join(err.split())[:200] or f"git show exited {rc} with no stderr"
@@ -1036,6 +1178,14 @@ def _recognize_count(text):
     return None
 
 
+def _recognize_coverage_universal(text):
+    """Coverage-universal recognition tier (issue #818): return the matched quantifier-plus-noun
+    phrase for a universal claim about the change's own coverage, or ``None``. NON-GATING — the
+    caller emits an ``UNRESOLVABLE`` row and never resolves a referent."""
+    m = _CU_RE.search(text)
+    return " ".join(m.group(0).split()) if m else None
+
+
 def _excerpt(text):
     return " ".join(text.split())[:120]
 
@@ -1110,8 +1260,8 @@ def examine_file(path, added, lines, rows, move=None):
         if not _may_carry_claim(mask, idx):
             continue
         # Illustrative-example opt-out (issue #635): an author-declared example of a claim shape
-        # is DOCUMENTATION, not an assertion. Skip every gating rule for it — R1–R4 and the
-        # non-gating recognition tier below — before any rule runs. Emit ONE non-gating
+        # is DOCUMENTATION, not an assertion. Skip every gating rule for it — R1–R4 — and both
+        # non-gating recognition tiers below — before any rule runs. Emit ONE non-gating
         # (UNRESOLVABLE, never STALE) audit row instead of falling silent, so the suppression is
         # greppable in the output: a marked line that lands on a real claim (a mis-placed or
         # relocated marker) is then visible to a reviewer of the lint's output, not only to a
@@ -1217,12 +1367,49 @@ def examine_file(path, added, lines, rows, move=None):
                 else:
                     rows.append(Row(VERIFIED, "R4", path, post_ln,
                                     f"deny-absolute on `{op}`: no contradicting permit found — {_excerpt(text)}"))
-            continue
+                # `continue` ONLY when R4 actually CLAIMED the line — i.e. it found an
+                # operator token and emitted a row. The `continue` of each other gating rule
+                # — R1, R2, R3b, R3 — sits inside its own matched branch, whose every arm
+                # appends a Row (enumerated at the four sites, not recalled); R4's used to sit
+                # on the outer `_DENY_RE` match instead, so
+                # a deny-absolute carrying NO operator token — R4 examined it and decided it
+                # was not R4's — still short-circuited the two non-gating recognition tiers
+                # below. That is a silent swallow, not a claim: R4 emitted nothing, so the
+                # line simply vanished from the recognition tiers' view. It blinded them on
+                # every line containing `never` / `no` / `not`, which for the issue-#818
+                # coverage-universal tier is most of its population (a sentence asserting
+                # total coverage routinely says what is NEVER missed). Narrowing the
+                # `continue` to the claimed case adds only non-gating rows and cannot change
+                # the exit code; R4 still runs and still emits BEFORE either recognition
+                # tier, so the ordering rationale the module header records is preserved.
+                continue
+
+        # Coverage-universal recognition tier (issue #818) — NON-GATING, and deliberately
+        # placed BEFORE the R3 recognition tier below WITHOUT a `continue`. The two tiers
+        # overlap (`arms`/`files`/`rules`/`sites` are in both noun sets) and the R3 tier
+        # terminates on a match, so a tier placed after it would never be reached on the very
+        # collision shape; falling through instead lets a line matching both emit both rows,
+        # and neither tier terminates the other. Both still sit after the gating rules.
+        cov = _recognize_coverage_universal(text)
+        if cov is not None:
+            if _RULE_TEXT_MARKER_RE.search(text):
+                # The declared opt-out suppresses the SEED row but is not silent: one
+                # non-gating audit row keeps a marker that landed on a real claim visible in
+                # the lint OUTPUT. It does not discharge the §2.3.4b grounding obligation.
+                rows.append(Row(UNRESOLVABLE, "RT", path, post_ln,
+                                "coverage-universal seed row suppressed by declared opt-out "
+                                "marker (stale-prose-lint: rule-text) — the grounding "
+                                f"obligation is undischarged — {_excerpt(text)}"))
+            else:
+                rows.append(Row(UNRESOLVABLE, "CU", path, post_ln,
+                                f"coverage-universal: recognition-only ({cov}) — ground this "
+                                "claim by enumeration, scoping, or removal — "
+                                f"{_excerpt(text)}"))
 
         # R3 recognition-only tier (issue #439) — widened claim recognition, NON-GATING.
-        # Placed LAST, after every gating rule (R1/R2/R3b/R3/R4), each of which `continue`s
-        # on a match — so the recognition tier is reached ONLY on a line no gating rule
-        # claimed. This ordering is load-bearing for the non-gating invariant: an earlier
+        # Placed LAST, after every gating rule: R1/R2/R3b/R3 each `continue` on a match, and
+        # R4 `continue`s on the match it CLAIMS (#818 narrowed it to its emit path) — so the
+        # recognition tier is reached ONLY on a line no gating rule emitted a row for. This ordering is load-bearing for the non-gating invariant: an earlier
         # placement let a line matching both the widened count shape AND a gating R4
         # deny-absolute be consumed here (via the `continue` below) before R4 could run,
         # suppressing a real STALE and flipping the exit code — the fail-open this position
@@ -1317,9 +1504,12 @@ def _demotion_breadcrumbs(rows, err):
 def run(rev, diff_text):
     # Validate the rev up front — an unreadable rev is a caller error (exit 2), not
     # a per-file UNRESOLVABLE. `rev-parse --verify` never derives a diff range.
-    rc, _, _ = _run_git(["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
-    if rc != 0:
-        raise InternalError(f"--rev '{rev}' does not resolve to a commit")
+    # `rev is None` is the issue-#818 working-tree mode: there is no revision to validate
+    # (and no history read at all), so this precondition does not apply to it.
+    if rev is not None:
+        rc, _, _ = _run_git(["rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}"])
+        if rc != 0:
+            raise InternalError(f"--rev '{rev}' does not resolve to a commit")
 
     # The removed-line multiset is diff-GLOBAL and computed once, before the per-file walk:
     # a relocation's source and destination are different files, so a per-file tally could
@@ -1342,7 +1532,7 @@ def run(rev, diff_text):
         if lines is None:
             for post_ln in sorted(added):
                 rows.append(Row(UNRESOLVABLE, "-", path, post_ln,
-                                f"post-diff file not resolvable at rev — {_excerpt(added[post_ln])}"))
+                                f"post-diff file not resolvable in the post-image — {_excerpt(added[post_ln])}"))
             continue
         examine_file(path, added, lines, rows, move)
 
@@ -1408,12 +1598,23 @@ def main(argv):
             prog="stale-prose-lint.py",
             description="Detect stale countable claims in diff-added prose (issue #423).",
         )
-        parser.add_argument(
+        # Exactly one post-image mode, and never both (issue #818). `--rev` keeps its
+        # shipped meaning; `--worktree` reads the on-disk file so an UNCOMMITTED tree can be
+        # graded before commit. argparse enforces the exclusivity and the requirement, so
+        # neither is re-derived in the body.
+        mode = parser.add_mutually_exclusive_group(required=True)
+        mode.add_argument(
             "--rev",
-            required=True,
             help="the revision whose post-diff file state resolves each claim's referent "
             "(git show <rev>:<path>); the caller supplies the diff on stdin. This helper "
             "never derives the diff range itself.",
+        )
+        mode.add_argument(
+            "--worktree",
+            action="store_true",
+            help="resolve each claim's referent against the on-disk working-tree file "
+            "instead of a revision, so a new or modified UNCOMMITTED file resolves to its "
+            "post-change content; makes no history read at all.",
         )
         args = parser.parse_args(argv[1:])
 
@@ -1428,7 +1629,9 @@ def main(argv):
             sys.stderr.write(f"stale-prose-lint.py: diff is not valid UTF-8 ({exc})\n")
             return 2
 
-        return run(args.rev, diff_text)
+        # `None` selects the working-tree post-image mode; argparse already guaranteed
+        # exactly one of the two flags is present.
+        return run(None if args.worktree else args.rev, diff_text)
     except InternalError as exc:
         sys.stderr.write(f"stale-prose-lint.py: {exc}\n")
         return 2

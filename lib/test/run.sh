@@ -6151,7 +6151,7 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
 # so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
 # member, or a mirrored contract literal across sites still trips the contract-completeness
-# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to "just the five always-on sweeps".
+# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to the always-on sweeps alone.
 # The cross-site enumeration below extracts both lists and requires the SKILL and docs
 # to name the same contract-sweep set without holding either sentence to exact prose.
 _skill_sweeps=$(grep -oE 'still trips the contract-completeness sweeps \([^)]+\)' "$IMPL_SKILL" \
@@ -6292,8 +6292,15 @@ for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; 
     "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
   rm -f "$_474_INJ"
 done
-assert_eq "#474: the five-always-on enumeration is unchanged (2.3.7 is trigger-gated, not always-on)" "yes" \
-  "$(grep -qF 'five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)' "$IMPL_DOC" && echo yes || echo no)"
+# Routed through the mutation-taking helper rather than a raw presence grep: the mutation
+# reverts the enumeration to its pre-#818 five-element form, which is precisely the named
+# regression — a documentation enumeration a later always-on sweep falsified and nothing
+# reconciled. A pin that merely asserted the sentence exists would stay green on that revert
+# if the sentence were reworded rather than reverted.
+assert_pin_red_under "#474/#818: the always-on enumeration in docs names every always-on sweep (2.3.7 is trigger-gated, not always-on)" \
+  'six always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.4b/2.3.5/2.3.6)' \
+  's|six always-on sweeps \(2\.3\.3/2\.3\.4/2\.3\.4a/2\.3\.4b/2\.3\.5/2\.3\.6\)|five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6)|' \
+  "$IMPL_DOC"
 
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
@@ -11369,6 +11376,47 @@ assert_pin_red_under "#376 w2-completion-gate: §2.3.0c binds both triggers into
 assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 step cites the five boundary kinds (count mirror, phase-file side)" \
   'one of the five kinds above' \
   's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
+
+# ── issue #818: §2.3.4b coverage-claim enumeration sweep ────────────────────────────────
+# Four BEHAVIORAL-FIX pins, each through the mutation-taking helper with a `sed -E` mutation
+# that removes ONLY the operative sentence and thereby re-introduces the named defect — so a
+# framing-only pin (still present-and-unique after the mutation) is reported RED at the desk.
+#
+# Pin 1 — the grounding obligation. Removing it re-introduces the defect this issue names: a
+# run that "verifies" its own coverage universal by reading the sentence back.
+assert_pin_red_under "#818 grounding-obligation: §2.3.4b states the three treatments — pinned by an executed enumeration, scoped, or removed — as complete by construction" \
+  'Ground each one of exactly these three ways — complete by construction' \
+  's/\*\*Ground each one of exactly these three ways — complete by construction:\*\*//' "$P2_FILE"
+# Pin 2 — the extensional carve-out. Removing it re-opens an unbounded exemption: with no
+# stated two-kind bound, any rule-shaped prose reads as exempt and the whole population the
+# sweep exists to grade is waved through while the `--note` reads as a clean discharge.
+assert_pin_red_under "#818 carve-out: §2.3.4b bounds the exemption to exactly two extensional kinds, with authored rule prose explicitly outside it" \
+  'exempt are exactly these two kinds, complete by construction' \
+  's/\*\*Carve-out — exempt are exactly these two kinds, complete by construction:\*\*//' "$P2_FILE"
+# Pin 3 — the marker does not discharge the obligation. Removing it re-opens a self-serve
+# escape hatch: an author could silence the detector and read the silence as a discharge.
+assert_pin_red_under "#818 marker-not-a-discharge: §2.3.4b states the rule-text marker controls detector noise while carve-out membership is what exempts" \
+  'The declared marker does not discharge the obligation' \
+  's/\*\*The declared marker does not discharge the obligation\.\*\*//' "$P2_FILE"
+# Pin 4 — the three-outcome rule. Removing it re-introduces a sweep in which an errored or
+# empty run reads as a clean pass, because zero rows is the observable both produce.
+assert_pin_red_under "#818 three-outcome: §2.3.4b distinguishes rows / zero-rows-clean / exit-2-or-no-output-degraded, so an empty row set cannot read as clean" \
+  'Three outcomes, never two' \
+  's/\*\*Three outcomes, never two\*\* — an empty row set must not read as clean\.//' "$P2_FILE"
+# The always-on index row is a STRUCTURAL pin, not a behavioral sentence: it is the registry
+# entry `skills/review-and-fix/references/fixing.md` item 3b re-anchors sweep SELECTION onto,
+# so the fix loop inherits §2.3.4b through this row and no `fixing.md` edit.
+# The always-on index row is the entry `skills/review-and-fix/references/fixing.md` item 3b
+# re-anchors sweep SELECTION onto, so the fix loop inherits §2.3.4b through this row and no
+# `fixing.md` edit. Dropping 2.3.4b from the row is therefore not a wording change — it
+# un-selects the sweep on the fix-loop path, which is the named regression the mutation
+# re-introduces. Routed through the mutation-taking helper because the issue-#666 authoring
+# gate refuses a typed structural declaration over prose presence (see the workpad's
+# issue-accuracy note): the declaration this issue's criterion prescribed is not a form
+# `pin-corpus-lint.py mutation-routing-worktree` accepts.
+assert_pin_red_under "#818 always-on-index: the Sweep selection preamble's always-on row lists 2.3.4b (the fix loop inherits selection through this row)" \
+  '**2.3.4b** (coverage-claim enumeration)' \
+  's/\*\*2\.3\.4b\*\* \(coverage-claim enumeration\), //' "$P2_FILE"
 
 # ── issue #377 (Wave 3): fix-delta authoring-side sweeps + Phase 3.2 cleanup-agents-are-quality-only ──
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
@@ -38714,8 +38762,12 @@ SPF="$(probe_tmp '#434 py unparseable')"
 printf '%s\n' 'def broken(  :' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
 SPR="$(spl_repo_named "$SPF" fixture.py)"
 assert_eq "#434 an unparseable .py still examines its '#' comments (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
-assert_eq "#434 an unparseable .py says so on stderr (never a silent skip)" "yes" \
-  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse at --rev' && echo yes || echo no ) )"
+# The breadcrumb names the POST-IMAGE, not a flag (#818): under the working-tree mode no
+# `--rev` was passed, so naming it would misdirect the reader to an input the invocation
+# never had — and the pre-commit window in which a half-written .py does not parse is
+# exactly that mode's population.
+assert_eq "#434/#818 an unparseable .py says so on stderr, naming the post-image not a flag (never a silent skip)" "yes" \
+  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse in the post-image' && echo yes || echo no ) )"
 
 # CRLF + BOM: a consumer Windows repo must not silently lose its comments.
 SPF="$(probe_tmp '#434 crlf bom')"
