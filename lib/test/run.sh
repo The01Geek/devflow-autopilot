@@ -5276,9 +5276,12 @@ assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the
 assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
   "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
 # Both queries must request `closingIssuesReferences`, so this remaining count guard keeps
-# the selector's required predicate input available.
-assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
-  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+# the selector's required predicate input available. Issue #780 added `isCrossRepository` to
+# the same two `--json` lists — §1.4.0.5's open-PR-linkage provenance source requires a
+# same-repo-headed PR and fails CLOSED on an ungathered field, so a query that stops fetching
+# it silently costs every landed resume its classification. Same guarantee, one more field.
+assert_eq "#362/#780: both resume-pre-check queries fetch the predicate/provenance inputs they read" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences,isCrossRepository)' "$P362_P1")"
 
 # (6) The two vendored superpowers skills stay untouched by this change (AC).
 assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
@@ -9934,6 +9937,13 @@ emit("pr_crossrepo_absent", pwork, {**_PS, "open_pr_branch": "feat", "open_pr_cl
 # Established workpad provenance is unchanged by the new source (control).
 emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# PRECEDENCE, both sources vouching. The two are NOT interchangeable, so the shipped
+# prose states the workpad wins; this arm is what makes that statement checkable
+# rather than a documented claim nothing exercises. The workpad names a divergent
+# nonexistent branch with no verdict, so a PR-precedence implementation would return
+# VALIDATED_RESUME here instead of the workpad's finer divergent-nonexistent stop.
+emit("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
 # PR-vouched but the published tip no longer reaches HEAD: the run reaches the
 # recorded-branch + proceed-verdict arms rather than short-circuiting to proceed,
 # so a diverged branch still stops.
@@ -10148,11 +10158,25 @@ assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
   "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
 assert_eq "#780: an UNGATHERED cross-repository field fails closed → DECISION_BLOCKED/stop" \
   "DECISION_BLOCKED 2" "$(_bs576 pr_crossrepo_absent)"
-assert_eq "#780: every refusing arm keeps the 'unverified-provenance' slug (no new remedy routing)" \
-  "unverified-provenance unverified-provenance unverified-provenance unverified-provenance unverified-provenance" \
-  "$(_bs576v reason_pr_no_source) $(_bs576v reason_pr_branch_mismatch) $(_bs576v reason_pr_not_closing) $(_bs576v reason_pr_cross_repo) $(_bs576v reason_pr_crossrepo_absent)"
+# Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
+# collapse onto the same verdict word + rc, so a single joined comparison would name
+# all five on any one arm's regression and leave the reader re-running by hand.
+assert_eq "#780 reason: no provenance source carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_no_source)"
+assert_eq "#780 reason: a PR head-branch mismatch carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_branch_mismatch)"
+assert_eq "#780 reason: a PR that does not close this issue carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_not_closing)"
+assert_eq "#780 reason: a cross-repository PR carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_cross_repo)"
+assert_eq "#780 reason: an ungathered cross-repository field carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_crossrepo_absent)"
 assert_eq "#780: established workpad provenance classifies exactly as before (control)" \
   "VALIDATED_RESUME 0" "$(_bs576 pr_wp_prov_control)"
+assert_eq "#780 precedence: with BOTH sources vouching the workpad's finer verdict wins" \
+  "DECISION_BLOCKED 2" "$(_bs576 both_wp_precedence)"
+assert_eq "#780 precedence: the workpad-sourced arm keeps its own reason slug (not a PR-vouched proceed)" \
+  "divergent-nonexistent" "$(_bs576v reason_both_wp_precedence)"
 # The admitting direction reaches the recorded-branch + proceed-verdict arms — it
 # does not short-circuit to proceed. This arm is what proves that: same PR-vouched
 # state, unreachable published tip, and the run STOPS on the matching-branch arm's

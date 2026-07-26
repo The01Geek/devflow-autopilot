@@ -235,28 +235,18 @@ def dependencies(args: argparse.Namespace) -> int:
 # `<verdict> <payload-file>` where the payload file captures the gathered +
 # derived state and the classification reason for the human deciding the stop.
 #
-# Two provenance sources may vouch for ahead-of-base history (issue #780). The
-# original is the workpad (`provenance_established`). The second is the OPEN-PR
-# LINKAGE: an open PR in THIS repository whose head branch is the working branch,
-# which closes this issue, and which is not cross-repository. Threat model — who
-# can write each, and what that buys:
-#   * The workpad is a marker-detected ISSUE COMMENT. Any GitHub user who can
-#     comment on the issue can author a comment carrying the marker, which is why
-#     an unestablished-provenance workpad is refused outright.
-#   * The PR-linkage record cannot be manufactured by that wider population: a
-#     same-repo-headed PR requires push access to this repository, and the
-#     issue-closing linkage is derived by GitHub from the PR body.
-#   * BUT the populations DO overlap: an actor who can push the branch can also
-#     open the PR that vouches for it. So this source does not defend against a
-#     hostile collaborator, and no such claim is made. It is admitted because it
-#     is strictly stronger than the workpad against the wider issue-commenter
-#     population, and because VALIDATED_RESUME's other conjunct
-#     (_published_tip_reachable) already rests on a signal any pusher can produce
-#     — so admitting PR linkage lowers the screen below no pre-existing level.
-# A PR-vouched run therefore reaches the recorded-branch and proceed-verdict arms
-# with the UNTRUSTED WORKPAD NEUTRALIZED: the PR supplies both operands (its head
-# branch is the recorded branch, and an open PR closing this issue IS the prior
-# run's go-ahead), and `workpad_body`/`has_proceed_verdict` are not consulted.
+# Two provenance sources may vouch for ahead-of-base history (issue #780): the
+# workpad (`provenance_established`), and the OPEN-PR LINKAGE — an open PR in THIS
+# repository whose head branch is the working branch, which closes this issue, and
+# which is not cross-repository (`open_pr_branch` / `open_pr_closes_issue` /
+# `open_pr_cross_repository`). Operative rules, enforced below: every conjunct of
+# the PR source is required and each fails CLOSED (an ungathered field included);
+# the workpad takes precedence when both vouch; and on a PR-vouched-only path the
+# untrusted workpad is neutralized rather than consulted.
+# The threat model this admission rests on — who can write each source, and the
+# population overlap that bounds what it defends against — is stated once, in
+# docs/implement-skill.md's "Two provenance sources for ahead history" section.
+# Do not restate it here; a security rationale in two places is one that drifts.
 
 # The workpad front-matter Branch line: `**Branch:** `<name>`` (a real branch)
 # or `**Branch:** _(creating…)_` (the 1.3 placeholder, no backticks). Match the
@@ -508,27 +498,49 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
     # absent `open_pr_cross_repository` is not read as "same-repo", because a
     # caller that never gathered the field established nothing about it.
     pr_branch = state.get("open_pr_branch")
+    wp_vouched = bool(state.get("provenance_established", False))
     pr_vouched = (
         isinstance(pr_branch, str)
         and pr_branch == current_branch
         and state.get("open_pr_closes_issue") is True
         and state.get("open_pr_cross_repository") is False
     )
-    derived["pr_provenance"] = pr_vouched
-    if not state.get("provenance_established", False) and not pr_vouched:
+    # `pr_linkage_vouches` records whether the PR source *could* vouch;
+    # `provenance_source` records which source the operands below actually came
+    # from. They differ when both vouch, so a human reading a stop payload is never
+    # shown a PR-derived provenance that the classification did not in fact use.
+    derived["pr_linkage_vouches"] = pr_vouched
+    if not wp_vouched and not pr_vouched:
         # Neither source vouches. The workpad's recorded branch / verdict are then
         # the only remaining signals, and unestablished provenance means they may
         # be marker-forged — so they cannot be trusted to validate anything.
+        derived["provenance_source"] = None
         return ("DECISION_BLOCKED", "unverified-provenance", derived)
 
-    if state.get("provenance_established", False):
+    # PRECEDENCE — deliberate, and asymmetric: the workpad wins when both vouch.
+    # The two sources are not interchangeable. The workpad carries a run's own
+    # recorded branch and proceed verdict, which resolve a strictly finer set of
+    # verdicts (`matching-without-verdict`, `divergent-*`) than the PR can; the PR
+    # source collapses both onto one fact and therefore screens only through
+    # published-tip reachability. Preferring the workpad where it is trusted keeps
+    # an established-provenance run classifying exactly as it did before issue #780
+    # — the PR source only ever *adds* a path where there was previously a terminal
+    # stop, and never relaxes one that already had a finer answer.
+    if wp_vouched:
+        derived["provenance_source"] = "workpad"
         recorded, duplicate = parse_recorded_branch(state.get("workpad_body", ""))
         has_verdict = bool(state.get("has_proceed_verdict", False))
     else:
-        # PR-vouched only. The workpad is still untrusted here, so neither its
-        # Branch line nor a workpad-derived proceed verdict may vouch for anything
-        # — consulting them would let a forged comment steer the classification
-        # the PR was admitted to decide. The PR supplies both operands instead.
+        # PR-vouched only. The workpad is untrusted here, so neither its Branch line
+        # nor a workpad-derived proceed verdict may vouch for anything — consulting
+        # them would let a forged comment steer the classification the PR was
+        # admitted to decide. The PR supplies both operands instead. Reusing the
+        # shared arms below rather than returning early is deliberate: it keeps ONE
+        # published-tip-reachability call site and ONE reason slug for the
+        # diverged-tip stop, so that screen cannot drift between the two sources.
+        # Because `pr_vouched` already required `pr_branch == current_branch`, this
+        # path lands on the matching-branch arm by construction.
+        derived["provenance_source"] = "open-pr"
         recorded, duplicate = pr_branch, False
         has_verdict = True
     derived["recorded_branch"] = recorded
