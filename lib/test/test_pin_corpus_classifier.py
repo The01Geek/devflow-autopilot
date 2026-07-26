@@ -596,16 +596,14 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             if literal is not None:
                 literal_buckets.setdefault(literal, set()).add(row["bucket_final"])
         self.assertTrue(all(len(buckets) == 1 for buckets in literal_buckets.values()))
-        for required_literal in (
-            "SPDX-FileCopyrightText: 2026 Daniel Radman",
-            "SPDX-License-Identifier: MIT",
+        for boundary_literal in (
             "whether by a Phase-3 review finding **or by the issue",
             (
                 '"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner '
                 'reports in context>}"/../../scripts/config-get.sh .docs.internal'
             ),
         ):
-            self.assertEqual({"required-copy"}, literal_buckets[required_literal])
+            self.assertEqual({"boundary"}, literal_buckets[boundary_literal])
         self.assertNotIn(str(repo_root), inventory.read_text(encoding="utf-8"))
 
         with tempfile.TemporaryDirectory() as raw:
