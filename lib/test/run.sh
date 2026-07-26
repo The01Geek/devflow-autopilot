@@ -15857,6 +15857,20 @@ assert_eq "meta-issue keeps exactly one entry for the same issue number on a rec
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "retrospective lifecycle (compute-patterns v2 arms / pattern-state.sh / meta-issue lifecycle write)"
+# ────────────────────────────────────────────────────────────────────────────
+# Extracted to lib/test/modules/retrospective-lifecycle.sh (issue #788): the NEW
+# lifecycle surface — the v2 status arms, the migrate+reconcile reconciler, and the
+# lifecycle-record write. Deliberately partial (mirroring experiment-records.sh):
+# the pre-existing fail-closed compute-patterns/meta-issue/actionable-patterns
+# assertions stay inline above. See the module's .inventory.md.
+if ! devflow_run_full_suite_module "$LIB/test/modules/retrospective-lifecycle.sh" \
+  "retrospective-lifecycle" 28; then
+  printf 'ERROR: retrospective-lifecycle boundary could not record its result\n'
+  exit 1
+fi
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "render-report.sh / open-state-pr.sh / post-status.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( . "$LIB/render-report.sh"

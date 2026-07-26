@@ -55,6 +55,11 @@
       "path": "lib/test/modules/experiment-records.sh",
       "minimum_assertions": 132,
       "description": "Focused #431 build-experiment-records.py unified-experiment-record join: the DEVFLOW_GH-stubbed assembler driven over fixture stores with per-scenario repo roots, the joined record fields, and the config_fingerprint stamp with its partial-flag, None and canonical-hash arms"
+    },
+    "retrospective-lifecycle": {
+      "path": "lib/test/modules/retrospective-lifecycle.sh",
+      "minimum_assertions": 28,
+      "description": "Focused #788 retrospective lifecycle coverage: the v2 status arms of compute-patterns.jq (six-arm order, fix-timestamp precedence, declined→regressed, dismissed as absolute suppressor, one canonicalization), lib/pattern-state.sh migrate-then-reconcile (loop-vs-hand-written split, the five transitions with by-number fallback, idempotency, wholesale-prefetch fail-closed, no-URL warning, absent→v2 stub, two-entry derivation) and lib/meta-issue.sh's filed lifecycle-record write (keyed-by-number de-dup, no .dismissed write, --slug validation, --dry-run)"
     }
   },
   "workflows": {

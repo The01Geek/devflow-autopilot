@@ -4,8 +4,8 @@
   ],
   "files": {
     "lib/actionable-patterns.sh": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "#788 retrospective lifecycle; new v2-arm behavior in lib/test/modules/retrospective-lifecycle.sh, pre-existing fail-closed assertions inline in run.sh",
+      "owner": "retrospective-lifecycle"
     },
     "lib/cheap-gate.jq": {
       "note": "",
@@ -20,8 +20,8 @@
       "owner": "unmodularized"
     },
     "lib/compute-patterns.jq": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "#788 retrospective lifecycle; v2 status arms covered in lib/test/modules/retrospective-lifecycle.sh, legacy grouping/slug assertions inline in run.sh",
+      "owner": "retrospective-lifecycle"
     },
     "lib/config-source.sh": {
       "note": "",
@@ -56,8 +56,8 @@
       "owner": "unmodularized"
     },
     "lib/meta-issue.sh": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "#788 retrospective lifecycle; the filed lifecycle-record write covered in lib/test/modules/retrospective-lifecycle.sh, pre-existing fail-closed assertions inline in run.sh",
+      "owner": "retrospective-lifecycle"
     },
     "lib/normalize-path.sh": {
       "note": "",
@@ -66,6 +66,10 @@
     "lib/open-state-pr.sh": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "lib/pattern-state.sh": {
+      "note": "#788 retrospective lifecycle reconciler (migrate + reconcile); covered in lib/test/modules/retrospective-lifecycle.sh",
+      "owner": "retrospective-lifecycle"
     },
     "lib/post-status.sh": {
       "note": "",
@@ -84,8 +88,8 @@
       "owner": "unmodularized"
     },
     "lib/render-report.sh": {
-      "note": "",
-      "owner": "unmodularized"
+      "note": "#788 retrospective lifecycle; report rendering assertions inline in run.sh, owned by retrospective-lifecycle",
+      "owner": "retrospective-lifecycle"
     },
     "lib/resolve-bin.sh": {
       "note": "",
@@ -514,6 +518,10 @@
     "103": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "113": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
     },
     "126": {
       "note": "",
@@ -1598,6 +1606,10 @@
     "783": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "788": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
     },
     "789": {
       "note": "issue #789 tiered focused-verification policy pins (the _WSR_FOCUSED_POLICY loop's #789 arms, the receiving-code-review.md adaptation pins, and the CLAUDE.md/CONTRIBUTING.md/overview mirror + named-flake pins); the run.sh Failure recap itself is covered behaviourally by lib/test/test_module_harness.py's FailureRecapTests",
