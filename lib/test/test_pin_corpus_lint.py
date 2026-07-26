@@ -1094,6 +1094,21 @@ class PinCorpusLint810Tests(unittest.TestCase):
             if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
                 return subprocess.CompletedProcess(args, 0, audited, "")
             if (
+                "ls-tree HEAD -- lib/test/pin-corpus-adjudications.tsv"
+                in rendered
+            ):
+                return subprocess.CompletedProcess(
+                    args,
+                    0,
+                    "100644 blob object\t"
+                    "lib/test/pin-corpus-adjudications.tsv\n",
+                    "",
+                )
+            if "show HEAD:lib/test/pin-corpus-adjudications.tsv" in rendered:
+                return subprocess.CompletedProcess(
+                    args, 0, adjudication_text.encode("utf-8"), b""
+                )
+            if (
                 "show mergebase:lib/test/pin-corpus-adjudications.tsv"
                 in rendered
             ):
@@ -1904,6 +1919,66 @@ class AdjudicationChangeScanTests(unittest.TestCase):
                 self.mod.InfrastructureError, "not based on current"
             ):
                 self._scan(root, base)
+
+    def test_committed_delta_cannot_be_hidden_by_restoring_only_the_worktree(self):
+        key = "literal:" + "a" * 64
+        base_table = (
+            "adjudication_key\tbucket_final\trationale\n"
+            f"{key}\tboundary\told rationale\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, base_table)
+            table.write_text(
+                base_table.replace("old rationale", "unauthorized rationale"),
+                encoding="utf-8",
+            )
+            self._commit(root, "committed unauthorized delta")
+            self.assertEqual(
+                ["MUTATION-ROUTING\tunauthorized pin adjudication delta"],
+                self._scan(root, base),
+            )
+            table.write_text(base_table, encoding="utf-8")
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "adjudication table worktree differs from HEAD",
+            ):
+                self._scan(root, base)
+
+    def test_migration_rejects_a_committed_table_symlink(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, table = self._repo(root, self.legacy_table)
+            resolved = root / "resolved.tsv"
+            resolved.write_text(self.live_table, encoding="utf-8")
+            table.unlink()
+            table.symlink_to("../../resolved.tsv")
+            self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
+            self._commit(root, "symlinked migration table")
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError,
+                "adjudication table is not a regular HEAD blob",
+            ):
+                self._scan(root, base)
+
+    def test_clean_head_rejects_dirty_table_edits_and_deletion(self):
+        for mutation in ("edit", "delete"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                base, table = self._repo(root, self.live_table)
+                self.assertEqual([], self._scan(root, base))
+                if mutation == "edit":
+                    table.write_text(
+                        self.live_table.replace("boundary", "generated", 1),
+                        encoding="utf-8",
+                    )
+                else:
+                    table.unlink()
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError,
+                    "adjudication table worktree differs from HEAD",
+                ):
+                    self._scan(root, base)
 
 
 class StaticPinWorktreeCompositionTests(unittest.TestCase):

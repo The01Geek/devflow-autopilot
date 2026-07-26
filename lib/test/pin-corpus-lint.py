@@ -2992,14 +2992,52 @@ def scan_adjudication_changes(
     *,
     git_runner=subprocess.run,
 ):
-    """Authorize the exact base-to-worktree current-state table delta."""
+    """Authorize the exact merge-base-to-HEAD current-state table delta."""
     repo_root = Path(repo_root)
-    try:
-        current_bytes = (repo_root / _ADJUDICATION_TABLE_PATH).read_bytes()
-    except OSError as exc:
+    worktree_status = _run_git(
+        git_runner,
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        _ADJUDICATION_TABLE_PATH,
+    )
+    if worktree_status:
         raise InfrastructureError(
-            f"adjudication table unreadable: {_ADJUDICATION_TABLE_PATH}: {exc}"
+            "adjudication table worktree differs from HEAD: "
+            f"{worktree_status.strip()}"
+        )
+    listing = _run_git(
+        git_runner,
+        repo_root,
+        "ls-tree",
+        "HEAD",
+        "--",
+        _ADJUDICATION_TABLE_PATH,
+    )
+    try:
+        mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+    except ValueError as exc:
+        raise InfrastructureError(
+            "adjudication table is not a regular HEAD blob: "
+            f"{_ADJUDICATION_TABLE_PATH}"
         ) from exc
+    if (
+        mode != "100644"
+        or kind != "blob"
+        or listed_path != _ADJUDICATION_TABLE_PATH
+    ):
+        raise InfrastructureError(
+            "adjudication table is not a regular HEAD blob: "
+            f"{_ADJUDICATION_TABLE_PATH}"
+        )
+    current_bytes = _run_git_bytes(
+        git_runner,
+        repo_root,
+        "show",
+        f"HEAD:{_ADJUDICATION_TABLE_PATH}",
+    )
     current_text = _decode_utf8(current_bytes, "adjudication table")
     current = parse_current_adjudications(current_text)
     base_bytes = _run_git_bytes(
