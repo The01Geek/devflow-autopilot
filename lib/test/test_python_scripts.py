@@ -16593,15 +16593,13 @@ assert_eq("#814: the checkpoint-replay arm keeps its existing breadcrumb and add
 assert_eq("#814: the checkpoint replay still makes no PATCH and exits 0",
           (None, None), (_patched, _code))
 
+# One drive establishes both halves: `--print-body` restores the replay arm's echo,
+# AND — because it is absent from `_has_non_checkpoint_mutation`'s allowlist — a
+# checkpoint-only call carrying it still short-circuits as a replay with no PATCH.
 _code, _out, _err, _patched = _drive_cmd_update(
     _REPLAY_BODY, checkpoint=[[_CPKEY, "x"]], print_body=True)
 assert_eq("#814: --print-body restores the checkpoint-replay arm's body echo",
           (True, True), (_out != "", _out.startswith("<!-- devflow:workpad -->")))
-
-# `--print-body` is NOT a mutation: a call whose only non-checkpoint argument is the
-# flag still short-circuits as a replay and issues no PATCH.
-_code, _out, _err, _patched = _drive_cmd_update(
-    _REPLAY_BODY, checkpoint=[[_CPKEY, "x"]], print_body=True)
 assert_eq("#814: --print-body is absent from the mutation allowlist, so a "
           "checkpoint-only call carrying it still replays with no PATCH",
           (None, None), (_patched, _code))
@@ -16699,7 +16697,15 @@ assert_eq("#814: cmd_body still writes its body to stdout unconditionally",
 # Argparse rejection: `--print-body` belongs to `update` alone, so a subcommand that
 # does not define it exits 2. Driven through the real `main()` parser.
 def _run_workpad_cli(argv):
-    saved = sys.argv
+    # The gh-facing globals are stubbed the way the sibling argv drivers in this file
+    # do it, so an argv that DOES parse fails deterministically in-process instead of
+    # shelling out to a real `gh` — the assertion is about argparse's verdict, and a
+    # network call would make its result depend on the host's auth state.
+    saved_argv = sys.argv
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    workpad._run = lambda cmd, **kw: _FakeRun('')
     sys.argv = ['workpad.py'] + argv
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -16707,7 +16713,8 @@ def _run_workpad_cli(argv):
     except SystemExit as e:
         return e.code
     finally:
-        sys.argv = saved
+        sys.argv = saved_argv
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
     return None
 
 

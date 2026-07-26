@@ -1191,6 +1191,18 @@ def _strip_status_glyph(status: str) -> str:
     return s
 
 
+def _status_value_from_body(body: str) -> str:
+    """Return the live Status value from a workpad body **with its glyph intact**,
+    trimmed, or '' when there is no Status line. The single site that locates the
+    Status line: `_status_word_from_body` below strips the glyph off this value, and
+    `cmd_update`'s issue-#814 success breadcrumb reports it verbatim (the breadcrumb
+    is the caller's read-back that a `--status` PATCH landed, and the glyph is what
+    makes '🎉 Complete' recognisable at a glance). Splitting locate-the-line from
+    strip-the-glyph is what keeps the two readers from drifting apart."""
+    m = _STATUS_VALUE_RE.search(body)
+    return m.group(1).strip() if m else ''
+
+
 def _status_word_from_body(body: str) -> str:
     """Return the live Status word (glyph-stripped, trimmed) from a workpad body,
     or '' when there is no Status line. The single source of the "what is the live
@@ -2030,8 +2042,13 @@ def cmd_update(args):
     if not failed_ticks:
         _status_clause = ''
         if args.status:
-            _m = _STATUS_VALUE_RE.search(r.stdout)
-            _status_clause = f"; Status: {_m.group(1).strip()}" if _m else '; Status: (not found)'
+            # Glyph-preserving read through the shared locator, never a second
+            # regex site: `_status_value_from_body` returns '' for a response
+            # carrying no Status line, which is reported as an explicit
+            # `(not found)` rather than an empty clause a reader could mistake
+            # for "no --status was set".
+            _live = _status_value_from_body(r.stdout)
+            _status_clause = f"; Status: {_live}" if _live else '; Status: (not found)'
         sys.stderr.write(
             f"workpad.py update: PATCHed comment {comment_id}{_status_clause}\n"
         )
