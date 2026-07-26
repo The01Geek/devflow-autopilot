@@ -103,6 +103,21 @@ class MutationPinCensusTests(unittest.TestCase):
             first.master_sha256,
             hashlib.sha256(first.identity_bytes()).hexdigest(),
         )
+        dispositions = [
+            CENSUS.adjudicate(row).disposition for row in first.rows
+        ]
+        self.assertEqual(
+            dispositions.count("retire_presence_equivalent"),
+            635,
+        )
+        self.assertEqual(
+            dispositions.count("retain_helper_infrastructure_boundary"),
+            2,
+        )
+        self.assertEqual(
+            dispositions.count("retain_executable_boundary"),
+            9,
+        )
 
     def test_identity_uses_path_helper_and_normalized_call_not_locator(self) -> None:
         source = AUDITED[1]
@@ -145,6 +160,21 @@ class MutationPinCensusTests(unittest.TestCase):
         self.assertEqual(objects[-1], {"master_sha256": result.master_sha256})
         self.assertEqual(tsv.splitlines()[-1], f"# master_sha256\t{result.master_sha256}")
         self.assertLess(objects[0]["logical_call"], objects[1]["logical_call"])
+
+    def test_adjudication_tsv_names_inventory_free_source_revision(self) -> None:
+        self.repo.write(
+            AUDITED[2],
+            "devflow_module_pin_red_under n l m f\n",
+        )
+        result = self.repo.census()
+        revision = "a" * 40
+        output = CENSUS.render_adjudication_tsv(result, revision)
+        self.assertEqual(
+            output.splitlines()[0],
+            f"# source_revision\t{revision}",
+        )
+        self.assertIn("\tretire_presence_equivalent\t", output)
+        self.assertNotIn("source_revision\tself", output)
 
     def test_missing_source_fails_closed(self) -> None:
         (self.repo.root / AUDITED[-1]).unlink()
@@ -258,6 +288,24 @@ class MutationPinCensusTests(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("master_sha256", proc.stdout)
+
+        adjudication = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "--repo-root",
+                str(self.repo.root),
+                "--format",
+                "adjudication-tsv",
+                "--source-revision",
+                "b" * 40,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(adjudication.returncode, 0, adjudication.stderr)
+        self.assertIn(f"# source_revision\t{'b' * 40}", adjudication.stdout)
 
 
 if __name__ == "__main__":

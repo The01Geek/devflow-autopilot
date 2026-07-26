@@ -25,6 +25,15 @@ HELPERS = (
     "assert_count_red_under",
     "_ra_conflict_red_under",
 )
+GENERIC_HELPERS = frozenset(
+    {"assert_pin_red_under", "devflow_module_pin_red_under"}
+)
+HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES = frozenset(
+    {
+        "3d87c9425873fd95a08025c0f6b802e430445e9bf63e116ac684d3a4795d4c5f",
+        "510a4b23d191fcae604152c478b5566a054a487bd8c9bb6e85421338b934923d",
+    }
+)
 EXPECTED_SOURCE_COUNT = 12
 _WORD = r"[A-Za-z_][A-Za-z0-9_]*"
 _DEFINITION_RE = {
@@ -76,6 +85,12 @@ class CensusResult:
         if not self.rows:
             return b""
         return ("".join(f"{row.identity}\n" for row in self.rows)).encode("utf-8")
+
+
+@dataclass(frozen=True)
+class Adjudication:
+    disposition: str
+    rationale: str
 
 
 @dataclass(frozen=True)
@@ -348,6 +363,28 @@ def build_census(repo_root: Path | str) -> CensusResult:
     )
 
 
+def _identity_sha256(row: CensusRow) -> str:
+    return hashlib.sha256(row.identity.encode("utf-8")).hexdigest()
+
+
+def adjudicate(row: CensusRow) -> Adjudication:
+    identity_sha256 = _identity_sha256(row)
+    if identity_sha256 in HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES:
+        return Adjudication(
+            "retain_helper_infrastructure_boundary",
+            "outer executable assertion verifies helper failure diagnostics",
+        )
+    if row.helper not in GENERIC_HELPERS:
+        return Adjudication(
+            "retain_executable_boundary",
+            "purpose-built helper observes mutated behavior",
+        )
+    return Adjudication(
+        "retire_presence_equivalent",
+        "generic helper observes only pinned-literal cardinality in scratch copy",
+    )
+
+
 def render_jsonl(result: CensusResult) -> str:
     lines = [
         json.dumps(
@@ -357,9 +394,7 @@ def render_jsonl(result: CensusResult) -> str:
                 "logical_call": row.logical_call,
                 "line_start": row.line_start,
                 "line_end": row.line_end,
-                "identity_sha256": hashlib.sha256(
-                    row.identity.encode("utf-8")
-                ).hexdigest(),
+                "identity_sha256": _identity_sha256(row),
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -383,7 +418,7 @@ def render_tsv(result: CensusResult) -> str:
     ]
     for row in result.rows:
         call = json.dumps(row.logical_call, ensure_ascii=False)
-        identity_digest = hashlib.sha256(row.identity.encode("utf-8")).hexdigest()
+        identity_digest = _identity_sha256(row)
         lines.append(
             f"{row.path}\t{row.helper}\t{call}\t{row.line_start}\t"
             f"{row.line_end}\t{identity_digest}"
@@ -392,17 +427,55 @@ def render_tsv(result: CensusResult) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_adjudication_tsv(
+    result: CensusResult, source_revision: str
+) -> str:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", source_revision):
+        raise CensusError("source revision must be a full hexadecimal object ID")
+    lines = [
+        f"# source_revision\t{source_revision}",
+        f"# master_sha256\t{result.master_sha256}",
+        (
+            "path\thelper\tlogical_call\tline_start\tline_end\t"
+            "identity_sha256\tdisposition\trationale"
+        ),
+    ]
+    for row in result.rows:
+        decision = adjudicate(row)
+        lines.append(
+            f"{row.path}\t{row.helper}\t"
+            f"{json.dumps(row.logical_call, ensure_ascii=False)}\t"
+            f"{row.line_start}\t{row.line_end}\t{_identity_sha256(row)}\t"
+            f"{decision.disposition}\t{decision.rationale}"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path("."))
-    parser.add_argument("--format", choices=("jsonl", "tsv"), default="jsonl")
+    parser.add_argument(
+        "--format",
+        choices=("jsonl", "tsv", "adjudication-tsv"),
+        default="jsonl",
+    )
+    parser.add_argument("--source-revision")
     args = parser.parse_args(argv)
     try:
         result = build_census(args.repo_root)
+        if args.format == "adjudication-tsv" and not args.source_revision:
+            raise CensusError(
+                "adjudication-tsv requires --source-revision"
+            )
     except CensusError as exc:
         print(f"mutation-pin-census: infrastructure failure: {exc}", file=sys.stderr)
         return 2
-    output = render_jsonl(result) if args.format == "jsonl" else render_tsv(result)
+    if args.format == "jsonl":
+        output = render_jsonl(result)
+    elif args.format == "tsv":
+        output = render_tsv(result)
+    else:
+        output = render_adjudication_tsv(result, args.source_revision)
     sys.stdout.write(output)
     return 0
 
