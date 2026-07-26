@@ -64,7 +64,7 @@ review because nothing is *syntactically* broken — the affected lines still co
 they are only *semantically* stale. This doc is the internal-docs counterpart of that section: it
 records *why* each sweep exists so the skill text can stay terse.
 
-A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants. Its trigger shapes are **substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose/`SKILL.md`/doc/config as much as in code, so the preamble classifies by *what the change replicates across sites*, not by whether it is code: an add-only diff that replicates nothing across sites runs just the five always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops, but an add-only prose/doc/config diff that adds a peer-replicated rule, an enumerated-set member, or a mirrored contract literal still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b). The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
+A **"Sweep selection (run first)"** preamble in the skill indexes which of these sweeps a given diff's shape warrants. Its trigger shapes are **substrate-agnostic** — a contract, a peer-replicated rule, or an enumerated-set membership can live in prose/`SKILL.md`/doc/config as much as in code, so the preamble classifies by *what the change replicates across sites*, not by whether it is code: an add-only diff that replicates nothing across sites runs just the six always-on sweeps (2.3.3/2.3.4/2.3.4a/2.3.4b/2.3.5/2.3.6) instead of consciously dispatching the deletion/contract sweeps as no-ops, but an add-only prose/doc/config diff that adds a peer-replicated rule, an enumerated-set member, or a mirrored contract literal still runs the contract-completeness sweeps (2.3.0 / 2.3.0a / 2.3.0b). The index is **fail-safe**: each sweep's own heading (the *Triggers on* column below) stays authoritative, so a drifted or incomplete index can only over-select, never skip a warranted sweep.
 
 ## The sweeps
 
@@ -80,9 +80,10 @@ A **"Sweep selection (run first)"** preamble in the skill indexes which of these
 | 2.3.3 Convention-compliance | any code the diff **added or modified** | `CLAUDE.md` convention violations in touched code |
 | 2.3.4 Boundary-assumption | any diff that **depends on** a fact about something it does not own | claims about a dependency version, the supported runtime, a sibling producer's output, the real host, or an **external tool's output string/message/exit code** that were asserted from memory instead of verified — the external-output kind carries a reproduction obligation (paste the observed bytes; doc prose is not evidence) and the companion outcome-verification rule (a precondition check never stands in for verifying the consumed outcome). In-diff guards carved out here route to **2.3.0c** |
 | 2.3.4a Self-authored-claim reconciliation | any diff that **authors** a behavioral claim in prose — internal/external docs it edits, or code comments it adds/changes | a sentence or comment that asserts what the shipped code does but contradicts the actual code path (including the diff's *own* new code, which 2.3.4 carves out) — caught by tracing each authored claim to the code, following dispatch into pre-existing helpers the diff calls |
+| 2.3.4b Coverage-claim enumeration | any diff that **adds prose** — rule surfaces, docs, comments, `.changeset/*.md`, `CHANGELOG.md` | a **coverage universal**: a sentence asserting a universal about *this change's own coverage* ("every call site is updated", "all four arms are handled"). It describes the change rather than the shipped code, so 2.3.4a's population does not select it, and 2.3.4a's method — trace and read — could not close it anyway. Seeded by `scripts/stale-prose-lint.py`'s recognition-only coverage-universal tier run in its `--worktree` mode over the uncommitted delta, and closed by grounding each claim one of three ways: pinned by an executed enumeration, scoped, or removed |
 | 2.3.5 Simplification & Efficiency | any code the diff **added or modified** | avoidable complexity (redundant/derivable state, copy-paste variation, deep nesting, dead code) and wasted work (redundant I/O or computation, needless sequential ops, hot-path/startup cost) that only show up once the change is assembled |
 | 2.3.6 Error-handling & silent-failure | any code the diff **added or modified** | silent failures — swallowed or over-broadly-caught errors, unjustified or fail-open fallbacks, mock/stub leaks, generic/misdirected breadcrumbs, plus two fail-open guard classes mirrored from the reviewer extension: the **existence-standing-in-for-outcome** shape (verify the outcome, not the precondition) and the **un-guaranteed-tool derivation** shape (a value that decides a selection or an emission must not be derived through a tool the project's preflight does not guarantee, cosmetic sanitization excepted when it fails closed) — all shipping clean because the happy path works and only firing on an input the tests don't exercise |
-| 2.3.7 Collection-cardinality | a change that **adds a collection output with ordering, dedup, or aggregation logic** (a sorted list, deduped set, grouped/counted tally, tie-broken ranking) | a cardinality-sensitive output shipped with only a single-element test, which exercises no ordering/dedup/aggregation logic — closed by a multi-element test case (order-sensitive elements + collapsing duplicates) that would catch a wrong sort key, mis-keyed dedup, or off-by-one tally. Trigger-gated, **not** one of the five always-on sweeps |
+| 2.3.7 Collection-cardinality | a change that **adds a collection output with ordering, dedup, or aggregation logic** (a sorted list, deduped set, grouped/counted tally, tie-broken ranking) | a cardinality-sensitive output shipped with only a single-element test, which exercises no ordering/dedup/aggregation logic — closed by a multi-element test case (order-sensitive elements + collapsing duplicates) that would catch a wrong sort key, mis-keyed dedup, or off-by-one tally. Trigger-gated, **not** one of the always-on sweeps |
 
 2.3.1–2.3.3 trigger on *deletion* or *addition*. **2.3.0** fills the gap for *modification*: changing a
 contract is just as blast-radius-prone as deleting one, but it is harder to catch because every
@@ -125,7 +126,7 @@ recorded with a `--note`; only a *silent* stale enumeration is the defect.
 
 **2.3.6** front-loads the Phase 3.3 `silent-failure-hunter` review agent the way 2.3.5 front-loads `/simplify`. Its defect class — a swallowed error, an over-broad `except`/catch, a fallback that masks a failure (or fails *open*, defaulting an error to a success-shaped value), a mock/stub leaking into production, or a generic/misdirected breadcrumb — has no home among the other sweeps: it isn't a contract change (2.3.0), a deletion (2.3.1/2.3.2), or, in general, a documented `CLAUDE.md` rule (2.3.3), and it only sometimes doubles as a boundary claim (2.3.4) or added complexity (2.3.5). Baseline testing of the implement skill confirmed the gap: capable agents running 2.3.0–2.3.5 caught these defects only when they happened to overlap another sweep's trigger, attributed them inconsistently, and missed a pure swallow (a `gh … 2>/dev/null || true` that printed success for a comment that never posted) outright — exactly the findings `silent-failure-hunter` then raised in Phase 3.3. Making it an always-on, explicitly-named sweep gives the class a deterministic home so it is caught at implement time, not a review iteration later. It is a *correctness* sweep numbered to avoid renumbering its predecessors — the later trigger-gated 2.3.7 is appended after it under the same presentational convention; each sweep's intro references "2.3.0–2.3.N" of the lower-numbered sweeps, so the ordering is presentational, not an execution dependency. The sweep also carries a **per-branch-breadcrumb** sub-check: for any multi-branch no-op path the diff adds (e.g. "if A, stop; else find B; if B absent, stop"), it confirms each branch emits a distinct diagnostic naming which condition fired — two failure modes converging on one shared breadcrumb is flagged, a variant of the misdirected/generic-breadcrumb kind.
 
-**2.3.7** (collection-cardinality) is trigger-gated, not one of the five always-on sweeps: it fires only when the diff adds a **collection output whose value depends on cardinality** — a sorted list, a deduped set, a grouped/counted tally, a tie-broken ranking. That logic is invisible to a single-element test (one element is already sorted, already unique, already its own tally), so a green happy-path test with one input exercises neither the ordering comparator, the dedup key, nor the aggregation step, and a wrong sort key / mis-keyed dedup / off-by-one tally ships clean until a `pr-test-analyzer` review agent or a two-element production input hits it. The sweep requires a **multi-element** test case (order-sensitive elements plus collapsing duplicates) — a single-element happy-path test does not discharge it; where no automated test can drive the output, the obligation becomes the Phase 2.4 adversarial dry-trace over a multi-element input. It provenance-traces to the recurring missing-multi-row-test class (PR #468's `demoted[]` ordering/dedup behavior had no test until a review agent flagged it), the same way 2.3.6 homes the silent-failure class.
+**2.3.7** (collection-cardinality) is trigger-gated, not one of the always-on sweeps: it fires only when the diff adds a **collection output whose value depends on cardinality** — a sorted list, a deduped set, a grouped/counted tally, a tie-broken ranking. That logic is invisible to a single-element test (one element is already sorted, already unique, already its own tally), so a green happy-path test with one input exercises neither the ordering comparator, the dedup key, nor the aggregation step, and a wrong sort key / mis-keyed dedup / off-by-one tally ships clean until a `pr-test-analyzer` review agent or a two-element production input hits it. The sweep requires a **multi-element** test case (order-sensitive elements plus collapsing duplicates) — a single-element happy-path test does not discharge it; where no automated test can drive the output, the obligation becomes the Phase 2.4 adversarial dry-trace over a multi-element input. It provenance-traces to the recurring missing-multi-row-test class (PR #468's `demoted[]` ordering/dedup behavior had no test until a review agent flagged it), the same way 2.3.6 homes the silent-failure class.
 
 **2.3.0c** (operand-trace) sits with the additive 2.3.0a/2.3.0b family but targets a different blind spot: an operand nobody traced to its producer. Its code trigger owns exactly the diff's *own* guards that 2.3.4 carves out (2.3.4 verifies boundaries the diff doesn't own; 2.3.0a/2.3.0b watch peer sites and enumerated sets, not the operand a single guard reads), demanding a four-column operand table whose load-bearing fourth column asks *what OTHER inputs produce the same value?* — the "what else exits 2?" question that, unanswered, let a marker-deletion guard read `python3`/argparse/unopenable-script's shared exit-2 as "no workpad." When the comparand is *derived* (piped through a helper, a parse step, a subprocess, or any pipeline rather than read as a plain literal), the row additionally enumerates the malformed/empty arms the producer can emit — producer failure, unparseable output, wrong-type, valid-falsy/empty, missing key or file (the `CLAUDE.md` six-shape adversarial matrix) — and states the guard's decided behavior on each; a derived comparand with any arm left unenumerated fails open on exactly the malformed input the sweep exists to surface. Its prose-policy trigger fires on agent-executed `SKILL.md`/`phases/*.md` command blocks: a policy stated against an operand no step produces is an inert guard that silently no-ops on exactly the input it was written to gate, so every stated policy must name its observable operand, its producing step, and a route for every outcome including failure — **and place that obligation at the execution point it gates**, carrying at most a cross-reference from a thematic section, because thematic-only prose leaves the enforcement point with nothing to execute and the policy no-ops where it was meant to fire.
 
@@ -204,6 +205,63 @@ drift-proofing** clause: any comment the diff adds or changes that carries an ex
 of sites/values, or a predicate-restating scope word is rewritten or removed per the §2.3 authoring
 treatments before commit — even when it is currently accurate — because an accurate-today mirror-fact comment
 is precisely the one that silently rots once a later change updates the code and not the comment.
+
+## Coverage-claim enumeration sweep (2.3.4b)
+
+2.3.4b exists because a **coverage claim is a different claim type from a behavioral one**, and the
+difference is not a matter of degree. A behavioral claim asserts what the *shipped code* does, so it has a
+code path to trace — which is exactly what 2.3.4a prescribes, and the trace either confirms it or does not.
+A **coverage universal** asserts something about *this change itself*: that it reached every member of some
+set — "every call site is updated", "all four arms are handled", "exactly these files". There is no code
+path to trace, because the sentence is not about code behavior at all; it is about the extent of the diff.
+So 2.3.4a's population — *"any behavioral assertion the diff introduces about what the shipped code does"* —
+does not select it. The claim reads as project description rather than behavioral assertion and slips
+through the one pre-commit sweep that could have caught it.
+
+Nor would 2.3.4a's *method* have closed it if the population had. Tracing and reading verify a claim against
+a referent; a coverage universal's referent is a **set the reader has to enumerate**, and reading the
+sentence back tells you only that it is well-formed. The engine already states this on the review side —
+`agents/checklist-generator.md` calls such claims *"the highest-value verification targets precisely because
+a reviewer reading the claim confirms nothing — only a failed attempt to falsify it does."* Before 2.3.4b,
+the authoring side prescribed the reading method the review side had already declared insufficient.
+
+**Enumeration is what closes it.** The sweep's obligation is that every coverage universal in the diff's
+added prose is grounded one of three ways — **pinned** by an *executed* enumeration of the set the
+quantifier ranges over, **scoped** to what the change actually covers, or **removed**. The first is the one
+that does real work: run the search, read what it returned, and write the sentence against that result
+rather than against your recollection of the change.
+
+Two halves ship together. The **detector** is a recognition-only tier in `scripts/stale-prose-lint.py` —
+non-gating by construction, resolving no referent and never affecting the exit code — that recognizes a
+**coverage-scope** token adjacent to a coverage-referent noun and emits one row per recognized line under
+the `CU` rule token. The scope set is deliberately wider than the universal quantifiers (`only`, `complete`,
+`entire`, `whole` are scope claims about the change's own coverage and are recognized too); both closed sets
+are specified authoritatively in the helper's own header; the four tokens named here are an illustration of
+the widening, not a transcription of the set. It gives the sweep an *executed* seed list rather than a remembered one, and it costs
+no model tokens. It runs in the helper's `--worktree` post-image mode, because the shipped `--rev` mode
+resolves the post-image through `git show <rev>:<path>` — which on an uncommitted tree names the *pre*-change
+file, so a modified file's added lines fail their content anchor and a **new** file (the `.changeset/*.md`
+shape, always new) resolves to nothing at all. Two properties of the invocation are load-bearing rather than
+incidental. It **never stages** — no `git add -A`, no intent-to-add — because the fix loop that inherits this
+sweep stages by explicit path in the same iteration, and an unscoped stage here would land unrelated
+working-tree state on the branch; the untracked leg therefore names each new file the change authored rather
+than enumerating the working tree. And it accounts for **three** outcomes, not two: rows produced, a clean
+pass (zero rows *and* helper exit `0` *and* a producer that actually emitted hunks), and everything else — an
+errored, refused, or empty run — recorded as degraded. An empty row set is the same observable as a sweep
+that never ran, so without the third conjunct a run that examined nothing would read as a clean discharge.
+The **obligation** is the sweep prose itself, and it is what
+actually closes the claim: the detector's rows are a **floor**, not the population, so a universal the
+closed noun set does not recognize stays in scope and is grounded the same way.
+
+The carve-out is deliberately narrow — **extensional, not grammatical**: mandated-verbatim boilerplate, and
+text the change quotes verbatim from another artifact. Prose the change *authors* into a shipped rule
+surface is outside it, however rule-shaped it reads. That narrowing is load-bearing on this repository's
+dominant diff shape (engine prose in `skills/`, `scripts/` headers, `docs/`, `CLAUDE.md`): a broader second
+kind would be coextensive with the population the sweep exists to grade, exempting it wholesale while the
+workpad note read as a clean discharge. The declared `stale-prose-lint: rule-text` marker follows the same
+logic — it suppresses the detector's seed row (and emits a visible audit row in its place, so a marker that
+lands on a real claim stays greppable in the lint output), but it controls **detector noise** and never
+discharges the obligation. Membership in the carve-out is what exempts.
 
 ## Review-engine hardening: forced operative-sentence pin note + inline-review observability backstop
 
@@ -407,8 +465,12 @@ human merge** — not a channel the run reads to verify itself.
 The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
 — the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
 suite/lint commands are granted through `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for
-the `/devflow:*` command path). This repo grants the three direct forms — `Bash(lib/test/run.sh:*)`,
-`Bash(lib/preflight.sh:*)`, `Bash(shellcheck:*)` — under both keys. The three outcomes at the Phase 3.4
+the `/devflow:*` command path). The two keys' granted sets are **not** identical and are not
+restated here: read them from `.devflow/config.json`, which is their single source — `devflow.allowed_tools`
+for the command path and `devflow_implement.allowed_tools` for the implement run, the latter a superset
+carrying the additional heads a run needs in its own environment. A count or list transcribed onto this
+page is a mirror-fact that goes stale the moment either key changes and nothing reconciles it — which is
+exactly what happened to the enumeration this sentence replaces. The three outcomes at the Phase 3.4
 gate:
 
 - **In-env pass** — the command ran and passed here; tick the criterion on that observed result.
