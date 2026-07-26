@@ -31,13 +31,17 @@ GENERIC_HELPERS = frozenset(
 )
 HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES = frozenset(
     {
-        "3d87c9425873fd95a08025c0f6b802e430445e9bf63e116ac684d3a4795d4c5f",
-        "510a4b23d191fcae604152c478b5566a054a487bd8c9bb6e85421338b934923d",
+        "1f259de9a0422496fc20644eb0076768593e5e550b2ceba58426abfe15efde6e",
+        "22b65906375a646b8097e5841c1164d84935e0ba443ea027d8a64439bce86b09",
+        "3a2939778279bc8795054a9ba4f621d35269448d24e86b23327b30e694ff8a2b",
+        "84c69a5462a0cc22d3b0dfd9a4cbd938c997b3fcb64298a1167dba2457ec992b",
+        "e84f0528067b424dd327ac1360f7cedf8da6b7ebe5c033d88456ce1329517800",
+        "eb7c051b48605c0c70d903dbd87b484135d214e2372353e70f480b8a93455781",
+        "f700b7cc0f0c52b2708f2145a229450da40bc64371bec5cbd8c0ba40c37a584c",
     }
 )
 EXECUTABLE_BOUNDARY_IDENTITIES = frozenset(
     {
-        "3db5530cadb4b6f9736cf3abb76645300c2733a287efd57d723b83beb4cff8d5",
         "2d8275d45a27368198dead82dff33049279641d0dfb11b97c711301137f94c71",
         "6493953617fbc0748f1d528a769129bddd706736871213498c218671d0bdab30",
         "773c694960dc8b3d0157098b277e5ce69e70b8e298ddb2ed7afa194a9114a136",
@@ -58,18 +62,17 @@ _DEFINITION_RE = {
     helper: re.compile(rf"^\s*{helper}\s*\(\s*\)\s*\{{")
     for helper in HELPERS
 }
+_ASSIGNMENT = rf"(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)"
+_REDIRECTION = r"[0-9]*(?:<>|>>|>|<<|<)\S*"
 _DIRECT_CALL_RE = re.compile(
-    rf"^\s*(?:(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)\s+)*"
+    rf"^\s*(?:(?:{_ASSIGNMENT}|{_REDIRECTION})\s+)*"
     rf"(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
 )
-_COMMAND_PREFIX = (
-    rf"(?:(?:if|while|until|!|command|builtin|exec|time)\s+|"
-    rf"env(?:\s+{_WORD}=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+))*\s+)"
+_PROBE_CALL_RE = re.compile(
+    rf"^\s*(?:probe_assert|_acru_probe|probe_two_line)\s+"
+    rf"(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
 )
-_LEXICAL_CALL_RE = re.compile(
-    rf"^\s*(?:(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)\s+)*"
-    rf"(?:{_COMMAND_PREFIX})*(?P<helper>{'|'.join(HELPERS)})(?=\s|$)"
-)
+_SHELL_TOKEN_RE = re.compile(r"&&|\|\||;;|[;|&(){}!]|[^\s;|&(){}!]+")
 
 
 class CensusError(RuntimeError):
@@ -279,6 +282,55 @@ def _shell_segments(text: str) -> tuple[str, ...]:
     return tuple(segment for segment in segments if segment.strip())
 
 
+def _unquoted_shell_tokens(segment: str) -> tuple[str, ...]:
+    visible: list[str] = []
+    quote: str | None = None
+    escaped = False
+    index = 0
+    while index < len(segment):
+        char = segment[index]
+        if quote == "'":
+            visible.append(" ")
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if quote == '"':
+            visible.append(" ")
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quote = None
+            index += 1
+            continue
+        if escaped:
+            visible.append(" ")
+            escaped = False
+            index += 1
+            continue
+        if char == "\\":
+            visible.append(" ")
+            escaped = True
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            visible.append(" ")
+            quote = char
+            index += 1
+            continue
+        if char == "#" and (index == 0 or segment[index - 1].isspace()):
+            break
+        visible.append(char)
+        index += 1
+    return tuple(_SHELL_TOKEN_RE.findall("".join(visible)))
+
+
+def _lexical_helper_count(segment: str) -> int:
+    return sum(token in HELPERS for token in _unquoted_shell_tokens(segment))
+
+
 def _definition_counts(repo_root: Path) -> dict[str, int]:
     counts = dict.fromkeys(HELPERS, 0)
     try:
@@ -357,19 +409,19 @@ def _extract_source(repo_root: Path, source: str) -> tuple[CensusRow, ...]:
         for segment in _shell_segments(logical.physical):
             if any(pattern.match(segment) for pattern in _DEFINITION_RE.values()):
                 continue
-            lexical_match = _LEXICAL_CALL_RE.match(segment)
-            if lexical_match:
-                lexical += 1
-            direct_match = _DIRECT_CALL_RE.match(segment)
-            if not direct_match:
+            segment_lexical = _lexical_helper_count(segment)
+            lexical += segment_lexical
+            direct_match = _DIRECT_CALL_RE.match(segment) or _PROBE_CALL_RE.match(
+                segment
+            )
+            if not direct_match or segment_lexical == 0:
                 continue
             helper = direct_match.group("helper")
-            call_start = direct_match.start("helper")
             extracted.append(
                 CensusRow(
                     path=source,
                     helper=helper,
-                    logical_call=segment[call_start:],
+                    logical_call=segment,
                     line_start=logical.line_start,
                     line_end=logical.line_end,
                 )

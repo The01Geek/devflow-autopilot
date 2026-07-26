@@ -107,13 +107,13 @@ class MutationPinCensusTests(unittest.TestCase):
         second = CENSUS.build_census(REPO_ROOT)
         self.assertEqual(first, second)
         self.assertEqual(tuple(first.sources), tuple(sorted(AUDITED)))
-        self.assertEqual(len(first.rows), 11)
+        self.assertEqual(len(first.rows), 15)
         self.assertEqual(
             {helper: first.helper_count(helper) for helper in CENSUS.HELPERS},
             {
-                "assert_pin_red_under": 1,
+                "assert_pin_red_under": 2,
                 "devflow_module_pin_red_under": 1,
-                "assert_count_red_under": 4,
+                "assert_count_red_under": 7,
                 "_ra_conflict_red_under": 5,
             },
         )
@@ -131,11 +131,11 @@ class MutationPinCensusTests(unittest.TestCase):
         )
         self.assertEqual(
             dispositions.count("retain_helper_infrastructure_boundary"),
-            2,
+            7,
         )
         self.assertEqual(
             dispositions.count("retain_executable_boundary"),
-            9,
+            8,
         )
         retained = {
             CENSUS._identity_sha256(row)
@@ -198,6 +198,22 @@ class MutationPinCensusTests(unittest.TestCase):
             line_end=row.line_end,
         )
         self.assertNotEqual(row.identity, reformatted.identity)
+
+    def test_reindent_and_environment_prefix_change_invocation_identity(self) -> None:
+        source = AUDITED[1]
+        call = "devflow_module_pin_red_under n l m f"
+        self.repo.write(source, call + "\n")
+        plain = self.repo.census().rows[0]
+
+        self.repo.write(source, "  " + call + "\n")
+        indented = self.repo.census().rows[0]
+        self.assertEqual(indented.logical_call, "  " + call)
+        self.assertNotEqual(plain.identity, indented.identity)
+
+        self.repo.write(source, "FLAG=1 " + call + "\n")
+        prefixed = self.repo.census().rows[0]
+        self.assertEqual(prefixed.logical_call, "FLAG=1 " + call)
+        self.assertNotEqual(plain.identity, prefixed.identity)
 
     def test_sorted_jsonl_and_tsv_are_deterministic(self) -> None:
         self.repo.write(
@@ -286,6 +302,11 @@ class MutationPinCensusTests(unittest.TestCase):
             "! devflow_module_pin_red_under a b c d",
             "while devflow_module_pin_red_under a b c d; do :; done",
             "env FLAG=1 devflow_module_pin_red_under a b c d",
+            "{ devflow_module_pin_red_under a b c d; }",
+            "( devflow_module_pin_red_under a b c d )",
+            "if true; then devflow_module_pin_red_under a b c d; fi",
+            "case x in x) devflow_module_pin_red_under a b c d ;; esac",
+            "printf x devflow_module_pin_red_under",
         )
         for call in calls:
             with self.subTest(call=call):
@@ -295,6 +316,15 @@ class MutationPinCensusTests(unittest.TestCase):
                     "lexical/extracted",
                 ):
                     self.repo.census()
+
+    def test_quoted_and_commented_helper_names_are_not_lexical_calls(self) -> None:
+        self.repo.write(
+            AUDITED[2],
+            "printf '%s\\n' 'devflow_module_pin_red_under'\n"
+            'printf "%s\\n" "assert_count_red_under"\n'
+            "printf '%s\\n' value # _ra_conflict_red_under is commentary\n",
+        )
+        self.assertEqual((), self.repo.census().rows)
 
     def test_unexpected_and_duplicate_helper_definitions_fail_closed(self) -> None:
         (self.repo.root / "lib/test/module-harness.sh").unlink()
