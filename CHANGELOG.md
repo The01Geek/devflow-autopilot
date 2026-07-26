@@ -4,6 +4,56 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.2] — 2026-07-26
+
+### Changed
+### Added
+
+- Implement Phase 2.3 gains `2.3.0d`, a describing-prose reconciliation sweep armed on the edits the existing trigger set does not cover: **removing** a member from an enumerated value set (code-defined or doc-enumerated), and **weakening** a universal the change previously asserted (softening, scoping, or removing it). It reconciles prose a change made false *without editing the claim* — describing prose that names no member literal, which `2.3.0b`'s member-literal search structurally cannot reach, and surviving full-strength copies of a weakened claim in other directories. Its enumeration is repo-wide and reuses `2.3.0` step 2's existing normalized search rather than inventing a second technique, and it carries an explicit unrunnable arm so an absent tool or a denied search records a named backstop instead of a clean pass. The `/devflow:review-and-fix` loop inherits it through the existing sweep-index re-anchor in item 3b of Step 3, with no edit to that item's import.
+- The Step 3.5 fix-delta verification gate gains a further check: for each assertion the fix delta adds, the blinded subagent identifies the regression that assertion's own name and description claim it catches and reports whether the assertion *as reported* singles that regression out — naming the reportable outcomes (no state change under the named regression; a state change under a different cause; a reported identity indistinguishable from a sibling arm). An assertion whose target cannot be read is reported **unestablished**, never clean.
+
+### Changed
+
+- The Step 3.5 gate's dispatch scope admits a bounded read of each added assertion's own target for the new check alone, and its severity-graded routing arms are scoped to the two pre-existing checks so every gate input has exactly one applicable disposition. The new check's disposition inherits the gate's existing 2-inner-attempt cap, cap-counting promotion, and at-cap carry into the convergence shadow.
+- `fixing.md` item 3b now distinguishes a sweep's **trigger**, which is scoped to the fix delta without exception, from a triggered sweep's **enumeration**, which may exceed the delta only where that sweep's own Phase 2.3 definition states a repo-wide domain (`2.3.0`, `2.3.0a`, `2.3.0b`, `2.3.0d`); every other sweep's enumeration stays delta-bounded. Both of item 3b's statements of the bound carry the distinction.
+
+### Fixed
+
+- `fixing.md` item 3a's locate step instructed `git grep -n`, which item 3b in the same file prohibits and which no capability profile grants — so the step was silently refused on both cloud tiers. It now instructs the granted command forms item 3b names, and the implement Phase 2.3 prose's own `git grep -n` instructions are reconciled to those same forms.
+- `docs/DEVFLOW_SYSTEM_OVERVIEW.md` and `docs/shadow-review.md` described the Step 3.5 gate as firing on every iteration unconditionally while omitting its no-fix skip arm, and the overview's item-3b bullet pointed at a page carrying no item-3b content. Both are corrected, and both pages now describe the gate's third check.
+
+## [2.22.1] — 2026-07-26
+
+### Fixed
+- **Audited test sources are temporarily deletion-only.** The required gate rejects additions, edits, reformats, and moves in the 12 frozen sources until the legacy mutation-pin census and remediation are complete.
+
+## [2.22.0] — 2026-07-26
+
+### Changed
+- **`workpad.py update` no longer writes the patched workpad body to stdout by
+  default.** The echo cost a caller the whole workpad comment on every call — thousands
+  of tokens per phase boundary in a `/devflow:implement` run — and no production caller
+  consumed it (the four in-repo test harnesses that did now pass `--print-body`).
+  The exit code is now the documented success signal for a clean mutation, and a short
+  stderr breadcrumb naming the PATCHed comment id (plus the `Status:` value read back
+  from the PATCH response on a `--status` call) keeps a successful call distinguishable
+  from one a permission matcher silently refused. The unchanged failure-isolation
+  contract still governs a **volatile tick miss**, where the exit code is non-zero
+  *and* the call's other mutations did land — so a non-zero exit never means "nothing
+  landed"; re-tick only the named row rather than re-sending the whole call. The PATCH
+  payload, every exit code, and every existing stderr diagnostic are unchanged, and the
+  volatile-tick-miss path still writes the body because the caller must re-resolve a
+  checkbox index against it. One stderr line shape is **new** beside the breadcrumb —
+  `workpad.py update: WARNING: the PATCH response reads Status …, not the requested …`,
+  emitted on any `--status` call that PATCHed whose read-back does not match — on the
+  exit-0 paths and on the non-zero volatile-tick-miss path alike — so a consumer that
+  parses `update`'s stderr should expect it.
+  **This is behavior-changing for any out-of-tree caller that captures `update`'s
+  stdout**: pass the new `--print-body` flag to restore the previous bytes exactly. The
+  flag exists from the release this changeset produces onward, so a vendor tree pinned
+  to an earlier `devflow_version` rejects it with an argparse error rather than printing
+  the old body — pin forward before adding it to a consumer recipe. (#814)
+
 ## [2.21.24] — 2026-07-26
 
 ### Fixed
