@@ -6,8 +6,10 @@ type: Changed
 - **`/devflow:create-issue` Step 3.6 audits no longer cap the auditor at five findings.** The
   fresh-context audit prompt's `Cap: at most five findings.` instruction is replaced by an
   explicit no-maximum instruction paired with a per-finding length discipline, so a draft with
-  more than five real defects gets its whole finding set in one round instead of costing the
-  operator a round per five. Two results were registered on the issue's own drafting run. In a
+  more than five real defects is no longer truncated to five, instead of costing the operator a
+  round per five. No exhaustiveness is claimed: the change removes the numeric ceiling, it does
+  not establish that a round found everything. Two results were registered on the issue's own
+  drafting run. In a
   four-way dispatch over identical draft bytes the capped arm returned 5 while the three uncapped
   arms returned 15, 20 and 22 — two of those three reported stopping short of exhaustion, so 20
   and 22 are lower bounds rather than totals, and the capped arm was also the only one carrying
