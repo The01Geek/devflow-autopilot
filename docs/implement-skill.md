@@ -276,9 +276,9 @@ substring of the operative sentence" — unfalsifiable self-testimony) with an *
 behavioral-fix pin is expressed through **`assert_pin_red_under <name> <literal> <mutation> [file]`** (the
 mutation-taking removal-proof assertion in `lib/test/run.sh`), passing a `sed -E` mutation that
 re-introduces the named bug by deleting *only* the operative sentence, and the workpad `--note` records
-**the mutation you ran and the pin you observed go RED** under it. Unlike `assert_pin_red_on_removal`
-(whole-line deletion, which reports `PASS->FAIL` for *any* present-and-unique literal — framing or
-operative alike), `assert_pin_red_under` reports a framing-only pin **RED** when it survives the operative
+**the mutation you ran and the pin you observed go RED** under it. A generic whole-line deletion check
+reports `PASS->FAIL` for *any* present-and-unique literal — framing or operative alike; by contrast,
+`assert_pin_red_under` reports a framing-only pin **RED** when it survives the operative
 mutation, so the operative-vs-framing distinction is enforced mechanically rather than by author
 diligence. The requirement lives at three co-equal homes — `phase-2-implement.md` §2.3 (the implement-path
 author), `skills/review-and-fix/references/fixing.md`'s Step 3 mutation-check step (the fix-loop author), and
@@ -384,9 +384,9 @@ snapshot-missing case above. Because the
 `APPROVE WITH UNRESOLVED SHADOW FINDINGS` path can drive a **second**, separate inline
 `review-and-fix` invocation (the bounded re-review in §3.3), the orchestrator re-runs the whole
 snapshot-then-backstop procedure around that second invocation too — a fresh this-run baseline
-before, the persistence check after — so it is not left unguarded at the same seam. The §3.3
-clause is pinned by coupled `lib/test/run.sh` removal-proof assertions (#235 finding B, extended
-by the #236 review).
+before, the persistence check after — so it is not left unguarded at the same seam. The retained
+§3.3 executable boundaries are checked directly in `lib/test/run.sh` (#235 finding B, extended
+by the #236 review); detailed phase prose is intentionally not existence-pinned.
 
 **The backstop detects a dropped telemetry gap; the upstream fix is to not drop it (#296).** The
 Layer-3 `--persist` backstop can only recover what was *written* — so the real protection is that the
@@ -631,7 +631,7 @@ A `/devflow:implement` run can *under-complete* Phase 4: it commits the Phase 4.
 - **Terminal-status self-check (`skills/implement/SKILL.md`).** A cross-phase invariant near the Completion Checklist forbids the orchestrator from emitting its run-final message while the workpad `Status` is any in-progress value; it must first have reached a terminal `Status` — `Complete` (🎉) or `Blocked` (👎). The check keys on the workpad `Status`, **not** on PR draft state, so the intended `implement_pr_state=draft` path (which still reaches `Status: Complete`) is never a false positive, while a published PR whose workpad is still `Documenting` does trip it. It reuses the existing `🚀`/`🎉`/`👎` status vocabulary from `scripts/workpad.py` — no new status value.
 - **Phase 4.1 post-subagent re-anchor (`skills/implement/phases/phase-4-documentation.md`).** After the Phase 4.1 `devflow:docs` subagent returns and its docs are committed, the orchestrator re-`Read`s `phases/phase-4-documentation.md` (via the same portable `${CLAUDE_SKILL_DIR:-…}` skill-directory anchor the entry-gate uses) before §4.2, re-anchoring the remaining §4.2/§4.3 procedure that a long context-isolated subagent return may have evicted from the working set. It is scoped to **subagent** returns — here, the Phase 4.1 docs subagent; the Phase 2 and Phase 3 subagent returns carry their own phase entry-gate reads. A **Skill-tool** return is covered by the separate generalized re-anchor below. Phase 2's *dispatch* idempotency has its own dedicated source — the §2.0 resume-idempotency gate stated authoritatively in `skills/implement/phases/phase-2-implement.md` — so the "own entry-gate reads" scoping restores only the Phase 2 procedure and is not evidence Phase 2 needs no idempotency mechanism.
 
-Both are prose contracts, so their automated boundary is a coupled pin assertion in `lib/test/run.sh` (the same RED/GREEN mechanism the engine uses for skill contracts): each **operative** clause carries an `assert_pin_unique` presence pin (exactly-once) *and* an `assert_pin_red_on_removal` proof that it flips RED against the un-pinned source; the section heading is pinned presence-only. The always-loaded orchestrator also repeats the Phase 4.1 re-anchor *trigger* in its Phase 4 section (the phase file carries the operative instruction, but the trigger to re-read survives the subagent-return eviction only if it lives in the always-resident body), and the terminal-status self-check binds every termination path — not only a deliberate wrap-up — so a run that simply halts at "documentation done" without concluding is still caught. To make that binding checkable rather than merely stated, the orchestrator must **read the live workpad `Status` line immediately before emitting any run-final message** — from the comment, not from its memory of where the run got to — and conclude only when that line reads a terminal value.
+Both are prose contracts, so their current automated source boundary in `lib/test/run.sh` is an exactly-once `assert_pin_unique` presence assertion for each operative clause; the section heading is pinned presence-only. The always-loaded orchestrator also repeats the Phase 4.1 re-anchor *trigger* in its Phase 4 section (the phase file carries the operative instruction, but the trigger to re-read survives the subagent-return eviction only if it lives in the always-resident body), and the terminal-status self-check binds every termination path — not only a deliberate wrap-up — so a run that simply halts at "documentation done" without concluding is still caught. To make that binding checkable rather than merely stated, the orchestrator must **read the live workpad `Status` line immediately before emitting any run-final message** — from the comment, not from its memory of where the run got to — and conclude only when that line reads a terminal value.
 
 ### Nested-skill tail-call guard (Skill rule, completion re-anchor, and `CLAUDE.md` carve-out)
 

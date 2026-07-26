@@ -323,6 +323,22 @@ devflow_run_focused_python_test \
 rm -f "$_HPG_PIN_LINT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#810 red-on-removal retirement manifest"
+# ────────────────────────────────────────────────────────────────────────────
+# The retirement census is a permanent executable contract: one test regenerates
+# the exact 113-call historical population and its dispositions from the frozen
+# source revision; the other proves the current classifier corpus remains closed.
+_HPG_RETIREMENT_OUT="$(mktemp "$_hpg_tmp_root/retirement-manifest-unit.XXXXXX")" || {
+  printf 'could not allocate the #810 retirement-manifest unit-test capture\n' >&2
+  return 1
+}
+devflow_run_focused_python_test \
+  "#810 red-on-removal retirement manifest: focused Python tests pass" \
+  "$LIB/test/test_red_on_removal_retirement_manifest.py" \
+  "$_HPG_RETIREMENT_OUT"
+rm -f "$_HPG_RETIREMENT_OUT"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "issue #591: coverage-map ratchet guard"
 # ────────────────────────────────────────────────────────────────────────────
 # Live-tree ratchet: the guard enumerates git-tracked depth-1 lib/scripts units

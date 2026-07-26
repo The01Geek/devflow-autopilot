@@ -98,8 +98,8 @@ rule, a coupled-invariant pin, a regression guard), express it through **`assert
 — the mutation-taking removal-proof assertion in `lib/test/run.sh`
 (`assert_pin_red_under <name> <literal> <mutation> [file]`) — passing a `sed -E`
 **mutation that re-introduces the named bug** by removing *only* the operative sentence from a
-scratch copy. Unlike `assert_pin_red_on_removal` (whole-line deletion, which reports PASS→FAIL for
-*any* present-and-unique literal, framing or operative alike), `assert_pin_red_under` reports a
+scratch copy. A generic whole-line deletion check reports PASS→FAIL for *any* present-and-unique
+literal, framing or operative alike; by contrast, `assert_pin_red_under` reports a
 framing-only pin **RED** when it survives the operative mutation, so the pin proves it catches the
 *guarded regression*, not merely its own line vanishing.
 
