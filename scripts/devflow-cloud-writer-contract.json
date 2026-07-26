@@ -48,10 +48,10 @@
     "skills/review/phases/phase-0-setup.md": "165ebacd41e4004b0118a405457e28062559320019fc2e8f87527f490f304e75",
     "skills/review/phases/phase-1-checklist.md": "f60437f19cac1c4466c5a8085ff6588527026b32f9fb2b0f8f903e134cf01db5",
     "skills/review/phases/phase-2-verification.md": "d32cb1201112bc3cec209a07c7e1b425d3de8b1bce65fc30e847b1d2e25247b0",
-    "skills/review/phases/phase-3-agents.md": "23f817d7b1be7c0ea1e153ed9fdb5a904201a80b7eed1b31d5175e9550e56407",
+    "skills/review/phases/phase-3-agents.md": "2c1e6dfa31e9658ddcadea266c5ada059a3c1c2fa10bc42a68fee98afa72fe46",
     "skills/review/phases/phase-4-1-7-stale-adjudication.md": "99bad7aea7a73f2d1853e5fdec1512db5b957b7e46a78ac5d3b20edd20fdb591",
     "skills/review/phases/phase-4-4-github-post.md": "335284a3d72f00b7183f04fd146ebf032985a01ed45322988d3ff7f0c0d2a12f",
-    "skills/review/phases/phase-4-verdict.md": "0379e37d698359f20aea628dd1ca69c1e9fc1f2bfe8269eb0c104c70731ec5b2"
+    "skills/review/phases/phase-4-verdict.md": "71696530f93b05466efbac288f518c19c7c6c93e67379e11b28ee92ae30e8822"
   },
   "legacy_profile_baseline": "2.15.13",
   "protocol": "devflow-cloud-writer-contract-v1",
