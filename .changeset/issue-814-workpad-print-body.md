@@ -18,8 +18,9 @@ type: Changed
   volatile-tick-miss path still writes the body because the caller must re-resolve a
   checkbox index against it. One stderr line shape is **new** beside the breadcrumb —
   `workpad.py update: WARNING: the PATCH response reads Status …, not the requested …`,
-  emitted on an exit-0 call whose `--status` read-back does not match — so a consumer
-  that parses `update`'s stderr should expect it.
+  emitted on any `--status` call that PATCHed whose read-back does not match — on the
+  exit-0 paths and on the non-zero volatile-tick-miss path alike — so a consumer that
+  parses `update`'s stderr should expect it.
   **This is behavior-changing for any out-of-tree caller that captures `update`'s
   stdout**: pass the new `--print-body` flag to restore the previous bytes exactly. The
   flag exists from the release this changeset produces onward, so a vendor tree pinned

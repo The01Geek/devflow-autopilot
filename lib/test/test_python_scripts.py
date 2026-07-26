@@ -16796,6 +16796,30 @@ assert_eq("#814: an absent-key checkpoint insert PATCHes and writes the success 
           (True, 1),
           (_patched is not None,
            _err.count("workpad.py update: PATCHed comment ")))
+# ... and the read-back guard is gated on `--status` having been REQUESTED, not merely
+# on a Status line existing in the response. This same call carries no --status while
+# its fixture body does carry a Status row, so a guard that compared the read-back
+# unconditionally would fire a WARNING about a status this caller never asked for.
+assert_eq("#814: a call carrying no --status raises no landed-Status mismatch WARNING",
+          False, "the PATCH response reads Status" in _err)
+
+# The success breadcrumb is the caller's "it landed" signal, so the paths that never
+# PATCH must not emit it — otherwise the absent-breadcrumb rule the skill routes on
+# reads a success line on a run that persisted nothing. The stdout-silence half of
+# each path is asserted in run.sh's #814 block; these cover the stderr half.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, replace_plan_file="/nonexistent/devflow-814-x")
+assert_eq("#814: a structural abort makes no PATCH and writes no success breadcrumb",
+          (True, None, 0),
+          (_code != 0, _patched,
+           _err.count("workpad.py update: PATCHed comment ")))
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, note=['n'], expect_comment_id="999")
+assert_eq("#814: a failed --expect-comment-id precondition makes no PATCH and writes "
+          "no success breadcrumb",
+          (True, None, 0),
+          (_code != 0, _patched,
+           _err.count("workpad.py update: PATCHed comment ")))
 
 
 # `cmd_patch` carries an independent copy of the same write, and real consumers
