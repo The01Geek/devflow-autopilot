@@ -1155,6 +1155,15 @@ dispatched as an *installed skill*, so its `${CLAUDE_SKILL_DIR}` anchor resolves
 plugin checkout rather than the vendored tree; without the wildcard rule its prompt-extension
 load is denied and the consumer's extension silently never loads for that reviewer.
 
+**Which profiles carry the `*/load-prompt-extension.sh` wildcard.** The `review` and
+`command` profiles both carry the directory-agnostic `Bash(*/load-prompt-extension.sh:*)`
+wildcard (the `review` profile for the auto-review reviewer above; the `command` profile
+because `/devflow:requesting-code-review` is also invocable directly as an installed skill,
+where the anchor resolves to the plugin checkout outside the vendored tree). The `implement`
+profile does **not** carry the wildcard — under the Phase-3 dispatch the orchestrator supplies
+the reviewer the **vendored literal** `.devflow/vendor/devflow/scripts/load-prompt-extension.sh`,
+which `implement` already grants, so no wildcard is needed there.
+
 ## Effectiveness telemetry on the cloud `/devflow:implement` job
 
 `/devflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
