@@ -634,10 +634,12 @@ pending state would carry no signal):
 
 ```bash
 MIN=$($LIB/../scripts/config-get.sh .devflow_retrospective.min_occurrences 2)
-# The full (unfiltered) pattern view: compute-patterns.jq over the reconciled state.
-FULL_VIEW="$($LIB/../scripts/run-jq.sh -sc --slurpfile overrides .devflow/learnings/overrides.json -f $LIB/compute-patterns.jq .devflow/learnings/retrospectives.jsonl 2>/dev/null || echo '{}')"
 ELIGIBLE_N=$($LIB/../scripts/run-jq.sh 'length' .devflow/tmp/patterns.json)
+# Only the exhausted-loop branch needs the full view, so compute it inside the guard —
+# a healthy run (eligible set non-empty) never pays for this second compute-patterns pass.
 if [ "${ELIGIBLE_N:-0}" -eq 0 ]; then
+  # The full (unfiltered) pattern view: compute-patterns.jq over the reconciled state.
+  FULL_VIEW="$($LIB/../scripts/run-jq.sh -sc --slurpfile overrides .devflow/learnings/overrides.json -f $LIB/compute-patterns.jq .devflow/learnings/retrospectives.jsonl 2>/dev/null || echo '{}')"
   SUPPRESSED="$(printf '%s' "$FULL_VIEW" | $LIB/../scripts/run-jq.sh -c --arg min "$MIN" '
     ($min | tonumber) as $min
     | [ to_entries[] | select(.value.occurrence_count >= $min)

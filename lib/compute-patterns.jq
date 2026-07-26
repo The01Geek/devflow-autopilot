@@ -127,9 +127,8 @@ def fixes_for($entries; $slug):
     | (
         if   ($dismissed | has($slug)) then "dismissed"
         elif $last_fix_ts != null and $last_occ_ts != null and $last_occ_ts > $last_fix_ts then "regressed"
-        elif $record_state == "declined" then "declined"
-        elif $record_state == "filed" then "filed"
-        elif $record_state == "fixed" then "fixed"
+        # declined/filed/fixed are exactly the record-state values that pass through unchanged.
+        elif ($record_state == "declined" or $record_state == "filed" or $record_state == "fixed") then $record_state
         elif $record == null and ($fixes | length) > 0 then "fixed"
         else "open"
         end
