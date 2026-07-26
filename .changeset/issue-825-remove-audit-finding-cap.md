@@ -7,11 +7,15 @@ type: Changed
   fresh-context audit prompt's `Cap: at most five findings.` instruction is replaced by an
   explicit no-maximum instruction paired with a per-finding length discipline, so a draft with
   more than five real defects gets its whole finding set in one round instead of costing the
-  operator a round per five. Measured on the issue's own drafting run, the capped auditor
-  returned exactly five findings on eight consecutive rounds while uncapped auditors over the
-  same bytes returned 15, 20 and 22 — and because two of those three reported stopping short of
-  exhaustion, 20 and 22 are lower bounds rather than totals. Four defects reproduced by three or
-  four independent auditors had survived all eight capped rounds. The Quiet Killer keeps its semantics — one assessed
+  operator a round per five. Two results were registered on the issue's own drafting run. In a
+  four-way dispatch over identical draft bytes the capped arm returned 5 while the three uncapped
+  arms returned 15, 20 and 22 — two of those three reported stopping short of exhaustion, so 20
+  and 22 are lower bounds rather than totals, and the capped arm was also the only one carrying
+  the canonical template lens, making the contrast cap-plus-lens rather than cap alone.
+  Separately, the capped arm returned exactly five on eight consecutive rounds against four
+  different draft revisions — a ceiling-saturation result no lens hypothesis explains — and four
+  defects reproduced independently by three or four of the four auditors had survived all eight
+  of those rounds. The Quiet Killer keeps its semantics — one assessed
   slot rather than a quota, at most one qualifying finding, with `Quiet Killer: none` as an
   explicit alternative that is not itself a finding — and the Step 3.6 dimension-list growth
   policy is restated as a reporting-order rule grounded in the orchestrator's runtime
