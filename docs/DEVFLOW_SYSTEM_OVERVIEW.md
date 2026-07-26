@@ -851,7 +851,7 @@ Thin by default (installs workflows, actions, a local marketplace, a config scaf
 └── marketplace.json     # this repo is its own marketplace
 skills/                  # one SKILL.md per skill
 ├── implement/phases/    #   /devflow:implement's per-phase reference files
-├── implement/references/#   /devflow:implement's predicate-gated references (§8)
+├── implement/references/ #  /devflow:implement's predicate-gated references
 └── review/phases/       #   the review engine's gated per-phase references (§8)
 agents/                  # checklist-generator / -deduper / -verifier
 scripts/                 # branch-for-issue.py, config-get.sh, ensure-label.sh,

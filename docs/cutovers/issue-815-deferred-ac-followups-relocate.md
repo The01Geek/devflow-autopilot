@@ -5,9 +5,12 @@ kind: relocate
 
 ## Source rows
 
-- `skills/implement/phases/phase-4-documentation.md` (mandatory, `implement-flow`) — 116,623
-  bytes / 699 lines before this change, of which section 4.0 (the deferred-AC follow-up
-  filing procedure, lines 7–128) was 23,242 bytes. The orchestrator's Phase 4 entry-gate
+- `skills/implement/phases/phase-4-documentation.md` (mandatory, `implement-flow`) — 116,879
+  bytes / 701 lines at this branch's merge base, of which section 4.0 (the deferred-AC
+  follow-up filing procedure, lines 7–128) was 23,241 bytes. Issue #815 quotes 116,623 /
+  699 lines: that was the true size when the issue was filed, and a concurrently-merged PR
+  added 256 bytes to §4.1 before this branch merged the base. Both figures are correct at
+  their own moment; the merge-base figure is the one this move's delta is measured against. The orchestrator's Phase 4 entry-gate
   reads the whole file on every `/devflow:implement` run, and re-reads it at each mid-phase
   re-anchor, so section 4.0's bytes were paid by every run and re-paid by every re-anchor —
   including the runs whose predicate could not fire.
@@ -30,17 +33,18 @@ degraded arm.
 
 | File | Before | After |
 | --- | --- | --- |
-| `skills/implement/phases/phase-4-documentation.md` | 116,623 | 96,620 |
+| `skills/implement/phases/phase-4-documentation.md` | 116,879 | 96,269 |
 | `skills/implement/references/deferred-ac-followups.md` | — | 26,705 |
 
-Removing section 4.0 alone leaves 93,381, so the routing stub is 3,239 bytes against the
-acceptance criterion's ~3,200-byte allowance, landing the phase file 3 bytes under its
-96,623 ceiling. That margin is thin by construction rather than by oversight: the stub was
-trimmed across three passes and every remaining element is one the acceptance criteria
-require it to carry separately — the predicate call, each of the three exit-code arms, the
-marker contract, the degraded arm and its stated residual, and the self-sufficiency
-sentence. A later edit that grows the phase file must re-derive the figure rather than
-assume headroom; `lib/test/run.sh` asserts the ceiling positionally so the drift is loud.
+Removing section 4.0 alone leaves 93,638, so the routing stub is 2,631 bytes — inside the
+acceptance criterion's ~3,200-byte allowance — and the phase file lands 354 bytes under its
+96,623 ceiling. The stub was trimmed twice: once at authoring time, and again after the base
+merge added 256 bytes to §4.1 and pushed the file over the ceiling. Every remaining element
+is one the acceptance criteria require it to carry separately — the predicate call, each of
+the three exit-code arms, the marker contract, the degraded arm and its stated residual, and
+the self-sufficiency sentence — so the remaining headroom is what a future edit has to work
+within, not slack to spend freely. `lib/test/run.sh` asserts the ceiling positionally, so a
+later edit that grows the phase file goes RED rather than drifting.
 
 These figures are a **past-time snapshot**, not a live measurement: they record what the
 move cost at the moment it was made, so a later change to either file does not retroactively

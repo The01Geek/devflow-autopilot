@@ -35976,8 +35976,9 @@ if [ "$I815_S40" != "/dev/null" ]; then
     "$(grep -cF 'gh issue create' "$I815_S40" || true)"
 fi
 # An enforcement constant, registered per the #656 exception: 96623 is issue #815's
-# acceptance ceiling (at least 20,000 bytes below the 116,623 the file measured before the
-# move). It is pinned rather than rendered because a rendered figure would move with the
+# acceptance ceiling, fixed by the issue against the 116,623 the file measured when it was
+# filed (this branch's merge base had since grown to 116,879, which the ceiling still
+# clears). It is pinned rather than rendered because a rendered figure would move with the
 # file and enforce nothing. Provenance and the measured delta:
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
@@ -36047,8 +36048,9 @@ assert_eq "#815 the module-runner fixture materialises the gated reference" "yes
   "$(grep -qF 'skills/implement/references' "$LIB/../lib/test/test_module_runner.py" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the fixture's partial copy must carry every bundle member or its emptied-phase proof is confounded
 I815_REG='{"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false}'
 assert_eq "#815 the flight-recorder registry carries a reference load_class row for implement" "yes" "$(grep -qF "$I815_REG" "$LIB/../scripts/workflow-flight-recorder-registry.json" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- the registry row's own load_class/required vocabulary; required:false records that a predicate-gated surface is correctly absent from most runs
-# The three prose mirrors (docs/DEVFLOW_SYSTEM_OVERVIEW.md, docs/cloud-allowlist.md,
-# lib/intervention-surfaces.md) are updated by this change but deliberately carry NO pin:
+# The prose mirrors this change updates (docs/DEVFLOW_SYSTEM_OVERVIEW.md,
+# docs/cloud-allowlist.md, lib/intervention-surfaces.md, docs/implement-skill.md, and the
+# prompt-extension trigger-glob lists) deliberately carry NO presence pin:
 # a documentation-presence assertion is exactly the wording-only class the #810 authoring
 # policy prohibits, and the #434 stale-prose self-scan is what covers doc drift.
 # The masker's paren-depth arithmetic inside a code frame had no nested fixture.
