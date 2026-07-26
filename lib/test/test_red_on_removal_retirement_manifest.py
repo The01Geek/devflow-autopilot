@@ -39,6 +39,9 @@ EXPECTED_DIGESTS = {
     "sole-distinct-pair-sha256": (
         "82bdcf80d68b72311786cc9502c62c055ac64d20b734d19b36a7bcf5218b226a"
     ),
+    "disposition-map-sha256": (
+        "902f9efac77c6dfd68516d9ced5f2737dfc840706706ec793251d296fc09ad1b"
+    ),
 }
 MANIFEST_COLUMNS = (
     "source_file",
@@ -117,6 +120,34 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
         self.assertEqual(113, len(rows))
         self.assertEqual(113, len({site_identity(row) for row in rows}))
         self.assertEqual(EXPECTED_DISPOSITIONS, Counter(row["disposition"] for row in rows))
+        self.assertEqual(
+            EXPECTED_DIGESTS["disposition-map-sha256"],
+            metadata["disposition-map-sha256"],
+        )
+
+        disposition_lines = [
+            "\t".join(
+                (
+                    compact_json(row["source_file"]),
+                    str(row["helper"]),
+                    compact_json(row["assertion_name"]),
+                    compact_json(row["literal"]),
+                    compact_json(row["resolved_target"]),
+                    "true" if row["target_defaulted"] else "false",
+                    str(row["disposition"]),
+                )
+            )
+            for row in rows
+        ]
+        disposition_canonical = (
+            "source_file\thelper\tassertion_name\tliteral\tresolved_target\ttarget_defaulted\tdisposition\n"
+            + "\n".join(sorted(disposition_lines))
+            + "\n"
+        )
+        self.assertEqual(
+            EXPECTED_DIGESTS["disposition-map-sha256"],
+            sha256_text(disposition_canonical),
+        )
 
         paired = [row for row in rows if row["disposition"] == "redundant_retire"]
         paired_lines = [
@@ -144,8 +175,8 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
         )
 
         sole = [row for row in rows if row["disposition"] != "redundant_retire"]
-        self.assertTrue(all(row["call_sha256"] for row in sole))
-        self.assertTrue(all(not row["call_sha256"] for row in paired))
+        self.assertTrue(all(row["call_sha256"] != "-" for row in sole))
+        self.assertTrue(all(row["call_sha256"] == "-" for row in paired))
         self.assertEqual(
             EXPECTED_DIGESTS["sole-call-sha256"],
             sha256_text("\n".join(sorted(row["call_sha256"] for row in sole)) + "\n"),
@@ -186,7 +217,7 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
         }
         self.assertEqual(expected, {site_identity(row) for row in rows})
 
-    def test_historical_adjudications_close_the_classifier_corpus(self):
+    def test_current_worktree_adjudications_close_the_classifier_corpus(self):
         # Break caught: a stale key or new unclear pin reaches inventory generation.
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw) / "inventory.tsv"
@@ -211,8 +242,6 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
                     str(tracked),
                     "--output",
                     str(output),
-                    "--revision",
-                    BASE_REVISION,
                     "--expected-out-of-scope",
                     "0",
                 ],
