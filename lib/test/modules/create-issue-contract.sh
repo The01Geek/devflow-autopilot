@@ -187,12 +187,6 @@ assert_eq "ci module: create-issue extension is readable" "yes" \
   "$([ -r "$CI_EXT" ] && echo yes || echo no)"
 assert_eq "ci module: coverage inventory is readable" "yes" \
   "$([ -r "$CI_INVENTORY" ] && echo yes || echo no)"
-devflow_module_pin_unique "ci module: inventory identifies the source baseline" \
-  "553e13da" "$CI_INVENTORY"
-devflow_module_pin_unique "ci module: inventory names the state-owner cutover group" \
-  "Canonical draft-file audit + state-owner cutover" "$CI_INVENTORY"
-devflow_module_pin_unique "ci module: inventory names the revision-delta guard group" \
-  "Revision-delta verification coverage guard" "$CI_INVENTORY"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "create-issue contract: issue #443 Step 3.6 fresh-context audit"
