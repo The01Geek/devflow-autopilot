@@ -68,6 +68,14 @@ _DEFINITION_RE = {
     )
     for helper in HELPERS
 }
+_DEFINITION_TEXT_RE = {
+    helper: re.compile(
+        rf"(?m)^[ \t]*(?:{helper}[ \t]*\([ \t]*\)|"
+        rf"function[ \t]+{helper}(?:[ \t]*\([ \t]*\))?)[ \t]*"
+        rf"(?:(?:#[^\n]*)?\n[ \t]*)*\{{"
+    )
+    for helper in HELPERS
+}
 _ASSIGNMENT = rf"(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)"
 _REDIRECTION = r"[0-9]*(?:<>|>>|>|<<|<)\S*"
 _DIRECT_CALL_RE = re.compile(
@@ -337,7 +345,9 @@ def _lexical_helper_count(segment: str) -> int:
     return sum(token in HELPERS for token in _unquoted_shell_tokens(segment))
 
 
-def _definition_counts(repo_root: Path) -> dict[str, int]:
+def _definition_counts(
+    repo_root: Path, audited_sources: frozenset[str]
+) -> dict[str, int]:
     counts = dict.fromkeys(HELPERS, 0)
     try:
         result = subprocess.run(
@@ -408,9 +418,16 @@ def _definition_counts(repo_root: Path) -> dict[str, int]:
             ) from exc
         except OSError as exc:
             raise CensusError(f"cannot read test shell source: {path}: {exc}") from exc
+        path_definition_count = 0
+        for helper, pattern in _DEFINITION_TEXT_RE.items():
+            matches = tuple(pattern.finditer(text))
+            counts[helper] += len(matches)
+            path_definition_count += len(matches)
+        path_lexical_count = 0
         for logical in _logical_lines(text, relative):
             for segment in _shell_segments(logical.physical):
                 lexical = _lexical_helper_count(segment)
+                path_lexical_count += lexical
                 definitions = [
                     helper
                     for helper, pattern in _DEFINITION_RE.items()
@@ -421,8 +438,15 @@ def _definition_counts(repo_root: Path) -> dict[str, int]:
                         "supported helper token shares a definition segment: "
                         f"{relative}:{logical.line_start}"
                     )
-                for helper in definitions:
-                    counts[helper] += 1
+        if (
+            relative not in audited_sources
+            and path_lexical_count != path_definition_count
+        ):
+            raise CensusError(
+                "unclassified supported helper token in tracked test shell "
+                f"source: {relative}: lexical={path_lexical_count}, "
+                f"definitions={path_definition_count}"
+            )
     return counts
 
 
@@ -475,7 +499,7 @@ def build_census(repo_root: Path | str) -> CensusResult:
         if not (root / source).is_file():
             raise CensusError(f"missing audited source: {source}")
 
-    definition_counts = _definition_counts(root)
+    definition_counts = _definition_counts(root, frozenset(sources))
     unexpected = {
         helper: count for helper, count in definition_counts.items() if count != 1
     }

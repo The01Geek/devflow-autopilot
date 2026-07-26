@@ -371,6 +371,42 @@ class MutationPinCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(CENSUS.CensusError, "definition segment"):
             self.repo.census()
 
+    def test_split_line_helper_definitions_are_counted_and_bodies_fail_closed(
+        self,
+    ) -> None:
+        harness = self.repo.root / "lib/test/module-harness.sh"
+        for definition in (
+            "assert_pin_red_under()\n{\n  :\n}\n",
+            "function assert_pin_red_under\n{\n  :\n}\n",
+            "function assert_pin_red_under()\n# comment\n\n{\n  :\n}\n",
+        ):
+            with self.subTest(definition=definition):
+                harness.write_text(
+                    DEFINITIONS + definition,
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(
+                    CENSUS.CensusError, "helper definition count"
+                ):
+                    self.repo.census()
+
+        harness.write_text(
+            DEFINITIONS.replace(
+                "assert_pin_red_under() { :; }",
+                (
+                    "assert_pin_red_under()\n"
+                    "{\n"
+                    "  assert_count_red_under n a b c\n"
+                    "}\n"
+                ),
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            CENSUS.CensusError, "unclassified supported helper token"
+        ):
+            self.repo.census()
+
     def test_invalid_utf8_tracked_shell_definition_source_fails_closed(self) -> None:
         relative = "lib/test/invalid-definition.sh"
         (self.repo.root / relative).write_bytes(b"\xff")
