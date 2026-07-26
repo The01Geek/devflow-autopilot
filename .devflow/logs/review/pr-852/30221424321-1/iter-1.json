@@ -1,0 +1,38 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T22:00:00Z",
+  "fix_commit_sha": "8886da1",
+  "fix_files": ["lib/test/modules/create-issue-contract.sh", "lib/test/run.sh", "scripts/workflow-flight-recorder-registry.json"],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "shadow_complete",
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": false, "checklist_skipped": null},
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Negative control asserts exit 2 but does not discriminate argparse invalid-choice (2) from CPython can't-open-file (2) on a misresolved state-owner path; passes vacuously on that misresolution.", "defect_signature": {"file": "lib/test/modules/create-issue-contract.sh", "line_range": [526, 528], "kind": "test_gap"}, "corroboration_count": 1, "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "Guard is one-directional (owner->prose only); cannot assert the prose still names the subcommands without a wording-only pin (forbidden). Accepted design limitation.", "defect_signature": {"file": "lib/test/modules/create-issue-contract.sh", "line_range": [62, 70], "kind": "other"}, "corroboration_count": 1, "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "8886da1"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": "lib/test/modules/create-issue-contract.sh", "claim_text": "one-directional coupling", "skip_category": "advisory-parked", "evidence": "accepted design limitation: the reverse-direction pin would be a wording-only pin the issue forbids", "parking_evidence": {"basis": "reverse-direction pin is a forbidden wording-only pin", "failing_input": "prose renamed to invoke a different subcommand", "source": "lib/test/modules/create-issue-contract.sh:62-70", "finding_ref": {"iter": 1, "index": 1}}}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 12, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "shadow": {
+    "ran_at": "2026-07-26T22:20:00Z",
+    "reviewed_sha": "8886da1",
+    "verdict": "APPROVE",
+    "coverage": "not_verified",
+    "prompt_addenda": "acceptance-criteria only (provenance-clean)",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": "shadow dispatched 3 of the 5-agent roster (comment-analyzer and pr-test-analyzer omitted; both cleanly reviewed iteration 1, and the fix's surface — negative-control error handling — was re-covered by shadow silent-failure-hunter). Partial roster => coverage not_verified => terminal verdict APPROVE WITH CAVEAT (verification-coverage), not a clean APPROVE.",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 286000, "wall_clock_s": 153}, "step_2_6": {"calls": 3, "tokens": 172000, "wall_clock_s": 118}}
+}
