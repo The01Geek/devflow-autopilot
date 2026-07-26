@@ -37,6 +37,12 @@ AUDITED = (
     "lib/test/modules/review-stall-backstop.sh",
     "lib/test/modules/experiment-records.sh",
 )
+DEFINITIONS = (
+    "assert_pin_red_under() { :; }\n"
+    "devflow_module_pin_red_under() { :; }\n"
+    "assert_count_red_under() { :; }\n"
+    "_ra_conflict_red_under() { :; }\n"
+)
 
 
 class FixtureRepo:
@@ -58,14 +64,7 @@ class FixtureRepo:
             encoding="utf-8",
         )
         harness = self.root / "lib/test/module-harness.sh"
-        harness.write_text(
-            "devflow_module_pin_red_under() {\n  :\n}\n",
-            encoding="utf-8",
-        )
-        (self.root / "lib/test/run.sh").write_text(
-            "assert_pin_red_under() {\n  :\n}\n",
-            encoding="utf-8",
-        )
+        harness.write_text(DEFINITIONS, encoding="utf-8")
 
     def close(self) -> None:
         self._tmp.cleanup()
@@ -89,10 +88,15 @@ class MutationPinCensusTests(unittest.TestCase):
         second = CENSUS.build_census(REPO_ROOT)
         self.assertEqual(first, second)
         self.assertEqual(tuple(first.sources), tuple(sorted(AUDITED)))
-        self.assertEqual(len(first.rows), 637)
+        self.assertEqual(len(first.rows), 646)
         self.assertEqual(
             {helper: first.helper_count(helper) for helper in CENSUS.HELPERS},
-            {"assert_pin_red_under": 543, "devflow_module_pin_red_under": 94},
+            {
+                "assert_pin_red_under": 543,
+                "devflow_module_pin_red_under": 94,
+                "assert_count_red_under": 4,
+                "_ra_conflict_red_under": 5,
+            },
         )
         self.assertRegex(first.master_sha256, r"^[0-9a-f]{64}$")
         self.assertEqual(
@@ -199,8 +203,7 @@ class MutationPinCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
             self.repo.census()
         (self.repo.root / "lib/test/module-harness.sh").write_text(
-            "devflow_module_pin_red_under() { :; }\n"
-            "devflow_module_pin_red_under() { :; }\n",
+            DEFINITIONS + "devflow_module_pin_red_under() { :; }\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
