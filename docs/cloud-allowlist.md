@@ -133,6 +133,31 @@ Positive-control note (issue #477): the review verdict counts a
 row-11 control read DENIED. The sibling probe jobs score their controls
 differently and are unaffected.
 
+### `load-prompt-extension.sh` grant surfaces and the Phase-3 dispatch (issue #802)
+
+`load-prompt-extension.sh` is granted **directory-agnostically** — as
+`Bash(*/load-prompt-extension.sh:*)` — on the `review` and `command` profiles, and
+**by vendored literal only** — `Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)` —
+on the `implement` profile (the `implement` profile carries no `*/` wildcard for it).
+The Phase-3 final-pass reviewer dispatch (`skills/review/phases/phase-3-agents.md`)
+**supplies the reviewer the vendored literal** as an already-resolved leading-token
+command, so the dispatched path runs a granted shape on every tier and needs **no**
+wildcard on any tier — the change adds **zero** grants.
+
+The review-tier verdicts for the probe job's **five helper-invocation-form rows** —
+the control row (shape 11), the repo-relative vendored-literal row (shape 12), the
+absolute-path row (shape 13), the repo-root `scripts/…` row (shape 14), and the
+repo-root row under the `Bash(scripts/*.sh:*)` glob (shape 15), which exercise a
+vendored helper as the leading token in five path/grant forms (the review job uses
+`config-get.sh` as that exemplar helper, not `load-prompt-extension.sh`) — are
+**unrecorded**: no PERMITTED/DENIED verdict for them appears in this table or in
+`run.sh`'s pin block. Establish them with a post-merge
+`workflow_dispatch` run of `.github/workflows/matcher-probe.yml` (its only pre-merge
+trigger is a `pull_request` scoped to its own path, and `gh workflow run` is granted
+on no profile, so the run is not an acceptance criterion of the change that added
+this note). Until then, a refusal of the dispatched vendored-literal command is
+handled by the Phase-3 fail-closed refusal path, never assumed impossible.
+
 ---
 
 ## Probe evidence (implement tier) (issue #455)

@@ -15,6 +15,8 @@ description: Use when completing tasks, implementing major features, or before m
 
 If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged.
 
+**When a dispatching prompt supplies an explicit helper command** (an orchestrator that invokes this skill inside a subagent may pre-resolve the helper path and hand you the exact command to run for this prompt extension), run **that supplied command verbatim** in place of the anchor recipe above — do not resolve the anchor yourself for this helper — and interpret its outcome by the same exit-code rules just stated. The anchor recipe above remains the behavior for a direct invocation of this skill, where no command is supplied.
+
 Dispatch a code reviewer subagent to catch issues before they cascade. The reviewer gets precisely crafted context for evaluation — never your session's history. This keeps the reviewer focused on the work product, not your thought process, and preserves your own context for continued work.
 
 **Core principle:** Review early, review often.

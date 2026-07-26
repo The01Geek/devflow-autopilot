@@ -4511,7 +4511,7 @@ def _run_e2e_demotion():
     stale_prose_lint._run_git = lambda *a, **k: (0, "", "")
     stale_prose_lint.parse_diff_full = lambda dt: ({"f.md": {5: "claim"}}, {}, {})
     stale_prose_lint.build_move_index = lambda f, r, rbf: stale_prose_lint.MoveIndex(frozenset(), {})
-    stale_prose_lint.post_file_lines = lambda rev, path: ["claim"]
+    stale_prose_lint.post_file_lines = lambda rev, path, root=None: ["claim"]
 
     def _fake_examine(path, added, lines, rows, move=None):
         rows.append(stale_prose_lint.Row(_U, "R2", path, 5, _RP + "count claims 3 but region reaches 4"))
@@ -4719,6 +4719,476 @@ assert_eq("#635: the marker short-circuits before the move-awareness join (marke
           "only the EX row even when a non-None move would otherwise route it through demotion)",
           [(stale_prose_lint.UNRESOLVABLE, "EX")],
           _all_rows_635("docs/design.md", [_mv_line, "", "- a", "- b"], move=_mv))
+
+# ── stale_prose_lint coverage-universal recognition tier + working-tree mode (#818) ────────
+# A run authoring a sentence that asserts a UNIVERSAL about its own coverage ("every call site
+# is updated", "all four arms are handled") verifies it by READING it back, which confirms
+# nothing. This recognition-only tier surfaces the shape so Phase 2's §2.3.4b sweep has an
+# EXECUTED seed list rather than a remembered one; it resolves no referent, never emits STALE,
+# and never affects the exit code.
+def _full_rows_818(path, body_lines, move=None):
+    """The single driver: every Row examine_file produces over `body_lines` (all added). The two
+    projections below read it rather than re-running examine_file, so there is one place where
+    the fixture is turned into rows."""
+    added = {i + 1: t for i, t in enumerate(body_lines)}
+    rows = []
+    stale_prose_lint.examine_file(path, added, list(body_lines), rows, move=move)
+    return rows
+
+
+def _rows_818(path, body_lines, move=None):
+    """(verdict, rule) for every row, for assertions about which tiers fired."""
+    return [(r.verdict, r.rule) for r in _full_rows_818(path, body_lines, move)]
+
+
+def _cu_rows_818(path, body_lines, move=None):
+    """Only the new tier's seed rows (rule token ``CU``)."""
+    return [r for r in _full_rows_818(path, body_lines, move) if r.rule == "CU"]
+
+
+# Fixture lines bound once — the same literals were otherwise retyped at five call sites, which
+# is the copy-paste-with-variation shape this very tier exists to surface.
+_CU_LINE_818 = "Every call site is updated."
+_RT_LINE_818 = _CU_LINE_818 + "  <!-- stale-prose-lint: rule-text -->"
+_EX_LINE_818 = _CU_LINE_818 + "  <!-- stale-prose-lint: example -->"
+
+
+# test_coverage_universal_tier_recognizes_planted_claim — a planted coverage universal in a
+# synthetic diff produces one row under the new rule token.
+assert_eq("#818 test_coverage_universal_tier_recognizes_planted_claim: a planted coverage "
+          "universal emits exactly one non-gating 'CU' row",
+          [(stale_prose_lint.UNRESOLVABLE, "CU")],
+          _rows_818("docs/x.md", ["Every call site is updated by this change."]))
+assert_eq("#818: the shape admits a numeral modifier between the quantifier and the coverage "
+          "noun ('all four arms') — the exact shape the gating tiers never claim",
+          1, len(_cu_rows_818("docs/x.md", ["All four arms are handled."])))
+assert_eq("#818: the row's detail names the tier and the grounding remedy",
+          True,
+          _cu_rows_818("docs/x.md", [_CU_LINE_818])[0]
+          .detail.startswith("coverage-universal: recognition-only"))
+
+# test_coverage_universal_tier_never_gates — a diff containing only coverage-universal rows
+# exits 0, and no emitted row carries the STALE verdict.
+_cu_only = _rows_818("docs/x.md", [_CU_LINE_818, "Each consumer is reached."])
+assert_eq("#818 test_coverage_universal_tier_never_gates: the tier emits no STALE verdict",
+          [], [r for r in _cu_only if r[0] == stale_prose_lint.STALE])
+assert_eq("#818 test_coverage_universal_tier_never_gates: every emitted row is UNRESOLVABLE, "
+          "so the exit code — driven solely by the STALE literal — is unaffected",
+          [stale_prose_lint.UNRESOLVABLE], sorted({r[0] for r in _cu_only}))
+
+# test_coverage_universal_tier_honors_existing_exclusions — one case per header-documented
+# pre-evaluation exclusion, each asserting NO row from the new tier.
+assert_eq("#818 test_coverage_universal_tier_honors_existing_exclusions: prose_mask — a "
+          "universal inside a fenced code block emits no CU row",
+          [], _cu_rows_818("docs/x.md", ["```", _CU_LINE_818, "```"]))
+assert_eq("#818 exclusions: prose_mask — a universal on a .sh CODE line emits no CU row",
+          [], _cu_rows_818("lib/test/run.sh", ['printf "Every call site is updated."']))
+assert_eq("#818 exclusions: prose_mask — a universal in a .py DOCSTRING is examined while the "
+          "same text in an assigned string literal is not",
+          [1, 0],
+          [len(_cu_rows_818("scripts/x.py", ['"""Every call site is updated."""'])),
+           len(_cu_rows_818("scripts/x.py", ['FIXTURE = "Every call site is updated."']))])
+assert_eq("#818 exclusions: the `stale-prose-lint: example` marker suppresses the CU tier too "
+          "(only the EX audit row remains)",
+          [(stale_prose_lint.UNRESOLVABLE, "EX")],
+          _rows_818("docs/x.md", [_EX_LINE_818]))
+# The machine-appended-corpus path exclusion is applied in `run()` BEFORE `examine_file` is
+# reached, so it is asserted at that boundary rather than through the helper.
+assert_eq("#818 exclusions: the machine-appended-corpus paths are excluded before examination",
+          [True, True, True, False, False, False, False],
+          [stale_prose_lint._is_excluded(".devflow/learnings/x.jsonl"),
+           stale_prose_lint._is_excluded(".devflow/logs/y.jsonl"),
+           # The rendered census artifact is a FILE entry, not a directory prefix: its
+           # `logical_call` column quotes each censused pin's source verbatim, so a count a
+           # pin name carries is data about that pin, not a claim about the TSV. A sibling
+           # under lib/test/ sharing the leading path segments must still be graded.
+           stale_prose_lint._is_excluded("lib/test/mutation-pin-corpus-adjudications.tsv"),
+           stale_prose_lint._is_excluded(
+               "lib/test/mutation-pin-corpus-adjudications.tsv.bak"),
+           stale_prose_lint._is_excluded(
+               "lib/test/mutation-pin-corpus-adjudications.tsv/child"),
+           stale_prose_lint._is_excluded("lib/test/mutation-pin-census.py"),
+           stale_prose_lint._is_excluded("docs/x.md")])
+# The #629 relocation exemption is INERT for this tier — it demotes STALE to UNRESOLVABLE, and
+# this tier never emits STALE — so a byte-identical relocated line STILL emits its CU row. This
+# case is deliberately NOT one of the exclusions above; it asserts the opposite.
+_reloc818 = _CU_LINE_818
+_reloc_mv818 = stale_prose_lint.MoveIndex(frozenset({_reloc818}),
+                                          {_reloc818: frozenset({"docs/x.md"})})
+assert_eq("#818: the issue-#629 relocation exemption is INERT here — a byte-identical relocated "
+          "line still emits its CU row (a never-STALE tier has nothing to demote)",
+          1, len(_cu_rows_818("docs/x.md", [_reloc818], move=_reloc_mv818)))
+
+# test_rule_text_marker_emits_visible_audit_row — the declared opt-out suppresses the seed row
+# and emits one non-gating audit row whose detail names the declared exemption, rather than
+# falling silent (the #635 visibility property, ported).
+assert_eq("#818 test_rule_text_marker_emits_visible_audit_row: a marked line emits exactly one "
+          "non-gating 'RT' audit row and NO 'CU' seed row",
+          [(stale_prose_lint.UNRESOLVABLE, "RT")],
+          _rows_818("docs/x.md", [_RT_LINE_818]))
+assert_eq("#818: the audit row's detail names the declared exemption marker",
+          True,
+          "stale-prose-lint: rule-text" in _full_rows_818("docs/x.md", [_RT_LINE_818])[0].detail)
+assert_eq("#818: the rule-text marker is language-agnostic, case-insensitive, and token-pinned "
+          "(`rule-texts` / `rule-text-driven` do not opt out)",
+          [True, True, True, False, False],
+          [bool(stale_prose_lint._RULE_TEXT_MARKER_RE.search(s)) for s in (
+              "x  <!-- stale-prose-lint: rule-text -->",
+              "# stale-prose-lint:rule-text",
+              "    // STALE-PROSE-LINT:   Rule-Text",
+              "see the stale-prose-lint: rule-texts of the shapes",
+              "a stale-prose-lint: rule-text-driven approach")])
+# The rule-text marker is scoped to the CU tier ONLY — unlike `example`, it never disarms a
+# gating rule. A marked line that also carries a real R2 legend claim still gates STALE.
+assert_eq("#818: the rule-text marker does NOT suppress a gating rule (an R2 legend on the "
+          "marked line still gates STALE)",
+          ["R2"],
+          [r.rule for r in _full_rows_818(
+              "docs/design.md",
+              ["Expected total = 3 across every call site  <!-- stale-prose-lint: rule-text -->",
+               "", "- a", "- b"])
+           if r.verdict == stale_prose_lint.STALE])
+
+# test_scoped_near_universal_not_recognized — the negative control.
+assert_eq("#818 test_scoped_near_universal_not_recognized: a scoped near-universal produces no "
+          "row from the new tier",
+          [[], [], []],
+          [_cu_rows_818("docs/x.md", ["In the common case the call site is updated."]),
+           _cu_rows_818("docs/x.md", ["This usually updates the call site."]),
+           _cu_rows_818("docs/x.md", ["A single retag reaches one file."])])
+
+# test_gating_rule_wins_over_recognition_tier — a line matching both a gating rule and the new
+# tier emits the gating rule's row and no CU row.
+assert_eq("#818 test_gating_rule_wins_over_recognition_tier: a line claimed by a gating rule "
+          "emits that rule's row and no 'CU' row",
+          ["R2"],
+          [r for _v, r in _rows_818(
+              "docs/design.md",
+              ["Expected total = 3 across every call site", "", "- a", "- b"])])
+
+# R4's `continue` is narrowed to its CLAIMED case (#818). A deny-absolute line carrying no
+# backticked operator token is one R4 examined and emitted nothing for — a silent swallow, not
+# a claim — and it used to short-circuit both non-gating recognition tiers. Caught by
+# dogfooding §2.3.4b over this very change: a coverage universal routinely says what is never
+# missed, so `never`/`no`/`not` sits on most of the tier's population.
+assert_eq("#818 r4-continue-narrowed: a deny-absolute with NO operator token emits no R4 row "
+          "and no longer swallows the coverage-universal tier",
+          [(stale_prose_lint.UNRESOLVABLE, "CU")],
+          _rows_818("docs/x.md",
+                    ["This sweep owns a claim type that trace never reaches: every call site."]))
+assert_eq("#818 r4-continue-narrowed: a deny-absolute that DOES claim an operator token still "
+          "wins and still suppresses the recognition tiers (the narrowing is not a widening)",
+          ["R4"],
+          [r.rule for r in _full_rows_818(
+              "docs/r.md",
+              ["Never use `>` at any call site.", "The `>` redirect is permitted below."])])
+
+# AC115 — precedence against the SHIPPED R3 recognition tier is decided explicitly: both tiers
+# emit their own row for a line matching both, and neither terminates the other. `arms` sits in
+# BOTH noun sets, so `All four arms are handled` is the exact collision shape — under the
+# shipped tier's terminating `continue`, a tier placed after it would never be reached.
+assert_eq("#818/AC115: a line matching both non-gating recognition tiers emits BOTH rows "
+          "(neither tier terminates the other)",
+          [(stale_prose_lint.UNRESOLVABLE, "CU"), (stale_prose_lint.UNRESOLVABLE, "R3")],
+          _rows_818("docs/x.md", ["All four arms are handled."]))
+
+# AC116 — the new tokens are distinct from every token the helper already emits. The existing
+# set is HARVESTED from the source's row-construction call sites rather than hand-listed here,
+# so a future emit site that introduces an unrecorded token turns this RED.
+_SPL_SRC818 = (SCRIPTS / 'stale-prose-lint.py').read_text(encoding='utf-8')
+_EMITTED_TOKENS818 = sorted(
+    set(re.findall(r'Row\([A-Z]+,\s*"([^"]+)"', _SPL_SRC818))
+    | set(re.findall(r'_emit_count\(\s*rows,\s*"([^"]+)"', _SPL_SRC818)))
+assert_eq("#818/AC116: the harvested emitted rule-token set is the four gating tokens plus EX, "
+          "the file-level '-', and the two new #818 tokens — CU and RT are both new",
+          ["-", "CU", "EX", "R1", "R2", "R3", "R4", "RT"], _EMITTED_TOKENS818)
+# The harvest above is a SOURCE scan: it proves the two literals appear at syntactically
+# matching call sites, not that either token is reachable — neutering the tier leaves it green.
+# So pin the tokens BEHAVIOURALLY too, by driving one fixture per new emit path and reading the
+# tokens the helper actually produced. A mutant that disables either emit turns this red.
+assert_eq("#818/AC116 (behavioural): the two new tokens are OBSERVED on their own emit paths, "
+          "and the tier's token is distinct from every token the fixtures' other rules emit",
+          [["CU"], ["RT"], ["EX"], ["R2"]],
+          [[r.rule for r in _full_rows_818("docs/x.md", [_CU_LINE_818])],
+           [r.rule for r in _full_rows_818("docs/x.md", [_RT_LINE_818])],
+           [r.rule for r in _full_rows_818("docs/x.md", [_EX_LINE_818])],
+           [r.rule for r in _full_rows_818(
+               "docs/design.md", ["Expected total = 3 across every call site",
+                                  "", "- a", "- b"])]])
+
+
+# AC124/AC125 — the working-tree post-image mode. `--rev` and `--worktree` are mutually
+# exclusive with exactly one required, and the `--help` text is pinned against the RENDERED
+# output: the two flags' help strings are assembled from adjacent string literals and live on
+# no single source line, so a source grep would pin nothing (the #375 blind spot).
+def _spl_main_818(argv, stdin_bytes=b""):
+    """(rc, stdout, stderr) for a real `main()` invocation with `stdin_bytes` on stdin."""
+    out, err = io.StringIO(), io.StringIO()
+    saved_stdin = sys.stdin
+    # `_FakeStdin` is the module-level shim `_reflect_stdin` already uses — one stdin stub.
+    sys.stdin = _FakeStdin(stdin_bytes)
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = stale_prose_lint.main(argv)
+    except SystemExit as exc:
+        rc = exc.code
+    finally:
+        sys.stdin = saved_stdin
+    return rc, out.getvalue(), err.getvalue()
+
+
+_HELP818 = " ".join(_spl_main_818(['stale-prose-lint.py', '--help'])[1].split())
+assert_eq("#818/AC125: the RENDERED --help advertises both post-image modes",
+          [True, True], ["--rev" in _HELP818, "--worktree" in _HELP818])
+assert_eq("#818/AC125: the RENDERED --help states the working-tree mode reads the on-disk file",
+          True, "on-disk" in _HELP818)
+assert_eq("#818/AC124: neither mode supplied is an argparse usage error (exactly one required)",
+          2, _spl_main_818(['stale-prose-lint.py'])[0])
+assert_eq("#818/AC124: both modes supplied together is an argparse usage error "
+          "(mutually exclusive)",
+          2, _spl_main_818(['stale-prose-lint.py', '--rev', 'HEAD', '--worktree'])[0])
+
+# The working-tree mode's post-image read returns the ON-DISK file: a NEW uncommitted file (the
+# `.changeset/*.md` shape, which resolves to nothing under `--rev`) and a MODIFIED uncommitted
+# file (whose added lines fail their content anchor under `--rev`) both reach examination.
+with tempfile.TemporaryDirectory(prefix='spl818-') as _WT818_STR:
+    _WT818 = Path(_WT818_STR)
+    (_WT818 / 'newfile.md').write_text("Every call site is updated.\n", encoding='utf-8')
+    _CWD818 = os.getcwd()
+    os.chdir(_WT818)
+    try:
+        assert_eq("#818/AC124: the working-tree post-image read returns the ON-DISK file — a "
+                  "NEW uncommitted file resolves, where the revision mode resolves nothing",
+                  ["Every call site is updated.", ""],
+                  stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'newfile.md'))
+        assert_eq("#818: an unreadable path in working-tree mode is UNRESOLVABLE (None), not a "
+                  "crash — the same non-gating arm the revision mode takes",
+                  None, stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'absent.md'))
+    finally:
+        os.chdir(_CWD818)
+
+# Malformed-shape matrix rows the helper's own entry points own. An empty diff and a truncated
+# one both produce ZERO rows with exit 0 — which is exactly why §2.3.4b's three-outcome rule
+# refuses to read "no rows" as clean without also reading the exit code.
+assert_eq("#818 matrix: an EMPTY diff produces no rows and does not gate",
+          (0, ""), _spl_main_818(['stale-prose-lint.py', '--worktree'], b"")[:2])
+assert_eq("#818 matrix: a TRUNCATED diff (a hunk header with no file header) produces no rows "
+          "and does not gate — indistinguishable from the empty case on stdout alone",
+          (0, ""), _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                                 b"@@ -1 +1 @@\n+Every call site is updated.\n")[:2])
+assert_eq("#818 matrix: a non-UTF-8 stdin diff is exit 2 (internal error), never a clean pass",
+          2, _spl_main_818(['stale-prose-lint.py', '--worktree'], b'\xff\xfe not utf-8')[0])
+assert_eq("#818 matrix: an added CODE-only diff line produces no CU row",
+          [], _cu_rows_818("scripts/x.py", ['x = 1']))
+
+# The remaining `prose_mask` matrix rows, each asserting the CU row IS emitted — the shapes a
+# regression would silently under-detect across a whole file class. The `.py` DOCSTRING arm is
+# asserted above; these add the comment arms and the unrecognised-extension FAIL-OPEN arm.
+assert_eq("#818 matrix: a universal in an HTML comment, on a py `#` line, on a shell `#` line, "
+          "and in a file type prose_mask does not recognise (the fail-open arm) each emit a CU row",
+          [1, 1, 1, 1],
+          [len(_cu_rows_818("docs/x.md", ["<!-- " + _CU_LINE_818 + " -->"])),
+           len(_cu_rows_818("scripts/x.py", ["# " + _CU_LINE_818])),
+           len(_cu_rows_818("lib/x.sh", ["# " + _CU_LINE_818])),
+           len(_cu_rows_818("data/x.zzz", [_CU_LINE_818]))])
+
+# The closed sets are declared "exactly these — complete by construction", so drive every
+# quantifier token and a representative of each noun rather than the four the narrative
+# examples happen to use. `no` / `none` matter most: those are the lines R4's pre-#818 wide
+# `continue` used to swallow, so they are the population the narrowing was written for.
+assert_eq("#818 closed sets: every declared quantifier token is recognised against a "
+          "coverage-referent noun",
+          [], [q for q in ("every", "all", "each", "any", "both", "no", "none",
+                           "exactly", "only", "complete", "entire", "whole")
+               if stale_prose_lint._recognize_coverage_universal(
+                   f"{q} call sites were reached") is None])
+# (singular, plural) per noun — `branch` pluralises `branches`, which is why the pairs are
+# spelled out rather than derived by appending `s`.
+_CU_NOUN_FORMS_818 = [
+    ("call site", "call sites"), ("site", "sites"), ("arm", "arms"),
+    ("branch", "branches"), ("case", "cases"), ("path", "paths"), ("file", "files"),
+    ("rule", "rules"), ("peer", "peers"), ("consumer", "consumers"),
+    ("caller", "callers"), ("member", "members"), ("mirror", "mirrors"),
+    ("occurrence", "occurrences"), ("instance", "instances"), ("surface", "surfaces"),
+    ("checkpoint", "checkpoints"),
+]
+assert_eq("#818 closed sets: every declared coverage-referent noun is recognised after a "
+          "quantifier, singular and plural alike",
+          [], [pair for pair in _CU_NOUN_FORMS_818
+               if any(stale_prose_lint._recognize_coverage_universal(
+                   f"every {form} is reached") is None for form in pair)])
+# Emphasis wrapping on the quantifier is this repo's dominant way of WRITING a universal, so a
+# tier blind to it would be seeded from the wrong population. Non-universals stay unrecognised.
+assert_eq("#818: the quantifier is recognised through `**…**` emphasis, and a scoped hedge "
+          "still is not",
+          [True, True, True, False, False],
+          [stale_prose_lint._recognize_coverage_universal(s) is not None for s in (
+              "**every** call site is updated",
+              "**every call site** is updated",
+              "Every **call site** is updated",
+              "In the common case the call site is updated",
+              "This usually updates the call site")])
+
+# The `.devflow/learnings/` and `.devflow/logs/` exclusion is applied in `run()`, so it is
+# driven END-TO-END here rather than only through `_is_excluded` — a mutant that let the new
+# tier bypass the exclusion would not be caught by the isolated predicate assertion above.
+_EXCL_DIFF_818 = (
+    "diff --git a/.devflow/learnings/x.md b/.devflow/learnings/x.md\n"
+    "--- a/.devflow/learnings/x.md\n"
+    "+++ b/.devflow/learnings/x.md\n"
+    "@@ -0,0 +1 @@\n"
+    "+" + _CU_LINE_818 + "\n")
+_excl_rc818, _excl_out818, _excl_err818 = _spl_main_818(
+    ['stale-prose-lint.py', '--worktree'], _EXCL_DIFF_818.encode('utf-8'))
+assert_eq("#818 exclusions (end-to-end through run): an excluded corpus path emits NO row of "
+          "any rule, and the exclusion is announced on stderr",
+          [0, "", True],
+          [_excl_rc818, _excl_out818, "issue #672" in _excl_err818])
+
+# The working-tree failure arm's BREADCRUMB, not just its return value: a mutant that deleted
+# the stderr write and kept `return None` would pass the None assertion above while turning a
+# documented failure into a silent one. Two distinct OS errors must not converge on one text.
+_wt_err818 = io.StringIO()
+with contextlib.redirect_stderr(_wt_err818):
+    stale_prose_lint.post_file_lines(stale_prose_lint.WORKTREE, 'definitely-absent-818.md')
+assert_eq("#818: the working-tree unreadable arm breadcrumbs the path AND the OS reason "
+          "(never a silent None)",
+          [True, True],
+          ["definitely-absent-818.md" in _wt_err818.getvalue(),
+           "No such file" in _wt_err818.getvalue()])
+
+# ── The mode DIFFERENTIAL, end-to-end in a real git repo (#818) ────────────────────────────
+# The unit assertions above drive `post_file_lines` directly, which bypasses `run()`, the diff
+# parse, the exclusion pass and `examine_file` — so none of them asserts the behavioural
+# difference that is this mode's entire justification. A refactor passing `rev="HEAD"` when
+# `--worktree` is set, or reinstating the up-front `rev-parse` on the None path, would restore
+# the exact pre-#818 skew with every other assertion still green. These two drive both modes
+# over ONE uncommitted tree and pin that the row sets differ exactly as the header claims:
+# a NEW file resolves to nothing under `--rev` (the file-level `-` row) and to its post-change
+# content under `--worktree`; a MODIFIED file's added line fails its content anchor under
+# `--rev` and is dropped with no row at all.
+def _git818(cwd, *args):
+    return _subprocess.run(('git',) + args, cwd=cwd, capture_output=True, text=True)
+
+
+with tempfile.TemporaryDirectory(prefix='spl818repo-') as _R818:
+    _R818P = Path(_R818)
+    _git818(_R818, 'init', '-q', '-b', 'main')
+    _git818(_R818, 'config', 'user.email', 'a@b.c')
+    _git818(_R818, 'config', 'user.name', 'T')
+    # A committed baseline: `mod.md` exists WITHOUT the universal.
+    (_R818P / 'mod.md').write_text("baseline prose line\n", encoding='utf-8')
+    _git818(_R818, 'add', 'mod.md')
+    _git818(_R818, 'commit', '-qm', 'base')
+    # Now the uncommitted change: `mod.md` gains the universal, and a NEW file carries one.
+    (_R818P / 'mod.md').write_text("baseline prose line\n" + _CU_LINE_818 + "\n",
+                                   encoding='utf-8')
+    (_R818P / 'new.md').write_text(_CU_LINE_818 + "\n", encoding='utf-8')
+    _MOD_DIFF818 = _git818(_R818, 'diff', 'HEAD', '-U0').stdout
+    _NEW_DIFF818 = _git818(_R818, 'diff', '--no-index', '-U0', '/dev/null', 'new.md').stdout
+
+    def _modes818(diff_text):
+        """((rule tokens under --worktree), (rule tokens under --rev HEAD)) for one diff."""
+        cwd = os.getcwd()
+        os.chdir(_R818)
+        try:
+            wt = _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                               diff_text.encode('utf-8'))[1]
+            rv = _spl_main_818(['stale-prose-lint.py', '--rev', 'HEAD'],
+                               diff_text.encode('utf-8'))[1]
+        finally:
+            os.chdir(cwd)
+        return ([ln.split('\t')[1] for ln in wt.splitlines() if ln],
+                [ln.split('\t')[1] for ln in rv.splitlines() if ln])
+
+    assert_eq("#818 differential: a MODIFIED uncommitted file's added universal emits a CU row "
+              "under --worktree and NO row at all under --rev (its content anchor fails)",
+              (["CU"], []), _modes818(_MOD_DIFF818))
+    assert_eq("#818 differential: a NEW uncommitted file's universal emits a CU row under "
+              "--worktree and only the file-level '-' unresolvable row under --rev",
+              (["CU"], ["-"]), _modes818(_NEW_DIFF818))
+
+    # The repo-root anchoring (#818 review finding): the working-tree post-image is resolved
+    # against the repository root, not the process CWD, so the two modes agree from a
+    # SUBDIRECTORY too. Without it every file lands on the unresolvable arm and the run emits
+    # zero rows while exiting 0 — a clean-shaped result for work that never happened, which
+    # §2.3.4b would record as a clean pass.
+    (_R818P / 'sub').mkdir()
+    (_R818P / 'sub' / '.keep').write_text("x\n", encoding='utf-8')
+    _cwd818 = os.getcwd()
+    os.chdir(_R818P / 'sub')
+    try:
+        _sub_out818 = _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                                    _MOD_DIFF818.encode('utf-8'))[1]
+    finally:
+        os.chdir(_cwd818)
+    assert_eq("#818 repo-root anchoring: --worktree resolves the post-image against the repo "
+              "root, so a run from a SUBDIRECTORY emits the same CU row (never a silent "
+              "zero-row, exit-0 pass)",
+              ["CU"], [ln.split('\t')[1] for ln in _sub_out818.splitlines() if ln])
+
+    # A syntactically invalid `.py` post-image under the WORKING-TREE mode — the pre-commit
+    # window the reworded breadcrumb is justified by, and the mode whose population it is. The
+    # shipped assertion for this shape drives `--rev` only.
+    (_R818P / 'half.py').write_text("def broken(  :\n# " + _CU_LINE_818 + "\n",
+                                    encoding='utf-8')
+    _HALF_DIFF818 = _git818(_R818, 'diff', '--no-index', '-U0', '/dev/null', 'half.py').stdout
+    _cwd818 = os.getcwd()
+    os.chdir(_R818)
+    try:
+        _half818 = _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                                 _HALF_DIFF818.encode('utf-8'))
+    finally:
+        os.chdir(_cwd818)
+    # The `unlocated` coverage-drop breadcrumb: a diff-added line that corresponds to nothing
+    # in the post-image is dropped before any rule, and the drop must not read as a clean run.
+    # Driven under `--rev`, where the post-image predates the added line — the shape that
+    # produces the miss. BLANK added lines must NOT be counted: `_locate` returns None for them
+    # by construction, so counting them would inflate the figure on every diff adding one.
+    (_R818P / 'skew.md').write_text("baseline\n", encoding='utf-8')
+    _git818(_R818, 'add', 'skew.md')
+    _git818(_R818, 'commit', '-qm', 'skew base')
+    (_R818P / 'skew.md').write_text("baseline\nunmatched prose line\n\n\n", encoding='utf-8')
+    _SKEW_DIFF818 = _git818(_R818, 'diff', 'HEAD', '-U0').stdout
+    _cwd818 = os.getcwd()
+    os.chdir(_R818)
+    try:
+        _skew818 = _spl_main_818(['stale-prose-lint.py', '--rev', 'HEAD'],
+                                 _SKEW_DIFF818.encode('utf-8'))
+    finally:
+        os.chdir(_cwd818)
+    assert_eq("#818: an added line that does not correspond to the post-image is announced as a "
+              "coverage drop, counting the one NON-BLANK line only (two blank additions are "
+              "excluded — _locate rejects them by construction, not because of any skew)",
+              [True, True],
+              ["1 non-blank added line(s) in skew.md" in _skew818[2],
+               "coverage drop, not a clean result" in _skew818[2]])
+
+    # The repo-root FALLBACK breadcrumb — an observable §2.3.4b's degraded arm routes on. Only
+    # the success path was pinned; a refactor dropping this write would make that arm silently
+    # unreachable while the run resolved every path against the wrong directory.
+    _NOGIT818 = Path(tempfile.mkdtemp(prefix='spl818nogit-'))
+    _cwd818 = os.getcwd()
+    os.chdir(_NOGIT818)
+    try:
+        _nogit818 = _spl_main_818(['stale-prose-lint.py', '--worktree'],
+                                  _MOD_DIFF818.encode('utf-8'))
+    finally:
+        os.chdir(_cwd818)
+        _NOGIT818.rmdir()
+    assert_eq("#818: an unresolvable repository root is announced on stderr, naming the "
+              "directory used instead and the zero-rows-exit-0 shape it produces",
+              [True, True],
+              ["could not resolve the repository root" in _nogit818[2],
+               "emit zero rows while exiting 0" in _nogit818[2]])
+
+    assert_eq("#818: an unparseable .py post-image under --worktree still examines its '#' "
+              "comments and says so on stderr, naming the post-image rather than a flag the "
+              "invocation never passed",
+              [["CU"], True, 0],
+              [[ln.split('\t')[1] for ln in _half818[1].splitlines() if ln],
+               "does not parse in the post-image" in _half818[2],
+               _half818[0]])
 
 # ── stale_prose_lint.prose_mask (#434 line scoping) ───────────────────────────────────────
 # The predicate is FILE-STATEFUL: fence / docstring / block-comment membership cannot be

@@ -1886,6 +1886,9 @@ POOLED_SUITES = (
 )
 SERIAL_BY_EXCLUSION_SUITES = (
     "test_module_harness.py",
+    # The mutation-pin census focused tests run serially on the main shell via
+    # run.sh. They are not part of the Python pool or a full-suite module.
+    "test_mutation_pin_census.py",
     # issue #767: the create-issue context eval's focused unittest runs serially on
     # the main shell (invoked directly by run.sh, like test_module_harness.py above),
     # not through the pool or a full-suite module.
