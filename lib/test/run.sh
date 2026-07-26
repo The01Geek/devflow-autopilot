@@ -3170,23 +3170,24 @@ assert_pin_unique "#479(AC3): route (b) names the fixed-path / fixed-module-path
 # separate presence pin is added here (a second grep of AC1's literal would only duplicate it).
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
+echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened by #797)"
 # ────────────────────────────────────────────────────────────────────────────
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
-# and the no-refork guard.
+# and the no-refork guard. #797 widened the cap's keying from an in-code-comment
+# sub-case to behavior-inertness; the boundaries themselves are unchanged.
 OG_OVERVIEW_DOC="$LIB/../docs/DEVFLOW_SYSTEM_OVERVIEW.md"
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
-assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic in-code-comment cap" \
+assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic behavior-inert prose cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
 # AC4/AC5 — review-and-fix Step 2.6 honors the cap by recording a DETERMINISTIC severity-calibrated
-# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a comment-only-on-
-# unmodified-comment finding cannot drive a Decide-outcome-2 promotion.
+# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a behavior-inert
+# prose finding cannot drive a Decide-outcome-2 promotion.
 assert_pin_unique "291(AC4): review-and-fix 2.6 records the cap as a deterministic severity-calibrated eval" \
-  'deterministic comment-only cap (review 4.1.5)' "$MAXI_SKILL"
+  'behavior-inert prose cap (review 4.1.5)' "$MAXI_SKILL"
 assert_pin_unique "291(AC4): review-and-fix 2.6 capped finding cannot drive a Decide-outcome-2 promotion" \
   'cannot drive a Decide-outcome-2 promotion' "$MAXI_SKILL"
 # AC5 fail-closed — the cap must NOT re-fork the review-4.1.5 shape headings into review-and-fix.
-assert_eq "291(AC5): cap in-code-comment operative sentence is NOT re-forked into review-and-fix" \
+assert_eq "291(AC5): cap operative sentence is NOT re-forked into review-and-fix" \
   "0" "$(pin_count 'deterministically — Phase 4.2 does not REJECT on it' "$MAXI_SKILL")"
 # ────────────────────────────────────────────────────────────────────────────
 echo "documented_falsehood tagging + pre-verdict truthfulness sweep (Phase 4.1.5/4.1.6) (#339)"
@@ -3211,11 +3212,11 @@ assert_pin_unique "339(AC1): defect_signature kind enum gains documented_falseho
 # verbatim: it occurs at 2 sites in the review engine (shape-2 canonical + shared
 # defect_signature block) and once in each agent file. A dropped mirror moves a count → RED.
 assert_eq "339(AC4): discriminator phrase mirrored at 2 sites in the review engine (shape-2 + defect_signature block)" \
-  "2" "$(pin_count 'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$ST_REV")"
+  "2" "$(pin_count 'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT unless the prose is behavior-inert under the two limbs in Phase 4.1.5, in which case the behavior-inert prose cap governs); true but awkwardly worded is a clarity Suggestion (demotable)' "$ST_REV")"
 assert_pin_unique "339(AC3): comment-analyzer mirrors the truthfulness discriminator" \
-  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_COMMENT_AGENT"
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT unless the prose is behavior-inert under the two limbs in Phase 4.1.5, in which case the behavior-inert prose cap governs); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_COMMENT_AGENT"
 assert_pin_unique "339(AC3): code-reviewer mirrors the truthfulness discriminator" \
-  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_CODEREV_AGENT"
+  'false against HEAD is a truthfulness defect (a self-contradicting diff — non-demotable REJECT unless the prose is behavior-inert under the two limbs in Phase 4.1.5, in which case the behavior-inert prose cap governs); true but awkwardly worded is a clarity Suggestion (demotable)' "$FALSE_CODEREV_AGENT"
 # AC3 — code-reviewer: a HEAD-verified false changed-line claim clears the ≥80 confidence filter.
 assert_pin_unique "339(AC3): code-reviewer scores a HEAD-verified false changed-line claim >= 80 by definition" \
   'scores ≥ 80 confidence by definition' "$FALSE_CODEREV_AGENT"
