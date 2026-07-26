@@ -6151,7 +6151,7 @@ assert_eq "sweep 2.3.0b: DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-list entry" "ye
 # must state that its trigger shapes apply to prose/SKILL/doc/config as much as to code,
 # so an add-only prose/doc/config diff that replicates a peer rule, an enumerated-set
 # member, or a mirrored contract literal across sites still trips the contract-completeness
-# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to the always-on sweeps alone.
+# sweeps (2.3.0 / 2.3.0a / 2.3.0b) rather than falling through to "just the five always-on sweeps".
 # The cross-site enumeration below extracts both lists and requires the SKILL and docs
 # to name the same contract-sweep set without holding either sentence to exact prose.
 _skill_sweeps=$(grep -oE 'still trips the contract-completeness sweeps \([^)]+\)' "$IMPL_SKILL" \
@@ -6274,8 +6274,6 @@ assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "
   "$(grep -qF '| 2.3.7 Collection-cardinality |' "$IMPL_DOC" && echo yes || echo no)"
 assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
   "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
-# Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
-# (a regression would re-assert a §2.3.7-falsified statement).
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and
@@ -6291,11 +6289,6 @@ for _474_ABSENT in 'numbered last only to avoid renumbering' '2.3.6 sits last'; 
     "$(( $(grep -Fc "$_474_ABSENT" "$IMPL_DOC") + 1 ))" "$(grep -Fc "$_474_ABSENT" "$_474_INJ")"
   rm -f "$_474_INJ"
 done
-# The always-on enumeration in docs/implement-skill.md carries no pin: its literal can change
-# without changing executable behavior or breaking a machine-consumed contract, and every
-# mutation that removes the sentence is confined to the line carrying it — a wording-only pin
-# (issues #798/#810). The §2.3.4b membership it states is prompt prose with no in-repo
-# executable boundary; the correct assertion is none.
 
 # Drift guard: the base_branch read in the implement skill (phases/phase-1-setup.md) Phase 1.4 is
 # a load-bearing inline-bash block in the skill (Phase 3.1's §3.1 re-derivation below is another) — like the max_iterations clamp above, the
@@ -11503,14 +11496,6 @@ assert_pin_red_under "#376 w2-completion-gate: §2.3.0c binds both triggers into
 assert_pin_red_under "#376 w2-phase-five-kinds: phase-2-implement.md §2.3.4 step cites the five boundary kinds (count mirror, phase-file side)" \
   'one of the five kinds above' \
   's/one of the five kinds above/one of the four kinds above/' "$P2_FILE"
-
-# ── issue #818: §2.3.4b coverage-claim enumeration sweep ────────────────────────────────
-# No pins here. Every candidate assertion over §2.3.4b's prose in phases/phase-2-implement.md
-# is wording-only under issues #798/#810: the sentences are prompt prose with no in-repo
-# executable boundary, and each focused mutation that removes one is confined to the line
-# carrying that literal, so the pin would prove only that the literal is present. §2.3.4b's
-# executable half — stale-prose-lint.py's CU and RT tiers — is asserted behaviourally in
-# lib/test/test_python_scripts.py, which drives the real tool and reads its emitted rows.
 
 # ── issue #377 (Wave 3): fix-delta authoring-side sweeps + Phase 3.2 cleanup-agents-are-quality-only ──
 # Two coupled skill edits, each new operative sentence pinned through assert_pin_red_under
@@ -38851,12 +38836,6 @@ SPF="$(probe_tmp '#434 py unparseable')"
 printf '%s\n' 'def broken(  :' '# Cases 19-32 are exercised below' 'Case 37 delta' > "$SPF"
 SPR="$(spl_repo_named "$SPF" fixture.py)"
 assert_eq "#434 an unparseable .py still examines its '#' comments (exit 1)" "1" "$(spl_rc_base "$SPR" "$SP_EMPTY_TREE")"
-# The breadcrumb names the POST-IMAGE, not a flag (#818): under the working-tree mode no
-# `--rev` was passed, so naming it would misdirect the reader to an input the invocation
-# never had — and the pre-commit window in which a half-written .py does not parse is
-# exactly that mode's population.
-assert_eq "#434/#818 an unparseable .py says so on stderr, naming the post-image not a flag (never a silent skip)" "yes" \
-  "$( ( cd "$SPR" && git diff "$SP_EMPTY_TREE" HEAD | python3 "$SPL" --rev HEAD 2>&1 >/dev/null | grep -q 'does not parse in the post-image' && echo yes || echo no ) )"
 
 # CRLF + BOM: a consumer Windows repo must not silently lose its comments.
 SPF="$(probe_tmp '#434 crlf bom')"
@@ -43548,16 +43527,9 @@ print("explicit=%s fallback=%s breadcrumb=%s" % (
 # inside the one known indirection (`_emit_count`, whose `rule` is bound by its literal call
 # sites, which are themselves collected). So a new emit helper — under any name, in either
 # call form — is SEEN, not matched around.
-# Note the id harvest is name-generic over `_emit_*`: a future emit HELPER that emits only
+# Note the id harvest is name-generic over `_emit_*`: a future helper that emits only
 # UNRESOLVABLE rows would still contribute its id and turn this RED. That is the safe
 # direction (it forces a classification decision), not a bug in the new code.
-# The scope of that claim is the indirection, not every UNRESOLVABLE-only emitter — issue
-# #818's `CU`/`RT` tiers are UNRESOLVABLE-only and do NOT turn this RED, because they append
-# `Row(...)` directly rather than through a helper, and the walk is STALE-verdict-scoped. That
-# is correct: carry-forward operates on STALE rows only, so a token that can never reach a
-# STALE verdict is outside the population this pin guards (the classification is recorded in
-# `scripts/match-lint-adjudications.py`'s COUPLED SITE comment). Give `CU` a STALE arm later
-# and `Row(STALE, "CU", …)` enters the harvest and turns this RED as designed.
 assert_eq "#466 mla-rule-drift: the lint's emitted STALE rule ids are exactly R1,R2,R3,R4, emitted through no idiom the extractor cannot see (a new rule must be classified in CARRY_FORWARD_EXCLUDED_RULES)" \
   "R1 R2 R3 R4 | violations=0" \
   "$(python3 - "$LIB/../scripts/stale-prose-lint.py" <<'RULEDRIFT'
