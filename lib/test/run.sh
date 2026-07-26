@@ -11686,11 +11686,6 @@ assert_pin_red_under "#541 reference_reads: a not_verified fix_delta prohibits a
 #     rather than solely carries the rule — a presence pin is the honest instrument.
 assert_pin_unique "#541 reference_reads: the field is conditional — absence on a no-gate iteration is not a defect" \
   'its absence is not a defect' "$MAXI_SKILL"
-# (c) The distinct-breadcrumb requirement carried no pin after #816 rewrote its sentence to range
-#     over every arm yielding the not_verified shape (the two original arms plus the added-assertion
-#     check's unestablished arm). The retired pin asserted only that the reworded clause was present
-#     — a wording-only assertion over prompt prose with no executable boundary, which the post-#810
-#     corpus policy prohibits. The rule itself is carried by the prose in fix-delta-gate.md.
 
 # AC4 — the drift-guarded fix-loop mapping table. Pin the drift-guard operative sentence.
 assert_pin_red_under "#478 AC4 mapping-table: the lint goes RED when a marker appears in a sweep body the table has no row for" \
