@@ -2,69 +2,7 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable review stall-backstop contract module (issue #746 tranche).
-# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
-# lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under, plus devflow_module_build_bundle). This module uses
-# assert_eq plus that namespaced API — it references NO monolith helper. Every path
-# derives from LIB. The module owns its private fixture root and cleanup; it never
-# invokes the runner or the full-suite boundary. The inventory in
-# review-stall-backstop.inventory.md maps the extracted coverage to its former
-# run.sh locations. Modules may not self-skip.
-# The `trap _rsb_cleanup EXIT` below relies on a sourcing contract: both callers
-# (module-harness.sh's full-suite boundary and run-module.sh) source this module
-# inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
-# the runner's own EXIT handling. Do not source this module directly in a runner's
-# top-level shell without restoring the trap.
-
-# Allocate through the harness's shared owned-directory allocator (template validation
-# plus the pre-existing-directory rejection a bare `mktemp -d` cannot make) rather than
-# re-implementing that check here. This module keeps a private root because it builds
-# one real artifact into it (the review-engine bundle below); the sibling modules in
-# this tranche allocate none and rely on the boundary-owned scratch root instead.
-_rsb_tmp_root="$(devflow_module_allocate_owned_directory \
-  "${TMPDIR:-/tmp}/devflow-review-stall-backstop.XXXXXX")" || {
-  assert_eq "review-stall-backstop module: private fixture root allocated" "yes" "no"
-  return 0 2>/dev/null || exit 0
-}
-_rsb_cleanup() {
-  rm -rf "$_rsb_tmp_root"
-}
-trap _rsb_cleanup EXIT
-
-# Two run.sh globals the extracted sections read are re-derived here rather than
-# inherited, because a module receives neither:
-#   REPO_ROOT     — the monolith computes it the same way, from LIB.
-#   REVIEW_BUNDLE — the concatenated review-engine bundle (thin root + every phase
-#                   reference). Two #408 pins target it, because the sentences they
-#                   pin may live in the root or in any phase reference and the
-#                   bundle is what makes the pin location-independent. The stem list
-#                   is DERIVED FROM THE TREE (every skills/review/phases/*.md), not
-#                   transcribed: a transcribed list would let a phase reference added
-#                   later be silently omitted, and the survival pins would then assert
-#                   against a bundle missing that prose, passing green over unguarded
-#                   text.
-# Spelled `"$LIB/.."` rather than the monolith's `"$(cd "$LIB/.." && pwd)"` on
-# purpose. Both name the same directory at run time (LIB is already absolute), but
-# only this form is statically resolvable by pin-corpus-lint.py's path-variable
-# resolver, which understands a `$LIB/relative` assignment and cannot see through a
-# command substitution. Nearly every pin below targets a var derived from REPO_ROOT,
-# so the substitution form would leave those UNRESOLVED — surfaced on stderr but
-# never asserted, i.e. silently exempt from the meta-guard (the extraction hazard
-# issue #746 names). With this form they resolve and stay covered. The exception is
-# the REVIEW_SKILL408 pins, which target the runtime bundle temp below: no spelling
-# here can make those statically resolvable, so run.sh binds them explicitly through
-# RSB_MOD_VARS instead.
 REPO_ROOT="$LIB/.."
-REVIEW_BUNDLE="$_rsb_tmp_root/review-skill-bundle.md"
-# The glob is passed straight through with no `[ -r ] || continue` prefilter: the
-# builder's contract is that an unusable member lands in the tally as a named RED
-# assertion, and a prefilter would drop exactly the member it exists to report. An
-# unmatched glob reaches the builder as its own literal and fails there by name too,
-# so a phases/ directory that has moved or emptied is a diagnosis rather than a
-# silently thinner bundle every survival pin then passes against for the wrong reason.
-devflow_module_build_bundle "review-skill" "$REVIEW_BUNDLE" \
-  "$REPO_ROOT/skills/review/SKILL.md" "$REPO_ROOT"/skills/review/phases/*.md
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#408 cloud review no-verdict auto-resume backstop"
@@ -339,19 +277,11 @@ assert_eq "#408 devflow-yml: manual-path mint gated on the dead-run trigger + DE
 # contains the is_error/failure disjuncts and NO cancellation trigger. The
 # mutation adds a cancelled disjunct (resume-on-cancel keying); the dead-run
 # literal is then absent from the backstop step's if: → PASS->FAIL.
-devflow_module_pin_red_under "#498 devflow-yml: Review stall backstop if: excludes cancellation (dead-run trigger only, no cancelled disjunct)" \
-  "(steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}" \
-  "s/steps\\.claude\\.outcome == 'failure'\\)/steps.claude.outcome == 'failure' || steps.claude.outcome == 'cancelled')/" \
-  "$WFD408"
 # Pin B — devflow-review.yml emits backstop_eligible=true ONLY in the incomplete
 # arm (a second emission — e.g. on the cancelled|skipped arm — would resume a
 # cancelled review run). The mutation adds a second backstop_eligible=true
 # emission to the cancelled arm (resume-on-cancel keying); the literal is then
 # no longer unique → PASS->FAIL.
-devflow_module_pin_red_under "#498 review-yml: backstop_eligible=true emitted once (only the incomplete arm — a second emission would resume a cancelled run)" \
-  'echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"' \
-  's#flip_review "review job cancelled"#echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"; flip_review "review job cancelled"#' \
-  "$WFR408"
 # Fix A consumer-side breadcrumb selection now lives in the shared helper (issue #414),
 # driven in the #414 block below for both the manual and auto-review paths.
 
@@ -362,62 +292,18 @@ devflow_module_pin_red_under "#498 review-yml: backstop_eligible=true emitted on
 assert_eq "#408 helper: writes the head-scoped review-backstop marker literal" "yes" \
   "$(grep -qF 'devflow:review-backstop head=' "$RRB408" && echo yes || echo no)"
 
-# Rendered-surface pins (#375 discipline — pin the RENDERED grounding block, not the
-# source, and prove the headless sentence is behaviorally load-bearing via a mutation).
 RGB408="$REPO_ROOT/scripts/render-grounding-block.sh"
 GB408_OUT="$(HEAD_SHA=x CI_SUMMARY='c: success' ALLOWED_TOOLS='Read' bash "$RGB408")"
 assert_eq "#408 grounding block renders the headless-run semantics sentence" "yes" \
   "$(printf '%s\n' "$GB408_OUT" | grep -qF 'This is a headless run: ending your turn ends the process' && echo yes || echo no)"
 assert_eq "#408 grounding block renders the ScheduleWakeup-unavailable rule" "yes" \
   "$(printf '%s\n' "$GB408_OUT" | grep -qF 'ScheduleWakeup' && echo yes || echo no)"
-devflow_module_pin_red_under "#408 grounding: deleting the headless-run sentence from the renderer flips its pin RED" \
-  'This is a headless run: ending your turn ends the process' \
-  '/This is a headless run/d' "$RGB408"
-# Parity with the headless-run sentence: the ScheduleWakeup-unavailable rule is
-# equally load-bearing and rendered from the same edit, so mutation-pin it too
-# (PR #410 review gap: it previously had only a presence grep, weaker than its sibling).
-devflow_module_pin_red_under "#408 grounding: deleting the ScheduleWakeup-unavailable rule from the renderer flips its pin RED" \
-  'any future task-notification as' \
-  '/any future task-notification as/d' "$RGB408"
-
-# Skill-prose behavioral-fix pins — the two operative directives of the headless-wait
-# rule (one pin per operative sentence, per the behavioral-fix-pin rule). Each mutation
-# removes the operative sentence and must flip its pin RED.
-REVIEW_SKILL408="$REVIEW_BUNDLE"
-devflow_module_pin_red_under "#408 skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
-  'Never end your turn while any dispatched agent' \
-  '/Never end your turn while any dispatched agent/d' "$REVIEW_SKILL408"
-devflow_module_pin_red_under "#408 skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
-  'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
-  '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$REVIEW_SKILL408"
-
-# ── #415: implement-tier port of the headless-wait discipline ────────────────
-# The implement tier hit the same headless early-quit #410 fixed for review. The
-# skill rule carries TWO co-equal operative sentences (never-end-turn AND
-# ScheduleWakeup-unavailable) — one pin per operative sentence, mirroring the #408
-# review-tier block — plus the one-line headless mirror in devflow-implement.yml's
-# stall-backstop resume comment (so a resumed run receives it even if it never
-# re-reads the skill prose). All must move together in one commit; each is a
-# behavioral-fix pin proven RED under a mutation that removes ONLY its operative
-# sentence.
 IMPL_SKILL415="$REPO_ROOT/skills/implement/SKILL.md"
 WFI415="$REPO_ROOT/.github/workflows/devflow-implement.yml"
-devflow_module_pin_red_under "#415 implement-skill: removing the never-end-turn-with-pending-agent rule flips its pin RED" \
-  'Never end your turn while any dispatched agent' \
-  '/Never end your turn while any dispatched agent/d' "$IMPL_SKILL415"
-devflow_module_pin_red_under "#415 implement-skill: removing the ScheduleWakeup-unavailable rule flips its pin RED" \
-  'Treat `ScheduleWakeup` and any future task-notification as UNAVAILABLE' \
-  '/Treat .ScheduleWakeup. and any future task-notification as UNAVAILABLE/d' "$IMPL_SKILL415"
-devflow_module_pin_red_under "#415 devflow-implement-yml: removing the headless resume-note line flips its pin RED" \
-  'ending the turn ends the process' \
-  '/ending the turn ends the process/d' "$WFI415"
 # The resume note is a single printf line carrying the premise (pinned above) AND the
 # operative instruction; pin the operative instruction too so an in-line reword that keeps
 # the premise but drops the never-end-turn directive still turns the suite RED (the whole
 # printf is one line, so both mutations target it — the two pins guard different clauses).
-devflow_module_pin_red_under "#415 devflow-implement-yml: removing the never-end-turn resume-note directive flips its pin RED" \
-  'Never end the turn while any dispatched agent has not returned' \
-  '/Never end the turn while any dispatched agent has not returned/d' "$WFI415"
 
 # ── #415 review finding #1 + #2: the schedulewakeup-probe verdict core is extracted
 # ── into scripts/schedulewakeup-probe-verdict.py so every arm — and the fail-open
@@ -889,10 +775,6 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # the prefix is removed (issue #435 AC-6). The auto path (devflow-review.yml) delivers HEAD_SHA via
 # the step env: block and needs no prefix — no symmetric PREFIX pin there (a false mirror); its
 # own load-bearing delivery, the step-scoped env: line, gets the scoped pin below.
-devflow_module_pin_red_under '#435 AC6: devflow.yml manual path forwards HEAD_SHA as a command prefix (drop-prefix mutation → RED)' \
-  'HEAD_SHA="$HEAD_SHA" bash "$HELPER"' \
-  's/HEAD_SHA="\$HEAD_SHA" bash "\$HELPER"/bash "\$HELPER"/' \
-  "$WFD408"
 
 # ── #435 shadow finding: the AUTO path's HEAD_SHA delivery to the backstop step is pinned
 # STEP-SCOPED. The literal `HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}` recurs three
@@ -931,9 +813,6 @@ rm -f "$T435WF"
 # that a launch acknowledgment is never the return — with the per-runner mechanism named as a
 # current example, so the requirement survives a parameter rename and holds on runtimes with
 # no equivalent switch. The barrier pins target each ROOT's own path rather than
-# $REVIEW_BUNDLE: a bundle pin would stay green on a sentence surviving anywhere in the
-# bundle, and this criterion is location-sensitive (the statement is canonical in the root,
-# and the dispatch sites carry pointers, never copies).
 echo "#801 harness floor + dispatch barrier"
 # Only the paths this block is the first to need get a new variable. devflow.yml,
 # devflow-implement.yml, skills/implement/SKILL.md and the grounding renderer already have
@@ -943,30 +822,6 @@ WFRUN801="$REPO_ROOT/.github/workflows/devflow-runner.yml"
 REVIEW_ROOT801="$REPO_ROOT/skills/review/SKILL.md"
 INSTALL801="$REPO_ROOT/install.sh"
 
-# env-floor-runner / env-floor-implement / env-floor-command — one mutation pin per engine
-# workflow. The mutation deletes the env entry, so a pin that survives it is reported RED.
-# The three-workflow population is a CLOSED LIST, the same residual shape the pointer-coverage
-# block below discloses: a fourth workflow step that runs a DevFlow engine would ship with no
-# harness floor and nothing here would go red. It is a closed list rather than a
-# `claude-code-action`-derived scan because the two probe workflows (matcher-probe.yml,
-# agents-seam-probe.yml) are a deliberate exclusion — their purpose is observing harness
-# behavior, so their subagent mode is left unpinned — and a derived scan would have to
-# re-encode that exclusion anyway.
-devflow_module_pin_red_under "#801 env-floor-runner: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-runner.yml flips its pin RED" \
-  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
-  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFRUN801"
-devflow_module_pin_red_under "#801 env-floor-implement: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow-implement.yml flips its pin RED" \
-  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
-  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFI415"
-devflow_module_pin_red_under "#801 env-floor-command: deleting CLAUDE_CODE_DISABLE_BACKGROUND_TASKS from devflow.yml flips its pin RED" \
-  'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' \
-  '/CLAUDE_CODE_DISABLE_BACKGROUND_TASKS/d' "$WFD408"
-
-# The three whole-file pins above prove the literal is PRESENT and load-bearing, but not that
-# it sits on the claude-code-action STEP — a copy parked in an unrelated job would keep them
-# green while the floor never reaches the agent's process. Scope the check to the step block
-# (its `- name: Run Claude Code` line through the `uses:` + `with:` boundary) and pair it with
-# a range-scoped deletion probe, the #435 idiom above.
 cca_step_env801() {  # file -> yes|no : the env line present inside the Run Claude Code step
   awk '/- name: Run Claude Code/,/^[[:space:]]*with:/' "$1" | \
     grep -qF -- 'CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"' && echo yes || echo no
@@ -982,24 +837,6 @@ for _wf801 in "$WFRUN801" "$WFI415" "$WFD408"; do
   rm -f "$_t801"
 done
 unset _wf801 _t801
-
-# barrier-review-root / barrier-implement-root — the canonical statement, one pin per engine
-# root, each proven RED under a mutation that removes ONLY the barrier sentence.
-devflow_module_pin_red_under "#801 barrier-review-root: removing the dispatch-barrier sentence from skills/review/SKILL.md flips its pin RED" \
-  "A dispatch blocks until the subagent's completed result is in hand" \
-  "/A dispatch blocks until the subagent's completed result is in hand/d" "$REVIEW_ROOT801"
-devflow_module_pin_red_under "#801 barrier-implement-root: removing the dispatch-barrier sentence from skills/implement/SKILL.md flips its pin RED" \
-  "A dispatch blocks until the subagent's completed result is in hand" \
-  "/A dispatch blocks until the subagent's completed result is in hand/d" "$IMPL_SKILL415"
-# The launch-acknowledgment half is a second operative clause of the same requirement (a
-# reword could keep the blocking sentence while dropping the rule that an acknowledgment is
-# never the return), so it gets its own pin per the one-pin-per-operative-sentence rule.
-devflow_module_pin_red_under "#801 barrier-review-root: removing the launch-acknowledgment clause flips its pin RED" \
-  'a launch acknowledgment is never treated as the return' \
-  '/a launch acknowledgment is never treated as the return/d' "$REVIEW_ROOT801"
-devflow_module_pin_red_under "#801 barrier-implement-root: removing the launch-acknowledgment clause flips its pin RED" \
-  'a launch acknowledgment is never treated as the return' \
-  '/a launch acknowledgment is never treated as the return/d' "$IMPL_SKILL415"
 
 # barrier-cloud-scoped — the barrier must sit INSIDE each root's cloud-conditioned block, not
 # float free as an unconditional rule. Bound the region by the block's own first and last
@@ -1034,15 +871,8 @@ for _root801 in "$REVIEW_ROOT801" "$IMPL_SKILL415"; do
   rm -f "$_t801s"
 done
 unset _root801 _root801_label _t801s
-# grounding-barrier-present — the injected engine-ground-truth block is the one prompt surface
-# guaranteed resident on the cloud review tier, so it carries the barrier too. Pinned on the
-# RENDERED surface (the #375 discipline the sibling #408 grounding pins follow) plus a
-# source-level mutation pin proving the sentence is load-bearing.
 assert_eq "#801 grounding block renders the dispatch-barrier sentence" "yes" \
   "$(printf '%s\n' "$GB408_OUT" | grep -qF "A dispatch blocks until the subagent's completed result is in hand" && echo yes || echo no)"
-devflow_module_pin_red_under "#801 grounding: deleting the dispatch-barrier sentence from the renderer flips its pin RED" \
-  "A dispatch blocks until the subagent's completed result is in hand" \
-  "/A dispatch blocks until the subagent's completed result is in hand/d" "$RGB408"
 
 # barrier-pointer-coverage — every LISTED dispatch site carries a pointer to its engine root's
 # barrier statement rather than a copy. The check matches the pointer phrase AND the root path
