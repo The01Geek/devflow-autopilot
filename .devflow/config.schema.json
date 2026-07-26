@@ -864,13 +864,28 @@
         },
         "min_occurrences": {
           "type": "integer",
-          "description": "Repetition gate. status == regressed always bypasses this.",
+          "description": "Repetition gate: a pattern needs at least this many occurrences to be eligible for filing. Applies to every status, including regressed (lib/actionable-patterns.sh selects on occurrence_count >= min_occurrences for all statuses).",
           "default": 2
         },
         "cooldown_days": {
           "type": "integer",
           "description": "Skip re-filing a pattern's retrospective issue if its youngest open filed issue is younger than this (createdAt-based).",
           "default": 3
+        },
+        "max_issues_per_run": {
+          "type": "integer",
+          "description": "Filing back-pressure: a single retrospective run files at most this many issues (issue #788).",
+          "default": 3
+        },
+        "max_open_issues": {
+          "type": "integer",
+          "description": "Filing back-pressure: file nothing for a non-regressed pattern once this many `filed` meta-issue entries are open across every lifecycle record. A regressed pattern bypasses this ceiling (issue #788).",
+          "default": 10
+        },
+        "max_open_per_category": {
+          "type": "integer",
+          "description": "Filing back-pressure: file nothing for a pattern whose own lifecycle record already holds this many `filed` meta-issue entries (issue #788).",
+          "default": 2
         },
         "max_prs_per_run": {
           "type": "integer",
