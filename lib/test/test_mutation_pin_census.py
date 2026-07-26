@@ -348,6 +348,48 @@ class MutationPinCensusTests(unittest.TestCase):
         with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
             self.repo.census()
 
+    def test_alternate_and_nested_helper_definitions_fail_closed(self) -> None:
+        harness = self.repo.root / "lib/test/module-harness.sh"
+        harness.write_text(
+            DEFINITIONS
+            + "function assert_pin_red_under { :; }\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(CENSUS.CensusError, "helper definition count"):
+            self.repo.census()
+
+        harness.write_text(
+            DEFINITIONS.replace(
+                "assert_pin_red_under() { :; }",
+                (
+                    "assert_pin_red_under() { "
+                    "assert_count_red_under n a b c; :; }"
+                ),
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(CENSUS.CensusError, "definition segment"):
+            self.repo.census()
+
+    def test_invalid_utf8_tracked_shell_definition_source_fails_closed(self) -> None:
+        relative = "lib/test/invalid-definition.sh"
+        (self.repo.root / relative).write_bytes(b"\xff")
+        self.repo.track(relative)
+        with self.assertRaisesRegex(CENSUS.CensusError, "not valid UTF-8"):
+            self.repo.census()
+
+    def test_known_non_utf8_fixture_is_exact_and_helper_free(self) -> None:
+        relative = next(iter(CENSUS.NON_UTF8_SHELL_FIXTURES))
+        path = self.repo.root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture\xffbytes")
+        self.repo.track(relative)
+        self.repo.census()
+
+        path.write_bytes(b"fixture\xffassert_pin_red_under")
+        with self.assertRaisesRegex(CENSUS.CensusError, "not valid UTF-8"):
+            self.repo.census()
+
     def test_tracked_definition_enumeration_failure_fails_closed(self) -> None:
         real_run = subprocess.run
 

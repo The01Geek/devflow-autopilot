@@ -57,9 +57,15 @@ RETAINED_BOUNDARY_IDENTITIES = (
     | EXECUTABLE_BOUNDARY_IDENTITIES
 )
 EXPECTED_SOURCE_COUNT = 12
+NON_UTF8_SHELL_FIXTURES = frozenset(
+    {"lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh"}
+)
 _WORD = r"[A-Za-z_][A-Za-z0-9_]*"
 _DEFINITION_RE = {
-    helper: re.compile(rf"^\s*{helper}\s*\(\s*\)\s*\{{")
+    helper: re.compile(
+        rf"^\s*(?:{helper}\s*\(\s*\)|"
+        rf"function\s+{helper}(?:\s*\(\s*\))?)\s*\{{"
+    )
     for helper in HELPERS
 }
 _ASSIGNMENT = rf"(?:{_WORD})=(?:'(?:[^']*)'|\"(?:\\.|[^\"])*\"|\S+)"
@@ -383,19 +389,40 @@ def _definition_counts(repo_root: Path) -> dict[str, int]:
             "tracked helper-definition enumeration selected no shell sources"
         )
     for path in paths:
+        relative = path.relative_to(repo_root).as_posix()
         try:
             text = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            # Binary/adversarial fixtures under lib/test are not shell sources.
-            continue
+        except UnicodeDecodeError as exc:
+            if relative in NON_UTF8_SHELL_FIXTURES:
+                try:
+                    raw = path.read_bytes()
+                except OSError as read_error:
+                    raise CensusError(
+                        f"cannot read tracked test shell fixture: {path}: "
+                        f"{read_error}"
+                    ) from read_error
+                if not any(helper.encode("ascii") in raw for helper in HELPERS):
+                    continue
+            raise CensusError(
+                f"tracked test shell source is not valid UTF-8: {path}"
+            ) from exc
         except OSError as exc:
             raise CensusError(f"cannot read test shell source: {path}: {exc}") from exc
-        relative = path.relative_to(repo_root).as_posix()
         for logical in _logical_lines(text, relative):
             for segment in _shell_segments(logical.physical):
-                for helper, pattern in _DEFINITION_RE.items():
-                    if pattern.match(segment):
-                        counts[helper] += 1
+                lexical = _lexical_helper_count(segment)
+                definitions = [
+                    helper
+                    for helper, pattern in _DEFINITION_RE.items()
+                    if pattern.match(segment)
+                ]
+                if definitions and lexical != len(definitions):
+                    raise CensusError(
+                        "supported helper token shares a definition segment: "
+                        f"{relative}:{logical.line_start}"
+                    )
+                for helper in definitions:
+                    counts[helper] += 1
     return counts
 
 

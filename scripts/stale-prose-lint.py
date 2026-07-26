@@ -653,16 +653,19 @@ _unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
 # so the count-locked rule resolves a quoted numeral against the surrounding TSV rows, which
 # are not that claim's referent. That is exactly the issue-#672 shape: a machine-rendered
 # record quoting prose as DATA, with no referent in the post-diff state to resolve against.
-_EXCLUDED_PREFIXES = (
-    ".devflow/learnings/",
-    ".devflow/logs/",
-    "lib/test/mutation-pin-corpus-adjudications.tsv",
+_EXCLUDED_PREFIXES = (".devflow/learnings/", ".devflow/logs/")
+_EXCLUDED_FILES = frozenset(
+    {"lib/test/mutation-pin-corpus-adjudications.tsv"}
 )
 
 
 def _is_excluded(path):
-    """True when `path` sits under a machine-appended corpus prefix."""
-    return path.replace("\\", "/").startswith(_EXCLUDED_PREFIXES)
+    """True when `path` is an exact corpus file or sits under a corpus prefix."""
+    normalized = path.replace("\\", "/")
+    return (
+        normalized in _EXCLUDED_FILES
+        or normalized.startswith(_EXCLUDED_PREFIXES)
+    )
 
 
 def _norm_line(line):
