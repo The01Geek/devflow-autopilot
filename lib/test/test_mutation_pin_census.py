@@ -88,12 +88,12 @@ class MutationPinCensusTests(unittest.TestCase):
         second = CENSUS.build_census(REPO_ROOT)
         self.assertEqual(first, second)
         self.assertEqual(tuple(first.sources), tuple(sorted(AUDITED)))
-        self.assertEqual(len(first.rows), 646)
+        self.assertEqual(len(first.rows), 11)
         self.assertEqual(
             {helper: first.helper_count(helper) for helper in CENSUS.HELPERS},
             {
-                "assert_pin_red_under": 543,
-                "devflow_module_pin_red_under": 94,
+                "assert_pin_red_under": 1,
+                "devflow_module_pin_red_under": 1,
                 "assert_count_red_under": 4,
                 "_ra_conflict_red_under": 5,
             },
@@ -108,7 +108,7 @@ class MutationPinCensusTests(unittest.TestCase):
         ]
         self.assertEqual(
             dispositions.count("retire_presence_equivalent"),
-            635,
+            0,
         )
         self.assertEqual(
             dispositions.count("retain_helper_infrastructure_boundary"),
@@ -118,6 +118,28 @@ class MutationPinCensusTests(unittest.TestCase):
             dispositions.count("retain_executable_boundary"),
             9,
         )
+        retained = {
+            CENSUS._identity_sha256(row)
+            for row in first.rows
+            if CENSUS.adjudicate(row).disposition.startswith("retain_")
+        }
+        self.assertEqual(retained, CENSUS.RETAINED_BOUNDARY_IDENTITIES)
+
+    def test_unrecognized_mutation_helpers_are_rejected_not_auto_retained(self) -> None:
+        source = AUDITED[0]
+        for helper in ("assert_count_red_under", "_ra_conflict_red_under"):
+            with self.subTest(helper=helper):
+                row = CENSUS.CensusRow(
+                    path=source,
+                    helper=helper,
+                    logical_call=f"{helper} new unreviewed mutation site",
+                    line_start=1,
+                    line_end=1,
+                )
+                self.assertEqual(
+                    CENSUS.adjudicate(row).disposition,
+                    "reject_unadjudicated_mutation_site",
+                )
 
     def test_identity_uses_path_helper_and_normalized_call_not_locator(self) -> None:
         source = AUDITED[1]

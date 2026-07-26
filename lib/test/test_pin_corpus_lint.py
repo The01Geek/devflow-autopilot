@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
-import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent.parent
 LINTER = HERE / "pin-corpus-lint.py"
 
 
@@ -1013,98 +1014,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
         )
 
-    def _worktree_fixture(self, root, registry):
-        for path in self.mod.AUDITED_PIN_SOURCES:
-            target = root / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text("", encoding="utf-8")
-        registry_path = root / "scripts/workflow-flight-recorder-registry.json"
-        registry_path.parent.mkdir(parents=True, exist_ok=True)
-        registry_path.write_text(json.dumps(registry), encoding="utf-8")
-
-        audited = "\n".join(sorted(self.mod.AUDITED_PIN_SOURCES)) + "\n"
-
-        def runner(args, **_kwargs):
-            rendered = " ".join(args)
-            if "show-ref --verify --quiet refs/heads/main" in rendered:
-                return subprocess.CompletedProcess(args, 1, "", "")
-            if "refs/heads/main" in rendered:
-                return subprocess.CompletedProcess(args, 128, "", "missing")
-            if "merge-base origin/main HEAD" in rendered:
-                return subprocess.CompletedProcess(args, 0, "mergebase\n", "")
-            if "ls-files --cached" in rendered or "ls-tree -r" in rendered:
-                return subprocess.CompletedProcess(args, 0, audited, "")
-            if "show mergebase:" in rendered:
-                return subprocess.CompletedProcess(args, 0, "", "")
-            return subprocess.CompletedProcess(args, 0, "", "")
-
-        return runner
-
-    def test_missing_local_main_is_a_normal_detached_checkout_shape(self):
-        registry = {
-            "schema_version": 1,
-            "test_modules": {
-                path.removeprefix("lib/test/modules/").removesuffix(".sh"): {
-                    "path": path,
-                    "minimum_assertions": 1,
-                }
-                for path in self.mod.AUDITED_PIN_SOURCES
-                if path != "lib/test/run.sh"
-            }
-        }
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._worktree_fixture(root, registry)
-            findings = self.mod.scan_worktree(
-                root,
-                git_runner=self._worktree_fixture(root, registry),
-                scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
-            )
-        self.assertEqual([], findings)
-
-    def test_malformed_registry_shapes_are_infrastructure_errors(self):
-        malformed = (
-            {"test_modules": []},
-            {"test_modules": {"x": []}},
-            {"test_modules": {"x": {}}},
-            {
-                "schema_version": 2,
-                "test_modules": {
-                    "x": {
-                        "path": "lib/test/modules/x.sh",
-                        "minimum_assertions": 1,
-                    }
-                },
-            },
-            {
-                "schema_version": 1,
-                "test_modules": {
-                    "x": {"path": "lib/test/modules/x.sh"}
-                },
-            },
-            {
-                "schema_version": 1,
-                "test_modules": {
-                    "bad id": {
-                        "path": "lib/test/modules/x.sh",
-                        "minimum_assertions": 1,
-                    }
-                },
-            },
-        )
-        for registry in malformed:
-            with self.subTest(registry=registry), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                runner = self._worktree_fixture(root, registry)
-                with self.assertRaisesRegex(
-                    self.mod.InfrastructureError, "registry schema"
-                ):
-                    self.mod.scan_worktree(
-                        root,
-                        git_runner=runner,
-                        scratch_factory=lambda: tempfile.TemporaryFile(mode="w+"),
-                    )
-
     def test_duplicate_registry_keys_are_rejected_at_load_boundary(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "registry.json"
@@ -1131,13 +1040,6 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 3, self.mod.main(["pin-corpus-lint.py", "mutation-routing-worktree", "/repo"])
             )
 
-    def test_required_path_has_no_classifier_or_inventory_dependency(self):
-        text = LINTER.read_text(encoding="utf-8")
-        start = text.index("def scan_worktree")
-        required_path = text[start : text.index("\ndef main", start)]
-        self.assertNotIn("pin-corpus-classifier", required_path)
-        self.assertNotIn("pin-corpus-inventory.tsv", required_path)
-
     def test_registry_fixture_is_json_serializable(self):
         # Sanity-check the same shape used by the production population validator.
         registry = {
@@ -1159,325 +1061,221 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
 
 
-class EmergencyDeletionFreezeTests(unittest.TestCase):
+class RetainedBoundaryRatchetTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.mod = load_linter()
 
-    def _git(self, root, *args, check=True):
-        return subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=check,
-            capture_output=True,
-            text=True,
-        )
-
-    def _commit(self, root, message="fixture change"):
-        self._git(root, "add", "-A")
-        self._git(root, "commit", "-qm", message)
-
     def _repo(self, root):
-        for index, path in enumerate(sorted(self.mod.AUDITED_PIN_SOURCES), start=1):
-            target = root / path
+        for relative in (
+            *sorted(self.mod.AUDITED_PIN_SOURCES),
+            "lib/test/module-harness.sh",
+            "lib/test/pin-corpus-lint.py",
+            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            "scripts/workflow-flight-recorder-registry.json",
+        ):
+            source = REPO_ROOT / relative
+            target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                f"{path} first\n{path} second\n{path} third\n",
-                encoding="utf-8",
-            )
-        modules = {
-            path.removeprefix("lib/test/modules/").removesuffix(".sh"): {
-                "path": path,
-                "minimum_assertions": 1,
-            }
-            for path in self.mod.AUDITED_PIN_SOURCES
-            if path != "lib/test/run.sh"
-        }
-        registry = root / "scripts/workflow-flight-recorder-registry.json"
-        registry.parent.mkdir(parents=True, exist_ok=True)
-        registry.write_text(
-            json.dumps({"schema_version": 1, "test_modules": modules}),
-            encoding="utf-8",
-        )
-        self._git(root, "init", "-q")
-        self._git(root, "config", "user.email", "test@example.com")
-        self._git(root, "config", "user.name", "Test")
-        self._commit(root, "base")
-        self._git(root, "branch", "-M", "main")
-        self._git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
-        self._git(root, "checkout", "-qb", "feature")
+            shutil.copy2(source, target)
 
     def _public_rc(self, root):
         with (
-            mock.patch("sys.stdout", new_callable=io.StringIO),
-            mock.patch("sys.stderr", new_callable=io.StringIO),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            mock.patch("sys.stderr", new_callable=io.StringIO) as stderr,
         ):
-            return self.mod.main(
+            rc = self.mod.main(
                 ["pin-corpus-lint.py", "mutation-routing-worktree", str(root)]
             )
+        return rc, stdout.getvalue(), stderr.getvalue()
 
-    def _change_audited(self, root, transform, path="lib/test/run.sh"):
-        target = root / path
-        target.write_text(transform(target.read_text(encoding="utf-8")), encoding="utf-8")
-        self._commit(root)
+    def _census(self, root):
+        return self.mod._load_mutation_census_module().build_census(root)
 
-    def test_unchanged_and_unrelated_outside_edit_pass(self):
+    def _rewrite_inventory(self, root):
+        census = self.mod._load_mutation_census_module()
+        inventory = root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+        inventory.write_text(
+            census.render_adjudication_tsv(
+                census.build_census(root),
+                "a" * 40,
+            ),
+            encoding="utf-8",
+        )
+
+    def _first_retained_row(self, root):
+        return self._census(root).rows[0]
+
+    def _replace_call(self, root, row, replacement):
+        path = root / row.path
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        replacement_lines = [replacement + "\n"] if replacement else []
+        path.write_text(
+            "".join(
+                [
+                    *lines[: row.line_start - 1],
+                    *replacement_lines,
+                    *lines[row.line_end :],
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+    def test_current_census_and_unrelated_edits_pass(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._repo(root)
-            self.assertEqual(0, self._public_rc(root))
+            self.assertEqual((0, "", ""), self._public_rc(root))
             outside = root / "docs/unfrozen.md"
             outside.parent.mkdir(parents=True)
             outside.write_text("ordinary unrelated addition\n", encoding="utf-8")
-            self._commit(root)
-            self.assertEqual(0, self._public_rc(root))
+            self.assertEqual((0, "", ""), self._public_rc(root))
+            row = self._first_retained_row(root)
+            audited = root / row.path
+            audited.write_text(
+                "# unrelated audited-source line before retained calls\n"
+                + audited.read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
 
-    def test_one_and_multiple_line_deletions_pass(self):
-        for delete_count in (1, 2):
-            with self.subTest(delete_count=delete_count), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                self._repo(root)
-                self._change_audited(
-                    root,
-                    lambda text, n=delete_count: "".join(text.splitlines(keepends=True)[n:]),
-                )
-                self.assertEqual(0, self._public_rc(root))
+    def test_deletion_passes_when_inventory_is_updated(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            row = self._first_retained_row(root)
+            self._replace_call(root, row, "")
+            self._rewrite_inventory(root)
+            self.assertEqual((0, "", ""), self._public_rc(root))
 
-    def test_add_edit_reformat_and_within_file_move_are_policy_findings(self):
-        transforms = {
-            "addition": lambda text: text + "new line\n",
-            "replacement": lambda text: text.replace(" first\n", " changed\n", 1),
-            "reformat": lambda text: text.replace(" second\n", "  second\n", 1),
-            "move": lambda text: "".join(
-                [
-                    text.splitlines(keepends=True)[1],
-                    text.splitlines(keepends=True)[0],
-                    *text.splitlines(keepends=True)[2:],
-                ]
+    def test_new_changed_and_reformatted_calls_are_policy_findings(self):
+        def append_call(root, row, call):
+            path = root / row.path
+            path.write_text(
+                path.read_text(encoding="utf-8") + "\n" + call + "\n",
+                encoding="utf-8",
+            )
+
+        mutations = {
+            "new generic": lambda root, row: append_call(
+                root,
+                row,
+                "assert_pin_red_under new literal mutation target",
+            ),
+            "new count": lambda root, row: append_call(
+                root,
+                row,
+                "assert_count_red_under new count mutation target",
+            ),
+            "changed": lambda root, row: self._replace_call(
+                root,
+                row,
+                row.logical_call + " changed",
+            ),
+            "reformatted": lambda root, row: self._replace_call(
+                root,
+                row,
+                row.logical_call.replace(" ", "  ", 1),
             ),
         }
-        for label, transform in transforms.items():
+        for label, mutate in mutations.items():
             with self.subTest(label=label), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 self._repo(root)
-                self._change_audited(root, transform)
-                self.assertEqual(3, self._public_rc(root))
+                row = self._first_retained_row(root)
+                mutate(root, row)
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(3, rc, stderr)
+                self.assertIn("MUTATION-ROUTING", stdout)
 
-    def test_rename_copy_add_delete_mode_and_type_changes_are_infrastructure(self):
-        cases = ("rename", "copy", "delete", "mode", "type")
+    def test_same_file_byte_identical_move_is_the_documented_identity_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            row = self._first_retained_row(root)
+            self._replace_call(root, row, "")
+            path = root / row.path
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + "\n"
+                + row.logical_call
+                + "\n",
+                encoding="utf-8",
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_inventory_missing_malformed_duplicate_or_mismatched_is_infrastructure(self):
+        cases = ("missing", "malformed", "duplicate", "mismatch")
         for case in cases:
             with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 self._repo(root)
-                source = root / "lib/test/run.sh"
-                if case == "rename":
-                    source.rename(root / "lib/test/run-renamed.sh")
-                elif case == "copy":
-                    (root / "lib/test/run-copy.sh").write_bytes(source.read_bytes())
-                elif case == "delete":
-                    source.unlink()
-                elif case == "mode":
-                    source.chmod(0o755)
+                inventory = (
+                    root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+                )
+                if case == "missing":
+                    inventory.unlink()
+                elif case == "malformed":
+                    inventory.write_text(
+                        "not\ta\tvalid\tinventory\n",
+                        encoding="utf-8",
+                    )
+                elif case == "duplicate":
+                    lines = inventory.read_text(encoding="utf-8").splitlines()
+                    lines.insert(4, lines[3])
+                    inventory.write_text(
+                        "\n".join(lines) + "\n",
+                        encoding="utf-8",
+                    )
                 else:
-                    source.unlink()
-                    source.symlink_to("modules/create-issue-contract.sh")
-                self._commit(root)
-                self.assertEqual(2, self._public_rc(root))
-
-    def test_audited_file_absent_from_base_is_infrastructure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            audited = sorted(self.mod.AUDITED_PIN_SOURCES)
-            base = self._git(root, "merge-base", "origin/main", "HEAD").stdout.strip()
-            real_runner = subprocess.run
-
-            def missing_base_path(args, **kwargs):
-                result = real_runner(args, **kwargs)
-                if (
-                    result.returncode == 0
-                    and "ls-tree" in args
-                    and base in args
-                    and result.stdout
-                ):
-                    lines = result.stdout.splitlines()
-                    return subprocess.CompletedProcess(
-                        args, 0, "\n".join(lines[1:]) + "\n", ""
+                    lines = inventory.read_text(encoding="utf-8").splitlines()
+                    inventory.write_text(
+                        "\n".join([*lines[:3], *lines[4:]]) + "\n",
+                        encoding="utf-8",
                     )
-                return result
+                rc, _stdout, stderr = self._public_rc(root)
+                self.assertEqual(2, rc)
+                self.assertIn("MUTATION-ROUTING-INFRASTRUCTURE", stderr)
 
-            original = self.mod.scan_worktree
-            with mock.patch.object(
-                self.mod,
-                "scan_worktree",
-                side_effect=lambda path: original(path, git_runner=missing_base_path),
-            ):
-                self.assertEqual(2, self._public_rc(root))
-            self.assertEqual(12, len(audited))
-
-    def test_binary_and_malformed_numstat_are_infrastructure(self):
+    def test_nonretain_inventory_disposition_is_infrastructure(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             self._repo(root)
-            target = root / "lib/test/run.sh"
-            target.write_bytes(b"\x00\x01\x02")
-            self._commit(root)
-            self.assertEqual(2, self._public_rc(root))
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            self._change_audited(root, lambda text: text + "new line\n")
-            real_runner = subprocess.run
-
-            def malformed_numstat(args, **kwargs):
-                if "diff" in args and "--numstat" in args:
-                    return subprocess.CompletedProcess(args, 0, "malformed\0", "")
-                return real_runner(args, **kwargs)
-
-            original = self.mod.scan_worktree
-            with mock.patch.object(
-                self.mod,
-                "scan_worktree",
-                side_effect=lambda path: original(path, git_runner=malformed_numstat),
-            ):
-                self.assertEqual(2, self._public_rc(root))
-
-    def test_name_status_numstat_disagreement_is_infrastructure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            self._change_audited(root, lambda text: text + "new line\n")
-            real_runner = subprocess.run
-
-            def empty_numstat(args, **kwargs):
-                if "diff" in args and "--numstat" in args:
-                    return subprocess.CompletedProcess(args, 0, "", "")
-                return real_runner(args, **kwargs)
-
-            original = self.mod.scan_worktree
-            with mock.patch.object(
-                self.mod,
-                "scan_worktree",
-                side_effect=lambda path: original(path, git_runner=empty_numstat),
-            ):
-                self.assertEqual(2, self._public_rc(root))
-
-    def test_missing_and_duplicate_audited_population_are_infrastructure(self):
-        for case in ("missing", "duplicate"):
-            with self.subTest(case=case), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                self._repo(root)
-                real_runner = subprocess.run
-
-                def bad_population(args, **kwargs):
-                    result = real_runner(args, **kwargs)
-                    if result.returncode == 0 and "ls-tree" in args and result.stdout:
-                        lines = result.stdout.splitlines()
-                        if case == "missing":
-                            lines = lines[1:]
-                        else:
-                            lines.append(lines[0])
-                        return subprocess.CompletedProcess(
-                            args, 0, "\n".join(lines) + "\n", ""
-                        )
-                    return result
-
-                original = self.mod.scan_worktree
-                with mock.patch.object(
-                    self.mod,
-                    "scan_worktree",
-                    side_effect=lambda path: original(path, git_runner=bad_population),
-                ):
-                    self.assertEqual(2, self._public_rc(root))
-
-    def test_git_and_merge_base_failure_are_infrastructure(self):
-        for failed_token in ("rev-parse", "merge-base"):
-            with self.subTest(failed_token=failed_token), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                self._repo(root)
-                real_runner = subprocess.run
-
-                def failing_git(args, **kwargs):
-                    if failed_token in args:
-                        return subprocess.CompletedProcess(args, 1, "", "injected")
-                    return real_runner(args, **kwargs)
-
-                original = self.mod.scan_worktree
-                with mock.patch.object(
-                    self.mod,
-                    "scan_worktree",
-                    side_effect=lambda path: original(path, git_runner=failing_git),
-                ):
-                    self.assertEqual(2, self._public_rc(root))
-
-    def test_unmerged_audited_source_is_infrastructure(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            real_runner = subprocess.run
-
-            def unmerged_source(args, **kwargs):
-                if "ls-files" in args and "--unmerged" in args:
-                    return subprocess.CompletedProcess(
-                        args,
-                        0,
-                        "100644 deadbeef 1\tlib/test/run.sh\n",
-                        "",
-                    )
-                return real_runner(args, **kwargs)
-
-            original = self.mod.scan_worktree
-            with mock.patch.object(
-                self.mod,
-                "scan_worktree",
-                side_effect=lambda path: original(path, git_runner=unmerged_source),
-            ):
-                self.assertEqual(2, self._public_rc(root))
-
-    def test_all_eight_pr819_addition_shapes_are_policy_findings(self):
-        additions = (
-            "assert_pin_red_under 'one' 'L1' 's/L1/X/' \"$F\"",
-            "assert_pin_red_under 'two' 'L2' '/L2/d' \"$F\"",
-            "assert_pin_red_under 'three' 'L3' 's/^/prefix/' \"$F\"",
-            "assert_pin_red_under 'four' 'L4' 's/$/suffix/' \"$F\"",
-            "devflow_module_pin_red_under 'five' 'L5' 's/L5/X/' \"$F\"",
-            "devflow_module_pin_red_under 'six' 'L6' '/L6/d' \"$F\"",
-            "assert_count_red_under 'seven' '^L7$' 1 9 's/L7/X/' \"$F\"",
-            "assert_count_red_under 'eight' '^L8$' 1 9 '/L8/d' \"$F\"",
-        )
-        for addition in additions:
-            with self.subTest(addition=addition), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                self._repo(root)
-                self._change_audited(root, lambda text, line=addition: text + line + "\n")
-                self.assertEqual(3, self._public_rc(root))
-
-    def test_required_path_does_not_invoke_mutation_semantics_or_sed(self):
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            self._repo(root)
-            self._change_audited(root, lambda text: text + "ordinary line\n")
-            real_runner = subprocess.run
-
-            def git_only_runner(args, **kwargs):
-                self.assertEqual("git", args[0])
-                self.assertNotIn("sed", args)
-                return real_runner(args, **kwargs)
-
-            with (
-                mock.patch.object(
-                    self.mod,
-                    "scan_changed_sources",
-                    side_effect=AssertionError("semantic scanner invoked"),
+            inventory = root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+            text = inventory.read_text(encoding="utf-8")
+            inventory.write_text(
+                text.replace(
+                    "\tretain_executable_boundary\t",
+                    "\tretire_presence_equivalent\t",
+                    1,
                 ),
-                mock.patch.object(
-                    self.mod,
-                    "_function_definitions",
-                    side_effect=AssertionError("wrapper parser invoked"),
-                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(2, self._public_rc(root)[0])
+
+    def test_census_ambiguity_is_infrastructure(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            row = self._first_retained_row(root)
+            path = root / row.path
+            path.write_text(
+                path.read_text(encoding="utf-8")
+                + "\ncommand assert_count_red_under ambiguous call\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(2, self._public_rc(root)[0])
+
+    def test_required_path_does_not_run_git_sed_grep_or_semantic_analysis(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            with mock.patch.object(
+                subprocess,
+                "run",
+                side_effect=AssertionError("subprocess invoked"),
             ):
-                findings = self.mod.scan_worktree(root, git_runner=git_only_runner)
-            self.assertTrue(findings)
+                self.assertEqual((0, "", ""), self._public_rc(root))
 
 
 if __name__ == "__main__":
