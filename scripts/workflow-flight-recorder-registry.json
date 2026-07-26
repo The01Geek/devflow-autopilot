@@ -48,8 +48,8 @@
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
-      "minimum_assertions": 182,
-      "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), and the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py)"
+      "minimum_assertions": 190,
+      "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), and the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the docs/implement-skill.md verdict mirror)"
     },
     "experiment-records": {
       "path": "lib/test/modules/experiment-records.sh",
