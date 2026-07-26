@@ -41,9 +41,12 @@ MONOLITH_HELPER_RE = re.compile(
     r"(?:[^A-Za-z0-9_]|$)"
 )
 
-# A module may not self-skip: run-module.sh overrides `skip` to a fatal. Match it only
-# in command position (a line whose first token is `skip`), so prose mentioning the word
-# in a comment is not a false positive.
+# A module may not self-skip: run-module.sh overrides `skip` to a fatal. Since issue #838
+# a module may declare a host-capability condition through `module_host_capability_skip`,
+# which the boundary validates and folds — but the raw helper stays out of reach, which is
+# what this pattern enforces. Match it only in command position (a line whose first token
+# is exactly `skip`), so the wrapper's own name, and prose mentioning the word in a
+# comment, are not false positives.
 MODULE_SKIP_CALL_RE = re.compile(r"^[ \t]*skip(?:[ \t]|$)", re.MULTILINE)
 
 # The three fixture helpers issue #695 promoted from lib/test/run.sh into
@@ -1208,7 +1211,8 @@ class ModuleRunnerTests(unittest.TestCase):
                 )
                 self.assertIsNone(
                     MODULE_SKIP_CALL_RE.search(module_code),
-                    f"{module_id} calls skip; modules may not self-skip",
+                    f"{module_id} calls skip directly; a module may only declare a "
+                    "host-capability condition through module_host_capability_skip",
                 )
 
     def test_installer_wiring_module_runs_green_through_the_real_runner(self) -> None:
@@ -1458,9 +1462,15 @@ class ModuleRunnerTests(unittest.TestCase):
         HOST ASSUMPTION: equality means the module must execute every assertion, so a
         host that trips a conditional arm inside a module (running as root, where the
         `chmod 000` denial arms do not deny; or a missing PyYAML) yields a lower tally
-        and fails here with a count mismatch. Those arms are pre-existing moved code and
-        modules may not self-skip, so the tally is the honest signal rather than a
-        silent pass; see the arms' own comments."""
+        and fails here. That is the honest signal for a FOCUSED run, which may not
+        self-skip at all: since issue #838 the `chmod 000` arms report through
+        `module_host_capability_skip`, so on such a host a focused run dies at the first
+        arm with the runner's "modules may not self-skip" message instead of an opaque
+        count mismatch. The FULL-SUITE boundary is where those arms are accounted for —
+        it folds the declared host-capability skip into the suite tally and credits the
+        arm's declared assertions against the floor (see
+        HostCapabilitySkipChannelTests), so this equality is a statement about the
+        focused runner, not about every tier."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
@@ -1943,6 +1953,288 @@ def classify_test_suites(
     for name in sorted(classified_set - discovered):
         violations.append(f"{name}: classified but not found on disk in {test_dir}")
     return violations
+
+
+class HostCapabilitySkipChannelTests(unittest.TestCase):
+    """Issue #838: the module-reachable host-capability skip channel.
+
+    A module may not self-skip, so `skip()` is not a raw module surface. The full-suite
+    boundary instead binds the module child a PRIVATE skip tally and folds it back, and
+    the surface a module calls is `module_host_capability_skip`, which delegates to
+    `lib/test/run.sh`'s `skip()` — still the sole `#456` producer. These tests drive the
+    real boundary and the real producer, never a stand-in: `skip()` is extracted from
+    `run.sh` by its own region markers, so a run.sh that lost the region fails here too.
+    """
+
+    SKIP_REGION_BEGIN = "# SKIP_HELPER_REGION_BEGIN"
+    SKIP_REGION_END = "# SKIP_HELPER_REGION_END"
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary_directory.name)
+        self.addCleanup(self.temporary_directory.cleanup)
+
+    def _extracted_skip_helper(self) -> Path:
+        """Write run.sh's real `skip()` to a sourceable file, cut at its region markers."""
+        text = (ROOT / "lib/test/run.sh").read_text(encoding="utf-8")
+        begin = text.find(self.SKIP_REGION_BEGIN)
+        end = text.find(self.SKIP_REGION_END)
+        self.assertNotEqual(begin, -1, "run.sh lost its skip-helper region begin marker")
+        self.assertNotEqual(end, -1, "run.sh lost its skip-helper region end marker")
+        self.assertLess(begin, end)
+        path = self.root / "skip-helper.sh"
+        path.write_text(text[begin : end + len(self.SKIP_REGION_END)], encoding="utf-8")
+        return path
+
+    def _drive_boundary(
+        self,
+        module_body: str,
+        minimum_assertions: int,
+        *,
+        module_name: str = "synthetic",
+    ) -> dict[str, object]:
+        """Run one synthetic module through the real full-suite boundary.
+
+        Returns the caller-side artifacts the boundary is responsible for producing:
+        the shared skip tally, the shared result tally, the boundary-failure record,
+        and the process output.
+        """
+        module = self.root / f"{module_name}.sh"
+        module.write_text(module_body, encoding="utf-8")
+        results = self.root / "results"
+        skips = self.root / "skips"
+        failures = self.root / "module-failures"
+        driver = self.root / "driver.sh"
+        driver.write_text(
+            "#!/usr/bin/env bash\n"
+            f'RESULTS_FILE="{results}"\n'
+            f'SKIPS_FILE="{skips}"\n'
+            f'MODULE_FAILURES_FILE="{failures}"\n'
+            '> "$RESULTS_FILE"\n'
+            '> "$SKIPS_FILE"\n'
+            '> "$MODULE_FAILURES_FILE"\n'
+            "assert_eq() {\n"
+            '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
+            '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
+            "}\n"
+            f'. "{self._extracted_skip_helper()}"\n'
+            f'. "{HARNESS_SOURCE}"\n'
+            f'devflow_run_full_suite_module "{module}" "{module_name}" '
+            f"{minimum_assertions}\n",
+            encoding="utf-8",
+        )
+        completed = subprocess.run(
+            ["bash", str(driver)],
+            cwd=self.root,
+            env=os.environ.copy(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        names = results.with_name(results.name + ".names")
+        return {
+            "completed": completed,
+            "skips": skips.read_text(encoding="utf-8"),
+            "results": results.read_text(encoding="utf-8"),
+            # MODULE_FAILURES_FILE carries only the bare `FAIL` verdicts; the boundary
+            # failure's identifier lands in the `.names` record (issue #789), which is
+            # what a reader of the recap actually sees — so assert against that.
+            "failures": names.read_text(encoding="utf-8") if names.exists() else "",
+            "failure_verdicts": failures.read_text(encoding="utf-8").split(),
+        }
+
+    def test_module_skip_is_folded_into_the_shared_tally_and_rendered(self) -> None:
+        """The skip reaches the caller's SKIPS_FILE and summary.sh renders it."""
+        observed = self._drive_boundary(
+            'assert_eq "synthetic ran" "x" "x"\n'
+            'module_host_capability_skip "synthetic arm" "reads not denied here" 2\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(
+            observed["skips"],
+            "host-capability\tsynthetic arm\treads not denied here\n",
+        )
+        # A skip is neither a PASS nor a FAIL in the shared verdict tally.
+        self.assertEqual(observed["results"].split(), ["PASS"])
+        # And the real renderer reports it as a skip rather than a clean pass.
+        render = self.root / "render.sh"
+        render.write_text(
+            "#!/usr/bin/env bash\n"
+            f'. "{ROOT / "lib/test/summary.sh"}"\n'
+            f'devflow_render_test_summary 1 0 1 "{self.root / "skips"}"\n',
+            encoding="utf-8",
+        )
+        rendered = subprocess.run(
+            ["bash", str(render)], text=True, capture_output=True, check=False
+        )
+        self.assertIn("1 passed, 0 failed, 1 skipped", rendered.stdout)
+        self.assertIn("synthetic arm", rendered.stdout)
+
+    def test_declared_credit_prevents_a_spurious_floor_trip(self) -> None:
+        """A host that cannot express the condition reports a skip, not a floor trip."""
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n',
+            3,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertNotIn("minimum is", completed.stderr)
+        self.assertEqual(observed["failures"].strip(), "")
+
+    def test_multiple_skips_accumulate_their_credits_and_all_are_itemized(self) -> None:
+        """The credit sum is an aggregation, so drive it with more than one element.
+
+        A single-skip test exercises no accumulation: one credit is already its own
+        total. This is the shape `review-stall-backstop.sh` actually produces on a
+        cannot-deny-reads host — one skip and one credit per gated arm — so the sum,
+        and the fact that every skip is itemized rather than collapsed, are both driven
+        here with a multi-element input.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "first arm" "host cannot deny reads" 2\n'
+            'module_host_capability_skip "second arm" "host cannot deny reads" 2\n'
+            'module_host_capability_skip "third arm" "host cannot deny reads" 2\n',
+            7,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        # 1 executed + 6 credited == the floor of 7: the sum, not just the last credit.
+        self.assertNotIn("minimum is", completed.stderr)
+        self.assertEqual(observed["failures"], "")
+        # Each skip is its own tally line — distinct arms, none collapsed.
+        skip_lines = observed["skips"].splitlines()
+        self.assertEqual(len(skip_lines), 3, observed["skips"])
+        self.assertEqual(
+            [line.split("\t")[1] for line in skip_lines],
+            ["first arm", "second arm", "third arm"],
+        )
+        # One short of the sum still trips, proving the 7 above was not a free pass.
+        tighter = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "first arm" "host cannot deny reads" 2\n'
+            'module_host_capability_skip "second arm" "host cannot deny reads" 2\n'
+            'module_host_capability_skip "third arm" "host cannot deny reads" 2\n',
+            8,
+            module_name="synthetic-tighter",
+        )
+        self.assertIn("effective 2 after 6 credited skip assertions", tighter["completed"].stderr)
+
+    def test_under_covering_credit_still_trips_the_floor(self) -> None:
+        """The credit reconciles the floor; it never waives it."""
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 1\n',
+            5,
+        )
+        self.assertIn("minimum is", observed["completed"].stderr)
+        self.assertIn("executed 1 assertions", observed["completed"].stderr)
+
+    def test_malformed_credit_is_rejected_and_grants_nothing(self) -> None:
+        """A non-integer credit fails closed: a boundary failure and zero credit."""
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" two\n',
+            3,
+        )
+        self.assertIn("credit", observed["failures"])
+        # Zero credit granted, so the floor still trips.
+        self.assertIn("minimum is", observed["completed"].stderr)
+
+    def test_credit_reaching_the_floor_is_rejected(self) -> None:
+        """A credit that meets or exceeds the floor reverts to the stricter bound."""
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 3\n',
+            3,
+        )
+        self.assertIn("credit", observed["failures"])
+        self.assertIn("minimum is 3", observed["completed"].stderr)
+
+    def test_a_non_host_capability_skip_record_is_rejected(self) -> None:
+        """Binding the child a real skip channel must not become a laundering vector.
+
+        A module that reaches past the wrapper and records a `blocking-gate` skip is
+        rejected at the fold, so the shared tally can never absorb a gate a module
+        skipped for itself.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'skip "smuggled gate" blocking-gate "a module may not do this"\n',
+            1,
+        )
+        self.assertIn("recorded a non-host-capability skip", observed["failures"])
+        self.assertNotIn("smuggled gate", observed["skips"])
+
+    def test_an_unreadable_private_record_is_reported_not_silently_empty(self) -> None:
+        """An unreadable record must not read as "nothing was recorded".
+
+        The existence check cannot stand in for the consumption: a non-empty but
+        unreadable file makes the fold's redirect fail, the loop body never runs, and
+        the skips and their credits vanish with no diagnostic. The module chmods its own
+        record after writing it, which is the only way to reach this state from inside
+        the child.
+        """
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$SKIPS_FILE"\n',
+            3,
+        )
+        self.assertIn("private skip tally is unreadable", observed["failures"])
+        # And the unreadable record never silently buys floor relief.
+        self.assertIn("minimum is", observed["completed"].stderr)
+
+    def test_focused_runner_stays_fatal_for_a_module_that_self_skips(self) -> None:
+        """`run-module.sh` keeps the module contract: a focused run may not self-skip."""
+        scripts_dir = self.root / "scripts"
+        modules_dir = self.root / "lib/test/modules"
+        modules_dir.mkdir(parents=True)
+        scripts_dir.mkdir(parents=True)
+        (modules_dir / "selfskip.sh").write_text(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'assert_eq "unreached" "x" "x"\n',
+            encoding="utf-8",
+        )
+        (scripts_dir / "workflow-flight-recorder-registry.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "workflows": {"placeholder": {}},
+                    "test_modules": {
+                        "selfskip": {
+                            "path": "lib/test/modules/selfskip.sh",
+                            "minimum_assertions": 1,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        shutil.copy2(RUNNER_SOURCE, self.root / "lib/test/run-module.sh")
+        shutil.copy2(HARNESS_SOURCE, self.root / "lib/test/module-harness.sh")
+        completed = subprocess.run(
+            [
+                "bash",
+                str(self.root / "lib/test/run-module.sh"),
+                "--log-dir",
+                str(self.root / "logs"),
+                "selfskip",
+            ],
+            cwd=self.root,
+            env=os.environ.copy(),
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("modules may not self-skip", completed.stdout + completed.stderr)
 
 
 class PoolMembershipCompletenessTests(unittest.TestCase):

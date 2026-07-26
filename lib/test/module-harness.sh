@@ -42,6 +42,39 @@ record_fail() {  # name
   printf '%s\n' "$_rf_name" >> "$RESULTS_FILE.names"
 }
 
+# module_host_capability_skip <name> <reason> <assertions-covered>  (issue #838)
+#
+# The module-reachable skip surface, and the answer to #838's reachability question:
+# a module still may not self-skip in general — it may only declare that THIS HOST
+# cannot express a condition, which is the `host-capability` kind alone. That the raw
+# helper stays out of reach is ENFORCED, not merely asserted here: lib/test/run-module.sh
+# overrides `skip` to a fatal, the fold below rejects any record whose kind is not
+# `host-capability`, and test_module_runner.py scans every module on disk for a
+# command-position `skip` line.
+#
+# It emits nothing itself. It delegates to `skip`, which stays the sole `#456`
+# producer of the reserved `  NOTE ` line, and bash resolves that name at CALL time —
+# so one definition is correct on both tiers with no divergent second message to keep
+# in sync. Under the full-suite boundary `skip` is run.sh's real helper writing to the
+# private per-module tally that boundary binds and folds back; under
+# lib/test/run-module.sh `skip` is that runner's FATAL override, so a focused run dies
+# here on the delegation line, before any credit is recorded.
+#
+# <assertions-covered> is the number of assertions the guarded arm does not run on this
+# host. The boundary credits it against the module's assertion floor so a host taking
+# the arm reports a visible skip instead of tripping the floor with a count mismatch
+# that reads like a regression. It is a declaration, not a measurement: the boundary
+# validates it and fails closed on every shape it cannot use.
+module_host_capability_skip() {  # name reason assertions-covered
+  local _hcs_name="$1" _hcs_reason="$2" _hcs_credit="${3:-0}"
+  skip "$_hcs_name" host-capability "$_hcs_reason"
+  # Recorded verbatim — the boundary is the validator, so a malformed declaration is
+  # rejected there with an attributable failure rather than silently normalized here.
+  if [ -n "${MODULE_SKIP_CREDIT_FILE:-}" ]; then
+    printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE"
+  fi
+}
+
 # ── Inherited-DEVFLOW_GH fixture isolation (issue #533 AC13, generalized #695) ─
 # The same clearing lib/test/run.sh performs in its preamble, performed here so
 # EVERY caller that sources this harness — the complete suite AND the focused
@@ -756,6 +789,8 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_path="$1" module_name="$2" minimum_assertions="$3"
   local module_results_file="" module_scratch_root="" module_group_pid_file=""
   local module_worker_pid_file=""
+  local module_skips_file="" module_skip_credit_file=""
+  local skip_credit_total=0 effective_minimum="$3" skip_records_lost=0
   local module_pid="" module_rc=0 assertion_count=0 boundary_rc=0
   local module_launching=0 module_pending_signal="" tally_valid=1
   local saved_hup saved_int saved_term monitor_was_on=0
@@ -793,8 +828,28 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       "$module_name" >&2
     return 0
   fi
+  # The module's PRIVATE skip tally and its declared assertion credits (issue #838).
+  # Allocated in the parent so the `(...)` subshell below inherits the paths by closure,
+  # exactly as module_results_file is — no new IPC mechanism, and the fold after `wait`
+  # mirrors the `.names` fold. Allocation failure fails closed like the result tally's.
+  if ! module_skips_file="$(mktemp "${TMPDIR:-/tmp}/devflow-module-skips.XXXXXX")"; then
+    _devflow_cleanup_full_suite_tally "$module_results_file" || :
+    _devflow_record_module_failure "test module $module_name — could not allocate private skip tally" || return 1
+    printf '  FAIL  test module %s — could not allocate private skip tally\n' \
+      "$module_name" >&2
+    return 0
+  fi
+  if ! module_skip_credit_file="$(mktemp "${TMPDIR:-/tmp}/devflow-module-credits.XXXXXX")"; then
+    rm -f "$module_skips_file" || :
+    _devflow_cleanup_full_suite_tally "$module_results_file" || :
+    _devflow_record_module_failure "test module $module_name — could not allocate private skip-credit record" || return 1
+    printf '  FAIL  test module %s — could not allocate private skip-credit record\n' \
+      "$module_name" >&2
+    return 0
+  fi
   if ! module_scratch_root="$(devflow_module_allocate_owned_directory \
     "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")"; then
+    rm -f "$module_skips_file" "$module_skip_credit_file" || :
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
     _devflow_record_module_failure "test module $module_name — could not allocate private scratch root" || return 1
     printf '  FAIL  test module %s — could not allocate private scratch root\n' \
@@ -804,6 +859,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   if ! _devflow_validate_module_scratch "$module_scratch_root"; then
     _devflow_discard_unvalidated_module_scratch "$module_scratch_root" || :
     module_scratch_root=""
+    rm -f "$module_skips_file" "$module_skip_credit_file" || :
     _devflow_cleanup_full_suite_tally "$module_results_file" || :
     _devflow_record_module_failure "test module $module_name — allocated an unsafe private scratch root" || return 1
     printf '  FAIL  test module %s — allocated an unsafe private scratch root\n' \
@@ -841,13 +897,21 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       # Keep the full-suite boundary's fail direction identical to the focused
       # runner even when a future caller does not enable nounset globally.
       set -u
-      # The module receives RESULTS_FILE by contract, but never the independent
-      # boundary-failure channel, shared skip tally, or shared suite tally.
+      # The module receives RESULTS_FILE by contract, and — since issue #838 — a
+      # PRIVATE skip tally plus a private skip-credit record, never the independent
+      # boundary-failure channel or the shared suite tallies. The skip binding is
+      # private for the same reason the result tally is: the parent validates and
+      # folds it after `wait`, so a module cannot write the shared tally directly and
+      # cannot launder a `blocking-gate` skip into it.
       # The private worker intentionally shadows the caller tally.
       # shellcheck disable=SC2030
       RESULTS_FILE="$module_results_file"
+      # shellcheck disable=SC2030
+      SKIPS_FILE="$module_skips_file"
+      # Consumed by module_host_capability_skip in the sourced module.
+      # shellcheck disable=SC2034,SC2030
+      MODULE_SKIP_CREDIT_FILE="$module_skip_credit_file"
       unset MODULE_FAILURES_FILE
-      unset SKIPS_FILE
       # shellcheck source=/dev/null disable=SC1090
       . "$module_path"
     }
@@ -909,6 +973,99 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
     printf '  FAIL  test module %s — could not append private failure-identifier record\n' \
       "$module_name" >&2
   fi
+  # ── Fold the worker's PRIVATE skip tally (issue #838) ────────────────────────
+  # Read line by line with bash builtins rather than grep/awk: this loop decides both
+  # an EMITTED result (which skips reach the shared tally) and a SELECTION (the floor
+  # the assertion count is compared against), and CLAUDE.md guard-class 2 bars deriving
+  # either through a tool the preflight does not guarantee — an absent tool would empty
+  # the stream and silently grant a clean pass.
+  #
+  # Only `host-capability` is folded. That validation is what makes binding the child a
+  # real skip channel safe: `module_host_capability_skip` states the intent, and this
+  # arm ENFORCES it, so a module reaching past the wrapper to record a `blocking-gate`
+  # skip is rejected here instead of laundering a gate it skipped for itself.
+  # `-s` distinguishes "no skips recorded" (the overwhelmingly common case, and a clean
+  # no-op) from a file that exists with content. A file that is non-empty but UNREADABLE
+  # is neither: the redirect below fails, the loop body never runs, and the skips and
+  # their credits would vanish silently — so the readability of each record is checked
+  # before it is consumed, rather than inferred from the existence check.
+  if [ -s "$module_skips_file" ] && [ ! -r "$module_skips_file" ]; then
+    _devflow_record_module_failure "test module $module_name — private skip tally is unreadable" || boundary_rc=1
+    printf '  FAIL  test module %s — private skip tally is unreadable\n' "$module_name" >&2
+    # The credit half of the record is only legitimate BECAUSE the skip half is visible:
+    # crediting the floor while the skips themselves never reached the tally is exactly
+    # the laundering this channel exists to prevent (fewer assertions, no skip shown, no
+    # floor trip — a clean-looking run). Forfeit every credit when the skips are lost.
+    skip_records_lost=1
+  elif [ -s "$module_skips_file" ]; then
+    while IFS= read -r _fold_line || [ -n "$_fold_line" ]; do
+      [ -n "$_fold_line" ] || continue
+      case "$_fold_line" in
+        "host-capability"$'\t'*)
+          if ! printf '%s\n' "$_fold_line" >> "$SKIPS_FILE"; then
+            _devflow_record_module_failure "test module $module_name — could not append private skip tally" || boundary_rc=1
+            printf '  FAIL  test module %s — could not append private skip tally\n' \
+              "$module_name" >&2
+          fi
+          ;;
+        *)
+          _devflow_record_module_failure "test module $module_name — recorded a non-host-capability skip (a module may not self-skip)" || boundary_rc=1
+          printf '  FAIL  test module %s — recorded a non-host-capability skip (a module may not self-skip): %s\n' \
+            "$module_name" "$_fold_line" >&2
+          ;;
+      esac
+    done < "$module_skips_file"
+  fi
+
+  # Sum the declared assertion credits. A credit is a DECLARATION the module makes about
+  # how many assertions its gated arm did not run; every shape this cannot use grants
+  # ZERO and records an attributable failure, so a malformed declaration can never buy
+  # floor relief. Arithmetic stays in bash builtins for the same guard-class-2 reason.
+  # Same readability check as the skip tally above, and for the same reason: an
+  # unreadable credit record must not read as "no credits declared", which would grant
+  # zero credit against a floor the module's skipped arms were counted out of.
+  if [ -s "$module_skip_credit_file" ] && [ ! -r "$module_skip_credit_file" ]; then
+    _devflow_record_module_failure "test module $module_name — private skip-credit record is unreadable" || boundary_rc=1
+    printf '  FAIL  test module %s — private skip-credit record is unreadable\n' "$module_name" >&2
+  elif [ -s "$module_skip_credit_file" ]; then
+    while IFS= read -r _credit_line || [ -n "$_credit_line" ]; do
+      [ -n "$_credit_line" ] || continue
+      case "$_credit_line" in
+        # Digits only, and short enough that the arithmetic below cannot overflow —
+        # the same bounded-digit shape the minimum-assertions validation above uses.
+        ''|*[!0-9]*|????????*)
+          _devflow_record_module_failure "test module $module_name — malformed skip-assertion credit" || boundary_rc=1
+          printf '  FAIL  test module %s — malformed skip-assertion credit: %s\n' \
+            "$module_name" "$_credit_line" >&2
+          ;;
+        *) skip_credit_total=$((skip_credit_total + _credit_line)) ;;
+      esac
+    done < "$module_skip_credit_file"
+  fi
+
+  # A credit that meets or exceeds the floor would leave nothing for the floor to
+  # assert, so it is rejected and the RAW minimum stands — fail closed toward the
+  # stricter bound, never the permissive one.
+  # A lost skip record forfeits every credit (see the unreadable arm above), so the
+  # raw floor stands and the shortfall is reported rather than credited away.
+  if [ "$skip_records_lost" -ne 0 ]; then
+    skip_credit_total=0
+  elif [ "$skip_credit_total" -ge "$minimum_assertions" ]; then
+    _devflow_record_module_failure "test module $module_name — skip-assertion credit $skip_credit_total meets or exceeds the assertion floor $minimum_assertions" || boundary_rc=1
+    printf '  FAIL  test module %s — skip-assertion credit %s meets or exceeds the assertion floor %s\n' \
+      "$module_name" "$skip_credit_total" "$minimum_assertions" >&2
+    skip_credit_total=0
+  fi
+  effective_minimum=$((minimum_assertions - skip_credit_total))
+
+  if ! rm -f "$module_skips_file" "$module_skip_credit_file"; then
+    _devflow_record_module_failure "test module $module_name — could not remove private skip records" || boundary_rc=1
+    printf '  FAIL  test module %s — could not remove private skip records\n' \
+      "$module_name" >&2
+  fi
+  module_skips_file=""
+  module_skip_credit_file=""
+
   if ! _devflow_cleanup_module_scratch "$module_scratch_root"; then
     _devflow_record_module_failure "test module $module_name — could not remove private scratch root" || boundary_rc=1
     printf '  FAIL  test module %s — could not remove private scratch root\n' \
@@ -929,10 +1086,23 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   if [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -eq 0 ]; then
     _devflow_record_module_failure "test module $module_name — executed zero assertions" || boundary_rc=1
     printf '  FAIL  test module %s — executed zero assertions\n' "$module_name" >&2
-  elif [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -lt "$minimum_assertions" ]; then
-    _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions" || boundary_rc=1
-    printf '  FAIL  test module %s — executed %s assertions; minimum is %s\n' \
-      "$module_name" "$assertion_count" "$minimum_assertions" >&2
+  elif [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -lt "$effective_minimum" ]; then
+    # The floor is compared against the effective minimum so a host that could not
+    # express a gated arm's condition reports its visible skip rather than a count
+    # mismatch that reads like a regression. With no credited skip the two are equal
+    # and both the failure text and this comparison are byte-identical to before; the
+    # credited clause appears only when a credit was actually granted, so the reader
+    # of a credited run can see both bounds.
+    if [ "$skip_credit_total" -gt 0 ]; then
+      _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions (effective $effective_minimum after $skip_credit_total credited skip assertions)" || boundary_rc=1
+      printf '  FAIL  test module %s — executed %s assertions; minimum is %s (effective %s after %s credited skip assertions)\n' \
+        "$module_name" "$assertion_count" "$minimum_assertions" \
+        "$effective_minimum" "$skip_credit_total" >&2
+    else
+      _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions" || boundary_rc=1
+      printf '  FAIL  test module %s — executed %s assertions; minimum is %s\n' \
+        "$module_name" "$assertion_count" "$minimum_assertions" >&2
+    fi
   fi
   # Keep the boundary traps installed through both cleanup attempts and their
   # associated failure recording.
