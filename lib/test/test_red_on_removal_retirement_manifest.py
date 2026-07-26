@@ -10,7 +10,6 @@ import hashlib
 import importlib.util
 import io
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -235,7 +234,7 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
             present = [
                 path
                 for path in listed
-                if path and (REPO_ROOT / os.fsdecode(path)).is_file()
+                if path and (REPO_ROOT / path.decode("utf-8")).is_file()
             ]
             tracked.write_bytes(b"\0".join(present) + b"\0")
             result = subprocess.run(
