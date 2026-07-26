@@ -1,5 +1,5 @@
 ---
-"devflow-autopilot": patch
+bump: patch
 ---
 
 Retire wording-only residual pin assertions while preserving the audited behavioral
