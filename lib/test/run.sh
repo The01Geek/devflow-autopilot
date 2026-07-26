@@ -6275,8 +6275,10 @@ assert_eq "#474(2.3.7): docs/implement-skill.md keeps the rationale table row" "
 assert_eq "#474(2.3.7): DEVFLOW_SYSTEM_OVERVIEW keeps the sweep-index entry" "yes" \
   "$(grep -qF '**2.3.7** Collection-cardinality sweep' "$OVERVIEW_DOC474" && echo yes || echo no)"
 # Reconciliation guards: the falsified "2.3.6 is last" claims must be GONE from the docs
-# (a regression would re-assert a §2.3.7-falsified statement), and the "five always-on
-# sweeps (…)" enumeration must be UNCHANGED (§2.3.7 is trigger-gated, never always-on).
+# (a regression would re-assert a §2.3.7-falsified statement), and the always-on enumeration
+# must name exactly the always-on set — §2.3.7 is trigger-gated and never joins it, while
+# §2.3.4b (#818) did, which is why the pin below asserts the enumeration's CURRENT membership
+# rather than freezing whatever it read when this comment was written.
 # Each absence guard is paired with an INJECTION non-vacuity proof (the #465 delta form,
 # 7f7161a): an absolute `== 0` alone cannot tell "phrase removed" from "grep blind", so it
 # would degrade to a no-op if the phrase were reworded. Inject the phrase into a copy and

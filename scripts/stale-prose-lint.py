@@ -162,10 +162,13 @@ evaluated **before** it and **does not ``continue``**: a line matching both emit
 and neither tier terminates the other. Both still sit after every gating rule, so a line a
 gating rule emitted a row for reaches neither.
 
-*Exclusions are inherited unchanged.* Every exclusion this header documents as skipping a line
-**before** rule evaluation binds this tier identically — the ``prose_mask`` prose/code
-predicate, the ``.devflow/learnings/`` and ``.devflow/logs/`` path exclusion, and the
-``stale-prose-lint: example`` marker.
+*Exclusions are inherited unchanged.* The pre-rule exclusions this header documents bind this
+tier identically — the ``prose_mask`` prose/code predicate, the ``.devflow/learnings/`` and
+``.devflow/logs/`` path exclusion (a whole-*file* skip, applied in ``run`` before the post-image
+is read), the ``stale-prose-lint: example`` marker, and the content-anchor drop the working-tree
+record below describes. The list is illustrative rather than exhaustive: this tier is reached
+from the same point in ``examine_file`` as the shipped recognition tier, so whatever skips a
+line before that point skips it here too, by construction rather than by enumeration.
 
 *The issue-#629 relocation exemption is inert here, and that is the decided behavior.* That
 exemption is **Demotion, not deletion** — a ``STALE`` row demoted to ``UNRESOLVABLE``. A tier
@@ -215,8 +218,11 @@ required flag:
 
 The mode matters more than a referent source: the post-image answer **gates entry to line
 examination itself**. Under ``--rev`` on an uncommitted tree, a *modified* file resolves to its
-*pre*-change content, so each added line fails its content anchor and is dropped before any
-rule, before ``prose_mask``, and before the opt-out markers; and a **new** file resolves to
+*pre*-change content, so an added line whose text does not already appear elsewhere in the
+pre-image fails its content anchor and is dropped before any rule, before ``prose_mask``, and
+before the opt-out markers (``examine_file`` falls back to a whole-file text search, so an added
+line that is byte-identical to some pre-existing line is instead examined at the wrong anchor —
+also wrong, just differently); and a **new** file resolves to
 nothing at all, emitting the file-level ``-`` row and skipping examination. A ``.changeset/*.md``
 file — always new, and named in §2.3.4b's population — is exactly that second shape. So a
 recognition-only tier is **not** immune to the skew, and the working-tree mode is what keeps the
@@ -402,6 +408,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -523,8 +530,14 @@ _CU_NOUN = (
 # count tier (where the numeral IS the claim) but wrong here — `all four arms` is precisely the
 # coverage universal this tier exists to surface, and disqualifying it would blind the tier to
 # the issue's own worked example.
+# The quantifier carries the same `**…**` / `*…*` / backtick emphasis tolerance `_RECOG_MOD`
+# already gives a modifier token. Without it the tier misses `**every** call site` entirely.
+# A repo-wide search at authoring time returned 16 emphasised occurrences against 515 bare
+# ones, so this is a real minority shape rather than the majority one — it is recognised
+# because a missed line is a line the sweep never grades, not because it is the common form.
 _CU_RE = re.compile(
-    r"\b" + _CU_QUANT + r"\b\s+(?:" + _RECOG_MOD + r"){0,2}" + _CU_NOUN + r"\b",
+    r"[*`_]{0,2}\b" + _CU_QUANT + r"\b[*`_]{0,2}\s+(?:" + _RECOG_MOD + r"){0,2}"
+    + _CU_NOUN + r"\b",
     re.IGNORECASE,
 )
 # Declared opt-out for the coverage-universal tier (issue #818). Built from the same
@@ -538,6 +551,9 @@ _RULE_TEXT_MARKER_RE = _marker_re("rule-text")
 # fail OPEN on a typo (a mistyped ``"STAEL"`` at one append site silently drops that row from
 # the exit-code tally → the lint reports a clean pass on real staleness — the exact fail-open
 # a fail-safe lint must not have). A constant turns that typo into a ``NameError`` at import.
+# Resolved lazily by `_repo_root()` and cached for the process (issue #818).
+_REPO_ROOT = None
+
 VERIFIED = "VERIFIED"
 STALE = "STALE"
 UNRESOLVABLE = "UNRESOLVABLE"
@@ -1072,6 +1088,36 @@ def _demote_ok(exempt, added, move, claim_sources, idxs, lines=None):
     return exempt and _referents_relocated(added, move, claim_sources, idxs, lines)
 
 
+def _repo_root():
+    """The repository root the working-tree post-image is resolved against (issue #818).
+
+    Diff paths are repo-root-relative and the revision mode's ``git show <rev>:<path>`` is
+    repo-root-anchored, so the working-tree mode must anchor the same way or the two modes
+    disagree whenever the caller's CWD is not the root. Mirrors the shared repo-root contract
+    (issue #295): ``git rev-parse --show-toplevel``, falling back to the CWD. The fallback is
+    breadcrumbed rather than silent — a run resolving against the CWD instead of the root is
+    the shape that emits zero rows while exiting 0, which the sweep would otherwise record as
+    a clean pass.
+
+    Cached for the duration of one ``run`` — which cannot change repository mid-way — and
+    RESET at each ``run`` entry rather than for the life of the process, so an embedding
+    caller (the test harness, a future in-process driver) that invokes ``run`` twice from two
+    different trees resolves each against its own root instead of inheriting the first one."""
+    global _REPO_ROOT
+    if _REPO_ROOT is None:
+        rc, out, _ = _run_git(["rev-parse", "--show-toplevel"])
+        if rc == 0 and out.strip():
+            _REPO_ROOT = out.strip()
+        else:
+            _REPO_ROOT = os.getcwd()
+            sys.stderr.write(
+                "stale-prose-lint.py: could not resolve the repository root "
+                "(git rev-parse --show-toplevel failed); resolving working-tree post-image "
+                f"paths against the current directory {_REPO_ROOT} instead — a path that is "
+                "not repo-root-relative will read as UNRESOLVABLE\n")
+    return _REPO_ROOT
+
+
 def post_file_lines(rev, path):
     """Return the post-diff file's lines (1-indexed via index+1), or None when the
     file cannot be resolved — an UNRESOLVABLE case, NOT an internal error (only an
@@ -1087,10 +1133,19 @@ def post_file_lines(rev, path):
     ``rev``) reads identically to a transient/environmental failure on a file that IS
     present. The verdict row cannot tell them apart, so git's own reason goes to stderr
     — the downgrade stays non-gating, but it is never unexplained. The working-tree arm
-    below follows the same discipline with the OS error as its reason."""
+    below follows the same discipline with the OS error as its reason.
+
+    **The working-tree read is anchored to the repository root, never to the process CWD.**
+    Diff paths are repo-root-relative and ``git show <rev>:<path>`` is repo-root-anchored, so
+    a bare ``open(path)`` would make the two modes disagree the moment the caller's CWD is not
+    the root: every file would land on this arm's ``None`` and the whole run would emit zero
+    rows while exiting 0 — a *clean-shaped* result for work that never happened. Anchoring
+    mirrors the shared repo-root contract the ``.devflow/`` readers already follow (issue
+    #295): ``git rev-parse --show-toplevel``, falling back to the CWD with a breadcrumb."""
     if rev is None:
         try:
-            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            with open(os.path.join(_repo_root(), path), "r",
+                      encoding="utf-8", errors="replace") as fh:
                 return fh.read().split("\n")
         except OSError as exc:
             reason = " ".join(str(exc).split())[:200] or f"{type(exc).__name__}"
@@ -1240,6 +1295,7 @@ def examine_file(path, added, lines, rows, move=None):
     if move is None:
         move = MoveIndex(frozenset(), {})
     mask = prose_mask(path, lines)
+    unlocated = 0
     for post_ln in sorted(added):
         text = added[post_ln]
         idx = post_ln - 1  # 0-based index into `lines`
@@ -1264,6 +1320,15 @@ def examine_file(path, added, lines, rows, move=None):
             # diff-added referents at all), so the check has to live here on the anchor.
             idx = _locate(lines, text)
             if idx is None:
+                # The added line corresponds to NOTHING in the post-image, so it is dropped
+                # before any rule — silently, until #818. Under `--rev` a miss implied a
+                # genuine race between an immutable commit and its own diff; under the
+                # working-tree mode the post-image is a MUTABLE tree read at a later instant
+                # than the diff, so ordinary conditions produce misses (a concurrent write, a
+                # non-UTF-8 byte the `errors="replace"` read substitutes). Each miss is a line
+                # the sweep never examined while the run still reports zero rows, so the drop
+                # is counted and announced below rather than left to look like a clean pass.
+                unlocated += 1
                 continue
             located_by_text = True
         if not _may_carry_claim(mask, idx):
@@ -1420,6 +1485,14 @@ def examine_file(path, added, lines, rows, move=None):
             rows.append(Row(UNRESOLVABLE, "R3", path, post_ln, rec_detail))
             continue
 
+    # Dropping coverage is never silent — the same discipline `run` already applies to the
+    # unrecognised-extension fail-open, the issue-#672 exclusions, and the #629 demotions.
+    if unlocated:
+        sys.stderr.write(
+            f"stale-prose-lint.py: {unlocated} added line(s) in {path} did not correspond to "
+            "the post-image and were NOT examined (a concurrent write, or a byte the "
+            "post-image read substituted); this is a coverage drop, not a clean result\n")
+
 
 def _permits_elsewhere(lines, claim_idx, op, mask=None):
     """**Every** index of a COMMENT/PROSE line (other than the claim) asserting operator ``op``
@@ -1501,6 +1574,12 @@ def _demotion_breadcrumbs(rows, err):
 def run(rev, diff_text):
     # Validate the rev up front — an unreadable rev is a caller error (exit 2), not
     # a per-file UNRESOLVABLE. `rev-parse --verify` never derives a diff range.
+    # Re-resolve the working-tree post-image root for THIS run (issue #818): the cache is
+    # per-run, not per-process, so a second `run` from a different tree cannot inherit the
+    # first one's root and silently resolve every path against the wrong repository.
+    global _REPO_ROOT
+    _REPO_ROOT = None
+
     # `rev is None` is the issue-#818 working-tree mode: there is no revision to validate
     # (and no history read at all), so this precondition does not apply to it.
     if rev is not None:
