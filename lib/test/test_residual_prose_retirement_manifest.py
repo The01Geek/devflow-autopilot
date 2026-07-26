@@ -22,6 +22,10 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 BASE_REVISION = "1d4d306bcacd4970df170faeab94e602724943b8"
 MANIFEST = REPO_ROOT / ".devflow/logs/residual-prose-retirement-manifest.tsv"
+# The manifest's own identity set is frozen against BASE_REVISION's committed
+# inventory, so a row there can never be edited to track a rename.  A rename is
+# declared here instead, and only the current-tree realization consumes it.
+IDENTITY_REFRESHES = REPO_ROOT / ".devflow/logs/residual-prose-identity-refreshes.tsv"
 ADJUDICATIONS = REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
 CLASSIFIER = HERE / "pin-corpus-classifier.py"
 
@@ -34,6 +38,7 @@ IDENTITY_COLUMNS = (
     "target_defaulted",
 )
 MANIFEST_COLUMNS = IDENTITY_COLUMNS + ("surface", "disposition", "rationale")
+REFRESH_COLUMNS = IDENTITY_COLUMNS + ("new_assertion_name", "rationale")
 MAPPING_CANONICAL_HEADER = "\t".join(MANIFEST_COLUMNS) + "\n"
 RAW_SELECTOR_INDICES = (0, 2, 1, 5, 6, 7)
 PROSE_BUCKETS = {"prose-sole-copy", "prose-multi-copy"}
@@ -62,18 +67,27 @@ def decode_cell(value: str) -> object:
     return json.loads(value)
 
 
-def decode_manifest_row(row: dict[str, str]) -> dict[str, object]:
-    decoded: dict[str, object] = {
+def decode_identity_row(row: dict[str, str]) -> dict[str, object]:
+    """Decode the six identity cells shared by the manifest and the refresh ledger."""
+    return {
         "source_file": decode_cell(row["source_file"]),
         "helper": row["helper"],
         "assertion_name": decode_cell(row["assertion_name"]),
         "literal": decode_cell(row["literal"]),
         "resolved_target": decode_cell(row["resolved_target"]),
         "target_defaulted": row["target_defaulted"] == "true",
-        "surface": row["surface"],
-        "disposition": row["disposition"],
-        "rationale": row["rationale"],
     }
+
+
+def decode_manifest_row(row: dict[str, str]) -> dict[str, object]:
+    decoded: dict[str, object] = decode_identity_row(row)
+    decoded.update(
+        {
+            "surface": row["surface"],
+            "disposition": row["disposition"],
+            "rationale": row["rationale"],
+        }
+    )
     return decoded
 
 
@@ -143,6 +157,29 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
         self.assertEqual(MANIFEST_COLUMNS, tuple(reader.fieldnames or ()))
         return metadata, [decode_manifest_row(row) for row in reader]
+
+    def load_identity_refreshes(self) -> list[dict[str, object]]:
+        """Return the declared same-change renames of frozen retained identities."""
+        raw = IDENTITY_REFRESHES.read_text(encoding="utf-8")
+        table = [line for line in raw.splitlines() if not line.startswith("# ")]
+        reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
+        self.assertEqual(REFRESH_COLUMNS, tuple(reader.fieldnames or ()))
+        rows = []
+        for row in reader:
+            decoded = decode_identity_row(row)
+            decoded["new_assertion_name"] = decode_cell(row["new_assertion_name"])
+            decoded["rationale"] = row["rationale"]
+            rows.append(decoded)
+        return rows
+
+    def refresh_mapping(self) -> dict[tuple[object, ...], tuple[object, ...]]:
+        """Project each declared old identity onto the identity the tree now carries."""
+        mapping = {}
+        for row in self.load_identity_refreshes():
+            refreshed = dict(row)
+            refreshed["assertion_name"] = row["new_assertion_name"]
+            mapping[identity(row)] = identity(refreshed)
+        return mapping
 
     def selected_base_inventory(self) -> set[tuple[object, ...]]:
         result = subprocess.run(
@@ -280,14 +317,48 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             self.assertEqual("boundary", bucket, literal)
             self.assertFalse(rationale.startswith("mechanical:"), literal)
 
+    def test_identity_refreshes_are_declared_live_and_injective(self):
+        # Break caught: a refresh launders a vanished pin, or outlives its rename.
+        _, rows = self.load_manifest()
+        retained = {
+            identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
+        }
+        current = self.current_source_identities()
+        refreshes = self.load_identity_refreshes()
+        mapping = self.refresh_mapping()
+        # One row per declared old identity, and no two rows collapse onto one
+        # refreshed identity: either would let a rename hide a second vanished pin.
+        self.assertEqual(len(refreshes), len(mapping))
+        self.assertEqual(len(mapping), len(set(mapping.values())))
+        for row in refreshes:
+            old = identity(row)
+            new = mapping[old]
+            self.assertIn(old, retained, f"refresh names no RETAIN_BOUNDARY identity: {old!r}")
+            self.assertTrue(str(row["new_assertion_name"]).strip(), old)
+            self.assertNotEqual(row["assertion_name"], row["new_assertion_name"], old)
+            self.assertTrue(str(row["rationale"]).strip(), old)
+            # A refresh is only ever a live rename: the old name must be gone from
+            # the tree and the new one present.  A refresh whose old identity still
+            # resolves is stale and would silently outlive the rename it recorded.
+            self.assertNotIn(old, current, f"refresh is stale — the old identity is still live: {old!r}")
+            self.assertIn(new, current, f"refreshed identity is absent from the tree: {new!r}")
+        # Chaining needs no check of its own: the two liveness arms above already
+        # make it unreachable, because a chained hop's middle identity would have
+        # to be both present in the tree (as one row's new name) and absent from it
+        # (as the next row's old name).  So the mapping is always a single hop.
+
     def test_current_tree_realizes_the_retirement_manifest(self):
         # Break caught: a retired wording pin remains, or a retained boundary vanishes.
         _, rows = self.load_manifest()
+        mapping = self.refresh_mapping()
         retired = {
             identity(row) for row in rows if row["disposition"] == "RETIRE_PROSE"
         }
+        # A retained identity the ledger renames is realized under its new name.
         retained = {
-            identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
+            mapping.get(identity(row), identity(row))
+            for row in rows
+            if row["disposition"] == "RETAIN_BOUNDARY"
         }
         current = self.current_source_identities()
         self.assertSetEqual(

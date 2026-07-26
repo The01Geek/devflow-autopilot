@@ -179,6 +179,21 @@ generated artifact separately. The source/retirement commit is intentionally
 non-green while the artifact is absent, so never leave that intermediate commit as
 the PR head.
 
+**Refreshing a frozen pin identity (issue #843).** Renaming a retained pin is a different
+operation from retiring one, and it uses a different mechanism. The residual prose-pin
+manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
+helper, assertion name, literal, target — against the base revision's committed pin-corpus
+inventory, so a manifest row is **never** edited: an edit there breaks the historical partition
+permanently. When a retained pin's guarded rule is legitimately renamed, declare the rename in
+`.devflow/logs/residual-prose-identity-refreshes.tsv` in the **same commit** as the source
+rename. `lib/test/test_residual_prose_retirement_manifest.py` applies the declared mapping when
+it realizes retained identities against the current tree, and admits a row only when the old
+identity names a `RETAIN_BOUNDARY` identity in the frozen manifest, the old name is gone from
+the tree, and the new one is present — so the rename and its re-freeze cannot come apart, and a
+refresh cannot outlive the rename it recorded. This is not the two-commit inventory protocol
+above: `.devflow/logs/pin-corpus-inventory.tsv` is a frozen census refreshed by its own
+maintenance commits and owes no same-change update for a rename.
+
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
 member of the same declaration-marker family, in the same one-line-reason framing as
 `# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
