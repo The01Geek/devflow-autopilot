@@ -10224,13 +10224,13 @@ assert_eq "#780: a head-branch-query-selected PR vouches without a closing linka
 # are what kill the identity-check mutants (`is True` → `!= False`, `is False` →
 # `!= True`): under either mutant an ungathered field would vouch.
 assert_eq "#780 partial gather: an omitted open_pr_branch is refused, not read as an answer" \
-  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_branch)"
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_branch)"
 assert_eq "#780 partial gather: an omitted open_pr_closes_issue is refused" \
-  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_closes_issue)"
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_closes_issue)"
 assert_eq "#780 partial gather: an omitted open_pr_cross_repository is refused" \
-  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
 assert_eq "#780 partial gather: an omitted open_pr_selected_by is refused" \
-  "UNAVAILABLE_state 3" "$(_bs576 pr_partial_open_pr_selected_by)"
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_selected_by)"
 # Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
 # collapse onto the same verdict word + rc, so a single joined comparison would name
 # all five on any one arm's regression and leave the reader re-running by hand.
