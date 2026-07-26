@@ -420,6 +420,23 @@
     {
       "finding_id": "F-19",
       "decision": "applied"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "pushed_back",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "the deferred-filed marker carries no pr= field, so a marker written by an earlier run on the same issue discharges a later run's deferral",
+      "skip_category": "claim-quality",
+      "evidence": "the marker is per-ISSUE by design, matching the acceptance criterion it implements",
+      "parking_evidence": {
+        "basis": "AC 13 states the requirement per Phase 4 ENTRY on the issue, not per PR: 'A second Phase 4 entry taken after section 4.0 completed does not read the reference and files no duplicate follow-up issue.' The marker records that a follow-up ISSUE now exists for that criterion; that issue survives across runs on the parent issue, so a later run re-deferring the same criterion has its tracking issue already filed. PR-keying the marker would make every re-run file a second follow-up for a criterion already tracked - the exact duplicate the criterion prohibits.",
+        "failing_input": "run 2 on the same issue re-defers a criterion run 1 already filed a follow-up for",
+        "source": "AC 13 as resolved by scripts/workpad.py acs-resolve 815",
+        "finding_ref": {
+          "iter": 1,
+          "index": 2
+        }
+      }
     }
   ],
   "convergence_inputs": {
@@ -439,15 +456,147 @@
     }
   },
   "shadow": {
-    "ran_at": null,
-    "reviewed_sha": null,
-    "verdict": null,
-    "coverage": "not_verified",
-    "reason": "local/interactive implement Phase 3.3 run; the shadow fan-out was not dispatched, so this run carries a verification-coverage caveat rather than a clean approve",
-    "reviewers_dispatched": [],
-    "expected_reviewers": [],
-    "phase3_findings": [],
+    "ran_at": "2026-07-25T00:00:00Z",
+    "reviewed_sha": "86a7a20a0847280baa2d5447f1ae26575e021011",
+    "verdict": "REJECT",
+    "coverage": "verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "first dispatch died on an API session limit; re-dispatched after reset and completed in full",
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "cutover record + changeset byte figures false at HEAD (self-contradicting diff)",
+        "defect_signature": {
+          "file": "docs/cutovers/issue-815-deferred-ac-followups-relocate.md",
+          "line_range": [
+            21,
+            41
+          ],
+          "kind": "documented_falsehood"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "unestablished-arm skip sentence collapses to 'file nothing' on every exit-2 entry, stranding deferred work",
+        "defect_signature": {
+          "file": "skills/implement/references/deferred-ac-followups.md",
+          "line_range": [
+            5,
+            7
+          ],
+          "kind": "inert-guard"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "filed marker is not PR-keyed, so an earlier run's marker discharges a later run's deferral",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1104,
+            1126
+          ],
+          "kind": "unkeyed-discharge"
+        },
+        "fix_decision": "pushed_back"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "filed: operand suppressed on two unestablished arms, enabling duplicate filing",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1325,
+            1338
+          ],
+          "kind": "suppressed-operand"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "no test drives the deferred-presence CLI/argv surface through main()",
+        "defect_signature": {
+          "file": "lib/test/test_python_scripts.py",
+          "line_range": [
+            16690,
+            16712
+          ],
+          "kind": "missing-cli-wiring-coverage"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "--mark-deferred-filed no-match breadcrumb had no stderr coverage",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            3073,
+            3094
+          ],
+          "kind": "untested-breadcrumb-path"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "unestablished arm-order (corrupted-before-unbound) unasserted; filed: projection driven on only one of four arms; no CRLF row",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1341,
+            1348
+          ],
+          "kind": "untested-arm-order"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "unestablished-arm --mark-deferred-filed value contract unsatisfiable: mandates the normalized projection the arm never prints",
+        "defect_signature": {
+          "file": "skills/implement/references/deferred-ac-followups.md",
+          "line_range": [
+            127,
+            133
+          ],
+          "kind": "unverified-assumption"
+        },
+        "fix_decision": "applied"
+      }
+    ],
     "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 8,
+      "overlap_with_iter_N": 0,
+      "new": 8,
+      "new_critical": 0,
+      "new_important": 6
+    },
     "promoted_to_iter_next": false
   },
   "telemetry": "unavailable"
