@@ -1863,6 +1863,8 @@ def _helper_calls(tokens, helper_specs):
             ["command"],
             ["command", "--"],
             ["command", "-p"],
+            ["time"],
+            ["time", "-p"],
         )
         if executable:
             calls.append((index, value))
@@ -2475,7 +2477,17 @@ def _markdown_literal_is_prose(text, literal):
     return False
 
 
-def _typed_pin_protects_prose(site, repo_root):
+def _read_typed_target(target, target_loader):
+    """Return target text plus an optional inspection error label."""
+    if target_loader is not None:
+        return target_loader(target)
+    try:
+        return target.read_text(encoding="utf-8"), None
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, type(exc).__name__
+
+
+def _typed_pin_protects_prose(site, repo_root, target_loader=None):
     """Return True when a declaration matches the conservative prose boundary.
 
     The issue-810 boundary is semantic: a category marker does not turn an
@@ -2495,9 +2507,8 @@ def _typed_pin_protects_prose(site, repo_root):
     if not target.is_absolute():
         target = Path(repo_root) / target
     ext = target.suffix.lower()
-    try:
-        text = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    text, error = _read_typed_target(target, target_loader)
+    if error is not None:
         # Defensive fallback for direct callers. The production scanner rejects
         # unreadable typed targets in _typed_pin_inspection_error first.
         return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
@@ -2513,7 +2524,7 @@ def _typed_pin_protects_prose(site, repo_root):
     return False
 
 
-def _typed_pin_inspection_error(site, repo_root):
+def _typed_pin_inspection_error(site, repo_root, target_loader=None):
     """Return why a typed declaration's target boundary cannot be inspected."""
     if site.declaration is None or site.declaration_error is not None:
         return None
@@ -2525,21 +2536,20 @@ def _typed_pin_inspection_error(site, repo_root):
     if not target.is_absolute():
         target = Path(repo_root) / target
     try:
-        if os.path.commonpath((Path(repo_root).resolve(), target.resolve())) != str(
-            Path(repo_root).resolve()
-        ):
+        root_path = os.path.abspath(repo_root)
+        target_path = os.path.abspath(target)
+        if os.path.commonpath((root_path, target_path)) != root_path:
             return (
                 "typed structural declaration target cannot be inspected "
                 "(outside repository)"
             )
-    except (OSError, ValueError):
+    except ValueError:
         return "typed structural declaration target cannot be inspected"
-    try:
-        target_text = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+    target_text, error = _read_typed_target(target, target_loader)
+    if error is not None:
         return (
             "typed structural declaration target cannot be inspected "
-            f"({type(exc).__name__})"
+            f"({error})"
         )
     if site.literal not in target_text:
         return (
@@ -2900,6 +2910,7 @@ def scan_changed_sources(
     revival_authorizations=frozenset(),
     adjudication_delta=None,
     current_adjudications=None,
+    target_loader=None,
 ):
     """Classify changed complete sites and return blocking finding strings."""
     adjudication_delta = adjudication_delta or {}
@@ -3019,7 +3030,9 @@ def scan_changed_sources(
                 continue
         elif site.family == "count-helper":
             continue
-        inspection_error = _typed_pin_inspection_error(site, repo_root)
+        inspection_error = _typed_pin_inspection_error(
+            site, repo_root, target_loader
+        )
         if inspection_error is not None:
             findings.append(
                 f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
@@ -3030,10 +3043,10 @@ def scan_changed_sources(
         if (
             site.declaration is not None
             and site.declaration_error is None
-            and not _typed_pin_protects_prose(site, repo_root)
+            and not _typed_pin_protects_prose(site, repo_root, target_loader)
         ):
             continue
-        if _typed_pin_protects_prose(site, repo_root):
+        if _typed_pin_protects_prose(site, repo_root, target_loader):
             findings.append(
                 f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
                 f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
@@ -3452,6 +3465,152 @@ def _read_worktree_source(repo_root, path, expected_mode=None):
         raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
 
 
+class _TargetSnapshot(NamedTuple):
+    payload: bytes
+    path_identity: tuple
+
+
+def _relative_target_path(repo_root, target):
+    root = os.path.abspath(repo_root)
+    absolute = os.path.abspath(target)
+    try:
+        if os.path.commonpath((root, absolute)) != root:
+            raise InfrastructureError(
+                f"typed target is outside repository: {target}"
+            )
+    except ValueError as exc:
+        raise InfrastructureError(
+            f"typed target is outside repository: {target}"
+        ) from exc
+    relative = os.path.relpath(absolute, root).replace(os.sep, "/")
+    _validate_repo_relative_path(relative, "typed target")
+    return relative
+
+
+def _committed_target_loader(repo_root, revision, git_runner):
+    """Return a cached loader bound to one immutable committed tree."""
+    cache = {}
+
+    def load(target):
+        relative = _relative_target_path(repo_root, target)
+        if relative not in cache:
+            entries = _source_tree_entries(
+                repo_root, revision, {relative}, git_runner
+            )
+            if relative not in entries:
+                return None, "FileNotFoundError"
+            payload = _run_git_bytes(
+                git_runner,
+                repo_root,
+                "show",
+                f"{revision}:{relative}",
+            )
+            try:
+                text = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None, "UnicodeDecodeError"
+            cache[relative] = text
+        return cache[relative], None
+
+    return load
+
+
+def _worktree_path_identity(repo_root, relative):
+    root = Path(repo_root)
+    current = root
+    identities = []
+    parts = Path(relative).parts
+    for component in parts[:-1]:
+        current /= component
+        current_stat = current.lstat()
+        if stat.S_ISLNK(current_stat.st_mode):
+            raise InfrastructureError(
+                f"typed target has symlinked worktree parent: {relative}"
+            )
+        if not stat.S_ISDIR(current_stat.st_mode):
+            raise InfrastructureError(
+                f"typed target has non-directory worktree parent: {relative}"
+            )
+        identities.append(
+            (
+                current_stat.st_dev,
+                current_stat.st_ino,
+                current_stat.st_mode,
+                current_stat.st_size,
+                current_stat.st_mtime_ns,
+                current_stat.st_ctime_ns,
+            )
+        )
+    leaf = root / relative
+    leaf_stat = leaf.lstat()
+    if stat.S_ISLNK(leaf_stat.st_mode):
+        raise InfrastructureError(
+            f"typed target is a symlink in the worktree: {relative}"
+        )
+    if not stat.S_ISREG(leaf_stat.st_mode):
+        raise InfrastructureError(
+            f"typed target is not a regular worktree file: {relative}"
+        )
+    identities.append(
+        (
+            leaf_stat.st_dev,
+            leaf_stat.st_ino,
+            leaf_stat.st_mode,
+            leaf_stat.st_size,
+            leaf_stat.st_mtime_ns,
+            leaf_stat.st_ctime_ns,
+        )
+    )
+    return tuple(identities)
+
+
+def _worktree_target_snapshot(repo_root, relative):
+    before = _worktree_path_identity(repo_root, relative)
+    payload = (Path(repo_root) / relative).read_bytes()
+    after = _worktree_path_identity(repo_root, relative)
+    if before != after:
+        raise InfrastructureError(
+            f"typed target changed while its worktree snapshot was read: {relative}"
+        )
+    return _TargetSnapshot(payload, after)
+
+
+def _worktree_target_loader(repo_root):
+    """Return a cached loader and a verifier for regular worktree targets."""
+    cache = {}
+
+    def load(target):
+        relative = _relative_target_path(repo_root, target)
+        if relative not in cache:
+            try:
+                snapshot = _worktree_target_snapshot(repo_root, relative)
+            except InfrastructureError:
+                raise
+            except OSError as exc:
+                return None, type(exc).__name__
+            try:
+                snapshot.payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None, "UnicodeDecodeError"
+            cache[relative] = snapshot
+        return cache[relative].payload.decode("utf-8"), None
+
+    def verify():
+        for relative, expected in cache.items():
+            try:
+                actual = _worktree_target_snapshot(repo_root, relative)
+            except (OSError, InfrastructureError) as exc:
+                raise InfrastructureError(
+                    f"typed target changed during worktree analysis: {relative}"
+                ) from exc
+            if actual != expected:
+                raise InfrastructureError(
+                    f"typed target changed during worktree analysis: {relative}"
+                )
+
+    return load, verify
+
+
 def analyze_adjudication_changes(
     repo_root,
     merge_base,
@@ -3802,6 +3961,12 @@ def scan_static_pin_changes(
     if _run_git(git_runner, repo_root, "rev-parse", "HEAD").strip() != head_revision:
         raise InfrastructureError("HEAD source snapshot changed during diff analysis")
 
+    head_target_loader = _committed_target_loader(
+        repo_root, head_revision, git_runner
+    )
+    worktree_target_loader, verify_worktree_targets = _worktree_target_loader(
+        repo_root
+    )
     source_findings = scan_changed_sources(
         head_sources,
         base_sources,
@@ -3811,6 +3976,7 @@ def scan_static_pin_changes(
         revival_authorizations=adjudication_analysis.revival_authorizations,
         adjudication_delta=adjudication_analysis.delta,
         current_adjudications=adjudication_analysis.current,
+        target_loader=head_target_loader,
     )
     source_findings.extend(
         scan_changed_sources(
@@ -3822,8 +3988,10 @@ def scan_static_pin_changes(
             revival_authorizations=adjudication_analysis.revival_authorizations,
             adjudication_delta=adjudication_analysis.delta,
             current_adjudications=adjudication_analysis.current,
+            target_loader=worktree_target_loader,
         )
     )
+    verify_worktree_targets()
     unique_findings = list(dict.fromkeys(source_findings))
     return adjudication_analysis.findings + unique_findings
 

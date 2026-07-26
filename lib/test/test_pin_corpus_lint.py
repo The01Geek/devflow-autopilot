@@ -2840,6 +2840,161 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 )
                 self.assertEqual((0, "", ""), self._public_rc(root))
 
+    def test_time_prefixed_direct_helper_is_not_skipped(self):
+        for prefix in ("time", "time -p", "PIN_LABEL=fixture time", "PIN_LABEL=fixture time -p"):
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\n{prefix} assert_pin_unique 'time-prefixed pin' "
+                    + "'STATIC_PIN_FIXTURE=1' \"$LIB/test/static-pin-fixture.sh\"\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(3, rc, stderr)
+                self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
+
+        for mention in (
+            "echo time assert_pin_unique",
+            "printf '%s' time assert_pin_unique",
+        ):
+            with self.subTest(mention=mention), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8") + f"\n{mention}\n",
+                    encoding="utf-8",
+                )
+                self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_committed_prose_target_cannot_be_laundered_by_dirty_fenced_target(self):
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fixture token is claimed as an executable sentinel"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            target = root / "docs/static-pin-target.md"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("## STATIC PIN PROSE\n", encoding="utf-8")
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'committed prose target' 'STATIC PIN PROSE' "
+                + f"\"$LIB/../docs/static-pin-target.md\"  {marker}\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "commit invalid prose pin"],
+                cwd=root,
+                check=True,
+            )
+
+            clean_rc, clean_stdout, clean_stderr = self._public_rc(root)
+            self.assertEqual(3, clean_rc, clean_stderr)
+            self.assertIn("cannot exempt prose presence", clean_stdout)
+
+            target.write_text(
+                "```text\nSTATIC PIN PROSE\n```\n",
+                encoding="utf-8",
+            )
+            dirty_rc, dirty_stdout, dirty_stderr = self._public_rc(root)
+            self.assertEqual(3, dirty_rc, dirty_stderr)
+            self.assertIn("cannot exempt prose presence", dirty_stdout)
+
+    def test_authorized_retired_revival_cannot_launder_committed_prose_target(self):
+        literal = "Step 3.6 fresh-context audit"
+        literal_key = (
+            "literal:" + hashlib.sha256(literal.encode("utf-8")).hexdigest()
+        )
+        rationale = "the token is claimed as an executable machine sentinel"
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- " + rationale
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            self.assertIn(
+                literal_key,
+                self.mod.load_retired_wording_literal_keys(root, "HEAD"),
+            )
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            target = root / "docs/retired-pin-target.md"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(f"## {literal}\n", encoding="utf-8")
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + f"\nassert_pin_unique 'retired prose target' '{literal}' "
+                + f"\"$LIB/../docs/retired-pin-target.md\"  {marker}\n",
+                encoding="utf-8",
+            )
+            table = root / "lib/test/pin-corpus-adjudications.tsv"
+            table.write_text(
+                table.read_text(encoding="utf-8")
+                + f"{literal_key}\tboundary\tdeliberate machine-boundary revival\n",
+                encoding="utf-8",
+            )
+            bundle = (
+                root
+                / ".devflow/logs/pin-corpus-adjudication-changes"
+                / "retired-prose-snapshot-test"
+            )
+            bundle.mkdir(parents=True)
+            (bundle / "adjudication-delta.tsv").write_text(
+                "adjudication_key\tbase_state\tcurrent_state\n"
+                f"{literal_key}\tnull\t"
+                '["boundary","deliberate machine-boundary revival"]\n',
+                encoding="utf-8",
+            )
+            (bundle / "retired-pin-revivals.tsv").write_text(
+                "source_path\tfamily\thelper\tliteral_key\ttarget_path\t"
+                "structural_category\tstructural_rationale\n"
+                f"lib/test/run.sh\tstatic-helper\tassert_pin_unique\t{literal_key}\t"
+                "docs/retired-pin-target.md\tmachine-sentinel-provenance\t"
+                f"{rationale}\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "authorize invalid retired revival"],
+                cwd=root,
+                check=True,
+            )
+            target.write_text(f"```text\n{literal}\n```\n", encoding="utf-8")
+
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(3, rc, stderr)
+            self.assertIn("cannot exempt prose presence", stdout)
+
+    def test_worktree_target_snapshot_detects_byte_mode_and_path_races(self):
+        for mutation in ("bytes", "mode", "path"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                target = root / "docs/target.md"
+                target.parent.mkdir(parents=True)
+                target.write_text("TOKEN\n", encoding="utf-8")
+                loader, verify = self.mod._worktree_target_loader(root)
+                self.assertEqual(("TOKEN\n", None), loader(target))
+                if mutation == "bytes":
+                    target.write_text("CHANGED\n", encoding="utf-8")
+                elif mutation == "mode":
+                    target.chmod(0o755)
+                else:
+                    target.unlink()
+                    target.write_text("TOKEN\n", encoding="utf-8")
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError,
+                    "changed during worktree analysis",
+                ):
+                    verify()
+
     def test_composition_preserves_subgate_order_and_infrastructure_precedence(self):
         retired = ["MUTATION-ROUTING\tretired"]
         static = ["MUTATION-ROUTING\tstatic"]
