@@ -3880,8 +3880,7 @@ assert_eq "#449: --no-reproduction help states the recorded content classificati
 # fire condition (after-iteration-1, verdict-agnostic, gated on engine_self_modifying);
 # (2) the no-double-run guard vs the convergence-time trigger; (3) the iteration
 # accounting (early pass uncounted, the promoted iteration 2 counts). These use
-# assert_pin_unique (one occurrence) so a deletion or paraphrase fails closed; the
-# fire-condition sentence is additionally mutation-proven below.
+# assert_pin_unique (one occurrence) so a deletion or paraphrase fails closed.
 assert_pin_unique "early-shadow #199: fire condition (after-iter-1, verdict-agnostic, engine_self_modifying-gated)" \
   'run the early shadow once after iteration 1 regardless of that iteration verdict, gated on engine_self_modifying' "$MAXI_SKILL"
 assert_pin_unique "early-shadow #199: no-double-run guard vs the convergence-time trigger (AC3)" \
@@ -5269,8 +5268,8 @@ assert_pin_unique "#232/#362: orchestrator mirror scopes the re-anchor to **suba
 # Status transition) and the Phase 1.4 resume pre-check. Each pin below targets the
 # OPERATIVE sentence — the minimal text whose removal alone re-introduces the #356 defect
 # class (a run that dies mid-phase on a nested skill's tail call, or a resume that forks a
-# second branch + PR) — never an adjacent framing clause. Paired removal proofs make that
-# half-revert check re-run on every suite execution.
+# second branch + PR) — never an adjacent framing clause. Independent exactly-once pins
+# keep each current source boundary observable on every suite execution.
 P362_P1="$IMPL_PHASES_DIR/phase-1-setup.md"
 
 # (1) Generalized mid-phase re-anchor — fires after EVERY Skill-tool return, not just the
@@ -5285,8 +5284,7 @@ assert_pin_unique "#362: generalized re-anchor carries its operative resume dire
 #     The tier gate is OPERATIVE, not framing: drop it and the rule would authorize an
 #     INTERACTIVE run to answer the user's questions for them without asking. So pin the
 #     `GITHUB_ACTIONS` keying itself — not just the prose lead-in, which a same-sentence
-#     edit could keep while swapping the gating env var — and prove it non-vacuous with a
-#     removal proof, like its three siblings below.
+#     edit could keep while swapping the gating env var — as its own exactly-once boundary.
 assert_pin_unique "#362: self-answer rule keys on the non-interactive tier by GITHUB_ACTIONS" \
   'When the run is non-interactive — `GITHUB_ACTIONS` is set (the cloud tier)' "$IMPL_ORCH"
 assert_pin_unique "#362: self-answer rule carries its operative answer directive" \
@@ -43709,11 +43707,11 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 [ "$CICE_TEST_RC" -eq 0 ] || while IFS= read -r _cice_line || [ -n "$_cice_line" ]; do printf '    %s\n' "$_cice_line"; done <<< "$CICE_TEST_OUT"
 
 # harness-python-guards contract coverage (issue #707: extracted from this file's
-# #600 / #527 / #528 / #668 / #798 / #591 Python guard blocks into a focused
+# #600 / #527 / #528 / #668 / #798 / #810 / #591 Python guard blocks into a focused
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 36; then
+  "harness-python-guards" 37; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
