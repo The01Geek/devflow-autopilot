@@ -13,6 +13,7 @@ import json
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -225,6 +226,10 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
             (
                 "adjudication_key\tbucket_final\trationale\n"
                 f"tombstone:{key}\ttombstone\tretired\n"
+            ),
+            (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"supersede:{key}\tboundary\treplacement\n"
             ),
         ):
             with self.subTest(invalid=invalid):
@@ -624,26 +629,44 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             scratch = Path(raw)
             reproduced = scratch / "inventory.tsv"
             command = shlex.split(metadata["producing-command"])
-            historical_test_dir = scratch / "lib/test"
-            historical_test_dir.mkdir(parents=True)
+            archive = subprocess.run(
+                ["git", "archive", "--format=tar", revision],
+                cwd=repo_root,
+                capture_output=True,
+                check=True,
+            ).stdout
+            tracked_paths = []
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+                for member in tar:
+                    if not member.isfile():
+                        continue
+                    extracted = tar.extractfile(member)
+                    self.assertIsNotNone(extracted)
+                    destination = scratch / member.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(extracted.read())
+                    tracked_paths.append(member.name)
             for relative in (
                 "lib/test/pin-corpus-classifier.py",
                 "lib/test/pin-corpus-lint.py",
+                "lib/test/pin-corpus-adjudications.tsv",
             ):
-                historical = subprocess.run(
-                    ["git", "show", f"{revision}:{relative}"],
-                    cwd=repo_root,
-                    text=True,
-                    capture_output=True,
-                    check=True,
-                ).stdout
-                (scratch / relative).write_text(historical, encoding="utf-8")
-            command[1] = str(historical_test_dir / "pin-corpus-classifier.py")
+                self.assertIn(relative, tracked_paths)
+            tracked = scratch / "tracked-files.txt"
+            tracked.write_text("\n".join(tracked_paths) + "\n", encoding="utf-8")
+            command[1] = str(scratch / "lib/test/pin-corpus-classifier.py")
+            repo_index = command.index("--repo-root") + 1
+            command[repo_index] = str(scratch)
+            adjudications_index = command.index("--adjudications") + 1
+            command[adjudications_index] = str(
+                scratch / "lib/test/pin-corpus-adjudications.tsv"
+            )
             output_index = command.index("--output") + 1
             command[output_index] = str(reproduced)
+            command.extend(("--tracked-files", str(tracked)))
             result = subprocess.run(
                 command,
-                cwd=repo_root,
+                cwd=scratch,
                 text=True,
                 capture_output=True,
                 check=False,

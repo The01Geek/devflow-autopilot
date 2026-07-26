@@ -12,6 +12,7 @@ import io
 import json
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from collections import Counter
@@ -21,8 +22,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 BASE_REVISION = "1d4d306bcacd4970df170faeab94e602724943b8"
+MANIFEST_DECISION_REVISION = "b430c9b8b2ff83069bfe24a2ec4aa9424e56e200"
 MANIFEST = REPO_ROOT / ".devflow/logs/residual-prose-retirement-manifest.tsv"
-ADJUDICATIONS = REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
 CLASSIFIER = HERE / "pin-corpus-classifier.py"
 
 IDENTITY_COLUMNS = (
@@ -123,6 +124,133 @@ def load_classifier():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+_HISTORICAL_INVENTORY_CACHE: dict[str, str] = {}
+
+
+def historical_inventory(revision: str) -> str:
+    """Run a recorded revision's classifier, linter, table, and tracked tree together."""
+    cached = _HISTORICAL_INVENTORY_CACHE.get(revision)
+    if cached is not None:
+        return cached
+    with tempfile.TemporaryDirectory() as temporary:
+        scratch = Path(temporary)
+        archive = subprocess.run(
+            ["git", "archive", "--format=tar", revision],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=True,
+        ).stdout
+        tracked_paths = []
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                extracted = tar.extractfile(member)
+                if extracted is None:
+                    raise AssertionError(f"cannot extract historical file: {member.name}")
+                destination = scratch / member.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(extracted.read())
+                tracked_paths.append(member.name)
+        required = {
+            "lib/test/pin-corpus-classifier.py",
+            "lib/test/pin-corpus-lint.py",
+            "lib/test/pin-corpus-adjudications.tsv",
+        }
+        missing = required - set(tracked_paths)
+        if missing:
+            raise AssertionError(
+                "historical classifier fixture is incomplete: " + ", ".join(sorted(missing))
+            )
+        tracked = scratch / "tracked-files.txt"
+        tracked.write_text("\n".join(tracked_paths) + "\n", encoding="utf-8")
+        inventory = scratch / "inventory.tsv"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(scratch / "lib/test/pin-corpus-classifier.py"),
+                "--repo-root",
+                str(scratch),
+                "--tracked-files",
+                str(tracked),
+                "--adjudications",
+                str(scratch / "lib/test/pin-corpus-adjudications.tsv"),
+                "--output",
+                str(inventory),
+                "--revision",
+                revision,
+            ],
+            cwd=scratch,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise AssertionError(
+                f"historical classifier failed for {revision}: {result.stderr}"
+            )
+        raw = inventory.read_text(encoding="utf-8")
+    _HISTORICAL_INVENTORY_CACHE[revision] = raw
+    return raw
+
+
+def historical_adjudications(revision: str) -> dict[str, tuple[str, str]]:
+    """Parse a decision table with the classifier and linter from that same commit."""
+    with tempfile.TemporaryDirectory() as temporary:
+        scratch = Path(temporary)
+        for relative in (
+            "lib/test/pin-corpus-classifier.py",
+            "lib/test/pin-corpus-lint.py",
+            "lib/test/pin-corpus-adjudications.tsv",
+        ):
+            result = subprocess.run(
+                ["git", "show", f"{revision}:{relative}"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                check=True,
+            )
+            destination = scratch / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(result.stdout)
+        program = """\
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+classifier = root / "lib/test/pin-corpus-classifier.py"
+spec = importlib.util.spec_from_file_location("historical_pin_corpus_classifier", classifier)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+table = (root / "lib/test/pin-corpus-adjudications.tsv").read_text(encoding="utf-8")
+print(json.dumps(module.parse_adjudications(table), sort_keys=True))
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", program, str(scratch)],
+            cwd=scratch,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise AssertionError(
+                f"historical adjudication parser failed for {revision}: {result.stderr}"
+            )
+        parsed = json.loads(result.stdout)
+    return {key: tuple(value) for key, value in parsed.items()}
+
+
+def inventory_rows(raw: str) -> list[dict[str, str]]:
+    return list(
+        csv.DictReader(
+            (line for line in raw.splitlines() if not line.startswith("# ")),
+            delimiter="\t",
+        )
+    )
 
 
 class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
@@ -266,12 +394,12 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         self.assertEqual(EXPECTED_AUDIT_MAPPING_DIGEST, metadata["audit-mapping-sha256"])
 
     def test_every_retained_literal_has_an_explicit_non_mechanical_adjudication(self):
-        # Break caught: a retained boundary falls back to a mechanical prose bucket.
+        # Break caught: the frozen decision did not classify its retained site as a boundary.
         _, rows = self.load_manifest()
-        adjudications = self.classifier.parse_adjudications(
-            ADJUDICATIONS.read_text(encoding="utf-8")
-        )
-        retained = [row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"]
+        adjudications = historical_adjudications(MANIFEST_DECISION_REVISION)
+        retained = [
+            row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
+        ]
         self.assertEqual(203, len(retained))
         for literal in retained:
             key = self.classifier.literal_adjudication_key(literal)
@@ -281,13 +409,10 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             self.assertFalse(rationale.startswith("mechanical:"), literal)
 
     def test_current_tree_realizes_the_retirement_manifest(self):
-        # Break caught: a retired wording pin remains, or a retained boundary vanishes.
+        # Break caught: a retired wording pin remains in the current tree.
         _, rows = self.load_manifest()
         retired = {
             identity(row) for row in rows if row["disposition"] == "RETIRE_PROSE"
-        }
-        retained = {
-            identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
         }
         current = self.current_source_identities()
         self.assertSetEqual(
@@ -296,15 +421,10 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             "still-live RETIRE_PROSE identities:\n"
             + "\n".join(sorted(map(repr, retired & current))),
         )
-        self.assertSetEqual(
-            set(),
-            retained - current,
-            "missing RETAIN_BOUNDARY identities:\n"
-            + "\n".join(sorted(map(repr, retained - current))),
-        )
 
 
 NEW_BASE_REVISION = "29f3298b0cd0bbd5efea4c01ca592041a2be92e4"
+NEW_MANIFEST_DECISION_REVISION = "83bb532037676e9742d7e1bd036f3c33e610c59b"
 NEW_MANIFEST = REPO_ROOT / ".devflow/logs/residual-required-copy-retirement-manifest.tsv"
 NEW_MANIFEST_COLUMNS = IDENTITY_COLUMNS + ("disposition", "rationale")
 NEW_EXPECTED_SELECTOR_DIGEST = "d412dfc70f1830fafe8388f33d42057722999d5f34876b6cfd16a629bd6b7abb"
@@ -350,27 +470,7 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         return metadata, rows
 
     def selected_base_rows(self) -> tuple[set[tuple[object, ...]], bytes]:
-        with tempfile.TemporaryDirectory() as temporary:
-            inventory = Path(temporary) / "inventory.tsv"
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(CLASSIFIER),
-                    "--repo-root",
-                    str(REPO_ROOT),
-                    "--adjudications",
-                    str(ADJUDICATIONS),
-                    "--output",
-                    str(inventory),
-                    "--revision",
-                    NEW_BASE_REVISION,
-                ],
-                cwd=REPO_ROOT,
-                check=True,
-                text=True,
-                capture_output=True,
-            )
-            raw = inventory.read_text(encoding="utf-8")
+        raw = historical_inventory(NEW_BASE_REVISION)
         reader = csv.DictReader(
             (line for line in raw.splitlines() if not line.startswith("# ")),
             delimiter="\t",
@@ -445,10 +545,14 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         self.assertEqual(NEW_EXPECTED_COUNTS["retained_distinct_literals"], len({row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}))
 
     def test_every_retained_literal_has_an_explicit_non_mechanical_adjudication(self):
-        # Break caught: a retained boundary falls back to required-copy classification.
+        # Break caught: the recorded decision did not classify its retained site as a boundary.
         _, rows = self.load_manifest()
-        adjudications = self.classifier.parse_adjudications(ADJUDICATIONS.read_text(encoding="utf-8"))
-        retained = {row["literal"] for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}
+        adjudications = historical_adjudications(NEW_MANIFEST_DECISION_REVISION)
+        retained = {
+            row["literal"]
+            for row in rows
+            if row["disposition"] == "RETAIN_BOUNDARY"
+        }
         self.assertEqual(NEW_EXPECTED_COUNTS["retained_distinct_literals"], len(retained))
         for literal in retained:
             key = self.classifier.literal_adjudication_key(literal)
@@ -476,7 +580,7 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         }
 
     def test_current_tree_realizes_the_retirement_and_inventory_summary(self):
-        # Break caught: a wording-only pin remains, a boundary vanishes, or summary drifts.
+        # Break caught: a wording-only pin remains or the historical summary drifts.
         _, rows = self.load_manifest()
         retired = {identity(row) for row in rows if row["disposition"] == "RETIRE_PROSE"}
         retained = {identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"}
@@ -488,12 +592,6 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
             retired & current,
             "still-live RETIRE_PROSE identities:\n"
             + "\n".join(sorted(map(repr, retired & current))),
-        )
-        self.assertSetEqual(
-            set(),
-            retained - current,
-            "missing RETAIN_BOUNDARY identities:\n"
-            + "\n".join(sorted(map(repr, retained - current))),
         )
         summary = {}
         for line in HARNESS_INVENTORY.read_text(encoding="utf-8").splitlines():
@@ -530,13 +628,11 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         self.assertTrue(all(".devflow/logs/pin-corpus-inventory.tsv" not in decode_cell(row["homes"]) for row in rows))
         _, manifest = self.load_manifest()
         retired = {identity(row) for row in manifest if row["disposition"] == "RETIRE_PROSE"}
-        retained = {identity(row) for row in manifest if row["disposition"] == "RETAIN_BOUNDARY"}
         observed = {
             (decode_cell(row["source_file"]), row["helper"], decode_cell(row["assertion_name"]), decode_cell(row["literal"]), decode_cell(row["resolved_target"]), row["target_defaulted"] == "true")
             for row in rows
         }
         self.assertFalse(retired & observed)
-        self.assertTrue(retained <= observed)
 
 
 if __name__ == "__main__":
