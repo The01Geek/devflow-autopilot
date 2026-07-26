@@ -514,6 +514,14 @@ def _classify_branch_state(state: dict) -> tuple[str, str, dict]:
     # It is not forgeable by the wider issue-commenter population either: the
     # conjuncts below still require a same-repo PR whose head is the branch actually
     # in the tree.
+    # The `is True` / `is False` identity reads below are equivalent to `!= False` /
+    # `!= True` ONLY because of three upstream guards: the boolean type-guard (any
+    # PRESENT non-bool operand is refused), the partial-gather refusal (an ABSENT one
+    # is refused before this function runs), and the `isinstance(pr_branch, str)`
+    # conjunct. Between them, `None` — the sole value the two spellings disagree on —
+    # can never reach here. Relax any of the three and these identity reads stop being
+    # equivalent and start needing their own arms; the tests below cover the guards,
+    # not the identity spelling.
     pr_branch = state.get("open_pr_branch")
     wp_vouched = bool(state.get("provenance_established", False))
     pr_issue_linked = (

@@ -1099,6 +1099,20 @@ printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGP
 assert_eq "#812 bgv: a DENIED dispatch reads as attempted (INCONCLUSIVE), not NOT_DISPATCHED" "yes" \
   "$(bgv_has "$BGV_F" '| **INCONCLUSIVE** | no |')"
 
+# #839 AC2 — the denial-side tool-NAME net decides on its own. The fixture above reaches
+# "attempted" through the PRIMARY BGPROBE_DISPATCH input token (it rides in tool_input), so
+# compute_verdict's `('"tool_name": "' + n) in denial_text` branch never actually decides
+# anything in any fixture. This fixture strips the token entirely: a permission_denials entry
+# that names the dispatch tool BY NAME (`"tool_name": "Task"`) with NO BGPROBE_DISPATCH token
+# anywhere, both controls running. Only the secondary tool-name net can carry it to attempted;
+# without that net a denied input-less dispatch reads NOT_DISPATCHED — the "allowlist defect
+# hidden behind a presumptive verdict" outcome the code comment says the net exists to prevent.
+# With it, INCONCLUSIVE. (Mutation-proven: deleting the `('"tool_name": "' + n) in denial_text`
+# disjunct flips this fixture to NOT_DISPATCHED.)
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"permission_denials":[{"tool_name":"Task","tool_input":{"prompt":"dispatch a subagent"}}]},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
+assert_eq "#839 bgv: a denial naming the dispatch tool but carrying no BGPROBE_DISPATCH token reads INCONCLUSIVE via the tool-name net, not NOT_DISPATCHED" "yes" \
+  "$(bgv_has "$BGV_F" '| **INCONCLUSIVE** | no |')"
+
 # The operator-facing decision text is the output a human transcribes into the docs record,
 # so all three of its distinct decision texts are driven, not just the verdict cells.
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F"
@@ -1197,6 +1211,71 @@ assert_eq "#812 recorded-verdict: stripping the version-dependence re-probe cave
   "no" "$(recorded_verdict812 "$_t812d")"
 rm -f "$_t812p" "$_t812d"
 unset _t812p _t812d
+
+# #839 AC1 — the recorded verdict has TWO docs mirrors, and only DEVFLOW_SYSTEM_OVERVIEW.md
+# was gated (recorded_verdict812 above). docs/implement-skill.md carries the SAME run
+# identifiers as a second copy of that dated observation — the coupled-mirror class CLAUDE.md
+# warns about — so a re-probe that updates one file and not the other would ship two
+# disagreeing dated observations with the suite green. Assert the two run identifiers recorded
+# in the overview also appear in implement-skill.md's background-tasks-probe record, so the
+# two files must agree.
+# structural-pin-ok: cross-file-phase-contract -- the two docs mirrors of one dated probe
+# observation are a coupled pair; each file is separately mutable and neither alone holds the
+# contract.
+IMPL812="$REPO_ROOT/docs/implement-skill.md"
+impl_ids_agree812() {  # impl-file -> yes|no : both #812 run ids from the overview appear in the impl mirror's bg-tasks record
+  local ids id f="$1"
+  # Pull the run-id pair from the overview's #812 background-tasks FOREGROUND sentence, so the
+  # ids are read from the gated file rather than re-typed here.
+  ids=$(grep -oE 'measured \*\*FOREGROUND\*\* across real cloud runs [0-9]+ and [0-9]+' "$DSO812" | grep -oE '[0-9]{8,}')
+  [ -n "$ids" ] || { echo no; return; }
+  for id in $ids; do
+    grep -qF "$id" "$f" || { echo no; return; }
+  done
+  # And the impl file must actually be the bg-tasks record, not merely contain the digits.
+  grep -qF 'background-tasks-probe' "$f" && echo yes || echo no
+}
+assert_eq "#839 recorded-verdict: docs/implement-skill.md mirrors the overview's background-tasks run identifiers" \
+  "yes" "$(impl_ids_agree812 "$IMPL812")"
+# Planted-defect control on a COPY: mutating implement-skill.md's run id breaks the agreement,
+# proving the added half turns RED.
+_t812i="$(probe_tmp '#839 impl-mirror positive control')"
+sed -E 's/30210679122/39999999999/g' "$IMPL812" > "$_t812i"
+assert_eq "#839 recorded-verdict: mutating implement-skill.md's run id turns the docs-agreement check RED" \
+  "no" "$(impl_ids_agree812 "$_t812i")"
+rm -f "$_t812i"
+unset _t812i IMPL812
+
+# #839 AC3 — main()'s side-output arms and the EXECUTION_FILE env fallback. render() is driven
+# exhaustively above, but main()'s GITHUB_STEP_SUMMARY append and the documented env-var
+# fallback were untested — and main() runs under matcher-probe.yml's `set -euo pipefail`, where
+# an OSError from the append would kill the step with NO verdict table on exactly the degraded
+# run this probe characterizes.
+BGV_F2="$(probe_tmp '#839 background-tasks main() fixture')"
+printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}},{"type":"tool_use","name":"Task","input":{"prompt":"BGPROBE_DISPATCH x"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_RESULT_IN_HAND BGPROBE_SUBAGENT_RETURNED_OK"}},{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_AFTER"}}]' > "$BGV_F2"
+# Writable GITHUB_STEP_SUMMARY: the verdict table is appended to the named file.
+BGV_SUM="$(probe_tmp '#839 background-tasks step-summary')"
+: > "$BGV_SUM"
+GITHUB_STEP_SUMMARY="$BGV_SUM" python3 "$BGV_PY" "$BGV_F2" >/dev/null 2>&1
+assert_eq "#839 bgv: main() appends the verdict table to a writable GITHUB_STEP_SUMMARY" "yes" \
+  "$(grep -qF 'harness-floor probe (issue #812)' "$BGV_SUM" && echo yes || echo no)"
+# Unwritable GITHUB_STEP_SUMMARY: main() still exits 0, emits the named stderr breadcrumb, and
+# the verdict table still reaches stdout (the authoritative surface). One shared unwritable
+# path across the three arms so they cannot drift.
+BGV_NOSUM=/no/such/dir/summary.md
+assert_eq "#839 bgv: main() exits 0 when GITHUB_STEP_SUMMARY is unwritable" "0" \
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" >/dev/null 2>&1; echo $?)"
+assert_eq "#839 bgv: main() emits the named breadcrumb when GITHUB_STEP_SUMMARY is unwritable" "yes" \
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>&1 >/dev/null | grep -qF 'could not append to GITHUB_STEP_SUMMARY' && echo yes || echo no)"
+assert_eq "#839 bgv: the verdict table still reaches stdout when GITHUB_STEP_SUMMARY is unwritable" "yes" \
+  "$(GITHUB_STEP_SUMMARY="$BGV_NOSUM" python3 "$BGV_PY" "$BGV_F2" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
+# EXECUTION_FILE env-var fallback: with NO argv path, main() reads the fixture from the env var.
+# argv wins whenever it is present at all -- an empty argv[1] selects "" and never consults the
+# env var -- so this arm is reachable only with no argv path, which is what the fixture drives.
+assert_eq "#839 bgv: main() reads the execution file from the EXECUTION_FILE env var when no argv path is given" "yes" \
+  "$(EXECUTION_FILE="$BGV_F2" python3 "$BGV_PY" 2>/dev/null | grep -qF '| **FOREGROUND** | yes |' && echo yes || echo no)"
+rm -f "$BGV_F2" "$BGV_SUM"
+unset BGV_F2 BGV_SUM BGV_NOSUM
 
 # ── #812: the helper's marker constants and the workflow prompt are ONE contract, and until
 # now only the helper direction was gated. Every fixture above hardcodes the markers, so a
