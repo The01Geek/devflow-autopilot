@@ -248,58 +248,60 @@ def build_var_maps(text, lib, overrides):
     `VAR="$LIB/..."` / `VAR=$OTHER` assignments).
     literal_vars: NAME -> literal string value (from `VAR='single-quoted'`).
 
-    This intentionally models only the supported straight-line assignment
-    subset: the latest syntactic assignment wins. It does not attempt to
-    evaluate conditional shell control flow.
+    This intentionally models only sequential top-level assignments. Each
+    right-hand side is resolved against the values available at that point; it
+    does not attempt to evaluate conditional shell control flow.
     """
-    # First pass: collect raw RHS of simple `NAME=...` assignments at line start.
-    assigns = {}
+    path_vars = dict(overrides)
+    literal_vars = {}
     for _, line in join_logical_lines(text):
         m = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
         if not m:
             continue
         name, rhs = m.group(1), m.group(2).strip()
-        # Callers that need the value at a particular site pass only the prefix
-        # preceding that site, so overwriting here yields the latest syntactic
-        # assignment in the supported straight-line subset.
-        assigns[name] = rhs
-    return _maps_from_assigns(assigns, lib, overrides)
-
-
-def _maps_from_assigns(assigns, lib, overrides):
-    path_vars = dict(overrides)
-    literal_vars = {}
-    # Literal vars: RHS is a single-quoted string (no interpolation).
-    for name, rhs in assigns.items():
-        if len(rhs) >= 2 and rhs[0] == "'" and rhs.endswith("'") and "'" not in rhs[1:-1]:
-            literal_vars[name] = rhs[1:-1]
-    # Path vars: iterative resolution of `$LIB`/`$OTHER`-based path assignments.
-    for _ in range(10):
-        changed = False
-        for name, rhs in assigns.items():
-            if name in path_vars:
-                continue
-            val = _resolve_path_rhs(rhs, lib, path_vars)
-            if val is not None:
-                path_vars[name] = val
-                changed = True
-        if not changed:
-            break
+        _apply_assignment(
+            name, rhs, path_vars, literal_vars, lib, protected=set(overrides)
+        )
     return path_vars, literal_vars
 
 
+def _apply_assignment(name, rhs, path_vars, literal_vars, lib, protected=()):
+    """Apply one supported assignment using the values visible before it."""
+    if name in protected:
+        return
+    path_vars.pop(name, None)
+    literal_vars.pop(name, None)
+    if (
+        len(rhs) >= 2
+        and rhs[0] == "'"
+        and rhs.endswith("'")
+        and "'" not in rhs[1:-1]
+    ):
+        literal_vars[name] = rhs[1:-1]
+        return
+    value = _resolve_path_rhs(rhs, lib, path_vars)
+    if value is not None:
+        path_vars[name] = value
+
+
 def variable_maps_by_line(text, lib, overrides):
-    """Return straight-line syntactic variable maps before each logical line."""
+    """Return sequential assignment maps before each logical line."""
     maps = {}
-    assigns = {}
-    path_vars, literal_vars = _maps_from_assigns(assigns, lib, overrides)
+    path_vars = dict(overrides)
+    literal_vars = {}
     for lineno, line in join_logical_lines(text):
-        maps[lineno] = (path_vars, literal_vars)
+        maps[lineno] = (dict(path_vars), dict(literal_vars))
         match = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
         if match is None:
             continue
-        assigns[match.group(1)] = match.group(2).strip()
-        path_vars, literal_vars = _maps_from_assigns(assigns, lib, overrides)
+        _apply_assignment(
+            match.group(1),
+            match.group(2).strip(),
+            path_vars,
+            literal_vars,
+            lib,
+            protected=set(overrides),
+        )
     return maps
 
 
@@ -412,7 +414,7 @@ def resolve_arg(segments, literal_vars, path_vars, want_path, lib=None):
 # ── call-site extraction ────────────────────────────────────────────────────
 def extract_pins(text, lib, overrides):
     """Yield dicts for each pin call site: resolved (literal, file) or unresolved."""
-    path_vars, literal_vars = build_var_maps(text, lib, overrides)
+    maps_by_line = variable_maps_by_line(text, lib, overrides)
     for lineno, line in join_logical_lines(text):
         stripped = line.lstrip()
         if stripped.startswith("#"):
@@ -423,6 +425,7 @@ def extract_pins(text, lib, overrides):
         toks = tokenize(stripped)
         if not toks or "".join(v for _, v in toks[0]) != first[0]:
             continue
+        path_vars, literal_vars = maps_by_line[lineno]
         args = toks[1:]
         lit_idx, file_idx, default_file = HELPERS[first[0]]
         if lit_idx >= len(args):
@@ -1076,11 +1079,74 @@ class InfrastructureError(RuntimeError):
     """The blocking gate could not establish the population or comparison."""
 
 
-_FUNCTION_BODY_RE = re.compile(
-    r"(?ms)^([A-Za-z_]\w*)\s*\(\)\s*\{(.*?)(?:^\s*\}|\})"
-)
+_FUNCTION_START_RE = re.compile(r"(?m)^([A-Za-z_]\w*)\s*\(\)\s*\{")
 _POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
 _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
+
+
+def _function_definitions(text):
+    """Return quote-, comment-, escape-, and parameter-aware function spans."""
+    definitions = {}
+    for match in _FUNCTION_START_RE.finditer(text):
+        depth = 1
+        parameter_depth = 0
+        quote = None
+        escaped = False
+        index = match.end()
+        body_start = index
+        while index < len(text):
+            char = text[index]
+            if escaped:
+                escaped = False
+                index += 1
+                continue
+            if char == "\\" and quote != "'":
+                escaped = True
+                index += 1
+                continue
+            if quote:
+                if char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char in ("'", '"'):
+                quote = char
+                index += 1
+                continue
+            if char == "#" and (
+                index == body_start or text[index - 1].isspace()
+            ):
+                newline = text.find("\n", index)
+                index = len(text) if newline < 0 else newline + 1
+                continue
+            if char == "$" and index + 1 < len(text) and text[index + 1] == "{":
+                parameter_depth += 1
+                index += 2
+                continue
+            if char == "}" and parameter_depth:
+                parameter_depth -= 1
+                index += 1
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    definitions[match.group(1)] = (
+                        text[body_start:index],
+                        text.count("\n", 0, match.start()) + 1,
+                        text.count("\n", 0, index) + 1,
+                    )
+                    break
+            index += 1
+    return definitions
+
+
+def _function_bodies(text):
+    return {
+        name: definition[0]
+        for name, definition in _function_definitions(text).items()
+    }
 
 
 def _token_value(token):
@@ -1094,16 +1160,29 @@ def _helper_call(tokens, helper_specs):
     tokens, so scanning the token stream covers guarded calls without treating
     a helper name inside an assertion label as executable.
     """
+    command_prefixes = {
+        "if", "then", "elif", "while", "until", "do", "!", "&&", "||", ";", "{"
+    }
+    assignment = re.compile(r"^[A-Za-z_]\w*=.*$")
     for index, token in enumerate(tokens):
         if not token or any(kind != "bare" for kind, _ in token):
             continue
         value = _token_value(token)
-        if value in helper_specs:
+        if value not in helper_specs:
+            continue
+        before = [_token_value(item) for item in tokens[:index]]
+        executable = (
+            not before
+            or before[-1] in command_prefixes
+            or before[-1].endswith(";")
+            or all(assignment.match(item) for item in before)
+        )
+        if executable:
             return index, value
     return None, None
 
 
-def helper_specs_for_source(text):
+def helper_specs_for_source(text, include_families=False):
     """Return built-in plus source-local wrapper helper specifications.
 
     A focused module may wrap the shared pin API. Enumerating function
@@ -1114,16 +1193,8 @@ def helper_specs_for_source(text):
     implemented via lower-level counters (for example ``_raf_pin_unique``).
     """
     specs = dict(HELPERS)
-    bodies = {
-        match.group(1): match.group(2) for match in _FUNCTION_BODY_RE.finditer(text)
-    }
-    for name in bodies:
-        if name.endswith(("_pin_unique", "_pin_present")):
-            specs.setdefault(name, (1, 2, None))
-        elif name.endswith("_pin_count"):
-            specs.setdefault(name, (0, 1, None))
-        elif name.endswith("_pin_red_under"):
-            specs.setdefault(name, (1, 3, None))
+    families = {name: _helper_family(name) for name in HELPERS}
+    bodies = _function_bodies(text)
 
     for _ in range(len(bodies) + 1):
         changed = False
@@ -1140,18 +1211,42 @@ def helper_specs_for_source(text):
                     _token_value(args[0]).rstrip(";")
                 ):
                     specs[name] = specs[callee]
+                    families[name] = families[callee]
                     changed = True
                     break
-                lit_index, file_index, default_file = specs[callee]
-                if lit_index >= len(args):
+                if any(
+                    _ALL_POSITIONAL_RE.match(_token_value(arg).rstrip(";"))
+                    for arg in args
+                ):
+                    # A splat combined with other arguments has no stable
+                    # positional mapping for the wrapper invocation.
                     continue
-                lit_ref = _POSITIONAL_RE.match(_token_value(args[lit_index]))
-                if lit_ref is None:
-                    continue
+                lit_selector, file_index, default_file = specs[callee]
+                if isinstance(lit_selector, int):
+                    if lit_selector >= len(args):
+                        continue
+                    lit_token = args[lit_selector]
+                    lit_ref = _POSITIONAL_RE.match(
+                        _token_value(lit_token).rstrip(";")
+                    )
+                    if lit_ref is not None:
+                        wrapper_lit_selector = int(lit_ref.group(1)) - 1
+                    else:
+                        fixed_literal = resolve_arg(
+                            lit_token,
+                            literal_vars={},
+                            path_vars={},
+                            want_path=False,
+                        )
+                        if fixed_literal is None:
+                            continue
+                        wrapper_lit_selector = fixed_literal
+                else:
+                    wrapper_lit_selector = lit_selector
                 wrapper_file_index = 10**6
                 wrapper_default = default_file
                 if file_index < len(args):
-                    file_value = _token_value(args[file_index])
+                    file_value = _token_value(args[file_index]).rstrip(";")
                     file_ref = _POSITIONAL_RE.match(file_value)
                     if file_ref is not None:
                         wrapper_file_index = int(file_ref.group(1)) - 1
@@ -1161,14 +1256,24 @@ def helper_specs_for_source(text):
                         if var_ref is not None:
                             wrapper_default = var_ref.group(1)
                 specs[name] = (
-                    int(lit_ref.group(1)) - 1,
+                    wrapper_lit_selector,
                     wrapper_file_index,
                     wrapper_default,
                 )
+                families[name] = families[callee]
                 changed = True
                 break
         if not changed:
             break
+    # A name-only fallback may identify static presence wrappers implemented
+    # through lower-level counters, but it must never grant mutation/count
+    # exemption without body-derived evidence.
+    for name in bodies:
+        if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
+            specs[name] = (1, 2, None)
+            families[name] = "static-helper"
+    if include_families:
+        return specs, families
     return specs
 
 
@@ -1327,28 +1432,88 @@ def parse_unified_diff(difftext):
     added = set()
     deleted = set()
     old_lineno = new_lineno = None
+    in_file = False
+    old_header_seen = new_header_seen = False
+    hunk_expected = None
+    hunk_consumed = None
+    saw_hunk = False
+    metadata = set()
+    last_hunk_line_was_content = False
+    no_newline_marker_seen = False
+
+    def finish_hunk():
+        nonlocal hunk_expected, hunk_consumed, old_lineno, new_lineno
+        nonlocal last_hunk_line_was_content, no_newline_marker_seen
+        if hunk_expected is not None and hunk_consumed != hunk_expected:
+            raise InfrastructureError(
+                "malformed unified diff: truncated hunk "
+                f"(expected {hunk_expected}, consumed {hunk_consumed})"
+            )
+        hunk_expected = hunk_consumed = None
+        old_lineno = new_lineno = None
+        last_hunk_line_was_content = False
+        no_newline_marker_seen = False
 
     def finish():
-        nonlocal old_path, new_path, added, deleted
-        if old_path is not None or new_path is not None:
+        nonlocal old_path, new_path, added, deleted, in_file
+        nonlocal old_header_seen, new_header_seen
+        nonlocal saw_hunk, metadata
+        finish_hunk()
+        if in_file and (old_header_seen != new_header_seen):
+            raise InfrastructureError(
+                "malformed unified diff: file patch is missing ---/+++ header pair"
+            )
+        if in_file and old_header_seen and not saw_hunk:
+            raise InfrastructureError(
+                "malformed unified diff: ---/+++ headers have no hunk"
+            )
+        if in_file and old_header_seen and old_path is None and new_path is None:
+            raise InfrastructureError(
+                "malformed unified diff: both file paths are /dev/null"
+            )
+        if in_file and old_header_seen and new_header_seen:
             patches.append(
                 FilePatch(old_path, new_path, frozenset(added), frozenset(deleted))
             )
+        if in_file and not old_header_seen:
+            complete_metadata_change = (
+                {"old mode", "new mode"} <= metadata
+                or {"rename from", "rename to"} <= metadata
+                or {"copy from", "copy to"} <= metadata
+                or "new file mode" in metadata
+                or "deleted file mode" in metadata
+            )
+            if not complete_metadata_change:
+                raise InfrastructureError(
+                    "malformed unified diff: file stanza has no complete change record"
+                )
         old_path = new_path = None
         added = set()
         deleted = set()
+        in_file = False
+        old_header_seen = new_header_seen = False
+        saw_hunk = False
+        metadata = set()
 
     def diff_path(value, prefix):
         value = value.split("\t", 1)[0]
-        if value.startswith('"') and value.endswith('"'):
+        if value.startswith('"') != value.endswith('"'):
+            raise InfrastructureError(
+                "malformed unified diff: unterminated quoted path"
+            )
+        if value.startswith('"'):
             try:
                 value = ast.literal_eval(value)
+                if not isinstance(value, str):
+                    raise ValueError("quoted path did not decode to a string")
                 # Git C-quotes non-ASCII UTF-8 bytes as octal escapes. Python's
                 # literal parser maps each escape to a Latin-1 code point, so
                 # reconstruct the original byte sequence before path matching.
                 value = value.encode("latin-1").decode("utf-8")
-            except (SyntaxError, ValueError):
-                return value
+            except (SyntaxError, ValueError) as exc:
+                raise InfrastructureError(
+                    f"malformed unified diff: invalid quoted path ({exc})"
+                ) from exc
             except (UnicodeEncodeError, UnicodeDecodeError):
                 pass
         return re.sub(rf"^{prefix}/", "", value)
@@ -1356,33 +1521,129 @@ def parse_unified_diff(difftext):
     for raw in difftext.splitlines():
         if raw.startswith("diff --git "):
             finish()
+            in_file = True
             continue
+        if not in_file:
+            if raw.strip():
+                raise InfrastructureError(
+                    "malformed unified diff: content precedes diff --git header"
+                )
+            continue
+        if hunk_expected is not None:
+            if raw == r"\ No newline at end of file":
+                if not last_hunk_line_was_content or no_newline_marker_seen:
+                    raise InfrastructureError(
+                        "malformed unified diff: misplaced no-newline marker"
+                    )
+                no_newline_marker_seen = True
+                last_hunk_line_was_content = False
+                continue
+            if raw.startswith("+"):
+                added.add(new_lineno)
+                new_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0], hunk_consumed[1] + 1
+                )
+            elif raw.startswith("-"):
+                deleted.add(old_lineno)
+                old_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0] + 1, hunk_consumed[1]
+                )
+            elif raw.startswith(" "):
+                old_lineno += 1
+                new_lineno += 1
+                hunk_consumed = (
+                    hunk_consumed[0] + 1, hunk_consumed[1] + 1
+                )
+            elif raw.startswith("@@ "):
+                finish_hunk()
+            else:
+                raise InfrastructureError(
+                    f"malformed unified diff: unexpected hunk line {raw!r}"
+                )
+            if hunk_expected is not None:
+                last_hunk_line_was_content = True
+                no_newline_marker_seen = False
+                if (
+                    hunk_consumed[0] > hunk_expected[0]
+                    or hunk_consumed[1] > hunk_expected[1]
+                ):
+                    raise InfrastructureError(
+                        "malformed unified diff: hunk exceeds declared size"
+                    )
+                continue
         if raw.startswith("--- "):
+            if old_header_seen:
+                raise InfrastructureError(
+                    "malformed unified diff: duplicate --- header"
+                )
             value = raw[4:].split("\t", 1)[0]
             old_path = None if value == "/dev/null" else diff_path(value, "a")
+            old_header_seen = True
             continue
         if raw.startswith("+++ "):
+            if not old_header_seen or new_header_seen:
+                raise InfrastructureError(
+                    "malformed unified diff: invalid +++ header ordering"
+                )
             value = raw[4:].split("\t", 1)[0]
             new_path = None if value == "/dev/null" else diff_path(value, "b")
+            new_header_seen = True
             continue
         if raw.startswith("@@ "):
             match = re.match(
-                r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", raw
+                r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@",
+                raw,
             )
-            if match:
-                old_lineno, new_lineno = map(int, match.groups())
+            if match is None or not old_header_seen or not new_header_seen:
+                raise InfrastructureError(
+                    f"malformed unified diff: invalid hunk header {raw!r}"
+                )
+            old_lineno = int(match.group(1))
+            new_lineno = int(match.group(3))
+            hunk_expected = (
+                int(match.group(2) or 1),
+                int(match.group(4) or 1),
+            )
+            hunk_consumed = (0, 0)
+            saw_hunk = True
             continue
-        if old_lineno is None or new_lineno is None:
-            continue
-        if raw.startswith("+") and not raw.startswith("+++"):
-            added.add(new_lineno)
-            new_lineno += 1
-        elif raw.startswith("-") and not raw.startswith("---"):
-            deleted.add(old_lineno)
-            old_lineno += 1
-        elif raw.startswith(" "):
-            old_lineno += 1
-            new_lineno += 1
+        if old_header_seen or new_header_seen:
+            raise InfrastructureError(
+                f"malformed unified diff: unexpected post-header line {raw!r}"
+            )
+        metadata_patterns = (
+            ("index", r"index [0-9a-fA-F]+\.\.[0-9a-fA-F]+(?: [0-7]{6})?"),
+            ("new file mode", r"new file mode [0-7]{6}"),
+            ("deleted file mode", r"deleted file mode [0-7]{6}"),
+            ("old mode", r"old mode [0-7]{6}"),
+            ("new mode", r"new mode [0-7]{6}"),
+            ("similarity index", r"similarity index (?:100|[0-9]?[0-9])%"),
+            ("dissimilarity index", r"dissimilarity index (?:100|[0-9]?[0-9])%"),
+            ("rename from", r"rename from .+"),
+            ("rename to", r"rename to .+"),
+            ("copy from", r"copy from .+"),
+            ("copy to", r"copy to .+"),
+        )
+        matched_metadata = next(
+            (
+                name
+                for name, pattern in metadata_patterns
+                if re.fullmatch(pattern, raw)
+            ),
+            None,
+        )
+        if raw and matched_metadata is None:
+            raise InfrastructureError(
+                f"malformed unified diff: unexpected metadata line {raw!r}"
+            )
+        if matched_metadata is not None:
+            if matched_metadata in metadata and matched_metadata != "index":
+                raise InfrastructureError(
+                    f"malformed unified diff: duplicate metadata line {raw!r}"
+                )
+            metadata.add(matched_metadata)
     finish()
     return tuple(patches)
 
@@ -1490,11 +1751,10 @@ def _typed_pin_protects_prose(site, repo_root):
 
     The issue-810 boundary is semantic: a category marker does not turn an
     advisory phrase into an executable contract. For statically resolved
-    targets, literal location and Markdown syntax are decisive: headings,
-    whitespace-bearing visible Markdown phrases, and hash-comment text are
-    never declaration-exempt. A standalone non-heading token is treated as a
-    sentinel; fenced Markdown machine content and operative source text also
-    retain the typed structural path.
+    targets, the conservative classifier rejects headings, whitespace-bearing
+    visible Markdown phrases, and hash-comment text. A standalone non-heading
+    token is treated as a sentinel; fenced Markdown machine content and
+    operative source text retain the typed structural path.
     """
     if (
         site.declaration is None
@@ -1509,9 +1769,8 @@ def _typed_pin_protects_prose(site, repo_root):
     try:
         text = target.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        # When the target cannot be inspected, preserve only the locally
-        # decidable conservative boundary: a whitespace-bearing Markdown phrase
-        # is prose-like, while a standalone token remains sentinel-eligible.
+        # Defensive fallback for direct callers. The production scanner rejects
+        # unreadable typed targets in _typed_pin_inspection_error first.
         return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
     if site.literal not in text:
         return False
@@ -1525,17 +1784,70 @@ def _typed_pin_protects_prose(site, repo_root):
     return False
 
 
+def _typed_pin_inspection_error(site, repo_root):
+    """Return why a typed declaration's target boundary cannot be inspected."""
+    if site.declaration is None or site.declaration_error is not None:
+        return None
+    if not site.literal:
+        return "typed structural declaration literal cannot be inspected"
+    if site.target_path is None:
+        return "typed structural declaration target cannot be inspected"
+    target = Path(site.target_path)
+    if not target.is_absolute():
+        target = Path(repo_root) / target
+    try:
+        if os.path.commonpath((Path(repo_root).resolve(), target.resolve())) != str(
+            Path(repo_root).resolve()
+        ):
+            return (
+                "typed structural declaration target cannot be inspected "
+                "(outside repository)"
+            )
+    except (OSError, ValueError):
+        return "typed structural declaration target cannot be inspected"
+    try:
+        target_text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return (
+            "typed structural declaration target cannot be inspected "
+            f"({type(exc).__name__})"
+        )
+    if site.literal not in target_text:
+        return (
+            "typed structural declaration literal cannot be inspected "
+            "(absent from target)"
+        )
+    return None
+
+
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
     repo_root = os.path.abspath(repo_root)
     lib = os.path.join(repo_root, "lib")
-    helper_specs = helper_specs_for_source(text)
+    helper_specs, helper_families = helper_specs_for_source(
+        text, include_families=True
+    )
+    definitions = _function_definitions(text)
+    function_by_line = {
+        line: name
+        for name, (_, start, end) in definitions.items()
+        for line in range(start, end + 1)
+    }
+    invoked_wrappers = set()
+    for invocation_line, invocation_text in join_logical_lines(text):
+        invocation_tokens = tokenize(invocation_text.lstrip())
+        _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
+        if (
+            invocation_helper in definitions
+            and function_by_line.get(invocation_line) != invocation_helper
+        ):
+            invoked_wrappers.add(invocation_helper)
     maps_by_line = variable_maps_by_line(text, lib, {})
     physical = text.splitlines()
     sites = []
     for lineno, logical_line in join_logical_lines(text):
         stripped = logical_line.lstrip()
-        if not stripped or stripped.startswith("#") or _DEF_LINE_RE.match(stripped):
+        if not stripped or stripped.startswith("#"):
             continue
         path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
@@ -1545,11 +1857,22 @@ def extract_guard_sites(text, source_path, repo_root):
             args = toks[helper_index + 1 :]
             literal = None
             spec = helper_specs[helper]
-            lit_idx = spec[0]
-            if lit_idx < len(args):
+            lit_selector = spec[0]
+            if isinstance(lit_selector, int) and lit_selector < len(args):
                 literal = resolve_arg(
-                    args[lit_idx], literal_vars, path_vars, want_path=False, lib=lib
+                    args[lit_selector],
+                    literal_vars,
+                    path_vars,
+                    want_path=False,
+                    lib=lib,
                 )
+            elif isinstance(lit_selector, str):
+                literal = lit_selector
+            wrapper_name = function_by_line.get(lineno)
+            if wrapper_name in invoked_wrappers:
+                # An invoked wrapper's body is not a second runtime pin site;
+                # its body-derived spec classifies the invocation instead.
+                continue
             target = _resolve_guard_target(
                 args, spec, literal_vars, path_vars, lib
             )
@@ -1559,7 +1882,7 @@ def extract_guard_sites(text, source_path, repo_root):
                     source_path,
                     lineno,
                     _line_end(lineno, logical_line),
-                    _helper_family(helper),
+                    helper_families[helper],
                     helper,
                     literal,
                     target,
@@ -1737,6 +2060,14 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
     for site in new_candidates:
         if site.family in ("mutation-helper", "count-helper"):
             continue
+        inspection_error = _typed_pin_inspection_error(site, repo_root)
+        if inspection_error is not None:
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
+                f"{inspection_error}"
+            )
+            continue
         if (
             site.declaration is not None
             and site.declaration_error is None
@@ -1779,19 +2110,32 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
 
 
 def validate_audited_population(registry, audited_sources, enumerated_sources):
-    """Return population closure findings; an empty list means exact closure."""
+    """Return registry/audit mismatches and audited paths absent from Git."""
     if not isinstance(registry, dict):
         raise InfrastructureError("registry schema: root must be an object")
+    if type(registry.get("schema_version")) is not int or registry["schema_version"] != 1:
+        raise InfrastructureError(
+            "registry schema: schema_version must be integer 1"
+        )
     modules = registry.get("test_modules")
-    if not isinstance(modules, dict):
-        raise InfrastructureError("registry schema: test_modules must be an object")
+    if not isinstance(modules, dict) or not modules:
+        raise InfrastructureError(
+            "registry schema: test_modules must be a non-empty object"
+        )
     registered = {"lib/test/run.sh"}
     for name, row in modules.items():
         if (
             not isinstance(name, str)
+            or re.fullmatch(r"[a-z0-9][a-z0-9._-]*", name) is None
             or not isinstance(row, dict)
             or not isinstance(row.get("path"), str)
-            or not row["path"]
+            or re.fullmatch(
+                r"lib/test/modules/[A-Za-z0-9][A-Za-z0-9._-]*[.]sh",
+                row["path"],
+            )
+            is None
+            or type(row.get("minimum_assertions")) is not int
+            or not 1 <= row["minimum_assertions"] <= 1_000_000
         ):
             raise InfrastructureError(
                 f"registry schema: invalid test_modules row: {name!r}"
@@ -1807,6 +2151,26 @@ def validate_audited_population(registry, audited_sources, enumerated_sources):
     for path in sorted(audited - enumerated):
         findings.append(f"audited pin source absent from Git enumeration: {path}")
     return findings
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate registry key {key!r}")
+        result[key] = value
+    return result
+
+
+def load_registry(path):
+    """Load the module registry with the selector's duplicate-key contract."""
+    try:
+        return json.loads(
+            Path(path).read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise InfrastructureError(f"registry read failed: {exc}") from exc
 
 
 def _run_git(git_runner, repo_root, *args):
@@ -1929,14 +2293,9 @@ def scan_worktree(
                 ).splitlines(),
             )
         )
-        try:
-            registry = json.loads(
-                (repo_root / "scripts/workflow-flight-recorder-registry.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise InfrastructureError(f"registry read failed: {exc}") from exc
+        registry = load_registry(
+            repo_root / "scripts/workflow-flight-recorder-registry.json"
+        )
         population_findings = validate_audited_population(
             registry, AUDITED_PIN_SOURCES, tracked | untracked
         )
