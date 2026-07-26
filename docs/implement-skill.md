@@ -771,7 +771,7 @@ On the cloud implement tier the helper is subject to the same **two-halves upgra
 
 ## Phase 4.0 / 4.0.5 deferred-issue labels (`deferred.labels`)
 
-When a run scopes itself down, it files follow-up issues for the work it deferred: Phase 4.0 files an issue per deferred *acceptance criterion* (carried verbatim from the 2.2.5 scope decision), and Phase 4.0.5 files an issue per deferred *review finding* (the Step-3 deferrals manifest). The labels applied to those follow-up issues are configurable via **`deferred.labels`** — a comma-separated string under the top-level `deferred` object (default `DevFlow,Deferred`), read by both phases with `config-get.sh .deferred.labels DevFlow,Deferred`.
+When a run scopes itself down, it files follow-up issues for the work it deferred: Phase 4.0 files an issue per **logical chunk** of deferred work — typically one per remaining phase of a phased cleanup, carrying the deferred criteria verbatim from the 2.2.5 scope decision — and Phase 4.0.5 files an issue per **source file** the deferred review findings touch (`scripts/file-deferrals.py` groups the Step-3 deferrals manifest that way). The labels applied to those follow-up issues are configurable via **`deferred.labels`** — a comma-separated string under the top-level `deferred` object (default `DevFlow,Deferred`), read by both phases with `config-get.sh .deferred.labels DevFlow,Deferred`.
 
 Both phases resolve and apply the labels with the **same idiom Phase 4.1 uses for `docs.labels`**, so there is one normalization rule to learn:
 

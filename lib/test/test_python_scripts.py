@@ -16759,6 +16759,19 @@ assert_eq("#815 an unresolvable workpad exits 2 and names the workpad operand",
           _dp_run(_dp_body(), comment=False))
 assert_eq("#815 a workpad with nothing deferred exits 1 (the load is skipped)",
           (1, "not-outstanding: 0\n"), _dp_run(_dp_body()))
+# The workpad is agent-mutable markdown, so the malformed-shape rows fail closed: records
+# live only in ## Progress, so a body that does not present exactly one of it is one this
+# reader cannot speak for — answering a confident zero there is the stranding failure.
+assert_eq("#815 an absent ## Progress section exits 2 rather than answering a confident zero",
+          (2, "unestablished: reason=progress-section-unreadable unbound=0 corrupted=0\n"),
+          _dp_run(_dp_body().replace('## Progress\n', '## Steps\n')))
+assert_eq("#815 a DUPLICATED ## Progress section exits 2 rather than reading only the first",
+          (2, "unestablished: reason=progress-section-unreadable unbound=0 corrupted=0\n"),
+          _dp_run(_dp_body(progress_extra=_dp_note(_dp_rec(42, 'deferred', DP_CRIT)))
+                  .replace('## Acceptance Criteria\n', '## Progress\n- [ ] **Review**\n\n## Acceptance Criteria\n')))
+assert_eq("#815 a truncated body carrying only the marker line exits 2, never not-outstanding",
+          (2, "unestablished: reason=progress-section-unreadable unbound=0 corrupted=0\n"),
+          _dp_run('<!-- devflow:workpad -->\n'))
 # The whole point of a bounded predicate: importing the body would cost more context
 # than the procedure it gates, so no arm may print it.
 assert_eq("#815 no arm prints the workpad body",

@@ -166,7 +166,8 @@ trap _ci_cleanup_on_signal HUP INT TERM
 # unchanged); a bad member adds exactly one FAIL.
 CI_IMPL_BUNDLE="$_ci_tmp_root/implement-skill-bundle.md"
 devflow_module_build_bundle "ci module: implement-bundle" "$CI_IMPL_BUNDLE" \
-  "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md
+  "$CI_ROOT/skills/implement/SKILL.md" "$CI_ROOT"/skills/implement/phases/*.md \
+  "$CI_ROOT"/skills/implement/references/*.md
 
 # The create-issue bundle (#614) backs every content-survival pin over the split
 # skill. run.sh hoists an identical build and binds it as the CI_BUNDLE --var so the

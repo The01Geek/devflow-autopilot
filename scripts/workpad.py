@@ -1102,6 +1102,21 @@ def _render_deferred_filed(normalized_text: str) -> str:
     return f'<!-- devflow:deferred-filed text={_b64(normalized_text)} -->'
 
 
+def _progress_content_or_none(body: str) -> str | None:
+    """The single canonical `## Progress` section's content, or None.
+
+    None means the section is absent or duplicated. The workpad is
+    agent-mutable markdown, so both shapes are read as *unestablished* by the
+    caller rather than as an empty record set: records are written only into
+    this section, so a body that does not present exactly one of it is one this
+    reader cannot speak for — and answering a confident zero there is the
+    stranding failure the three-state contract exists to avoid.
+    """
+    _, sections = _split_sections(body)
+    matches = [c for h, c in sections if h.strip().lower() == '## progress']
+    return matches[0] if len(matches) == 1 else None
+
+
 def _isolated_progress_markers(body: str, pattern: 're.Pattern[str]'):
     """Yield one match of `pattern` per `## Progress` bullet whose note text is
     ENTIRELY that marker.
@@ -1123,11 +1138,10 @@ def _isolated_progress_markers(body: str, pattern: 're.Pattern[str]'):
     record format does not carry — the same class of known limitation
     `_bind_scope_decisions` documents for cross-run contamination.
     """
-    _, sections = _split_sections(body)
-    idx = _find_section(sections, 'Progress')
-    if idx is None:
+    content = _progress_content_or_none(body)
+    if content is None:
         return
-    for line in sections[idx][1].split('\n'):
+    for line in content.split('\n'):
         bullet = _PROGRESS_BULLET_RE.match(line)
         if bullet is None:
             continue
@@ -1234,6 +1248,15 @@ def cmd_deferred_presence(args):
         print('unestablished: reason=workpad-unresolved unbound=0 corrupted=0')
         sys.exit(2)
     body = c.get('body') or ''
+    if _progress_content_or_none(body) is None:
+        sys.stderr.write(
+            "workpad.py deferred-presence: the workpad does not carry exactly one "
+            "'## Progress' section (absent or duplicated); scope-decision records are "
+            "written only there, so whether any deferred criterion is outstanding "
+            "could not be established\n"
+        )
+        print('unestablished: reason=progress-section-unreadable unbound=0 corrupted=0')
+        sys.exit(2)
     bound, unbound, corrupted = _bound_deferred_records(body, args.pr)
     if unbound or corrupted:
         # Corrupted is reported first when both are present: a record bound to

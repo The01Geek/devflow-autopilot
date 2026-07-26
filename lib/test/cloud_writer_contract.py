@@ -163,6 +163,12 @@ SKILL_ASSETS = {
         "skills/implement/phases/phase-2-implement.md",
         "skills/implement/phases/phase-3-review.md",
         "skills/implement/phases/phase-4-documentation.md",
+        # issue #815: Phase 4.0's follow-up-issue procedure is reached through a
+        # predicate-gated reference, so it is a reachable asset even though most
+        # runs never load it. `unlisted_skill_assets` globs `*.md` under a
+        # classified skill recursively, so leaving it out is reported as an
+        # unclassified reachable asset rather than silently unpinned.
+        "skills/implement/references/deferred-ac-followups.md",
     ],
     "review": [
         "skills/review/SKILL.md",

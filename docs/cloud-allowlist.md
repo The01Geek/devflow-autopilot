@@ -142,7 +142,8 @@ The read-write `devflow-implement` profile is a **separate allowlist** with its
 here** — so the `implement-probe` job in `matcher-probe.yml` covers it
 independently. Its abstract rule set is IR1 / IR2 / IR3 (distinct from review's
 R1–R4), enforced by `lib/test/extract-command-shapes.py --profile implement`
-against `skills/implement/SKILL.md` and `skills/implement/phases/*.md`.
+against `skills/implement/SKILL.md`, `skills/implement/phases/*.md`, and
+`skills/implement/references/*.md`.
 
 ### The recorded implement-tier table (rows I1–I6)
 

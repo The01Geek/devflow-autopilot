@@ -1702,6 +1702,14 @@ class ModuleRunnerTests(unittest.TestCase):
                     (impl / "phases" / phase.name).write_text("", encoding="utf-8")
                     emptied = phase.name
             self.assertIsNotNone(emptied, "no non-D2-pin phase to empty")
+            # issue #815: the module's bundle now also spans implement's gated
+            # references, so the partial copy has to carry them — otherwise the
+            # emptied-phase FAIL this fixture proves would be confounded by a
+            # second FAIL for an absent reference member.
+            (impl / "references").mkdir(parents=True)
+            for ref in sorted((ROOT / "skills/implement/references").glob("*.md")):
+                (impl / "references" / ref.name).write_text(
+                    ref.read_text(encoding="utf-8"), encoding="utf-8")
 
             environment = os.environ.copy()
             environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
