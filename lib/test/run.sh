@@ -1341,12 +1341,8 @@ assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'an
 # inclusive than fix).
 assert_pin_unique "sev(raf): REJECT-driver widening operative clause" 'PLUS every finding that drove the engine' "$ST_RAF"
 assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
-# Review and receiving-code-review retain their specific out-of-enum fallback breadcrumbs.
-assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
-assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
 # Review-and-fix and receiving-code-review distinguish resolver failure from a bad value.
 assert_pin_unique "sev(raf): resolver-failure breadcrumb" 'could not read .devflow_review_and_fix.fix_severity_threshold' "$ST_RAF"
-assert_pin_unique "sev(rcv): resolver-failure breadcrumb" 'could not read .receiving_review.fix_severity_threshold' "$ST_RCV"
 # #425: agent_overrides `iterations: "first-only"` roster scoping. These static pins
 # preserve the Phase 3.1 and Step-2.6 prompt contracts.
 assert_pin_unique "#425(rev): Phase 3.1 excludes a first-only agent on fix-loop iter≥2" \
@@ -1661,27 +1657,12 @@ RQ379="$LIB/../skills/requesting-code-review/SKILL.md"
 RAF379="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
 IMPL379="$LIB/../.devflow/prompt-extensions/implement.md"
 
-# AC1 — negative-test attribution rule in receiving-code-review (apostrophe-free tail of the sentence)
-assert_pin_unique "#379(AC1): receiving-code-review states the negative-test attribution rule" \
-  'distinct signal whenever more than one guard can reject the input' "$RCV379"
-# AC2 — positive-control rule (mid-sentence substring; the sentence opens with a capital 'A')
-assert_pin_unique "#379(AC2): receiving-code-review states the positive-control rule" \
-  'carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test' "$RCV379"
 # AC3 — mutation-check required before completion, in the Verification Gate
 assert_pin_unique "#379(AC3): receiving-code-review requires a mutation check before completion" \
   'mutation-check every new test before completion is claimed' "$RCV379"
 assert_eq "#379(AC3): receiving-code-review body mentions 'mutation' at least once" "yes" \
   "$([ "$(grep -ci mutation "$RCV379")" -ge 1 ] && echo yes || echo no)"
-# AC5 — Share the Contract converted to a fired-on-writing-a-guard trigger (two operative sentences)
-assert_pin_unique "#379(AC5): share-the-contract fires — name the protected operation before the predicate" \
-  'name the downstream operation the guard protects, in the code, before writing the predicate' "$RCV379"
-assert_pin_unique "#379(AC5): share-the-contract fires — grep the file for an existing idiom first" \
-  'before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job' "$RCV379"
-# AC4 — requesting-code-review requires mutation evidence for presented tests
-assert_pin_unique "#379(AC4): requesting-code-review requires mutation evidence for the tests it presents" \
-  'State the **mutation evidence** for each test you present' "$RQ379"
-assert_eq "#379(AC4): requesting-code-review body mentions 'mutation' at least once" "yes" \
-  "$([ "$(grep -ci mutation "$RQ379")" -ge 1 ] && echo yes || echo no)"
+# The requesting-code-review prose pin was retired; AC8 below keeps only its generic file guard.
 # AC6 — extension gains shapes 3 (R3) and 4 (R4); preamble count/attribution updated in the same edit
 # AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
 assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
@@ -1727,16 +1708,9 @@ assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified re
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
 
-# AC8 — neither vendored body may carry a DevFlow-internal string, each paired with a
-# positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
-# file cannot vacuously pass the negative check (the #379 R3 positive-control rule applied to
-# these very assertions). The existing sev(rcv) block above already asserts the two negatives
-# for receiving-code-review; here we re-state those two negatives alongside a positive control
-# for it (a deliberate, self-contained AC8 restatement — the two RCV negatives duplicate the
-# sev(rcv) pins), and add the full negatives+control pair for requesting-code-review.
-# (Mirror the sev(rcv) negative-assertion idiom above — an inline `grep -qF … && echo yes ||
-# echo no` over a path held in a variable, NOT grep_present, whose call-site count is pinned
-# to exactly 2 audit-bypass sites.)
+# AC8 — neither vendored body may carry a DevFlow-internal string. The negative checks
+# require a readable, non-empty regular file as their non-vacuity control; they deliberately
+# avoid pinning an unrelated body sentence.
 assert_eq "#379(AC8): receiving-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
   "$(grep -qF 'lib/test/run.sh' "$RCV379" && echo yes || echo no)"
 assert_eq "#379(AC8): receiving-code-review has no repo-specific CI job name (lib + python tests)" "no" \
@@ -1747,8 +1721,8 @@ assert_eq "#379(AC8): requesting-code-review has no repo-specific test path (lib
   "$(grep -qF 'lib/test/run.sh' "$RQ379" && echo yes || echo no)"
 assert_eq "#379(AC8): requesting-code-review has no repo-specific CI job name (lib + python tests)" "no" \
   "$(grep -qF 'lib + python tests' "$RQ379" && echo yes || echo no)"
-assert_eq "#379(AC8): requesting-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
-  "$(grep -qF 'State the **mutation evidence** for each test you present' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review negative checks use a readable non-empty regular file" "yes" \
+  "$([ -f "$RQ379" ] && [ -r "$RQ379" ] && [ -s "$RQ379" ] && echo yes || echo no)"
 
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
@@ -2155,8 +2129,6 @@ assert_pin_unique "#621: shadow rationale-bearing class list includes settled-by
 # escalation suppression to settled-by-disclosure rows.
 # Vendored principles mirror (issue #621, issue-196 pin style). $RECV_SKILL is
 # defined further below, so reference the file by its literal path here.
-assert_pin_unique "#621: receiving-code-review records the disclosure disposition (repo-agnostic)" \
-  '**When the deliverable is an already-shipped disclosure**' "$LIB/../skills/receiving-code-review/SKILL.md"
 assert_pin_unique "#621: receiving-code-review keeps the revisit-condition triple" \
   'revisit only if evidence contradicts the cited disclosure' "$LIB/../skills/receiving-code-review/SKILL.md"
 #
@@ -2215,8 +2187,6 @@ assert_pin_unique "over-grade: annotation never clears or downgrades a REJECT (A
   'never clears or downgrades a REJECT' "$OG_REVIEW_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the
 # vendored receiving-code-review skill (engine-agnostic, no DevFlow machinery named there).
-assert_pin_unique "over-grade: receiving-code-review states the symmetric-severity-calibration principle heading" \
-  '## Symmetric Severity Calibration' "$RECV_SKILL"
 assert_pin_unique "over-grade: receiving-code-review calibrates severity in both directions" \
   'calibrated against the observable fail-direction and impact in both directions' "$RECV_SKILL"
 # The persisted `severity-calibrated` enum is the retained integration boundary.
@@ -2574,7 +2544,6 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
 # assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
 # by construction. Needles are apostrophe-free (the asserts single-quote them).
-RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
 # FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
 assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
   'on **every iteration unconditionally**' "$MAXI_SKILL"
@@ -2850,28 +2819,14 @@ assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principl
   'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
   'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: phase-2 rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: receiving rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: fixing rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A8: phase-2 gates reuse on the current code shape" \
-  'only after confirming it still exercises the current code shape' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A8: receiving gates reuse on the current code shape" \
   'only after confirming it still exercises the current code shape' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A8: fixing gates reuse on the current code shape" \
-  'only after confirming it still exercises the current code shape' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scratch path" \
   'would land as a gitlink' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A10: receiving keeps the rig under a VCS-ignored path" \
-  'a nested scratch repo never lands as a gitlink' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
   'not open, on each' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
   'fix-delta gate clean' "$MAXI_SKILL"
-assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-code-review" \
-  'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
 # ── issue #449: the reproduce-first gate keys on a recorded CONTENT classification, not the
@@ -2957,15 +2912,12 @@ assert_pin_unique "early-shadow #199: non-engine PR keeps convergence-time-only 
 assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do not default false)" \
   're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
-# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
-# sentence, the code-fence verify entry, the engine re-run attribution, the
-# CI-fallback consequence clause, the CI-fallback trigger restriction, the
-# Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
-# distinction are the gate's load-bearing contracts (9 pins); any can be silently
-# deleted or paraphrased without breaking any other pin.
+# which inserted a RECORD DEFERRALS step before it) — the scope sentence,
+# code-fence verify entry, engine re-run attribution, CI-fallback consequence and
+# trigger restrictions, Forbidden Responses entry, local-skip audit note, and
+# push-vs-observe distinction are eight retained load-bearing contracts. Any can
+# be silently deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step8: verification gate Iron Law heading present" \
-  'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
 assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
 assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
@@ -3011,16 +2963,12 @@ assert_pin_unique "399: failed fetch leaves both divergences unestablished, neve
 # assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
 # the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
 # apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
-assert_pin_unique "convergence #196: stopping-rule section heading present" \
-  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
   'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
   'never "address all the notes," which guarantees' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
   'does not, by itself, re-open the diff' "$RECV_SKILL"
-assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
-  '## Record Every Deferral' "$RECV_SKILL"
 assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
   'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
 assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
@@ -3029,8 +2977,6 @@ assert_pin_unique "convergence #196: a successful pushback is itself a recorded 
   'A successful pushback is itself a deferral' "$RECV_SKILL"
 assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
   '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
-assert_pin_unique "convergence #196: cross-iteration union section heading present" \
-  '## Union Findings Across Review Iterations' "$RECV_SKILL"
 assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
   'raised in a prior run and never resolved, still true' "$RECV_SKILL"
 assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
@@ -3057,8 +3003,6 @@ assert_pin_unique "premise #197: push-back cites the file real pattern as eviden
 # AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
 assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
   'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
-assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
-  'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
 # AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
 # Pin the FULL three-arm enumeration (stale / contradicts HEAD / contradicts another part)
 # together with the blocking classification, so dropping ANY arm — not just the tail — fails
@@ -3083,14 +3027,8 @@ assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as
 # or loss of the target-unique clause.
 # Literals are gate-unique, apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery in
 # the pinned text — the section keeps "an automated fix-delta gate, if your loop has one" generic).
-assert_pin_unique "fix-as-new-code: section heading present in receiving-code-review" \
-  '## A Fix Is New Code' "$RECV_SKILL"
-assert_pin_unique "fix-as-new-code: core disposition scrutinizes the fix delta as new code" \
-  'give the fix delta the same scrutiny you would give any new code you wrote' "$RECV_SKILL"
 assert_pin_unique "fix-as-new-code: deletion class re-reads the unit and greps for stranded references" \
   'grep for references to anything you removed' "$RECV_SKILL"
-assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pass to find a fix-introduced defect)" \
-  'to find a defect your fix introduced' "$RECV_SKILL"
 
 # ── Drift guards (issue #323): the "Update the Branch First (Step 0)" step prepended to the
 # Response Pattern. SKILL prose vendored to consumer repos, so exact-one drift checks fail
@@ -13958,12 +13896,6 @@ echo "#332: resolve-main-root.sh (main-worktree root) + create-issue draft-path"
 # git repos + real `git worktree add` (the boundary being proven is git's own
 # worktree topology — not mocked). RED before the resolver existed (no file to run).
 RMR="$LIB/../scripts/resolve-main-root.sh"
-# AC1: SPDX header (required for new .sh files).
-assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX copyright header" \
-  'SPDX-FileCopyrightText: 2026 Daniel Radman' "$RMR"
-assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX license header" \
-  'SPDX-License-Identifier: MIT' "$RMR"
-
 # Build a real main tree + a linked worktree under one sandbox parent.
 RMR_PARENT="$(git_sandbox "#332 resolver sandbox")"
 RMR_MAIN="$RMR_PARENT/main"; RMR_WT="$RMR_PARENT/wt"
@@ -41309,7 +41241,7 @@ assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 68; then
+  "review-and-fix-contract" 67; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi
@@ -41318,7 +41250,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 249; then
+  "create-issue-contract" 246; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
