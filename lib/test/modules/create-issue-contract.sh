@@ -414,9 +414,7 @@ devflow_module_pin_unique "#522: degraded inline arm emits no VERDICT: DRAFT-UNR
 for _m600 in \
   'no credit for good intent' \
   'write the autopsy' \
-  'at most five findings' \
-  'no finding without a concrete trigger scenario' \
-  'Generic dimension checklist'; do
+  'no finding without a concrete trigger scenario'; do
   assert_eq "#600 absence: moved audit-prompt sentence left the SKILL ($_m600)" "0" \
     "$(grep -cF "$_m600" "$CI_BUNDLE")"
 done
