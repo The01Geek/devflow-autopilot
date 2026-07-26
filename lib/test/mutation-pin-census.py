@@ -412,10 +412,21 @@ def render_jsonl(result: CensusResult) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_tsv(result: CensusResult) -> str:
-    lines = [
+def _validate_source_revision(source_revision: str) -> None:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", source_revision):
+        raise CensusError("source revision must be a full hexadecimal object ID")
+
+
+def render_tsv(
+    result: CensusResult, source_revision: str | None = None
+) -> str:
+    lines: list[str] = []
+    if source_revision is not None:
+        _validate_source_revision(source_revision)
+        lines.append(f"# source_revision\t{source_revision}")
+    lines.append(
         "path\thelper\tlogical_call\tline_start\tline_end\tidentity_sha256"
-    ]
+    )
     for row in result.rows:
         call = json.dumps(row.logical_call, ensure_ascii=False)
         identity_digest = _identity_sha256(row)
@@ -430,8 +441,7 @@ def render_tsv(result: CensusResult) -> str:
 def render_adjudication_tsv(
     result: CensusResult, source_revision: str
 ) -> str:
-    if not re.fullmatch(r"[0-9a-f]{40,64}", source_revision):
-        raise CensusError("source revision must be a full hexadecimal object ID")
+    _validate_source_revision(source_revision)
     lines = [
         f"# source_revision\t{source_revision}",
         f"# master_sha256\t{result.master_sha256}",
@@ -473,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.format == "jsonl":
         output = render_jsonl(result)
     elif args.format == "tsv":
-        output = render_tsv(result)
+        output = render_tsv(result, args.source_revision)
     else:
         output = render_adjudication_tsv(result, args.source_revision)
     sys.stdout.write(output)
