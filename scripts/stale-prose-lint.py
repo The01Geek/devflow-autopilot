@@ -385,8 +385,12 @@ flags (``count-locked: … pin or drift-proof this claim``):
     bait removal or unrelated file.
 
 **Caller-supplied-diff contract (shallow-clone safe).** The helper reads the
-unified diff from **stdin** and resolves post-diff file state via an explicit
-``--rev`` argument (``git show <rev>:<path>``). It never derives the diff range
+unified diff from **stdin** and resolves post-diff file state through the explicitly
+selected post-image mode — ``--rev`` (``git show <rev>:<path>``), or the issue-#818
+``--worktree`` mode, whose record above is authoritative for it; this paragraph's
+``--rev`` wording describes the revision mode and is not a claim that it is the only
+one. Both modes are shallow-clone safe, and the working-tree mode makes no history
+read at all. It never derives the diff range
 itself (no base..head range computation) and never calls the range-deriving git
 plumbing — the caller passes the diff it already computed (the review engine's
 cached ``diff.patch``; the fix loop's branch diff). This is what makes the PR #328
@@ -402,12 +406,15 @@ Output: one TSV row per examined claim on stdout —
 Exit codes:
   0  no STALE row (all VERIFIED / UNRESOLVABLE, or no claims at all)
   1  at least one STALE row
-  2  internal error — an unreadable ``--rev``, an unreadable or non-UTF-8 stdin diff,
-     or any other unexpected failure (e.g. ``git`` unavailable); all fail-closed
+  2  internal error — an unreadable ``--rev`` (revision mode only; the working-tree mode
+     validates no revision), an unreadable or non-UTF-8 stdin diff, a missing or duplicated
+     post-image mode flag (argparse's own usage exit), or any other unexpected failure
+     (e.g. ``git`` unavailable); all fail-closed
 UNRESOLVABLE rows never affect the exit code.
 
-Usage:
-    stale-prose-lint.py --rev REV  < unified.diff
+Usage (exactly one post-image mode, always required):
+    stale-prose-lint.py --rev REV   < unified.diff   # post-image = git show <rev>:<path>
+    stale-prose-lint.py --worktree  < unified.diff   # post-image = the on-disk file (#818)
 """
 
 from __future__ import annotations

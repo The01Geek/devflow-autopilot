@@ -230,12 +230,23 @@ rather than against your recollection of the change.
 
 Two halves ship together. The **detector** is a recognition-only tier in `scripts/stale-prose-lint.py` —
 non-gating by construction, resolving no referent and never affecting the exit code — that recognizes a
-universal-quantifier token adjacent to a coverage-referent noun and emits one row per recognized line under
-the `CU` rule token. It gives the sweep an *executed* seed list rather than a remembered one, and it costs
+**coverage-scope** token adjacent to a coverage-referent noun and emits one row per recognized line under
+the `CU` rule token. The scope set is deliberately wider than the universal quantifiers (`only`, `complete`,
+`entire`, `whole` are scope claims about the change's own coverage and are recognized too); both closed sets
+are specified authoritatively in the helper's own header; the four tokens named here are an illustration of
+the widening, not a transcription of the set. It gives the sweep an *executed* seed list rather than a remembered one, and it costs
 no model tokens. It runs in the helper's `--worktree` post-image mode, because the shipped `--rev` mode
 resolves the post-image through `git show <rev>:<path>` — which on an uncommitted tree names the *pre*-change
 file, so a modified file's added lines fail their content anchor and a **new** file (the `.changeset/*.md`
-shape, always new) resolves to nothing at all. The **obligation** is the sweep prose itself, and it is what
+shape, always new) resolves to nothing at all. Two properties of the invocation are load-bearing rather than
+incidental. It **never stages** — no `git add -A`, no intent-to-add — because the fix loop that inherits this
+sweep stages by explicit path in the same iteration, and an unscoped stage here would land unrelated
+working-tree state on the branch; the untracked leg therefore names each new file the change authored rather
+than enumerating the working tree. And it accounts for **three** outcomes, not two: rows produced, a clean
+pass (zero rows *and* helper exit `0` *and* a producer that actually emitted hunks), and everything else — an
+errored, refused, or empty run — recorded as degraded. An empty row set is the same observable as a sweep
+that never ran, so without the third conjunct a run that examined nothing would read as a clean discharge.
+The **obligation** is the sweep prose itself, and it is what
 actually closes the claim: the detector's rows are a **floor**, not the population, so a universal the
 closed noun set does not recognize stays in scope and is grounded the same way.
 
