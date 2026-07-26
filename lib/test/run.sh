@@ -2245,22 +2245,28 @@ assert_pin_unique "#479(AC3): route (b) names the fixed-path / fixed-module-path
   'reads fixed paths, or imports the module under test through fixed module paths' "$RECV_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
+echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened by #797)"
 # ────────────────────────────────────────────────────────────────────────────
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
-# and the no-refork guard.
+# and the no-refork guard. #797 widened the cap's keying from an in-code-comment
+# sub-case to behavior-inertness; the three guarded contracts are unchanged, and the
+# AC4 literal below is renamed to track the widened cap. The AC1 assertion NAME still
+# says "in-code-comment cap": that name is part of a frozen pin identity in
+# .devflow/logs/residual-prose-retirement-manifest.tsv, so renaming it here would fail
+# test_residual_prose_retirement_manifest.py. It is stale by force, not by oversight,
+# and is corrected by the next manifest identity refresh.
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
 assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic in-code-comment cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
 # AC4/AC5 — review-and-fix Step 2.6 honors the cap by recording a DETERMINISTIC severity-calibrated
-# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a comment-only-on-
-# unmodified-comment finding cannot drive a Decide-outcome-2 promotion.
+# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a behavior-inert
+# prose finding cannot drive a Decide-outcome-2 promotion.
 assert_pin_unique "291(AC4): review-and-fix 2.6 records the cap as a deterministic severity-calibrated eval" \
-  'deterministic comment-only cap (review 4.1.5)' "$MAXI_SKILL"
+  'behavior-inert prose cap (review 4.1.5)' "$MAXI_SKILL"
 assert_pin_unique "291(AC4): review-and-fix 2.6 capped finding cannot drive a Decide-outcome-2 promotion" \
   'cannot drive a Decide-outcome-2 promotion' "$MAXI_SKILL"
 # AC5 fail-closed — the cap must NOT re-fork the review-4.1.5 shape headings into review-and-fix.
-assert_eq "291(AC5): cap in-code-comment operative sentence is NOT re-forked into review-and-fix" \
+assert_eq "291(AC5): cap operative sentence is NOT re-forked into review-and-fix" \
   "0" "$(pin_count 'deterministically — Phase 4.2 does not REJECT on it' "$MAXI_SKILL")"
 # ────────────────────────────────────────────────────────────────────────────
 echo "documented_falsehood tagging + pre-verdict truthfulness sweep (Phase 4.1.5/4.1.6) (#339)"
