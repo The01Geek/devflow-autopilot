@@ -4,6 +4,36 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.10] — 2026-07-26
+
+### Changed
+### Fixed
+
+- `/devflow:implement` now screens the ahead-of-base branch state on the **landed-resume** arm, closing the residual issue #779 disclosed. Verdict B (`scripts/preflight.py branch-state`, `phase-1-setup.md` §1.4.0.5) previously ran on the adopted-branch arm only, so a resumed run merged and pushed a branch whose ahead history had never been screened for the PR #524 foreign-commit shape.
+- The classifier now accepts a second provenance source alongside the workpad: the **open-PR linkage** — an open PR in this repository whose head branch is the working branch, which is not cross-repository, and which is tied to this issue either by closing it or by having been selected by the Phase 1.4 resume pre-check's head-branch query. Without it, widening Verdict B would have turned two large populations of ordinarily-resumable runs into terminal `Blocked` stops: a cloud run whose Phase 1.3 `HANDOFF` record is `unknown`, and a local resumed run that did not create its own workpad. On the PR-vouched path the untrusted workpad is neutralized rather than consulted; the workpad takes precedence wherever the sources overlap, so a workpad-vouched run classifies exactly as before; every conjunct fails closed; a *partial* gather of the PR operands is refused by name rather than read as a refutation the caller never established; and the new gate operands join the existing quoted-string refusal so a mis-encoded value names itself instead of masquerading as a real refutation.
+### Fixed
+
+- Corrected a `lib/test/run.sh` comment that claimed the `#780` partial-gather arms kill the `is True`/`is False` identity mutants; those arms assert the gather refusal, which returns before the classifier's identity reads are reached.
+- `scripts/preflight.py` now records which three upstream guards the identity reads' equivalence depends on, so relaxing one is a visible change rather than a silent loss of coverage.
+- Added coverage for a JSON-null `open_pr_selected_by` — a non-string shape `gh pr list --json` can serialize — confirming it is refused by the same named cause as an out-of-enum string.
+Close the two actionable residuals deferred from the #781 review loop (PR #846):
+add a composed-output assertion for `workpad.py acs --emit-source-token` on a
+criteria-bearing fixture (the source-token line followed by the rendered
+criteria, the shape Phase 0.4 parses positionally), and add the matching in-fence
+`if [ -z "$ISSUE_NUM" ]` guard to both PR-body issue-number derivation fences in
+the review engine's Phase 0.4 so a literal execution can no longer clobber a
+caller-supplied `--issue` value.
+### Changed
+
+- Review engine: Phase 4.1.5's deterministic over-grade cap is widened from an in-code-comment cap into a **behavior-inert prose cap**. It is now keyed on whether the prose can change program behavior — judged per finding against two limbs, no tool in the repository under review parsing it to decide behavior and no reader outside the repository seeing it — instead of on a surface enumeration, and it applies whether or not the diff touched the line. Eligibility is no longer restricted by surface class, so the log lines, breadcrumbs, and message strings that shape 2 previously reserved for advisory-annotate-only treatment are now graded by the two limbs like any other prose. A covered finding is set to Suggestion/Minor and then flows through Phase 4.2's numbered rules unchanged, so it drives no REJECT at the default `verdict_severity_threshold` while a `fix_severity_threshold` of `suggestion` still routes it to the fixer. The machine-significant exclusion is retained as limb one's property, with type/lint directives, shebang lines, tool-read markers, and declaration markers named as non-normative examples; a check that reads prose only to assert the prose itself does not make that prose non-inert. Phase 4.2's threshold-independent self-contradicting-diff carve-out, the Phase 4.0 non-demotability paragraph, and the Verdict-Criteria summary bullet each gain a matching scope exclusion pointing at 4.1.5 as the authoritative definition, and `skills/receiving-code-review/SKILL.md`'s documented-falsehood carve-out mirrors it in repo-agnostic language, so the fix loop and the verdict gate agree on which findings are blocking. Prose that can change behavior — a skill body, a shipped README, a machine-read directive — keeps driving a non-demotable REJECT at every threshold, unchanged. The inertness keying honors the consumer prompt extension of whichever engine root is running, so a consumer's steer reaches the auto-fixing paths and not only the reporting one. Which findings are *filed* is unchanged: the diff-touched scoping of `documented_falsehood` production is retained in all three producer surfaces (issue #797).
+Retire wording-only residual pin assertions while preserving the audited behavioral
+boundaries and their classifier-backed retirement census.
+Retire the remaining mutation-taking pin helpers, replace their genuine behavioral
+boundaries with ordinary executable tests, and require the audited mutation-helper
+census to remain empty. Authoring guidance now directs behavioral regressions to
+executable RED/GREEN coverage, while a derived consistency guard keeps the historical
+disposition totals and live inventory summary synchronized.
+
 ## [2.22.9] — 2026-07-26
 
 ### Changed
