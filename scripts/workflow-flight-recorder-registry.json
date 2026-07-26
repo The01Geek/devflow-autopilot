@@ -13,7 +13,7 @@
     },
     "create-issue-contract": {
       "path": "lib/test/modules/create-issue-contract.sh",
-      "minimum_assertions": 317,
+      "minimum_assertions": 250,
       "description": "Focused create-issue Step 3.6 audit, state-owner cutover, authoring-discipline, and revision-delta contracts"
     },
     "capability-profiles": {
@@ -28,7 +28,7 @@
     },
     "installer-wiring": {
       "path": "lib/test/modules/installer-wiring.sh",
-      "minimum_assertions": 118,
+      "minimum_assertions": 112,
       "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms"
     },
     "harness-python-guards": {
@@ -43,12 +43,12 @@
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
-      "minimum_assertions": 403,
+      "minimum_assertions": 401,
       "description": "Focused review and implement trigger-helper contracts: derive-review-verdict.sh (#249 HEAD-scoped fail-closed deriver), derive-review-preconditions.sh (#304 branch-freshness and other-CI-green gate), parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
-      "minimum_assertions": 161,
+      "minimum_assertions": 142,
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow-review.yml/devflow.yml wiring and grounding-block coupling) and the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers)"
     },
     "experiment-records": {

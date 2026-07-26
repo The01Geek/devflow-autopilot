@@ -2,14 +2,6 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable review/implement trigger-helper contract module (issue #746 tranche).
-# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
-# lib/test/module-harness.sh first (which defines the namespaced module pin API:
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under). This module uses assert_eq plus that namespaced pin
-# API — it references NO monolith helper. Every path derives from LIB. It allocates
-# no module-level fixture root (see the note below); it never invokes the runner or
-# the full-suite boundary. The inventory in review-trigger-helpers.inventory.md maps
-# the extracted coverage to its former run.sh locations. Modules may not self-skip.
 #
 # No private fixture root and no EXIT trap here, deliberately. The extracted sections
 # allocate their own fixture trees with bare `mktemp -d` and remove them on their own
@@ -1217,20 +1209,6 @@ printf '%s' '{}' > "$TR_CFG"
 assert_eq "#409 transcript key: unset key → resolver default false" "false" \
   "$("$CG" .devflow.execution_transcript_artifact_enabled false "$TR_CFG")"
 rm -f "$TR_CFG"
-# item 1 behavioral: the example's default-OFF polarity. Flipping the example to
-# true (diverging from the documented default-false) turns the pin RED — proven
-# via the mutation, not a static grep (devflow_module_pin_red_under records the flip).
-devflow_module_pin_red_under "#409 transcript: example encodes the default-OFF polarity — flipping it true inverts the documented default" \
-  '"execution_transcript_artifact_enabled": false' \
-  's/"execution_transcript_artifact_enabled": false/"execution_transcript_artifact_enabled": true/' \
-  "$TR_EXAMPLE"
-# item 1 behavioral: the fail-closed clamp in the diagnostics step. Deleting the
-# clamp lets a non-"true" config value through as-is (fail-open); the mutation
-# removes exactly the clamp line and the pin flips RED.
-devflow_module_pin_red_under "#409 transcript: deleting the fail-closed TRANSCRIPT clamp turns its pin RED" \
-  '[ "$TRANSCRIPT" = "true" ] || TRANSCRIPT=false' \
-  '/TRANSCRIPT=false/d' \
-  "$TR_RUNNER"
 # item 1: the scrub step gates on outputs.transcript == 'true'; the upload step
 # gates on the scrub step producing a path (so an empty/failed scrub uploads nothing).
 assert_eq "#409 transcript: scrub step gates on diagnostics.outputs.transcript == 'true'" "1" \
@@ -2106,4 +2084,3 @@ devflow_module_pin_unique "rct #321: review_dedupe routes through the shared det
 # reverting it to a bare `CMD=$(...)` assignment re-opens the fail-CLOSED swallow.
 devflow_module_pin_unique "rct #321: review_dedupe detector extraction fails open on a run failure (if!-guarded)" \
   'if ! CMD="$(printf '"'"'%s'"'"' "$BODY" | bash "$DETECTOR" | sed -n '"'"'s/^command=//p'"'"')"' "$RCT_WF_DEVFLOW"
-

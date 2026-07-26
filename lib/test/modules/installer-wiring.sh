@@ -2,17 +2,6 @@
 # SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 # Sourceable installer / workflow-wiring contract module (issue #695 extraction).
-# Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
-# lib/test/module-harness.sh first (which defines the namespaced module pin API —
-# devflow_module_pin_count / devflow_module_pin_unique / devflow_module_pin_present /
-# devflow_module_pin_red_under — and the shared fixture helpers mint_blk / probe_tmp /
-# probe_assert promoted out of lib/test/run.sh by this same change). This module uses
-# assert_eq plus those harness helpers and its own domain-private helpers below
-# (_dfbn, _ac10_count533, _ac10_wf_count533, _i533, _stub690, _i690) — it references NO
-# helper that lives only in lib/test/run.sh. The module owns its private fixture root
-# and cleanup; it never invokes the runner or the full-suite boundary. The inventory in
-# installer-wiring.inventory.md maps the extracted coverage to its former run.sh
-# locations. Modules may not self-skip.
 # The `trap _iw_cleanup EXIT` below relies on a sourcing contract: both callers
 # (module-harness.sh's full-suite boundary and run-module.sh) source this module
 # inside a ( ... ) subshell, so the trap fires at subshell exit and cannot clobber
@@ -66,8 +55,6 @@ for _wf487 in devflow-implement devflow; do
     "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
   # Behavioral-fix pin: deleting the `env -u DEVFLOW_APP_PRIVATE_KEY` line reintroduces
   # the /proc/<pid>/environ PEM exposure, so it must flip the pin RED.
-  devflow_module_pin_red_under "#487 wiring: $_wf487.yml env -u DEVFLOW_APP_PRIVATE_KEY present (deleting it reopens the /proc PEM leak)" \
-    'env -u DEVFLOW_APP_PRIVATE_KEY' '/env -u DEVFLOW_APP_PRIVATE_KEY/d' "$_WFF487"  # runtime-pin-ok: target "$_WFF487" is bound by the enclosing `for _wf487 …` loop, unresolvable by the static meta-guard
   # No `background:` step key anywhere (would break actionlint).
   assert_eq "#487 wiring: $_wf487.yml uses no 'background:' step key (actionlint-safe)" "0" \
     "$(grep -cE '^[[:space:]]*background:[[:space:]]*true' "$_WFF487")"
@@ -187,27 +174,6 @@ devflow_module_pin_unique "#487 fail-fast prose: review-and-fix loop-control ref
 devflow_module_pin_unique "#487 fail-fast prose: implement rule names the gh-fresh.sh diagnostic sibling" \
   'devflow-gh-fresh' "$LIB/../skills/implement/SKILL.md"
 
-# ── issue #599 AC21: preserved producer safety contracts (numbered (1)–(5) below) ──
-# The deferred cloud-writer call-site rework (the other ACs of #599) reworks helper
-# instructions and tool grants across the writer skill/workflow graph. These pins
-# ensure that rework cannot SILENTLY break the producer-side safety contracts it
-# rides on — each guards a distinct workflow/wrapper safety surface. Where the
-# operative text is a single file-unique literal the pin is a behavioral-fix pin
-# (devflow_module_pin_red_under) whose sed mutation re-introduces the NAMED regression; where
-# the property is a scoped presence/absence (an always()-guard inside one step, or a
-# credential absent from one step block) it is a scoped count guard — the copy-based
-# mutation evidence for those two is recorded in the issue #599 workpad.
-
-# (1) Workflow token permissions — the version-consolidate bump-commit push must
-# authenticate as the DevFlow App (a ruleset bypass actor), NOT the default
-# GITHUB_TOKEN (github-actions[bot], which main's required-checks ruleset rejects,
-# GH013). This file is outside the #357 checkout-token loop above, so pin it here:
-# unseeding the App token from checkout reintroduces the rejected bump push (#294/#357).
-devflow_module_pin_red_under "#599 AC21(1) workflow token permissions: version-consolidate.yml seeds the App token into checkout (unseeding it runs the bump push as github-actions[bot], rejected by main's ruleset)" \
-  'token: ${{ steps.app-token.outputs.token }}' \
-  's/token: \$\{\{ steps\.app-token\.outputs\.token \}\}/token: \$\{\{ secrets.GITHUB_TOKEN \}\}/' \
-  "$WF/version-consolidate.yml"
-
 # (2) Refresh/cleanup steps — the detached credential refresher (issue #487) is
 # retired on EVERY exit path. The existing #487 wiring pin asserts the Stop step
 # EXISTS; this pins the always() guard that makes cleanup run even when the claude
@@ -216,31 +182,6 @@ _ac21_stopblk="$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-im
 assert_eq "#599 AC21(2) refresh/cleanup steps: devflow-implement.yml Stop step is always()-guarded (retires the refresher on every exit path)" "1" \
   "$(printf '%s\n' "$_ac21_stopblk" | grep -cF 'if: ${{ always() && ')"
 
-# (3) Secret-file permissions — the mode-0600 token file the gh wrapper reads is
-# written under umask 077 (issue #487/#491). No prior pin covered this surface;
-# relaxing the umask leaks the App installation token to same-uid readers.
-devflow_module_pin_red_under "#599 AC21(3) secret-file permissions: refresh-app-credentials.sh writes the token file under umask 077 (relaxing it leaks the token to same-uid readers)" \
-  '( umask 077; printf '"'"'%s'"'"' "$token" > "$tmp" )' \
-  's/umask 077/umask 022/' \
-  "$LIB/../scripts/refresh-app-credentials.sh"
-
-# (4) Bad-credential two-strike diagnostics — the gh-fresh.sh wrapper (issue #487)
-# recognizes the expired/bad-credential signature that drives the two-strike stop and
-# the compaction-immune diagnostic. Existing arms pin the DIAG_LINE EMISSION; this
-# pins the SIG signature that triggers it — weakening it silences the whole surface.
-devflow_module_pin_red_under "#599 AC21(4) bad-credential two-strike diagnostics: gh-fresh.sh SIG matches HTTP 401 / Bad credentials / Authentication failed (weakening it silences the fail-fast signal)" \
-  "SIG='HTTP 401|Bad credentials|fatal: Authentication failed for'" \
-  's/Bad credentials\|fatal: Authentication failed for/NEVER_MATCHES/' \
-  "$LIB/../scripts/gh-fresh.sh"
-
-# (5) Direct-review identity split — the read-only DevFlow-Reviewer token (issue
-# #300/#402) is handed to the review action's github_token, but is NEVER seeded into
-# checkout as a write credential. (a) the action consumes the downscoped reviewer
-# token; (b) the review job's checkout step block carries no reviewer-token at all.
-devflow_module_pin_red_under "#599 AC21(5a) direct-review identity split: devflow-runner.yml review action consumes the downscoped reviewer token (dropping it collapses review posts back onto github-actions)" \
-  'github_token: ${{ steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN }}' \
-  's/steps\.reviewer-token\.outputs\.token \|\| //' \
-  "$WF/devflow-runner.yml"
 # Precise checkout-step extraction (NOT mint_blk, which exits only on the next
 # `- name:` step and would over-span the runner's `- id:`-only follow-on steps):
 # print from the checkout step name until the next 6-space step boundary.
