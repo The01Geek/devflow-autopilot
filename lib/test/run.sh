@@ -1341,12 +1341,8 @@ assert_pin_unique "sev(raf): routes findings at or above the loop threshold" 'an
 # inclusive than fix).
 assert_pin_unique "sev(raf): REJECT-driver widening operative clause" 'PLUS every finding that drove the engine' "$ST_RAF"
 assert_pin_unique "sev(rcv): carve-out re-opens at every threshold value" 're-opens the diff at every threshold value' "$ST_RCV"
-# Review and receiving-code-review retain their specific out-of-enum fallback breadcrumbs.
-assert_pin_unique "sev(rev): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_REV"
-assert_pin_unique "sev(rcv): out-of-enum fallback breadcrumb" "is not one of critical/important/suggestion; using default 'critical'" "$ST_RCV"
 # Review-and-fix and receiving-code-review distinguish resolver failure from a bad value.
 assert_pin_unique "sev(raf): resolver-failure breadcrumb" 'could not read .devflow_review_and_fix.fix_severity_threshold' "$ST_RAF"
-assert_pin_unique "sev(rcv): resolver-failure breadcrumb" 'could not read .receiving_review.fix_severity_threshold' "$ST_RCV"
 # #425: agent_overrides `iterations: "first-only"` roster scoping. These static pins
 # preserve the Phase 3.1 and Step-2.6 prompt contracts.
 assert_pin_unique "#425(rev): Phase 3.1 excludes a first-only agent on fix-loop iter≥2" \
@@ -1661,27 +1657,12 @@ RQ379="$LIB/../skills/requesting-code-review/SKILL.md"
 RAF379="$LIB/../.devflow/prompt-extensions/review-and-fix.md"
 IMPL379="$LIB/../.devflow/prompt-extensions/implement.md"
 
-# AC1 — negative-test attribution rule in receiving-code-review (apostrophe-free tail of the sentence)
-assert_pin_unique "#379(AC1): receiving-code-review states the negative-test attribution rule" \
-  'distinct signal whenever more than one guard can reject the input' "$RCV379"
-# AC2 — positive-control rule (mid-sentence substring; the sentence opens with a capital 'A')
-assert_pin_unique "#379(AC2): receiving-code-review states the positive-control rule" \
-  'carries a positive control on the same fixture, so a rejection from an unrelated precondition cannot masquerade as the rejection under test' "$RCV379"
 # AC3 — mutation-check required before completion, in the Verification Gate
 assert_pin_unique "#379(AC3): receiving-code-review requires a mutation check before completion" \
   'mutation-check every new test before completion is claimed' "$RCV379"
 assert_eq "#379(AC3): receiving-code-review body mentions 'mutation' at least once" "yes" \
   "$([ "$(grep -ci mutation "$RCV379")" -ge 1 ] && echo yes || echo no)"
-# AC5 — Share the Contract converted to a fired-on-writing-a-guard trigger (two operative sentences)
-assert_pin_unique "#379(AC5): share-the-contract fires — name the protected operation before the predicate" \
-  'name the downstream operation the guard protects, in the code, before writing the predicate' "$RCV379"
-assert_pin_unique "#379(AC5): share-the-contract fires — grep the file for an existing idiom first" \
-  'before writing any new predicate over a string or shape, grep the file for an existing idiom doing the same job' "$RCV379"
-# AC4 — requesting-code-review requires mutation evidence for presented tests
-assert_pin_unique "#379(AC4): requesting-code-review requires mutation evidence for the tests it presents" \
-  'State the **mutation evidence** for each test you present' "$RQ379"
-assert_eq "#379(AC4): requesting-code-review body mentions 'mutation' at least once" "yes" \
-  "$([ "$(grep -ci mutation "$RQ379")" -ge 1 ] && echo yes || echo no)"
+# The requesting-code-review prose pin was retired; AC8 below keeps only its generic file guard.
 # AC6 — extension gains shapes 3 (R3) and 4 (R4); preamble count/attribution updated in the same edit
 # AC11 — each new shape/rule names the PR #340 cost it would have eliminated (3 in the extension)
 assert_eq "#379(AC11): extension records the PR #340 cost eliminated for each of shape 3, shape 4, and the probe rule" \
@@ -1727,16 +1708,9 @@ assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified re
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
 
-# AC8 — neither vendored body may carry a DevFlow-internal string, each paired with a
-# positive non-vacuity control (a known sentence of the SAME body) so a moved/renamed/empty
-# file cannot vacuously pass the negative check (the #379 R3 positive-control rule applied to
-# these very assertions). The existing sev(rcv) block above already asserts the two negatives
-# for receiving-code-review; here we re-state those two negatives alongside a positive control
-# for it (a deliberate, self-contained AC8 restatement — the two RCV negatives duplicate the
-# sev(rcv) pins), and add the full negatives+control pair for requesting-code-review.
-# (Mirror the sev(rcv) negative-assertion idiom above — an inline `grep -qF … && echo yes ||
-# echo no` over a path held in a variable, NOT grep_present, whose call-site count is pinned
-# to exactly 2 audit-bypass sites.)
+# AC8 — neither vendored body may carry a DevFlow-internal string. The negative checks
+# require a readable, non-empty regular file as their non-vacuity control; they deliberately
+# avoid pinning an unrelated body sentence.
 assert_eq "#379(AC8): receiving-code-review has no repo-specific test path (lib/test/run.sh)" "no" \
   "$(grep -qF 'lib/test/run.sh' "$RCV379" && echo yes || echo no)"
 assert_eq "#379(AC8): receiving-code-review has no repo-specific CI job name (lib + python tests)" "no" \
@@ -1747,8 +1721,8 @@ assert_eq "#379(AC8): requesting-code-review has no repo-specific test path (lib
   "$(grep -qF 'lib/test/run.sh' "$RQ379" && echo yes || echo no)"
 assert_eq "#379(AC8): requesting-code-review has no repo-specific CI job name (lib + python tests)" "no" \
   "$(grep -qF 'lib + python tests' "$RQ379" && echo yes || echo no)"
-assert_eq "#379(AC8): requesting-code-review negative-check non-vacuity control (a known sentence is present)" "yes" \
-  "$(grep -qF 'State the **mutation evidence** for each test you present' "$RQ379" && echo yes || echo no)"
+assert_eq "#379(AC8): requesting-code-review negative checks use a readable non-empty regular file" "yes" \
+  "$([ -f "$RQ379" ] && [ -r "$RQ379" ] && [ -s "$RQ379" ] && echo yes || echo no)"
 
 # Drift guard: the park-calibration gate is the lenient-verdict catch — it re-reads
 # parked findings against three generic under-grade shapes before the review-and-fix
@@ -2155,8 +2129,6 @@ assert_pin_unique "#621: shadow rationale-bearing class list includes settled-by
 # escalation suppression to settled-by-disclosure rows.
 # Vendored principles mirror (issue #621, issue-196 pin style). $RECV_SKILL is
 # defined further below, so reference the file by its literal path here.
-assert_pin_unique "#621: receiving-code-review records the disclosure disposition (repo-agnostic)" \
-  '**When the deliverable is an already-shipped disclosure**' "$LIB/../skills/receiving-code-review/SKILL.md"
 assert_pin_unique "#621: receiving-code-review keeps the revisit-condition triple" \
   'revisit only if evidence contradicts the cited disclosure' "$LIB/../skills/receiving-code-review/SKILL.md"
 #
@@ -2215,8 +2187,6 @@ assert_pin_unique "over-grade: annotation never clears or downgrades a REJECT (A
   'never clears or downgrades a REJECT' "$OG_REVIEW_SKILL"
 # Cross-skill coupling: the principle the gate mechanizes must actually exist in the
 # vendored receiving-code-review skill (engine-agnostic, no DevFlow machinery named there).
-assert_pin_unique "over-grade: receiving-code-review states the symmetric-severity-calibration principle heading" \
-  '## Symmetric Severity Calibration' "$RECV_SKILL"
 assert_pin_unique "over-grade: receiving-code-review calibrates severity in both directions" \
   'calibrated against the observable fail-direction and impact in both directions' "$RECV_SKILL"
 # The persisted `severity-calibrated` enum is the retained integration boundary.
@@ -2245,22 +2215,28 @@ assert_pin_unique "#479(AC3): route (b) names the fixed-path / fixed-module-path
   'reads fixed paths, or imports the module under test through fixed module paths' "$RECV_SKILL"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "deterministic in-code-comment cap (shape 2 refinement, Phase 4.1.5) (#291)"
+echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened by #797)"
 # ────────────────────────────────────────────────────────────────────────────
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
-# and the no-refork guard.
+# and the no-refork guard. #797 widened the cap's keying from an in-code-comment
+# sub-case to behavior-inertness; the three guarded contracts are unchanged, and the
+# AC4 literal below is renamed to track the widened cap. The AC1 assertion NAME still
+# says "in-code-comment cap": that name is part of a frozen pin identity in
+# .devflow/logs/residual-prose-retirement-manifest.tsv, so renaming it here would fail
+# test_residual_prose_retirement_manifest.py. It is stale by force, not by oversight,
+# and is corrected by the next manifest identity refresh.
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
 assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic in-code-comment cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
 # AC4/AC5 — review-and-fix Step 2.6 honors the cap by recording a DETERMINISTIC severity-calibrated
-# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a comment-only-on-
-# unmodified-comment finding cannot drive a Decide-outcome-2 promotion.
+# evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a behavior-inert
+# prose finding cannot drive a Decide-outcome-2 promotion.
 assert_pin_unique "291(AC4): review-and-fix 2.6 records the cap as a deterministic severity-calibrated eval" \
-  'deterministic comment-only cap (review 4.1.5)' "$MAXI_SKILL"
+  'behavior-inert prose cap (review 4.1.5)' "$MAXI_SKILL"
 assert_pin_unique "291(AC4): review-and-fix 2.6 capped finding cannot drive a Decide-outcome-2 promotion" \
   'cannot drive a Decide-outcome-2 promotion' "$MAXI_SKILL"
 # AC5 fail-closed — the cap must NOT re-fork the review-4.1.5 shape headings into review-and-fix.
-assert_eq "291(AC5): cap in-code-comment operative sentence is NOT re-forked into review-and-fix" \
+assert_eq "291(AC5): cap operative sentence is NOT re-forked into review-and-fix" \
   "0" "$(pin_count 'deterministically — Phase 4.2 does not REJECT on it' "$MAXI_SKILL")"
 # ────────────────────────────────────────────────────────────────────────────
 echo "documented_falsehood tagging + pre-verdict truthfulness sweep (Phase 4.1.5/4.1.6) (#339)"
@@ -2568,7 +2544,6 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
 # assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
 # by construction. Needles are apostrophe-free (the asserts single-quote them).
-RCR_SKILL="$LIB/../skills/receiving-code-review/SKILL.md"
 # FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
 assert_pin_unique "fix-delta gate: fires on every iteration unconditionally" \
   'on **every iteration unconditionally**' "$MAXI_SKILL"
@@ -2844,28 +2819,14 @@ assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principl
   'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
   'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: phase-2 rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: receiving rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A7: fixing rig set is an illustrative open floor" \
-  'an illustrative floor, not a closed list — any other disposable rig counts' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A8: phase-2 gates reuse on the current code shape" \
-  'only after confirming it still exercises the current code shape' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A8: receiving gates reuse on the current code shape" \
   'only after confirming it still exercises the current code shape' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A8: fixing gates reuse on the current code shape" \
-  'only after confirming it still exercises the current code shape' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scratch path" \
   'would land as a gitlink' "$IMPL_SKILL_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
-assert_pin_unique "#754 A10: receiving keeps the rig under a VCS-ignored path" \
-  'a nested scratch repo never lands as a gitlink' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "fix-delta gate: input-shape matrix asserts fail-closed direction (not open)" \
   'not open, on each' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Reflection bullet" \
   'fix-delta gate clean' "$MAXI_SKILL"
-assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-code-review" \
-  'prefer using that consumer as the guard itself' "$RCR_SKILL"
 # FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
 
 # ── issue #449: the reproduce-first gate keys on a recorded CONTENT classification, not the
@@ -2951,15 +2912,12 @@ assert_pin_unique "early-shadow #199: non-engine PR keeps convergence-time-only 
 assert_pin_unique "early-shadow #199: absent flag fails closed (re-derive, do not default false)" \
   're-derive `engine_self_modifying` from the diff itself' "$MAXI_SKILL"
 # Drift guard: the step 8 Verification Gate (issue #178; renumbered from step 7 by #196,
-# which inserted a RECORD DEFERRALS step before it) — the Iron Law, its scope
-# sentence, the code-fence verify entry, the engine re-run attribution, the
-# CI-fallback consequence clause, the CI-fallback trigger restriction, the
-# Forbidden Responses entry, the local-skip audit note, and the push-vs-observe
-# distinction are the gate's load-bearing contracts (9 pins); any can be silently
-# deleted or paraphrased without breaking any other pin.
+# which inserted a RECORD DEFERRALS step before it) — the scope sentence,
+# code-fence verify entry, engine re-run attribution, CI-fallback consequence and
+# trigger restrictions, Forbidden Responses entry, local-skip audit note, and
+# push-vs-observe distinction are eight retained load-bearing contracts. Any can
+# be silently deleted or paraphrased without breaking any other pin.
 # assert_pin_unique makes that RED.
-assert_pin_unique "step8: verification gate Iron Law heading present" \
-  'NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE' "$RECV_SKILL"
 assert_pin_unique "step8: verification gate applies in both interactive and fix-loop contexts" \
   'applies in both interactive sessions and the autonomous' "$RECV_SKILL"
 assert_pin_unique "step8: code-fence step 8 entry anchors both mandated actions (diff review + test suite)" \
@@ -3005,16 +2963,12 @@ assert_pin_unique "399: failed fetch leaves both divergences unestablished, neve
 # assert_pin_unique on the operative sentence is the drift guard: deleting or paraphrasing
 # the load-bearing clause drops the count to 0 and fails closed. Literals are gate-unique,
 # apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery named in the pinned text).
-assert_pin_unique "convergence #196: stopping-rule section heading present" \
-  '## Stop When the Verdict Is Already Non-Blocking' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule re-opens only for Critical/blocking/demonstrable defects" \
   'or a demonstrable correctness defect (one that cites a concrete failing input)' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule bounds advisory re-opens, never address-all-the-notes" \
   'never "address all the notes," which guarantees' "$RECV_SKILL"
 assert_pin_unique "convergence #196: stopping rule parks everything else (advisory note does not by itself re-open)" \
   'does not, by itself, re-open the diff' "$RECV_SKILL"
-assert_pin_unique "convergence #196: Record Every Deferral section heading present" \
-  '## Record Every Deferral' "$RECV_SKILL"
 assert_pin_unique "convergence #196: deferral record names WHAT/WHY/revisit-condition" \
   'naming WHAT was deferred, WHY, and the condition that would make it worth revisiting' "$RECV_SKILL"
 assert_pin_unique "convergence #196: deferral has a preference-ordered list of trace locations" \
@@ -3023,8 +2977,6 @@ assert_pin_unique "convergence #196: a successful pushback is itself a recorded 
   'A successful pushback is itself a deferral' "$RECV_SKILL"
 assert_pin_unique "convergence #196: Response Pattern gains a RECORD DEFERRALS step before verify/done" \
   '7. RECORD DEFERRALS: For every finding you did NOT fix' "$RECV_SKILL"
-assert_pin_unique "convergence #196: cross-iteration union section heading present" \
-  '## Union Findings Across Review Iterations' "$RECV_SKILL"
 assert_pin_unique "convergence #196: union treats raised-before-never-resolved-still-true as escalating" \
   'raised in a prior run and never resolved, still true' "$RECV_SKILL"
 assert_pin_unique "convergence #196: union does not retire a finding a later run ranked lower" \
@@ -3051,8 +3003,6 @@ assert_pin_unique "premise #197: push-back cites the file real pattern as eviden
 # AC2 (inward): the Verification Gate verifies the diff own claims against HEAD before done.
 assert_pin_unique "premise #197: Verification Gate verifies own diff claims against HEAD" \
   'Treat every documentation, comment, changelog, or PR-body assertion the change adds or relies on as a claim to verify against HEAD' "$RECV_SKILL"
-assert_pin_unique "premise #197: own-claim gate calls out the remains-unscoped/still-broken/unhandled shape" \
-  'X remains unscoped / is still broken / is unhandled' "$RECV_SKILL"
 # AC3 (triage): a stale-claim/contradicts-HEAD/contradicts-this-change finding is blocking, never advisory.
 # Pin the FULL three-arm enumeration (stale / contradicts HEAD / contradicts another part)
 # together with the blocking classification, so dropping ANY arm — not just the tail — fails
@@ -3077,14 +3027,8 @@ assert_pin_unique "premise #197: own-claim gate frames a documented falsehood as
 # or loss of the target-unique clause.
 # Literals are gate-unique, apostrophe-free ASCII, and engine-agnostic (no DevFlow machinery in
 # the pinned text — the section keeps "an automated fix-delta gate, if your loop has one" generic).
-assert_pin_unique "fix-as-new-code: section heading present in receiving-code-review" \
-  '## A Fix Is New Code' "$RECV_SKILL"
-assert_pin_unique "fix-as-new-code: core disposition scrutinizes the fix delta as new code" \
-  'give the fix delta the same scrutiny you would give any new code you wrote' "$RECV_SKILL"
 assert_pin_unique "fix-as-new-code: deletion class re-reads the unit and greps for stranded references" \
   'grep for references to anything you removed' "$RECV_SKILL"
-assert_pin_unique "fix-as-new-code: anti-punt clause (do not lean on a later pass to find a fix-introduced defect)" \
-  'to find a defect your fix introduced' "$RECV_SKILL"
 
 # ── Drift guards (issue #323): the "Update the Branch First (Step 0)" step prepended to the
 # Response Pattern. SKILL prose vendored to consumer repos, so exact-one drift checks fail
@@ -4290,9 +4234,12 @@ assert_pin_unique "#362: the Outcome-reaction removal targets the exact path the
 assert_eq "#362: both resume-pre-check gh queries mark an unresolvable result distinctly (same-statement handler)" \
   "2" "$(pin_count "|| PR_JSON=''; }" "$P362_P1")"
 # Both queries must request `closingIssuesReferences`, so this remaining count guard keeps
-# the selector's required predicate input available.
-assert_eq "#362: both resume-pre-check queries fetch the closingIssuesReferences the predicate reads" \
-  "2" "$(pin_count ',createdAt,closingIssuesReferences)' "$P362_P1")"
+# the selector's required predicate input available. Issue #780 added `isCrossRepository` to
+# the same two `--json` lists — §1.4.0.5's open-PR-linkage provenance source requires a
+# same-repo-headed PR and fails CLOSED on an ungathered field, so a query that stops fetching
+# it silently costs every landed resume its classification. Same guarantee, one more field.
+assert_eq "#362/#780: both resume-pre-check queries fetch the predicate/provenance inputs they read" \
+  "2" "$(pin_count ',createdAt,closingIssuesReferences,isCrossRepository)' "$P362_P1")"
 
 # (6) The two vendored superpowers skills stay untouched by this change (AC).
 assert_eq "#362: the vendored receiving-code-review skill is still present and unvendored-from" "yes" \
@@ -4685,10 +4632,25 @@ assert_pin_unique "#779: the checkpoint helper fetches the base with the same fo
 assert_pin_unique "#779: the shipped prose records why no landed-resume discriminator is establishable" \
   'append-only with no in-place marker writer' "$P1_FILE"  # structural-pin-ok: AC6 requires the discriminator decision be recorded in the shipped prose; surrounding static contract checks cover the behavior it explains
 
-# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to the relocated
-# checkpoint. Without it the arm reads "skip both signals entirely" and falls through to §1.5,
-# reproducing #779 exactly; the negative-control pin below does NOT catch that, because its literal
-# is a PREFIX of the same line and survives the clause's deletion.
+# #780 revisited that routing now that Verdict B classifies the landed-resume arm, and decided it
+# STAYS. No new pin is added for the decision: the operative routing sentence is unchanged, so the
+# mutation pin already guarding it is exactly what asserts the decision. Pinning the *rationale*
+# clause instead would protect a literal that can be reworded with zero behavior change — the
+# secondary-prose class this repo prohibits.
+
+# (g) The landed-resume BRIDGING clause — the single instruction routing that arm to §1.4.0.5's
+# Verdict B classification and then to the relocated checkpoint. Without it the arm reads "skip
+# both signals entirely" and falls through to §1.5, reproducing #779 and leaving #780's screen
+# unreachable. Nothing else in the file catches that: the scope-boundary pin that used to sit
+# adjacent was retired by #780 (block (e) below), and the classifier's own unit arms all pass on a
+# tree where no run ever invokes it on this arm.
+assert_pin_unique "#780: the LANDED-resume bullet routes that arm through Verdict B before the checkpoint" \
+  "then run §1.4.0.5's Verdict B classification and then take the" "$P1_FILE"  # structural-pin-ok: routing-dispatch-contract -- this bullet is the sole dispatch site entering §1.4.0.5 on the landed-resume arm (§1.4.0.5 states it is entered by explicit routing, never by a shell-variable test); losing it leaves the arm's ahead history unscreened while every classifier unit test stays green
+
+# (g, cont.) The landed-resume BRIDGING clause is now asserted directly, by the pin above:
+# issue #780 retired the adjacent scope-boundary negative control (whose literal was a PREFIX of
+# the same line and survived the clause's deletion), so there is no longer a nearby pin whose
+# non-coverage needs explaining here.
 
 # (h) Checkpoint 4's CONFLICT re-invocation BOUND — without it the gate is a resolve-and-re-invoke
 # loop with no exit on a persistently conflicting base.
@@ -4718,10 +4680,9 @@ assert_eq "#779: the checkpoint-4 tool-boundary test precedes the token routing 
 # compounds a failed restore instead of clearing a transient blip.
 
 # (e) Negative controls — machinery this issue declares OUT of scope. `#168` already pins the
-# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check;
-# this remaining assertion keeps the adopted-branch scope boundary explicit.
-assert_pin_unique "#779 negative control: §1.4.0.5 Verdict B still names the adopted-branch arm only" \
-  'On the adopted-branch arm only (`USE_CURRENT` set' "$P1_FILE"  # structural-pin-ok: negative control proving the Verdict B population does not silently widen (asserts pre-existing prose; guards no regression this diff introduces)
+# create-fence guard and the Signal-2 assignment and `#362` covers the resume pre-check.
+# The former Verdict-B scope-boundary pin here was retired by issue #780, which widened
+# §1.4.0.5 to the landed-resume arm — the boundary it asserted no longer exists.
 
 # (f) Phase 4.3 publish gate. The leading-word read is the operative shape: a whole-line test
 # against `UPDATED` is false for every real merge (`emit "UPDATED $BEHIND"` prints `UPDATED 3`)
@@ -5743,6 +5704,17 @@ _c="$(run781 "$S781/wp-real.md" acs 999)"
 assert_eq "#781: acs exits 0 on a resolvable workpad" "0" "$_c"
 assert_eq "#781: acs prints every criterion unfiltered (tick state + (post-merge) tag + mirrored Test-Plan item)" \
   '- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
+  "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
+
+# The COMPOSED --emit-source-token output on a criteria-BEARING fixture: the
+# other --emit-source-token assertions all use zero-criteria fixtures (sentinel,
+# unmirrored, colon, noheading, empty), so only the bare token line is ever
+# checked. Here the `workpad` source token must lead, followed by the rendered
+# criteria — exactly the two-part shape cmd_acs's `out` list assembles and that
+# Phase 0.4 parses positionally (token line first, criteria after).
+run781 "$S781/wp-real.md" acs 999 --emit-source-token >/dev/null
+assert_eq "#781: acs --emit-source-token composes the source token line ABOVE the rendered criteria" \
+  'workpad|- [x] Criterion A|- [ ] Criterion B (post-merge)|- [ ] Test-plan item one' \
   "$(tr '\n' '|' < "$S781/out" | sed 's/|$//')"
 
 # The reviewer-facing form: post-merge criteria excluded, every box neutralized.
@@ -8790,6 +8762,108 @@ emit("wp_absent_verdict_tip", work, {"base": "main", "current_branch": "feat", "
 commit(work, "local-only")
 emit("wp_matching_verdict_tipdiverged", work, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# ── issue #780: open-PR-linkage provenance (the landed-resume arm) ────────────
+# A landed resume has ahead history by definition, and its workpad provenance is
+# unestablished across two large populations (a cloud run whose HANDOFF record is
+# `unknown`; a local resumed run that did not create its own workpad) — so the
+# workpad-only gate returned DECISION_BLOCKED for them, which is why Verdict B
+# could not be widened to that arm. The PR-linkage source admits them. Its own
+# fixture repo (pushed feat, ahead>0, tip reachable) so the arms are independent
+# of the `resume` repo's trailing local-only commit above.
+_, pwork = base_repo("prprov"); git(["checkout", "-qb", "feat", "main"], pwork); commit(pwork, "a1")
+git(["push", "-q", "-u", "origin", "feat"], pwork)
+_PRV = {"open_pr_branch": "feat", "open_pr_closes_issue": True, "open_pr_cross_repository": False,
+        "open_pr_selected_by": "body"}
+_PS = {"base": "main", "current_branch": "feat", "provenance_established": False}
+# The two populations #780 must NOT re-block. They are byte-equivalent through the
+# classifier — the PR-vouched path never reads has_proceed_verdict — so this pair is
+# NOT distinguishing coverage; both arms exist because the issue names both
+# populations by name and each is asserted individually against the new gate.
+emit("pr_cloud_handoff_unknown", pwork, {**_PS, **_PRV})
+emit("pr_local_no_workpad", pwork, {**_PS, **_PRV, "has_proceed_verdict": False})
+# The issue-linkage DISJUNCTION: a head-branch-query-selected PR vouches without a
+# closing linkage, mirroring the §1.4 pre-check's "resume target by construction"
+# rule. Without this, a landed resume whose PR body reads "Part of #N" is handed a
+# terminal stop by the very change that exists to remove one.
+emit("pr_head_query_no_closes", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False,
+     "open_pr_selected_by": "head"})
+# The untrusted workpad is NEUTRALIZED on the PR-vouched path, not consulted: both
+# bodies below would steer the classification if they were read (a divergent
+# nonexistent name → DECISION_BLOCKED, a duplicate Branch line → AMBIGUOUS).
+emit("pr_forged_wp_divergent", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False})
+emit("pr_forged_wp_duplicate", pwork, {**_PS, **_PRV, "workpad_body": "**Branch:** `a`\n**Branch:** `b`"})
+# Negative direction — every conjunct of the source is required and fails CLOSED.
+emit("pr_no_source", pwork, _PS)
+emit("pr_branch_mismatch", pwork, {**_PS, **_PRV, "open_pr_branch": "other"})
+emit("pr_not_closing", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False})
+emit("pr_cross_repo", pwork, {**_PS, **_PRV, "open_pr_cross_repository": True})
+# PARTIAL GATHER — each of the four operands omitted in turn. What these assert is the
+# REFUSAL itself: without it an ungathered field would silently vouch, which is the PR
+# #524 shape on the arm #780 just widened. Refusal (not a DECISION_BLOCKED) is the point
+# — a stop that names the omission, rather than one that reads as a real refutation of
+# the PR the run never evaluated. They do NOT kill the `is True`/`is False` identity
+# mutants: the refusal returns before `_classify_branch_state` runs, so an omitted
+# operand never reaches the identity expression at all. Those mutants are equivalent
+# under the two upstream guards — the boolean type-guard (any PRESENT non-bool is
+# refused) and the `isinstance(pr_branch, str)` conjunct — which between them leave
+# `None` as the only distinguishing value, and `None` arises only on the omission the
+# gather guard already refuses. The mutation-sensitive operand here is the string
+# comparison `open_pr_selected_by == "head"`, covered by its own arms.
+_PG = {**_PS, **_PRV}
+for _k in ("open_pr_branch", "open_pr_closes_issue", "open_pr_cross_repository", "open_pr_selected_by"):
+    emit("pr_partial_" + _k, pwork, {k: v for k, v in _PG.items() if k != _k})
+# GUARD-BEFORE-PRECEDENCE: a partial PR gather while the WORKPAD independently vouches.
+# The gather refusal is unconditional, so this run stops UNAVAILABLE rather than falling
+# back to the trusted workpad — an ordering the prose leaves implicit. Pinned so a later
+# "the workpad vouched anyway, just proceed" relaxation is a visible test change rather
+# than a silent widening of what a partial gather may be read as.
+emit("pr_partial_wp_vouches", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True,
+     **{k: v for k, v in _PRV.items() if k != "open_pr_selected_by"}})
+# Established workpad provenance is unchanged by the new source (control).
+emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
+# PRECEDENCE, both sources vouching. The two are NOT interchangeable, so the shipped
+# prose states the workpad wins; this arm is what makes that statement checkable
+# rather than a documented claim nothing exercises. The workpad names a divergent
+# nonexistent branch with no verdict, so a PR-precedence implementation would return
+# VALIDATED_RESUME here instead of the workpad's finer divergent-nonexistent stop.
+emit("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# The two derived payload keys are a stated contract ("a human reading a stop payload
+# is never shown a PR-derived provenance the classification did not in fact use"), so
+# read them out of the payload rather than leaving the claim unexercised. Emitted as
+# `prov_<arm> <provenance_source> <pr_linkage_vouches>` lines.
+def emit_prov(arm, work, state):
+    word, rc, out = run(work, state)
+    parts = out.split()
+    src = vouch = "-"
+    if word in ("AMBIGUOUS", "DECISION_BLOCKED") and len(parts) > 1:
+        try:
+            d = json.load(open(parts[-1])).get("derived", {})
+            src = str(d.get("provenance_source")); vouch = str(d.get("pr_linkage_vouches"))
+        except Exception:
+            pass
+    lines.append(f"prov_{arm} {src} {vouch}")
+# Both vouch → the payload must say the WORKPAD supplied the operands, while still
+# recording that the PR linkage COULD have. One key alone cannot express that.
+emit_prov("both_wp_precedence", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False, **_PRV})
+# Workpad vouches while the PR operands are present but do NOT → the source key must
+# still read `workpad` while the linkage key reads False. An implementation hard-coding
+# `pr_linkage_vouches` True on the workpad-precedence path passes every other payload
+# arm and only this one.
+emit_prov("wp_only_pr_refutes", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+          "workpad_body": "**Branch:** `ghost`", "has_proceed_verdict": False,
+          **{**_PRV, "open_pr_cross_repository": True}})
+# Neither vouches → no source, and the linkage is recorded as not vouching.
+emit_prov("pr_no_source", pwork, _PS)
+# PR-vouched but the published tip no longer reaches HEAD: the run reaches the
+# recorded-branch + proceed-verdict arms rather than short-circuiting to proceed,
+# so a diverged branch still stops.
+commit(pwork, "local-only")
+emit("pr_tip_diverged", pwork, {**_PS, **_PRV})
+emit_prov("pr_tip_diverged", pwork, {**_PS, **_PRV})
 # aheadN + mixed ahead/behind
 _, work = base_repo("mixed"); git(["checkout", "-qb", "feat", "main"], work)
 for i in range(3): commit(work, f"a{i}")
@@ -8895,7 +8969,28 @@ bad_file("iv_provstr", json.dumps({**_B, "provenance_established": "false"}), bw
 bad_file("iv_verdictstr", json.dumps({**_B, "provenance_established": True,
          "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": "false"}), bwork)
 bad_file("iv_provnum", json.dumps({**_B, "provenance_established": 1}), bwork)
+# issue #780's two boolean operands are read through IDENTITY (`is True`/`is False`),
+# so a quoted "false" already fails closed on its own — unlike the two originals,
+# which use truthiness and genuinely fail OPEN. They are refused anyway so the stop
+# NAMES the encoding error instead of emitting `unverified-provenance`, which would
+# read as a real refutation of a PR the run never actually evaluated.
+_PRB = {"open_pr_branch": "feat", "open_pr_closes_issue": True,
+        "open_pr_cross_repository": False, "open_pr_selected_by": "body"}
+bad_file("iv_prclosesstr", json.dumps({**_B, **_PRB, "open_pr_closes_issue": "false"}), bwork)
+bad_file("iv_prcrossstr", json.dumps({**_B, **_PRB, "open_pr_cross_repository": "false"}), bwork)
+# JSON null takes a DIFFERENT path from an omitted key (refused as a non-bool, vs the
+# partial-gather refusal), and `gh pr list --json` can serialize a null field — so the
+# two are distinguished rather than assumed equivalent.
+bad_file("iv_prcrossnull", json.dumps({**_B, **_PRB, "open_pr_cross_repository": None}), bwork)
+# The one string operand with no boolean guard: without its own refusal a malformed
+# value is the sole gate operand whose failure is silent.
+bad_file("iv_prbranchnum", json.dumps({**_B, **_PRB, "open_pr_branch": 123}), bwork)
+bad_file("iv_prselectedbad", json.dumps({**_B, **_PRB, "open_pr_selected_by": "search"}), bwork)
 emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
+# Positive control for the NEW operands specifically: real booleans + a valid
+# selected-by survive every refusal above and reach the classifier, so those arms are
+# the guards firing rather than a blanket rejection of any state carrying open_pr_*.
+emit("iv_prbool_ok", bwork, {**_B, "provenance_established": False, **_PRB})
 open(OUT, "w").write("\n".join(lines) + "\n")
 import shutil; shutil.rmtree(ROOT)
 PY
@@ -8970,6 +9065,81 @@ assert_eq "#576 reason: matching branch + verdict but unreachable tip carries 'm
 assert_eq "#576 reason: divergent existing branch WITH a verdict carries 'divergent-existing-with-verdict'" \
   "divergent-existing-with-verdict" "$(_bs576v reason_wp_divergent_exist_verdict)"
 
+# ── #780: the open-PR-linkage provenance source, driven in BOTH directions. The
+# admitting direction is what lets §1.4.0.5 run on the landed-resume arm at all;
+# the refusing direction is what keeps the screen a screen rather than a
+# pass-by-construction. The two populations Current Behavior names get their own
+# arms so the fix is shown not to re-block the runs it exists to unblock.
+assert_eq "#780: cloud resume whose HANDOFF is unknown, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_cloud_handoff_unknown)"
+assert_eq "#780: local resume with no workpad of its own, PR-vouched → VALIDATED_RESUME/proceed" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_local_no_workpad)"
+assert_eq "#780: a forged workpad naming a divergent branch is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_divergent)"
+assert_eq "#780: a forged duplicate Branch line is NEUTRALIZED on the PR-vouched path" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_forged_wp_duplicate)"
+assert_eq "#780: no provenance source at all still → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_no_source)"
+assert_eq "#780: PR head branch != working branch → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_branch_mismatch)"
+assert_eq "#780: PR that does not close this issue → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_not_closing)"
+assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
+  "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
+assert_eq "#780: a head-branch-query-selected PR vouches without a closing linkage → VALIDATED_RESUME" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_head_query_no_closes)"
+# Each operand omitted in turn is REFUSED, not silently read as an answer. These four
+# are what kill the identity-check mutants (`is True` → `!= False`, `is False` →
+# `!= True`): under either mutant an ungathered field would vouch.
+assert_eq "#780 partial gather: an omitted open_pr_branch is refused, not read as an answer" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_branch)"
+assert_eq "#780 partial gather: an omitted open_pr_closes_issue is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_closes_issue)"
+assert_eq "#780 partial gather: an omitted open_pr_cross_repository is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
+assert_eq "#780 partial gather: an omitted open_pr_selected_by is refused" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_selected_by)"
+assert_eq "#780 partial gather: the refusal precedes workpad precedence — a partial PR gather stops even when the workpad independently vouches" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_wp_vouches)"
+# Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
+# collapse onto the same verdict word + rc, so a single joined comparison would name
+# all five on any one arm's regression and leave the reader re-running by hand.
+assert_eq "#780 reason: no provenance source carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_no_source)"
+assert_eq "#780 reason: a PR head-branch mismatch carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_branch_mismatch)"
+assert_eq "#780 reason: a PR that does not close this issue carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_not_closing)"
+assert_eq "#780 reason: a cross-repository PR carries 'unverified-provenance'" \
+  "unverified-provenance" "$(_bs576v reason_pr_cross_repo)"
+# The two derived payload keys carry DIFFERENT facts — "could the PR vouch" vs "which
+# source actually supplied the operands" — so a payload can never show a PR-derived
+# provenance the classification did not use. Asserted from the payload itself, since
+# an implementation collapsing them to one key would otherwise stay green.
+_bs780p() { awk -v k="prov_$1" '$1==k{print $2, $3; f=1} END{if(!f)print "MISSING"}' "$BS576_OUT"; }
+assert_eq "#780 payload: both sources vouching records the WORKPAD as the source used, PR linkage as available" \
+  "workpad True" "$(_bs780p both_wp_precedence)"
+assert_eq "#780 payload: a workpad-sourced stop whose PR operands refute records the workpad with a non-vouching linkage" \
+  "workpad False" "$(_bs780p wp_only_pr_refutes)"
+assert_eq "#780 payload: neither source vouching records no source and a non-vouching linkage" \
+  "None False" "$(_bs780p pr_no_source)"
+assert_eq "#780 payload: a PR-vouched stop records the open-PR source" \
+  "open-pr True" "$(_bs780p pr_tip_diverged)"
+assert_eq "#780: established workpad provenance classifies exactly as before (control)" \
+  "VALIDATED_RESUME 0" "$(_bs576 pr_wp_prov_control)"
+assert_eq "#780 precedence: with BOTH sources vouching the workpad's finer verdict wins" \
+  "DECISION_BLOCKED 2" "$(_bs576 both_wp_precedence)"
+assert_eq "#780 precedence: the workpad-sourced arm keeps its own reason slug (not a PR-vouched proceed)" \
+  "divergent-nonexistent" "$(_bs576v reason_both_wp_precedence)"
+# The admitting direction reaches the recorded-branch + proceed-verdict arms — it
+# does not short-circuit to proceed. This arm is what proves that: same PR-vouched
+# state, unreachable published tip, and the run STOPS on the matching-branch arm's
+# own reason slug.
+assert_eq "#780: PR-vouched but the published tip no longer reaches HEAD → AMBIGUOUS/stop" \
+  "AMBIGUOUS 2" "$(_bs576 pr_tip_diverged)"
+assert_eq "#780: the PR-vouched path lands on the recorded-branch/proceed-verdict arm's slug" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_pr_tip_diverged)"
+
 # ── branch-state input-validation matrix (#576 Important #2). Every shape fails
 # closed to the SAME `UNAVAILABLE state` / exit 3 contract, so each arm also pins
 # the specific stderr cause that attributes WHICH guard rejected it — a bare
@@ -9015,6 +9185,36 @@ assert_eq "#576 input-val: the truthy-string verdict cause names that specific f
   "$(_bs576err iv_verdictstr "'has_proceed_verdict' must be a JSON boolean")"
 assert_eq "#576 input-val: non-bool 'provenance_established' (a number) → UNAVAILABLE state/3" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_provnum)"
+assert_eq "#780 input-val: quoted-string 'open_pr_closes_issue' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prclosesstr)"
+assert_eq "#780 input-val: the quoted-string closes-issue cause names that specific flag" "yes" \
+  "$(_bs576err iv_prclosesstr "'open_pr_closes_issue' must be a JSON boolean")"
+assert_eq "#780 input-val: quoted-string 'open_pr_cross_repository' is refused, not coerced" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossstr)"
+assert_eq "#780 input-val: the quoted-string cross-repository cause names that specific flag" "yes" \
+  "$(_bs576err iv_prcrossstr "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: JSON null takes the non-bool refusal, distinct from an omitted key" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prcrossnull)"
+assert_eq "#780 input-val: the null cause names the flag (not the partial-gather cause)" "yes" \
+  "$(_bs576err iv_prcrossnull "'open_pr_cross_repository' must be a JSON boolean")"
+assert_eq "#780 input-val: a non-string 'open_pr_branch' is refused by name, not silently" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prbranchnum)"
+assert_eq "#780 input-val: the non-string branch cause names that specific operand" "yes" \
+  "$(_bs576err iv_prbranchnum "'open_pr_branch' must be a JSON string")"
+assert_eq "#780 input-val: an out-of-enum 'open_pr_selected_by' is refused" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prselectedbad)"
+assert_eq "#780 input-val: the out-of-enum selected-by cause names that specific operand" "yes" \
+  "$(_bs576err iv_prselectedbad "'open_pr_selected_by' must be the string 'head' or 'body'")"
+# Positive control for the NEW operands: real booleans + a valid selected-by still
+# reach the classifier, so the arms above are the new guards firing, not a blanket
+# rejection of any state carrying open_pr_* keys. The verdict is AMBIGUOUS rather
+# than a proceed because this fixture's branch is deliberately unpushed (the #576
+# bool-flags repo never pushes `feat`), so the PR source vouches and the run lands on
+# the tip-reachability arm — which is itself the proof it got past every refusal.
+assert_eq "#780 input-val: well-formed open_pr_* operands still classify (new guards are not blanket)" \
+  "AMBIGUOUS 2" "$(_bs576 iv_prbool_ok)"
+assert_eq "#780 input-val: the positive control lands on the tip-reachability arm, not a refusal" \
+  "matching-verdict-tip-unreachable" "$(_bs576v reason_iv_prbool_ok)"
 # Positive control: the same ahead>0 fixture still classifies on REAL booleans, so the
 # arms above are the flag guard firing, not a blanket rejection of the fixture.
 assert_eq "#576 input-val: real JSON booleans still classify (guard is not blanket)" \
@@ -13707,12 +13907,6 @@ echo "#332: resolve-main-root.sh (main-worktree root) + create-issue draft-path"
 # git repos + real `git worktree add` (the boundary being proven is git's own
 # worktree topology — not mocked). RED before the resolver existed (no file to run).
 RMR="$LIB/../scripts/resolve-main-root.sh"
-# AC1: SPDX header (required for new .sh files).
-assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX copyright header" \
-  'SPDX-FileCopyrightText: 2026 Daniel Radman' "$RMR"
-assert_pin_unique "#332 AC1: resolve-main-root.sh carries the SPDX license header" \
-  'SPDX-License-Identifier: MIT' "$RMR"
-
 # Build a real main tree + a linked worktree under one sandbox parent.
 RMR_PARENT="$(git_sandbox "#332 resolver sandbox")"
 RMR_MAIN="$RMR_PARENT/main"; RMR_WT="$RMR_PARENT/wt"
@@ -41064,7 +41258,7 @@ assert_pin_unique "#497 AC11 skill red flag names all three steering channels" \
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-and-fix-contract.sh" \
-  "review-and-fix-contract" 68; then
+  "review-and-fix-contract" 67; then
   printf 'ERROR: review-and-fix-contract boundary could not record its result\n'
   exit 1
 fi
@@ -41073,7 +41267,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 249; then
+  "create-issue-contract" 244; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi

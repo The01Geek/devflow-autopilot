@@ -339,19 +339,17 @@ devflow_run_focused_python_test \
 rm -f "$_HPG_RETIREMENT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "#810 residual prose-pin retirement manifest"
+echo "#810 residual pin-retirement manifests"
 # ────────────────────────────────────────────────────────────────────────────
-# This independent census freezes the post-#832 prose buckets before their
-# wording-only calls are removed: its frozen inventory selector and reconciled
-# Review / Implement-Create-Issue / other-shared partition make an omission or
-# a surface reassignment RED, while its current-tree arm requires every retained
-# literal to have a semantic boundary adjudication rather than a prose fallback.
+# This one focused driver verifies both the historical 242-site residual-prose
+# contract and the 141-site residual-required-copy retirement contract, including
+# their frozen selectors, retained boundary adjudications, and current realizations.
 _HPG_RESIDUAL_PROSE_OUT="$(mktemp "$_hpg_tmp_root/residual-prose-manifest-unit.XXXXXX")" || {
   printf 'could not allocate the #810 residual-prose manifest unit-test capture\n' >&2
   return 1
 }
 devflow_run_focused_python_test \
-  "#810 residual prose-pin retirement manifest: focused Python tests pass" \
+  "#810 residual pin-retirement manifests: focused Python tests pass" \
   "$LIB/test/test_residual_prose_retirement_manifest.py" \
   "$_HPG_RESIDUAL_PROSE_OUT"
 rm -f "$_HPG_RESIDUAL_PROSE_OUT"
