@@ -614,6 +614,21 @@ class PinCorpusLint810Tests(unittest.TestCase):
         self.assertEqual(frozenset({1}), patches[0].deleted_lines)
         self.assertEqual(frozenset({1}), patches[0].added_lines)
 
+    def test_valid_no_newline_markers_after_old_and_new_lines(self):
+        diff = (
+            "diff --git a/lib/test/a.sh b/lib/test/a.sh\n"
+            "--- a/lib/test/a.sh\n"
+            "+++ b/lib/test/a.sh\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "\\ No newline at end of file\n"
+            "+new\n"
+            "\\ No newline at end of file\n"
+        )
+        patches = self.mod.parse_unified_diff(diff)
+        self.assertEqual(frozenset({1}), patches[0].deleted_lines)
+        self.assertEqual(frozenset({1}), patches[0].added_lines)
+
     def test_complete_metadata_only_mode_change_is_valid(self):
         diff = (
             "diff --git a/lib/test/a.sh b/lib/test/a.sh\n"
@@ -891,6 +906,10 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 "text = open('docs/x.md').read()\n"
                 "self.assertIn('advisory wording', text)",
             ),
+            (
+                "plain assert",
+                "assert 'advisory wording' in Path('docs/x.md').read_text()",
+            ),
         )
         for label, body in cases:
             with self.subTest(label=label):
@@ -903,6 +922,24 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 )
                 self.assertEqual(1, len(findings))
                 self.assertIn("advisory wording", findings[0])
+
+    def test_python_assigned_read_respects_scope_order_and_reassignment(self):
+        source = (
+            "from pathlib import Path\n"
+            "import unittest\n\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_runtime(self):\n"
+            "        text = get_output()\n"
+            "        self.assertIn('runtime status', text)\n\n"
+            "    def test_file(self):\n"
+            "        text = Path('docs/x.md').read_text()\n"
+            "        text = get_output()\n"
+            "        self.assertIn('later runtime status', text)\n"
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/test_wording.py", repo_root="/repo"
+        )
+        self.assertEqual([], sites)
 
     def test_python_direct_file_assertion_can_use_valid_typed_boundary(self):
         marker = (

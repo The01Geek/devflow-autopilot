@@ -1546,7 +1546,11 @@ def parse_unified_diff(difftext):
                     "malformed unified diff: content precedes diff --git header"
                 )
             continue
-        if hunk_expected is not None and hunk_consumed == hunk_expected:
+        if (
+            hunk_expected is not None
+            and hunk_consumed == hunk_expected
+            and raw != r"\ No newline at end of file"
+        ):
             finish_hunk()
         if hunk_expected is not None:
             if raw == r"\ No newline at end of file":
@@ -1893,7 +1897,20 @@ def extract_python_guard_sites(text, source_path, repo_root):
             f"Python pin source cannot be parsed: {source_path}: {exc}"
         ) from exc
     physical = text.splitlines()
-    assigned_reads = {}
+    parents = {
+        child: parent
+        for parent in ast.walk(tree)
+        for child in ast.iter_child_nodes(parent)
+    }
+
+    def lexical_scope(node):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                return node
+        return tree
+
+    assigned_bindings = {}
     for assignment in ast.walk(tree):
         if (
             isinstance(assignment, ast.Assign)
@@ -1901,8 +1918,10 @@ def extract_python_guard_sites(text, source_path, repo_root):
             and isinstance(assignment.targets[0], ast.Name)
         ):
             is_read, target = _python_read_target(assignment.value, repo_root)
-            if is_read:
-                assigned_reads[assignment.targets[0].id] = target
+            key = (lexical_scope(assignment), assignment.targets[0].id)
+            assigned_bindings.setdefault(key, []).append(
+                (assignment.lineno, is_read, target)
+            )
     sites = []
     for node in ast.walk(tree):
         literal = haystack = helper = None
@@ -1937,9 +1956,18 @@ def extract_python_guard_sites(text, source_path, repo_root):
             if haystack is not None
             else (False, None)
         )
-        assigned_read = (
-            isinstance(haystack, ast.Name) and haystack.id in assigned_reads
-        )
+        assigned_read = False
+        if isinstance(haystack, ast.Name):
+            bindings = assigned_bindings.get(
+                (lexical_scope(node), haystack.id), ()
+            )
+            prior = [
+                binding for binding in bindings if binding[0] < node.lineno
+            ]
+            if prior:
+                _, assigned_read, target_path = max(
+                    prior, key=lambda binding: binding[0]
+                )
         if (
             not isinstance(literal, ast.Constant)
             or not isinstance(literal.value, str)
@@ -1947,8 +1975,6 @@ def extract_python_guard_sites(text, source_path, repo_root):
             or not (direct_read or assigned_read)
         ):
             continue
-        if assigned_read:
-            target_path = assigned_reads[haystack.id]
         line_end = getattr(node, "end_lineno", node.lineno)
         declaration, error = parse_structural_declaration(
             physical[node.lineno - 1 : line_end]
