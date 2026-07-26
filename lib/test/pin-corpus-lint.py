@@ -120,8 +120,11 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 from __future__ import annotations
 
 import ast
+import csv
 import difflib
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -1070,6 +1073,280 @@ class FilePatch(NamedTuple):
 
 class InfrastructureError(RuntimeError):
     """The blocking gate could not establish the population or comparison."""
+
+
+_ADJUDICATION_KEY_RE = re.compile(r"(?:literal|site):[0-9a-f]{64}\Z")
+_FINAL_ADJUDICATION_BUCKETS = frozenset(
+    {
+        "suite-internal",
+        "required-copy",
+        "boundary",
+        "generated",
+        "config-key",
+        "prose-sole-copy",
+        "prose-multi-copy",
+    }
+)
+_CURRENT_ADJUDICATION_HEADER = ("adjudication_key", "bucket_final", "rationale")
+_ADJUDICATION_DELTA_HEADER = ("adjudication_key", "base_state", "current_state")
+_ADJUDICATION_BUNDLE_ROOT = ".devflow/logs/pin-corpus-adjudication-changes"
+
+
+def _parse_exact_tsv(text, header, label):
+    """Return strict TSV rows after rejecting transport and shape ambiguity."""
+    if not isinstance(text, str):
+        raise InfrastructureError(f"{label} text is not a string")
+    if "\r" in text:
+        raise InfrastructureError(f"{label} contains carriage-return bytes")
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter="\t", strict=True))
+    except csv.Error as exc:
+        raise InfrastructureError(f"{label} is malformed TSV: {exc}") from exc
+    if not rows or tuple(rows[0]) != header:
+        raise InfrastructureError(f"{label} has an invalid header")
+    for number, row in enumerate(rows[1:], start=2):
+        if len(row) != len(header):
+            raise InfrastructureError(f"{label} has invalid cell count at line {number}")
+        if any("\n" in cell for cell in row):
+            raise InfrastructureError(f"{label} has multiline cell at line {number}")
+    return rows[1:]
+
+
+def _validate_adjudication_key(key, label):
+    if not isinstance(key, str) or _ADJUDICATION_KEY_RE.fullmatch(key) is None:
+        raise InfrastructureError(f"{label} has invalid adjudication key: {key!r}")
+
+
+def _validate_adjudication_state(state, label):
+    if (
+        not isinstance(state, tuple)
+        or len(state) != 2
+        or not all(isinstance(value, str) for value in state)
+    ):
+        raise InfrastructureError(f"{label} is not a two-string adjudication state")
+    bucket, rationale = state
+    if bucket not in _FINAL_ADJUDICATION_BUCKETS:
+        raise InfrastructureError(f"{label} has invalid final bucket: {bucket!r}")
+    if not rationale:
+        raise InfrastructureError(f"{label} has empty rationale")
+
+
+def parse_current_adjudications(text):
+    """Strictly parse the live current-state adjudication table."""
+    result = {}
+    for number, (key, bucket, rationale) in enumerate(
+        _parse_exact_tsv(text, _CURRENT_ADJUDICATION_HEADER, "adjudication table"),
+        start=2,
+    ):
+        _validate_adjudication_key(key, f"adjudication table line {number}")
+        _validate_adjudication_state(
+            (bucket, rationale), f"adjudication table line {number}"
+        )
+        if key in result:
+            raise InfrastructureError(f"adjudication table has duplicate key: {key}")
+        result[key] = (bucket, rationale)
+    return result
+
+
+def canonical_adjudication_state(state):
+    """Render a nullable adjudication state in its sole accepted JSON form."""
+    if state is None:
+        return "null"
+    _validate_adjudication_state(state, "adjudication state")
+    return json.dumps(list(state), ensure_ascii=True, separators=(",", ":"))
+
+
+def _parse_canonical_adjudication_state(text, label):
+    if text == "null":
+        return None
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise InfrastructureError(f"{label} is not JSON: {exc}") from exc
+    if (
+        not isinstance(decoded, list)
+        or len(decoded) != 2
+        or not all(isinstance(value, str) for value in decoded)
+    ):
+        raise InfrastructureError(f"{label} is not a two-string JSON state")
+    state = tuple(decoded)
+    _validate_adjudication_state(state, label)
+    if text != canonical_adjudication_state(state):
+        raise InfrastructureError(f"{label} is not compact canonical JSON")
+    return state
+
+
+def parse_adjudication_delta_manifest(text):
+    """Parse a branch delta manifest without operation or count semantics."""
+    result = {}
+    for number, (key, base_text, current_text) in enumerate(
+        _parse_exact_tsv(text, _ADJUDICATION_DELTA_HEADER, "adjudication delta manifest"),
+        start=2,
+    ):
+        _validate_adjudication_key(key, f"adjudication delta manifest line {number}")
+        if key in result:
+            raise InfrastructureError(
+                f"adjudication delta manifest has duplicate key: {key}"
+            )
+        result[key] = (
+            _parse_canonical_adjudication_state(
+                base_text, f"adjudication delta manifest line {number} base_state"
+            ),
+            _parse_canonical_adjudication_state(
+                current_text, f"adjudication delta manifest line {number} current_state"
+            ),
+        )
+    return result
+
+
+def canonical_adjudication_table_state(adjudications):
+    """Render a table map independently of TSV ordering or transport bytes."""
+    if not isinstance(adjudications, dict):
+        raise InfrastructureError("adjudication table state is not a mapping")
+    rows = []
+    for key in sorted(adjudications):
+        _validate_adjudication_key(key, "adjudication table state")
+        state = adjudications[key]
+        _validate_adjudication_state(state, f"adjudication table state for {key}")
+        rows.append([key, *state])
+    return json.dumps(rows, ensure_ascii=True, separators=(",", ":"))
+
+
+def hash_adjudication_table_state(adjudications):
+    """Return the deterministic content hash of a validated current-state map."""
+    return hashlib.sha256(
+        canonical_adjudication_table_state(adjudications).encode("utf-8")
+    ).hexdigest()
+
+
+def compute_adjudication_delta(base, current):
+    """Return the complete base-to-current state delta, including deletions."""
+    canonical_adjudication_table_state(base)
+    canonical_adjudication_table_state(current)
+    return {
+        key: (base.get(key), current.get(key))
+        for key in sorted(set(base) | set(current))
+        if base.get(key) != current.get(key)
+    }
+
+
+def combine_adjudication_delta_manifests(manifests):
+    """Combine branch manifests while rejecting cross-bundle duplicate claims."""
+    combined = {}
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            raise InfrastructureError("adjudication delta manifest is not a mapping")
+        for key, delta in manifest.items():
+            _validate_adjudication_key(key, "adjudication delta manifest")
+            if (
+                not isinstance(delta, tuple)
+                or len(delta) != 2
+                or any(state is not None and not isinstance(state, tuple) for state in delta)
+            ):
+                raise InfrastructureError("adjudication delta manifest has invalid state pair")
+            for state in delta:
+                if state is not None:
+                    _validate_adjudication_state(state, "adjudication delta manifest")
+            if key in combined:
+                raise InfrastructureError(
+                    f"adjudication delta manifests have duplicate key: {key}"
+                )
+            combined[key] = delta
+    return combined
+
+
+def is_exactly_authorized_adjudication_delta(base, current, manifests):
+    """Return whether a valid bundle set fully authorizes the computed delta."""
+    actual = compute_adjudication_delta(base, current)
+    authorized = combine_adjudication_delta_manifests(manifests)
+    for key, delta in authorized.items():
+        if actual.get(key) != delta:
+            raise InfrastructureError(
+                f"adjudication delta manifest is stale or extra for key: {key}"
+            )
+    return actual == authorized
+
+
+def require_current_adjudication_base(repo_root, base_ref, *, git_runner=subprocess.run):
+    """Require HEAD to descend directly from the configured current base tip."""
+    merge_base = _run_git(git_runner, repo_root, "merge-base", base_ref, "HEAD").strip()
+    base_tip = _run_git(git_runner, repo_root, "rev-parse", base_ref).strip()
+    if merge_base != base_tip:
+        raise InfrastructureError(
+            f"adjudication branch is not based on current {base_ref}: "
+            f"merge-base {merge_base}, base tip {base_tip}"
+        )
+    return merge_base
+
+
+def discover_new_adjudication_delta_manifests(
+    repo_root, merge_base, *, git_runner=subprocess.run
+):
+    """Return parsed delta manifests from only newly-added immutable bundles."""
+    root = Path(repo_root)
+    base_paths = set(
+        filter(
+            None,
+            _run_git(
+                git_runner,
+                root,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                merge_base,
+                "--",
+                _ADJUDICATION_BUNDLE_ROOT,
+            ).splitlines(),
+        )
+    )
+    historical_ids = {
+        path.split("/")[3]
+        for path in base_paths
+        if len(path.split("/")) >= 4
+    }
+    changes = _run_git(
+        git_runner,
+        root,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        merge_base,
+        "HEAD",
+        "--",
+        _ADJUDICATION_BUNDLE_ROOT,
+    )
+    new_ids = set()
+    for line in filter(None, changes.splitlines()):
+        try:
+            status, path = line.split("\t", 1)
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"adjudication bundle diff has malformed name-status row: {line!r}"
+            ) from exc
+        parts = path.split("/")
+        if (
+            len(parts) < 5
+            or "/".join(parts[:3]) != _ADJUDICATION_BUNDLE_ROOT
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[3])
+        ):
+            raise InfrastructureError(f"adjudication bundle path is invalid: {path!r}")
+        change_id = parts[3]
+        if status != "A" or change_id in historical_ids:
+            raise InfrastructureError(
+                f"historical adjudication bundle was changed: {path} ({status})"
+            )
+        new_ids.add(change_id)
+    manifests = []
+    for change_id in sorted(new_ids):
+        manifest_path = root / _ADJUDICATION_BUNDLE_ROOT / change_id / "adjudication-delta.tsv"
+        try:
+            manifest_text = manifest_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise InfrastructureError(
+                f"new adjudication bundle has unreadable delta manifest: {manifest_path}"
+            ) from exc
+        manifests.append(parse_adjudication_delta_manifest(manifest_text))
+    return manifests
 
 
 _FUNCTION_START_RE = re.compile(r"(?m)^([A-Za-z_]\w*)\s*\(\)\s*\{")

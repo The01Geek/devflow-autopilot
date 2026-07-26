@@ -1319,6 +1319,262 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
 
 
+class AdjudicationStateTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+
+    def test_current_adjudications_preserve_exact_valid_rows(self):
+        literal = "literal:" + "a" * 64
+        site = "site:" + "b" * 64
+        text = (
+            "adjudication_key\tbucket_final\trationale\n"
+            f"{literal}\tboundary\t exact rationale \n"
+            f"{site}\tconfig-key\tsecond rationale\n"
+        )
+        self.assertEqual(
+            {
+                literal: ("boundary", " exact rationale "),
+                site: ("config-key", "second rationale"),
+            },
+            self.mod.parse_current_adjudications(text),
+        )
+
+    def test_current_adjudications_reject_noncanonical_table_rows(self):
+        key = "literal:" + "a" * 64
+        invalid = {
+            "reordered header": (
+                "bucket_final\tadjudication_key\trationale\n"
+                f"boundary\t{key}\twhy\n"
+            ),
+            "extra cell": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tboundary\twhy\textra\n"
+            ),
+            "invalid key grammar": (
+                "adjudication_key\tbucket_final\trationale\n"
+                "literal:ABC\tboundary\twhy\n"
+            ),
+            "unclear bucket": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tunclear\twhy\n"
+            ),
+            "empty rationale": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tboundary\t\n"
+            ),
+            "duplicate key": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"{key}\tboundary\tfirst\n{key}\tboundary\tsecond\n"
+            ),
+            "carriage return": (
+                "adjudication_key\tbucket_final\trationale\r\n"
+                f"{key}\tboundary\twhy\r\n"
+            ),
+            "tombstone event": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"tombstone:{key}\ttombstone\twhy\n"
+            ),
+            "supersede event": (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"supersede:{key}\tboundary\twhy\n"
+            ),
+        }
+        for label, text in invalid.items():
+            with self.subTest(label=label):
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.parse_current_adjudications(text)
+
+    def test_delta_manifest_requires_exact_canonical_json_states(self):
+        key = "literal:" + "a" * 64
+        valid = (
+            "adjudication_key\tbase_state\tcurrent_state\n"
+            f'{key}\tnull\t["boundary","new rationale"]\n'
+        )
+        self.assertEqual(
+            {key: (None, ("boundary", "new rationale"))},
+            self.mod.parse_adjudication_delta_manifest(valid),
+        )
+
+        invalid = {
+            "operation field": (
+                "adjudication_key\tbase_state\tcurrent_state\toperation\n"
+                f'{key}\tnull\t["boundary","new rationale"]\tadd\n'
+            ),
+            "noncompact state": (
+                "adjudication_key\tbase_state\tcurrent_state\n"
+                f'{key}\tnull\t["boundary", "new rationale"]\n'
+            ),
+            "wrong state shape": (
+                "adjudication_key\tbase_state\tcurrent_state\n"
+                f'{key}\tnull\t["boundary"]\n'
+            ),
+            "event key": (
+                "adjudication_key\tbase_state\tcurrent_state\n"
+                f'tombstone:{key}\tnull\t["boundary","new rationale"]\n'
+            ),
+        }
+        for label, text in invalid.items():
+            with self.subTest(label=label):
+                with self.assertRaises(self.mod.InfrastructureError):
+                    self.mod.parse_adjudication_delta_manifest(text)
+
+    def test_canonical_table_hash_and_delta_capture_all_state_changes(self):
+        first = "literal:" + "a" * 64
+        second = "site:" + "b" * 64
+        third = "literal:" + "c" * 64
+        base = {
+            first: ("boundary", "old rationale"),
+            second: ("config-key", "deleted rationale"),
+        }
+        current = {
+            first: ("boundary", "new rationale"),
+            third: ("generated", "added rationale"),
+        }
+        self.assertEqual(
+            (
+                '[['
+                '"literal:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+                '"boundary","old rationale"],'
+                '["site:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",'
+                '"config-key","deleted rationale"]]'
+            ),
+            self.mod.canonical_adjudication_table_state(base),
+        )
+        self.assertEqual(
+            self.mod.hash_adjudication_table_state(base),
+            self.mod.hash_adjudication_table_state(dict(reversed(list(base.items())))),
+        )
+        self.assertNotEqual(
+            self.mod.hash_adjudication_table_state(base),
+            self.mod.hash_adjudication_table_state(current),
+        )
+        self.assertEqual(
+            {
+                first: (("boundary", "old rationale"), ("boundary", "new rationale")),
+                second: (("config-key", "deleted rationale"), None),
+                third: (None, ("generated", "added rationale")),
+            },
+            self.mod.compute_adjudication_delta(base, current),
+        )
+
+    def test_delta_authorization_requires_exact_complete_current_state(self):
+        key = "literal:" + "a" * 64
+        changed = ("boundary", "new rationale")
+        cases = {
+            "addition": ({}, {key: changed}, {key: (None, changed)}),
+            "deletion": ({key: changed}, {}, {key: (changed, None)}),
+            "modification": (
+                {key: ("boundary", "old rationale")},
+                {key: changed},
+                {key: (("boundary", "old rationale"), changed)},
+            ),
+        }
+        for label, (base, current, exact) in cases.items():
+            with self.subTest(change=label):
+                self.assertTrue(
+                    self.mod.is_exactly_authorized_adjudication_delta(base, current, [exact])
+                )
+                self.assertFalse(
+                    self.mod.is_exactly_authorized_adjudication_delta(base, current, [])
+                )
+
+        base, current, exact = cases["modification"]
+        with self.assertRaisesRegex(self.mod.InfrastructureError, "stale or extra"):
+            self.mod.is_exactly_authorized_adjudication_delta(
+                base,
+                current,
+                [{key: (("boundary", "older rationale"), ("boundary", "new rationale"))}],
+            )
+        with self.assertRaisesRegex(self.mod.InfrastructureError, "stale or extra"):
+            self.mod.is_exactly_authorized_adjudication_delta(
+                base,
+                current,
+                [{key: (("boundary", "old rationale"), ("boundary", "old rationale"))}],
+            )
+        with self.assertRaisesRegex(self.mod.InfrastructureError, "duplicate key"):
+            self.mod.is_exactly_authorized_adjudication_delta(base, current, [exact, exact])
+        extra_key = "site:" + "b" * 64
+        with self.assertRaisesRegex(self.mod.InfrastructureError, "stale or extra"):
+            self.mod.is_exactly_authorized_adjudication_delta(
+                base,
+                current,
+                [
+                    exact,
+                    {extra_key: (None, ("generated", "unrelated authorization"))},
+                ],
+            )
+
+    def test_current_base_ancestry_requires_the_configured_base_tip(self):
+        def runner(outputs):
+            def invoke(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0, outputs[tuple(args[3:])], "")
+
+            return invoke
+
+        outputs = {
+            ("merge-base", "origin/main", "HEAD"): "base-tip\n",
+            ("rev-parse", "origin/main"): "base-tip\n",
+        }
+        self.assertEqual(
+            "base-tip",
+            self.mod.require_current_adjudication_base(
+                "/repo", "origin/main", git_runner=runner(outputs)
+            ),
+        )
+        outputs[("merge-base", "origin/main", "HEAD")] = "older-tip\n"
+        with self.assertRaisesRegex(self.mod.InfrastructureError, "not based on current"):
+            self.mod.require_current_adjudication_base(
+                "/repo", "origin/main", git_runner=runner(outputs)
+            )
+
+    def test_new_bundle_discovery_rejects_historical_changes(self):
+        key = "literal:" + "a" * 64
+        manifest = (
+            "adjudication_key\tbase_state\tcurrent_state\n"
+            f'{key}\tnull\t["boundary","authorized rationale"]\n'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"], cwd=root, check=True
+            )
+            historical = (
+                root
+                / ".devflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
+            )
+            historical.parent.mkdir(parents=True)
+            historical.write_text(manifest, encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=root, check=True)
+            base = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=root, check=True, text=True, capture_output=True
+            ).stdout.strip()
+            added = (
+                root
+                / ".devflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
+            )
+            added.parent.mkdir(parents=True)
+            added.write_text(manifest, encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "add current bundle"], cwd=root, check=True)
+            self.assertEqual(
+                [{key: (None, ("boundary", "authorized rationale"))}],
+                self.mod.discover_new_adjudication_delta_manifests(root, base),
+            )
+            historical.write_text(manifest.replace("authorized", "changed"), encoding="utf-8")
+            subprocess.run(["git", "add", "."], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "alter historical bundle"], cwd=root, check=True
+            )
+            with self.assertRaisesRegex(self.mod.InfrastructureError, "historical"):
+                self.mod.discover_new_adjudication_delta_manifests(root, base)
+
+
 class StaticPinWorktreeCompositionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
