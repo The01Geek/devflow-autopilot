@@ -1694,7 +1694,8 @@ jobs:
           # subagents in the FOREGROUND, so results are in hand before the model's turn
           # continues; that it takes effect inside claude-code-action is OBSERVED, not
           # assumed — matcher-probe.yml's background-tasks-probe job measured FOREGROUND
-          # on run 30210679122 (issue #812). That verdict is version-dependent: re-probe
+          # on runs 30210679122 and 30211584731 (issue #812). That verdict is
+          # version-dependent: re-probe
           # via that job after a claude-code-action upgrade. Note the
           # documented scope is wider than subagents: it disables ALL background task
           # functionality, including the Bash tool's run_in_background. No engine

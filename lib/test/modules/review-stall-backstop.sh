@@ -1170,10 +1170,16 @@ assert_eq "#812 probe-row: dropping the variable from the probe job turns the ro
 # Recorded verdict: the docs record must name the producing job and carry BOTH a run
 # identifier and the re-probe caveat — a verdict without its version context reads as a
 # platform contract it is not (the issue's own stated gotcha).
-recorded_verdict812() {  # file -> yes|no : all three halves on the recorded-verdict line
-  grep -F -- 'Executed (issue #812)' "$1" | grep -qF 'background-tasks-probe' \
-    && grep -F -- 'Executed (issue #812)' "$1" | grep -qE 'run [0-9]{8,}' \
-    && grep -F -- 'Executed (issue #812)' "$1" | grep -qF 'via the `background-tasks-probe` job, after a `claude-code-action` upgrade' \
+recorded_verdict812() {  # file -> yes|no : all three halves, ANCHORED AFTER the #812 marker
+  # Each conjunct is matched in ONE regex anchored at `Executed (issue #812)`, never as a
+  # separate whole-line grep. The stall-backstop bullet is a single physical line that also
+  # carries the `Executed (issue #418)` ScheduleWakeup record — including ITS run
+  # identifiers — so a whole-line `runs? [0-9]{8,}` test is satisfied by the #418 ids alone
+  # and stays green with this record's own ids stripped. #418's text precedes #812's on that
+  # line, so anchoring at the #812 marker scopes each conjunct to this record.
+  grep -qE 'Executed \(issue #812\).*background-tasks-probe' "$1" \
+    && grep -qE 'Executed \(issue #812\).*real cloud runs? [0-9]{8,}' "$1" \
+    && grep -qE 'Executed \(issue #812\).*via the `background-tasks-probe` job, after a `claude-code-action` upgrade' "$1" \
     && echo yes || echo no
 }
 assert_eq "#812 recorded-verdict: the stall-backstop bullet records the probe verdict with its run id and re-probe caveat" \
@@ -1183,8 +1189,8 @@ _t812d="$(probe_tmp '#812 recorded-verdict positive control')"
 sed -E 's/background-tasks-probe/some-other-probe/g' "$DSO812" > "$_t812d"
 assert_eq "#812 recorded-verdict: repointing the record at another job turns the check RED" \
   "no" "$(recorded_verdict812 "$_t812d")"
-sed -E 's/real cloud run [0-9]+/real cloud run/' "$DSO812" > "$_t812d"
-assert_eq "#812 recorded-verdict: stripping the run identifier turns the check RED" \
+sed -E 's/real cloud runs? [0-9]+( and [0-9]+)*/real cloud runs/g' "$DSO812" > "$_t812d"
+assert_eq "#812 recorded-verdict: stripping the run identifier(s) turns the check RED" \
   "no" "$(recorded_verdict812 "$_t812d")"
 sed -E 's/via the `background-tasks-probe` job, after a `claude-code-action` upgrade//' "$DSO812" > "$_t812d"
 assert_eq "#812 recorded-verdict: stripping the version-dependence re-probe caveat turns the check RED" \
