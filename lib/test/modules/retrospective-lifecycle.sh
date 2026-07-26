@@ -227,5 +227,45 @@ assert_eq "#788 caps: per-category open = filed entries in one record" "2" \
   assert_eq "#788 report: withheld section names the cap" "true" \
     "$(printf '%s' "$WREP" | grep -q 'max_issues_per_run' && echo true || echo false)" )
 
+# ── real-corpus migrate-then-reconcile-then-derive integration ───────────────
+# A v1 fixture shaped like this repo's real overrides.json (the loop's own dismissed
+# entries for the 11 categories), with a stubbed gh returning the real issue states,
+# asserts the lifecycle-record states after migrate+reconcile: dismissed{} holds no
+# loop-written key, tooling-gap → declined (#113 NOT_PLANNED), the rest → fixed.
+printf '%s' '{"schema_version":1,"dismissed":{
+  "tooling-gap":{"dismissed_at":"2026-06-03T21:39:06Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/o/r/issues/113"},
+  "fabricated-claim":{"dismissed_at":"2026-07-24T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/o/r/issues/761"},
+  "doc-accuracy":{"dismissed_at":"2026-06-29T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/o/r/issues/183"}
+}}' > "$RL_TMP/real.json"
+cat > "$RL_TMP/gh-real.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '[]'; exit 0; fi
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  case "$3" in
+    113) echo '{"number":113,"state":"CLOSED","stateReason":"NOT_PLANNED","closedAt":"2026-06-28T21:24:43Z"}' ;;
+    761) echo '{"number":761,"state":"CLOSED","stateReason":"COMPLETED","closedAt":"2026-07-24T10:11:25Z"}' ;;
+    183) echo '{"number":183,"state":"CLOSED","stateReason":"COMPLETED","closedAt":"2026-06-30T00:00:00Z"}' ;;
+    *) echo '{"number":'"$3"',"state":"OPEN","stateReason":null,"closedAt":null}' ;;
+  esac
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-real.sh"
+DEVFLOW_GH="$RL_TMP/gh-real.sh" bash "$RL_PS" run "$RL_TMP/real.json" >/dev/null 2>&1
+assert_eq "#788 real-corpus: dismissed{} holds no loop-written key" "0" "$(jq -r '.dismissed | length' "$RL_TMP/real.json")"
+assert_eq "#788 real-corpus: tooling-gap record is declined" "declined" "$(jq -r '.patterns["tooling-gap"].state' "$RL_TMP/real.json")"
+assert_eq "#788 real-corpus: fabricated-claim record is fixed" "fixed" "$(jq -r '.patterns["fabricated-claim"].state' "$RL_TMP/real.json")"
+assert_eq "#788 real-corpus: doc-accuracy record is fixed" "fixed" "$(jq -r '.patterns["doc-accuracy"].state' "$RL_TMP/real.json")"
+# Derived statuses after compute-patterns over the reconciled state: a slug whose
+# newest occurrence post-dates its fixed_at → regressed (tooling-gap: declined #113
+# closed 2026-06-28, occurrence after); fabricated-claim → fixed (issue closed
+# after its last occurrence).
+RC_ENTRIES='{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-07-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}
+{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-07-23T17:32:23Z","verdict":"imperfect","categories":["fabricated-claim"]}'
+RC_VIEW="$(rl_cp "$RC_ENTRIES" "$(cat "$RL_TMP/real.json")")"
+assert_eq "#788 real-corpus derived: tooling-gap → regressed" "regressed" "$(printf '%s' "$RC_VIEW" | jq -r '.["tooling-gap"].status')"
+assert_eq "#788 real-corpus derived: fabricated-claim → fixed" "fixed" "$(printf '%s' "$RC_VIEW" | jq -r '.["fabricated-claim"].status')"
+
 rm -rf "$RL_TMP"
 trap - RETURN
