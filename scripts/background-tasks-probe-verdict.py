@@ -28,14 +28,15 @@ docs/execution-file-shape.md, itself a dated observation rather than a contract)
 probe borrows #610's technique instead of reading a field that may not exist: the probe
 subagent's ENTIRE final response is one marker line, and the top-level session echoes
 what it actually received back through a Bash call. A Bash `tool_use` carrying the
-subagent's OWN marker is harness-recorded proof that the completed result was in hand
-before the turn continued — an acknowledgment-only dispatch cannot produce it. The
-model's prose is never the measurement.
+subagent's OWN marker is the harness-recorded signal that the completed result was in
+hand before the turn continued: a compliant model reaches Action 3's in-hand branch only
+when it actually holds the subagent's text. The model's prose is never the measurement.
 
 What that co-occurrence does and does not buy. The two in-hand tokens are required in the
 SAME recorded tool_use entry, which rules out the marker leaking from Action 2's dispatch
 prompt (that prompt must name the marker it asks for, so the marker is in the file either
-way). It does not make the probe adversarial: like its #415 and #610 siblings this is a
+way — a whole-file conjunction would be satisfied by the dispatch alone). It rules out
+that specific leak and nothing more; it does not make the probe adversarial: like its #415 and #610 siblings this is a
 cooperative-model measurement, and a model that ignored its instructions could emit either
 branch. The discriminating evidence is which of the two mutually-exclusive Action 3
 branches was recorded, and every shape that is neither cleanly floors to INCONCLUSIVE.
