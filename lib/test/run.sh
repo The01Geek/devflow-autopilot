@@ -1951,7 +1951,9 @@ count_region_pins() {  # file [bmark] [emark] -> prints count of in-region asser
   region_lines "$1" "${2:-$PARKCAL_BMARK}" "${3:-$PARKCAL_EMARK}" | grep -cF 'assert_pin_unique' || true
 }
 SELF_SRC="$LIB/test/run.sh"
-# Issue #159 B3: the assert_pin_unique-only invariant is now enforced for EVERY registered
+# Issue #159 B3: the literal-uniqueness invariant (satisfiable by assert_pin_unique, or — in the
+# fix-delta region since #816 — by assert_pin_red_under, which asserts the same uniqueness
+# internally; park-calibration stays assert_pin_unique-only) is now enforced for EVERY registered
 # pin region, not just park-calibration. The fix-delta region (defined with the pins below)
 # uses split-built markers so the definition lines carry no contiguous marker string.
 FIXDELTA_BMARK="FIXDELTA_GUARD_REGION_""BEGIN"
@@ -4184,7 +4186,7 @@ assert_pin_unique "fix-delta gate: per-iteration result recorded as a Devflow Re
   'fix-delta gate clean' "$MAXI_SKILL"
 assert_pin_unique "fix-delta gate: share-the-contract principle in receiving-code-review" \
   'prefer using that consumer as the guard itself' "$RCR_SKILL"
-# FIXDELTA_GUARD_REGION_END — end of the assert_pin_unique-only fix-delta pin region
+# FIXDELTA_GUARD_REGION_END — end of the literal-uniqueness fix-delta pin region (assert_pin_unique or assert_pin_red_under; see the BEGIN marker)
 
 # ── issue #449: the reproduce-first gate keys on a recorded CONTENT classification, not the
 #    `bug` label. The deliverable is agent-executed skill prose (phase-1/phase-2) plus the
@@ -11479,7 +11481,7 @@ assert_pin_red_under "#816 gate-dispatch-scope-widened: the fix-delta gate admit
   'the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target' \
   's/\*\*For the added-assertion check below, the dispatch scope additionally admits a bounded read of each added assertion'"'"'s own target\*\*/For the added-assertion check below, the scope is the delta alone/'
 
-# The gate's third check, its three reportable outcomes, AND its unestablished arm are pinned once, in
+# The gate's third check and its unestablished arm are pinned once, in
 # lib/test/modules/review-and-fix-contract.sh — the focused module that owns the review-and-fix
 # reference surface. A second copy here would target the same bundle bytes with the same mutation,
 # so it would add no coverage and would make every future wording change a two-file lockstep edit.

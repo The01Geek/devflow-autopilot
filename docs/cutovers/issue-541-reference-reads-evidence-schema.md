@@ -28,7 +28,7 @@ kind: growth
 - `skills/review-and-fix/references/fix-delta-gate.md` (+955 bytes) — the Step 3.5 gate
   gains its durable-record producer obligation: persist the gate outcome into
   `reference_reads.fix_delta`, covering the clean / refixed / promoted / both-failure-arm
-  paths and preserving the two failure arms' distinct breadcrumbs in `reason`.
+  paths and preserving the two failure arms' distinct breadcrumbs in `reason`. *(Past-time snapshot: this records the two arms as of issue #541. Issue #816 added a third `not_verified` producer — an added assertion whose target could not be read — so the live rule, stated in `skills/review-and-fix/references/fixing.md` item 7, now covers three arms.)*
 
 ## Deferred (recorded, not silently dropped)
 
