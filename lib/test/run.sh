@@ -8986,6 +8986,10 @@ bad_file("iv_prcrossnull", json.dumps({**_B, **_PRB, "open_pr_cross_repository":
 # value is the sole gate operand whose failure is silent.
 bad_file("iv_prbranchnum", json.dumps({**_B, **_PRB, "open_pr_branch": 123}), bwork)
 bad_file("iv_prselectedbad", json.dumps({**_B, **_PRB, "open_pr_selected_by": "search"}), bwork)
+# JSON null is the shape `gh pr list --json` can actually serialize for this operand,
+# and it is a NON-STRING rather than an out-of-enum string — a guard keyed on the enum
+# alone (rather than on the type first) would let it through to the `== "head"` read.
+bad_file("iv_prselectednull", json.dumps({**_B, **_PRB, "open_pr_selected_by": None}), bwork)
 emit("iv_bool_ok", bwork, {**_B, "provenance_established": False})
 # Positive control for the NEW operands specifically: real booleans + a valid
 # selected-by survive every refusal above and reach the classifier, so those arms are
@@ -9088,9 +9092,11 @@ assert_eq "#780: cross-repository (fork-headed) PR → DECISION_BLOCKED/stop" \
   "DECISION_BLOCKED 2" "$(_bs576 pr_cross_repo)"
 assert_eq "#780: a head-branch-query-selected PR vouches without a closing linkage → VALIDATED_RESUME" \
   "VALIDATED_RESUME 0" "$(_bs576 pr_head_query_no_closes)"
-# Each operand omitted in turn is REFUSED, not silently read as an answer. These four
-# are what kill the identity-check mutants (`is True` → `!= False`, `is False` →
-# `!= True`): under either mutant an ungathered field would vouch.
+# Each operand omitted in turn is REFUSED, not silently read as an answer. What these
+# four assert is that refusal — NOT the `is True`/`is False` identity checks, which
+# they never reach: the refusal returns before `_classify_branch_state` runs (see the
+# fixture-side comment on this same population). The mutation-sensitive operand here is
+# the string comparison `open_pr_selected_by == "head"`, covered by its own arms.
 assert_eq "#780 partial gather: an omitted open_pr_branch is refused, not read as an answer" \
   "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_branch)"
 assert_eq "#780 partial gather: an omitted open_pr_closes_issue is refused" \
@@ -9205,6 +9211,10 @@ assert_eq "#780 input-val: an out-of-enum 'open_pr_selected_by' is refused" \
   "UNAVAILABLE_state 3" "$(_bs576 iv_prselectedbad)"
 assert_eq "#780 input-val: the out-of-enum selected-by cause names that specific operand" "yes" \
   "$(_bs576err iv_prselectedbad "'open_pr_selected_by' must be the string 'head' or 'body'")"
+assert_eq "#780 input-val: a JSON-null 'open_pr_selected_by' is refused by the same named cause" \
+  "UNAVAILABLE_state 3" "$(_bs576 iv_prselectednull)"
+assert_eq "#780 input-val: the null selected-by cause names that specific operand" "yes" \
+  "$(_bs576err iv_prselectednull "'open_pr_selected_by' must be the string 'head' or 'body'")"
 # Positive control for the NEW operands: real booleans + a valid selected-by still
 # reach the classifier, so the arms above are the new guards firing, not a blanket
 # rejection of any state carrying open_pr_* keys. The verdict is AMBIGUOUS rather
@@ -30298,7 +30308,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 182; then
+  "review-stall-backstop" 190; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
