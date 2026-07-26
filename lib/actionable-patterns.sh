@@ -182,8 +182,8 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 printf '%s' "$PATTERN_VIEW"   > "$_JQ_TMP/pattern_view.json"
 printf '%s' "$OPEN_ISSUE_MAP" > "$_JQ_TMP/open_issue_map.json"
 OUTPUT="$(
-  # argjson-ok: min, cooldown_epoch -- bounded scalars (a small int and an epoch
-  # int) — safe as argv; the corpus-sized operands above use --slurpfile.
+  # argjson-ok: min, full, cooldown_epoch -- bounded scalars (small ints / a 0|1
+  # flag / an epoch int) — safe as argv; the corpus-sized operands use --slurpfile.
   "$DEVFLOW_JQ" -n --slurpfile pattern_view    "$_JQ_TMP/pattern_view.json" \
         --slurpfile open_issue_map  "$_JQ_TMP/open_issue_map.json" \
         --argjson min             "$MIN" \
@@ -240,6 +240,8 @@ if [ "$FULL" -eq 0 ]; then
     if [ "${_ELIGIBLE_N:-0}" -eq 0 ]; then
         printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
         _SUPPRESSED="$(
+          # argjson-ok: min -- a bounded small int (the occurrence threshold);
+          # the corpus-sized pattern view uses --slurpfile.
           "$DEVFLOW_JQ" -c -n --slurpfile pv "$_JQ_TMP/pv_live.json" --argjson min "$MIN" '
             [ $pv[0] | to_entries[]
               | select(.value.occurrence_count >= $min)
