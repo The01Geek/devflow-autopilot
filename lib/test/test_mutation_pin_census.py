@@ -160,6 +160,11 @@ class MutationPinCensusTests(unittest.TestCase):
         self.assertEqual(objects[-1], {"master_sha256": result.master_sha256})
         self.assertEqual(tsv.splitlines()[-1], f"# master_sha256\t{result.master_sha256}")
         self.assertLess(objects[0]["logical_call"], objects[1]["logical_call"])
+        revision = "c" * 40
+        self.assertEqual(
+            CENSUS.render_tsv(result, revision).splitlines()[0],
+            f"# source_revision\t{revision}",
+        )
 
     def test_adjudication_tsv_names_inventory_free_source_revision(self) -> None:
         self.repo.write(
