@@ -9158,6 +9158,32 @@ assert_eq "#814: ... and the --print-body run's stdout capture is not" "yes" \
 assert_eq "#814: the payload-invariance comparison ran over a non-empty recorded PATCH body" "yes" \
   "$([ -s "$S356/pb-default" ] && echo yes || echo no)"
 
+# (workpad-absent) the id lookup finds no workpad: exit 1, nothing on stdout, and —
+# load-bearing — NO success breadcrumb, so the "success line beside a failure" split
+# the breadcrumb design excludes cannot reappear on the one path that never PATCHes.
+: > "$S356/patchlog"
+WP_BODY="$S356/interim.md" WP_PATCHLOG="$S356/patchlog" WP_ABSENT=1 DEVFLOW_GH="$S356/gh" \
+  python3 "$WP_PY" update 888 --note 'n' >"$S356/out8" 2>"$S356/err8"; _c=$?
+assert_eq "#814: a workpad-absent update exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a workpad-absent update writes nothing to stdout and no success breadcrumb" "yes" \
+  "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+assert_eq "#814: ... and it made no PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo no || echo yes)"
+
+# (combined --status + volatile tick miss) the shape Phase 3.4 and Phase 4.3 actually
+# emit. The breadcrumb is suppressed (non-zero exit), so the landed-Status read-back
+# must come from the echoed body — which this path still writes. Asserting BOTH halves
+# is what keeps skills/implement/SKILL.md's absent-breadcrumb rule discharged on the
+# one path where a --status write is most likely to ride along with a tick.
+_c="$(run814 "$S356/interim.md" --status Reviewing --tick-ac 'NO_SUCH_AC')"
+assert_eq "#814: a --status call whose tick misses exits non-zero and writes no breadcrumb" "yes" \
+  "$([ "$_c" != "0" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+assert_eq "#814: ... and the echoed body carries the landed Status, so the read-back is still observable on that path" "yes" \
+  "$(grep -q '^\*\*Status:\*\* 🚀 Reviewing$' "$S356/out8" && echo yes || echo no)"
+assert_eq "#814: ... beside the unchanged volatile-miss report naming the tick" "yes" \
+  "$(grep -q 'NO_SUCH_AC' "$S356/err8" && echo yes || echo no)"
+
 # (non-writing exit paths) a structural abort and a PATCH-call failure keep their exit
 # codes and write nothing to stdout under the default.
 _c="$(run814 "$S356/interim.md" --replace-plan-file "$S356/no-such-plan.md")"

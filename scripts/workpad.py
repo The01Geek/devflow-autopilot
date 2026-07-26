@@ -1192,13 +1192,14 @@ def _strip_status_glyph(status: str) -> str:
 
 
 def _status_value_from_body(body: str) -> str:
-    """Return the live Status value from a workpad body **with its glyph intact**,
-    trimmed, or '' when there is no Status line. The single site that locates the
-    Status line: `_status_word_from_body` below strips the glyph off this value, and
-    `cmd_update`'s issue-#814 success breadcrumb reports it verbatim (the breadcrumb
-    is the caller's read-back that a `--status` PATCH landed, and the glyph is what
-    makes '🎉 Complete' recognisable at a glance). Splitting locate-the-line from
-    strip-the-glyph is what keeps the two readers from drifting apart."""
+    """Return the live Status VALUE from a workpad body **with its glyph intact**,
+    trimmed, or '' when there is no Status line. Every reader of the Status *value*
+    goes through here: `_status_word_from_body` below delegates to it and strips the
+    glyph, and `cmd_update`'s issue-#814 success breadcrumb reports it verbatim (the
+    breadcrumb is the caller's read-back that a `--status` PATCH landed, and the glyph
+    is what makes '🎉 Complete' recognisable at a glance). `cmd_status`'s separate
+    `_STATUS_VALUE_RE` use answers a different question — is a Status LINE present at
+    all — and shares the compiled pattern rather than this function."""
     m = _STATUS_VALUE_RE.search(body)
     return m.group(1).strip() if m else ''
 
@@ -1209,8 +1210,7 @@ def _status_word_from_body(body: str) -> str:
     Status word in this body" rule — `cmd_status`, `_apply_mutations`'s note-phase
     resolution, and `cmd_update`'s `--expect-status` precondition all read it here
     so glyph/whitespace handling can never drift between the reader and the checker."""
-    m = _STATUS_VALUE_RE.search(body)
-    return _strip_status_glyph(m.group(1).strip()).strip() if m else ''
+    return _strip_status_glyph(_status_value_from_body(body)).strip()
 
 
 def _status_glyph(status: str) -> str:
@@ -1961,8 +1961,11 @@ def cmd_update(args):
         # a pure replay. Do NOT refresh `Last updated` and do NOT PATCH — echo the
         # unchanged live body to stdout only under `--print-body` (issue #814: the
         # echo is suppressed by default because no caller consumes it and it costs
-        # the orchestrator the whole workpad body per call), then exit 0. The stderr
-        # breadcrumb below is unconditional, so a replay is never byte-silent. A
+        # the orchestrator the whole workpad body per call), then exit 0. This arm's
+        # OWN replay message (written three lines down) is unconditional, so a replay
+        # is never byte-silent — but it is deliberately NOT the `PATCHed comment <id>`
+        # success breadcrumb, which the PATCH tail writes and this arm never reaches,
+        # because no PATCH happened here. A
         # replay COMBINED with any other mutation never reaches here
         # (`_has_non_checkpoint_mutation` is true — `print_body` is deliberately
         # absent from its allowlist, so the flag alone never makes a call a
@@ -2041,17 +2044,41 @@ def cmd_update(args):
     # split the exit-code rule exists to prevent.
     if not failed_ticks:
         _status_clause = ''
+        _live = ''
         if args.status:
-            # Glyph-preserving read through the shared locator, never a second
-            # regex site: `_status_value_from_body` returns '' for a response
-            # carrying no Status line, which is reported as an explicit
-            # `(not found)` rather than an empty clause a reader could mistake
-            # for "no --status was set".
-            _live = _status_value_from_body(r.stdout)
-            _status_clause = f"; Status: {_live}" if _live else '; Status: (not found)'
+            # Glyph-preserving read through the shared value reader, never a second
+            # regex site. Three unobserved states are reported distinctly rather than
+            # collapsed onto one string: an EMPTY PATCH response (a throttled or
+            # oversized write — the comment itself may be perfectly healthy, so
+            # pointing the reader at a corrupt body would misdirect them), a non-empty
+            # response carrying no Status line, and a resolved value. None of the
+            # three renders as a bare empty clause a reader could mistake for "no
+            # --status was set".
+            if not r.stdout:
+                _status_clause = '; Status: (empty response)'
+            else:
+                _live = _status_value_from_body(r.stdout)
+                _status_clause = f"; Status: {_live}" if _live else '; Status: (not found)'
         sys.stderr.write(
             f"workpad.py update: PATCHed comment {comment_id}{_status_clause}\n"
         )
+        # The read-back is only a guard if something compares it. Leaving the
+        # comparison to prose alone lets a reader skim the line for "breadcrumb
+        # present, exit 0" and advance over a PATCH that returned 200 with the
+        # comment body unchanged, so the mismatch is made machine-observable here.
+        # It is a WARNING, not a failure: the PATCH call itself succeeded and the
+        # caller owns the re-issue decision. The comparison reads `_live` — the value
+        # the reader above resolved — never a re-parse of the rendered clause, so the
+        # guard and the breadcrumb cannot disagree about what was read back.
+        if args.status:
+            _want = _strip_status_glyph(args.status).strip().lower()
+            _got = _strip_status_glyph(_live).strip().lower()
+            if _want != _got:
+                sys.stderr.write(
+                    f"workpad.py update: WARNING: the PATCH response reads Status "
+                    f"{_got or '(unreadable)'!r}, not the requested {_want!r} — the "
+                    f"write may not have landed; re-issue the update.\n"
+                )
 
     # Volatile tick failures: the PATCH landed (other mutations applied), but
     # report each unresolved tick to stderr and exit non-zero so the orchestrator

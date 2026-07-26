@@ -868,7 +868,7 @@ assert_eq("#169 TD-1: _TickMatchError is still an Exception",
 # ran. stdout is CAPTURED and returned (issue #814) so the default-suppression and
 # --print-body arms of `update`'s echo are assertable at the unit level — the only
 # level that drives the `_NoOpReplay` checkpoint-replay arm.
-def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
+def _drive_cmd_update(body, patch_fails=False, patch_response=None, **arg_overrides):
     marker = '<!-- devflow:workpad -->'
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
     workpad._repo_full = lambda: 'owner/repo'
@@ -885,6 +885,13 @@ def _drive_cmd_update(body, patch_fails=False, **arg_overrides):
                 if tok.startswith('body=@'):
                     with open(tok[len('body=@'):]) as fh:
                         state['patched'] = fh.read()
+            # `patch_response` overrides what the PATCH call RETURNS, independently of
+            # the body it stored — the only way to drive `cmd_update`'s issue-#814
+            # Status read-back arms, which parse the RESPONSE (a throttled/oversized
+            # write can return an empty or Status-less body while the stored body is
+            # fine). Default None keeps the echo-the-stored-body behaviour.
+            if patch_response is not None:
+                return _FakeRun(patch_response)
             return _FakeRun(state['patched'] or '')
         return _FakeRun(body)   # the body fetch
     workpad._run = _run
@@ -16614,8 +16621,13 @@ assert_eq("#814: a clean PATCH writes exactly one success breadcrumb naming the 
           (1, True),
           (_err.count("workpad.py update: PATCHed comment "),
            "workpad.py update: PATCHed comment 7" in _err))
+# Scoped to the breadcrumb LINE, not the whole stderr stream: an unrelated future
+# diagnostic mentioning "Status:" must not turn this RED for a reason that has
+# nothing to do with the breadcrumb contract.
 assert_eq("#814: a breadcrumb for a call that set no --status carries no Status clause",
-          False, "Status:" in _err)
+          ["workpad.py update: PATCHed comment 7"],
+          [ln for ln in _err.splitlines()
+           if ln.startswith("workpad.py update: PATCHed comment ")])
 
 _code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, note=['n'], print_body=True)
 assert_eq("#814: --print-body restores the clean-PATCH body echo",
@@ -16694,6 +16706,70 @@ def _drive_cmd_body(payload):
 assert_eq("#814: cmd_body still writes its body to stdout unconditionally",
           "the body\n", _drive_cmd_body("the body\n"))
 
+
+# The breadcrumb's three read-back arms, each driven — they are the operands
+# skills/implement/SKILL.md's rewritten "Always verify a Status PATCH actually
+# landed" rule reads, so an undriven arm is a prose contract with no coverage.
+# `_drive_cmd_update`'s stub answers the PATCH by echoing the body it was handed, so
+# a fixture whose Status line is stripped produces a Status-less PATCH response.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing',
+    patch_response="<!-- devflow:workpad -->\n# DevFlow Workpad\n\nno status line here\n")
+assert_eq("#814: a PATCH response carrying no Status line renders '(not found)', "
+          "never a bare empty clause",
+          True, "workpad.py update: PATCHed comment 7; Status: (not found)" in _err)
+assert_eq("#814: ... and the unreadable read-back also raises the landed-Status "
+          "mismatch WARNING",
+          True, "the PATCH response reads Status '(unreadable)'" in _err)
+
+# An EMPTY PATCH response (a throttled/oversized write) is reported distinctly from a
+# response whose body simply carries no Status line: pointing the reader at a corrupt
+# comment body when the RESPONSE was empty sends them after the wrong fault.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', patch_response="")
+assert_eq("#814: an empty PATCH response renders '(empty response)', not '(not found)'",
+          (True, False),
+          ("; Status: (empty response)" in _err, "; Status: (not found)" in _err))
+
+# The landed-Status comparison is machine-observable, not prose-only: a PATCH that
+# returns success while the comment body still carries the OLD status warns.
+_code, _out, _err, _patched = _drive_cmd_update(IDX_BODY, status='Reviewing')
+assert_eq("#814: a matching read-back raises no landed-Status mismatch warning",
+          False, "the PATCH response reads Status" in _err)
+
+# The breadcrumb fires on EVERY exit-0 PATCH path, including a checkpoint INSERT —
+# the shape .github/workflows/devflow-implement.yml's gate-adopted / claude-invoke
+# calls issue, which carry no --status and no --note.
+_code, _out, _err, _patched = _drive_cmd_update(_CP_BODY, checkpoint=[[_CPKEY, "invoked"]])
+assert_eq("#814: an absent-key checkpoint insert PATCHes and writes the success "
+          "breadcrumb, so a cloud checkpoint call is never byte-silent",
+          (True, 1),
+          (_patched is not None,
+           _err.count("workpad.py update: PATCHed comment ")))
+
+
+# `cmd_patch` carries an independent copy of the same write, and real consumers
+# capture it (scripts/flip-review-progress-failed.sh, skills/pr-description). Driven
+# behaviourally too, so a later "let's be consistent" gate on it turns this RED.
+def _drive_cmd_patch(payload):
+    saved = workpad._run
+    workpad._run = lambda cmd, **kw: _FakeRun(payload)
+    out = io.StringIO()
+    with _tempfile.NamedTemporaryFile('w', suffix='.md', delete=False) as tf:
+        tf.write('body file contents\n')
+        path = tf.name
+    try:
+        with contextlib.redirect_stdout(out):
+            workpad.cmd_patch(argparse.Namespace(comment_id=7, body_file=path))
+    finally:
+        workpad._run = saved
+        _os.unlink(path)
+    return out.getvalue()
+
+
+assert_eq("#814: cmd_patch still writes its response to stdout unconditionally",
+          "patched\n", _drive_cmd_patch("patched\n"))
+
 # Argparse rejection: `--print-body` belongs to `update` alone, so a subcommand that
 # does not define it exits 2. Driven through the real `main()` parser.
 def _run_workpad_cli(argv):
@@ -16720,8 +16796,15 @@ def _run_workpad_cli(argv):
 
 assert_eq("#814: --print-body on a subcommand that does not define it exits 2",
           2, _run_workpad_cli(['body', '7', '--print-body']))
-assert_eq("#814: --print-body is accepted by the update subparser",
-          True, _run_workpad_cli(['update', '--help']) in (0, None))
+# The positive control drives the REAL parser with the flag on the `update`
+# subcommand — `update --help` would exit 0 whether or not the flag was ever
+# registered, so it proves nothing about registration. Exit 2 is argparse's
+# unrecognized-argument verdict, so "not 2" is what distinguishes a registered flag
+# from an unregistered one; the stubbed `_run` keeps the parsed call from reaching a
+# real `gh`. Registering `--print-body` on the wrong subparser turns this RED.
+assert_eq("#814: --print-body is registered on the update subparser (the real parser "
+          "accepts it, rather than exiting 2 on an unrecognized argument)",
+          True, _run_workpad_cli(['update', '999', '--print-body', '--note', 'n']) != 2)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
