@@ -1004,7 +1004,7 @@
       "owner": "unmodularized"
     },
     "431": {
-      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while the trailing '#431 producer pins' block stays in lib/test/run.sh because its five assert_pin_red_under pins target efficiency-trace.{jq,sh}, devflow-review.yml, open-state-pr.sh and the run.sh-global $MAXI_BUNDLE — surfaces the assembler does not own",
+      "note": "partially extracted (issue #746): lib/test/modules/experiment-records.sh carries the build-experiment-records.py assembler coverage, while ordinary executable #431 assertions for configuration-fingerprint selection and efficiency-trace emission remain in lib/test/run.sh",
       "owner": "unmodularized"
     },
     "434": {

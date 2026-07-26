@@ -26,8 +26,9 @@ secondary-prose, documentation-presence, advisory-heading, or comment-presence p
 **Important** finding, whether it uses a pin helper or a raw text-presence assertion. A
 `# structural-pin-ok:` comment does not make prose executable.
 
-An operative prompt regression instead uses a mutation-taking helper that removes the operative
-text and demonstrates the named regression. A new non-mutation presence pin is valid only with
+An operative prompt regression instead uses an ordinary executable test over the
+rendered or consumed prompt and demonstrates that test going RED when the behavior
+breaks. A new static presence pin is valid only with
 the exact declaration `# structural-pin-ok: <category> -- <rationale>`, a nonempty rationale,
 and one category from this closed set: `helper-contract`, `schema-config-vocabulary`,
 `security-credential-boundary`, `machine-sentinel-provenance`,
@@ -142,7 +143,8 @@ subset of separators) rather than the value the consumer actually operates on.
 
 When a fix or a review probes behavior that depends on the **interpreter or environment** the artifact
 actually runs under, run interpreter- and environment-dependent probes under the interpreter the artifact
-actually runs under, and prefer mutation evidence over a hand probe when the two disagree. A probe run
+actually runs under, and prefer evidence from the executable test under its real
+interpreter over a hand probe when the two disagree. A probe run
 under the *wrong* interpreter reports a false vacuity — an assertion that is live under the artifact's
 real shell looks dead under the shell you happened to type into — and chasing it costs real effort across
 every reviewer who repeats the mistake, finding zero defects.
@@ -151,7 +153,7 @@ every reviewer who repeats the mistake, finding zero defects.
   Three of them are multibyte octal escapes. Bash expands them; that session's zsh does not. The
   orchestrator and two independent reviewers each probed under zsh, saw literal backslash text, and
   briefly concluded three assertions were vacuous. They were not — the suite's shebang is bash, and the
-  mutation evidence was decisive. Cost: real effort, three times over; defects found: zero. **PR #340
+  executable suite evidence was decisive. Cost: real effort, three times over; defects found: zero. **PR #340
   cost this would have eliminated:** the three false vacuity alarms — duplicated investigative effort
   across the orchestrator and two reviewers with zero defects found.
 
@@ -161,8 +163,8 @@ The shared engine's Phase 0.6 `stale-prose-lint.py` ships **detection only**: it
 claim in diff-added prose as `count-locked` in its TSV output. The **policy** for what to do about a
 `count-locked` claim lives here, in this repo's layer, not in the engine. When the fix loop's Step 3
 stale-prose pre-check (or the engine's Phase 0.6) reports a `count-locked` row whose claim is **not**
-already bound to a test assertion that would fail if the count drifts (the `assert_pin_unique` /
-`assert_pin_red_under` / `pin_count` corpus), apply the repo's **pin-or-don't-write** policy: either
+already bound to a test assertion that would fail if the count drifts (the
+`assert_pin_unique` / `pin_count` corpus), apply the repo's **pin-or-don't-write** policy: either
 bind the counted claim to a suite pin in the same change so a later drift turns the desk RED, or reword
 it drift-proof (a lower bound instead of an exact count, a pointer to the defining symbol instead of a
 copied enumeration) so there is no frozen count to go stale. Do not ship an unpinned exact-count claim

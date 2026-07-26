@@ -55,8 +55,8 @@ You are advisory only: never modify working-tree source files, the index, HEAD, 
 7. Treat a new wording-only presence pin as a test-quality defect: if its protected
    literal could change without executable behavior or a machine-consumed contract
    changing, recommend a behavioral boundary assertion instead. For an operative
-   prompt regression, require a mutation-taking helper whose focused mutation removes
-   the operative text and demonstrates the named regression.
+   prompt regression, require an ordinary executable test over the rendered or consumed
+   prompt and evidence that the test goes RED when the behavior breaks.
 
 **Rating Guidelines:**
 - 9-10: Critical functionality that could cause data loss, security issues, or system failures

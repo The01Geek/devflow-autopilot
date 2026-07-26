@@ -671,8 +671,8 @@ class SignalCleanupMatrixTests(unittest.TestCase):
             "export DEVFLOW_MODULE_SCRATCH_ROOT\n"
             '_ci_signal_fixture="$_ci_tmp_root/signal-source"\n'
             'printf \'operative\\n\' > "$_ci_signal_fixture"\n'
-            'devflow_module_pin_red_under "signal helper" "operative" '
-            '"s/operative//" "$_ci_signal_fixture"\n\n'
+            'sed -E "s/operative//" "$_ci_signal_fixture" '
+            '> "$_ci_signal_fixture.mutated"\n\n'
         )
         self.assertIn(insertion_point, module_text)
         module.write_text(
@@ -903,7 +903,6 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 generic_scratch = Path(
                     state.generic_scratch_file.read_text(encoding="utf-8").strip()
                 )
-                helper_scratches = list(module_root.glob("devflow-module-mut.*"))
                 self.assertEqual(runner_pid, process.pid)
                 self.assertNotEqual(module_pid, runner_pid)
                 self.assertNotEqual(worker_pid, module_pid)
@@ -916,9 +915,6 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                 self.assertNotIn("trap -- '' SIGINT", module_int_trap)
                 self.assertTrue(module_root.is_dir())
                 self.assertTrue(generic_scratch.is_dir())
-                self.assertEqual(len(helper_scratches), 1)
-                helper_scratch = helper_scratches[0]
-                self.assertTrue(helper_scratch.is_file())
 
                 signal_number = getattr(signal, signal_name)
                 if scope == "parent-only":
@@ -970,7 +966,6 @@ class SignalCleanupMatrixTests(unittest.TestCase):
                     self.assertFalse(self._pid_exists(pid), f"subprocess survived: {pid}")
                 self.assertFalse(module_root.exists(), "module scratch root survived")
                 self.assertFalse(generic_scratch.exists(), "generic module scratch survived")
-                self.assertFalse(helper_scratch.exists(), "module helper scratch survived")
                 self._assert_no_signal_leaks(state)
                 self.assertEqual(
                     state.runner_cleanup_marker.read_text(
@@ -1510,132 +1505,6 @@ class NamespacedModulePinHelperTests(unittest.TestCase):
             verdicts, ["PASS", "PASS", "FAIL", "FAIL"], process.stdout + process.stderr
         )
 
-    def test_pin_red_under_flips_on_operative_mutation_and_cleans_scratch(self) -> None:
-        process, verdicts = self._drive(
-            'F="$(mktemp)"; printf "operative sentence here\\nkeep\\n" > "$F"\n'
-            '# Operative mutation removes the pinned sentence -> PASS->FAIL -> PASS.\n'
-            'devflow_module_pin_red_under "operative mutation flips" '
-            '"operative sentence here" "s/operative sentence here//" "$F"\n'
-            '# A no-op mutation is never a vacuous pass -> RED.\n'
-            'devflow_module_pin_red_under "noop mutation is RED" '
-            '"operative sentence here" "s/ZZZ_NEVER_MATCHES//" "$F"\n'
-            '# An unreadable file -> RED.\n'
-            'devflow_module_pin_red_under "unreadable is RED" '
-            '"x" "s/x//" "/no/such/file"\n'
-            '# A malformed sed program is never a vacuous pass -> RED.\n'
-            'devflow_module_pin_red_under "sed error is RED" '
-            '"operative sentence here" "s/(/" "$F"\n'
-        )
-        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        self.assertEqual(
-            verdicts, ["PASS", "FAIL", "FAIL", "FAIL"], process.stdout + process.stderr
-        )
-
-    def test_pin_red_under_overbroad_blank_mutation_is_red(self) -> None:
-        # #666 overbreadth guard sibling assertion (one per guarded helper). A
-        # blank-the-file mutation (`1,$d` deletes every line; `s/.*//` empties every
-        # line, line count unchanged) retains ~0 non-whitespace and must trip the
-        # `mutation-overbroad` RED — the reject arm the count/module guards would
-        # otherwise leave unverified. Both spellings are exercised so the guard is
-        # proven to fire, not merely that its regression controls stay green.
-        process, verdicts = self._drive(
-            'F="$(mktemp)"; printf "operative sentence here\\nkeep line two here\\n" > "$F"\n'
-            '# Blank-the-file via delete-every-line -> mutation-overbroad -> RED.\n'
-            'devflow_module_pin_red_under "blank delete mutation is RED" '
-            '"operative sentence here" "1,\\$d" "$F"\n'
-            '# Blank-the-file via empty-every-line (line count unchanged) -> RED.\n'
-            'devflow_module_pin_red_under "blank substitute mutation is RED" '
-            '"operative sentence here" "s/.*//" "$F"\n'
-            '# An operative single-line mutation still flips PASS->FAIL (regression control).\n'
-            'devflow_module_pin_red_under "operative mutation still flips" '
-            '"operative sentence here" "s/operative sentence here//" "$F"\n'
-        )
-        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        self.assertEqual(
-            verdicts, ["FAIL", "FAIL", "PASS"], process.stdout + process.stderr
-        )
-
-    def test_pin_red_under_mktemp_failure_is_red(self) -> None:
-        # The mktemp-failure branch records a RED verdict (never a false PASS) when a
-        # scratch copy cannot be allocated. Shadow `mktemp` with a fake that exits 1.
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            fake_bin = root / "fake-bin"
-            fake_bin.mkdir()
-            (fake_bin / "mktemp").write_text(
-                "#!/usr/bin/env bash\nexit 1\n", encoding="utf-8"
-            )
-            (fake_bin / "mktemp").chmod(0o755)
-            results = root / "results"
-            fixture = root / "fixture"
-            fixture.write_text("pinned line\nkeep\n", encoding="utf-8")
-            driver = root / "driver.sh"
-            driver.write_text(
-                "#!/usr/bin/env bash\n"
-                f'RESULTS_FILE="{results}"\n'
-                f'export PATH="{fake_bin}:$PATH"\n'
-                '> "$RESULTS_FILE"\n'
-                "assert_eq() {\n"
-                '  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";\n'
-                '  else printf "FAIL\\n" >> "$RESULTS_FILE"; fi\n'
-                "}\n"
-                f'. "{HARNESS}"\n'
-                f'devflow_module_pin_red_under "mktemp failure is RED" '
-                f'"pinned line" "s/pinned line//" "{fixture}"\n',
-                encoding="utf-8",
-            )
-            process = subprocess.run(
-                ["bash", str(driver)],
-                cwd=root,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            verdicts = results.read_text(encoding="utf-8").split()
-        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        self.assertEqual(verdicts, ["FAIL"], process.stdout + process.stderr)
-
-    def test_pin_red_under_removes_its_scratch_on_every_return_path(self) -> None:
-        # Run several return paths (flip, no-op, unreadable, sed-error) and confirm
-        # NO devflow-module-mut.* scratch survives in the controlled TMPDIR.
-        with tempfile.TemporaryDirectory() as temporary_directory:
-            root = Path(temporary_directory)
-            controlled_tmp = root / "tmp"
-            controlled_tmp.mkdir()
-            results = root / "results"
-            fixture = root / "fixture"
-            fixture.write_text("pinned line\nkeep\n", encoding="utf-8")
-            driver = root / "driver.sh"
-            driver.write_text(
-                "#!/usr/bin/env bash\n"
-                f'RESULTS_FILE="{results}"\n'
-                f'export TMPDIR="{controlled_tmp}"\n'
-                '> "$RESULTS_FILE"\n'
-                "assert_eq() { printf 'PASS\\n' >> \"$RESULTS_FILE\"; }\n"
-                f'. "{HARNESS}"\n'
-                f'devflow_module_pin_red_under "flip" "pinned line" "s/pinned line//" "{fixture}"\n'
-                f'devflow_module_pin_red_under "noop" "pinned line" "s/NOPE//" "{fixture}"\n'
-                f'devflow_module_pin_red_under "unreadable" "x" "s/x//" "/no/such/file"\n'
-                f'devflow_module_pin_red_under "sederr" "pinned line" "s/(/" "{fixture}"\n',
-                encoding="utf-8",
-            )
-            subprocess.run(
-                ["bash", str(driver)],
-                cwd=root,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            leftover = sorted(
-                p.name for p in controlled_tmp.iterdir()
-            )
-        self.assertEqual(
-            [n for n in leftover if n.startswith("devflow-module-mut")],
-            [],
-            f"mutation scratch survived: {leftover}",
-        )
-
-
 # ── Failure recap (issue #789) ────────────────────────────────────────────────
 # The recap is `devflow_render_failure_recap` in lib/test/summary.sh and `record_fail` in
 # lib/test/module-harness.sh — both real, sourceable shell functions, so these tests SOURCE
@@ -1900,29 +1769,6 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             )
             self.assertIn("tally:0", proc.stdout, proc.stderr)
             self.assertIn("boundary:0", proc.stdout, proc.stderr)
-
-    def test_acru_fail_writes_the_verdict_token_and_identifier_in_order(self):
-        # 20 call sites depend on this ORDER: the whole-line FAIL the tally counts, then the
-        # arm's diagnostic token (which the `^FAIL$` match ignores and the contract
-        # self-tests read positionally), then the identifier.
-        script = f"""
-set -u
-RESULTS_FILE="$(mktemp)"
-eval "$(sed -n '/^_acru_fail() {{/,/^}}/p' "{RUN_SH}")"
-eval "$(sed -n '/^record_fail() {{/,/^}}/p' "{HARNESS}")"
-type _acru_fail >/dev/null 2>&1 || {{ echo "slice failed" >&2; exit 99; }}
-name="the assertion name"
-_acru_fail INVALID-OP "$name"
-printf 'TALLY[%s] NAMES[%s]\\n' "$(cat "$RESULTS_FILE" | tr '\\n' ',')" "$(cat "$RESULTS_FILE.names")"
-rm -f "$RESULTS_FILE" "$RESULTS_FILE.names"
-"""
-        proc = subprocess.run(
-            ["bash", "-c", script], capture_output=True, text=True, cwd=str(ROOT)
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("TALLY[FAIL,INVALID-OP,]", proc.stdout)
-        self.assertIn("NAMES[the assertion name]", proc.stdout)
-
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--signal-matrix-capability"]:

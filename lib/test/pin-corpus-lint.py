@@ -44,16 +44,12 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing-worktree`` — the retained mutation-boundary ratchet for the
+* ``mutation-routing-worktree`` — the retired-helper zero-population gate for the
   committed audited test-source population (issues #666 and #810). It builds the
-  opaque mutation-call census and requires the checked-in inventory to match it
-  exactly. Only the fifteen explicitly adjudicated retained identities are allowed;
-  adding, changing, reformatting, or moving a mutation call to another source path
-  is a policy finding.
-  Deleting a retained call passes when the inventory is refreshed in the same
-  change. The gate does not execute or interpret mutations or infer assignment
-  dependencies. Identity deliberately excludes line number, so a byte-identical
-  relocation inside the same file is not distinguished from unrelated line shifts.
+  opaque mutation-call census and requires both the census and checked-in inventory
+  to be empty. Every supported mutation-helper definition or invocation is
+  prohibited. The gate does not execute or interpret mutations, classify effects,
+  or infer assignment dependencies.
   Infrastructure failures exit 2, policy findings exit 3, and a clean established
   scan exits 0. The lower-level ``mutation-routing`` synthetic-fixture command
   remains for legacy self-tests.
@@ -146,15 +142,10 @@ HELPERS = {
     "assert_pin_unique": (1, 2, None),
     "pin_count": (0, 1, None),
     "assert_pin_red_on_removal": (1, 2, "MAXI_SKILL"),
+    # Retired helpers remain parseable only so maintainer tooling can reproduce
+    # historical frozen inventories. The zero-population census rejects every live
+    # definition or invocation before the authoring classifier runs.
     "assert_pin_red_under": (1, 3, "MAXI_SKILL"),
-    # NOTE (#666): `assert_count_red_under` is deliberately NOT registered here. Its
-    # first slot is `pattern` — an ERE counted with `grep -cE` over a `sed -n` line-range
-    # slice — whereas HELPERS' first slot is the fixed-string LITERAL that `lint` and
-    # `wrapped` treat as such. Registering it would make its first call site draw a
-    # `wrapped` finding for an anchor pattern that legitimately matches no literal line
-    # and a `lint` finding false by construction. It needs no registration to be handled
-    # correctly by `mutation-routing`: it is mutation-taking (see MUTATION_TAKING_HELPERS),
-    # which never draws a finding.
     # Namespaced module pin API (module-harness.sh, issue #577) so the meta-lints
     # cover pins that extraction moves out of run.sh into lib/test/modules/*.sh
     # (issue #591). Module pins always pass the target file explicitly — no default.
@@ -987,15 +978,12 @@ def _emit_wrapped_or_absent(pin, pin_source, nlit, nfile, lit, sink,
         )
 
 
-# ── #666 mutation-routing: the behavioral-fix-pin declaration gate ────────────
-# The mutation-taking helpers prove a pin is non-vacuous; NOTHING proved a pin
-# reached them. A behavioral-fix pin authored as a plain `assert_pin_unique` is
-# byte-indistinguishable from a legitimate structural pin, so a framing-only guard
-# ships silently. This diff-scoped, fail-closed gate makes the author STATE the
-# classification: a pin call site the change ADDS whose helper is not
-# mutation-taking must either route through a mutation-taking helper or carry an
-# explicit typed structural declaration. Sites the change does not touch are
-# out of scope by construction — no backfill of the ~1372 existing pins.
+# ── #666 mutation-routing: static-pin declaration gate ───────────────────────
+# Behavioral regressions belong in ordinary executable tests. A new static pin is
+# permitted only for a typed machine/executable boundary, so this diff-scoped,
+# fail-closed gate requires every added static pin call to carry that declaration.
+# Retired mutation-taking helpers are rejected separately by the zero-population
+# census before this classifier runs.
 
 # Helpers that MUST declare (non-mutation-taking pins) — complete by construction.
 REQUIRED_DECLARATION_HELPERS = frozenset(
@@ -1006,9 +994,8 @@ REQUIRED_DECLARATION_HELPERS = frozenset(
         "devflow_module_pin_present",
     }
 )
-# Mutation-taking helpers — never draw a finding (they already prove non-vacuity).
-# assert_count_red_under is deliberately NOT in HELPERS (see the note beside HELPERS);
-# it is mutation-taking, so even if it were extracted it would land in this set.
+# Historical parsing vocabulary only. Membership carries no live authoring exemption;
+# `mutation-routing-worktree` requires the corresponding census to remain empty.
 MUTATION_TAKING_HELPERS = frozenset(
     {"assert_pin_red_under", "devflow_module_pin_red_under", "assert_count_red_under"}
 )
@@ -1351,18 +1338,12 @@ def parse_diff(difftext):
 
 def _deleted_pin_literals(deleted_lines, lib, overrides):
     """Multiset (dict literal->count) of pin literals from DELETED pin sites whose
-    helper is a pin helper that is NOT mutation-taking and whose literal resolved —
-    the only deletions that can exempt an added site by move."""
+    literal resolved — the only deletions that can exempt an added site by move."""
     counts = {}
     text = "\n".join(deleted_lines)
     for pin in extract_pins(text, lib, overrides):
         lit = pin["literal"]
         if lit is None:
-            continue
-        if pin["helper"] in MUTATION_TAKING_HELPERS:
-            # A deletion of a mutation-taking site never exempts (an added
-            # non-mutation-taking site paired with it is the silent DOWNGRADE the
-            # gate exists to catch).
             continue
         counts[lit] = counts.get(lit, 0) + 1
     return counts
@@ -1437,7 +1418,7 @@ def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
         print(
             f"MUTATION-ROUTING\t{pin_source}:{lineno}\t{helper}\t"
             f"{literal if literal is not None else '<unresolved-literal>'}\t"
-            f"added non-mutation pin site needs a mutation-taking helper or a "
+            f"added pin site needs an ordinary executable behavioral test or a "
             f"'# structural-pin-ok: <category> -- <non-empty rationale>' declaration"
         )
     sys.stderr.write(f"MUTATION-ROUTING-SCANNED\t{scanned}\n")
@@ -1678,8 +1659,6 @@ def parse_unified_diff(difftext):
 
 
 def _helper_family(helper):
-    if helper in MUTATION_TAKING_HELPERS:
-        return "mutation-helper"
     if helper in COUNT_HELPERS:
         return "count-helper"
     return "static-helper"
@@ -2180,8 +2159,6 @@ def _site_changed(site, changed_lines):
 
 
 def _move_class(site):
-    if site.family == "mutation-helper":
-        return ("mutation-helper", None)
     if site.declaration is not None:
         return (site.family, site.declaration.category)
     return (site.family, "legacy")
@@ -2270,7 +2247,7 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
     unused_old = list(old_candidates)
     findings = []
     for site in new_candidates:
-        if site.family in ("mutation-helper", "count-helper"):
+        if site.family == "count-helper":
             continue
         inspection_error = _typed_pin_inspection_error(site, repo_root)
         if inspection_error is not None:
@@ -2515,7 +2492,7 @@ def _parse_mutation_inventory(path, census):
 
 
 def scan_worktree(repo_root, base_ref="origin/main", **_unused):
-    """Reject mutation calls outside the frozen retained-boundary identities."""
+    """Require an empty retired-helper census and byte-matching empty inventory."""
     del base_ref
     root = Path(repo_root)
     census = _load_mutation_census_module()

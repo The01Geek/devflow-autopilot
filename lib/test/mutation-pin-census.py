@@ -26,36 +26,7 @@ HELPERS = (
     "assert_count_red_under",
     "_ra_conflict_red_under",
 )
-GENERIC_HELPERS = frozenset(
-    {"assert_pin_red_under", "devflow_module_pin_red_under"}
-)
-HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES = frozenset(
-    {
-        "1f259de9a0422496fc20644eb0076768593e5e550b2ceba58426abfe15efde6e",
-        "22b65906375a646b8097e5841c1164d84935e0ba443ea027d8a64439bce86b09",
-        "3a2939778279bc8795054a9ba4f621d35269448d24e86b23327b30e694ff8a2b",
-        "84c69a5462a0cc22d3b0dfd9a4cbd938c997b3fcb64298a1167dba2457ec992b",
-        "e84f0528067b424dd327ac1360f7cedf8da6b7ebe5c033d88456ce1329517800",
-        "eb7c051b48605c0c70d903dbd87b484135d214e2372353e70f480b8a93455781",
-        "f700b7cc0f0c52b2708f2145a229450da40bc64371bec5cbd8c0ba40c37a584c",
-    }
-)
-EXECUTABLE_BOUNDARY_IDENTITIES = frozenset(
-    {
-        "2d8275d45a27368198dead82dff33049279641d0dfb11b97c711301137f94c71",
-        "6493953617fbc0748f1d528a769129bddd706736871213498c218671d0bdab30",
-        "773c694960dc8b3d0157098b277e5ce69e70b8e298ddb2ed7afa194a9114a136",
-        "9a3ff928b4ef3fb130d1b4b93584de8137b3fa6869366829c2b6b1499587341b",
-        "b6306602df7f51703c351ef1681e955ec00435629532ea9df2bbbfeaa7bd0433",
-        "bf9fad8a7a3e1f7eabfef637531c647c877bd442ff8d033d0f0c0e3cc73a97b2",
-        "cd000a5735a98dab2d7cf4af6167a823ab55b8bd1649ba99f7f18ebcd95fbdcd",
-        "e1b06d78765f7b4af817de611bcadebbaa2868a5ae41d9c83038bb5e8af9fd5f",
-    }
-)
-RETAINED_BOUNDARY_IDENTITIES = (
-    HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES
-    | EXECUTABLE_BOUNDARY_IDENTITIES
-)
+RETAINED_BOUNDARY_IDENTITIES = frozenset()
 EXPECTED_SOURCE_COUNT = 12
 NON_UTF8_SHELL_FIXTURES = frozenset(
     {"lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh"}
@@ -501,14 +472,14 @@ def build_census(repo_root: Path | str) -> CensusResult:
 
     definition_counts = _definition_counts(root, frozenset(sources))
     unexpected = {
-        helper: count for helper, count in definition_counts.items() if count != 1
+        helper: count for helper, count in definition_counts.items() if count != 0
     }
     if unexpected:
         details = ", ".join(
             f"{helper}={count}" for helper, count in sorted(unexpected.items())
         )
         raise CensusError(
-            f"unexpected helper definition count (expected exactly one each): {details}"
+            f"unexpected helper definition count (expected zero): {details}"
         )
 
     rows = sorted(
@@ -545,25 +516,9 @@ def _identity_sha256(row: CensusRow) -> str:
 
 
 def adjudicate(row: CensusRow) -> Adjudication:
-    identity_sha256 = _identity_sha256(row)
-    if identity_sha256 in HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES:
-        return Adjudication(
-            "retain_helper_infrastructure_boundary",
-            "outer executable assertion verifies helper failure diagnostics",
-        )
-    if identity_sha256 in EXECUTABLE_BOUNDARY_IDENTITIES:
-        return Adjudication(
-            "retain_executable_boundary",
-            "purpose-built helper observes mutated behavior",
-        )
-    if row.helper in GENERIC_HELPERS:
-        return Adjudication(
-            "retire_presence_equivalent",
-            "generic helper observes only pinned-literal cardinality in scratch copy",
-        )
     return Adjudication(
         "reject_unadjudicated_mutation_site",
-        "mutation-taking call is not an explicitly retained boundary",
+        "mutation-taking helpers are retired; write an executable behavioral test",
     )
 
 
