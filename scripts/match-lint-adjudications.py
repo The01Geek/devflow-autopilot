@@ -155,6 +155,16 @@ STALE = "STALE"
 # carried forward. lib/test/run.sh pins the lint's emitted STALE rule-id set, so adding a
 # rule turns that pin RED and forces the classification rather than letting a new
 # referent-less rule silently inherit eligibility.
+#
+# Issue #818's coverage-universal tier (rule tokens `CU`, and `RT` for its declared opt-out)
+# is classified here and discharges that obligation: it is **outside the carry-forward
+# population entirely**, so it needs no entry in the set below. Carry-forward operates on
+# adjudicated STALE rows — `main()` skips any row whose verdict is not STALE — and this tier
+# is recognition-only: it resolves no referent and emits only UNRESOLVABLE. A token that
+# never reaches a STALE verdict is never a carry-forward candidate, so listing it here would
+# be an exclusion that can never fire, not a guard. The classification is recorded rather
+# than the set widened, precisely so a later tier that *does* gate is forced through this
+# same decision instead of inheriting a silent precedent.
 CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})
 
 # The run-keyed progress-comment marker (mirrors skills/review/SKILL.md's Live
