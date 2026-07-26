@@ -1830,6 +1830,8 @@ def _is_executable_helper_prefix(tokens):
         index += 1
         if index < len(tokens) and tokens[index] == "-p":
             index += 1
+        if index < len(tokens) and tokens[index] == "--":
+            index += 1
     if index < len(tokens) and tokens[index] == "command":
         index += 1
         if index < len(tokens) and tokens[index] in {"--", "-p"}:
