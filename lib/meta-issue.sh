@@ -2,13 +2,19 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # meta-issue.sh — the retrospective loop's issue filer: file (or update) one
-# GitHub issue for a devflow pattern and record a permanent cross-run exclusion
-# in overrides.json (a `dismissed` entry that holds until a human clears it —
-# distinct from the within-window open-issue cooldown in actionable-patterns.sh;
-# the overrides write is skipped entirely on --dry-run, which observes only).
-# The body is authored by Stage B (retrospective-audit) to create-issue quality
-# and is filed verbatim, so the issue can later be executed through the normal
-# /devflow:implement -> review pipeline.
+# GitHub issue for a devflow pattern and record a `filed` meta-issue entry on that
+# pattern's lifecycle record in overrides.json (issue #788). The entry carries the
+# issue number and URL and is keyed by number: a filing whose number is already
+# present updates that entry in place rather than appending a duplicate, so the
+# open-issue de-dupe re-recording an existing issue every week does not exhaust the
+# per-category cap against one real issue. This helper writes NO `dismissed` entry
+# — `dismissed{}` is human-owned and written by no filing path; suppression now
+# lasts exactly as long as the issue-closure lifecycle `lib/pattern-state.sh`
+# reconciles, not permanently. The overrides write is skipped entirely on
+# --dry-run, which observes only. The body is authored by Stage B
+# (retrospective-audit) to create-issue quality and is filed verbatim, so the
+# issue can later be executed through the normal /devflow:implement -> review
+# pipeline.
 #
 # Usage:
 #   meta-issue.sh --tag <theme-tag> --slug <sanitized-tag> \
@@ -60,6 +66,15 @@ done
 case "$TAG" in
     *[!A-Za-z0-9_-]*|'')
         echo "meta-issue: invalid --tag '${TAG}' (expected [A-Za-z0-9_-]+)" >&2
+        exit 1 ;;
+esac
+
+# Validate SLUG against the same grammar: it is the overrides.patterns[] key the
+# lifecycle write injects, so a SLUG carrying a path/qualifier/space could produce
+# a non-canonical key that compute-patterns.jq would surface as a phantom pattern.
+case "$SLUG" in
+    *[!A-Za-z0-9_-]*|'')
+        echo "meta-issue: invalid --slug '${SLUG}' (expected [A-Za-z0-9_-]+)" >&2
         exit 1 ;;
 esac
 
@@ -173,44 +188,58 @@ fi
 
 # ── Step 2: update overrides.json ────────────────────────────────────────────
 # Skip the real mutation on a dry run — a dry run must observe, never alter the
-# cross-run state. Otherwise it would record a `dismissed` entry pointing at the
+# cross-run state. Otherwise it would record a lifecycle entry pointing at the
 # DRYRUN sentinel and a later live run would treat the slug as already filed and
 # skip the real filing.
 if [[ "$DRY_RUN" -eq 0 ]]; then
     if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
-        printf '{"schema_version":1,"dismissed":{}}' > "$OVERRIDES"
+        printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$OVERRIDES"
     fi
 
     NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    ISSUE_NUM="${URL##*/}"
     OVERRIDES_TMP="$(mktemp)"
-    # PRESERVE the original dismissed_at on a recurrence: this entry records WHEN
-    # the pattern was first dismissed (a permanent cross-run exclusion an auditor
-    # reads to see how long it has been parked). The Step-1 de-dupe re-runs this
-    # write on every recurrence, so writing $now unconditionally would drift the
-    # timestamp perpetually forward and mislead that audit. Only a brand-new entry
-    # (no prior dismissed_at) gets $now; an existing one keeps its first stamp.
+    # Append (or update in place) a `filed` meta-issue entry on the slug's
+    # lifecycle record, KEYED BY ISSUE NUMBER (issue #788): the Step-1 de-dupe
+    # re-runs this write on every recurrence with the SAME open issue, so an
+    # unkeyed append would write a duplicate entry for one real issue every week
+    # and exhaust max_open_per_category against a single open issue. An entry whose
+    # number is already present is updated in place; a new number is appended. The
+    # record's provenance is stamped once (first filing) and preserved on
+    # recurrence. This writes NO `dismissed` entry — that map is human-owned.
     if "$DEVFLOW_JQ" \
-        --arg tag "$SLUG" \
+        --arg slug "$SLUG" \
         --arg now "$NOW" \
         --arg url "$URL" \
-        '.dismissed[$tag] = {
-            dismissed_at: (.dismissed[$tag].dismissed_at // $now),
-            dismissed_by: "retrospective-weekly",
-            reason: "meta-plugin-issue",
-            meta_issue: $url
-        }' \
+        --argjson num "$ISSUE_NUM" \
+        '.schema_version = 2
+         | .patterns = (.patterns // {})
+         | .dismissed = (.dismissed // {})
+         | .patterns[$slug] = (
+             (.patterns[$slug] // {state:"filed", fixed_at:null, provenance:$now, meta_issues:[]})
+             | .provenance = (.provenance // $now)
+             | .meta_issues = (
+                 (.meta_issues // []) as $e
+                 | if ($e | any(.number == $num))
+                   then ($e | map(if .number == $num then (. + {url:$url, state:"filed"}) else . end))
+                   else ($e + [{number:$num, url:$url, state:"filed", closedAt:null}])
+                   end
+               )
+             | .state = "filed"
+             | .fixed_at = null
+           )' \
         "$OVERRIDES" > "$OVERRIDES_TMP"; then
         mv "$OVERRIDES_TMP" "$OVERRIDES"
     else
-        # The issue WAS filed (URL is on stdout below); only the cooldown record
+        # The issue WAS filed (URL is on stdout below); only the lifecycle record
         # failed. Do NOT report this as "not filed" — that would misstate the
         # state and lose the real issue. Exit 0 with the URL so the orchestrator
         # records the filing; on the next run the open-issue de-dupe (Step 1) is
         # the best-effort, single-layered recovery — it finds the still-open issue
-        # and comments instead of re-filing, recovering the missing cooldown only
+        # and comments instead of re-filing, recovering the missing record only
         # if that lookup itself succeeds (not a guarantee).
         rm -f "$OVERRIDES_TMP"
-        echo "::error::meta-issue: issue WAS filed (${URL}) but its cooldown could not be recorded in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
+        echo "::error::meta-issue: issue WAS filed (${URL}) but its lifecycle record could not be written in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
     fi
 fi
 

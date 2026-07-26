@@ -1,71 +1,160 @@
 {
-  "schema_version": 1,
-  "dismissed": {
+  "schema_version": 2,
+  "patterns": {
     "tooling-gap": {
-      "dismissed_at": "2026-06-03T21:39:06Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/113"
+      "state": "declined",
+      "fixed_at": "2026-06-28T21:24:43Z",
+      "provenance": "2026-06-03T21:39:06Z",
+      "meta_issues": [
+        {
+          "number": 113,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/113",
+          "state": "declined",
+          "closedAt": "2026-06-28T21:24:43Z",
+          "fixed_at": "2026-06-28T21:24:43Z"
+        }
+      ]
     },
     "incomplete-edit": {
-      "dismissed_at": "2026-06-03T21:39:06Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/114"
+      "state": "fixed",
+      "fixed_at": "2026-06-03T22:46:33Z",
+      "provenance": "2026-06-03T21:39:06Z",
+      "meta_issues": [
+        {
+          "number": 114,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/114",
+          "state": "fixed",
+          "closedAt": "2026-06-03T22:46:33Z",
+          "fixed_at": "2026-06-03T22:46:33Z"
+        }
+      ]
     },
     "convention-violation": {
-      "dismissed_at": "2026-06-29T21:52:52Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/182"
+      "state": "fixed",
+      "fixed_at": "2026-06-30T07:35:57Z",
+      "provenance": "2026-06-29T21:52:52Z",
+      "meta_issues": [
+        {
+          "number": 182,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/182",
+          "state": "fixed",
+          "closedAt": "2026-06-30T07:35:57Z",
+          "fixed_at": "2026-06-30T07:35:57Z"
+        }
+      ]
     },
     "doc-accuracy": {
-      "dismissed_at": "2026-06-29T21:52:56Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/183"
+      "state": "fixed",
+      "fixed_at": "2026-06-30T03:55:01Z",
+      "provenance": "2026-06-29T21:52:56Z",
+      "meta_issues": [
+        {
+          "number": 183,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/183",
+          "state": "fixed",
+          "closedAt": "2026-06-30T03:55:01Z",
+          "fixed_at": "2026-06-30T03:55:01Z"
+        }
+      ]
     },
     "issue-quality": {
-      "dismissed_at": "2026-06-29T21:53:01Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/184"
+      "state": "fixed",
+      "fixed_at": "2026-06-30T04:32:25Z",
+      "provenance": "2026-06-29T21:53:01Z",
+      "meta_issues": [
+        {
+          "number": 184,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/184",
+          "state": "fixed",
+          "closedAt": "2026-06-30T04:32:25Z",
+          "fixed_at": "2026-06-30T04:32:25Z"
+        }
+      ]
     },
     "lenient-verdict": {
-      "dismissed_at": "2026-06-29T21:53:05Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/185"
+      "state": "fixed",
+      "fixed_at": "2026-06-30T04:29:16Z",
+      "provenance": "2026-06-29T21:53:05Z",
+      "meta_issues": [
+        {
+          "number": 185,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/185",
+          "state": "fixed",
+          "closedAt": "2026-06-30T04:29:16Z",
+          "fixed_at": "2026-06-30T04:29:16Z"
+        }
+      ]
     },
     "unverified-assumption": {
-      "dismissed_at": "2026-06-29T21:53:10Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/186"
+      "state": "fixed",
+      "fixed_at": "2026-06-30T01:16:40Z",
+      "provenance": "2026-06-29T21:53:10Z",
+      "meta_issues": [
+        {
+          "number": 186,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/186",
+          "state": "fixed",
+          "closedAt": "2026-06-30T01:16:40Z",
+          "fixed_at": "2026-06-30T01:16:40Z"
+        }
+      ]
     },
     "deferred-verification": {
-      "dismissed_at": "2026-07-08T20:53:38Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/345"
+      "state": "fixed",
+      "fixed_at": "2026-07-09T05:02:37Z",
+      "provenance": "2026-07-08T20:53:38Z",
+      "meta_issues": [
+        {
+          "number": 345,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/345",
+          "state": "fixed",
+          "closedAt": "2026-07-09T05:02:37Z",
+          "fixed_at": "2026-07-09T05:02:37Z"
+        }
+      ]
     },
     "unmet-acceptance-criteria": {
-      "dismissed_at": "2026-07-08T20:55:15Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/346"
+      "state": "fixed",
+      "fixed_at": "2026-07-09T14:10:44Z",
+      "provenance": "2026-07-08T20:55:15Z",
+      "meta_issues": [
+        {
+          "number": 346,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/346",
+          "state": "fixed",
+          "closedAt": "2026-07-09T14:10:44Z",
+          "fixed_at": "2026-07-09T14:10:44Z"
+        }
+      ]
     },
     "outstanding-reject": {
-      "dismissed_at": "2026-07-08T20:57:05Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/347"
+      "state": "fixed",
+      "fixed_at": "2026-07-09T03:48:45Z",
+      "provenance": "2026-07-08T20:57:05Z",
+      "meta_issues": [
+        {
+          "number": 347,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/347",
+          "state": "fixed",
+          "closedAt": "2026-07-09T03:48:45Z",
+          "fixed_at": "2026-07-09T03:48:45Z"
+        }
+      ]
     },
     "fabricated-claim": {
-      "dismissed_at": "2026-07-24T02:25:21Z",
-      "dismissed_by": "retrospective-weekly",
-      "reason": "meta-plugin-issue",
-      "meta_issue": "https://github.com/The01Geek/devflow-autopilot/issues/761"
+      "state": "fixed",
+      "fixed_at": "2026-07-24T10:11:25Z",
+      "provenance": "2026-07-24T02:25:21Z",
+      "meta_issues": [
+        {
+          "number": 761,
+          "url": "https://github.com/The01Geek/devflow-autopilot/issues/761",
+          "state": "fixed",
+          "closedAt": "2026-07-24T10:11:25Z",
+          "fixed_at": "2026-07-24T10:11:25Z"
+        }
+      ]
     }
-  }
+  },
+  "dismissed": {}
 }

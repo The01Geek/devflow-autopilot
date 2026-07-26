@@ -59,6 +59,11 @@ trap 'rm -rf "$_JQ_TMP"' EXIT
 
 RETRO_FILE="$1"
 OVERRIDES_FILE="$2"
+# --full emits the UNFILTERED pattern view (every pattern, every status) so the
+# orchestrator can carry the whole picture into the run report (issue #788); the
+# default emits only the actionable subset (open/regressed above threshold).
+FULL=0
+[ "${3:-}" = "--full" ] && FULL=1
 
 MIN="$(devflow_conf '.devflow_retrospective.min_occurrences' 2)"
 COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
@@ -72,7 +77,7 @@ COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"
 if [ ! -f "$OVERRIDES_FILE" ] || [ ! -s "$OVERRIDES_FILE" ]; then
-    printf '{"schema_version":1,"dismissed":{}}' > "$_JQ_TMP/overrides.json"
+    printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$_JQ_TMP/overrides.json"
     _OVERRIDES_ACTUAL="$_JQ_TMP/overrides.json"
 fi
 
@@ -96,9 +101,11 @@ fi
 # Each pattern the loop files becomes an open issue titled
 # "[devflow-retrospective] meta: <slug> — <title>" (see lib/meta-issue.sh). A
 # pattern with such an issue still open and created within cooldown_days is in
-# cooldown — don't re-file it this run. (The permanent overrides.json dismissal
-# meta-issue.sh writes is the cross-run guard; this is the within-window one,
-# meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+# cooldown — don't re-file it this run. (The cross-run guard is now the
+# issue-closure lifecycle in overrides.patterns[] that lib/pattern-state.sh
+# reconciles — a pattern with a `filed` meta-issue derives status `filed` and is
+# not actionable; this cooldown is the within-window guard against re-filing the
+# same open issue twice inside one window.)
 # Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
 # non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
 # fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque
@@ -180,12 +187,17 @@ OUTPUT="$(
   "$DEVFLOW_JQ" -n --slurpfile pattern_view    "$_JQ_TMP/pattern_view.json" \
         --slurpfile open_issue_map  "$_JQ_TMP/open_issue_map.json" \
         --argjson min             "$MIN" \
+        --argjson full            "$FULL" \
         --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '
     [
       $pattern_view[0]
       | to_entries[]
-      | select(.value.status == "open" or .value.status == "regressed")
-      | select(.value.occurrence_count >= $min)
+      # Default (actionable) mode: only open/regressed patterns above the
+      # occurrence threshold — but a `regressed` pattern ALWAYS bypasses the
+      # threshold (issue #788: the schema documents this bypass; the code now
+      # honours it). --full mode drops both filters and emits every pattern.
+      | select($full == 1 or .value.status == "open" or .value.status == "regressed")
+      | select($full == 1 or .value.status == "regressed" or .value.occurrence_count >= $min)
       | .key as $tag
       | .value as $v
       # keys from compute-patterns.jq are already canonical slugs
