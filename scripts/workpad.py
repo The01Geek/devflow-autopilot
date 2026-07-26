@@ -926,6 +926,10 @@ _AC_PENDING_PLACEHOLDER = '_(pending — mirrored from the issue when the run be
 # fail closed, so an unbound record can never vacuously satisfy the membership
 # check it exists to gate.
 _SCOPE_DECISION_KINDS = ('deferred', 'rewritten')
+# The one kind whose work was punted rather than reworded — the only kind the
+# issue-#815 deferred-presence predicate counts. Named from the tuple rather than
+# re-spelled so it cannot survive a rename of the value it selects.
+_SCOPE_DECISION_DEFERRED_KIND = _SCOPE_DECISION_KINDS[0]
 _SCOPE_DECISION_PENDING_PR = 'pending'
 # The kind alternation is BUILT from `_SCOPE_DECISION_KINDS` rather than
 # re-spelled, so the constant is the single place a new kind is added — a
@@ -941,7 +945,7 @@ def _b64(text: str) -> str:
     return base64.b64encode(text.encode('utf-8')).decode('ascii')
 
 
-def _unb64(blob: str) -> str | None:
+def _unb64(blob: str, record: str = 'scope-decision') -> str | None:
     """Decode a record's payload, or None when it is not decodable UTF-8.
 
     Returns None rather than raising or falling back to the raw blob: a record
@@ -958,20 +962,39 @@ def _unb64(blob: str) -> str | None:
         # record reads as a corrupted record rather than as an audited decision
         # that silently stopped covering its criterion.
         sys.stderr.write(
-            f"workpad.py: ignoring a scope-decision record whose payload is not "
+            f"workpad.py: ignoring a {record} record whose payload is not "
             f"decodable UTF-8 base64 ({e}); it covers no criterion\n"
         )
         return None
 
 
-def _warn_empty_scope_payload(field: str) -> None:
+def _warn_empty_scope_payload(field: str, record: str = 'scope-decision') -> None:
     # Same breadcrumb discipline as `_unb64`'s undecodable path: an empty payload
     # is a corrupted record, and it must read as one rather than as an audited
     # decision that silently stopped covering its criterion.
     sys.stderr.write(
-        f"workpad.py: ignoring a scope-decision record whose {field}= payload is "
+        f"workpad.py: ignoring a {record} record whose {field}= payload is "
         f"empty; it covers no criterion\n"
     )
+
+
+def _decode_scope_payload(blob: str, field: str, record: str = 'scope-decision') -> str | None:
+    """Decode one record payload, or None when it establishes no criterion.
+
+    The single decode step every scope-decision reader shares: undecodable
+    base64 and a payload that decodes to the empty string are both records that
+    name no criterion and can therefore cover none, and each leaves its own
+    breadcrumb. Callers differ only in what they do with the None — drop it
+    (`_parse_scope_decisions`) or count it as corrupted
+    (`_bound_deferred_records`) — so only that decision is theirs to make.
+    """
+    text = _unb64(blob, record)
+    if text is None:
+        return None
+    if not text:
+        _warn_empty_scope_payload(field, record)
+        return None
+    return text
 
 
 def _render_scope_decision(pr: str, kind: str, text: str, new_text: str | None = None) -> str:
@@ -1005,18 +1028,14 @@ def _parse_scope_decisions(body: str, pr: int | None) -> list[dict]:
         rec_pr, kind, blob, new_blob = m.group(1), m.group(2), m.group(3), m.group(4)
         if rec_pr == _SCOPE_DECISION_PENDING_PR or int(rec_pr) != pr:
             continue
-        text = _unb64(blob)
+        text = _decode_scope_payload(blob, 'text')
         if text is None:
             continue
-        if not text:
-            _warn_empty_scope_payload('text')
-            continue
-        new_text = _unb64(new_blob) if new_blob is not None else None
-        if new_blob is not None and new_text is None:
-            continue
-        if new_blob is not None and not new_text:
-            _warn_empty_scope_payload('newtext')
-            continue
+        new_text = None
+        if new_blob is not None:
+            new_text = _decode_scope_payload(new_blob, 'newtext')
+            if new_text is None:
+                continue
         out.append({'kind': kind, 'text': text, 'new_text': new_text})
     return out
 
@@ -1059,6 +1078,317 @@ def _bind_scope_decisions(body: str, pr: int) -> str:
             f"earlier run on this issue were adopted\n"
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# Issue #815 — the bounded deferred-AC presence predicate.
+#
+# Phase 4 gates the LOAD of `skills/implement/references/deferred-ac-followups.md`
+# on `deferred-presence`'s exit code, so this reader decides whether a run that
+# deferred acceptance criteria ever files a follow-up issue for them. Two
+# properties follow from that, and both are load-bearing:
+#
+#   * It is BOUNDED. A workpad at Phase 4 runs to tens of thousands of
+#     characters — larger than the procedure being gated — so the answer is one
+#     count line plus, on the outstanding arm, one normalized criterion per
+#     outstanding record. The body is never printed.
+#   * It is decided in PYTHON, over the module-level `_SCOPE_DECISION_RE` this
+#     file already owns. `lib/preflight.sh` guarantees no `grep`/`tr`/`sed`, and
+#     a predicate derived through one of those fails OPEN where the tool is
+#     absent: the pipeline yields empty, the run reads "nothing was deferred",
+#     and the deferred work is stranded with no follow-up and no reflection.
+#
+# The filed marker is its OWN comment marker, and the scope-decision grammar is
+# left byte-untouched. That grammar is closed and load-bearing: its regex
+# terminates at a literal ` -->` and its `kind=` alternation is built from
+# `_SCOPE_DECISION_KINDS`, so an added `filed=` field stops the record matching
+# at all and a `kind=filed` value matches nothing without widening that
+# constant — and `_parse_scope_decisions` feeds `acs-resolve`, which the
+# MERGE-GATING reviewer reads, so a record that stops parsing turns a deferred
+# criterion into an unexplained dropped one in front of the gate that decides
+# the merge.
+_DEFERRED_FILED_RE = re.compile(r'<!-- devflow:deferred-filed text=([A-Za-z0-9+/=]*) -->')
+
+# A `## Progress` bullet as `_append_progress_note` renders it: `  - HH:MM:SS — <text>`
+# nested, or the same flat. The prefix is a module constant so the READERS of this wire
+# format share one spelling (`_PROGRESS_BULLET_RE` and `_CLASSIFICATION_NOTE_RE`). The
+# writer in `_append_progress_note` still spells the format independently, as an f-string
+# it cannot build from a regex — so a change to the separator or the timestamp width must
+# be made there too. The capture is the bullet's note text; see
+# `_isolated_progress_markers` for why the readers need it isolated.
+_PROGRESS_BULLET_PREFIX_RE = r'^[ \t]*[-*][ \t]+\d{2}:\d{2}:\d{2}[ \t]+—[ \t]+'
+_PROGRESS_BULLET_RE = re.compile(_PROGRESS_BULLET_PREFIX_RE + r'(.*)$')
+
+
+def _render_deferred_filed(normalized_text: str) -> str:
+    """Render the filed marker for one discharged deferred criterion.
+
+    `normalized_text` MUST be a `criterion:` line `deferred-presence` printed,
+    verbatim: that string is already `normalize_criterion`'s output (it came
+    back out of the record's own `text=` payload), so re-normalizing here would
+    be a second pass over an already-normalized value, and re-typing it by hand
+    would key the marker on a string no record carries.
+    """
+    return f'<!-- devflow:deferred-filed text={_b64(normalized_text)} -->'
+
+
+def _progress_content_or_none(body: str) -> str | None:
+    """The single canonical `## Progress` section's content, or None.
+
+    None means the section is absent or duplicated. The workpad is
+    agent-mutable markdown, so both shapes are read as *unestablished* by the
+    caller rather than as an empty record set: records are written only into
+    this section, so a body that does not present exactly one of it is one this
+    reader cannot speak for — and answering a confident zero there is the
+    stranding failure the three-state contract exists to avoid.
+    """
+    _, sections = _split_sections(body)
+    idx = _find_section(sections, 'Progress')
+    if idx is None:
+        return None
+    # `_find_section` answers with the FIRST match, so a duplicated section would
+    # otherwise read as a clean single one and this reader would silently speak
+    # for only half the body.
+    if sum(1 for h, _ in sections if h.strip().lower() == '## progress') != 1:
+        return None
+    return sections[idx][1]
+
+
+def _isolated_progress_markers(content: str, pattern: 're.Pattern[str]'):
+    """Yield one match of `pattern` per `## Progress` bullet whose note text is
+    ENTIRELY that marker.
+
+    `content` is the already-resolved `## Progress` section
+    (`_progress_content_or_none`), passed in rather than re-derived so one
+    invocation splits the body once instead of once per reader.
+
+    This isolation is **reader-local**, not a property of the record format:
+    `_parse_scope_decisions` — the older, merge-gate-facing reader that feeds
+    `acs-resolve` — still scans the whole body with `finditer`, deliberately
+    unchanged here so this change cannot move what the merge gate sees. So the
+    guarantees below describe what THIS reader accepts, not what any reader of
+    the grammar accepts.
+
+    Two restrictions, and each closes a distinct half of the same injection
+    shape. Records are written only through the note-append path, so they land
+    in `## Progress` as their own isolated bullet — which means (a) scoping the
+    scan to that section makes a marker-shaped literal in the mirrored
+    `## Acceptance Criteria` or in a `## Devflow Reflection` bullet invisible,
+    and (b) requiring a `fullmatch` of the bullet's note text makes a marker
+    embedded inside free-text note prose invisible too. Those three regions
+    store their text unencoded, so they are the reachable injection surface; a
+    criterion's own text is not, because the payload is base64-encoded before
+    storage.
+
+    Residual, stated rather than silently assumed: a free-text note whose text
+    is *nothing but* a byte-identical marker is indistinguishable from a
+    writer-produced record. Separating them would need a provenance channel the
+    record format does not carry — the same class of known limitation
+    `_bind_scope_decisions` documents for cross-run contamination.
+    """
+    for line in content.split('\n'):
+        bullet = _PROGRESS_BULLET_RE.match(line)
+        if bullet is None:
+            continue
+        m = pattern.fullmatch(bullet.group(1).strip())
+        if m is not None:
+            yield m
+
+
+def _whole_body_deferred_count(body: str) -> int:
+    """Count `kind=deferred` records the WHOLE-BODY reader sees.
+
+    `_parse_scope_decisions` — the merge-gate-facing reader behind `acs-resolve`
+    — scans the whole body with `finditer`, while `_bound_deferred_records`
+    below reads only isolated `## Progress` bullets. That narrowing is the
+    injection defense, but it is also a way for a record to be visible to the
+    merge gate and invisible here: a body re-rendered by `patch`, a bullet whose
+    timestamp prefix did not survive an edit, a record under a differently-titled
+    heading. Without this comparand the difference would come out as a confident
+    `not-outstanding: 0` — the stranding direction, and precisely the confident
+    zero the three-state contract exists to refuse.
+    """
+    return sum(1 for m in _SCOPE_DECISION_RE.finditer(body)
+               if m.group(2) == _SCOPE_DECISION_DEFERRED_KIND)
+
+
+def _bound_deferred_records(content: str, pr: int) -> tuple[list[str], int, int]:
+    """Return `(bound_texts, unbound_count, corrupted_count)` for `pr`.
+
+    `bound_texts` holds the normalized criterion of every `kind=deferred`
+    record bound to `pr` whose payload decoded to non-empty text.
+    `unbound_count` counts the `kind=deferred` records that do NOT bind to `pr`
+    — `pr=pending` (Phase 3.1's binding step never ran) and a superseded PR
+    number alike. `corrupted_count` counts the bound records whose `text=`
+    payload is undecodable base64 or decodes to the empty string.
+
+    The two counts exist because a PR-keyed count alone would answer a
+    confident ZERO for a workpad whose deferred records are still `pending` or
+    are bound to a superseded PR — and a confident zero is not an unavailable
+    operand, so the caller's fail-open arm would never fire and the deferred
+    work would be stranded with no reflection at all.
+
+    `kind=rewritten` records enter none of the three buckets: they record a
+    criterion whose text changed, not one whose work was punted, so no path
+    files a follow-up for one.
+    """
+    bound_texts: list[str] = []
+    unbound_count = 0
+    corrupted_count = 0
+    pr_str = str(pr)
+    for m in _isolated_progress_markers(content, _SCOPE_DECISION_RE):
+        rec_pr, kind, blob = m.group(1), m.group(2), m.group(3)
+        if kind != _SCOPE_DECISION_DEFERRED_KIND:
+            continue
+        if rec_pr == _SCOPE_DECISION_PENDING_PR or rec_pr != pr_str:
+            unbound_count += 1
+            continue
+        text = _decode_scope_payload(blob, 'text')
+        if text is None:
+            corrupted_count += 1
+            continue
+        bound_texts.append(text)
+    return bound_texts, unbound_count, corrupted_count
+
+
+def _filed_criteria(content: str) -> set[str]:
+    """Normalized criterion text of every deferred criterion already filed.
+
+    Read under the same section-scoped, whole-bullet-only discipline as
+    `_bound_deferred_records`, so an injected filed-marker literal cannot
+    discharge a real deferral.
+    """
+    filed: set[str] = set()
+    for m in _isolated_progress_markers(content, _DEFERRED_FILED_RE):
+        text = _decode_scope_payload(m.group(1), 'text', 'deferred-filed')
+        if text is not None:
+            filed.add(text)
+    return filed
+
+
+def _print_unestablished(reason: str, unbound: int = 0, corrupted: int = 0,
+                         filed: 'set[str] | None' = None):
+    """Print the single `unestablished` count line and exit 2.
+
+    One home for the line's format so no arm that reaches it can drift into a
+    different shape of the same contract — the stub literal-matches
+    the `reason=` token, so a divergent arm is a routing decision the reader
+    cannot make.
+
+    `filed` carries the criteria a `devflow:deferred-filed` marker has already
+    discharged, printed one per `filed:` line. Without it the unestablished arm
+    would be a duplicate-filing hole: it exits before the outstanding set is
+    computed, so a workpad whose records never got bound (Phase 3.1's binding
+    PATCH is best-effort) answers `unestablished` on EVERY fresh Phase 4 entry,
+    and an agent with no filed operand re-files what a prior entry already
+    filed. The arms that could not resolve the `## Progress` section pass None
+    and print no `filed:` line — there the operand genuinely does not exist.
+    """
+    print(f'unestablished: reason={reason} unbound={unbound} corrupted={corrupted}')
+    for text in sorted(filed or ()):
+        print(f'filed: {text}')
+    sys.exit(2)
+
+
+def cmd_deferred_presence(args):
+    """Answer, boundedly, whether this run has unfiled deferred criteria.
+
+    Exit codes follow `grep(1)`'s 0-match / 1-no-match / 2-error idiom rather
+    than reusing `id`'s or `status`'s own conventions, which were designed for
+    unrelated questions and would read confusingly here:
+
+      0  outstanding      — at least one `kind=deferred` record bound to this
+                            run's PR carries no filed marker. Phase 4 reads the
+                            reference and files.
+      1  not outstanding  — every such record carries one (or there are none).
+                            Phase 4 skips the reference.
+      2  unestablished    — the answer could not be settled. Phase 4 reads the
+                            reference anyway and records a `note` reflection,
+                            because reading an unavailable operand as "nothing
+                            was deferred" silently strands deferred work while
+                            a needless load costs one read the reference's own
+                            skip sentence absorbs.
+
+    Exactly one bounded count line goes to stdout — followed, on the arms that
+    resolved the `## Progress` section, by one `filed:` line per already-filed
+    criterion so an unestablished answer cannot become a duplicate-filing hole —
+    and the `unestablished` line names WHICH operand failed — so a run that never resolved its PR number is
+    distinguishable from a workpad-read failure in the reflection Phase 4
+    records. The workpad body is never printed. (`argparse`'s own usage exit is
+    also 2, which routes a malformed invocation to the same fail-closed arm.)
+    """
+    marker = _workpad_marker(args.marker)
+    c = _find_workpad_comment(
+        'deferred-presence', _repo_full(api_fail_code=2), args.issue, marker,
+        api_fail_code=2,
+    )
+    if c is None:
+        sys.stderr.write(
+            f"workpad.py deferred-presence: no workpad comment carrying {marker!r} "
+            f"on issue #{args.issue}; whether Phase 2.2.5 deferred any acceptance "
+            f"criterion could not be established\n"
+        )
+        _print_unestablished('workpad-unresolved')
+    # Resolve the section ONCE and hand it to both readers: the body runs to tens
+    # of thousands of characters at Phase 4, and re-deriving it per reader would
+    # re-split the whole thing for an answer that cannot change mid-invocation.
+    body = c.get('body') or ''
+    content = _progress_content_or_none(body)
+    if content is None:
+        sys.stderr.write(
+            "workpad.py deferred-presence: the workpad does not carry exactly one "
+            "'## Progress' section (absent or duplicated); scope-decision records are "
+            "written only there, so whether any deferred criterion is outstanding "
+            "could not be established\n"
+        )
+        _print_unestablished('progress-section-unreadable')
+    bound, unbound, corrupted = _bound_deferred_records(content, args.pr)
+    # The isolated-bullet reader must see every record the whole-body reader does.
+    # When it sees fewer, some record is visible to `acs-resolve` and invisible
+    # here, and the two readers would disagree in the stranding direction.
+    seen = len(bound) + unbound + corrupted
+    whole = _whole_body_deferred_count(body)
+    if whole > seen:
+        sys.stderr.write(
+            f"workpad.py deferred-presence: the whole-body scan finds {whole} kind=deferred "
+            f"record(s) but only {seen} sit in an isolated '## Progress' bullet; the "
+            f"difference is visible to acs-resolve and invisible here, so whether any "
+            f"deferred criterion is outstanding could not be established\n"
+        )
+        _print_unestablished('reader-divergence', unbound, corrupted,
+                             _filed_criteria(content))
+    if unbound or corrupted:
+        # Corrupted is reported first when both are present: a record bound to
+        # this PR that cannot be read is the more specific failure, and naming
+        # the vaguer one would send a reader to the binding step over a payload
+        # problem. Both counts print either way.
+        _print_unestablished(
+            'corrupted-records' if corrupted else 'unbound-records', unbound, corrupted,
+            _filed_criteria(content))
+    # A filed marker is keyed on the record's NORMALIZED text, and
+    # `normalize_criterion` strips a trailing ` (post-merge)` tag and collapses
+    # whitespace — so two genuinely distinct deferred criteria can share one key.
+    # Discharging by set membership would then let one marker retire both, filing
+    # a follow-up for only one of them. Refuse to answer rather than strand it.
+    if len(set(bound)) != len(bound):
+        sys.stderr.write(
+            "workpad.py deferred-presence: two or more kind=deferred records bound to this "
+            "PR share one normalized criterion text, so a filed marker cannot discharge them "
+            "individually; whether any deferred criterion is outstanding could not be "
+            "established\n"
+        )
+        _print_unestablished('ambiguous-criteria', unbound, corrupted,
+                             _filed_criteria(content))
+    filed = _filed_criteria(content)
+    outstanding = [t for t in bound if t not in filed]
+    if outstanding:
+        print(f'outstanding: {len(outstanding)}')
+        for text in outstanding:
+            print(f'criterion: {text}')
+        sys.exit(0)
+    print(f'not-outstanding: {len(bound)}')
+    sys.exit(1)
+
 
 # The bug-only "reproduction captured" ## Progress sub-row. SINGLE SOURCE for the
 # row `cmd_new_body` renders AND the row `_reconcile_reproduction_row` (issue #449)
@@ -1582,7 +1912,7 @@ _CLASSIFICATION_NOTE_PREFIX = 'classification: '
 # fresh record can supersede it. Anchored at line start; tick-state-irrelevant
 # (notes are plain bullets, not checkboxes).
 _CLASSIFICATION_NOTE_RE = re.compile(
-    r'^\s*[-*]\s+\d{2}:\d{2}:\d{2}\s+—\s+' + re.escape(_CLASSIFICATION_NOTE_PREFIX)
+    _PROGRESS_BULLET_PREFIX_RE + re.escape(_CLASSIFICATION_NOTE_PREFIX)
 )
 
 
@@ -2348,7 +2678,7 @@ def _has_non_checkpoint_mutation(args) -> bool:
         args.note, args.reflection, args.reflection_file,
         args.record_classification, args.reconcile_reproduction,
         args.scope_decision_deferred, args.scope_decision_rewritten,
-        args.bind_scope_decisions,
+        args.bind_scope_decisions, args.mark_deferred_filed,
     ])
 
 
@@ -2826,7 +3156,33 @@ def _apply_mutations(body: str, args, failed_ticks) -> str:
     # ordinary Progress bullet whose text is the delimited marker. They append
     # AFTER the free-text --note bullets so a 2.2.5/2.2.6 call reads
     # human-narrative-then-machine-record in the rendered workpad.
-    progress_notes = list(args.note) + scope_decision_notes + [
+    # Filed markers (issue #815) ride the same note-append path for the same
+    # reason the scope-decision records do, and each is one whole isolated
+    # bullet — which is precisely what lets `_isolated_progress_markers` refuse
+    # a marker embedded in free-text prose.
+    mark_filed = getattr(args, 'mark_deferred_filed', None) or []
+    if mark_filed:
+        # Best-effort: a marker whose value matches no deferred record on the body
+        # being written discharges nothing, and the writer would not learn that
+        # until a duplicate follow-up appeared a phase later. The value must be a
+        # `criterion:` line the predicate printed (already normalized); the note's
+        # verbatim text is the natural slip. Breadcrumb only — never a mutation
+        # failure, since the record set is PR-scoped and this writer is not.
+        _filed_targets = {
+            m.group(3) for m in _isolated_progress_markers(
+                _progress_content_or_none(body) or '', _SCOPE_DECISION_RE)
+            if m.group(2) == _SCOPE_DECISION_DEFERRED_KIND
+        }
+        _filed_texts = {t for t in (_unb64(b, 'scope-decision') for b in _filed_targets) if t}
+        for _t in mark_filed:
+            if _t not in _filed_texts:
+                sys.stderr.write(
+                    f"workpad.py: --mark-deferred-filed value {_t!r} matches no kind=deferred "
+                    f"record on this workpad; the marker will discharge nothing — pass a "
+                    f"`criterion:` line `deferred-presence` printed, verbatim\n"
+                )
+    deferred_filed_notes = [_render_deferred_filed(t) for t in mark_filed]
+    progress_notes = list(args.note) + scope_decision_notes + deferred_filed_notes + [
         f'{text} {_checkpoint_marker(key)}' for key, text in checkpoint_inserts
     ]
     if progress_notes:
@@ -3015,6 +3371,22 @@ def main():
                         'exactly as it does for an unbound record.')
     s.set_defaults(func=cmd_acs_resolve)
 
+    s = sub.add_parser(
+        'deferred-presence',
+        help='Bounded three-state check for unfiled deferred criteria bound to '
+             "this run's PR. Exits 0 outstanding / 1 not-outstanding / 2 "
+             'unestablished (grep-style), prints one count line and, on exit 0, '
+             'one criterion: line per outstanding record. Never prints the body. '
+             'Phase 4 gates the deferred-AC reference load on it.',
+    )
+    s.add_argument('issue', type=int)
+    s.add_argument('pr', type=int,
+                   help="This run's PR number, as a decimal literal. A record "
+                        'bound to any other number — or still reading pending — '
+                        'answers unestablished rather than a confident zero.')
+    s.add_argument('--marker', default=None, help=_marker_help)
+    s.set_defaults(func=cmd_deferred_presence)
+
     s = sub.add_parser('patch', help='PATCH a workpad comment from a body file; prints new body.')
     s.add_argument('comment_id', type=int)
     s.add_argument('body_file')
@@ -3138,6 +3510,18 @@ def main():
                         'after gh pr create, which is the first moment the '
                         'number exists. Idempotent: a record already carrying a '
                         'number is left untouched.')
+    u.add_argument('--mark-deferred-filed', metavar='NORMALIZED_TEXT',
+                   action='append', default=[],
+                   help='Record that a follow-up issue was filed for the '
+                        'kind=deferred criterion whose NORMALIZED_TEXT is a '
+                        'criterion: line `deferred-presence` printed — pass it '
+                        'verbatim, never re-typed. Writes its own '
+                        '<!-- devflow:deferred-filed ... --> Progress bullet, a '
+                        'grammar distinct from devflow:scope-decision, so '
+                        'acs-resolve still reports the criterion DEFERRED. A '
+                        'matching record then reads not-outstanding, which is '
+                        'what stops a second Phase 4 entry re-filing it. '
+                        'Repeatable — one per filed criterion.')
     u.add_argument('--note', metavar='TEXT', action='append', default=[],
                    help='Append a note bullet, prefixed with a time-only '
                         'HH:MM:SS UTC timestamp and nested under the current '

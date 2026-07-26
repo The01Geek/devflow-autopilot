@@ -67,6 +67,7 @@
       "surfaces": [
         {"glob": "skills/implement/SKILL.md", "load_class": "always", "required": true},
         {"glob": "skills/implement/phases/*.md", "load_class": "phase", "required": true},
+        {"glob": "skills/implement/references/*.md", "load_class": "reference", "required": false},
         {"glob": "skills/review/SKILL.md", "load_class": "nested", "required": true},
         {"glob": "skills/review/phases/*.md", "load_class": "nested", "required": true},
         {"glob": "skills/review-and-fix/SKILL.md", "load_class": "nested", "required": true},
