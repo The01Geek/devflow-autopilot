@@ -18,7 +18,7 @@ kind: relocate
 ## Destination
 
 - `skills/implement/references/deferred-ac-followups.md` (`implement-conditional`,
-  `reference` — a genuinely conditional file) — 27,636 bytes, reached only when
+  `reference` — a genuinely conditional file) — 29,651 bytes, reached only when
   `scripts/workpad.py deferred-presence <issue> <pr>` reports an outstanding or an
   unestablished answer, behind a first-line/last-line boundary-marker entry gate that
   degrades best-effort rather than halting. Trigger: at least one `kind=deferred`
@@ -34,7 +34,7 @@ degraded arm.
 | File | Before | After |
 | --- | --- | --- |
 | `skills/implement/phases/phase-4-documentation.md` | 116,879 | 96,264 |
-| `skills/implement/references/deferred-ac-followups.md` | — | 27,636 |
+| `skills/implement/references/deferred-ac-followups.md` | — | 29,651 |
 
 Removing section 4.0 alone leaves 93,638, so the routing stub is 2,626 bytes — inside the
 acceptance criterion's ~3,200-byte allowance — and the phase file lands 359 bytes under its
@@ -59,7 +59,14 @@ change's own contract requires:
    by a sentence stating that the stub's predicate has already established the answer, plus
    the reference's own skip sentence for the unestablished arm. That skip sentence is what
    the stub's cost argument leans on — a needless load on an unestablished operand costs one
-   read the reference absorbs.
+   read the reference absorbs. The unestablished arm carries its own procedure, because the
+   predicate exits before it computes the outstanding set and so prints no `criterion:`
+   line there: the reference enumerates the deferred criteria directly from the Phase 2.2.5
+   `--note` bullets, conditions the skip solely on that enumeration being empty, treats the
+   two arms that print no `filed:` line at all (`reason=workpad-unresolved`,
+   `reason=progress-section-unreadable`) as an operand that is unavailable rather than
+   empty — checking GitHub for an existing follow-up before creating one — and normalizes
+   the note's verbatim text itself before passing it to `--mark-deferred-filed`.
 2. A paragraph distinguishing the two criterion channels: the predicate's `criterion:`
    projection is **normalized** (`scripts/section_parse.py`'s `normalize_criterion` strips a
    trailing ` (post-merge)` tag and collapses whitespace runs), so it identifies which
