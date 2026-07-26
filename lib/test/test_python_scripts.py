@@ -16788,6 +16788,15 @@ assert_eq("#814: the landed-Status mismatch WARNING fires on the volatile-tick-m
           ("the PATCH response reads Status 'implementing'" in _err,
            "NO_SUCH_AC" in _err,
            _err.count("workpad.py update: PATCHed comment ")))
+# ... and it is still a MISMATCH guard on that path, not an unconditional miss-path
+# line: the same shape with a read-back that agrees raises nothing. Without this the
+# sibling above is satisfied by a mutant that fires the WARNING whenever a tick missed.
+_code, _out, _err, _patched = _drive_cmd_update(
+    IDX_BODY, status='Reviewing', tick_ac=['NO_SUCH_AC'])
+assert_eq("#814: ... while a MATCHING read-back on that same volatile-miss path raises "
+          "no WARNING",
+          (True, False),
+          ("NO_SUCH_AC" in _err, "the PATCH response reads Status" in _err))
 
 # The breadcrumb fires on EVERY exit-0 PATCH path, including a checkpoint INSERT —
 # the shape .github/workflows/devflow-implement.yml's gate-adopted / claude-invoke
