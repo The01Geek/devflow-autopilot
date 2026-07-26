@@ -502,12 +502,11 @@ rm -f "$_ra_tmp_root/.ra-symlink-probe" 2>/dev/null || :
 # helper (a meta-assertion REDs the suite on any other producer). Announce the gated
 # rows on stderr instead, so an unsupported host leaves an auditable trace rather than
 # a silently smaller assertion set. Issue #838 added `module_host_capability_skip`, the
-# accounted channel a module uses to declare exactly this kind of condition — but this
-# gate does not merely omit assertions, it reshapes the fixture (an unsupported host
-# builds no `link.md` at all, which is why `copied` stays 5), so the assertion credit
-# that channel requires is not a simple count here. Converting it is deliberately left
-# to its own change rather than guessed at; this stderr trace remains the record until
-# then.
+# accounted channel a module uses to declare exactly this kind of condition; this gate
+# is a peer instance that should route through it. It was left unconverted only because
+# it falls outside #838's acceptance criteria, not for any technical obstacle — the
+# gated arm's assertion delta is an ordinary count, so the conversion is a follow-up
+# rather than a redesign. This stderr trace remains the record until then.
 [ "$_ra_symlink_ok" = yes ] ||
   printf 'regenerate-artifacts: symlink index-entry rows gated out (host-capability: this filesystem/checkout cannot create a symlink, so a 120000 index entry cannot be built)\n' >&2
 mkdir -p "$_ra_ix/sub dir"

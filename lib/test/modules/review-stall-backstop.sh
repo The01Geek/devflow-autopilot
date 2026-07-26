@@ -380,8 +380,8 @@ assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
 # root, or a filesystem ignoring the mode). Issue #838: that gate reports through
 # module_host_capability_skip, so such a host yields a VISIBLE host-capability skip
 # whose declared credit reconciles the module's assertion floor — not the silent
-# assertion drop and count-mismatch floor trip the bare echo used to produce. The three
-# arms in this file (#415 swv, #610 asv, #812 bgv) share that treatment.
+# assertion drop and count-mismatch floor trip the bare echo used to produce. Every
+# chmod-000 read-probe gate in this file is treated the same way.
 SWV_UNREAD="$(probe_tmp swv.unreadable)"
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_UNREAD"
 chmod 000 "$SWV_UNREAD"

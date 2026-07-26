@@ -47,10 +47,8 @@ record_fail() {  # name
 # The module-reachable skip surface, and the answer to #838's reachability question:
 # a module still may not self-skip in general — it may only declare that THIS HOST
 # cannot express a condition, which is the `host-capability` kind alone. That the raw
-# helper stays out of reach is ENFORCED, not merely asserted here: lib/test/run-module.sh
-# overrides `skip` to a fatal, the fold below rejects any record whose kind is not
-# `host-capability`, and test_module_runner.py scans every module on disk for a
-# command-position `skip` line.
+# helper stays out of reach is ENFORCED rather than merely asserted: the fold below is
+# the validator, and it rejects any record whose kind is not `host-capability`.
 #
 # It emits nothing itself. It delegates to `skip`, which stays the sole `#456`
 # producer of the reserved `  NOTE ` line, and bash resolves that name at CALL time —
@@ -790,7 +788,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_results_file="" module_scratch_root="" module_group_pid_file=""
   local module_worker_pid_file=""
   local module_skips_file="" module_skip_credit_file=""
-  local skip_credit_total=0 effective_minimum="$3" skip_records_lost=0
+  local skip_credit_total=0 effective_minimum=0 skip_records_lost=0 credited_clause=""
   local module_pid="" module_rc=0 assertion_count=0 boundary_rc=0
   local module_launching=0 module_pending_signal="" tally_valid=1
   local saved_hup saved_int saved_term monitor_was_on=0
@@ -980,10 +978,9 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   # either through a tool the preflight does not guarantee — an absent tool would empty
   # the stream and silently grant a clean pass.
   #
-  # Only `host-capability` is folded. That validation is what makes binding the child a
-  # real skip channel safe: `module_host_capability_skip` states the intent, and this
-  # arm ENFORCES it, so a module reaching past the wrapper to record a `blocking-gate`
-  # skip is rejected here instead of laundering a gate it skipped for itself.
+  # Only `host-capability` is folded — this arm is the validator the wrapper's contract
+  # defers to, so a module reaching past the wrapper to record a `blocking-gate` skip is
+  # rejected here instead of laundering a gate it skipped for itself.
   # `-s` distinguishes "no skips recorded" (the overwhelmingly common case, and a clean
   # no-op) from a file that exists with content. A file that is non-empty but UNREADABLE
   # is neither: the redirect below fails, the loop body never runs, and the skips and
@@ -1021,9 +1018,8 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   # how many assertions its gated arm did not run; every shape this cannot use grants
   # ZERO and records an attributable failure, so a malformed declaration can never buy
   # floor relief. Arithmetic stays in bash builtins for the same guard-class-2 reason.
-  # Same readability check as the skip tally above, and for the same reason: an
-  # unreadable credit record must not read as "no credits declared", which would grant
-  # zero credit against a floor the module's skipped arms were counted out of.
+  # The `-s`/`-r` pair is the same check the skip tally above uses, for the reason stated
+  # there: an unreadable record must not read as "nothing was recorded".
   if [ -s "$module_skip_credit_file" ] && [ ! -r "$module_skip_credit_file" ]; then
     _devflow_record_module_failure "test module $module_name — private skip-credit record is unreadable" || boundary_rc=1
     printf '  FAIL  test module %s — private skip-credit record is unreadable\n' "$module_name" >&2
@@ -1089,20 +1085,15 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   elif [ "$tally_valid" -eq 1 ] && [ "$assertion_count" -lt "$effective_minimum" ]; then
     # The floor is compared against the effective minimum so a host that could not
     # express a gated arm's condition reports its visible skip rather than a count
-    # mismatch that reads like a regression. With no credited skip the two are equal
-    # and both the failure text and this comparison are byte-identical to before; the
-    # credited clause appears only when a credit was actually granted, so the reader
-    # of a credited run can see both bounds.
-    if [ "$skip_credit_total" -gt 0 ]; then
-      _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions (effective $effective_minimum after $skip_credit_total credited skip assertions)" || boundary_rc=1
-      printf '  FAIL  test module %s — executed %s assertions; minimum is %s (effective %s after %s credited skip assertions)\n' \
-        "$module_name" "$assertion_count" "$minimum_assertions" \
-        "$effective_minimum" "$skip_credit_total" >&2
-    else
-      _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions" || boundary_rc=1
-      printf '  FAIL  test module %s — executed %s assertions; minimum is %s\n' \
-        "$module_name" "$assertion_count" "$minimum_assertions" >&2
-    fi
+    # mismatch that reads like a regression. The credited clause is appended only when a
+    # credit was actually granted, so an uncredited run's message stays byte-identical to
+    # the pre-#838 text while a credited run's reader sees both bounds.
+    credited_clause=""
+    [ "$skip_credit_total" -gt 0 ] &&
+      credited_clause=" (effective $effective_minimum after $skip_credit_total credited skip assertions)"
+    _devflow_record_module_failure "test module $module_name — executed $assertion_count assertions; minimum is $minimum_assertions$credited_clause" || boundary_rc=1
+    printf '  FAIL  test module %s — executed %s assertions; minimum is %s%s\n' \
+      "$module_name" "$assertion_count" "$minimum_assertions" "$credited_clause" >&2
   fi
   # Keep the boundary traps installed through both cleanup attempts and their
   # associated failure recording.
