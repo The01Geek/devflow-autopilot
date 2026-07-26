@@ -4709,7 +4709,7 @@ assert_pin_unique "#779: the shipped prose records why no landed-resume discrimi
 assert_pin_unique "#780: the LANDED-resume bullet routes that arm through Verdict B before the checkpoint" \
   "then run §1.4.0.5's Verdict B classification and then take the" "$P1_FILE"  # structural-pin-ok: routing-dispatch-contract -- this bullet is the sole dispatch site entering §1.4.0.5 on the landed-resume arm (§1.4.0.5 states it is entered by explicit routing, never by a shell-variable test); losing it leaves the arm's ahead history unscreened while every classifier unit test stays green
 
-# (g) The landed-resume BRIDGING clause is now asserted directly, by the #780 routing pin above:
+# (g, cont.) The landed-resume BRIDGING clause is now asserted directly, by the pin above:
 # issue #780 retired the adjacent scope-boundary negative control (whose literal was a PREFIX of
 # the same line and survived the clause's deletion), so there is no longer a nearby pin whose
 # non-coverage needs explaining here.
@@ -8848,14 +8848,29 @@ emit("pr_no_source", pwork, _PS)
 emit("pr_branch_mismatch", pwork, {**_PS, **_PRV, "open_pr_branch": "other"})
 emit("pr_not_closing", pwork, {**_PS, **_PRV, "open_pr_closes_issue": False})
 emit("pr_cross_repo", pwork, {**_PS, **_PRV, "open_pr_cross_repository": True})
-# PARTIAL GATHER — each of the four operands omitted in turn. These are what kill the
-# `is True`/`is False` → `!= False`/`!= True` mutants: without the partial-gather
-# refusal an ungathered field would silently vouch, which is the PR #524 shape on the
-# arm #780 just widened. Refusal (not a DECISION_BLOCKED) is the point — a stop that
-# names the omission, rather than one that reads as a real refutation of the PR.
+# PARTIAL GATHER — each of the four operands omitted in turn. What these assert is the
+# REFUSAL itself: without it an ungathered field would silently vouch, which is the PR
+# #524 shape on the arm #780 just widened. Refusal (not a DECISION_BLOCKED) is the point
+# — a stop that names the omission, rather than one that reads as a real refutation of
+# the PR the run never evaluated. They do NOT kill the `is True`/`is False` identity
+# mutants: the refusal returns before `_classify_branch_state` runs, so an omitted
+# operand never reaches the identity expression at all. Those mutants are equivalent
+# under the two upstream guards — the boolean type-guard (any PRESENT non-bool is
+# refused) and the `isinstance(pr_branch, str)` conjunct — which between them leave
+# `None` as the only distinguishing value, and `None` arises only on the omission the
+# gather guard already refuses. The mutation-sensitive operand here is the string
+# comparison `open_pr_selected_by == "head"`, covered by its own arms.
 _PG = {**_PS, **_PRV}
 for _k in ("open_pr_branch", "open_pr_closes_issue", "open_pr_cross_repository", "open_pr_selected_by"):
     emit("pr_partial_" + _k, pwork, {k: v for k, v in _PG.items() if k != _k})
+# GUARD-BEFORE-PRECEDENCE: a partial PR gather while the WORKPAD independently vouches.
+# The gather refusal is unconditional, so this run stops UNAVAILABLE rather than falling
+# back to the trusted workpad — an ordering the prose leaves implicit. Pinned so a later
+# "the workpad vouched anyway, just proceed" relaxation is a visible test change rather
+# than a silent widening of what a partial gather may be read as.
+emit("pr_partial_wp_vouches", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
+     "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True,
+     **{k: v for k, v in _PRV.items() if k != "open_pr_selected_by"}})
 # Established workpad provenance is unchanged by the new source (control).
 emit("pr_wp_prov_control", pwork, {"base": "main", "current_branch": "feat", "provenance_established": True,
      "workpad_body": "**Branch:** `feat`", "has_proceed_verdict": True})
@@ -9135,6 +9150,8 @@ assert_eq "#780 partial gather: an omitted open_pr_cross_repository is refused" 
   "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_cross_repository)"
 assert_eq "#780 partial gather: an omitted open_pr_selected_by is refused" \
   "UNAVAILABLE 3" "$(_bs576 pr_partial_open_pr_selected_by)"
+assert_eq "#780 partial gather: the refusal precedes workpad precedence — a partial PR gather stops even when the workpad independently vouches" \
+  "UNAVAILABLE 3" "$(_bs576 pr_partial_wp_vouches)"
 # Per-arm slug assertions (not one concatenated quintuple): the five refusing arms
 # collapse onto the same verdict word + rc, so a single joined comparison would name
 # all five on any one arm's regression and leave the reader re-running by hand.
