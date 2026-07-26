@@ -44,16 +44,19 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing-worktree`` — the required **temporary deletion-only freeze**
-  for the committed audited test-source population (issues #666 and #810). It
-  reconciles Git's name-status and numstat views from the merge base to ``HEAD``.
-  An unchanged audited file or an ordinary modification containing only deletions
-  passes. Any added line is a policy finding; additions, deletions, renames, copies,
-  type/mode-only changes, binary diffs, malformed Git output, or population
-  disagreement are infrastructure failures. The gate deliberately does not inspect
-  helper calls or interpret mutation programs. Infrastructure failures exit 2,
-  policy findings exit 3, and a clean established scan exits 0. The lower-level
-  ``mutation-routing`` synthetic-fixture command remains for legacy self-tests.
+* ``mutation-routing-worktree`` — the retained mutation-boundary ratchet for the
+  committed audited test-source population (issues #666 and #810). It builds the
+  opaque mutation-call census and requires the checked-in inventory to match it
+  exactly. Only the eleven explicitly adjudicated retained identities are allowed;
+  adding, changing, reformatting, or moving a mutation call to another source path
+  is a policy finding.
+  Deleting a retained call passes when the inventory is refreshed in the same
+  change. The gate does not execute or interpret mutations or infer assignment
+  dependencies. Identity deliberately excludes line number, so a byte-identical
+  relocation inside the same file is not distinguished from unrelated line shifts.
+  Infrastructure failures exit 2, policy findings exit 3, and a clean established
+  scan exits 0. The lower-level ``mutation-routing`` synthetic-fixture command
+  remains for legacy self-tests.
 
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
@@ -122,6 +125,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import importlib.util
 import json
 import os
 import re
@@ -2381,304 +2385,201 @@ def load_registry(path):
         raise InfrastructureError(f"registry read failed: {exc}") from exc
 
 
-def _run_git(git_runner, repo_root, *args):
-    command = ["git", "-C", str(repo_root), *args]
+class _MutationInventoryRow(NamedTuple):
+    path: str
+    helper: str
+    logical_call: str
+    line_start: int
+    line_end: int
+    identity_sha256: str
+    disposition: str
+
+
+def _load_mutation_census_module():
+    path = Path(__file__).with_name("mutation-pin-census.py")
     try:
-        result = git_runner(
-            command,
-            capture_output=True,
-            text=True,
-            check=False,
+        spec = importlib.util.spec_from_file_location(
+            "_devflow_mutation_pin_census",
+            path,
         )
-    except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
+        if spec is None or spec.loader is None:
+            raise InfrastructureError("cannot load mutation-pin census module")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+    except InfrastructureError:
+        raise
+    except Exception as exc:
         raise InfrastructureError(
-            f"git {' '.join(args)} could not run: {exc}"
+            f"cannot load mutation-pin census module: {exc}"
         ) from exc
-    if result.returncode != 0:
-        raise InfrastructureError(
-            f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
-    return result.stdout
 
 
-class _DiffRecord(NamedTuple):
-    status: str | None
-    additions: int | None
-    deletions: int | None
-    paths: tuple[str, ...]
-
-
-def _parse_population_paths(output, label):
-    """Parse one fixed-path Git enumeration without allowing duplicates."""
-    paths = output.splitlines()
-    if any(not path or "\t" in path or "\0" in path for path in paths):
-        raise InfrastructureError(f"{label} enumeration is malformed")
-    if len(paths) != len(set(paths)):
-        raise InfrastructureError(f"{label} enumeration contains duplicate paths")
-    return set(paths)
-
-
-def _nul_fields(output, label):
-    """Return a complete NUL-delimited record stream or fail closed."""
-    if not output:
-        return []
-    if not output.endswith("\0"):
-        raise InfrastructureError(f"{label} output is not NUL terminated")
-    return output[:-1].split("\0")
-
-
-def _parse_name_status(output):
-    """Parse ``git diff --name-status -z`` into path-aware records."""
-    fields = _nul_fields(output, "name-status")
-    records = []
-    seen_paths = set()
-    index = 0
-    while index < len(fields):
-        status = fields[index]
-        index += 1
-        if re.fullmatch(r"[ACDMRTUXB]", status):
-            path_count = 1
-        elif re.fullmatch(r"[RC](?:100|[1-9]?[0-9])", status):
-            path_count = 2
-        else:
-            raise InfrastructureError(f"name-status contains invalid status: {status!r}")
-        if index + path_count > len(fields):
-            raise InfrastructureError("name-status row is truncated")
-        paths = tuple(fields[index : index + path_count])
-        index += path_count
-        if any(not path for path in paths):
-            raise InfrastructureError("name-status row contains an empty path")
-        duplicate = seen_paths.intersection(paths)
-        if duplicate:
-            raise InfrastructureError(
-                "name-status contains duplicate path: " + sorted(duplicate)[0]
-            )
-        seen_paths.update(paths)
-        records.append(_DiffRecord(status, None, None, paths))
-    return records
-
-
-def _parse_numstat(output):
-    """Parse ``git diff --numstat -z`` including rename/copy path tuples."""
-    fields = _nul_fields(output, "numstat")
-    records = []
-    seen_paths = set()
-    index = 0
-    while index < len(fields):
-        counts_and_path = fields[index].split("\t")
-        index += 1
-        if len(counts_and_path) != 3:
-            raise InfrastructureError("numstat row does not contain three fields")
-        additions_raw, deletions_raw, first_path = counts_and_path
-        if first_path:
-            paths = (first_path,)
-        else:
-            if index + 2 > len(fields):
-                raise InfrastructureError("numstat rename/copy row is truncated")
-            paths = (fields[index], fields[index + 1])
-            index += 2
-        if any(not path for path in paths):
-            raise InfrastructureError("numstat row contains an empty path")
-        duplicate = seen_paths.intersection(paths)
-        if duplicate:
-            raise InfrastructureError(
-                "numstat contains duplicate path: " + sorted(duplicate)[0]
-            )
-        seen_paths.update(paths)
-        if additions_raw.isdecimal() and deletions_raw.isdecimal():
-            additions = int(additions_raw)
-            deletions = int(deletions_raw)
-        elif additions_raw == "-" and deletions_raw == "-":
-            additions = deletions = None
-        else:
-            raise InfrastructureError("numstat row contains nonnumeric counts")
-        records.append(_DiffRecord(None, additions, deletions, paths))
-    return records
-
-
-def _records_by_audited_path(records, label):
-    result = {}
-    for record in records:
-        for path in record.paths:
-            if path not in AUDITED_PIN_SOURCES:
-                continue
-            if path in result:
-                raise InfrastructureError(f"{label} repeats audited path: {path}")
-            result[path] = record
-    return result
-
-
-def _reconcile_audited_diff(name_status_output, numstat_output):
-    """Return deletion-freeze findings after reconciling both Git diff views."""
-    statuses = _records_by_audited_path(
-        _parse_name_status(name_status_output), "name-status"
-    )
-    counts = _records_by_audited_path(_parse_numstat(numstat_output), "numstat")
-    if statuses.keys() != counts.keys():
-        missing_counts = sorted(statuses.keys() - counts.keys())
-        missing_statuses = sorted(counts.keys() - statuses.keys())
-        raise InfrastructureError(
-            "name-status/numstat audited-path disagreement"
-            f" (missing numstat: {missing_counts}; missing name-status: {missing_statuses})"
-        )
-
-    findings = []
-    for path in sorted(statuses):
-        status_record = statuses[path]
-        count_record = counts[path]
-        if (
-            status_record.status != "M"
-            or status_record.paths != (path,)
-            or count_record.paths != (path,)
-        ):
-            raise InfrastructureError(
-                f"audited source has unsupported Git state: {path}: "
-                f"{status_record.status}"
-            )
-        if count_record.additions is None or count_record.deletions is None:
-            raise InfrastructureError(f"audited source has binary numstat: {path}")
-        if count_record.additions > 0:
-            findings.append(
-                f"MUTATION-ROUTING\t{path}\t"
-                f"{count_record.additions} added line(s); audited test sources "
-                "are temporarily deletion-only"
-            )
-            continue
-        if count_record.additions == 0 and count_record.deletions > 0:
-            continue
-        raise InfrastructureError(
-            f"audited source modification is not a line deletion: {path}: "
-            f"+{count_record.additions}/-{count_record.deletions}"
-        )
-    return findings
-
-
-def scan_worktree(
-    repo_root,
-    base_ref="origin/main",
-    *,
-    git_runner=subprocess.run,
-    scratch_factory=None,
-):
-    """Apply the fail-closed deletion-only freeze from merge base to ``HEAD``."""
-    repo_root = Path(repo_root)
-    del scratch_factory
-    _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
-    # A missing local main is the normal Actions checkout shape. Other ancestry
-    # failures remain infrastructure failures rather than green skips.
+def _parse_mutation_inventory(path, census):
     try:
-        local_main = git_runner(
-            [
-                "git",
-                "-C",
-                str(repo_root),
-                "show-ref",
-                "--verify",
-                "--quiet",
-                "refs/heads/main",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (OSError, UnicodeError, subprocess.SubprocessError) as exc:
-        raise InfrastructureError(f"local main resolution could not run: {exc}") from exc
-    if local_main.returncode == 0:
-        _run_git(
-            git_runner,
-            repo_root,
-            "merge-base",
-            "--is-ancestor",
-            "refs/heads/main",
-            base_ref,
-        )
-    elif local_main.returncode != 1:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError as exc:
+        raise InfrastructureError(f"missing mutation-pin inventory: {path}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
         raise InfrastructureError(
-            "local main resolution failed "
-            f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
-        )
-    merge_base = _run_git(
-        git_runner, repo_root, "merge-base", base_ref, "HEAD"
-    ).strip()
-    if not merge_base or "\n" in merge_base or "\0" in merge_base:
-        raise InfrastructureError("comparison merge base output is malformed")
+            f"cannot read mutation-pin inventory: {path}: {exc}"
+        ) from exc
+    if len(lines) < 3:
+        raise InfrastructureError("mutation-pin inventory is truncated")
+    source_prefix = "# source_revision\t"
+    master_prefix = "# master_sha256\t"
+    if not lines[0].startswith(source_prefix) or not re.fullmatch(
+        r"[0-9a-f]{40,64}",
+        lines[0][len(source_prefix) :],
+    ):
+        raise InfrastructureError("mutation-pin inventory source revision is malformed")
+    if not lines[1].startswith(master_prefix) or not re.fullmatch(
+        r"[0-9a-f]{64}",
+        lines[1][len(master_prefix) :],
+    ):
+        raise InfrastructureError("mutation-pin inventory master digest is malformed")
+    expected_header = (
+        "path\thelper\tlogical_call\tline_start\tline_end\t"
+        "identity_sha256\tdisposition\trationale"
+    )
+    if lines[2] != expected_header:
+        raise InfrastructureError("mutation-pin inventory header is malformed")
 
-    audited = sorted(AUDITED_PIN_SOURCES)
-    base_paths = _parse_population_paths(
-        _run_git(
-            git_runner,
-            repo_root,
-            "ls-tree",
-            "-r",
-            "--name-only",
-            merge_base,
-            "--",
-            *audited,
-        ),
-        "merge-base audited population",
-    )
-    head_paths = _parse_population_paths(
-        _run_git(
-            git_runner,
-            repo_root,
-            "ls-tree",
-            "-r",
-            "--name-only",
-            "HEAD",
-            "--",
-            *audited,
-        ),
-        "HEAD audited population",
-    )
-    expected = set(AUDITED_PIN_SOURCES)
-    if base_paths != expected:
-        raise InfrastructureError(
-            "merge-base audited population mismatch "
-            f"(missing: {sorted(expected - base_paths)}; "
-            f"unexpected: {sorted(base_paths - expected)})"
+    rows = {}
+    for line_number, line in enumerate(lines[3:], start=4):
+        fields = line.split("\t")
+        if len(fields) != 8:
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} is malformed"
+            )
+        (
+            source,
+            helper,
+            call_json,
+            start_raw,
+            end_raw,
+            identity_sha256,
+            disposition,
+            rationale,
+        ) = fields
+        try:
+            logical_call = json.loads(call_json)
+        except json.JSONDecodeError as exc:
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} call is malformed"
+            ) from exc
+        if not isinstance(logical_call, str) or not logical_call or not rationale:
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} is incomplete"
+            )
+        if not start_raw.isdecimal() or not end_raw.isdecimal():
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} locator is malformed"
+            )
+        line_start = int(start_raw)
+        line_end = int(end_raw)
+        if line_start < 1 or line_end < line_start:
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} locator is invalid"
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", identity_sha256):
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} identity is malformed"
+            )
+        row = census.CensusRow(
+            path=source,
+            helper=helper,
+            logical_call=logical_call,
+            line_start=line_start,
+            line_end=line_end,
         )
+        if census._identity_sha256(row) != identity_sha256:
+            raise InfrastructureError(
+                f"mutation-pin inventory row {line_number} identity disagrees"
+            )
+        if identity_sha256 in rows:
+            raise InfrastructureError(
+                f"mutation-pin inventory repeats identity: {identity_sha256}"
+            )
+        rows[identity_sha256] = _MutationInventoryRow(
+            source,
+            helper,
+            logical_call,
+            line_start,
+            line_end,
+            identity_sha256,
+            disposition,
+        )
+    return rows, lines[1][len(master_prefix) :]
+
+
+def scan_worktree(repo_root, base_ref="origin/main", **_unused):
+    """Reject mutation calls outside the frozen retained-boundary identities."""
+    del base_ref
+    root = Path(repo_root)
+    census = _load_mutation_census_module()
+    try:
+        current = census.build_census(root)
+    except census.CensusError as exc:
+        raise InfrastructureError(f"mutation-pin census failed: {exc}") from exc
+
     registry = load_registry(
-        repo_root / "scripts/workflow-flight-recorder-registry.json"
+        root / "scripts/workflow-flight-recorder-registry.json"
     )
     population_findings = validate_audited_population(
-        registry, AUDITED_PIN_SOURCES, head_paths
+        registry,
+        AUDITED_PIN_SOURCES,
+        set(current.sources),
     )
     if population_findings:
         raise InfrastructureError("; ".join(population_findings))
-    if head_paths != expected:
+
+    inventory, inventory_master = _parse_mutation_inventory(
+        root / ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+        census,
+    )
+    current_by_identity = {
+        census._identity_sha256(row): row for row in current.rows
+    }
+    unadjudicated = sorted(
+        set(current_by_identity) - census.RETAINED_BOUNDARY_IDENTITIES
+    )
+    if unadjudicated:
+        return [
+            "MUTATION-ROUTING\t"
+            f"{current_by_identity[identity].path}\t"
+            "mutation call is not an adjudicated retained boundary: "
+            f"{identity}"
+            for identity in unadjudicated
+        ]
+
+    if set(inventory) != set(current_by_identity):
         raise InfrastructureError(
-            "HEAD audited population mismatch "
-            f"(missing: {sorted(expected - head_paths)}; "
-            f"unexpected: {sorted(head_paths - expected)})"
+            "mutation-pin inventory/current census identity mismatch "
+            f"(inventory-only: {sorted(set(inventory) - set(current_by_identity))}; "
+            f"census-only: {sorted(set(current_by_identity) - set(inventory))})"
+        )
+    if inventory_master != current.master_sha256:
+        raise InfrastructureError(
+            "mutation-pin inventory master digest disagrees with current census"
         )
 
-    unmerged = _run_git(
-        git_runner,
-        repo_root,
-        "ls-files",
-        "--unmerged",
-        "--",
-        *audited,
-    )
-    if unmerged:
-        raise InfrastructureError("audited source has an unmerged index state")
-
-    diff_args = (
-        "--no-color",
-        "--no-ext-diff",
-        "--find-renames",
-        "--find-copies-harder",
-        merge_base,
-        "HEAD",
-        "--",
-    )
-    name_status = _run_git(
-        git_runner, repo_root, "diff", "--name-status", "-z", *diff_args
-    )
-    numstat = _run_git(
-        git_runner, repo_root, "diff", "--numstat", "-z", *diff_args
-    )
-    return _reconcile_audited_diff(name_status, numstat)
+    retain_dispositions = {
+        "retain_helper_infrastructure_boundary",
+        "retain_executable_boundary",
+    }
+    for identity, row in current_by_identity.items():
+        recorded = inventory[identity]
+        decision = census.adjudicate(row)
+        if (
+            recorded.disposition not in retain_dispositions
+            or decision.disposition != recorded.disposition
+        ):
+            raise InfrastructureError(
+                f"mutation-pin inventory identity is not a retained boundary: {identity}"
+            )
+    return []
 
 
 def _read(path):

@@ -34,6 +34,23 @@ HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES = frozenset(
         "510a4b23d191fcae604152c478b5566a054a487bd8c9bb6e85421338b934923d",
     }
 )
+EXECUTABLE_BOUNDARY_IDENTITIES = frozenset(
+    {
+        "25665260301c431c013a17f318b99ae88a994c8c54ea334d7fe1b924a5b464c8",
+        "3db5530cadb4b6f9736cf3abb76645300c2733a287efd57d723b83beb4cff8d5",
+        "80091b94bd585de7c8816b82d2254701ff2473f925589b1ea7c8db1eb7894b9f",
+        "8e7c453a51cb345931f87fe914191c2d64ee5fdcc9d382a32e00958886b7b8f1",
+        "c1095ca5354fff6cf7bb80d0fd328ccd53d4ab0def2d58ddb6846a4eb8e94b67",
+        "d35d4ac2ff05f2ba907542210d598f8c409944bc12362e0cd766230e8c427f90",
+        "e0205645efe43b7bdaf287fef8be24949bcdcbda4ea4d5e50d1c254de3b5e54b",
+        "e1773322103b9967cca49c7af30b7fc5e87eed8ec1b99e3cf5127051dbd7880f",
+        "f7ee273441fe996a07eff927e5f8d1ee0cf71f96f6de9c57d33cc845dc435bfd",
+    }
+)
+RETAINED_BOUNDARY_IDENTITIES = (
+    HELPER_INFRASTRUCTURE_BOUNDARY_IDENTITIES
+    | EXECUTABLE_BOUNDARY_IDENTITIES
+)
 EXPECTED_SOURCE_COUNT = 12
 _WORD = r"[A-Za-z_][A-Za-z0-9_]*"
 _DEFINITION_RE = {
@@ -374,14 +391,19 @@ def adjudicate(row: CensusRow) -> Adjudication:
             "retain_helper_infrastructure_boundary",
             "outer executable assertion verifies helper failure diagnostics",
         )
-    if row.helper not in GENERIC_HELPERS:
+    if identity_sha256 in EXECUTABLE_BOUNDARY_IDENTITIES:
         return Adjudication(
             "retain_executable_boundary",
             "purpose-built helper observes mutated behavior",
         )
+    if row.helper in GENERIC_HELPERS:
+        return Adjudication(
+            "retire_presence_equivalent",
+            "generic helper observes only pinned-literal cardinality in scratch copy",
+        )
     return Adjudication(
-        "retire_presence_equivalent",
-        "generic helper observes only pinned-literal cardinality in scratch copy",
+        "reject_unadjudicated_mutation_site",
+        "mutation-taking call is not an explicitly retained boundary",
     )
 
 
