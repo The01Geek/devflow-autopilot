@@ -222,14 +222,22 @@ class RedOnRemovalRetirementManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as raw:
             output = Path(raw) / "inventory.tsv"
             tracked = Path(raw) / "tracked-files"
-            tracked.write_bytes(
-                subprocess.run(
-                    ["git", "ls-files", "-z"],
-                    cwd=REPO_ROOT,
-                    capture_output=True,
-                    check=True,
-                ).stdout
-            )
+            listed = subprocess.run(
+                ["git", "ls-files", "-z"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                check=True,
+            ).stdout.split(b"\0")
+            # Model the next committed tree while this retirement is still an
+            # uncommitted diff: git ls-files continues to report paths deleted
+            # from the worktree, but the classifier must not try to read the
+            # deliberately retired inventory artifact.
+            present = [
+                path
+                for path in listed
+                if path and (REPO_ROOT / path.decode("utf-8")).is_file()
+            ]
+            tracked.write_bytes(b"\0".join(present) + b"\0")
             result = subprocess.run(
                 [
                     sys.executable,
