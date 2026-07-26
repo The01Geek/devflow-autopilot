@@ -239,6 +239,7 @@ def tokenize(s):
 
 # ── variable resolution ─────────────────────────────────────────────────────
 _VARREF = re.compile(r"^\$\{?(\w+)\}?$")
+_ASSIGNMENT_RE = re.compile(r"^\s*(?:local\s+)?([A-Za-z_]\w*)=(.*)$")
 
 
 def build_var_maps(text, lib, overrides):
@@ -255,7 +256,7 @@ def build_var_maps(text, lib, overrides):
     path_vars = dict(overrides)
     literal_vars = {}
     for _, line in join_logical_lines(text):
-        m = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
+        m = _ASSIGNMENT_RE.match(line)
         if not m:
             continue
         name, rhs = m.group(1), m.group(2).strip()
@@ -291,7 +292,7 @@ def variable_maps_by_line(text, lib, overrides):
     literal_vars = {}
     for lineno, line in join_logical_lines(text):
         maps[lineno] = (dict(path_vars), dict(literal_vars))
-        match = re.match(r"^([A-Za-z_]\w*)=(.*)$", line)
+        match = _ASSIGNMENT_RE.match(line)
         if match is None:
             continue
         _apply_assignment(
@@ -1182,7 +1183,9 @@ def _helper_call(tokens, helper_specs):
     return None, None
 
 
-def helper_specs_for_source(text, include_families=False):
+def helper_specs_for_source(
+    text, include_families=False, include_origins=False
+):
     """Return built-in plus source-local wrapper helper specifications.
 
     A focused module may wrap the shared pin API. Enumerating function
@@ -1194,6 +1197,7 @@ def helper_specs_for_source(text, include_families=False):
     """
     specs = dict(HELPERS)
     families = {name: _helper_family(name) for name in HELPERS}
+    origins = {}
     bodies = _function_bodies(text)
 
     for _ in range(len(bodies) + 1):
@@ -1201,7 +1205,7 @@ def helper_specs_for_source(text, include_families=False):
         for name, body in bodies.items():
             if name in specs:
                 continue
-            for _, logical_line in join_logical_lines(body):
+            for body_lineno, logical_line in join_logical_lines(body):
                 tokens = tokenize(logical_line.strip())
                 index, callee = _helper_call(tokens, specs)
                 if callee is None:
@@ -1212,6 +1216,7 @@ def helper_specs_for_source(text, include_families=False):
                 ):
                     specs[name] = specs[callee]
                     families[name] = families[callee]
+                    origins[name] = body_lineno
                     changed = True
                     break
                 if any(
@@ -1261,6 +1266,7 @@ def helper_specs_for_source(text, include_families=False):
                     wrapper_default,
                 )
                 families[name] = families[callee]
+                origins[name] = body_lineno
                 changed = True
                 break
         if not changed:
@@ -1272,6 +1278,8 @@ def helper_specs_for_source(text, include_families=False):
         if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
             specs[name] = (1, 2, None)
             families[name] = "static-helper"
+    if include_families and include_origins:
+        return specs, families, origins
     if include_families:
         return specs, families
     return specs
@@ -1529,6 +1537,8 @@ def parse_unified_diff(difftext):
                     "malformed unified diff: content precedes diff --git header"
                 )
             continue
+        if hunk_expected is not None and hunk_consumed == hunk_expected:
+            finish_hunk()
         if hunk_expected is not None:
             if raw == r"\ No newline at end of file":
                 if not last_hunk_line_was_content or no_newline_marker_seen:
@@ -1609,6 +1619,8 @@ def parse_unified_diff(difftext):
             hunk_consumed = (0, 0)
             saw_hunk = True
             continue
+        if not raw and saw_hunk:
+            continue
         if old_header_seen or new_header_seen:
             raise InfrastructureError(
                 f"malformed unified diff: unexpected post-header line {raw!r}"
@@ -1662,7 +1674,13 @@ _RAW_PRESENCE_RE = re.compile(
         (?P<options>(?:(?:-[A-Za-z]+|--[a-z-]+)\s+)+)
         (?:--\s+)?
         (?P<literal_token>'[^']*'|"[^"]*"|[^\s]+)\s+
-        (?P<target>"?(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)"?)
+        (?P<target>
+            "(?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)"
+            |
+            '(?:/?[A-Za-z0-9_.-]+(?:/[^\s';]+)*)'
+            |
+            (?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)
+        )
         (?P<tail>\s*(?:;|\)|&&|\|\||$))""",
     re.VERBOSE | re.DOTALL,
 )
@@ -1820,12 +1838,80 @@ def _typed_pin_inspection_error(site, repo_root):
     return None
 
 
+def _python_reads_text(node):
+    return any(
+        isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr in {"read", "read_text"}
+        for child in ast.walk(node)
+    )
+
+
+def extract_python_guard_sites(text, source_path):
+    """Extract direct Python assertions over file text."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        raise InfrastructureError(
+            f"Python pin source cannot be parsed: {source_path}: {exc}"
+        ) from exc
+    physical = text.splitlines()
+    sites = []
+    for node in ast.walk(tree):
+        literal = haystack = helper = None
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"assertIn", "assertRegex"}
+            and len(node.args) >= 2
+        ):
+            literal, haystack = node.args[:2]
+            helper = f"python-{node.func.attr}"
+        elif isinstance(node, ast.Assert) and isinstance(node.test, ast.Compare):
+            comparison = node.test
+            if (
+                len(comparison.ops) == 1
+                and isinstance(comparison.ops[0], ast.In)
+                and len(comparison.comparators) == 1
+            ):
+                literal = comparison.left
+                haystack = comparison.comparators[0]
+                helper = "python-assert-in"
+        if (
+            not isinstance(literal, ast.Constant)
+            or not isinstance(literal.value, str)
+            or haystack is None
+            or not _python_reads_text(haystack)
+        ):
+            continue
+        line_end = getattr(node, "end_lineno", node.lineno)
+        declaration, error = parse_structural_declaration(
+            physical[node.lineno - 1 : line_end]
+        )
+        sites.append(
+            GuardSite(
+                source_path,
+                node.lineno,
+                line_end,
+                "raw-presence",
+                helper,
+                literal.value,
+                None,
+                declaration,
+                error,
+            )
+        )
+    return sites
+
+
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
+    if source_path.endswith(".py"):
+        return extract_python_guard_sites(text, source_path)
     repo_root = os.path.abspath(repo_root)
     lib = os.path.join(repo_root, "lib")
-    helper_specs, helper_families = helper_specs_for_source(
-        text, include_families=True
+    helper_specs, helper_families, wrapper_origins = helper_specs_for_source(
+        text, include_families=True, include_origins=True
     )
     definitions = _function_definitions(text)
     function_by_line = {
@@ -1842,6 +1928,11 @@ def extract_guard_sites(text, source_path, repo_root):
             and function_by_line.get(invocation_line) != invocation_helper
         ):
             invoked_wrappers.add(invocation_helper)
+    represented_body_lines = {
+        definitions[name][1] + wrapper_origins[name] - 1
+        for name in invoked_wrappers
+        if name in wrapper_origins
+    }
     maps_by_line = variable_maps_by_line(text, lib, {})
     physical = text.splitlines()
     sites = []
@@ -1868,8 +1959,7 @@ def extract_guard_sites(text, source_path, repo_root):
                 )
             elif isinstance(lit_selector, str):
                 literal = lit_selector
-            wrapper_name = function_by_line.get(lineno)
-            if wrapper_name in invoked_wrappers:
+            if lineno in represented_body_lines:
                 # An invoked wrapper's body is not a second runtime pin site;
                 # its body-derived spec classifies the invocation instead.
                 continue
@@ -1915,7 +2005,13 @@ def extract_guard_sites(text, source_path, repo_root):
                     continue
             elif expected.group("value") in {"no", "0"}:
                 continue
-        target_token = match.group("target").strip('"')
+        target_token = match.group("target")
+        if (
+            len(target_token) >= 2
+            and target_token[0] == target_token[-1]
+            and target_token[0] in {"'", '"'}
+        ):
+            target_token = target_token[1:-1]
         var_match = _VARREF.match(target_token)
         var_name = var_match.group(1) if var_match else ""
         target = path_vars.get(var_name) if var_name else None
@@ -1927,15 +2023,20 @@ def extract_guard_sites(text, source_path, repo_root):
                 if os.path.isabs(target_token)
                 else os.path.join(repo_root, target_token)
             )
-        if target is None:
+        if (
+            target is None
+            and var_name
+            and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
+        ):
             continue
-        target_abs = os.path.abspath(target)
-        try:
-            inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
-        except ValueError:
-            inside_repo = False
-        if not inside_repo:
-            continue
+        target_abs = os.path.abspath(target) if target is not None else None
+        if target_abs is not None:
+            try:
+                inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
+            except ValueError:
+                inside_repo = False
+            if not inside_repo:
+                continue
         declaration, error = parse_structural_declaration(lines)
         literal_tokens = tokenize(match.group("literal_token"))
         raw_literal = None
@@ -2240,6 +2341,34 @@ def scan_worktree(
         ).strip()
         if not merge_base:
             raise InfrastructureError("comparison merge base resolved to empty output")
+        python_tracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--cached",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        python_untracked = set(
+            filter(
+                None,
+                _run_git(
+                    git_runner,
+                    repo_root,
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    "lib/test/test_*.py",
+                ).splitlines(),
+            )
+        )
+        scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
         difftext = _run_git(
             git_runner,
             repo_root,
@@ -2249,7 +2378,7 @@ def scan_worktree(
             "--unified=0",
             merge_base,
             "--",
-            *sorted(AUDITED_PIN_SOURCES),
+            *sorted(scan_sources),
         )
         untracked = set(
             filter(
@@ -2289,7 +2418,7 @@ def scan_worktree(
                     "--name-only",
                     merge_base,
                     "--",
-                    *sorted(AUDITED_PIN_SOURCES),
+                    *sorted(scan_sources),
                 ).splitlines(),
             )
         )
@@ -2304,7 +2433,7 @@ def scan_worktree(
 
         current_sources = {}
         base_sources = {}
-        for path in sorted(AUDITED_PIN_SOURCES):
+        for path in sorted(scan_sources):
             try:
                 current_sources[path] = (repo_root / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError) as exc:

@@ -653,6 +653,31 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         self.assertEqual([], findings)
 
+    def test_invoked_wrapper_does_not_hide_additional_body_pin(self):
+        source = (
+            "F=\"$LIB/../docs/x.md\"\n"
+            "wrap() {\n"
+            "  devflow_module_pin_red_under \"$@\"\n"
+            "  devflow_module_pin_present \"wording\" 'HUMAN PROSE' \"$F\"\n"
+            "}\n"
+            "wrap \"behavior\" 'TOKEN' 's/x/y/' \"$F\""
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/a.sh", repo_root="/repo"
+        )
+        self.assertEqual(
+            ["mutation-helper", "static-helper"],
+            sorted(site.family for site in sites),
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": ""},
+            one_file_diff("lib/test/a.sh", "", source),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("HUMAN PROSE", findings[0])
+
     def test_wrapper_family_comes_from_body_not_name_suffix(self):
         for name in ("fake_pin_red_under", "fake_pin_count"):
             with self.subTest(name=name):
@@ -771,6 +796,64 @@ class PinCorpusLint810Tests(unittest.TestCase):
                     repo_root="/repo",
                 )
                 self.assertEqual(1, len(findings))
+
+    def test_raw_presence_unresolved_indented_and_quoted_targets_fail_closed(self):
+        cases = (
+            (
+                "computed",
+                "DOC=\"$(printf %s \"$LIB/../docs/x.md\")\"\n"
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep -qF -- 'HUMAN PROSE' \"$DOC\" && echo yes || echo no)\"",
+            ),
+            (
+                "indented assignment",
+                "wrap() {\n"
+                "  local DOC=\"$LIB/../docs/x.md\"\n"
+                "  assert_eq \"wording\" \"yes\" "
+                "\"$(grep -Fq -- 'HUMAN PROSE' \"$DOC\" && echo yes || echo no)\"\n"
+                "}",
+            ),
+            (
+                "single-quoted target",
+                "assert_eq \"wording\" \"yes\" "
+                "\"$(grep -Fq -- 'HUMAN PROSE' 'docs/x.md' "
+                "&& echo yes || echo no)\"",
+            ),
+        )
+        for label, source in cases:
+            with self.subTest(label=label):
+                sites = self.mod.extract_guard_sites(
+                    source, "lib/test/a.sh", repo_root="/repo"
+                )
+                self.assertEqual(1, len(sites))
+                findings = self.mod.scan_changed_sources(
+                    {"lib/test/a.sh": source},
+                    {"lib/test/a.sh": ""},
+                    one_file_diff("lib/test/a.sh", "", source),
+                    repo_root="/repo",
+                )
+                self.assertEqual(1, len(findings))
+
+    def test_python_file_text_presence_assertion_shares_policy(self):
+        source = (
+            "from pathlib import Path\n"
+            "import unittest\n\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_wording(self):\n"
+            "        self.assertIn('advisory wording', Path('docs/x.md').read_text())\n"
+        )
+        sites = self.mod.extract_guard_sites(
+            source, "lib/test/test_wording.py", repo_root="/repo"
+        )
+        self.assertEqual(1, len(sites))
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/test_wording.py": source},
+            {"lib/test/test_wording.py": ""},
+            one_file_diff("lib/test/test_wording.py", "", source),
+            repo_root="/repo",
+        )
+        self.assertEqual(1, len(findings))
+        self.assertIn("advisory wording", findings[0])
 
     def test_scanner_population_is_exactly_registry_closed(self):
         registry = {
@@ -1093,8 +1176,30 @@ class PinCorpusLint810Tests(unittest.TestCase):
                             "mutation-routing-worktree",
                             str(root),
                         ]
-                    )
+                )
                 self.assertEqual(expected_rc, rc)
+
+    def test_public_required_gate_scans_untracked_python_leaf_tests(self):
+        source = (
+            "from pathlib import Path\n"
+            "import unittest\n\n"
+            "class T(unittest.TestCase):\n"
+            "    def test_wording(self):\n"
+            "        self.assertIn('advisory wording', Path('docs/x.md').read_text())\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._real_worktree_repo(root, "")
+            (root / "lib/test/test_wording.py").write_text(source, encoding="utf-8")
+            with mock.patch("sys.stdout", new_callable=io.StringIO):
+                rc = self.mod.main(
+                    [
+                        "pin-corpus-lint.py",
+                        "mutation-routing-worktree",
+                        str(root),
+                    ]
+                )
+        self.assertEqual(3, rc)
 
     def test_required_path_has_no_classifier_or_inventory_dependency(self):
         text = LINTER.read_text(encoding="utf-8")
