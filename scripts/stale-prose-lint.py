@@ -143,9 +143,13 @@ seed list** rather than a remembered one. Like the R3 recognition tier above it 
 **recognition-only**: it resolves no referent (no adjacency walk, no table parsing), never emits
 ``STALE``, and never affects the exit code. Its rows carry the TSV rule token ``CU``.
 
-*The recognized shape* is a **universal-quantifier token** from a closed set, adjacent to a
+*The recognized shape* is a **coverage-scope token** from a closed set, adjacent to a
 **coverage-referent noun** from a closed set, with up to two intervening bare-word modifiers.
-The quantifier tokens are **exactly these — complete by construction**: ``every`` / ``all`` /
+The set is deliberately broader than "universal quantifier": ``only`` / ``complete`` /
+``entire`` / ``whole`` are scope claims rather than universals, and are recognized because a
+scope claim about the change's own coverage needs grounding for the same reason a universal
+does. The quantifier may carry ``**…**`` / ``*…*`` / backtick / underscore emphasis. The scope
+tokens are **exactly these — complete by construction**: ``every`` / ``all`` /
 ``each`` / ``any`` / ``both`` / ``no`` / ``none`` / ``exactly`` / ``only`` / ``complete`` /
 ``entire`` / ``whole``. The coverage-referent nouns are **exactly these — complete by
 construction**, singular and plural alike: ``site`` / ``arm`` / ``branch`` / ``case`` / ``path``
