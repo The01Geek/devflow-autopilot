@@ -7369,7 +7369,7 @@ run258() {
   local body="$1"; shift
   : > "$S258/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S258/patchlog" DEVFLOW_GH="$S258/gh" \
-    python3 "$WP_PY" update 999 "$@" >"$S258/out" 2>"$S258/err"
+    python3 "$WP_PY" update 999 "$@" --print-body >"$S258/out" 2>"$S258/err"
   echo $?
 }
 
@@ -7980,6 +7980,7 @@ WP_BODY="$S781U/base.md" DEVFLOW_GH="$S781U/gh" python3 "$WP_PY" update 999 \
   --note 'scope decision: this PR delivers A only' \
   --scope-decision-deferred pending 'Criterion B' \
   --scope-decision-rewritten pending 'Criterion A' 'Criterion A2' \
+  --print-body \
   >"$S781U/out" 2>"$S781U/err"
 _c781u=$?
 assert_eq "#781: an update writing scope-decision records exits 0" "0" "$_c781u"
@@ -8420,7 +8421,7 @@ run356() {  # <body-file> <args...> → prints exit code; leaves out/err/patchlo
   local body="$1"; shift
   : > "$S356/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" DEVFLOW_GH="$S356/gh" \
-    python3 "$WP_PY" update 888 "$@" >"$S356/out" 2>"$S356/err"
+    python3 "$WP_PY" update 888 "$@" --print-body >"$S356/out" 2>"$S356/err"
   echo $?
 }
 
@@ -9079,6 +9080,99 @@ assert_eq "#356 pin: devflow.yml flip step's guard is always()-wrapped (runs on 
 # into steps.engine, mirroring devflow-runner.yml's own parse step.
 assert_eq "#356 pin: devflow.yml surfaces the engine execution result as steps.engine.is_error" "yes" \
   "$(grep -q 'id: engine' "$DEVFLOW_YML" && grep -q 'parse-engine-error.sh' "$DEVFLOW_YML" && grep -q 'is_error=\$IS_ERROR' "$DEVFLOW_YML" && echo yes || echo no)"
+# ── issue #814: `update` suppresses the stdout body echo by default ──────────────
+# Reuses the #356 gh stub (it is the only one of the four that tees the PATCH body
+# it received to WP_PATCHBODY, which is what makes the payload-invariance pair below
+# able to fail) and the #356 interim fixture. run814 deliberately does NOT pass
+# --print-body, so the default arm is what these assertions observe.
+run814() {  # <body-file> <args...> → prints exit code; leaves out/err/patchbody on disk.
+  local body="$1"; shift
+  : > "$S356/patchlog"; : > "$S356/patchbody8"
+  WP_BODY="$body" WP_PATCHLOG="$S356/patchlog" WP_PATCHBODY="$S356/patchbody8" \
+  DEVFLOW_GH="$S356/gh" \
+    python3 "$WP_PY" update 888 "$@" >"$S356/out8" 2>"$S356/err8"
+  echo $?
+}
+
+# (default) a clean PATCH writes a zero-byte stdout capture, still PATCHes, exit 0.
+_c="$(run814 "$S356/interim.md" --note 'a note')"
+assert_eq "#814: a clean update PATCHes and exits 0 under the default" "0" "$_c"
+assert_eq "#814: a clean update writes a zero-byte stdout capture by default" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+assert_eq "#814: a clean update still made a PATCH" "yes" \
+  "$([ -s "$S356/patchlog" ] && echo yes || echo no)"
+# The success breadcrumb is what keeps a successful call from being byte-identical to
+# one a permission matcher silently refused (which prints nothing on either channel).
+assert_eq "#814: a clean update writes exactly one success breadcrumb naming the comment id" "1" \
+  "$(grep -c '^workpad.py update: PATCHed comment 7' "$S356/err8")"
+
+# (default, --status) the breadcrumb carries the Status value read back from the PATCH
+# response — the one read-back an exit code cannot discharge.
+_c="$(run814 "$S356/interim.md" --status Reviewing)"
+assert_eq "#814: a --status update's breadcrumb carries the read-back Status value" "yes" \
+  "$(grep -q '^workpad.py update: PATCHed comment 7; Status: 🚀 Reviewing$' "$S356/err8" && echo yes || echo no)"
+assert_eq "#814: a --status update still suppresses the body echo" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+
+# (default, volatile tick miss) the stated exception: exit non-zero, the #169 report
+# unchanged, NO success breadcrumb, and the body IS still written — it is the row
+# inventory the mandated positional re-resolution reads before re-ticking.
+_c="$(run814 "$S356/interim.md" --note 'n' --tick-ac 'NO_SUCH_AC')"
+assert_eq "#814: a volatile tick miss still exits non-zero under the default" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: the volatile-tick-miss path still writes the patched body to stdout" "yes" \
+  "$([ -s "$S356/out8" ] && grep -q '^\*\*Status:\*\*' "$S356/out8" && echo yes || echo no)"
+assert_eq "#814: the volatile-tick-miss path writes NO success breadcrumb" "0" \
+  "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")"
+assert_eq "#814: the #169 volatile-miss report is unchanged under the default" "yes" \
+  "$(grep -q 'NO_SUCH_AC' "$S356/err8" && grep -q 'did not resolve' "$S356/err8" && echo yes || echo no)"
+
+# (payload invariance) one fixture driven twice — default, then --print-body. The
+# PATCH body the stub recorded must be byte-identical across the two RUNS (a
+# comparison between a capture and that same run's stub recording would be a
+# tautology), while stdout is zero bytes in the first and non-empty in the second.
+# `Last updated` is minute-granular, so the two runs agree unless a minute boundary
+# falls between them; normalise that one line out of both recordings so the assertion
+# tests the payload rather than the clock.
+run814 "$S356/interim.md" --status Reviewing >/dev/null
+cp "$S356/patchbody8" "$S356/pb-default"
+_defaultout_empty="$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+run814 "$S356/interim.md" --status Reviewing --print-body >/dev/null
+cp "$S356/patchbody8" "$S356/pb-printbody"
+# The normalise-and-compare runs under python3 (preflight-guaranteed) rather than
+# `sed`+`cmp`: it is the value that DECIDES this assertion, and neither of those is a
+# preflight-guaranteed tool, so a host missing one would silently decide the comparison
+# rather than fail attributably.
+assert_eq "#814: suppression changes only the echo — the PATCH payload is byte-identical across a default run and a --print-body run" "yes" \
+  "$(python3 - "$S356/pb-default" "$S356/pb-printbody" <<'PY'
+import re, sys
+def norm(p):
+    return re.sub(r'(?m)^\*\*Last updated:\*\*.*$', '**Last updated:** X', open(p, encoding='utf-8').read())
+print('yes' if norm(sys.argv[1]) == norm(sys.argv[2]) else 'no')
+PY
+)"
+assert_eq "#814: ... while the default run's stdout capture is zero bytes" "yes" "$_defaultout_empty"
+assert_eq "#814: ... and the --print-body run's stdout capture is not" "yes" \
+  "$([ -s "$S356/out8" ] && echo yes || echo no)"
+# The pair only proves invariance if the recordings are real, not two empty files.
+assert_eq "#814: the payload-invariance comparison ran over a non-empty recorded PATCH body" "yes" \
+  "$([ -s "$S356/pb-default" ] && echo yes || echo no)"
+
+# (non-writing exit paths) a structural abort and a PATCH-call failure keep their exit
+# codes and write nothing to stdout under the default.
+_c="$(run814 "$S356/interim.md" --replace-plan-file "$S356/no-such-plan.md")"
+assert_eq "#814: a structural abort exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a structural abort writes nothing to stdout" "yes" \
+  "$([ ! -s "$S356/out8" ] && echo yes || echo no)"
+: > "$S356/patchlog"; : > "$S356/patchbody8"
+WP_BODY="$S356/interim.md" WP_PATCHLOG="$S356/patchlog" WP_PATCH_FAIL=1 DEVFLOW_GH="$S356/gh" \
+  python3 "$WP_PY" update 888 --note 'n' >"$S356/out8" 2>"$S356/err8"; _c=$?
+assert_eq "#814: a PATCH-call failure exits non-zero" "no" \
+  "$([ "$_c" = "0" ] && echo yes || echo no)"
+assert_eq "#814: a PATCH-call failure writes nothing to stdout and no success breadcrumb" "yes" \
+  "$([ ! -s "$S356/out8" ] && [ "$(grep -c '^workpad.py update: PATCHed comment' "$S356/err8")" = "0" ] && echo yes || echo no)"
+
 rm -rf "$S356"
 
 # ── issue #601: self-hosted Windows runner support — path_to_claude_code_executable ──
@@ -9859,7 +9953,7 @@ run338() {
   local body="$1"; shift
   : > "$S338/patchlog"
   WP_BODY="$body" WP_PATCHLOG="$S338/patchlog" DEVFLOW_GH="$S338/gh" \
-    python3 "$WP_PY" update 999 "$@" >"$S338/out" 2>"$S338/err"
+    python3 "$WP_PY" update 999 "$@" --print-body >"$S338/out" 2>"$S338/err"
   echo $?
 }
 
