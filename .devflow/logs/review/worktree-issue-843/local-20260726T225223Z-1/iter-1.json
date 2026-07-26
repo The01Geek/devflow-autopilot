@@ -1,0 +1,36 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T22:52:23Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_checklist",
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit_note": "true — forces the Phase 3.1.5 completeness-critic pass",
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "phase3_findings": [],
+    "comparison": null,
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}

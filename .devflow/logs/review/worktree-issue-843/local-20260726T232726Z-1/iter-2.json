@@ -1,0 +1,113 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-26T23:50:00Z",
+  "fix_commit_sha": "92110723",
+  "fix_files": [
+    "CONTRIBUTING.md",
+    "lib/test/test_residual_prose_retirement_manifest.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id": "VC-12", "claim": "no two RETAIN_BOUNDARY rows share the five non-assertion_name identity cells", "file": "lib/test/test_residual_prose_retirement_manifest.py", "verification_mode": "agent", "claim_signature": "absolute_claim:test_residual_prose_retirement_manifest.py:no-two-retain-rows-share-five-cells", "verdict": "PASS", "evidence": "203 rows, 0 collisions; asserted", "reused_from_iter_prev": true},
+    {"id": "VC-30", "claim": "every admission arm goes RED under mutation with the fully-synthetic fixture", "file": "lib/test/test_residual_prose_retirement_manifest.py", "verification_mode": "agent", "claim_signature": "test_mock_alignment:test_residual_prose_retirement_manifest.py:admission-arms-nonvacuous", "verdict": "PASS", "evidence": "orchestrator mutation sweep: 7/7 arms RED"}
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "the iteration-1 'structural' base-row reconstruction still required a live rename to exist, so the zero-row steady state it claimed to support turns the negative table into an AssertionError; the rationale comment was false against the code beneath it", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [479, 513], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Important", "description": "str(...) coercion in the emptiness arms re-opened the truthy-None bypass for directly-constructed rows (reproduced)", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [250, 255], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:type-design-analyzer", "severity": "Important", "description": "the duplicate arm returned a bare string, violating the row-naming contract the same diff established; refresh_mapping_of silently dropped a duplicated row and is reachable without the admission gate", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [198, 225], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "the '#'-widening comment cited wrapped continuations as its motivating case, but every continuation carries '# ' and would be dropped either way; the accompanying test did not drive the widening", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [142, 144], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "parse docstring's 'row and column' over-claims for the surplus-cell arm, which has no column", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [174, 184], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the injectivity test's rationale named refresh_mapping_of as the harmed consumer, but it keys on the old identity so colliding values drop nothing; the real consumer is the retained set comprehension", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [569, 574], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "the ledger's documented zero-row steady state was never driven", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [460, 470], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "refresh_admission_error's retained/current annotated set[...] but callers pass frozenset", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [208, 212], "kind": "type_design"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "rest_index names the opposite of what it holds (the index of assertion_name)", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [495, 505], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": ".devflow/logs/ described as 'machine-generated' to justify the ledger's siting, but the manifest there carries hand-authored columns", "defect_signature": {"file": "CONTRIBUTING.md", "line_range": [187, 189], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "branch was behind origin/main (PR #852), so the AC5 green-suite claim had to be made on the post-merge tree", "defect_signature": {"file": "lib/test/run.sh", "line_range": [41271, 41274], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "G-1", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-2", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-3", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-4", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-5", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-6", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-7", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-8", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-9", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-10", "decision": "applied", "commit": "92110723"},
+    {"finding_id": "G-11", "decision": "applied", "commit": "ef253601"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 11,
+    "fix_diff_lines": 96,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "refixed", "reason": null}},
+  "shadow": {
+    "ran_at": "2026-07-27T00:15:00Z",
+    "reviewed_sha": "ef253601dabea15bf0829c8d3d9161f45339355f",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "RefreshLedgerError docstring 'Raised only while PARSING' is false — refresh_mapping_of raises it too, from a non-parsing path the same diff added", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [127, 129], "kind": "documented_falsehood"}, "corroboration_count": 3},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "refresh_mapping_of's duplicate raise is dead to the whole module — disabling it leaves all 13 tests green", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [229, 233], "kind": "test_gap"}, "corroboration_count": 1},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "a frozen IdentityRefresh dataclass would make the parser the sole constructor and collapse three findings", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [238, 300], "kind": "type_design"}, "corroboration_count": 1},
+      {"agent": "devflow:type-design-analyzer", "severity": "Suggestion", "description": "helper and rationale cells escape the parser's cell contract (raw, unchecked)", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [163, 172], "kind": "type_design"}, "corroboration_count": 1},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "a deleted ledger file surfaces as a bare FileNotFoundError rather than a named RefreshLedgerError", "defect_signature": {"file": "lib/test/test_residual_prose_retirement_manifest.py", "line_range": [352, 354], "kind": "style"}, "corroboration_count": 1}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 5, "overlap_with_iter_N": 0, "new": 5, "new_critical": 1, "new_important": 1},
+    "promoted_to_iter_next": true
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_3": {"calls": 5, "tokens": 411930, "wall_clock_s": 430},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 10, "webfetches": 0},
+    "step_2_6": {"calls": 6, "tokens": 560857, "wall_clock_s": 251},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}

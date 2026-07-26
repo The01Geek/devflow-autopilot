@@ -1,0 +1,92 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-27T00:22:00Z",
+  "fix_commit_sha": "213f7095",
+  "fix_files": ["lib/test/test_residual_prose_retirement_manifest.py"],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id": "VC-31", "claim": "refresh_mapping_of's duplicate raise is now driven and non-vacuous", "file": "lib/test/test_residual_prose_retirement_manifest.py", "verification_mode": "agent", "claim_signature": "test_mock_alignment:test_residual_prose_retirement_manifest.py:mapping-duplicate-raise-driven", "verdict": "PASS", "evidence": "orchestrator mutation sweep: replacing `if old in mapping:` with `if False:` turns test_refresh_mapping_refuses_a_duplicated_old_identity RED"},
+    {"id": "VC-32", "claim": "RefreshLedgerError's docstring names every raise site", "file": "lib/test/test_residual_prose_retirement_manifest.py", "verification_mode": "lite", "claim_signature": "absolute_claim:test_residual_prose_retirement_manifest.py:refresh-ledger-error-raise-sites", "verdict": "PASS", "evidence": "two raise sites: parse_identity_refreshes and refresh_mapping_of; both named in the corrected docstring"}
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "213f7095"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "213f7095"},
+    {
+      "finding_id": "S-3",
+      "decision": "advisory",
+      "source_file": "lib/test/test_residual_prose_retirement_manifest.py",
+      "claim_text": "introduce a frozen IdentityRefresh dataclass so the parser is the sole constructor; validate helper/rationale cells; key the identity cache by its source set",
+      "skip_category": "advisory-parked",
+      "evidence": "a structural retype of the row at convergence time, proposed by one agent and explicitly graded 'optional, no action needed now' by another; the concrete bypasses it would close are already closed individually (isinstance guard in the parser, un-str()-wrapped emptiness arms, frozenset cache) and every admission arm is mutation-proven non-vacuous",
+      "parking_evidence": {
+        "basis": "a speculative-generality retype whose concrete failure modes are already closed by targeted guards, proposed after convergence and graded optional by the reviewer that raised its sibling",
+        "failing_input": "a hand-built row bypassing parse_identity_refreshes",
+        "source": "lib/test/test_residual_prose_retirement_manifest.py parse_identity_refreshes isinstance arm; refresh_admission_error emptiness arms",
+        "finding_ref": {"iter": 2, "index": 2}
+      }
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "advisory",
+      "source_file": "lib/test/test_residual_prose_retirement_manifest.py",
+      "claim_text": "a deleted ledger file surfaces as a bare FileNotFoundError rather than a named RefreshLedgerError",
+      "skip_category": "advisory-parked",
+      "evidence": "FileNotFoundError already names the exact path and fails closed; the reporting agent graded it cosmetic-diagnostics-only",
+      "parking_evidence": {
+        "basis": "the failure is already loud, closed, and self-describing — it names the missing path",
+        "failing_input": "a deleted lib/test/pin-identity-refreshes.tsv",
+        "source": "lib/test/test_residual_prose_retirement_manifest.py load_identity_refreshes read_text",
+        "finding_ref": {"iter": 2, "index": 4}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 29,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "promoted", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 10}
+  }
+}
