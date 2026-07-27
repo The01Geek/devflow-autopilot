@@ -13,6 +13,7 @@ import json
 import shlex
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +29,11 @@ def load_classifier():
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def encode_tracked_paths(paths: list[str]) -> bytes:
+    """Encode Git paths without newline or platform line-ending ambiguity."""
+    return b"".join(path.encode("utf-8") + b"\0" for path in paths)
 
 
 class PinCorpusClassifierTests(unittest.TestCase):
@@ -199,23 +205,41 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
         key = self.mod.literal_adjudication_key("same literal")
         parsed = self.mod.parse_adjudications(
             f"adjudication_key\tbucket_final\trationale\n"
-            f"{key}\tboundary\tsecurity interface contract\n"
+            f"{key}\tboundary\t security interface contract \n"
         )
         self.assertEqual(
-            ("boundary", "security interface contract"),
+            ("boundary", " security interface contract "),
             parsed[key],
         )
-        with self.assertRaisesRegex(ValueError, "duplicate adjudication"):
+        with self.assertRaisesRegex(ValueError, "duplicate key"):
             self.mod.parse_adjudications(
                 "adjudication_key\tbucket_final\trationale\n"
                 f"{key}\tboundary\tone\n"
                 f"{key}\tboundary\ttwo\n"
             )
-        with self.assertRaisesRegex(ValueError, "cannot be unclear"):
+        with self.assertRaisesRegex(ValueError, "invalid final bucket"):
             self.mod.parse_adjudications(
                 "adjudication_key\tbucket_final\trationale\n"
                 f"{key}\tunclear\tstill unclear\n"
             )
+        for invalid in (
+            (
+                "bucket_final\tadjudication_key\trationale\n"
+                f"boundary\t{key}\treordered\n"
+            ),
+            f"adjudication_key\tbucket_final\trationale\n{key}\tboundary\twhy\textra\n",
+            (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"tombstone:{key}\ttombstone\tretired\n"
+            ),
+            (
+                "adjudication_key\tbucket_final\trationale\n"
+                f"supersede:{key}\tboundary\treplacement\n"
+            ),
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    self.mod.parse_adjudications(invalid)
 
     def test_complete_explicit_source_scope_canonicalizes_to_default_command(self):
         remaining = ["--repo-root", ".", "--output", "inventory.tsv"]
@@ -234,6 +258,15 @@ assert_pin_red_under "mutation" 'shared literal' 's/x/y/' "$LIB/a.md"
                 ["--source", "lib/test/run.sh", *remaining],
                 ("lib/test/run.sh",),
             ),
+        )
+
+    def test_historical_tracked_path_fixture_is_nul_delimited(self):
+        encoded = encode_tracked_paths(["plain/path", "legal\nnewline"])
+        self.assertEqual(b"plain/path\0legal\nnewline\0", encoded)
+        self.assertNotIn(b"\r", encoded)
+        self.assertEqual(
+            ["plain/path", "legal\nnewline"],
+            [part.decode("utf-8") for part in encoded.split(b"\0") if part],
         )
 
     def test_cli_debundles_homes_applies_only_exact_count_exclusions(self):
@@ -607,13 +640,47 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         self.assertNotIn(str(repo_root), inventory.read_text(encoding="utf-8"))
 
         with tempfile.TemporaryDirectory() as raw:
-            reproduced = Path(raw) / "inventory.tsv"
+            scratch = Path(raw)
+            reproduced = scratch / "inventory.tsv"
             command = shlex.split(metadata["producing-command"])
+            archive = subprocess.run(
+                ["git", "archive", "--format=tar", revision],
+                cwd=repo_root,
+                capture_output=True,
+                check=True,
+            ).stdout
+            tracked_paths = []
+            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+                for member in tar:
+                    if not member.isfile():
+                        continue
+                    extracted = tar.extractfile(member)
+                    self.assertIsNotNone(extracted)
+                    destination = scratch / member.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(extracted.read())
+                    tracked_paths.append(member.name)
+            for relative in (
+                "lib/test/pin-corpus-classifier.py",
+                "lib/test/pin-corpus-lint.py",
+                "lib/test/pin-corpus-adjudications.tsv",
+            ):
+                self.assertIn(relative, tracked_paths)
+            tracked = scratch / "tracked-files.txt"
+            tracked.write_bytes(encode_tracked_paths(tracked_paths))
+            command[1] = str(scratch / "lib/test/pin-corpus-classifier.py")
+            repo_index = command.index("--repo-root") + 1
+            command[repo_index] = str(scratch)
+            adjudications_index = command.index("--adjudications") + 1
+            command[adjudications_index] = str(
+                scratch / "lib/test/pin-corpus-adjudications.tsv"
+            )
             output_index = command.index("--output") + 1
             command[output_index] = str(reproduced)
+            command.extend(("--tracked-files", str(tracked)))
             result = subprocess.run(
                 command,
-                cwd=repo_root,
+                cwd=scratch,
                 text=True,
                 capture_output=True,
                 check=False,
@@ -629,42 +696,6 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                 f"# producing-command: {metadata['producing-command']}"
             )
             self.assertEqual(raw_lines, reproduced_lines)
-
-    def test_adjudication_events_replace_or_deactivate_only_known_active_keys(self):
-        base = "adjudication_key\tbucket_final\trationale\n"
-        active = base + "literal:a\trequired-copy\told decision\n"
-        self.assertEqual(
-            {"literal:a": ("boundary", "new decision")},
-            self.mod.parse_adjudications(
-                active + "supersede:literal:a\tboundary\tnew decision\n"
-            ),
-        )
-        self.assertEqual(
-            {},
-            self.mod.parse_adjudications(
-                active + "tombstone:literal:a\ttombstone\tretired decision\n"
-            ),
-        )
-        tombstoned = active + "tombstone:literal:a\ttombstone\tretired decision\n"
-        for resurrection in (
-            tombstoned + "literal:a\tboundary\tordinary resurrection\n",
-            tombstoned + "supersede:literal:a\tboundary\tresurrected event\n",
-        ):
-            with self.subTest(resurrection=resurrection):
-                with self.assertRaises(ValueError):
-                    self.mod.parse_adjudications(resurrection)
-        for invalid in (
-            "literal:a\tboundary\tordinary duplicate\n",
-            "supersede:literal:missing\tboundary\tunknown target\n",
-            "tombstone:literal:missing\ttombstone\tunknown target\n",
-            "tombstone:literal:a\tboundary\tbad event bucket\n",
-            "supersede:literal:a\tboundary\t\n",
-            "supersede:literal:a\tboundary\tnew decision\n"
-            "supersede:literal:a\tboundary\trepeated event\n",
-        ):
-            with self.subTest(invalid=invalid):
-                with self.assertRaises(ValueError):
-                    self.mod.parse_adjudications(active + invalid)
 
 if __name__ == "__main__":
     unittest.main()
