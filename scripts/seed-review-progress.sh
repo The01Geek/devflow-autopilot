@@ -28,10 +28,12 @@
 #   SKIP bad-marker           3     the run-keyed marker was empty (an empty --marker
 #                                   would defeat S3's stderr-emptiness discriminator)
 #   SKIP workpad-unreadable   3     S2 found workpad.py missing or unreadable
-#   SKIP api-error            3     the catch-all failure token: S3 rejected the create arm
-#                                   (exit 2 WITH stderr), `id` reported a real failure, the
-#                                   scratch-file `mktemp` failed, or `create` failed after a
-#                                   confirmed clean absence
+#   SKIP api-error            3     the catch-all failure token. Every arm that emits it:
+#                                   S3 rejected the create arm (exit 2 WITH stderr), `id`
+#                                   reported a real failure, the scratch-file `mktemp`
+#                                   failed, `create` failed after a confirmed clean
+#                                   absence, or `id`/`create` exited 0 without printing a
+#                                   comment id (the frozen-comment guard)
 #
 # This is the same token-line-plus-exit-code SHAPE the implement tier's helpers use, but
 # with its OWN codes, and it matches neither of theirs: `scripts/classify-id-exit.sh` (the

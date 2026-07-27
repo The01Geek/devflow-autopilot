@@ -1377,6 +1377,17 @@ assert_eq "#857 seed helper: create exit 0 with no printed id -> SKIP api-error,
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
   "$(srp857_run 7 m | grep -c .)"
+# The CALL SITE's positional contract. The behavioral rows below drive the helper through
+# srp857_run, which hard-codes the argument order — so a transposed $MARKER and body path in
+# the SKILL.md fence (or a drop to two args) leaves every one of them green while every cloud
+# review silently loses its live comment on a SKIP bad-marker. The head extractor pins the
+# leading token only and is insensitive to arguments, so this is the one place the fence's
+# arity and order are checked.
+# structural-pin-ok: helper-contract -- the helper's three positional parameters are a typed
+# executable boundary between the shipped fence and scripts/seed-review-progress.sh; no
+# behavioral test can reach the fence, which is prompt text an agent emits.
+assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in that order" "1" \
+  "$(grep -c 'seed-review-progress\.sh "\$PR_NUMBER" "\$MARKER" \.devflow/tmp/review/<slug>/<run-id>/review-wp\.md' "$ST_REV")"
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
 # bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr

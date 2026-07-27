@@ -127,8 +127,13 @@ compound outright — **measured 8/8 refusals across 6 PRs** (issue #857), each 
 the harness string `Contains shell syntax (string) that cannot be statically
 analyzed`. The fix moved that find-or-create decision into the bundled helper
 `scripts/seed-review-progress.sh` (a single leading-token statement the matcher
-permits), and R5 guards against reintroducing the refused condition-substitution
-spelling. Four new `matcher-probe.yml` review rows (a `;`-joined multi-statement
+permits), and R5 guards against reintroducing the *bare* `if VAR=$(…)` /
+`elif VAR=$(…)` condition-substitution spelling. Two sibling spellings are outside
+its anchored pattern and are stated as such in the helper's own NON-GOALS block —
+the negated `if ! VAR=$(…)` (exempt by decision: it is the repo's #284-mandated
+idiom, and no rule reports it) and a condition behind a preceding test
+(`elif [ … ] && VAR=$(…)`, a coverage limit) — so R5 is not a complete guard
+against every condition-substitution spelling, only against the measured one. Four new `matcher-probe.yml` review rows (a `;`-joined multi-statement
 command, a multi-line `if`/`else`/`fi`, an `if VAR=$(granted-helper …)` condition,
 and a `printf` with a double-quoted expansion) will, on a PERMITTED result for the
 `if VAR=$(…)` row, retire R5 in a follow-up. Notable recorded verdicts:
