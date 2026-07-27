@@ -44,12 +44,21 @@ authoring time:
   ``relocation diagnosis unavailable`` on stderr and is **never** collapsed to
   ``deleted`` (fail-closed). Without ``--reloc`` the ABSENT emit is unchanged.
 
-* ``mutation-routing-worktree`` — the retired-helper zero-population gate for the
-  committed audited test-source population (issues #666 and #810). It builds the
-  opaque mutation-call census and requires both the census and checked-in inventory
-  to be empty. Every supported mutation-helper definition or invocation is
-  prohibited. The gate does not execute or interpret mutations, classify effects,
-  or infer assignment dependencies.
+* ``mutation-routing-worktree`` — the required worktree gate over the committed
+  audited test-source population (issues #666 and #810). It runs **two** subgates
+  and concatenates their findings:
+
+  1. the retired-helper zero-population census, which builds the opaque
+     mutation-call census and requires both the census and the checked-in
+     inventory to be empty — every supported mutation-helper definition or
+     invocation is prohibited; and
+  2. the static pin classifier over the worktree's changes against the merge base
+     with ``origin/main``, scanning ``AUDITED_PIN_SOURCES`` plus the tracked and
+     untracked ``lib/test/test_*.py`` leaves, so a newly added undeclared
+     wording-only pin fails RED.
+
+  Neither subgate executes or interprets mutations, classifies effects, or infers
+  assignment dependencies.
   Infrastructure failures exit 2, policy findings exit 3, and a clean established
   scan exits 0. The lower-level ``mutation-routing`` synthetic-fixture command
   remains for legacy self-tests.
@@ -120,11 +129,15 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 from __future__ import annotations
 
 import ast
+import csv
 import difflib
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -174,23 +187,60 @@ def join_logical_lines(text):
         i += 1
 
 
-def tokenize(s):
+def tokenize(s, *, split_shell_operators=False, include_spans=False):
     """Split a shell fragment into argument tokens, quote-aware.
 
     Returns a list of tokens, each a list of (kind, value) segments where kind
-    is 'sq' (single-quoted, literal), 'dq' (double-quoted), or 'bare'. Adjacent
-    segments with no separating whitespace belong to one token (shell
-    concatenation, e.g. `'a'"$B"`).
+    is 'sq' (single-quoted, literal), 'dq' (double-quoted), 'bare', or — in
+    shell-operator mode — 'escaped'. Adjacent segments with no separating
+    whitespace belong to one token (shell concatenation, e.g. `'a'"$B"`).
+    When ``split_shell_operators`` is true, unquoted, unescaped command
+    operators are emitted as separate bare tokens. When ``include_spans`` is
+    true, each item is ``(token, start, end)`` with offsets into ``s``.
     """
     tokens = []
     cur = []  # list of (kind, value) segments for the current token
+    cur_start = None
+
+    def emit(token, start, end):
+        tokens.append((token, start, end) if include_spans else token)
+
     i, n = 0, len(s)
     while i < n:
         c = s[i]
+        if (
+            split_shell_operators
+            and c == "("
+            and i + 1 < n
+            and s[i + 1] == ")"
+            and cur
+            and all(kind == "bare" for kind, _ in cur)
+            and re.fullmatch(r"[A-Za-z_]\w*", _token_value(cur))
+        ):
+            # Keep a Bash function-definition name (`name()`) opaque. Its body
+            # is scanned independently; treating `name` as an invocation would
+            # double-count inferred wrappers or trigger the multi-call guard.
+            cur.append(("bare", "()"))
+            i += 2
+            continue
+        if split_shell_operators and c in ";&|()":
+            if cur:
+                emit(cur, cur_start, i)
+                cur = []
+                cur_start = None
+            operator = (
+                s[i : i + 2]
+                if s[i : i + 2] in {"&&", "||", "|&"}
+                else c
+            )
+            emit([("bare", operator)], i, i + len(operator))
+            i += len(operator)
+            continue
         if c in " \t\n":
             if cur:
-                tokens.append(cur)
+                emit(cur, cur_start, i)
                 cur = []
+                cur_start = None
             i += 1
             continue
         if c == "#" and not cur:
@@ -198,11 +248,15 @@ def tokenize(s):
             # `foo#bar` bare words are unaffected — none occur in pin calls).
             break
         if c == "'":
+            if cur_start is None:
+                cur_start = i
             j = s.index("'", i + 1) if "'" in s[i + 1 :] else n
             cur.append(("sq", s[i + 1 : j]))
             i = j + 1
             continue
         if c == '"':
+            if cur_start is None:
+                cur_start = i
             j = i + 1
             buf = []
             while j < n and s[j] != '"':
@@ -216,19 +270,30 @@ def tokenize(s):
             i = j + 1
             continue
         # bare run up to next whitespace/quote
+        if cur_start is None:
+            cur_start = i
         j = i
         buf = []
         while j < n and s[j] not in " \t\n'\"":
+            if split_shell_operators and s[j] in ";&|()":
+                break
             if s[j] == "\\" and j + 1 < n:
-                buf.append(s[j + 1])
+                if split_shell_operators:
+                    if buf:
+                        cur.append(("bare", "".join(buf)))
+                        buf = []
+                    cur.append(("escaped", s[j + 1]))
+                else:
+                    buf.append(s[j + 1])
                 j += 1
             else:
                 buf.append(s[j])
             j += 1
-        cur.append(("bare", "".join(buf)))
+        if buf:
+            cur.append(("bare", "".join(buf)))
         i = j
     if cur:
-        tokens.append(cur)
+        emit(cur, cur_start, n)
     return tokens
 
 
@@ -1072,6 +1137,671 @@ class InfrastructureError(RuntimeError):
     """The blocking gate could not establish the population or comparison."""
 
 
+_ADJUDICATION_KEY_RE = re.compile(r"(?:literal|site):[0-9a-f]{64}\Z")
+_FINAL_ADJUDICATION_BUCKETS = frozenset(
+    {
+        "suite-internal",
+        "required-copy",
+        "boundary",
+        "generated",
+        "config-key",
+        "prose-sole-copy",
+        "prose-multi-copy",
+    }
+)
+_CURRENT_ADJUDICATION_HEADER = ("adjudication_key", "bucket_final", "rationale")
+_ADJUDICATION_DELTA_HEADER = ("adjudication_key", "base_state", "current_state")
+_RETIRED_PIN_REVIVAL_HEADER = (
+    "source_path",
+    "family",
+    "helper",
+    "literal_key",
+    "target_path",
+    "structural_category",
+    "structural_rationale",
+)
+_ADJUDICATION_BUNDLE_ROOT = ".devflow/logs/pin-corpus-adjudication-changes"
+_ADJUDICATION_TABLE_PATH = "lib/test/pin-corpus-adjudications.tsv"
+_RETIREMENT_MANIFEST_SPECS = {
+    ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "surface",
+            "disposition",
+            "rationale",
+        ),
+        frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
+        frozenset({"RETIRE_PROSE"}),
+    ),
+    ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "disposition",
+            "rationale",
+        ),
+        frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
+        frozenset({"RETIRE_PROSE"}),
+    ),
+    ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+        (
+            "source_file",
+            "helper",
+            "assertion_name",
+            "literal",
+            "resolved_target",
+            "target_defaulted",
+            "disposition",
+            "call_sha256",
+        ),
+        frozenset(
+            {
+                "convert_presence",
+                "prose_retire",
+                "redundant_retire",
+                "replace_behavioral",
+            }
+        ),
+        frozenset({"prose_retire", "redundant_retire"}),
+    ),
+}
+_MIGRATION_BUNDLE_ID = "2026-07-26-pr-849"
+_MIGRATION_CERTIFICATE_PATH = (
+    f"{_ADJUDICATION_BUNDLE_ROOT}/{_MIGRATION_BUNDLE_ID}/migration.tsv"
+)
+_LEGACY_ADJUDICATION_SHA256 = (
+    "db13cb2caa85b95c3bcdca6488f87c1b79428de5d4055e2faaf3b9636bc985cd"
+)
+_RESOLVED_ADJUDICATION_SHA256 = (
+    "bc955639aee8f6fa37a8a41cf42202e175254bff95cfb13e5a347bbe527a2aa9"
+)
+_RESOLVED_ADJUDICATION_SEMANTIC_SHA256 = (
+    "63eae0fc7617e23a4ab3ec71e36cac0e81f246515759bbb381557f007707c0c5"
+)
+_MIGRATION_CERTIFICATE_BYTES = (
+    "legacy_sha256\tresolved_sha256\tsemantic_map_sha256\n"
+    f"{_LEGACY_ADJUDICATION_SHA256}\t{_RESOLVED_ADJUDICATION_SHA256}\t"
+    f"{_RESOLVED_ADJUDICATION_SEMANTIC_SHA256}\n"
+).encode("ascii")
+
+
+class RevivalAuthorization(NamedTuple):
+    source_path: str
+    family: str
+    helper: str
+    literal_key: str
+    target_path: str
+    structural_category: str
+    structural_rationale: str
+
+
+class AdjudicationAnalysis(NamedTuple):
+    findings: list[str]
+    base: dict[str, tuple[str, str]]
+    current: dict[str, tuple[str, str]]
+    delta: dict[
+        str,
+        tuple[tuple[str, str] | None, tuple[str, str] | None],
+    ]
+    revival_authorizations: frozenset[RevivalAuthorization]
+
+
+def _parse_exact_tsv(text, header, label):
+    """Return strict TSV rows after rejecting transport and shape ambiguity."""
+    if not isinstance(text, str):
+        raise InfrastructureError(f"{label} text is not a string")
+    if "\r" in text:
+        raise InfrastructureError(f"{label} contains carriage-return bytes")
+    try:
+        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter="\t", strict=True))
+    except csv.Error as exc:
+        raise InfrastructureError(f"{label} is malformed TSV: {exc}") from exc
+    if not rows or tuple(rows[0]) != header:
+        raise InfrastructureError(f"{label} has an invalid header")
+    for number, row in enumerate(rows[1:], start=2):
+        if len(row) != len(header):
+            raise InfrastructureError(f"{label} has invalid cell count at line {number}")
+        if any("\n" in cell for cell in row):
+            raise InfrastructureError(f"{label} has multiline cell at line {number}")
+    return rows[1:]
+
+
+def _validate_adjudication_key(key, label):
+    if not isinstance(key, str) or _ADJUDICATION_KEY_RE.fullmatch(key) is None:
+        raise InfrastructureError(f"{label} has invalid adjudication key: {key!r}")
+
+
+def _validate_adjudication_state(state, label):
+    if (
+        not isinstance(state, tuple)
+        or len(state) != 2
+        or not all(isinstance(value, str) for value in state)
+    ):
+        raise InfrastructureError(f"{label} is not a two-string adjudication state")
+    bucket, rationale = state
+    if bucket not in _FINAL_ADJUDICATION_BUCKETS:
+        raise InfrastructureError(f"{label} has invalid final bucket: {bucket!r}")
+    if not rationale:
+        raise InfrastructureError(f"{label} has empty rationale")
+
+
+def parse_current_adjudications(text):
+    """Strictly parse the live current-state adjudication table."""
+    result = {}
+    for number, (key, bucket, rationale) in enumerate(
+        _parse_exact_tsv(text, _CURRENT_ADJUDICATION_HEADER, "adjudication table"),
+        start=2,
+    ):
+        _validate_adjudication_key(key, f"adjudication table line {number}")
+        _validate_adjudication_state(
+            (bucket, rationale), f"adjudication table line {number}"
+        )
+        if key in result:
+            raise InfrastructureError(f"adjudication table has duplicate key: {key}")
+        result[key] = (bucket, rationale)
+    return result
+
+
+def canonical_adjudication_state(state):
+    """Render a nullable adjudication state in its sole accepted JSON form."""
+    if state is None:
+        return "null"
+    _validate_adjudication_state(state, "adjudication state")
+    return json.dumps(list(state), ensure_ascii=True, separators=(",", ":"))
+
+
+def _parse_canonical_adjudication_state(text, label):
+    if text == "null":
+        return None
+    try:
+        decoded = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise InfrastructureError(f"{label} is not JSON: {exc}") from exc
+    if (
+        not isinstance(decoded, list)
+        or len(decoded) != 2
+        or not all(isinstance(value, str) for value in decoded)
+    ):
+        raise InfrastructureError(f"{label} is not a two-string JSON state")
+    state = tuple(decoded)
+    _validate_adjudication_state(state, label)
+    if text != canonical_adjudication_state(state):
+        raise InfrastructureError(f"{label} is not compact canonical JSON")
+    return state
+
+
+def parse_adjudication_delta_manifest(text):
+    """Parse a branch delta manifest without operation or count semantics."""
+    result = {}
+    for number, (key, base_text, current_text) in enumerate(
+        _parse_exact_tsv(text, _ADJUDICATION_DELTA_HEADER, "adjudication delta manifest"),
+        start=2,
+    ):
+        _validate_adjudication_key(key, f"adjudication delta manifest line {number}")
+        if key in result:
+            raise InfrastructureError(
+                f"adjudication delta manifest has duplicate key: {key}"
+            )
+        result[key] = (
+            _parse_canonical_adjudication_state(
+                base_text, f"adjudication delta manifest line {number} base_state"
+            ),
+            _parse_canonical_adjudication_state(
+                current_text, f"adjudication delta manifest line {number} current_state"
+            ),
+        )
+    return result
+
+
+def _validate_repo_relative_path(path, label):
+    if (
+        not path
+        or path.startswith("/")
+        or "\\" in path
+        or path != Path(path).as_posix()
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
+        raise InfrastructureError(f"{label} has invalid repository-relative path: {path!r}")
+
+
+def parse_retired_pin_revivals(text):
+    """Parse exact normalized current-site revival authorizations."""
+    result = set()
+    for number, row in enumerate(
+        _parse_exact_tsv(
+            text,
+            _RETIRED_PIN_REVIVAL_HEADER,
+            "retired-pin revival manifest",
+        ),
+        start=2,
+    ):
+        (
+            source_path,
+            family,
+            helper,
+            literal_key,
+            target_path,
+            category,
+            rationale,
+        ) = row
+        _validate_repo_relative_path(
+            source_path, f"retired-pin revival manifest line {number}"
+        )
+        _validate_repo_relative_path(
+            target_path, f"retired-pin revival manifest line {number}"
+        )
+        if not family or family != family.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid family"
+            )
+        if helper != helper.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid helper"
+            )
+        _validate_adjudication_key(
+            literal_key, f"retired-pin revival manifest line {number}"
+        )
+        if not literal_key.startswith("literal:"):
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} requires a literal key"
+            )
+        if category not in STRUCTURAL_PIN_CATEGORIES:
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid structural category"
+            )
+        if not rationale or rationale != rationale.strip():
+            raise InfrastructureError(
+                f"retired-pin revival manifest line {number} has invalid structural rationale"
+            )
+        authorization = RevivalAuthorization(*row)
+        if authorization in result:
+            raise InfrastructureError(
+                f"retired-pin revival manifest has duplicate revival: {authorization}"
+            )
+        result.add(authorization)
+    return frozenset(result)
+
+
+def _literal_adjudication_key(literal):
+    return f"literal:{hashlib.sha256(literal.encode('utf-8')).hexdigest()}"
+
+
+def _strict_retirement_manifest_literals(text, path, spec):
+    header, allowed_dispositions, retired_dispositions = spec
+    if "\r" in text:
+        raise InfrastructureError(f"retirement manifest contains carriage returns: {path}")
+    lines = text.splitlines()
+    while lines and lines[0].startswith("#"):
+        lines.pop(0)
+    if not lines or any(line.startswith("#") for line in lines):
+        raise InfrastructureError(f"retirement manifest has ambiguous comments: {path}")
+    try:
+        rows = list(
+            csv.reader(
+                io.StringIO("\n".join(lines) + "\n", newline=""),
+                delimiter="\t",
+                strict=True,
+            )
+        )
+    except csv.Error as exc:
+        raise InfrastructureError(f"retirement manifest is malformed TSV: {path}: {exc}") from exc
+    if not rows or tuple(rows[0]) != header:
+        raise InfrastructureError(f"retirement manifest has invalid header: {path}")
+    literal_index = header.index("literal")
+    disposition_index = header.index("disposition")
+    retired = set()
+    for number, row in enumerate(rows[1:], start=2):
+        if len(row) != len(header) or any("\n" in cell for cell in row):
+            raise InfrastructureError(
+                f"retirement manifest has invalid row shape: {path}:{number}"
+            )
+        disposition = row[disposition_index]
+        if disposition not in allowed_dispositions:
+            raise InfrastructureError(
+                f"retirement manifest has invalid disposition: {path}:{number}"
+            )
+        try:
+            literal = json.loads(row[literal_index])
+        except json.JSONDecodeError as exc:
+            raise InfrastructureError(
+                f"retirement manifest literal is invalid JSON: {path}:{number}"
+            ) from exc
+        if literal is not None and not isinstance(literal, str):
+            raise InfrastructureError(
+                f"retirement manifest literal is not a string or null: {path}:{number}"
+            )
+        if disposition in retired_dispositions and literal is not None:
+            retired.add(_literal_adjudication_key(literal))
+    return retired
+
+
+def _regular_blob_bytes(repo_root, revision, path, git_runner, label):
+    listing = _run_git(git_runner, repo_root, "ls-tree", revision, "--", path)
+    try:
+        mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+    except ValueError as exc:
+        raise InfrastructureError(f"{label} is not a regular blob: {path}") from exc
+    if mode != "100644" or kind != "blob" or listed_path != path:
+        raise InfrastructureError(f"{label} is not a regular blob: {path}")
+    return _run_git_bytes(git_runner, repo_root, "show", f"{revision}:{path}")
+
+
+def load_retired_wording_literal_keys(
+    repo_root,
+    merge_base,
+    *,
+    git_runner=subprocess.run,
+):
+    """Derive retired literals from byte-frozen historical static manifests."""
+    repo_root = Path(repo_root)
+    retired = set()
+    for path, spec in _RETIREMENT_MANIFEST_SPECS.items():
+        status = _run_git(
+            git_runner,
+            repo_root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--",
+            path,
+        )
+        if status:
+            raise InfrastructureError(
+                f"historical retirement manifest worktree differs from HEAD: {path}"
+            )
+        base_bytes = _regular_blob_bytes(
+            repo_root, merge_base, path, git_runner, "base retirement manifest"
+        )
+        head_bytes = _regular_blob_bytes(
+            repo_root, "HEAD", path, git_runner, "HEAD retirement manifest"
+        )
+        if head_bytes != base_bytes:
+            raise InfrastructureError(
+                f"historical retirement manifest changed since merge base: {path}"
+            )
+        live_path = repo_root / path
+        try:
+            live_stat = live_path.lstat()
+            live_bytes = live_path.read_bytes()
+        except OSError as exc:
+            raise InfrastructureError(
+                f"historical retirement manifest worktree is unreadable: {path}: {exc}"
+            ) from exc
+        if (
+            not stat.S_ISREG(live_stat.st_mode)
+            or live_stat.st_mode & 0o111
+            or live_bytes != head_bytes
+        ):
+            raise InfrastructureError(
+                f"historical retirement manifest worktree is not the exact regular blob: {path}"
+            )
+        retired.update(
+            _strict_retirement_manifest_literals(
+                _decode_utf8(head_bytes, f"retirement manifest {path}"),
+                path,
+                spec,
+            )
+        )
+    return frozenset(retired)
+
+
+def canonical_adjudication_table_state(adjudications):
+    """Render a table map independently of TSV ordering or transport bytes."""
+    if not isinstance(adjudications, dict):
+        raise InfrastructureError("adjudication table state is not a mapping")
+    rows = []
+    for key in sorted(adjudications):
+        _validate_adjudication_key(key, "adjudication table state")
+        state = adjudications[key]
+        _validate_adjudication_state(state, f"adjudication table state for {key}")
+        rows.append([key, *state])
+    return json.dumps(rows, ensure_ascii=True, separators=(",", ":"))
+
+
+def hash_adjudication_table_state(adjudications):
+    """Return the deterministic content hash of a validated current-state map."""
+    return hashlib.sha256(
+        canonical_adjudication_table_state(adjudications).encode("utf-8")
+    ).hexdigest()
+
+
+def hash_adjudication_semantic_map(adjudications):
+    """Hash canonical sorted TSV rows without coupling semantics to a header."""
+    canonical_adjudication_table_state(adjudications)
+    payload = "".join(
+        f"{key}\t{adjudications[key][0]}\t{adjudications[key][1]}\n"
+        for key in sorted(adjudications)
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def compute_adjudication_delta(base, current):
+    """Return the complete base-to-current state delta, including deletions."""
+    canonical_adjudication_table_state(base)
+    canonical_adjudication_table_state(current)
+    return {
+        key: (base.get(key), current.get(key))
+        for key in sorted(set(base) | set(current))
+        if base.get(key) != current.get(key)
+    }
+
+
+def combine_adjudication_delta_manifests(manifests):
+    """Combine branch manifests while rejecting cross-bundle duplicate claims."""
+    combined = {}
+    for manifest in manifests:
+        if not isinstance(manifest, dict):
+            raise InfrastructureError("adjudication delta manifest is not a mapping")
+        for key, delta in manifest.items():
+            _validate_adjudication_key(key, "adjudication delta manifest")
+            if (
+                not isinstance(delta, tuple)
+                or len(delta) != 2
+                or any(state is not None and not isinstance(state, tuple) for state in delta)
+            ):
+                raise InfrastructureError("adjudication delta manifest has invalid state pair")
+            for state in delta:
+                if state is not None:
+                    _validate_adjudication_state(state, "adjudication delta manifest")
+            if key in combined:
+                raise InfrastructureError(
+                    f"adjudication delta manifests have duplicate key: {key}"
+                )
+            combined[key] = delta
+    return combined
+
+
+def is_exactly_authorized_adjudication_delta(base, current, manifests):
+    """Return whether a valid bundle set fully authorizes the computed delta."""
+    actual = compute_adjudication_delta(base, current)
+    authorized = combine_adjudication_delta_manifests(manifests)
+    for key, delta in authorized.items():
+        if actual.get(key) != delta:
+            raise InfrastructureError(
+                f"adjudication delta manifest is stale or extra for key: {key}"
+            )
+    return actual == authorized
+
+
+def require_current_adjudication_base(
+    repo_root,
+    base_ref,
+    *,
+    merge_base=None,
+    git_runner=subprocess.run,
+):
+    """Require HEAD to descend directly from the configured current base tip."""
+    if merge_base is None:
+        merge_base = _run_git(
+            git_runner, repo_root, "merge-base", base_ref, "HEAD"
+        ).strip()
+    base_tip = _run_git(git_runner, repo_root, "rev-parse", base_ref).strip()
+    if merge_base != base_tip:
+        raise InfrastructureError(
+            f"adjudication branch is not based on current {base_ref}: "
+            f"merge-base {merge_base}, base tip {base_tip}"
+        )
+    return merge_base
+
+
+def discover_new_adjudication_delta_manifests(
+    repo_root,
+    merge_base,
+    *,
+    include_migration=False,
+    include_revivals=False,
+    git_runner=subprocess.run,
+):
+    """Return parsed HEAD payloads from only newly-added immutable bundles."""
+    worktree_status = _run_git(
+        git_runner,
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        _ADJUDICATION_BUNDLE_ROOT,
+    )
+    if worktree_status:
+        raise InfrastructureError(
+            "adjudication bundle worktree differs from HEAD: "
+            f"{worktree_status.strip()}"
+        )
+    base_paths = set(
+        filter(
+            None,
+            _run_git(
+                git_runner,
+                repo_root,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                merge_base,
+                "--",
+                _ADJUDICATION_BUNDLE_ROOT,
+            ).splitlines(),
+        )
+    )
+    historical_ids = {
+        path.split("/")[3]
+        for path in base_paths
+        if len(path.split("/")) >= 4
+    }
+    changes = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        merge_base,
+        "HEAD",
+        "--",
+        _ADJUDICATION_BUNDLE_ROOT,
+    )
+    new_paths = {}
+    for line in filter(None, changes.splitlines()):
+        try:
+            status, path = line.split("\t", 1)
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"adjudication bundle diff has malformed name-status row: {line!r}"
+            ) from exc
+        parts = path.split("/")
+        if len(parts) < 4 or "/".join(parts[:3]) != _ADJUDICATION_BUNDLE_ROOT:
+            raise InfrastructureError(f"adjudication bundle path is invalid: {path!r}")
+        change_id = parts[3]
+        if change_id in {".", ".."} or not re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*", change_id
+        ):
+            raise InfrastructureError(f"adjudication bundle has unsafe bundle ID: {change_id!r}")
+        delta_path = f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        revival_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
+        )
+        is_migration = (
+            include_migration
+            and change_id == _MIGRATION_BUNDLE_ID
+            and path == _MIGRATION_CERTIFICATE_PATH
+        )
+        if path not in {delta_path, revival_path} and not is_migration:
+            raise InfrastructureError(f"adjudication bundle has unexpected bundle path: {path!r}")
+        if status != "A" or change_id in historical_ids:
+            raise InfrastructureError(
+                f"historical adjudication bundle was changed: {path} ({status})"
+            )
+        new_paths.setdefault(change_id, set()).add(path)
+    for change_id, paths in new_paths.items():
+        if change_id == _MIGRATION_BUNDLE_ID:
+            expected_paths = {_MIGRATION_CERTIFICATE_PATH}
+            valid = paths == expected_paths
+        else:
+            delta_path = (
+                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+            )
+            revival_path = (
+                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
+            )
+            expected_paths = {delta_path, revival_path}
+            valid = delta_path in paths and paths <= expected_paths
+        if not valid:
+            unexpected = sorted(paths - expected_paths or paths)
+            raise InfrastructureError(
+                f"adjudication bundle has unexpected bundle path: {unexpected[0]!r}"
+            )
+    manifests = []
+    revival_authorizations = set()
+    migration_bytes = None
+    for change_id in sorted(new_paths):
+        for payload_path in sorted(new_paths[change_id]):
+            listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", payload_path)
+            try:
+                mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+            except ValueError as exc:
+                raise InfrastructureError(
+                    f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
+                ) from exc
+            if mode != "100644" or kind != "blob" or listed_path != payload_path:
+                raise InfrastructureError(
+                    f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
+                )
+            payload = _run_git_bytes(git_runner, repo_root, "show", f"HEAD:{payload_path}")
+            if payload_path == _MIGRATION_CERTIFICATE_PATH:
+                migration_bytes = payload
+            elif payload_path.endswith("/adjudication-delta.tsv"):
+                manifests.append(
+                    parse_adjudication_delta_manifest(
+                        _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
+                    )
+                )
+            else:
+                parsed = parse_retired_pin_revivals(
+                    _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
+                )
+                duplicates = revival_authorizations & set(parsed)
+                if duplicates:
+                    raise InfrastructureError(
+                        "adjudication bundles have duplicate revival authorization: "
+                        f"{sorted(duplicates)[0]}"
+                    )
+                revival_authorizations.update(parsed)
+    if include_migration and include_revivals:
+        return manifests, migration_bytes, frozenset(revival_authorizations)
+    if include_migration:
+        return manifests, migration_bytes
+    if include_revivals:
+        return manifests, frozenset(revival_authorizations)
+    return manifests
+
+
 _FUNCTION_START_RE = re.compile(r"(?m)^([A-Za-z_]\w*)\s*\(\)\s*\{")
 _POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
 _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
@@ -1146,33 +1876,80 @@ def _token_value(token):
     return "".join(value for _, value in token)
 
 
-def _helper_call(tokens, helper_specs):
-    """Return (token-index, helper-name) for the first executable helper token.
+def _is_executable_helper_prefix(tokens):
+    """Recognize the closed Bash execution-prefix grammar before a helper."""
+    index = 0
+    if index < len(tokens) and tokens[index] == "time":
+        index += 1
+        if index < len(tokens) and tokens[index] == "-p":
+            index += 1
+        if index < len(tokens) and tokens[index] == "--":
+            index += 1
+    if index < len(tokens) and tokens[index] == "command":
+        index += 1
+        if index < len(tokens) and tokens[index] in {"--", "-p"}:
+            index += 1
+    return index == len(tokens)
 
-    Shell control prefixes such as ``if`` and ``!`` remain separate bare
-    tokens, so scanning the token stream covers guarded calls without treating
-    a helper name inside an assertion label as executable.
+
+def _helper_calls(tokens, helper_specs):
+    """Return supported helper tokens in recognized shell command positions.
+
+    The closed boundary set covers guarded, pipeline, background, and subshell
+    positions without treating a helper name inside an assertion label as
+    executable.
     """
-    command_prefixes = {
-        "if", "then", "elif", "while", "until", "do", "!", "&&", "||", ";", "{"
+    command_boundaries = {
+        "if",
+        "then",
+        "elif",
+        "while",
+        "until",
+        "do",
+        "!",
+        "&&",
+        "||",
+        "|",
+        "|&",
+        "&",
+        ";",
+        "(",
+        "{",
     }
     assignment = re.compile(r"^[A-Za-z_]\w*=.*$")
+    calls = []
     for index, token in enumerate(tokens):
         if not token or any(kind != "bare" for kind, _ in token):
             continue
         value = _token_value(token)
         if value not in helper_specs:
             continue
-        before = [_token_value(item) for item in tokens[:index]]
-        executable = (
-            not before
-            or before[-1] in command_prefixes
-            or before[-1].endswith(";")
-            or all(assignment.match(item) for item in before)
+        segment_start = 0
+        for prior_index, prior in enumerate(tokens[:index]):
+            if (
+                prior
+                and all(kind == "bare" for kind, _ in prior)
+                and _token_value(prior) in command_boundaries
+            ):
+                segment_start = prior_index + 1
+        segment = [
+            _token_value(item) for item in tokens[segment_start:index]
+        ]
+        while segment and assignment.match(segment[0]):
+            segment.pop(0)
+        if _is_executable_helper_prefix(segment):
+            calls.append((index, value))
+    return tuple(calls)
+
+
+def _helper_call(tokens, helper_specs):
+    """Return one executable helper, failing closed on ambiguous fragments."""
+    calls = _helper_calls(tokens, helper_specs)
+    if len(calls) > 1:
+        raise InfrastructureError(
+            "multiple supported helper calls occur on one logical line"
         )
-        if executable:
-            return index, value
-    return None, None
+    return calls[0] if calls else (None, None)
 
 
 def helper_specs_for_source(
@@ -1198,7 +1975,9 @@ def helper_specs_for_source(
             if name in specs:
                 continue
             for body_lineno, logical_line in join_logical_lines(body):
-                tokens = tokenize(logical_line.strip())
+                tokens = tokenize(
+                    logical_line.strip(), split_shell_operators=True
+                )
                 index, callee = _helper_call(tokens, specs)
                 if callee is None:
                     continue
@@ -1666,8 +2445,7 @@ def _helper_family(helper):
 
 
 _RAW_PRESENCE_RE = re.compile(
-    r"""(?P<prefix>\$\(|\bif\s+|\bthen\s+|(?:^|;|&&)\s*)
-        grep\s+
+    r"""(?:(?P<command_sub>\$\()\s*)?(?P<grep>\bgrep)\s+
         (?P<options>(?:(?:-[A-Za-z]+|--[a-z-]+)\s+)+)
         (?:--\s+)?
         (?P<literal_token>'[^']*'|"[^"]*"|[^\s]+)\s+
@@ -1678,7 +2456,7 @@ _RAW_PRESENCE_RE = re.compile(
             |
             (?:\$\{?[A-Za-z_]\w*\}?(?:/[^\s";]+)?|/?[A-Za-z0-9_.-]+(?:/[^\s";]+)*)
         )
-        (?P<tail>\s*(?:;|\)|&&|\|\||$))""",
+        (?P<tail>\s*(?:\#|;|\)|&&|\|\||\|&|\||&|$))""",
     re.VERBOSE | re.DOTALL,
 )
 
@@ -1708,6 +2486,44 @@ def _raw_options_are_fixed_quiet(options):
             fixed = fixed or "F" in option[1:]
             quiet = quiet or "q" in option[1:]
     return fixed and quiet
+
+
+def _shell_syntax_is_active_at(text, offset):
+    """Return whether shell syntax at ``offset`` is unescaped and not single-quoted."""
+    quote = None
+    at_word_start = True
+    index = 0
+    while index < offset:
+        char = text[index]
+        if quote == "'":
+            if char == "'":
+                quote = None
+            index += 1
+            continue
+        if char == "\\" and index + 1 < len(text):
+            if index + 1 == offset:
+                return False
+            at_word_start = False
+            index += 2
+            continue
+        if quote == '"':
+            if char == '"':
+                quote = None
+            index += 1
+            continue
+        if char in " \t\n;&|()":
+            at_word_start = True
+            index += 1
+            continue
+        if char == "#" and at_word_start:
+            return False
+        if char == "'":
+            quote = "'"
+        elif char == '"':
+            quote = '"'
+        at_word_start = False
+        index += 1
+    return quote != "'"
 
 
 def _resolve_guard_target(args, spec, literal_vars, path_vars, lib):
@@ -1771,7 +2587,17 @@ def _markdown_literal_is_prose(text, literal):
     return False
 
 
-def _typed_pin_protects_prose(site, repo_root):
+def _read_typed_target(target, target_loader):
+    """Return target text plus an optional inspection error label."""
+    if target_loader is not None:
+        return target_loader(target)
+    try:
+        return target.read_text(encoding="utf-8"), None
+    except (OSError, UnicodeDecodeError) as exc:
+        return None, type(exc).__name__
+
+
+def _typed_pin_protects_prose(site, repo_root, target_loader=None):
     """Return True when a declaration matches the conservative prose boundary.
 
     The issue-810 boundary is semantic: a category marker does not turn an
@@ -1791,9 +2617,8 @@ def _typed_pin_protects_prose(site, repo_root):
     if not target.is_absolute():
         target = Path(repo_root) / target
     ext = target.suffix.lower()
-    try:
-        text = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    text, error = _read_typed_target(target, target_loader)
+    if error is not None:
         # Defensive fallback for direct callers. The production scanner rejects
         # unreadable typed targets in _typed_pin_inspection_error first.
         return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
@@ -1809,7 +2634,7 @@ def _typed_pin_protects_prose(site, repo_root):
     return False
 
 
-def _typed_pin_inspection_error(site, repo_root):
+def _typed_pin_inspection_error(site, repo_root, target_loader=None):
     """Return why a typed declaration's target boundary cannot be inspected."""
     if site.declaration is None or site.declaration_error is not None:
         return None
@@ -1821,21 +2646,20 @@ def _typed_pin_inspection_error(site, repo_root):
     if not target.is_absolute():
         target = Path(repo_root) / target
     try:
-        if os.path.commonpath((Path(repo_root).resolve(), target.resolve())) != str(
-            Path(repo_root).resolve()
-        ):
+        root_path = os.path.abspath(repo_root)
+        target_path = os.path.abspath(target)
+        if os.path.commonpath((root_path, target_path)) != root_path:
             return (
                 "typed structural declaration target cannot be inspected "
                 "(outside repository)"
             )
-    except (OSError, ValueError):
+    except ValueError:
         return "typed structural declaration target cannot be inspected"
-    try:
-        target_text = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
+    target_text, error = _read_typed_target(target, target_loader)
+    if error is not None:
         return (
             "typed structural declaration target cannot be inspected "
-            f"({type(exc).__name__})"
+            f"({error})"
         )
     if site.literal not in target_text:
         return (
@@ -1989,6 +2813,77 @@ def extract_python_guard_sites(text, source_path, repo_root):
     return sites
 
 
+def _raw_guard_site(
+    match,
+    *,
+    path_vars,
+    literal_vars,
+    lib,
+    repo_root,
+    source_path,
+    lineno,
+    line_end,
+    lines,
+):
+    """Resolve one syntactically executable raw presence match."""
+    target_token = match.group("target")
+    if (
+        len(target_token) >= 2
+        and target_token[0] == target_token[-1]
+        and target_token[0] in {"'", '"'}
+    ):
+        target_token = target_token[1:-1]
+    var_match = _VARREF.match(target_token)
+    var_name = var_match.group(1) if var_match else ""
+    target = path_vars.get(var_name) if var_name else None
+    if target is None:
+        target = _resolve_inline_var_path(target_token, lib, path_vars)
+    if target is None and "$" not in target_token:
+        target = (
+            target_token
+            if os.path.isabs(target_token)
+            else os.path.join(repo_root, target_token)
+        )
+    if (
+        target is None
+        and var_name
+        and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
+    ):
+        return None
+    target_abs = os.path.abspath(target) if target is not None else None
+    if target_abs is not None:
+        try:
+            inside_repo = (
+                os.path.commonpath((repo_root, target_abs)) == repo_root
+            )
+        except ValueError:
+            inside_repo = False
+        if not inside_repo:
+            return None
+    declaration, error = parse_structural_declaration(lines)
+    literal_tokens = tokenize(match.group("literal_token"))
+    raw_literal = None
+    if literal_tokens:
+        raw_literal = resolve_arg(
+            literal_tokens[0],
+            literal_vars,
+            path_vars,
+            want_path=False,
+            lib=lib,
+        )
+    return GuardSite(
+        source_path,
+        lineno,
+        line_end,
+        "raw-presence",
+        None,
+        raw_literal,
+        target_abs,
+        declaration,
+        error,
+    )
+
+
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
     if source_path.endswith(".py"):
@@ -2006,7 +2901,9 @@ def extract_guard_sites(text, source_path, repo_root):
     }
     invoked_wrappers = set()
     for invocation_line, invocation_text in join_logical_lines(text):
-        invocation_tokens = tokenize(invocation_text.lstrip())
+        invocation_tokens = tokenize(
+            invocation_text.lstrip(), split_shell_operators=True
+        )
         _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
         if (
             invocation_helper in definitions
@@ -2027,7 +2924,7 @@ def extract_guard_sites(text, source_path, repo_root):
             continue
         path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
-        toks = tokenize(stripped)
+        toks = tokenize(stripped, split_shell_operators=True)
         helper_index, helper = _helper_call(toks, helper_specs)
         if helper is not None:
             args = toks[helper_index + 1 :]
@@ -2066,17 +2963,35 @@ def extract_guard_sites(text, source_path, repo_root):
                 )
             )
             continue
-        match = _RAW_PRESENCE_RE.search(logical_line)
-        cat_match = _RAW_CAT_PRESENCE_RE.search(logical_line)
-        if match is None and cat_match is None:
-            continue
-        if match is not None:
-            if not _raw_options_are_fixed_quiet(match.group("options")):
+        spanned_tokens = tokenize(
+            stripped, split_shell_operators=True, include_spans=True
+        )
+        shell_tokens = [token for token, _, _ in spanned_tokens]
+        executable_grep_offsets = {
+            spanned_tokens[index][1]
+            for index, helper in _helper_calls(shell_tokens, {"grep": None})
+            if helper == "grep"
+        }
+        raw_matches = []
+        for candidate in _RAW_PRESENCE_RE.finditer(stripped):
+            command_sub = candidate.start("command_sub")
+            executable_command_sub = (
+                command_sub >= 0
+                and _shell_syntax_is_active_at(stripped, command_sub)
+            )
+            if (
+                not executable_command_sub
+                and candidate.start("grep") not in executable_grep_offsets
+            ):
+                continue
+            if not _raw_options_are_fixed_quiet(
+                candidate.group("options")
+            ):
                 continue
             # Negative assertions are absence guards, not presence pins. Canonical
             # yes/no and 1/0 renderings are recognized; an `if grep ...` branch is
             # positive unless explicitly negated.
-            before_grep = logical_line[: match.start()]
+            before_grep = stripped[: candidate.start("grep")]
             expected = re.search(
                 r"""assert_eq\s+(?:"[^"]*"|'[^']*')\s+(?P<q>['"])(?P<value>yes|no|1|0)(?P=q)""",
                 before_grep,
@@ -2086,7 +3001,7 @@ def extract_guard_sites(text, source_path, repo_root):
             echo_pair = re.search(
                 r"&&\s+echo\s+(?P<on_match>yes|no|1|0)"
                 r"\s+\|\|\s+echo\s+(?P<on_miss>yes|no|1|0)",
-                logical_line[match.start() :],
+                stripped[candidate.start("grep") :],
             )
             if expected:
                 if echo_pair:
@@ -2094,64 +3009,26 @@ def extract_guard_sites(text, source_path, repo_root):
                         continue
                 elif expected.group("value") in {"no", "0"}:
                     continue
-        else:
-            match = cat_match
-        target_token = match.group("target")
-        if (
-            len(target_token) >= 2
-            and target_token[0] == target_token[-1]
-            and target_token[0] in {"'", '"'}
-        ):
-            target_token = target_token[1:-1]
-        var_match = _VARREF.match(target_token)
-        var_name = var_match.group(1) if var_match else ""
-        target = path_vars.get(var_name) if var_name else None
-        if target is None:
-            target = _resolve_inline_var_path(target_token, lib, path_vars)
-        if target is None and "$" not in target_token:
-            target = (
-                target_token
-                if os.path.isabs(target_token)
-                else os.path.join(repo_root, target_token)
-            )
-        if (
-            target is None
-            and var_name
-            and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
-        ):
+            raw_matches.append(candidate)
+
+        cat_match = _RAW_CAT_PRESENCE_RE.search(logical_line)
+        matches = raw_matches or ([cat_match] if cat_match is not None else [])
+        if not matches:
             continue
-        target_abs = os.path.abspath(target) if target is not None else None
-        if target_abs is not None:
-            try:
-                inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
-            except ValueError:
-                inside_repo = False
-            if not inside_repo:
-                continue
-        declaration, error = parse_structural_declaration(lines)
-        literal_tokens = tokenize(match.group("literal_token"))
-        raw_literal = None
-        if literal_tokens:
-            raw_literal = resolve_arg(
-                literal_tokens[0],
-                literal_vars,
-                path_vars,
-                want_path=False,
+        for match in matches:
+            site = _raw_guard_site(
+                match,
+                path_vars=path_vars,
+                literal_vars=literal_vars,
                 lib=lib,
+                repo_root=repo_root,
+                source_path=source_path,
+                lineno=lineno,
+                line_end=_line_end(lineno, logical_line),
+                lines=lines,
             )
-        sites.append(
-            GuardSite(
-                source_path,
-                lineno,
-                _line_end(lineno, logical_line),
-                "raw-presence",
-                None,
-                raw_literal,
-                target_abs,
-                declaration,
-                error,
-            )
-        )
+            if site is not None:
+                sites.append(site)
     return sites
 
 
@@ -2159,28 +3036,50 @@ def _site_changed(site, changed_lines):
     return any(site.line_start <= line <= site.line_end for line in changed_lines)
 
 
-def _move_class(site):
-    if site.declaration is not None:
-        return (site.family, site.declaration.category)
-    return (site.family, "legacy")
+def _normalized_revival_authorization(site, repo_root):
+    if (
+        site.literal is None
+        or site.target_path is None
+        or site.declaration is None
+        or site.declaration_error is not None
+    ):
+        return None
+    repo_root = os.path.abspath(repo_root)
+    target_path = os.path.abspath(site.target_path)
+    try:
+        if os.path.commonpath((repo_root, target_path)) != repo_root:
+            return None
+    except ValueError:
+        return None
+    relative_target = os.path.relpath(target_path, repo_root).replace(os.sep, "/")
+    return RevivalAuthorization(
+        site.source_path,
+        site.family,
+        site.helper or "",
+        _literal_adjudication_key(site.literal),
+        relative_target,
+        site.declaration.category,
+        site.declaration.rationale,
+    )
 
 
-def _move_compatible(old, new):
-    if old.target_path != new.target_path:
-        return False
-    old_class = _move_class(old)
-    new_class = _move_class(new)
-    if old_class[0] != new_class[0]:
-        return False
-    if old_class[1] == "legacy":
-        return new_class[1] == "legacy" or new.declaration is not None
-    return old_class == new_class
-
-
-def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
+def scan_changed_sources(
+    current_sources,
+    base_sources,
+    difftext,
+    repo_root,
+    *,
+    retired_literal_keys=frozenset(),
+    revival_authorizations=frozenset(),
+    adjudication_delta=None,
+    current_adjudications=None,
+    target_loader=None,
+):
     """Classify changed complete sites and return blocking finding strings."""
+    adjudication_delta = adjudication_delta or {}
+    current_adjudications = current_adjudications or {}
+    revival_authorizations = frozenset(revival_authorizations)
     patches = parse_unified_diff(difftext)
-    old_candidates = []
     new_candidates = []
     for patch in patches:
         old_sites = []
@@ -2189,13 +3088,26 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
             old_sites = extract_guard_sites(
                 base_sources[patch.old_path], patch.old_path, repo_root
             )
-            old_candidates.extend(
-                site for site in old_sites if _site_changed(site, patch.deleted_lines)
-            )
         if patch.new_path in current_sources:
             new_sites = extract_guard_sites(
                 current_sources[patch.new_path], patch.new_path, repo_root
             )
+            raw_sites_by_span = {}
+            for site in new_sites:
+                if site.family == "raw-presence":
+                    raw_sites_by_span.setdefault(
+                        (site.line_start, site.line_end), []
+                    ).append(site)
+            if any(
+                len(group) > 1
+                and any(
+                    start <= line <= end for line in patch.added_lines
+                )
+                for (start, end), group in raw_sites_by_span.items()
+            ):
+                raise InfrastructureError(
+                    "multiple raw presence commands occur on one logical line"
+                )
             new_candidates.extend(
                 site for site in new_sites if _site_changed(site, patch.added_lines)
             )
@@ -2217,11 +3129,18 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
             ).get_matching_blocks():
                 for offset in range(block.size):
                     line_map[block.a + offset + 1] = block.b + offset + 1
-            new_by_line = {site.line_start: site for site in new_sites}
+            new_by_line = {}
+            for site in new_sites:
+                new_by_line.setdefault(site.line_start, []).append(site)
+            old_occurrences = {}
             for old_site in old_sites:
-                new_site = new_by_line.get(line_map.get(old_site.line_start))
-                if new_site is None:
+                old_line = old_site.line_start
+                occurrence = old_occurrences.get(old_line, 0)
+                old_occurrences[old_line] = occurrence + 1
+                new_group = new_by_line.get(line_map.get(old_line), ())
+                if occurrence >= len(new_group):
                     continue
+                new_site = new_group[occurrence]
                 old_effective = (
                     old_site.family,
                     old_site.helper,
@@ -2240,17 +3159,66 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
                 )
                 if old_effective == new_effective:
                     continue
-                if old_site not in old_candidates:
-                    old_candidates.append(old_site)
-                if new_site not in new_candidates:
+                if not _site_changed(new_site, patch.added_lines):
                     new_candidates.append(new_site)
 
-    unused_old = list(old_candidates)
+    normalized_revivals = {}
+    for site in new_candidates:
+        if site.literal is None:
+            continue
+        literal_key = _literal_adjudication_key(site.literal)
+        if literal_key not in retired_literal_keys:
+            continue
+        normalized = _normalized_revival_authorization(site, repo_root)
+        if normalized is None:
+            continue
+        if normalized in normalized_revivals:
+            raise InfrastructureError(
+                "retired wording-pin revival site is ambiguous: "
+                f"{normalized.source_path} {normalized.literal_key}"
+            )
+        normalized_revivals[normalized] = site
+
+    consumed_revivals = set()
     findings = []
     for site in new_candidates:
-        if site.family == "count-helper":
+        literal_key = (
+            _literal_adjudication_key(site.literal)
+            if site.literal is not None
+            else None
+        )
+        if literal_key in retired_literal_keys:
+            normalized = _normalized_revival_authorization(site, repo_root)
+            exact_authorization = (
+                normalized is not None and normalized in revival_authorizations
+            )
+            if exact_authorization:
+                consumed_revivals.add(normalized)
+            delta = adjudication_delta.get(literal_key)
+            current_state = current_adjudications.get(literal_key)
+            deliberate_boundary_decision = (
+                delta is not None
+                and delta[1] == current_state
+                and current_state is not None
+                and current_state[0] == "boundary"
+            )
+            if not exact_authorization or not deliberate_boundary_decision:
+                missing = []
+                if not exact_authorization:
+                    missing.append("exact revival authorization")
+                if not deliberate_boundary_decision:
+                    missing.append("same-branch boundary adjudication change")
+                findings.append(
+                    f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                    f"{site.helper or site.family}\t{site.literal}\t"
+                    "retired wording-pin revival lacks " + " and ".join(missing)
+                )
+                continue
+        elif site.family == "count-helper":
             continue
-        inspection_error = _typed_pin_inspection_error(site, repo_root)
+        inspection_error = _typed_pin_inspection_error(
+            site, repo_root, target_loader
+        )
         if inspection_error is not None:
             findings.append(
                 f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
@@ -2261,10 +3229,10 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
         if (
             site.declaration is not None
             and site.declaration_error is None
-            and not _typed_pin_protects_prose(site, repo_root)
+            and not _typed_pin_protects_prose(site, repo_root, target_loader)
         ):
             continue
-        if _typed_pin_protects_prose(site, repo_root):
+        if _typed_pin_protects_prose(site, repo_root, target_loader):
             findings.append(
                 f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
                 f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
@@ -2278,23 +3246,17 @@ def scan_changed_sources(current_sources, base_sources, difftext, repo_root):
                 f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
             )
             continue
-        move_index = next(
-            (
-                index
-                for index, old in enumerate(unused_old)
-                if site.literal is not None
-                and old.literal == site.literal
-                and _move_compatible(old, site)
-            ),
-            None,
-        )
-        if move_index is not None:
-            unused_old.pop(move_index)
-            continue
         detail = site.declaration_error or "wording-only presence pin"
         findings.append(
             f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
             f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+        )
+    unconsumed = revival_authorizations - consumed_revivals
+    if unconsumed:
+        first = sorted(unconsumed)[0]
+        raise InfrastructureError(
+            "adjudication bundle has unconsumed revival authorization: "
+            f"{first.source_path} {first.literal_key}"
         )
     return findings
 
@@ -2492,9 +3454,8 @@ def _parse_mutation_inventory(path, census):
     return rows, lines[1][len(master_prefix) :]
 
 
-def scan_worktree(repo_root, base_ref="origin/main", **_unused):
+def scan_retired_mutation_population(repo_root):
     """Require an empty retired-helper census and byte-matching empty inventory."""
-    del base_ref
     root = Path(repo_root)
     census = _load_mutation_census_module()
     try:
@@ -2558,6 +3519,674 @@ def scan_worktree(repo_root, base_ref="origin/main", **_unused):
                 f"mutation-pin inventory identity is not a retained boundary: {identity}"
             )
     return []
+
+
+def _invoke_git(git_runner, repo_root, *args):
+    command = ["git", "-C", str(repo_root), *args]
+    try:
+        return git_runner(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InfrastructureError(
+            f"git {' '.join(args)} invocation failed: {exc}"
+        ) from exc
+
+
+def _run_git(git_runner, repo_root, *args):
+    result = _invoke_git(git_runner, repo_root, *args)
+    if result.returncode != 0:
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+def _run_git_bytes(git_runner, repo_root, *args):
+    command = ["git", "-C", str(repo_root), *args]
+    try:
+        result = git_runner(
+            command,
+            capture_output=True,
+            check=False,
+        )
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InfrastructureError(
+            f"git {' '.join(args)} invocation failed: {exc}"
+        ) from exc
+    if result.returncode != 0:
+        stderr = result.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        raise InfrastructureError(
+            f"git {' '.join(args)} failed (exit {result.returncode}): {stderr.strip()}"
+        )
+    return result.stdout.encode("utf-8") if isinstance(result.stdout, str) else result.stdout
+
+
+def _decode_utf8(payload, label):
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InfrastructureError(f"{label} is not UTF-8: {exc}") from exc
+
+
+def _source_tree_entries(repo_root, revision, paths, git_runner):
+    """Return exact regular source blobs for one committed tree snapshot."""
+    if not paths:
+        return {}
+    output = _run_git(
+        git_runner,
+        repo_root,
+        "ls-tree",
+        "-r",
+        "-z",
+        revision,
+        "--",
+        *sorted(paths),
+    )
+    entries = {}
+    for row in filter(None, output.split("\0")):
+        try:
+            metadata, path = row.split("\t", 1)
+            mode, kind, _object = metadata.split()
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"scanned source tree row is malformed at {revision}: {row!r}"
+            ) from exc
+        if path in entries:
+            raise InfrastructureError(
+                f"scanned source tree has duplicate path at {revision}: {path}"
+            )
+        if mode not in {"100644", "100755"} or kind != "blob":
+            raise InfrastructureError(
+                f"scanned source is not a regular blob at {revision}: {path}"
+            )
+        entries[path] = mode
+    return entries
+
+
+def _read_source_blob(repo_root, revision, path, git_runner):
+    return _decode_utf8(
+        _run_git_bytes(git_runner, repo_root, "show", f"{revision}:{path}"),
+        f"scanned source {revision}:{path}",
+    )
+
+
+def _read_worktree_source(repo_root, path, expected_mode=None):
+    source_root = Path(repo_root)
+    source = source_root / path
+    try:
+        parent = source_root
+        for component in Path(path).parts[:-1]:
+            parent /= component
+            parent_stat = parent.lstat()
+            if stat.S_ISLNK(parent_stat.st_mode):
+                raise InfrastructureError(
+                    f"pin source has symlinked worktree parent: {path}"
+                )
+            if not stat.S_ISDIR(parent_stat.st_mode):
+                raise InfrastructureError(
+                    f"pin source has non-directory worktree parent: {path}"
+                )
+        source_stat = source.lstat()
+        payload = source.read_bytes()
+    except InfrastructureError:
+        raise
+    except OSError as exc:
+        raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+    if not stat.S_ISREG(source_stat.st_mode):
+        raise InfrastructureError(f"pin source is not a regular worktree file: {path}")
+    executable = bool(source_stat.st_mode & 0o111)
+    if expected_mode is not None and executable != (expected_mode == "100755"):
+        raise InfrastructureError(
+            f"pin source worktree mode differs from HEAD: {path}"
+        )
+    try:
+        return payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InfrastructureError(f"pin source unreadable: {path}: {exc}") from exc
+
+
+class _TargetSnapshot(NamedTuple):
+    payload: bytes
+    path_identity: tuple
+
+
+def _relative_target_path(repo_root, target):
+    root = os.path.abspath(repo_root)
+    absolute = os.path.abspath(target)
+    try:
+        if os.path.commonpath((root, absolute)) != root:
+            raise InfrastructureError(
+                f"typed target is outside repository: {target}"
+            )
+    except ValueError as exc:
+        raise InfrastructureError(
+            f"typed target is outside repository: {target}"
+        ) from exc
+    relative = os.path.relpath(absolute, root).replace(os.sep, "/")
+    _validate_repo_relative_path(relative, "typed target")
+    return relative
+
+
+def _committed_target_loader(repo_root, revision, git_runner):
+    """Return a cached loader bound to one immutable committed tree."""
+    cache = {}
+
+    def load(target):
+        relative = _relative_target_path(repo_root, target)
+        if relative not in cache:
+            entries = _source_tree_entries(
+                repo_root, revision, {relative}, git_runner
+            )
+            if relative not in entries:
+                return None, "FileNotFoundError"
+            payload = _run_git_bytes(
+                git_runner,
+                repo_root,
+                "show",
+                f"{revision}:{relative}",
+            )
+            try:
+                text = payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None, "UnicodeDecodeError"
+            cache[relative] = text
+        return cache[relative], None
+
+    return load
+
+
+def _worktree_path_identity(repo_root, relative):
+    root = Path(repo_root)
+    current = root
+    identities = []
+    parts = Path(relative).parts
+    for component in parts[:-1]:
+        current /= component
+        current_stat = current.lstat()
+        if stat.S_ISLNK(current_stat.st_mode):
+            raise InfrastructureError(
+                f"typed target has symlinked worktree parent: {relative}"
+            )
+        if not stat.S_ISDIR(current_stat.st_mode):
+            raise InfrastructureError(
+                f"typed target has non-directory worktree parent: {relative}"
+            )
+        identities.append(
+            (
+                current_stat.st_dev,
+                current_stat.st_ino,
+                current_stat.st_mode,
+                current_stat.st_size,
+                current_stat.st_mtime_ns,
+                current_stat.st_ctime_ns,
+            )
+        )
+    leaf = root / relative
+    leaf_stat = leaf.lstat()
+    if stat.S_ISLNK(leaf_stat.st_mode):
+        raise InfrastructureError(
+            f"typed target is a symlink in the worktree: {relative}"
+        )
+    if not stat.S_ISREG(leaf_stat.st_mode):
+        raise InfrastructureError(
+            f"typed target is not a regular worktree file: {relative}"
+        )
+    identities.append(
+        (
+            leaf_stat.st_dev,
+            leaf_stat.st_ino,
+            leaf_stat.st_mode,
+            leaf_stat.st_size,
+            leaf_stat.st_mtime_ns,
+            leaf_stat.st_ctime_ns,
+        )
+    )
+    return tuple(identities)
+
+
+def _worktree_target_snapshot(repo_root, relative):
+    before = _worktree_path_identity(repo_root, relative)
+    payload = (Path(repo_root) / relative).read_bytes()
+    after = _worktree_path_identity(repo_root, relative)
+    if before != after:
+        raise InfrastructureError(
+            f"typed target changed while its worktree snapshot was read: {relative}"
+        )
+    return _TargetSnapshot(payload, after)
+
+
+def _worktree_target_loader(repo_root):
+    """Return a cached loader and a verifier for regular worktree targets."""
+    cache = {}
+
+    def load(target):
+        relative = _relative_target_path(repo_root, target)
+        if relative not in cache:
+            try:
+                snapshot = _worktree_target_snapshot(repo_root, relative)
+            except InfrastructureError:
+                raise
+            except OSError as exc:
+                return None, type(exc).__name__
+            try:
+                snapshot.payload.decode("utf-8")
+            except UnicodeDecodeError:
+                return None, "UnicodeDecodeError"
+            cache[relative] = snapshot
+        return cache[relative].payload.decode("utf-8"), None
+
+    def verify():
+        for relative, expected in cache.items():
+            try:
+                actual = _worktree_target_snapshot(repo_root, relative)
+            except (OSError, InfrastructureError) as exc:
+                raise InfrastructureError(
+                    f"typed target changed during worktree analysis: {relative}"
+                ) from exc
+            if actual != expected:
+                raise InfrastructureError(
+                    f"typed target changed during worktree analysis: {relative}"
+                )
+
+    return load, verify
+
+
+def analyze_adjudication_changes(
+    repo_root,
+    merge_base,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+):
+    """Authorize the exact merge-base-to-HEAD current-state table delta."""
+    repo_root = Path(repo_root)
+    worktree_status = _run_git(
+        git_runner,
+        repo_root,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--",
+        _ADJUDICATION_TABLE_PATH,
+    )
+    if worktree_status:
+        raise InfrastructureError(
+            "adjudication table worktree differs from HEAD: "
+            f"{worktree_status.strip()}"
+        )
+    listing = _run_git(
+        git_runner,
+        repo_root,
+        "ls-tree",
+        "HEAD",
+        "--",
+        _ADJUDICATION_TABLE_PATH,
+    )
+    try:
+        mode, kind, _object, listed_path = listing.rstrip("\n").split(None, 3)
+    except ValueError as exc:
+        raise InfrastructureError(
+            "adjudication table is not a regular HEAD blob: "
+            f"{_ADJUDICATION_TABLE_PATH}"
+        ) from exc
+    if (
+        mode != "100644"
+        or kind != "blob"
+        or listed_path != _ADJUDICATION_TABLE_PATH
+    ):
+        raise InfrastructureError(
+            "adjudication table is not a regular HEAD blob: "
+            f"{_ADJUDICATION_TABLE_PATH}"
+        )
+    current_bytes = _run_git_bytes(
+        git_runner,
+        repo_root,
+        "show",
+        f"HEAD:{_ADJUDICATION_TABLE_PATH}",
+    )
+    current_text = _decode_utf8(current_bytes, "adjudication table")
+    current = parse_current_adjudications(current_text)
+    base_bytes = _run_git_bytes(
+        git_runner,
+        repo_root,
+        "show",
+        f"{merge_base}:{_ADJUDICATION_TABLE_PATH}",
+    )
+    (
+        manifests,
+        migration_bytes,
+        revival_authorizations,
+    ) = discover_new_adjudication_delta_manifests(
+        repo_root,
+        merge_base,
+        include_migration=True,
+        include_revivals=True,
+        git_runner=git_runner,
+    )
+    base_digest = hashlib.sha256(base_bytes).hexdigest()
+    current_digest = hashlib.sha256(current_bytes).hexdigest()
+    if base_digest == _LEGACY_ADJUDICATION_SHA256:
+        require_current_adjudication_base(
+            repo_root,
+            base_ref,
+            merge_base=merge_base,
+            git_runner=git_runner,
+        )
+        if (
+            current_digest != _RESOLVED_ADJUDICATION_SHA256
+            or migration_bytes != _MIGRATION_CERTIFICATE_BYTES
+            or manifests
+            or hash_adjudication_semantic_map(current)
+            != _RESOLVED_ADJUDICATION_SEMANTIC_SHA256
+        ):
+            raise InfrastructureError(
+                "adjudication migration does not match the exact bootstrap certificate"
+            )
+        return AdjudicationAnalysis([], current, current, {}, frozenset())
+
+    if migration_bytes is not None:
+        raise InfrastructureError(
+            "adjudication migration certificate is invalid for a strict base table"
+        )
+    base = parse_current_adjudications(
+        _decode_utf8(base_bytes, "base adjudication table")
+    )
+    actual = compute_adjudication_delta(base, current)
+    if actual or revival_authorizations:
+        require_current_adjudication_base(
+            repo_root,
+            base_ref,
+            merge_base=merge_base,
+            git_runner=git_runner,
+        )
+    findings = []
+    if not is_exactly_authorized_adjudication_delta(base, current, manifests):
+        findings.append("MUTATION-ROUTING\tunauthorized pin adjudication delta")
+    return AdjudicationAnalysis(
+        findings,
+        base,
+        current,
+        actual,
+        revival_authorizations,
+    )
+
+
+def scan_adjudication_changes(
+    repo_root,
+    merge_base,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+):
+    """Return policy findings for the exact current-state table delta."""
+    return analyze_adjudication_changes(
+        repo_root,
+        merge_base,
+        base_ref,
+        git_runner=git_runner,
+    ).findings
+
+
+def scan_static_pin_changes(
+    repo_root,
+    base_ref="origin/main",
+    *,
+    git_runner=subprocess.run,
+):
+    """Run the fail-closed static pin classifier over worktree changes."""
+    repo_root = Path(repo_root)
+    _run_git(git_runner, repo_root, "rev-parse", "--verify", base_ref)
+    # A missing local main is the normal Actions checkout shape. Other ancestry
+    # failures remain infrastructure failures rather than green skips.
+    local_main = _invoke_git(
+        git_runner,
+        repo_root,
+        "show-ref",
+        "--verify",
+        "--quiet",
+        "refs/heads/main",
+    )
+    if local_main.returncode == 0:
+        _run_git(
+            git_runner,
+            repo_root,
+            "merge-base",
+            "--is-ancestor",
+            "refs/heads/main",
+            base_ref,
+        )
+    elif local_main.returncode != 1:
+        raise InfrastructureError(
+            "local main resolution failed "
+            f"(exit {local_main.returncode}): {local_main.stderr.strip()}"
+        )
+    merge_base = _run_git(
+        git_runner, repo_root, "merge-base", base_ref, "HEAD"
+    ).strip()
+    if not merge_base:
+        raise InfrastructureError("comparison merge base resolved to empty output")
+    head_revision = _run_git(git_runner, repo_root, "rev-parse", "HEAD").strip()
+    if not head_revision:
+        raise InfrastructureError("HEAD source snapshot resolved to empty output")
+    adjudication_analysis = analyze_adjudication_changes(
+        repo_root,
+        merge_base,
+        base_ref,
+        git_runner=git_runner,
+    )
+    retired_literal_keys = load_retired_wording_literal_keys(
+        repo_root,
+        merge_base,
+        git_runner=git_runner,
+    )
+    head_tree_entries = _source_tree_entries(
+        repo_root, head_revision, {"lib/test"}, git_runner
+    )
+    head_entries = {
+        path: mode
+        for path, mode in head_tree_entries.items()
+        if path in AUDITED_PIN_SOURCES
+        or re.fullmatch(r"lib/test/test_[^/]*[.]py", path)
+    }
+    python_tracked = {
+        path
+        for path in head_entries
+        if re.fullmatch(r"lib/test/test_[^/]*[.]py", path)
+    }
+    python_untracked = set(
+        filter(
+            None,
+            _run_git(
+                git_runner,
+                repo_root,
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "lib/test/test_*.py",
+            ).splitlines(),
+        )
+    )
+    scan_sources = set(AUDITED_PIN_SOURCES) | python_tracked | python_untracked
+    staged_drift = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--cached",
+        "--name-status",
+        "--no-renames",
+        head_revision,
+        "--",
+        "lib/test",
+    )
+    for row in filter(None, staged_drift.splitlines()):
+        try:
+            _status, path = row.split("\t", 1)
+        except ValueError as exc:
+            raise InfrastructureError(
+                f"scanned source index diff is malformed: {row!r}"
+            ) from exc
+        if path in AUDITED_PIN_SOURCES or re.fullmatch(
+            r"lib/test/test_[^/]*[.]py", path
+        ):
+            raise InfrastructureError(
+                "scanned source index differs from HEAD: "
+                f"{row}"
+            )
+    head_diff = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=0",
+        merge_base,
+        head_revision,
+        "--",
+        *sorted(scan_sources),
+    )
+    worktree_diff = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=0",
+        merge_base,
+        "--",
+        *sorted(scan_sources),
+    )
+    untracked = set(
+        filter(
+            None,
+            _run_git(
+                git_runner,
+                repo_root,
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "--",
+                *sorted(AUDITED_PIN_SOURCES),
+            ).splitlines(),
+        )
+    )
+    tracked = set(AUDITED_PIN_SOURCES) & set(head_entries)
+    base_entries = _source_tree_entries(
+        repo_root,
+        merge_base,
+        scan_sources,
+        git_runner,
+    )
+    missing_base_audited = set(AUDITED_PIN_SOURCES) - set(base_entries)
+    missing_head_audited = set(AUDITED_PIN_SOURCES) - set(head_entries)
+    if missing_base_audited or missing_head_audited:
+        missing = sorted(missing_base_audited or missing_head_audited)[0]
+        snapshot = merge_base if missing_base_audited else "HEAD"
+        raise InfrastructureError(
+            f"audited pin source absent from committed snapshot {snapshot}: {missing}"
+        )
+    registry = load_registry(
+        repo_root / "scripts/workflow-flight-recorder-registry.json"
+    )
+    population_findings = validate_audited_population(
+        registry, AUDITED_PIN_SOURCES, tracked | untracked
+    )
+    if population_findings:
+        raise InfrastructureError("; ".join(population_findings))
+
+    # ``git diff <merge_base>`` already carries a hunk for every TRACKED path,
+    # including one added after the merge base; only an UNTRACKED path is absent
+    # from it and needs the synthetic ``/dev/null`` hunk. Synthesizing for every
+    # not-in-base path double-represents a newly committed pin source and emits
+    # duplicate policy findings for one physical site.
+    untracked_sources = python_untracked | untracked
+    worktree_diff_snapshot = worktree_diff
+
+    head_sources = {
+        path: _read_source_blob(repo_root, head_revision, path, git_runner)
+        for path in sorted(set(head_entries) & scan_sources)
+    }
+    worktree_sources = {}
+    base_sources = {
+        path: _read_source_blob(repo_root, merge_base, path, git_runner)
+        for path in sorted(base_entries)
+    }
+    for path in sorted(scan_sources):
+        worktree_sources[path] = _read_worktree_source(
+            repo_root, path, head_entries.get(path)
+        )
+        if path in untracked_sources:
+            lines = worktree_sources[path].splitlines()
+            worktree_diff += (
+                f"\ndiff --git a/{path} b/{path}\n"
+                "--- /dev/null\n"
+                f"+++ b/{path}\n"
+                f"@@ -0,0 +1,{len(lines)} @@\n"
+                + "\n".join(f"+{line}" for line in lines)
+                + "\n"
+            )
+    verified_worktree_diff = _run_git(
+        git_runner,
+        repo_root,
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--unified=0",
+        merge_base,
+        "--",
+        *sorted(scan_sources),
+    )
+    if worktree_diff_snapshot != verified_worktree_diff:
+        raise InfrastructureError("scanned source worktree changed during diff analysis")
+    if _run_git(git_runner, repo_root, "rev-parse", "HEAD").strip() != head_revision:
+        raise InfrastructureError("HEAD source snapshot changed during diff analysis")
+
+    head_target_loader = _committed_target_loader(
+        repo_root, head_revision, git_runner
+    )
+    worktree_target_loader, verify_worktree_targets = _worktree_target_loader(
+        repo_root
+    )
+    source_findings = scan_changed_sources(
+        head_sources,
+        base_sources,
+        head_diff,
+        str(repo_root),
+        retired_literal_keys=retired_literal_keys,
+        revival_authorizations=adjudication_analysis.revival_authorizations,
+        adjudication_delta=adjudication_analysis.delta,
+        current_adjudications=adjudication_analysis.current,
+        target_loader=head_target_loader,
+    )
+    source_findings.extend(
+        scan_changed_sources(
+            worktree_sources,
+            base_sources,
+            worktree_diff,
+            str(repo_root),
+            retired_literal_keys=retired_literal_keys,
+            revival_authorizations=adjudication_analysis.revival_authorizations,
+            adjudication_delta=adjudication_analysis.delta,
+            current_adjudications=adjudication_analysis.current,
+            target_loader=worktree_target_loader,
+        )
+    )
+    verify_worktree_targets()
+    unique_findings = list(dict.fromkeys(source_findings))
+    return adjudication_analysis.findings + unique_findings
+
+
+def scan_worktree(repo_root, base_ref="origin/main", **kwargs):
+    """Run both required worktree subgates, preserving infrastructure failures."""
+    retired_findings = scan_retired_mutation_population(repo_root)
+    static_findings = scan_static_pin_changes(repo_root, base_ref, **kwargs)
+    return retired_findings + static_findings
 
 
 def _read(path):

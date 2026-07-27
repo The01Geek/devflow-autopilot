@@ -156,8 +156,9 @@ helpers and wrappers are retired: adding any definition or invocation fails clos
 Write an ordinary executable behavioral test instead. The gate preserves the exact
 audited-source/module-registry population check and does not execute or interpret
 mutations, classify mutation effects, or infer assignment dependencies. Historical
-dispositions remain in the adjudication manifest; a consistency test derives their
-totals and verifies the live inventory summary rather than trusting repeated counts.
+mutation dispositions remain in the frozen mutation retirement manifest; a consistency
+test derives their totals and verifies the live inventory summary rather than trusting
+repeated counts.
 
 A new static helper or direct positive source-presence assertion is allowed only for
 an executable structural boundary and must carry
@@ -166,6 +167,16 @@ an executable structural boundary and must carry
 `security-credential-boundary`, `machine-sentinel-provenance`,
 `routing-dispatch-contract`, `lifecycle-state-transition`,
 `generated-artifact-identity`, or `cross-file-phase-contract`.
+
+`lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
+state. Apart from the one-time legacy-to-current-state migration certified in
+`.devflow/logs/pin-corpus-adjudication-changes/2026-07-26-pr-849/migration.tsv`,
+every addition, removal, or change to that table must be authorized by an exact branch
+change manifest; prior decisions remain available through Git history and the frozen
+retirement manifests rather than event rows in the active table. Prefer an ordinary
+executable behavioral test over a static presence pin. Reviving a retired wording
+literal requires both deliberate revival authorization and a genuine declared
+structural boundary; a new boundary row alone does not make the revival valid.
 
 **Retiring existence-only pins (issue #798).** Use the frozen census in
 `.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the
