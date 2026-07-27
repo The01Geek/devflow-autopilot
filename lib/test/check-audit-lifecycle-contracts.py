@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import importlib.util
+import inspect
 import io
 import re
 import sys
@@ -164,6 +165,15 @@ def _invocations(text: str, registered: frozenset[str], where: str) -> list[str]
     return found
 
 
+
+def _subparser_of(parser, name):
+    """The subparser registered under `name`, or None."""
+    for action in parser._actions:  # noqa: SLF001
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return action.choices.get(name)
+    return None
+
+
 def check_readbacks(module, registered, report):
     """The docstring's read-back enumeration vs. the dispatched `_MULTILINE_READBACKS`."""
     doc = module.__doc__ or ""
@@ -263,6 +273,14 @@ def check_round_defaulted(module, registered, report):
     `_require_named_round` call — the exact slip that would silently operate on the wrong
     round — passed every gate. Reconcile it against the parser, a machine-consumed
     contract, exactly as the read-back arm reconciles `_MULTILINE_READBACKS`.
+
+    Two halves, because the parser half ALONE does not close the slip this docstring
+    names. Set-vs-parser optionality says the flag may be omitted; it says nothing about
+    whether the handler then resolves the round. A member added to both the constant and
+    the parser's optional set, with the resolver call forgotten, passes the first half and
+    runs with `args.round is None` into round-keyed guards — the very outcome advertised
+    as closed. So the second half walks each member's handler source and requires an
+    actual `_require_named_round` / `_resolve_named_round` call.
     """
     parser = module.build_parser()
     optional_round = set()
@@ -284,8 +302,29 @@ def check_round_defaulted(module, registered, report):
             f"{sorted(optional_round - declared)}. A subcommand whose --round became "
             "optional without a _require_named_round call would silently operate on a "
             "round the caller never named")
+    # Second half: each member's handler must actually resolve the round.
+    missing_resolver = []
+    for name in sorted(declared):
+        func = getattr(_subparser_of(parser, name), "get_default", lambda _k: None)("func")
+        if func is None:
+            raise Refusal(f"round-defaulted: {name!r} registers no handler to inspect, so "
+                          "the resolver-call half cannot be established")
+        try:
+            source = inspect.getsource(func)
+        except (OSError, TypeError) as exc:
+            raise Refusal(f"round-defaulted: could not read {name!r}'s handler source "
+                          f"({exc}), so the resolver-call half cannot be established") from exc
+        if "_require_named_round" not in source and "_resolve_named_round" not in source:
+            missing_resolver.append(name)
+    if missing_resolver:
+        raise Refusal(
+            f"round-defaulted: {missing_resolver} are in _ROUND_DEFAULTED with an optional "
+            "--round but their handlers call neither _require_named_round nor "
+            "_resolve_named_round, so an omitted --round reaches the round-keyed guards as "
+            "None instead of the resolved round")
     report.append(f"round-defaulted: {len(declared)} state-defaulted subcommands, "
-                  "reconciled against the parser's own required-ness")
+                  "reconciled against the parser's own required-ness AND against each "
+                  "handler's actual resolver call")
 
 
 def check_next_action_routing_totality(module, report):

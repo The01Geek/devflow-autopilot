@@ -109,3 +109,16 @@ bump: minor
 - The derived per-round unconditional call count is now **pinned** at 18 rather than only
   shape-checked and printed, so an added unconditional call turns the suite RED as the
   criterion requires ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The `next_call=unestablished reason=` token vocabulary is now one closed set validated at
+  its single construction point. Tokens reached the emitted surface from four unreconciled
+  sources while `_checked_next_call` only shape-matched `[a-z0-9-]+`, so a misspelling
+  (`state-unestablised`) was accepted and left a token-keyed caller on its unknown-token
+  branch with nothing asserting the difference
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- `check_round_defaulted` now enforces the property its docstring claims. Comparing
+  `_ROUND_DEFAULTED` against parser optionality says the flag may be omitted but nothing
+  about whether the handler resolves the round, so a member added to both the constant and
+  the parser's optional set with the resolver call forgotten passed the guard and ran with
+  `args.round is None` into round-keyed guards — the slip the guard advertised as closed. A
+  second half walks each member's handler and requires the resolver call
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).

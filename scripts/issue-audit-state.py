@@ -3733,6 +3733,11 @@ def _next_call_invocation(cmd_name, subcommand, operands):
 
 
 def _unestablished(reason):
+    if reason not in _NEXT_CALL_REASONS:
+        raise AssertionError(
+            f'issue-audit-state: {reason!r} is not a member of _NEXT_CALL_REASONS — a '
+            'reason token reaching the emitted surface must be declared, so a typo is a '
+            'loud failure rather than an unknown-token branch at the caller')
     return f'next_call=unestablished reason={reason}'
 
 
@@ -3765,6 +3770,23 @@ _ACTION_NOT_A_CALL = {
     'revise-then-evaluate-offer': 'verify-then-revise',
     'round-closed-no-verdict': 'round-closed-no-verdict',
     'round-open-awaiting-return': 'auditor-dispatch',
+}
+
+
+# Every reason token the `next_call=unestablished` arm may carry, from ALL of its sources:
+# the render-boundary refusals, the `_ACTION_NOT_A_CALL` values, the ad-hoc literals in
+# `_next_call_body`, and `render-failed` (printed by `main()`'s broad catch). Collected into
+# one closed set because `_checked_next_call` only shape-matches `[a-z0-9-]+`, so a typo
+# (`state-unestablised`) sailed through and left a token-keyed caller on its unknown-token
+# branch with nothing asserting the difference. Validated at `_unestablished()`, the single
+# construction point, the way `_RenderRefusal` already validates its own token.
+# Defined AFTER `_ACTION_NOT_A_CALL` because it composes it; `_unestablished` resolves this
+# global at call time, so its own definition may sit above.
+_NEXT_CALL_REASONS = frozenset(_NEXT_CALL_REFUSALS) | frozenset(_ACTION_NOT_A_CALL.values()) | {
+    'advisory-record-rendering', 'auditor-dispatch', 'boundary-offer', 'draft-write',
+    'foreign-nonce', 'nonce-unsupplied', 'no-round-recorded', 'render-failed',
+    'round-unestablished', 'state-unestablished', 'user-approval', 'user-election',
+    'next-action-unestablished', 'dispatch-arm-unestablished',
 }
 
 
