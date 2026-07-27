@@ -169,11 +169,10 @@ an executable structural boundary and must carry
 `generated-artifact-identity`, or `cross-file-phase-contract`.
 
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
-state. Apart from the one-time legacy-to-current-state migration certified in
-`.devflow/logs/pin-corpus-adjudication-changes/2026-07-26-pr-849/migration.tsv`,
-every addition, removal, or change to that table must be authorized by an exact branch
-change manifest; prior decisions remain available through Git history and the frozen
-retirement manifests rather than event rows in the active table. Prefer an ordinary
+state. Every addition, removal, or change to that table must be authorized by an exact
+branch change manifest; prior decisions remain available through Git history, the
+historical migration certificate, and the frozen retirement manifests rather than
+event rows in the active table. Prefer an ordinary
 executable behavioral test over a static presence pin. Reviving a retired wording
 literal requires both deliberate revival authorization and a genuine declared
 structural boundary; a new boundary row alone does not make the revival valid.
