@@ -314,14 +314,21 @@ echo "#810 pin-corpus wording-only authoring gate"
 # that run.sh's blocking `pin-corpus-lint.py mutation-routing-worktree` gate
 # consumes. run.sh carries several production pin-corpus-lint.py subcommands, so
 # the gate is named by subcommand rather than by position or by breadth.
-_HPG_PIN_LINT_OUT="$(mktemp "$_hpg_tmp_root/pin-lint-unit.XXXXXX")" || {
-  printf 'could not allocate the #810 pin-lint unit-test capture\n' >&2
+# Sharded rather than run as one serial process (issue #870): this file was the
+# single largest serial block in the required CI check, and its heaviest class pays a
+# git-init-and-commit corpus fixture per test. The driver folds every shard into ONE
+# assertion, so the module's tally — and the registry/run.sh-operand/tally triple it is
+# compared against — is unchanged by the shard count. The tests' independence is what
+# makes this safe: each allocates its own temp dir and passes an explicit cwd, and the
+# file's docstring records that requirement for anything added to it later.
+_HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
+  printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
 }
-devflow_run_focused_python_test \
+devflow_run_sharded_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
-  "$_HPG_PIN_LINT_OUT"
+  "$_HPG_PIN_LINT_SHARDS"
 # The focused unit suite is module-driven only: a direct run.sh invocation of it
 # would re-execute an identical population serially, on top of the module-driven
 # run above (issue #865). Match on the basename: an invocation may spell its path
@@ -336,7 +343,7 @@ devflow_run_focused_python_test \
 # lib/test/module-harness.sh, is an accepted residual this assertion misses.
 assert_eq "#810 pin-corpus lint tests remain module-driven (no run.sh invocation)" \
   "0" "$(grep -cF 'test_pin_corpus_lint.py' "$LIB/test/run.sh" || true)"
-rm -f "$_HPG_PIN_LINT_OUT"
+rm -rf "$_HPG_PIN_LINT_SHARDS"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#810 red-on-removal retirement manifest"
