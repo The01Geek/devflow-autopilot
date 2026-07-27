@@ -103,8 +103,14 @@ def fixes_for($entries; $slug):
 # test membership against those same canonical sets (issue #788): the key form
 # injected into $all_tags is the key form membership is tested against, so a
 # non-canonical stored key cannot surface as a zero-occurrence phantom pattern.
-| (($ov.dismissed // {}) | to_entries | map({key:(.key|slugify), value:.value}) | from_entries) as $dismissed
-| (($ov.patterns  // {}) | to_entries | map({key:(.key|slugify), value:.value}) | from_entries) as $lifecycle
+# Both maps are hand-corruptible: dismissed{} is human-owned by design, and a
+# maintainer can edit overrides.json directly. Guard the SHAPE at the boundary --
+# `objects` drops a non-object map, `strings` drops a non-string key (an array
+# would otherwise yield a numeric key that aborts slugify's ascii_downcase), and
+# the per-record `objects` below stops a non-object record from aborting the
+# whole derivation on `.fixed_at`. A wrong-shaped record is skipped, not fatal.
+| ((($ov.dismissed | objects) // {}) | to_entries | map(select(.key | strings)) | map({key:(.key|slugify), value:.value}) | from_entries) as $dismissed
+| ((($ov.patterns  | objects) // {}) | to_entries | map(select(.key | strings)) | map({key:(.key|slugify), value:.value}) | from_entries) as $lifecycle
 | ([
     ($entries[] | select(.kind == "implementation") | grouping_tags[] | slugify),
     ($entries[] | select(.kind == "audit") | (.fixes_patterns // [])[] | slugify),
@@ -114,7 +120,7 @@ def fixes_for($entries; $slug):
 | reduce $all_tags[] as $slug ({};
     occurrences_for($entries; $slug) as $occs
     | fixes_for($entries; $slug) as $fixes
-    | ($lifecycle[$slug] // null) as $rec
+    | (($lifecycle[$slug] | objects) // null) as $rec
     # Fix-timestamp precedence: the lifecycle record's fixed_at when a record
     # exists (authoritative), else the legacy audit fix history.
     | (if $rec != null then $rec.fixed_at else (($fixes | last).ts // null) end) as $last_fix_ts

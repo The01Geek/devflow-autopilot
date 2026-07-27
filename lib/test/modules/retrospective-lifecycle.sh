@@ -203,9 +203,12 @@ assert_eq "#788 reconcile prefetch-map jq failure → file byte-unchanged" "true
   "$(diff -q "$RL_TMP/t10-before.json" "$RL_TMP/t10.json" >/dev/null 2>&1 && echo true || echo false)"
 
 # The staging file for the rewrite lives BESIDE the destination, never under
-# $TMPDIR: `mv` is an atomic rename only within one filesystem. Pointing TMPDIR
-# at a path that does not exist makes a $TMPDIR-staged write fail outright, so a
-# successful reconcile here is the discriminating evidence that it is not used.
+# $TMPDIR: `mv` is an atomic rename only within one filesystem, so the write
+# stages beside the destination instead. Pointing TMPDIR at a nonexistent path is
+# a best-effort probe, NOT discriminating evidence: some platforms (macOS among
+# them) resolve their own per-user temp dir and ignore TMPDIR entirely, so a
+# green result here does not by itself prove the staging path is unused. The
+# beside-destination behavior is pinned directly by the `_dir_of` assertions.
 printf '%s' "$(rl_record tmpdir-free 501)" > "$RL_TMP/t11.json"
 TMPDIR="$RL_TMP/no-such-tmpdir" DEVFLOW_GH="$RL_TMP/gh-view.sh" \
   bash "$RL_PS" reconcile "$RL_TMP/t11.json" >/dev/null 2>&1; RL_T11_RC=$?
@@ -435,11 +438,13 @@ assert_eq "#788 --full: the same fixture emits the diagnostic without --full" "t
 # The cap counts are derived from `filed` lifecycle entries across records, never
 # from a label query. A record with two `filed` entries and one `fixed` entry
 # contributes 2 to max_open_issues and 2 to that category's max_open_per_category.
-CAP_OV='{"schema_version":2,"patterns":{"a":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":1,"url":"u","state":"filed","closedAt":null},{"number":2,"url":"u","state":"filed","closedAt":null},{"number":3,"url":"u","state":"fixed","closedAt":"2026-01-01T00:00:00Z"}]},"b":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":4,"url":"u","state":"filed","closedAt":null}]}},"dismissed":{}}'
-assert_eq "#788 caps: total open = filed entries across all records" "3" \
-  "$(printf '%s' "$CAP_OV" | jq -r '[(.patterns // {})[] | (.meta_issues // [])[] | select(.state=="filed")] | length')"
-assert_eq "#788 caps: per-category open = filed entries in one record" "2" \
-  "$(printf '%s' "$CAP_OV" | jq -r '[.patterns["a"].meta_issues[]? | select(.state=="filed")] | length')"
+# NOTE (deliberately absent): two assertions here used to pipe a fixture through
+# an inline jq program written in this file and compare it to a hand-counted literal.
+# They invoked NO production code — no single-line change to any shipped file
+# could make either fail — while their names asserted a product contract. They
+# were tautologies over a hand-written filter that also inflated the tally
+# against the registry floor. The real contract is driven through the shipped
+# helpers (`devflow_open_filed_total` / `_in_category`) further down.
 # render-report names each withheld pattern with its cap.
 ( . "$REPO_ROOT/lib/render-report.sh"
   WSUM='{"prs_scanned":1,"clean_count":0,"analyzed_count":1,"withheld_patterns":[{"tag":"tooling-gap","cap":"max_issues_per_run"}]}'
@@ -1423,10 +1428,14 @@ chmod +x "$RL_TMP/gh-allfail.sh"
 printf '%s' '{"schema_version":2,"patterns":{"allfail":{"state":"filed","fixed_at":null,"provenance":"p","meta_issues":[{"number":701,"url":"https://o/r/issues/701","state":"filed","closedAt":null},{"number":704,"url":"https://o/r/issues/704","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/allfail.json"
 cp "$RL_TMP/allfail.json" "$RL_TMP/allfail-before.json"
 DEVFLOW_GH="$RL_TMP/gh-allfail.sh" bash "$RL_PS" reconcile "$RL_TMP/allfail.json" >/dev/null 2>"$RL_TMP/allfail.err"; RL_AF_RC=$?
-assert_eq "#788 resolver: a wholly-failed by-number leg exits non-zero" "true" \
-  "$([ "$RL_AF_RC" -ne 0 ] && echo true || echo false)"
-assert_eq "#788 resolver: the error calls it a broken resolver, not deleted issues" "true" \
+# It DIAGNOSES without aborting: the per-slug warnings are an explicit acceptance
+# criterion and run downstream, and aborting here would also discard every
+# transition the prefetch resolved correctly for other patterns.
+assert_eq "#788 resolver: a wholly-failed by-number leg still completes (rc 0)" "0" "$RL_AF_RC"
+assert_eq "#788 resolver: it warns that this is a broken resolver, not deleted issues" "true" \
   "$(grep -q 'broken resolver' "$RL_TMP/allfail.err" && echo true || echo false)"
+assert_eq "#788 resolver: the systemic summary does NOT suppress the per-slug warnings" "true" \
+  "$(grep -q 'allfail' "$RL_TMP/allfail.err" && echo true || echo false)"
 # Boundary control: ONE failing attempt is below the inference threshold, so it
 # keeps the documented per-slug-warning behavior and does NOT become a systemic
 # error. This is what pins the threshold rather than "any failure".
@@ -1435,8 +1444,10 @@ DEVFLOW_GH="$RL_TMP/gh-allfail.sh" bash "$RL_PS" reconcile "$RL_TMP/onefail.json
 assert_eq "#788 resolver: a SINGLE failed lookup is not inferred systemic (control)" "0" "$RL_1F_RC"
 assert_eq "#788 resolver: the single-failure case keeps its per-slug warning (control)" "true" \
   "$(grep -q 'onefail' "$RL_TMP/onefail.err" && echo true || echo false)"
-assert_eq "#788 resolver: the overrides file is left byte-unchanged" "true" \
-  "$(diff -q "$RL_TMP/allfail-before.json" "$RL_TMP/allfail.json" >/dev/null 2>&1 && echo true || echo false)"
+# The entries stay `filed` (no transition was resolvable), but the reconcile
+# itself completed rather than aborting.
+assert_eq "#788 resolver: an unresolvable entry keeps its prior state" "filed" \
+  "$(jq -r '.patterns["allfail"].state' "$RL_TMP/allfail.json")"
 # Control: a PARTIAL failure stays the ordinary per-slug-warning path and still
 # writes, so the assertions above pin "all failed", not "any failed".
 cat > "$RL_TMP/gh-partial.sh" <<'STUB'
@@ -1490,6 +1501,196 @@ assert_eq "#788 meta-issue: the breadcrumb blames the URL, not a write failure" 
   "$(grep -q 'does not end in a bare issue number' "$RL_TMP/badurl.err" && echo true || echo false)"
 assert_eq "#788 meta-issue: a malformed URL is NOT misreported as a record-write failure" "false" \
   "$(grep -q 'lifecycle record could not be written' "$RL_TMP/badurl.err" && echo true || echo false)"
+
+# ── The reconcile write refuses to transform a document that did not load ────
+# On an empty slurp `$ov[0]` is null, and `null | .patterns = (…)` is LEGAL jq:
+# it builds `{"patterns":{}}` and exits 0. That stub would reach _atomic_write
+# and replace overrides.json — losing schema_version, every lifecycle record, and
+# the hand-written `dismissed{}` map. Pin the assertion that stops it, using a
+# DEVFLOW_JQ stub whose --slurpfile lands zero documents.
+cat > "$RL_TMP/jq-emptyslurp.sh" <<'STUB'
+#!/usr/bin/env bash
+# Pass everything through to the real jq EXCEPT a --slurpfile of the overrides
+# document, which is fed an empty file so the slurp lands zero values.
+args=(); empty=""
+for a in "$@"; do args+=("$a"); done
+i=0
+while [ $i -lt ${#args[@]} ]; do
+  if [ "${args[$i]}" = "--slurpfile" ] && [ "${args[$((i+1))]}" = "ov" ]; then
+    empty="$(mktemp)"; : > "$empty"; args[$((i+2))]="$empty"
+  fi
+  i=$((i+1))
+done
+jq "${args[@]}"; rc=$?
+[ -n "$empty" ] && rm -f "$empty"
+exit $rc
+STUB
+chmod +x "$RL_TMP/jq-emptyslurp.sh"
+printf '%s' "$(rl_record slurpguard 501)" > "$RL_TMP/slurp.json"
+cp "$RL_TMP/slurp.json" "$RL_TMP/slurp-before.json"
+DEVFLOW_JQ="$RL_TMP/jq-emptyslurp.sh" DEVFLOW_GH="$RL_TMP/gh-view.sh" \
+  bash "$RL_PS" reconcile "$RL_TMP/slurp.json" >/dev/null 2>"$RL_TMP/slurp.err"; RL_SG_RC=$?
+assert_eq "#788 slurp guard: a document that did not load exits non-zero" "true" \
+  "$([ "$RL_SG_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 slurp guard: the human-owned dismissed{} map survives byte-for-byte" "true" \
+  "$(diff -q "$RL_TMP/slurp-before.json" "$RL_TMP/slurp.json" >/dev/null 2>&1 && echo true || echo false)"
+assert_eq "#788 slurp guard: the overrides file was NOT replaced by a {patterns:{}} stub" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/slurp.json")"
+
+# ── actionable-patterns.sh rejects an unrecognized third argument ─────────────
+# A near-miss silently yielded the FILTERED view, which the caller writes to
+# patterns-full.json and the report renders under a heading promising the
+# unfiltered picture — well-formed, non-empty, and wrong.
+for _rl_bad_arg in '--ful' '-full' '--full=1' 'full'; do
+  DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+    bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" "$_rl_bad_arg" >/dev/null 2>"$RL_TMP/arg.err"; _rl_arc=$?
+  assert_eq "#788 --full: an unrecognized third arg '${_rl_bad_arg}' is rejected (rc 2)" "2" "$_rl_arc"
+  assert_eq "#788 --full: the rejection names the offending argument '${_rl_bad_arg}'" "true" \
+    "$(grep -q "unknown argument '${_rl_bad_arg}'" "$RL_TMP/arg.err" && echo true || echo false)"
+done
+# Controls on the same fixture: the exact literal and its absence both still work,
+# so the rejections above pin the strictness and not a broken invocation.
+DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full >/dev/null 2>&1; _rl_arc=$?
+assert_eq "#788 --full: the exact literal is still accepted (control)" "0" "$_rl_arc"
+DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" >/dev/null 2>&1; _rl_arc=$?
+assert_eq "#788 --full: omitting the third arg is still accepted (control)" "0" "$_rl_arc"
+
+# ── The cap comparands fail closed but no longer fail SILENTLY ───────────────
+# An empty comparand withholds EVERY pattern for the whole run via
+# `invalid-operand`, so "filed nothing" must never be indistinguishable from
+# "nothing to file". The empty stdout is the contract; the breadcrumb is new.
+(
+  set +e
+  # shellcheck source=../../filing-decisions.sh
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  assert_eq "#788 comparand: an absent overrides file still prints NOTHING (fail closed)" "" \
+    "$(devflow_open_filed_total "$RL_TMP/no-such-file.json" 2>/dev/null)"
+  assert_eq "#788 comparand: the absent-file total names the invalid-operand consequence" "true" \
+    "$(devflow_open_filed_total "$RL_TMP/no-such-file.json" 2>&1 >/dev/null \
+       | grep -q 'withheld as invalid-operand' && echo true || echo false)"
+  assert_eq "#788 comparand: the per-category absent-file arm breadcrumbs too" "true" \
+    "$(devflow_open_filed_in_category "$RL_TMP/no-such-file.json" someslug 2>&1 >/dev/null \
+       | grep -q 'withheld as invalid-operand' && echo true || echo false)"
+  # Control: a well-formed file still yields a real count on stdout and no error,
+  # so the empty-stdout assertions above pin the fail-closed arms rather than a
+  # helper that never counts anything. (Self-contained fixture: two `filed`
+  # entries across two records, plus a `fixed` one that must not be counted.)
+  printf '%s' '{"schema_version":2,"patterns":{"p1":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"fixed"}]},"p2":{"state":"filed","meta_issues":[{"number":3,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/comparand-ok.json"
+  assert_eq "#788 comparand: a well-formed file still yields its count (control)" "2" \
+    "$(devflow_open_filed_total "$RL_TMP/comparand-ok.json" 2>/dev/null)"
+  assert_eq "#788 comparand: the well-formed control emits no breadcrumb" "" \
+    "$(devflow_open_filed_total "$RL_TMP/comparand-ok.json" 2>&1 >/dev/null)"
+  # The liveness reader's missing-capture arm carries the same sentence.
+  assert_eq "#788 liveness reader: a missing capture warns rather than reading as 'nothing suppressed'" "true" \
+    "$(devflow_liveness_warning "$RL_TMP/no-such-capture.err" 2>&1 >/dev/null \
+       | grep -q 'NOT evidence that nothing is suppressed' && echo true || echo false)"
+)
+
+# ── render-report breadcrumbs the two NON-optional malformed keys ─────────────
+# A malformed `.patterns` otherwise renders a complete, plausible report with the
+# section simply absent — indistinguishable from a week with no patterns, and the
+# upstream `:?` guard cannot see it because the value is non-empty.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_MALFORMED_ERR="$(devflow_render_report '{"prs_scanned":7,"patterns":true,"blockers":true}' 2>&1 >/dev/null)"
+  assert_eq "#788 render: a malformed patterns key emits a breadcrumb naming it" "true" \
+    "$(case "$RL_MALFORMED_ERR" in *'`patterns` key is malformed'*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: the patterns breadcrumb denies the quiet-week reading" "true" \
+    "$(case "$RL_MALFORMED_ERR" in *"NOT evidence that there were no patterns"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a malformed blockers key breadcrumbs too" "true" \
+    "$(case "$RL_MALFORMED_ERR" in *'`blockers` key is malformed'*) echo true ;; *) echo false ;; esac)"
+  # Control: a well-formed summary emits neither breadcrumb.
+  RL_CLEAN_ERR="$(devflow_render_report '{"prs_scanned":7,"patterns":[],"blockers":[]}' 2>&1 >/dev/null)"
+  assert_eq "#788 render: a well-formed summary emits no malformed-key breadcrumb (control)" "false" \
+    "$(case "$RL_CLEAN_ERR" in *'is malformed'*) echo true ;; *) echo false ;; esac)"
+)
+
+# ── Dedup keeps one unresolvable number below the systemic threshold ──────────
+# Two records referencing the SAME unresolvable number must stay the per-slug
+# warning path. Without `_seen`, that fixture flips to "every by-number lookup
+# failed (2/2)" and hard-aborts a reconcile over one deleted issue.
+printf '%s' '{"schema_version":2,"patterns":{"a":{"state":"filed","fixed_at":null,"provenance":"p","meta_issues":[{"number":900,"url":"https://o/r/issues/900","state":"filed","closedAt":null}]},"b":{"state":"filed","fixed_at":null,"provenance":"p","meta_issues":[{"number":900,"url":"https://o/r/issues/900","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/dedup.json"
+DEVFLOW_GH="$RL_TMP/gh-allfail.sh" bash "$RL_PS" reconcile "$RL_TMP/dedup.json" >/dev/null 2>"$RL_TMP/dedup.err"; RL_DD_RC=$?
+assert_eq "#788 dedup: two records sharing one unresolvable number is ONE attempt (rc 0)" "0" "$RL_DD_RC"
+assert_eq "#788 dedup: that fixture is NOT inferred a systemic resolver failure" "false" \
+  "$(grep -q 'broken resolver' "$RL_TMP/dedup.err" && echo true || echo false)"
+
+# ── First-run: pattern-state materializes the v2 stub at the REAL path ───────
+# The filing caps read that exact path and fail closed by printing nothing when
+# it is missing, which withholds EVERY pattern as `invalid-operand`. Nothing else
+# creates it first (actionable-patterns stubs only into its own temp dir;
+# meta-issue writes the real stub but runs only AFTER a `file` verdict), so
+# without this a fresh consumer repo would withhold everything, never file, never
+# create the file, and repeat that forever.
+rm -rf "$RL_TMP/fresh"; mkdir -p "$RL_TMP/fresh"
+DEVFLOW_GH="$RL_TMP/gh-ap.sh" bash "$RL_PS" run "$RL_TMP/fresh/overrides.json" >/dev/null 2>&1
+assert_eq "#788 first run: the v2 stub is materialized at the real overrides path" "true" \
+  "$([ -f "$RL_TMP/fresh/overrides.json" ] && echo true || echo false)"
+assert_eq "#788 first run: the materialized stub is v2" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/fresh/overrides.json" 2>/dev/null)"
+(
+  set +e
+  # shellcheck source=../../filing-decisions.sh
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  # The whole point: the comparand now reads a real 0 instead of empty, so the
+  # first run can actually file instead of deadlocking on `invalid-operand`.
+  assert_eq "#788 first run: the cap comparand reads 0, not empty" "0" \
+    "$(devflow_open_filed_total "$RL_TMP/fresh/overrides.json" 2>/dev/null)"
+  assert_eq "#788 first run: the cap verdict is 'file', not 'invalid-operand'" "file" \
+    "$(devflow_filing_cap_verdict open 0 3 0 2 "$(devflow_open_filed_total "$RL_TMP/fresh/overrides.json" 2>/dev/null)" 10)"
+)
+# An EMPTY file takes the same arm as an absent one.
+: > "$RL_TMP/fresh/empty.json"
+DEVFLOW_GH="$RL_TMP/gh-ap.sh" bash "$RL_PS" run "$RL_TMP/fresh/empty.json" >/dev/null 2>&1
+assert_eq "#788 first run: an EMPTY overrides file is stubbed to v2 too" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/fresh/empty.json" 2>/dev/null)"
+
+# ── Hand-corruptible input: wrong-shaped JSON must not abort the run ─────────
+# `dismissed{}` is human-owned and hand-editable BY DESIGN, so a wrong-shaped
+# value is an input the parser must survive under the adversarial-shape matrix,
+# not a crash. Before this guard, a single string-valued entry aborted the whole
+# migration (and therefore the whole weekly run).
+printf '%s' '{"schema_version":1,"dismissed":{"handkey":"just a string","loopkey":{"dismissed_by":"retrospective-weekly","dismissed_at":"2026-01-01T00:00:00Z","meta_issue":"https://o/r/issues/5"}}}' > "$RL_TMP/shape1.json"
+bash "$RL_PS" migrate "$RL_TMP/shape1.json" >/dev/null 2>&1; RL_S1_RC=$?
+assert_eq "#788 shape: a non-object dismissed entry does not abort the migration" "0" "$RL_S1_RC"
+assert_eq "#788 shape: the non-object hand-written entry is preserved verbatim" "true" \
+  "$(jq -e '.dismissed | has("handkey")' "$RL_TMP/shape1.json" >/dev/null 2>&1 && echo true || echo false)"
+assert_eq "#788 shape: the loop-written entry beside it still converts" "true" \
+  "$(jq -e '.patterns | has("loopkey")' "$RL_TMP/shape1.json" >/dev/null 2>&1 && echo true || echo false)"
+# A `dismissed` that is itself a scalar aborts `to_entries` the same way.
+printf '%s' '{"schema_version":1,"dismissed":"not a map"}' > "$RL_TMP/shape2.json"
+bash "$RL_PS" migrate "$RL_TMP/shape2.json" >/dev/null 2>&1; RL_S2_RC=$?
+assert_eq "#788 shape: a scalar dismissed map does not abort the migration" "0" "$RL_S2_RC"
+
+# The same class, other reader: compute-patterns.jq indexes lifecycle records.
+assert_eq "#788 shape: a non-object lifecycle record does not abort the derivation" "0" \
+  "$(rl_cp '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["x"]}' \
+      '{"schema_version":2,"patterns":{"foo":"oops"},"dismissed":{}}' >/dev/null 2>&1; echo $?)"
+assert_eq "#788 shape: an ARRAY patterns map does not abort the derivation" "0" \
+  "$(rl_cp '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["x"]}' \
+      '{"schema_version":2,"patterns":[{"x":1}],"dismissed":"nope"}' >/dev/null 2>&1; echo $?)"
+# Control: a well-formed record on the same path still derives its real status,
+# so the guards above skip a wrong shape rather than neutering the reader.
+assert_eq "#788 shape: a well-formed record still derives its status (control)" "filed" \
+  "$(rl_cp '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["x"]}' \
+      '{"schema_version":2,"patterns":{"x":{"state":"filed","fixed_at":null,"meta_issues":[]}},"dismissed":{}}' | jq -r '.x.status')"
+
+# ── meta-issue: the post-creation bootstrap write cannot report a filed issue
+#    as unfiled ─────────────────────────────────────────────────────────────
+# The stub write and the `date` call both run AFTER `gh issue create` succeeded.
+# Under `set -euo pipefail` an unguarded failure there aborts before Step 3
+# prints the URL, so the orchestrator records a real issue as NOT filed.
+mkdir -p "$RL_TMP/robase"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag bootfail --slug bootfail --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/robase/nodir/overrides.json" \
+  >"$RL_TMP/boot.out" 2>"$RL_TMP/boot.err"; RL_BOOT_RC=$?
+assert_eq "#788 bootstrap: a failed stub write still exits 0" "0" "$RL_BOOT_RC"
+assert_eq "#788 bootstrap: a failed stub write still prints the filed issue URL" "https://github.com/o/r/issues/777" \
+  "$(cat "$RL_TMP/boot.out")"
+assert_eq "#788 bootstrap: the breadcrumb says the issue WAS filed" "true" \
+  "$(grep -q 'issue WAS filed' "$RL_TMP/boot.err" && echo true || echo false)"
 
 # ── AC 76 line-count evidence lives in the PR, NOT in this module ────────────
 # A former assertion here compared `lib/test/run.sh`'s line count against

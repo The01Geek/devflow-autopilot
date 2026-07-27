@@ -6,11 +6,16 @@
 # cooldown_days config.
 #
 # Usage:
-#   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json>
+#   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json> [--full]
 #
 # Args:
 #   $1  path to retrospectives.jsonl
 #   $2  path to overrides.json
+#   $3  optional: --full, emitting the UNFILTERED whole-pattern view the run
+#       report renders (every lifecycle status, below-threshold and suppressed
+#       included) instead of the actionable subset. Any other value is rejected
+#       with rc 2. Note the emitted `status` is one of the six lifecycle values
+#       under --full, not just open/regressed.
 #
 # Output (stdout):
 #   Compact JSON array of actionable pattern objects, each shaped as:
@@ -63,7 +68,17 @@ OVERRIDES_FILE="$2"
 # orchestrator can carry the whole picture into the run report (issue #788); the
 # default emits only the actionable subset (open/regressed above threshold).
 FULL=0
-[ "${3:-}" = "--full" ] && FULL=1
+# Reject an unrecognized third argument LOUDLY. A near-miss (`--ful`, `-full`,
+# `--full=1`, or the flag landing in $4 after a future arg is added) would
+# otherwise silently yield the FILTERED view, which the caller then writes to
+# patterns-full.json and the report renders under a heading promising the
+# unfiltered picture — well-formed, non-empty, and wrong, with every
+# downstream guard passing. Mirrors pattern-state.sh's strict arg handling.
+case "${3:-}" in
+    '') : ;;
+    --full) FULL=1 ;;
+    *) echo "actionable-patterns: unknown argument '$3' (expected --full)" >&2; exit 2 ;;
+esac
 
 MIN="$(devflow_conf '.devflow_retrospective.min_occurrences' 2)"
 COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
@@ -271,7 +286,16 @@ if [ "$FULL" -eq 0 ]; then
               | {slug: .key, occ: .value.occurrence_count} ]
             | sort_by(-.occ)
             | if length > 0 then "\(length) \(.[0].slug)" else "" end'
-        )" || _LIVE=""
+        )" || {
+            # Never collapse a FAILED probe onto "nothing is suppressed". This is
+            # the one mechanism that says "the loop produced nothing on inputs that
+            # should have raised something", and it only matters on runs where the
+            # eligible set is already empty — i.e. exactly the runs it was written
+            # for. The _ELIGIBLE_N block above refuses to launder an unestablished
+            # count; this one must not undo that discipline one derivation later.
+            echo "actionable-patterns: the liveness diagnostic could not be derived (jq exited non-zero) — the report's liveness section will be omitted, which is NOT evidence that nothing is suppressed" >&2
+            _LIVE=""
+        }
         if [ -n "$_LIVE" ]; then
             _SUP_N="${_LIVE%% *}"
             _TOP="${_LIVE#* }"

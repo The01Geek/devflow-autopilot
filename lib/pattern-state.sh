@@ -124,8 +124,27 @@ _atomic_write() {  # $1 = dest path, $2 = source tmp holding new content
 # Idempotent: a v2 (or already-migrated) file is left byte-unchanged.
 _migrate() {  # $1 = overrides path
     local ov="$1"
-    # Absent or empty file: nothing to migrate (callers stub v2 themselves).
-    [ -f "$ov" ] && [ -s "$ov" ] || return 0
+    # Absent or empty file: MATERIALIZE the v2 stub at the real path.
+    #
+    # This is load-bearing, not convenience. The filing caps read this exact path
+    # and fail closed by printing nothing when it is missing — which
+    # `devflow_filing_cap_verdict` reads as `invalid-operand` and withholds EVERY
+    # pattern. Nothing else creates it first: `actionable-patterns.sh` stubs only
+    # into its own temp dir, and `meta-issue.sh` writes the real stub but runs
+    # only AFTER a `file` verdict. So on a fresh consumer repo (install.sh ships
+    # no `learnings/`) the loop would withhold everything, never file, never
+    # create the file, and repeat that forever — a permanent-silence mode in the
+    # very change whose purpose is to end permanent silence. Creating it here
+    # makes the comparands read a real `0`.
+    if [ ! -f "$ov" ] || [ ! -s "$ov" ]; then
+        local stub_dir
+        stub_dir="$(_dir_of "$ov")"
+        [ -d "$stub_dir" ] || mkdir -p "$stub_dir" \
+          || { echo "::error::pattern-state: could not create ${stub_dir} for the first-run overrides stub" >&2; return 1; }
+        printf '{"schema_version":2,"patterns":{},"dismissed":{}}\n' > "$ov" \
+          || { echo "::error::pattern-state: could not write the first-run overrides stub at ${ov}" >&2; return 1; }
+        return 0
+    fi
 
     local ver
     ver="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$ov" 2>/dev/null)" \
@@ -147,8 +166,8 @@ _migrate() {  # $1 = overrides path
         | {
             schema_version: 2,
             patterns: (
-              $d | to_entries
-              | map(select(.value.dismissed_by == $writer))
+              (($d | objects) // {}) | to_entries
+              | map(select(((.value | type) == "object") and .value.dismissed_by == $writer))
               | map({
                   key: .key,
                   value: {
@@ -170,8 +189,14 @@ _migrate() {  # $1 = overrides path
               | from_entries
             ),
             dismissed: (
-              $d | to_entries
-              | map(select(.value.dismissed_by != $writer))
+              # A non-object hand-written entry is PRESERVED verbatim here rather
+              # than aborting: dismissed{} is by design human-owned and
+              # hand-editable, so a wrong-shaped value is an input this parser
+              # must survive under the adversarial-shape matrix, not a crash.
+              # (No apostrophes in this comment: the whole jq program sits inside
+              # bash single quotes, where one would terminate the string.)
+              (($d | objects) // {}) | to_entries
+              | map(select(((.value | type) != "object") or .value.dismissed_by != $writer))
               | from_entries
             )
           }' "$ov" > "$tmp"; then
@@ -277,28 +302,30 @@ _reconcile() {  # $1 = overrides path, $2 = limit
           || { echo "::error::pattern-state: could not record the resolution of meta-issue ${num} (jq exited non-zero) — no transition applied" >&2; return 1; }
     done <<< "$numbers"
 
-    # Systemic-resolver check (see the tally comment above). Every fallback lookup
-    # failing is evidence of a broken resolver rather than a statement about the
-    # issues — but only once there is enough of a sample to distinguish the two.
-    # With a SINGLE attempt the two hypotheses are indistinguishable, and the
-    # single-entry case is a documented behavior in its own right (a permanently
-    # inaccessible entry makes no transition and emits a per-slug ::warning::
-    # naming the number). So require at least two attempts before inferring a
-    # systemic failure; below that, fall through to the per-slug warning path.
-    # The residual: a repo whose only two meta-issues were both genuinely deleted
-    # fails closed here instead of warning twice. That direction is deliberate —
-    # a loud stop is recoverable, whereas silently applying zero transitions and
-    # reporting success is the failure this check exists to prevent — and the
-    # message names both possibilities rather than asserting the cause.
+    # Systemic-resolver summary (see the tally comment above). Every fallback
+    # lookup failing is evidence of a BROKEN RESOLVER rather than a statement
+    # about those issues, and a run that quietly applied zero transitions and
+    # reported success would hide that.
+    #
+    # It is a WARNING, not an abort, and it deliberately does NOT short-circuit
+    # the transition pass below. An earlier revision returned non-zero here, and
+    # that was wrong three ways: (1) it suppressed the per-slug `::warning::`
+    # naming each unresolvable slug and its failing leg, which is an explicit
+    # acceptance criterion, because the warning pass runs downstream; (2) it
+    # discarded the transitions of every OTHER pattern the prefetch had resolved
+    # perfectly well — a total loss to diagnose a partial one; and (3) on a repo
+    # whose `Retrospective` label does not exist the prefetch returns `[]` and
+    # routes every record to the fallback, so one transient blip would hard-fail
+    # a run that should degrade per-slug. Diagnose loudly; let the reconcile
+    # finish and let the per-slug warnings do their documented job.
     if [ "$_fb_attempted" -ge 2 ] && [ "$_fb_failed" -eq "$_fb_attempted" ]; then
-        echo "::error::pattern-state: every by-number lookup failed (${_fb_failed}/${_fb_attempted}) — most likely a broken resolver (expired auth, rate limit, network, or a drifted gh --json contract) rather than ${_fb_failed} genuinely deleted issues; no transition applied and ${ov} left byte-unchanged" >&2
-        return 1
+        echo "::warning::pattern-state: every by-number lookup failed (${_fb_failed}/${_fb_attempted}) — most likely a broken resolver (expired auth, rate limit, network, or a drifted gh --json contract) rather than ${_fb_failed} genuinely deleted issues; the per-slug warnings below name each affected slug" >&2
     fi
 
     # Apply transitions + derive record states in one jq pass. Warnings for
     # no-url / unresolved / unrecognized-stateReason records are emitted to stderr
     # from a parallel jq pass so the transformed body stays on stdout only.
-    printf '%s' "$resolved" | "$DEVFLOW_JQ" -r --slurpfile ov <(cat "$ov") '
+    printf '%s' "$resolved" | "$DEVFLOW_JQ" -r --slurpfile ov "$ov" '
         . as $res
         | ($ov[0].patterns // {}) | to_entries[]
         | .key as $slug | .value as $rec
@@ -323,8 +350,18 @@ _reconcile() {  # $1 = overrides path, $2 = limit
     local tmp
     tmp="$(mktemp "$(_dir_of "$ov")/.overrides-rec.XXXXXX")" \
       || { echo "::error::pattern-state: could not create a temp file beside ${ov} during reconcile" >&2; return 1; }
-    if ! printf '%s' "$resolved" | "$DEVFLOW_JQ" --slurpfile ov <(cat "$ov") '
-        . as $res
+    if ! printf '%s' "$resolved" | "$DEVFLOW_JQ" --slurpfile ov "$ov" '
+        # Refuse to transform a document that did not load. On an empty slurp
+        # `$ov[0]` is null, and `null | .patterns = (…)` is LEGAL jq: it
+        # constructs `{"patterns":{}}` and exits 0. That stub would flow into
+        # _atomic_write and replace overrides.json — losing schema_version, every
+        # lifecycle record, and the hand-written `dismissed{}` entries the
+        # migration takes such care to preserve. Assert the slurp landed exactly
+        # one document before touching anything.
+        (if ($ov | length) != 1 then
+           error("overrides document did not load (slurped \($ov|length) values) — refusing to write")
+         else . end)
+        | . as $res
         | $ov[0]
         | .patterns = (
             (.patterns // {}) | to_entries | map(

@@ -9,7 +9,7 @@ and report-field producers in `lib/filing-decisions.sh`.
 
 | Contract group | Former `lib/test/run.sh` location | Now |
 | --- | --- | --- |
-| `compute-patterns.jq` status derivation (open / fixed / regressed / dismissed, slug normalization, occurrence grouping) | `lib/test/run.sh` `compute-patterns.jq` block | **Relocated into this module**, together with the `declined`/`filed`/precedence/canonicalization arms #788 introduced. |
+| `compute-patterns.jq` status derivation (open / fixed / regressed / dismissed, slug normalization, occurrence grouping) | `lib/test/run.sh` `compute-patterns.jq` block **and** the non-adjacent status-arm group that sat after the config-jq block | **Relocated into this module**, together with the `declined`/`filed`/precedence/canonicalization arms #788 introduced. |
 | `meta-issue.sh` lifecycle write, de-dup, `--dry-run`, URL-shape and `--slug` grammar guards | `lib/test/run.sh` `meta-issue.sh` block | **Relocated into this module**, together with the number-keyed single-entry assertion. |
 | `pattern-state.sh` migrate + reconcile transitions | new (issue #788) | This module (no former home — the helper is new). |
 | `actionable-patterns.sh` regressed bypass + liveness warning | new (issue #788) | This module (the bypass and the liveness diagnostic are new behavior). |

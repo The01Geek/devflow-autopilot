@@ -164,7 +164,13 @@ else
         URL="$("$DEVFLOW_GH" issue create \
             --title "[devflow-retrospective] meta: ${TAG} — ${TITLE}" \
             --body-file "$BODY_FILE")"
-        URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
+        # Strip whitespace with a BUILTIN, never `tr`: preflight guarantees only
+        # git/gh/jq/python3, and this value decides an EMITTED result. A missing
+        # `tr` would empty $URL, the shape guard below would fire, and the script
+        # would exit 1 AFTER the issue was created — making the orchestrator record
+        # a genuinely-filed issue as blocked, the exact misstatement the recovery
+        # branch below exists to prevent, while blaming gh for a missing binary.
+        URL="${URL//[$' \t\r\n']/}"
         # Fail CLOSED on a non-issue-URL: `gh issue create` can exit 0 yet emit
         # empty/garbage stdout (URL printed to stderr, an auth/upgrade warning on
         # stdout, a swallowed transient error). Without this guard an empty/garbage
@@ -195,11 +201,28 @@ fi
 # DRYRUN sentinel and a later live run would treat the slug as already filed and
 # skip the real filing.
 if [[ "$DRY_RUN" -eq 0 ]]; then
+    # Both of these run AFTER `gh issue create` has already succeeded, so neither
+    # may abort under `set -euo pipefail`: a failed redirect (read-only fs, absent
+    # parent dir, full disk) or a failed `date` would kill the script before
+    # Step 3 prints the URL, making the orchestrator record a genuinely-filed
+    # issue as NOT filed. That is the exact misstatement the mktemp and mv guards
+    # below were written to prevent; the same abort class must not survive here.
+    # Both route into the same "issue WAS filed, record failed" recovery.
+    RECORD_WRITTEN=0
+    NOW=""
     if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
-        printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$OVERRIDES"
+        printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$OVERRIDES" || {
+            echo "::error::meta-issue: issue WAS filed (${URL}) but the overrides file ${OVERRIDES} could not be initialized — de-dupe will prevent a duplicate next run" >&2
+            printf '%s\n' "$URL"
+            exit 0
+        }
     fi
 
-    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || {
+        echo "::error::meta-issue: issue WAS filed (${URL}) but the timestamp for its lifecycle record could not be derived — de-dupe will prevent a duplicate next run" >&2
+        printf '%s\n' "$URL"
+        exit 0
+    }
     ISSUE_NUM="${URL##*/}"
     # Validate the derived key STRICTLY. The URL guards above use the glob
     # `https://*/issues/[0-9]*`, and `[0-9]*` is a GLOB — "a digit followed by
@@ -245,7 +268,6 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # still-open issue is the same assertion "this entry is open", so leaving a
     # prior closure timestamp on a `filed` entry would be an internally
     # inconsistent shape until the next reconcile happened to clear it.
-    RECORD_WRITTEN=0
     if [ -n "$OVERRIDES_TMP" ] && "$DEVFLOW_JQ" \
         --arg slug "$SLUG" \
         --arg now "$NOW" \

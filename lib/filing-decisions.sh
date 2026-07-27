@@ -96,7 +96,13 @@ devflow_filing_cap_verdict() {
 # nothing and exits 0 (the section is simply omitted).
 devflow_liveness_warning() {
     local capture="${1:-}"
-    [ -n "$capture" ] && [ -r "$capture" ] || return 0
+    # An absent/unreadable capture is not evidence that nothing is suppressed —
+    # Step 6 may have aborted, or `.devflow/tmp/` may not have been creatable.
+    # Same sentence devflow_declined_refiled uses for the same reason.
+    if [ -z "$capture" ] || [ ! -r "$capture" ]; then
+        echo "::warning::filing-decisions: the liveness capture '${capture}' is missing or unreadable — the report's liveness section will be omitted, which is NOT evidence that nothing is suppressed" >&2
+        return 0
+    fi
     local line
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
@@ -123,18 +129,19 @@ devflow_liveness_warning() {
 # than the run aborted.
 devflow_declined_refiled() {
     local ov="${1:-}" filed_json="${2:-[]}"
-    local _dr_err
-    _dr_err="$(mktemp 2>/dev/null || printf '/dev/null')"
+    local _dr_out
     if [ -z "$ov" ] || [ ! -r "$ov" ]; then
         echo "::warning::filing-decisions: the overrides file '${ov}' is missing or unreadable — the report's won't-fix re-raise section will be omitted, which is NOT evidence that nothing was re-raised" >&2
-        rm -f "$_dr_err" 2>/dev/null || true
         printf '[]\n' ; return 0
     fi
     # `.` inside the select() below is the SLUG STRING, not the document, so the
     # record lookup binds the root first. Without $root the lookup reads
     # `null.patterns`, every select() is false, and the section silently never
     # renders — the same dead-wiring failure this helper exists to close.
-    "$DEVFLOW_JQ" -c --argjson filed "$filed_json" '
+    # jq's own stderr is NOT captured or suppressed — it flows straight to the
+    # caller's stderr, so its diagnostic survives without this helper writing a
+    # temp file. That keeps the "no writes outside stdout" property above true.
+    _dr_out="$("$DEVFLOW_JQ" -c --argjson filed "$filed_json" '
         . as $root
         | [ $filed[]
             | . as $slug
@@ -142,17 +149,18 @@ devflow_declined_refiled() {
                 (($root.patterns // {})[$slug].meta_issues // [])
                 | any(.state == "declined" and .state_reason == "NOT_PLANNED")
               )
-          ]' "$ov" 2>"$_dr_err" || {
+          ]' "$ov")" || {
         # This section IS genuinely optional (a run that re-raised no won't-fix
         # pattern renders none), so a degrade to `[]` is the right shape here —
         # but it must not be SILENT: an empty section from a jq failure and one
         # from a genuinely empty result are indistinguishable to the reader, and
         # the won't-fix re-raise is precisely the decision this design promises to
-        # surface rather than bury. Say why it is empty.
-        echo "::warning::filing-decisions: could not derive the won't-fix re-raise list from ${ov} ($(cat "$_dr_err" 2>/dev/null)) — the report's re-raised section will be omitted, which is NOT evidence that nothing was re-raised" >&2
-        printf '[]\n'
+        # surface rather than bury. Say why it is empty (jq's own message has
+        # already reached stderr on its own).
+        echo "::warning::filing-decisions: could not derive the won't-fix re-raise list from ${ov} — the report's re-raised section will be omitted, which is NOT evidence that nothing was re-raised" >&2
+        printf '[]\n' ; return 0
     }
-    rm -f "$_dr_err" 2>/dev/null || true
+    printf '%s\n' "$_dr_out"
 }
 
 # devflow_annotate_patterns <patterns-full-json-file> <filed-json> <withheld-json>
@@ -181,14 +189,13 @@ devflow_declined_refiled() {
 # whole issue exists to eliminate. Printing nothing makes the caller's `:?` fire.
 devflow_annotate_patterns() {
     local patterns_file="${1:-}" filed_json="${2:-[]}" withheld_json="${3:-[]}"
-    local _ap_err
-    _ap_err="$(mktemp 2>/dev/null || printf '/dev/null')"
+    local _ap_out
     if [ -z "$patterns_file" ] || [ ! -r "$patterns_file" ]; then
         echo "::error::filing-decisions: the pattern view '${patterns_file}' is missing or unreadable — printing nothing so the caller's guard aborts the run rather than rendering an empty pattern section as a quiet week" >&2
-        rm -f "$_ap_err" 2>/dev/null || true
         return 1
     fi
-    "$DEVFLOW_JQ" -c \
+    # jq's stderr flows through to the caller (see the sibling note above).
+    _ap_out="$("$DEVFLOW_JQ" -c \
       --argjson filed "$filed_json" \
       --argjson withheld "$withheld_json" '
         ($withheld | map({key: (.tag // .slug // ""), value: (.cap // "")}) | from_entries) as $wmap
@@ -199,12 +206,11 @@ devflow_annotate_patterns() {
             + (if ($filed | index($k)) then {filing_outcome: "issue filed"}
                elif ($wmap[$k] // "") != "" then {withheld_by: $wmap[$k]}
                else {filing_outcome: "not filed"} end)
-          )' "$patterns_file" 2>"$_ap_err" || {
-        echo "::error::filing-decisions: could not annotate the pattern view from ${patterns_file} ($(cat "$_ap_err" 2>/dev/null)) — printing nothing so the caller's guard aborts the run rather than rendering an empty pattern section as a quiet week" >&2
-        rm -f "$_ap_err" 2>/dev/null || true
+          )' "$patterns_file")" || {
+        echo "::error::filing-decisions: could not annotate the pattern view from ${patterns_file} — printing nothing so the caller's guard aborts the run rather than rendering an empty pattern section as a quiet week" >&2
         return 1
     }
-    rm -f "$_ap_err" 2>/dev/null || true
+    printf '%s\n' "$_ap_out"
 }
 
 # devflow_open_filed_total <overrides-path>
@@ -227,16 +233,35 @@ devflow_annotate_patterns() {
 # backlog and file right past both caps.
 devflow_open_filed_total() {
     local ov="${1:-}"
-    [ -n "$ov" ] && [ -r "$ov" ] || return 0
+    # Fail CLOSED by printing nothing — but never SILENTLY. An empty comparand
+    # makes devflow_filing_cap_verdict return `invalid-operand`, which withholds
+    # EVERY pattern for the whole run. "The loop filed nothing this week" then
+    # reads identically to "there was nothing to file" — the exact failure mode
+    # issue #788 exists to eliminate — unless something names the cause. jq's own
+    # stderr is left unsuppressed so the underlying error reaches the log too.
+    if [ -z "$ov" ] || [ ! -r "$ov" ]; then
+        echo "::error::filing-decisions: overrides file '${ov}' is missing or unreadable — the max_open_issues comparand is UNESTABLISHED, so every pattern will be withheld as invalid-operand this run" >&2
+        return 0
+    fi
     "$DEVFLOW_JQ" -r '
         [ (.patterns // {})[] | (.meta_issues // [])[] | select(.state == "filed") ] | length
-      ' "$ov" 2>/dev/null || return 0
+      ' "$ov" || {
+        echo "::error::filing-decisions: could not derive the open-filed total from ${ov} — the max_open_issues comparand is UNESTABLISHED, so every pattern will be withheld as invalid-operand this run" >&2
+        return 0
+    }
 }
 
 devflow_open_filed_in_category() {
     local ov="${1:-}" slug="${2:-}"
-    [ -n "$ov" ] && [ -r "$ov" ] && [ -n "$slug" ] || return 0
+    # Same fail-closed-but-loud contract as devflow_open_filed_total above.
+    if [ -z "$ov" ] || [ ! -r "$ov" ] || [ -z "$slug" ]; then
+        echo "::error::filing-decisions: cannot derive the per-category open-filed count (overrides='${ov}', slug='${slug}') — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
+        return 0
+    fi
     "$DEVFLOW_JQ" -r --arg s "$slug" '
         [ ((.patterns // {})[$s].meta_issues // [])[] | select(.state == "filed") ] | length
-      ' "$ov" 2>/dev/null || return 0
+      ' "$ov" || {
+        echo "::error::filing-decisions: could not derive the per-category open-filed count for '${slug}' from ${ov} — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
+        return 0
+    }
 }

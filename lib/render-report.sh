@@ -81,7 +81,20 @@ devflow_render_report() {
     # a truthy non-array key, so an unguarded `length` would abort jq and, under
     # `set -e`, take the WHOLE report down over one malformed key.
     patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length' 2>/dev/null || true)"
-    case "$patterns_n" in ''|*[!0-9]*) patterns_n=0 ;; esac
+    # Unlike the optional sections, degrading THIS key to 0 must not be silent.
+    # `.patterns` is the report's substance, and the upstream producer
+    # (`devflow_annotate_patterns`) fails loud precisely so a producer failure
+    # cannot render as a quiet week — but its protection is the caller's
+    # `: "${PATTERNS_JSON:?…}"`, which tests for the EMPTY STRING and therefore
+    # cannot see a non-empty malformed value that reaches this renderer. Without
+    # a breadcrumb here, a truthy non-array `.patterns` produces a complete,
+    # plausible report with the pattern section simply absent — indistinguishable
+    # from a week with no patterns. Say so.
+    case "$patterns_n" in
+        ''|*[!0-9]*)
+            echo "::warning::render-report: the summary's \`patterns\` key is malformed (not an array) — the 'Patterns this run' section is OMITTED, which is NOT evidence that there were no patterns" >&2
+            patterns_n=0 ;;
+    esac
     if [ "$patterns_n" -gt 0 ]; then
         printf '\n## Patterns this run\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
@@ -180,7 +193,14 @@ devflow_render_report() {
     # Blockers (omit section if empty)
     local blocker_count
     blocker_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // []) | length' 2>/dev/null || true)"
-    case "$blocker_count" in ''|*[!0-9]*) blocker_count=0 ;; esac
+    # Like `patterns` above, this one must not degrade silently: `.blockers` is the
+    # section that REPORTS failures, and failures being suppressed by a failure is
+    # the worst possible pairing.
+    case "$blocker_count" in
+        ''|*[!0-9]*)
+            echo "::warning::render-report: the summary's \`blockers\` key is malformed (not an array) — the blockers section is OMITTED, which is NOT evidence that there were no blockers" >&2
+            blocker_count=0 ;;
+    esac
     if [ "$blocker_count" -gt 0 ]; then
         printf '\n## Blockers\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // [])[] | "- \(.)"'

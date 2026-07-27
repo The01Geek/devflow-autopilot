@@ -318,15 +318,33 @@ bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json || {
 bash $LIB/actionable-patterns.sh \
   .devflow/learnings/retrospectives.jsonl \
   .devflow/learnings/overrides.json \
-  > .devflow/tmp/patterns.json 2> .devflow/tmp/patterns.stderr
+  > .devflow/tmp/patterns.json 2> .devflow/tmp/patterns.stderr || {
+  # Guarded for the same reason the reconcile above is: `>` truncates before the
+  # script runs, so an unguarded non-zero exit leaves an EMPTY patterns.json and
+  # Step 8 proceeds to file nothing — failing open toward "quiet week".
+  echo "::error::retrospective Step 6: actionable-pattern derivation failed — aborting rather than proceeding with an empty pattern set (which would report a quiet week)" >&2
+  cat .devflow/tmp/patterns.stderr >&2 || true
+  exit 1
+}
 cat .devflow/tmp/patterns.stderr >&2 || true
+# Snapshot the post-reconcile, PRE-FILING overrides file for Step 9's won't-fix
+# re-raise read. It lives here, not in Step 8c, because Step 8 is skipped
+# wholesale when nothing is actionable — and Step 9 reads this path
+# unconditionally, so taking it there would make every quiet run warn that the
+# overrides file is unreadable when it is intact. It must be taken AFTER the
+# reconcile (which writes the `state_reason` the read keys off) and BEFORE any
+# filing (which would make a re-raised pattern look freshly `filed`).
+cp .devflow/learnings/overrides.json .devflow/tmp/overrides-prefiling.json
 # The UNFILTERED whole-pattern view (every lifecycle state, below-threshold and
 # suppressed included) for the run report; --full drops the actionable filters.
 bash $LIB/actionable-patterns.sh \
   .devflow/learnings/retrospectives.jsonl \
   .devflow/learnings/overrides.json \
   --full \
-  > .devflow/tmp/patterns-full.json
+  > .devflow/tmp/patterns-full.json || {
+  echo "::error::retrospective Step 6: the unfiltered (--full) pattern derivation failed — aborting; the report's pattern section is rendered from this file" >&2
+  exit 1
+}
 ```
 
 Print a summary line to the console, for example:
@@ -545,6 +563,10 @@ source $LIB/filing-decisions.sh || {
 }
 # Total `filed` entries across every record.
 OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
+# Initialize the per-run counter EXPLICITLY. Left unset it expands empty, which
+# devflow_filing_cap_verdict correctly rejects as `invalid-operand` — withholding
+# every pattern for the whole run. "Starts at 0" in prose is not a binding.
+filed_this_run=0
 ```
 
 Track `filed_this_run` (starts at 0) and, for each slug, its current per-category
@@ -557,10 +579,12 @@ count to `0`: `devflow_filing_cap_verdict` reads the empty operand as
 `invalid-operand` and withholds, whereas a laundered `0` would report an empty
 backlog and file straight past both caps.
 
-Also snapshot the pre-filing overrides file — `cp .devflow/learnings/overrides.json
-.devflow/tmp/overrides-prefiling.json` — before the first filing. Step 9 reads the
-won't-fix re-raise state from that snapshot; read after the run's own filings are
-appended, every re-raised pattern would look freshly `filed` instead.
+The pre-filing overrides snapshot Step 9 reads (`.devflow/tmp/overrides-prefiling.json`)
+is taken in **Step 6**, not here. It must exist on *every* run: Step 8 is skipped
+wholesale when nothing is actionable, so taking it here would leave Step 9 reading
+an absent file on exactly the quiet runs this loop exists to make diagnosable —
+and `devflow_declined_refiled` would then warn that the overrides file is
+unreadable when it is perfectly intact.
 
 For each `(pattern, result)` pair, in any order, **first apply the caps**. The cap
 decision is not prose here — it is `devflow_filing_cap_verdict` in
@@ -573,6 +597,18 @@ source $LIB/filing-decisions.sh || {
   echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
   exit 1
 }
+# Bind $STATUS from THIS pattern's derived lifecycle status before the call.
+# It is the operand the `regressed` bypass of `max_open_issues` keys off, and an
+# unbound $STATUS expands empty — which is never equal to "regressed", so the
+# bypass would be dead at runtime while the helper below implements it correctly.
+# An empty $STATUS is a WIRING failure, not a non-regressed pattern: say so and
+# stop, rather than silently applying the ceiling to a regression.
+STATUS="$($LIB/../scripts/run-jq.sh -r --arg t "$TAG" '.[] | select((.tag // .slug) == $t) | .status' .devflow/tmp/patterns.json)"
+case "$STATUS" in
+  dismissed|regressed|declined|filed|fixed|open) : ;;
+  *) echo "::error::retrospective Step 8c: could not bind a lifecycle status for pattern '$TAG' (got '$STATUS') — refusing to apply the filing caps on an unestablished status, which would silently disable the regressed bypass" >&2
+     exit 1 ;;
+esac
 VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" \
                                       "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
 ```
@@ -863,8 +899,11 @@ so the loop is well-suited to an unattended run. For a fully unattended run, add
   starts an implement run for you.
 - **`materialize-retrospectives.sh` signature:** takes two explicit positional
   args — `<new-entries-file>` and `<jsonl-path>`. Always pass both.
-- **`actionable-patterns.sh` signature:** takes two explicit positional args
-  — `<retrospectives.jsonl>` and `<overrides.json>`. Always pass both.
+- **`actionable-patterns.sh` signature:** takes two required positional args
+  — `<retrospectives.jsonl>` and `<overrides.json>` — plus an optional third,
+  `--full`, which emits the unfiltered whole-pattern view the run report
+  renders (issue #788). Always pass both required args; pass `--full` only for
+  the report view. An unrecognized third argument is rejected with rc 2.
 - **`open-state-pr.sh` signature:** no required args; optional `--branch`,
   `--base` (defaults to `main`), `--dry-run`; prints the PR number
   to stdout.
