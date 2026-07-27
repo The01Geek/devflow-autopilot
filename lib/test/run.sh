@@ -32469,14 +32469,19 @@ else
   skip "#815 section 4.0 no longer carries the follow-up-issue create fence" host-capability \
     "could not allocate a scratch file for the section-4.0 slice"
 fi
-# An enforcement constant, registered per the #656 exception: 96623 is issue #815's
-# acceptance ceiling, fixed by the issue against the 116,623 the file measured when it was
-# filed (this branch's merge base had since grown to 116,879, which the ceiling still
-# clears). It is pinned rather than rendered because a rendered figure would move with the
-# file and enforce nothing. Provenance and the measured delta:
+# An enforcement constant, registered per the #656 exception. It began as issue #815's
+# acceptance ceiling of 96623, fixed by that issue against the 116,623 the file measured
+# when it was filed. Issue #834's unconditional consumer-prompt-extension handoff sentence
+# — an addition the Phase 4.1 dispatch requires on every run, so it cannot be routed behind
+# a conditional progressively-loaded reference — does not fit inside the residual headroom
+# #815's move happened to leave, so the ceiling is re-registered here at the trimmed
+# post-#834 measurement with NO added slack: the next edit that grows this file goes RED and
+# must register its own raise, exactly as #815 intended. It is pinned rather than rendered
+# because a rendered figure would move with the file and enforce nothing. Provenance, both
+# measured deltas, and the raise rationale:
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 96623 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 97729 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
