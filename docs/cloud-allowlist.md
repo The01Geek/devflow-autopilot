@@ -116,9 +116,22 @@ from the action's execution file (`permission_denials` + recorded `tool_use`
 calls) and on-disk side-effect files. **The model's own text output is never the
 measurement.**
 
-The abstract review-tier rule set is R1–R4 (leading-assignment / leading-`cd` /
-`/tmp`-redirect / heredoc-write families), enforced by
-`extract-command-shapes.py`. Notable recorded verdicts:
+The abstract review-tier rule set is R1–R5 (leading-assignment / leading-`cd` /
+`/tmp`-redirect / heredoc-write families, plus **R5**, an `if`/`elif`
+command-substitution *condition* — issue #857), enforced by
+`extract-command-shapes.py`. R5 is a **discipline-only** rule, not probe-backed
+when it lands (the same posture as the implement-tier IR3): the review engine's
+old live-progress-comment seed branched on `elif WP=$(workpad.py id …); then`
+inside a `case`/`if`/`elif` compound, and the cloud review matcher refused that
+compound outright — **measured 8/8 refusals across 6 PRs** (issue #857), each with
+the harness string `Contains shell syntax (string) that cannot be statically
+analyzed`. The fix moved that find-or-create decision into the bundled helper
+`scripts/seed-review-progress.sh` (a single leading-token statement the matcher
+permits), and R5 guards against reintroducing the refused condition-substitution
+spelling. Four new `matcher-probe.yml` review rows (a `;`-joined multi-statement
+command, a multi-line `if`/`else`/`fi`, an `if VAR=$(granted-helper …)` condition,
+and a `printf` with a double-quoted expansion) will, on a PERMITTED result for the
+`if VAR=$(…)` row, retire R5 in a follow-up. Notable recorded verdicts:
 
 | Candidate | Verdict | Note |
 | --- | --- | --- |
