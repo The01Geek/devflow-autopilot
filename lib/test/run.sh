@@ -31681,8 +31681,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
-  "32" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh, the one genuinely new name)" \
+  "33" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 
@@ -31906,8 +31906,10 @@ assert_eq "#401 R1 flags a CHAINED env-prefix compound with a substitution-value
 printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"
 assert_eq "#401 R3 flags a 2> stderr redirect to a /tmp target" "yes" \
   "$(python3 "$ECS" "$E363/s-r3d.md" | grep -q '  R3  ' && echo yes || echo no)"
-# ── Control-word stripping: a violation BEHIND a stripped control word still fires; a pure
-# ── capture behind one stays clean (the `elif WP=$(…)` idiom Phase 0.3.5 relies on).
+# ── Control-word stripping: a violation BEHIND a stripped control word still fires. (The
+# ── `elif WP=$(…)` condition-capture that used to be listed as permitted below is now R5's
+# ── own violation — issue #857 retired that idiom from Phase 0.3.5 in favour of the
+# ── single-leading-token seed helper, and the cloud matcher refused the compound anyway.)
 printf '%s\n' '```bash' 'if M=x printf hi; then' 'echo y' 'fi' '```' > "$E363/s-r1e.md"
 assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)" "yes" \
   "$(python3 "$ECS" "$E363/s-r1e.md" | grep -q '  R1  ' && echo yes || echo no)"
@@ -31916,9 +31918,14 @@ assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)
 # ── lint must avoid: a capture, an empty reset, `IFS= read`, `tee`, a pipe into `tee`, and
 # ── a `>` redirect to an in-workspace .devflow/tmp target all pass).
 { printf '%s\n' '```bash' 'WP=$(gh pr view 1)' 'WP=""' 'IFS= read -r x' "tee f <<'EOF'" 'body' 'EOF' \
-    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'elif WP=$(gh pr view 3); then' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
-assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, elif-capture, near-miss heads)" "" \
+    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
+assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, near-miss heads)" "" \
   "$(python3 "$ECS" "$E363/s-ok.md")"
+# ── R5 discrimination (#857): the BARE capture above stays clean, but the same capture in
+# ── `if`/`elif` CONDITION position is R5's violation — the seed fence's refused shape.
+printf '%s\n' '```bash' 'elif WP=$(gh pr view 3); then' '```' > "$E363/s-r5d.md"
+assert_eq "#401 R5 flags a command-substitution assignment in if/elif condition position" "yes" \
+  "$(python3 "$ECS" "$E363/s-r5d.md" | grep -q '  R5  ' && echo yes || echo no)"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"
