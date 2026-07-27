@@ -12,8 +12,10 @@
 #                verbatim so a maintainer's escape valve survives.
 #   reconcile  — for every meta-issue entry of every lifecycle record, resolve the
 #                live GitHub issue state (one `--label Retrospective` prefetch plus
-#                a per-number `gh issue view` fallback) and apply one of five
-#                transitions, then derive each record's state from its entry set.
+#                a per-number `gh issue view` fallback) and apply the transition
+#                table below, then derive each record's state from its entry set.
+#                (Stated as a table, not as a count: an ordinal in a comment rots
+#                on the next edit, and the last row applies NO transition.)
 # `run` does migrate then reconcile (the SKILL's normal invocation).
 #
 # The v2 shape:
@@ -187,6 +189,15 @@ _reconcile() {  # $1 = overrides path, $2 = limit
     local ov="$1" limit="$2"
     [ -f "$ov" ] && [ -s "$ov" ] || return 0
 
+    # Migrate first, so `reconcile` honors the documented contract that a v1 file
+    # is detected AT RECONCILE START and rewritten before reconciling. Without
+    # this, `reconcile` on a v1 file read an empty `.patterns`, applied nothing,
+    # and wrote back a document that was `schema_version: 1` PLUS an empty
+    # `patterns{}` — a shape neither version defines. `_migrate` is idempotent
+    # (it returns immediately unless the file is v1), so `run`'s own call before
+    # this one makes the second a no-op rather than a second rewrite.
+    _migrate "$ov" || return 1
+
     # Prefetch every Retrospective-labelled issue in one call. A non-zero gh exit
     # OR a non-JSON body is a wholesale failure: ::error:: + non-zero exit, no
     # transition applied to any pattern.
@@ -224,21 +235,39 @@ _reconcile() {  # $1 = overrides path, $2 = limit
     # neither is recorded as unresolved so the transition pass can warn per slug.
     local resolved='{}'
     local num
-    # De-duplicate the number list without a non-preflight tool: a bash associative
-    # array. (tr/sed/sort/uniq are all barred from the SELECTION path.)
-    declare -A _seen=()
+    # De-duplicate the number list without a non-preflight tool (tr/sed/sort/uniq
+    # are all barred from the SELECTION path) AND without an associative array:
+    # `declare -A` is bash 4+, while `lib/preflight.sh` guarantees only *a* POSIX
+    # bash and macOS still ships 3.2 as /bin/bash — where it aborts the whole
+    # reconcile at rc 2 under `set -euo pipefail`, on the local/interactive tier
+    # that is this loop's documented home. A space-delimited accumulator with a
+    # `case` membership test is a pure builtin and works on 3.2. The numbers are
+    # bare digit strings (jq emitted them from `.number`), so the space delimiters
+    # cannot collide with a value.
+    local _seen=""
+    # Fallback-leg tallies. A single unresolvable number is ordinary (the issue was
+    # deleted) and warns per slug. But `gh issue view` failing for EVERY number it
+    # is asked about is not a statement about those issues — it is a broken
+    # resolver (expired auth, rate limit, network partition, a repo-scope token
+    # rejection, a drifted `--json` contract). Collapsing that into per-entry
+    # `unresolved` and returning 0 would report a systemically-failed reconcile to
+    # the caller as SUCCESS — and the Step 6 guard, which now does check the exit
+    # status, would wave it through. Count both and decide after the loop.
+    local _fb_attempted=0 _fb_failed=0
     while IFS= read -r num; do
         [ -n "$num" ] || continue
-        [ -n "${_seen[$num]:-}" ] && continue
-        _seen[$num]=1
+        case " $_seen " in *" $num "*) continue ;; esac
+        _seen="$_seen $num"
         local cover
         cover="$(printf '%s' "$prefetch_map" | "$DEVFLOW_JQ" -c --arg n "$num" '.[$n] // empty')" \
           || { echo "::error::pattern-state: prefetch lookup for meta-issue ${num} failed (jq exited non-zero) — no transition applied" >&2; return 1; }
         if [ -z "$cover" ]; then
             # By-number fallback — bounded by the number of records.
+            _fb_attempted=$(( _fb_attempted + 1 ))
             cover="$("$DEVFLOW_GH" issue view "$num" --json number,state,stateReason,closedAt 2>/dev/null \
                      | "$DEVFLOW_JQ" -c '{state: .state, stateReason: .stateReason, closedAt: .closedAt}' 2>/dev/null || true)"
             if [ -z "$cover" ] || [ "$cover" = "null" ]; then
+                _fb_failed=$(( _fb_failed + 1 ))
                 resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" '. + {($n): {unresolved: true}}')" \
                   || { echo "::error::pattern-state: could not record meta-issue ${num} as unresolved (jq exited non-zero) — no transition applied" >&2; return 1; }
                 continue
@@ -247,6 +276,24 @@ _reconcile() {  # $1 = overrides path, $2 = limit
         resolved="$(printf '%s' "$resolved" | "$DEVFLOW_JQ" -c --arg n "$num" --argjson c "$cover" '. + {($n): $c}')" \
           || { echo "::error::pattern-state: could not record the resolution of meta-issue ${num} (jq exited non-zero) — no transition applied" >&2; return 1; }
     done <<< "$numbers"
+
+    # Systemic-resolver check (see the tally comment above). Every fallback lookup
+    # failing is evidence of a broken resolver rather than a statement about the
+    # issues — but only once there is enough of a sample to distinguish the two.
+    # With a SINGLE attempt the two hypotheses are indistinguishable, and the
+    # single-entry case is a documented behavior in its own right (a permanently
+    # inaccessible entry makes no transition and emits a per-slug ::warning::
+    # naming the number). So require at least two attempts before inferring a
+    # systemic failure; below that, fall through to the per-slug warning path.
+    # The residual: a repo whose only two meta-issues were both genuinely deleted
+    # fails closed here instead of warning twice. That direction is deliberate —
+    # a loud stop is recoverable, whereas silently applying zero transitions and
+    # reporting success is the failure this check exists to prevent — and the
+    # message names both possibilities rather than asserting the cause.
+    if [ "$_fb_attempted" -ge 2 ] && [ "$_fb_failed" -eq "$_fb_attempted" ]; then
+        echo "::error::pattern-state: every by-number lookup failed (${_fb_failed}/${_fb_attempted}) — most likely a broken resolver (expired auth, rate limit, network, or a drifted gh --json contract) rather than ${_fb_failed} genuinely deleted issues; no transition applied and ${ov} left byte-unchanged" >&2
+        return 1
+    fi
 
     # Apply transitions + derive record states in one jq pass. Warnings for
     # no-url / unresolved / unrecognized-stateReason records are emitted to stderr

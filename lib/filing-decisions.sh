@@ -123,7 +123,11 @@ devflow_liveness_warning() {
 # than the run aborted.
 devflow_declined_refiled() {
     local ov="${1:-}" filed_json="${2:-[]}"
+    local _dr_err
+    _dr_err="$(mktemp 2>/dev/null || printf '/dev/null')"
     if [ -z "$ov" ] || [ ! -r "$ov" ]; then
+        echo "::warning::filing-decisions: the overrides file '${ov}' is missing or unreadable — the report's won't-fix re-raise section will be omitted, which is NOT evidence that nothing was re-raised" >&2
+        rm -f "$_dr_err" 2>/dev/null || true
         printf '[]\n' ; return 0
     fi
     # `.` inside the select() below is the SLUG STRING, not the document, so the
@@ -138,7 +142,17 @@ devflow_declined_refiled() {
                 (($root.patterns // {})[$slug].meta_issues // [])
                 | any(.state == "declined" and .state_reason == "NOT_PLANNED")
               )
-          ]' "$ov" 2>/dev/null || printf '[]\n'
+          ]' "$ov" 2>"$_dr_err" || {
+        # This section IS genuinely optional (a run that re-raised no won't-fix
+        # pattern renders none), so a degrade to `[]` is the right shape here —
+        # but it must not be SILENT: an empty section from a jq failure and one
+        # from a genuinely empty result are indistinguishable to the reader, and
+        # the won't-fix re-raise is precisely the decision this design promises to
+        # surface rather than bury. Say why it is empty.
+        echo "::warning::filing-decisions: could not derive the won't-fix re-raise list from ${ov} ($(cat "$_dr_err" 2>/dev/null)) — the report's re-raised section will be omitted, which is NOT evidence that nothing was re-raised" >&2
+        printf '[]\n'
+    }
+    rm -f "$_dr_err" 2>/dev/null || true
 }
 
 # devflow_annotate_patterns <patterns-full-json-file> <filed-json> <withheld-json>
@@ -156,10 +170,23 @@ devflow_declined_refiled() {
 # or — for a withheld one — `withheld_by` alone, because the renderer already
 # prints "withheld by `<cap>`" from that field and a `filing_outcome` of
 # "withheld" beside it would render the word twice on the same line.
+#
+# FAILS LOUD, and prints NOTHING on failure — deliberately unlike
+# `devflow_declined_refiled` above. That section is optional; this one is not.
+# The pattern view is the report's substance, and Step 9 guards it with
+# `: "${PATTERNS_JSON:?…}"`, which tests for the EMPTY STRING. A degrade to `[]`
+# would sail straight through that guard, `render-report.sh` would compute
+# `patterns_n = 0`, and the section would be omitted entirely — a producer
+# failure rendered as a genuinely quiet week, which is the exact misreading this
+# whole issue exists to eliminate. Printing nothing makes the caller's `:?` fire.
 devflow_annotate_patterns() {
     local patterns_file="${1:-}" filed_json="${2:-[]}" withheld_json="${3:-[]}"
+    local _ap_err
+    _ap_err="$(mktemp 2>/dev/null || printf '/dev/null')"
     if [ -z "$patterns_file" ] || [ ! -r "$patterns_file" ]; then
-        printf '[]\n' ; return 0
+        echo "::error::filing-decisions: the pattern view '${patterns_file}' is missing or unreadable — printing nothing so the caller's guard aborts the run rather than rendering an empty pattern section as a quiet week" >&2
+        rm -f "$_ap_err" 2>/dev/null || true
+        return 1
     fi
     "$DEVFLOW_JQ" -c \
       --argjson filed "$filed_json" \
@@ -172,7 +199,12 @@ devflow_annotate_patterns() {
             + (if ($filed | index($k)) then {filing_outcome: "issue filed"}
                elif ($wmap[$k] // "") != "" then {withheld_by: $wmap[$k]}
                else {filing_outcome: "not filed"} end)
-          )' "$patterns_file" 2>/dev/null || printf '[]\n'
+          )' "$patterns_file" 2>"$_ap_err" || {
+        echo "::error::filing-decisions: could not annotate the pattern view from ${patterns_file} ($(cat "$_ap_err" 2>/dev/null)) — printing nothing so the caller's guard aborts the run rather than rendering an empty pattern section as a quiet week" >&2
+        rm -f "$_ap_err" 2>/dev/null || true
+        return 1
+    }
+    rm -f "$_ap_err" 2>/dev/null || true
 }
 
 # devflow_open_filed_total <overrides-path>

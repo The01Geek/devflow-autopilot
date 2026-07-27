@@ -375,14 +375,14 @@ chmod +x "$RL_TMP/gh-ap.sh"
 RL_APOUT="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/ap-r.jsonl" "$RL_TMP/ap-ov.json" 2>/dev/null)"
 assert_eq "#788 actionable: regressed pattern below min is still actionable (bypass)" "true" \
   "$(printf '%s' "$RL_APOUT" | jq 'any(.[]; .tag=="tooling-gap" and .status=="regressed")')"
-# Liveness: eligible set empty while a fixed pattern recurs above min → warning.
+# Liveness: eligible set empty while a fixed pattern has occurred at/above min → warning.
 # Build a view where the only pattern is `fixed` with occ>=2 (min): no eligible,
 # but suppressed at/above the threshold → liveness warning on stderr.
 printf '%s\n' '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-01-02T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' > "$RL_TMP/live-r.jsonl"
 printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"fixed","fixed_at":"2027-01-01T00:00:00Z","provenance":"x","meta_issues":[{"number":9,"url":"https://o/r/issues/9","state":"fixed","closedAt":"2027-01-01T00:00:00Z"}]}},"dismissed":{}}' > "$RL_TMP/live-ov.json"
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" 2>"$RL_TMP/live.err" >/dev/null
-assert_eq "#788 liveness: fixed-but-recurring with empty eligible set → ::warning::" "true" \
+assert_eq "#788 liveness: fixed-and-suppressed with empty eligible set → ::warning::" "true" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live.err" && echo true || echo false)"
 assert_eq "#788 liveness: warning names the highest suppressed slug" "true" \
   "$(grep -q 'doc-accuracy' "$RL_TMP/live.err" && echo true || echo false)"
@@ -409,10 +409,10 @@ cp "$RL_TMP/live.err" "$RL_TMP/live-real.err"
   assert_eq "#788 liveness: the extracted line carries the count and the slug" "true" \
     "$(case "$RL_REAL_LIVE" in "1 suppressed pattern(s) at/above min_occurrences, highest doc-accuracy") echo true ;; *) echo false ;; esac)"
 )
-# Negative case: a `filed` pattern (open meta-issue) recurring does NOT warn.
+# Negative case: `filed` (an open meta-issue) is excluded even at/above min.
 printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":9,"url":"https://o/r/issues/9","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/live-ov2.json"
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov2.json" 2>"$RL_TMP/live2.err" >/dev/null
-assert_eq "#788 liveness: all-filed recurring set emits NO warning" "false" \
+assert_eq "#788 liveness: all-filed set at/above min emits NO warning" "false" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live2.err" && echo true || echo false)"
 
 # --full: the UNFILTERED view the report renders. It carries the suppressed
@@ -1037,6 +1037,20 @@ assert_eq "#788 re-raise: a pattern not filed this run is not named" '[]' \
   "$(devflow_declined_refiled "$RL_TMP/refiled.json" '[]')"
 assert_eq "#788 re-raise: an unreadable overrides file yields [] (section omitted)" '[]' \
   "$(devflow_declined_refiled "$RL_TMP/no-such-overrides.json" '["np"]')"
+# ...but never SILENTLY: an empty section from a producer failure and one from a
+# genuinely empty result read identically, and the won't-fix re-raise is the
+# decision this design promises to surface rather than bury.
+assert_eq "#788 re-raise: the unreadable-file degrade emits a breadcrumb" "true" \
+  "$(devflow_declined_refiled "$RL_TMP/no-such-overrides.json" '["np"]' 2>&1 >/dev/null \
+     | grep -q 'NOT evidence that nothing was re-raised' && echo true || echo false)"
+# The readable-but-MALFORMED file takes the other degrade path (the jq abort),
+# which the unreadable-file arm above never reaches.
+printf '%s' '{"patterns": not json at all' > "$RL_TMP/refiled-bad.json"
+assert_eq "#788 re-raise: a readable-but-malformed overrides file still yields []" '[]' \
+  "$(devflow_declined_refiled "$RL_TMP/refiled-bad.json" '["np"]' 2>/dev/null)"
+assert_eq "#788 re-raise: the malformed-file degrade emits its own breadcrumb" "true" \
+  "$(devflow_declined_refiled "$RL_TMP/refiled-bad.json" '["np"]' 2>&1 >/dev/null \
+     | grep -q 'could not derive the won' && echo true || echo false)"
 
 # Per-pattern filing outcome / withheld_by on the unfiltered view.
 printf '%s' '[{"tag":"filed-one","occurrence_count":5,"status":"regressed"},{"tag":"held","occurrence_count":2,"status":"open"},{"tag":"quiet","occurrence_count":1,"status":"open"}]' > "$RL_TMP/pfull.json"
@@ -1049,6 +1063,28 @@ assert_eq "#788 annotate: a withheld pattern does not also say 'withheld' twice"
   "$(printf '%s' "$RL_ANN" | jq -r '.[] | select(.tag=="held") | .filing_outcome')"
 assert_eq "#788 annotate: an untouched pattern still carries an outcome" "not filed" \
   "$(printf '%s' "$RL_ANN" | jq -r '.[] | select(.tag=="quiet") | .filing_outcome')"
+# The pattern view is the report's SUBSTANCE, so — unlike the optional re-raise
+# section above — its producer fails LOUD and prints NOTHING. Step 9 guards with
+# `: "${PATTERNS_JSON:?…}"`, which tests for the empty string: a degrade to `[]`
+# would sail through it, render_report would compute patterns_n = 0, and a
+# producer failure would render as a genuinely quiet week — the exact misreading
+# this issue exists to eliminate. Both failure arms are pinned.
+assert_eq "#788 annotate: an unreadable pattern view prints NOTHING (not [])" "" \
+  "$(devflow_annotate_patterns "$RL_TMP/no-such-pfull.json" '[]' '[]' 2>/dev/null)"
+assert_eq "#788 annotate: the unreadable arm exits non-zero" "true" \
+  "$(devflow_annotate_patterns "$RL_TMP/no-such-pfull.json" '[]' '[]' >/dev/null 2>&1; [ $? -ne 0 ] && echo true || echo false)"
+assert_eq "#788 annotate: the unreadable arm names the quiet-week hazard" "true" \
+  "$(devflow_annotate_patterns "$RL_TMP/no-such-pfull.json" '[]' '[]' 2>&1 >/dev/null \
+     | grep -q 'quiet week' && echo true || echo false)"
+printf '%s' '[{"tag":"x"' > "$RL_TMP/pfull-bad.json"
+assert_eq "#788 annotate: a malformed pattern view prints NOTHING (not [])" "" \
+  "$(devflow_annotate_patterns "$RL_TMP/pfull-bad.json" '[]' '[]' 2>/dev/null)"
+assert_eq "#788 annotate: the malformed arm exits non-zero so the caller's :? fires" "true" \
+  "$(devflow_annotate_patterns "$RL_TMP/pfull-bad.json" '[]' '[]' >/dev/null 2>&1; [ $? -ne 0 ] && echo true || echo false)"
+# Control: the SAME guard shape on a well-formed view still yields a real array,
+# so the two assertions above pin the failure arms and not a broken helper.
+assert_eq "#788 annotate: a well-formed view still annotates (control)" "3" \
+  "$(devflow_annotate_patterns "$RL_TMP/pfull.json" '["filed-one"]' '[]' | jq 'length')"
 assert_eq "#788 annotate: every pattern in the view survives the join" "3" \
   "$(printf '%s' "$RL_ANN" | jq -r 'length')"
 
@@ -1334,21 +1370,140 @@ assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture pag
     "$(case "$RL_BAD" in *"Won't-fix patterns re-raised"*) echo true ;; *) echo false ;; esac)"
 )
 
-# ── AC 76 evidence: run.sh is shorter than at this change's merge-base ───────
-# Reported, not checked in: a hard-coded figure would rot as run.sh moves under
-# other work, so the reduction is evidenced by this green run instead.
-RL_BASE="$(git -C "$REPO_ROOT" merge-base origin/main HEAD 2>/dev/null || true)"
-[ -n "$RL_BASE" ] || RL_BASE="$(git -C "$REPO_ROOT" rev-parse origin/main 2>/dev/null || true)"
-if [ -n "$RL_BASE" ]; then
-  RL_BEFORE="$(git -C "$REPO_ROOT" show "$RL_BASE:lib/test/run.sh" 2>/dev/null | grep -c '')"
-  RL_AFTER="$(grep -c '' "$REPO_ROOT/lib/test/run.sh")"
-  echo "  #788 AC76: lib/test/run.sh ${RL_BEFORE} lines at merge-base → ${RL_AFTER} now"
-  assert_eq "#788 AC76: run.sh is shorter than at the merge-base (${RL_BEFORE} → ${RL_AFTER})" "true" \
-    "$( [ "${RL_BEFORE:-0}" -gt 0 ] && [ "${RL_AFTER:-0}" -lt "${RL_BEFORE:-0}" ] && echo true || echo false)"
-else
-  # No base ref to measure against is an unestablished comparison, not a pass.
-  assert_eq "#788 AC76: run.sh line-count comparison could not resolve a base ref" "true" "false"
+# ── _migrate's two failure arms ──────────────────────────────────────────────
+# overrides.json is the file that gates whether an issue gets filed at all, and
+# it is exactly the hand-corruptible input CLAUDE.md's best-effort-parser rule
+# governs. Both arms must fail loud and leave the file byte-unchanged; a silent
+# fall-through would let `run` proceed to _reconcile against a corrupt file.
+printf '%s' 'this is not json {' > "$RL_TMP/mig-bad.json"
+cp "$RL_TMP/mig-bad.json" "$RL_TMP/mig-bad-before.json"
+bash "$RL_PS" migrate "$RL_TMP/mig-bad.json" >/dev/null 2>"$RL_TMP/mig-bad.err"; RL_MB_RC=$?
+assert_eq "#788 migrate: a non-JSON overrides file exits non-zero" "true" \
+  "$([ "$RL_MB_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 migrate: the non-JSON arm names the path" "true" \
+  "$(grep -q "${RL_TMP}/mig-bad.json does not parse as JSON" "$RL_TMP/mig-bad.err" && echo true || echo false)"
+assert_eq "#788 migrate: a non-JSON file is left byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/mig-bad-before.json" "$RL_TMP/mig-bad.json" >/dev/null 2>&1 && echo true || echo false)"
+# `run` must abort at migrate rather than reconciling a corrupt file.
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" run "$RL_TMP/mig-bad.json" >/dev/null 2>&1; RL_RB_RC=$?
+assert_eq "#788 run: a non-JSON overrides file aborts before reconcile" "true" \
+  "$([ "$RL_RB_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 run: the aborted run left the corrupt file byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/mig-bad-before.json" "$RL_TMP/mig-bad.json" >/dev/null 2>&1 && echo true || echo false)"
+
+# ── A migrated v1 URL with no parseable /issues/N yields number: null ─────────
+# That entry can never resolve through either leg, so it keeps its state forever
+# and suppresses its pattern indefinitely — the same silent exhaustion the
+# liveness warning exists to surface. Pin the shape and the warning.
+printf '%s' '{"schema_version":1,"dismissed":{"nonum":{"dismissed_at":"2026-06-03T00:00:00Z","dismissed_by":"retrospective-weekly","meta_issue":"https://github.com/o/r/pull/no-number-here"}}}' > "$RL_TMP/mig-nonum.json"
+bash "$RL_PS" migrate "$RL_TMP/mig-nonum.json" >/dev/null 2>&1
+assert_eq "#788 migrate: a URL with no /issues/N migrates to number: null" "null" \
+  "$(jq -r '.patterns["nonum"].meta_issues[0].number' "$RL_TMP/mig-nonum.json")"
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/mig-nonum.json" >/dev/null 2>"$RL_TMP/nonum.err"
+assert_eq "#788 reconcile: a null-number entry applies no transition" "filed" \
+  "$(jq -r '.patterns["nonum"].state' "$RL_TMP/mig-nonum.json")"
+assert_eq "#788 reconcile: a null-number entry warns naming the slug" "true" \
+  "$(grep -q 'nonum' "$RL_TMP/nonum.err" && echo true || echo false)"
+
+# ── A wholly-failed by-number leg is a broken resolver, not N deleted issues ──
+# Every fallback lookup failing means expired auth / rate limit / network / a
+# drifted `gh --json` contract. Collapsing that into per-entry `unresolved` and
+# returning 0 would report a systemically-failed reconcile as SUCCESS, and the
+# Step 6 guard would wave it through.
+cat > "$RL_TMP/gh-allfail.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '[]'; exit 0; fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-allfail.sh"
+# TWO entries: the check requires a sample of at least two before inferring a
+# systemic failure, because with one attempt "the resolver is broken" and "that
+# issue was deleted" are indistinguishable — and the single-entry case has its
+# own documented per-slug-warning behavior (asserted above).
+printf '%s' '{"schema_version":2,"patterns":{"allfail":{"state":"filed","fixed_at":null,"provenance":"p","meta_issues":[{"number":701,"url":"https://o/r/issues/701","state":"filed","closedAt":null},{"number":704,"url":"https://o/r/issues/704","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/allfail.json"
+cp "$RL_TMP/allfail.json" "$RL_TMP/allfail-before.json"
+DEVFLOW_GH="$RL_TMP/gh-allfail.sh" bash "$RL_PS" reconcile "$RL_TMP/allfail.json" >/dev/null 2>"$RL_TMP/allfail.err"; RL_AF_RC=$?
+assert_eq "#788 resolver: a wholly-failed by-number leg exits non-zero" "true" \
+  "$([ "$RL_AF_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 resolver: the error calls it a broken resolver, not deleted issues" "true" \
+  "$(grep -q 'broken resolver' "$RL_TMP/allfail.err" && echo true || echo false)"
+# Boundary control: ONE failing attempt is below the inference threshold, so it
+# keeps the documented per-slug-warning behavior and does NOT become a systemic
+# error. This is what pins the threshold rather than "any failure".
+printf '%s' "$(rl_record onefail 705)" > "$RL_TMP/onefail.json"
+DEVFLOW_GH="$RL_TMP/gh-allfail.sh" bash "$RL_PS" reconcile "$RL_TMP/onefail.json" >/dev/null 2>"$RL_TMP/onefail.err"; RL_1F_RC=$?
+assert_eq "#788 resolver: a SINGLE failed lookup is not inferred systemic (control)" "0" "$RL_1F_RC"
+assert_eq "#788 resolver: the single-failure case keeps its per-slug warning (control)" "true" \
+  "$(grep -q 'onefail' "$RL_TMP/onefail.err" && echo true || echo false)"
+assert_eq "#788 resolver: the overrides file is left byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/allfail-before.json" "$RL_TMP/allfail.json" >/dev/null 2>&1 && echo true || echo false)"
+# Control: a PARTIAL failure stays the ordinary per-slug-warning path and still
+# writes, so the assertions above pin "all failed", not "any failed".
+cat > "$RL_TMP/gh-partial.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '[]'; exit 0; fi
+if [ "$1" = "issue" ] && [ "$2" = "view" ] && [ "$3" = "702" ]; then
+  echo '{"number":702,"state":"CLOSED","stateReason":"COMPLETED","closedAt":"2026-06-07T00:00:00Z"}'; exit 0
 fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-partial.sh"
+printf '%s' '{"schema_version":2,"patterns":{"mixed":{"state":"filed","fixed_at":null,"provenance":"p","meta_issues":[{"number":702,"url":"https://o/r/issues/702","state":"filed","closedAt":null},{"number":703,"url":"https://o/r/issues/703","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/partial.json"
+DEVFLOW_GH="$RL_TMP/gh-partial.sh" bash "$RL_PS" reconcile "$RL_TMP/partial.json" >/dev/null 2>&1; RL_PF_RC=$?
+assert_eq "#788 resolver: a PARTIAL fallback failure still succeeds (control)" "0" "$RL_PF_RC"
+assert_eq "#788 resolver: the resolvable entry still transitioned (control)" "fixed" \
+  "$(jq -r '.patterns["mixed"].meta_issues[] | select(.number==702) | .state' "$RL_TMP/partial.json")"
+
+# ── `reconcile` migrates a v1 file rather than writing a hybrid shape ─────────
+# Before this, `reconcile` on a v1 file read an empty `.patterns`, applied
+# nothing, and wrote back `schema_version: 1` PLUS an empty `patterns{}` — a
+# shape neither version defines.
+printf '%s' '{"schema_version":1,"dismissed":{"tooling-gap":{"dismissed_at":"2026-06-03T00:00:00Z","dismissed_by":"retrospective-weekly","meta_issue":"https://github.com/o/r/issues/504"}}}' > "$RL_TMP/recon-v1.json"
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/recon-v1.json" >/dev/null 2>&1
+assert_eq "#788 reconcile: a v1 file is migrated at reconcile start" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/recon-v1.json")"
+assert_eq "#788 reconcile: the migrated record is then reconciled (504 is OPEN)" "filed" \
+  "$(jq -r '.patterns["tooling-gap"].state' "$RL_TMP/recon-v1.json")"
+
+# ── meta-issue.sh validates the number it derives from the created URL ────────
+# The URL guard's `[0-9]*` is a GLOB — "a digit followed by anything" — so
+# `/issues/12ab` passes it. Left unvalidated, the derived token reaches
+# `--argjson num`, jq exits non-zero, and the run lands in the record-write
+# recovery branch, blaming a WRITE failure for a malformed URL.
+cat > "$RL_TMP/gh-badurl.sh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '[]' ;;
+  *"issue create"*) echo 'https://github.com/o/r/issues/12ab' ;;
+  *"issue comment"*) echo ok ;;
+  *"/labels"*) echo '{}' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$RL_TMP/gh-badurl.sh"
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/badurl.json"
+DEVFLOW_GH="$RL_TMP/gh-badurl.sh" bash "$RL_MI" --tag badurl --slug badurl --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/badurl.json" >/dev/null 2>"$RL_TMP/badurl.err"; RL_BU_RC=$?
+assert_eq "#788 meta-issue: a non-numeric URL tail exits non-zero" "true" \
+  "$([ "$RL_BU_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 meta-issue: the breadcrumb blames the URL, not a write failure" "true" \
+  "$(grep -q 'does not end in a bare issue number' "$RL_TMP/badurl.err" && echo true || echo false)"
+assert_eq "#788 meta-issue: a malformed URL is NOT misreported as a record-write failure" "false" \
+  "$(grep -q 'lifecycle record could not be written' "$RL_TMP/badurl.err" && echo true || echo false)"
+
+# ── AC 76 line-count evidence lives in the PR, NOT in this module ────────────
+# A former assertion here compared `lib/test/run.sh`'s line count against
+# `merge-base(origin/main, HEAD)`. It was SELF-INVALIDATING: once this change
+# merges, the merge-base of any later branch already contains the reduction, so
+# before == after and the assertion is RED on `main` forever after — taking the
+# required `lib + python tests` check with it. It also asserted a property of one
+# DIFF rather than of the product, which is not what a permanent suite tests, and
+# its no-base-ref arm hard-FAILed on a shallow/remote-less clone instead of
+# routing through the sanctioned `skip … host-capability …` helper.
+# The reduction is real and is evidenced where diff properties belong — the PR
+# description and the diffstat. A durable guard, if one is ever wanted, must be a
+# checked-in CEILING pin (the issue-#656 enforcement-constant exception), never a
+# comparison against a moving base ref.
 
 rm -rf "$RL_TMP"
 trap - RETURN

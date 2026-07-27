@@ -58,7 +58,11 @@ devflow_render_report() {
 
     # Analyzed PRs — one line each (omitted when the caller did not pass `analyzed`)
     local analyzed_n
-    analyzed_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.analyzed // []) | length')"
+    # Guarded for the reason `skips_n` documents above: `// []` does not replace
+    # a truthy non-array key, so an unguarded `length` would abort jq and, under
+    # `set -e`, take the WHOLE report down over one malformed key.
+    analyzed_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.analyzed // []) | length' 2>/dev/null || true)"
+    case "$analyzed_n" in ''|*[!0-9]*) analyzed_n=0 ;; esac
     if [ "$analyzed_n" -gt 0 ]; then
         printf '\n### Analyzed PRs\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
@@ -73,7 +77,11 @@ devflow_render_report() {
     # run and, where it was withheld, the cap that withheld it. Omitted when the
     # caller did not pass `patterns`.
     local patterns_n
-    patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length')"
+    # Guarded for the reason `skips_n` documents above: `// []` does not replace
+    # a truthy non-array key, so an unguarded `length` would abort jq and, under
+    # `set -e`, take the WHOLE report down over one malformed key.
+    patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length' 2>/dev/null || true)"
+    case "$patterns_n" in ''|*[!0-9]*) patterns_n=0 ;; esac
     if [ "$patterns_n" -gt 0 ]; then
         printf '\n## Patterns this run\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
@@ -86,7 +94,7 @@ devflow_render_report() {
     fi
 
     # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line
-    # (no pattern eligible while a suppressed pattern recurs at/above threshold), the
+    # (no pattern eligible while a suppressed pattern has occurred at/above threshold), the
     # orchestrator carries it into the summary so the report surfaces the silent
     # exhaustion rather than reading like a genuinely quiet week.
     local liveness
@@ -131,7 +139,11 @@ devflow_render_report() {
     # when no target reaches >= 2 distinct PRs (the helper emits [] then), mirroring
     # the optional-section idiom above.
     local recurring_n
-    recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.recurring_targets // []) | length')"
+    # Guarded for the reason `skips_n` documents above: `// []` does not replace
+    # a truthy non-array key, so an unguarded `length` would abort jq and, under
+    # `set -e`, take the WHOLE report down over one malformed key.
+    recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.recurring_targets // []) | length' 2>/dev/null || true)"
+    case "$recurring_n" in ''|*[!0-9]*) recurring_n=0 ;; esac
     if [ "$recurring_n" -gt 0 ]; then
         printf '\n## Recurring intervention targets\n\n'
         # recurring-targets.jq already emits this order; the sort mirrors its
@@ -148,7 +160,8 @@ devflow_render_report() {
     # each pattern becomes a GitHub issue for the normal implement -> review pipeline)
     printf '\n## Issues filed\n\n'
     local issues_count
-    issues_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.intervention_issues // []) | length')"
+    issues_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.intervention_issues // []) | length' 2>/dev/null || true)"
+    case "$issues_count" in ''|*[!0-9]*) issues_count=0 ;; esac
     if [ "$issues_count" -eq 0 ]; then
         printf '_None filed._\n'
     else
@@ -157,7 +170,8 @@ devflow_render_report() {
 
     # Cooldown-skipped patterns (omit section if empty)
     local cooldown_count
-    cooldown_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // []) | length')"
+    cooldown_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // []) | length' 2>/dev/null || true)"
+    case "$cooldown_count" in ''|*[!0-9]*) cooldown_count=0 ;; esac
     if [ "$cooldown_count" -gt 0 ]; then
         printf '\n## Cooldown-skipped patterns\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // [])[] | "- `\(.)`"'
@@ -165,7 +179,8 @@ devflow_render_report() {
 
     # Blockers (omit section if empty)
     local blocker_count
-    blocker_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // []) | length')"
+    blocker_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // []) | length' 2>/dev/null || true)"
+    case "$blocker_count" in ''|*[!0-9]*) blocker_count=0 ;; esac
     if [ "$blocker_count" -gt 0 ]; then
         printf '\n## Blockers\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // [])[] | "- \(.)"'

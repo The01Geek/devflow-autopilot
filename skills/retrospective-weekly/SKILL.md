@@ -299,7 +299,17 @@ non-zero and aborts the derivation (fail-closed — deriving patterns from
 unreconciled state is what broke the loop).
 
 ```bash
-bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json
+# The abort is EXECUTABLE, not prose: `pattern-state.sh` returns non-zero on a
+# wholesale prefetch failure, a malformed overrides file, a failed jq transform,
+# and a failed atomic write — but nothing observes that status unless this
+# invocation is guarded, and an unguarded call would let the derivations below
+# run on stale, unreconciled state. That is the #788 defect itself (patterns stay
+# `filed` forever after their issue closed, and the loop files nothing), so the
+# guard is what makes the fail-closed claim above true.
+bash $LIB/pattern-state.sh run .devflow/learnings/overrides.json || {
+  echo "::error::retrospective Step 6: the lifecycle reconcile failed — aborting BEFORE pattern derivation (deriving from unreconciled state is the #788 defect this step exists to prevent)" >&2
+  exit 1
+}
 # stderr is CAPTURED, not discarded: actionable-patterns.sh writes its
 # `liveness:` line there (issue #788), and the report's liveness line is
 # rendered from that capture. `2>` a file rather than a pipe so the exit
@@ -529,7 +539,10 @@ MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_op
 # sets NO shell options: an earlier `set -euo pipefail` in it leaked into this
 # orchestrator, where a later benign non-zero would have aborted the run. If you
 # ever add options to that helper, source it in a subshell instead.
-source $LIB/filing-decisions.sh
+source $LIB/filing-decisions.sh || {
+  echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
+  exit 1
+}
 # Total `filed` entries across every record.
 OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
 ```
@@ -556,7 +569,10 @@ its fail-closed handling of an underived count, and which the suite drives over
 every arm (issue #788):
 
 ```bash
-source $LIB/filing-decisions.sh
+source $LIB/filing-decisions.sh || {
+  echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
+  exit 1
+}
 VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" \
                                       "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
 ```
@@ -658,7 +674,10 @@ ANALYZED_JSON="$($LIB/../scripts/run-jq.sh -sc '[.[] | select(.verdict == "imper
 # cap withheld it, that cap — the two per-pattern fields render-report.sh reads
 # (issue #788). The `--full` view carries neither, so without this join both reads
 # render nothing on every pattern.
-source $LIB/filing-decisions.sh
+source $LIB/filing-decisions.sh || {
+  echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
+  exit 1
+}
 FILED_SLUGS_JSON="$(printf '%s\n' "${filed_slugs[@]:-}" | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))')"
 WITHHELD_JSON="$(printf '%s\n' "${withheld[@]:-}" | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))')"
 PATTERNS_JSON="$(devflow_annotate_patterns .devflow/tmp/patterns-full.json "$FILED_SLUGS_JSON" "$WITHHELD_JSON")"

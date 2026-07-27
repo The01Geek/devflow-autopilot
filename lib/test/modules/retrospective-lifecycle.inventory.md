@@ -24,10 +24,38 @@ coverage. Each `git grep`s every tracked file in the repository, so neither
 belongs to this module's ownership set in `coverage-map.json`; both remain in the
 monolith under their own section header.
 
+Three further blocks stay in `lib/test/run.sh` for the same reason — they are not
+coverage of an owned file's *behavior*, so `coverage-map.json` ownership of that
+file does not imply they should move:
+
+- the **`clean-entry.jq` / `actionable-patterns.sh`** section, whose subject is
+  `clean-entry.jq` — a file this module does **not** own — with the
+  `actionable-patterns.sh` assertions beside it exercising the same clean-gate
+  pipeline end-to-end rather than the lifecycle behavior extracted here;
+- the **`#152`/`#228` `meta-issue.sh` pins**, which are cross-file *wiring*
+  contracts (the orchestrator invokes the helper; label application routes
+  through the REST helpers rather than porcelain), not lifecycle-write behavior;
+- the **`#152` orchestrator blocker-recording** assertions, whose subject is
+  `skills/retrospective-weekly/SKILL.md`'s failure handling.
+
+Ownership in `coverage-map.json` names who owns a file's *lifecycle* coverage;
+these three keep assertions whose subject is a different file or a cross-file
+contract, and moving them would put a `clean-entry.jq` or SKILL.md assertion
+under a module named for the lifecycle.
+
 ## Line-count evidence (AC)
 
-The reduction is **reported by the module on its passing path**, not checked in
-here: the module resolves this change's merge-base, prints the before/after
-`lib/test/run.sh` line counts, and asserts the file is shorter than it was at
-that base. A checked-in figure would rot as `run.sh` moves under other work,
-which is exactly why the assertion measures instead.
+The reduction is evidenced in **the PR description and the diffstat**, not by an
+assertion in this module.
+
+An earlier revision asserted it here, comparing `lib/test/run.sh`'s line count
+against `merge-base(origin/main, HEAD)`. That assertion was **self-invalidating**:
+after this change merges, any later branch's merge-base already contains the
+reduction, so before == after and the assertion would be RED on `main` forever —
+failing the required `lib + python tests` check for every subsequent PR. It also
+asserted a property of *this diff* rather than of the product, which is not what
+a permanent suite is for.
+
+If a durable guard is ever wanted, it must be a checked-in **ceiling pin** — the
+issue-#656 enforcement-constant exception, where the literal *is* the enforcement
+— never a comparison against a moving base ref.

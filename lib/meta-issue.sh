@@ -179,9 +179,12 @@ else
         esac
     fi
     # Derive the issue number from the created URL (trailing path segment) so the
-    # labels land on the issue we just filed. The URL-shape guard above guarantees
-    # a numeric tail on the create path; the _apply_labels numeric guard is the
-    # belt-and-suspenders for the existing-issue path's parsed number.
+    # labels land on the issue we just filed. The URL-shape guard above does NOT
+    # guarantee a numeric tail — its `[0-9]*` is a glob ("a digit followed by
+    # anything"), so `.../issues/12ab` passes it — which is exactly why
+    # `_apply_labels` re-validates the token strictly against `''|*[!0-9]*` on
+    # BOTH paths rather than trusting the URL shape, and why the lifecycle write
+    # below validates its own re-derivation of the same token.
     _apply_labels "${URL##*/}"
     echo "meta-issue: created ${URL}" >&2
 fi
@@ -198,6 +201,20 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 
     NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     ISSUE_NUM="${URL##*/}"
+    # Validate the derived key STRICTLY. The URL guards above use the glob
+    # `https://*/issues/[0-9]*`, and `[0-9]*` is a GLOB — "a digit followed by
+    # anything" — not a numeric assertion: `https://host/issues/12ab` passes it
+    # and yields ISSUE_NUM="12ab", and `.../issues/12/` yields the empty string.
+    # Either would make the `--argjson num` below exit non-zero and land in the
+    # record-write recovery branch, which would then blame a WRITE failure for
+    # what is actually a malformed URL. Fail here instead, where the breadcrumb
+    # can name the real cause. (The de-dupe path's $NUMBER is already validated
+    # against this same grammar; this covers the create path's re-derivation.)
+    case "$ISSUE_NUM" in
+        ''|*[!0-9]*)
+            echo "::error::meta-issue: issue URL '${URL}' does not end in a bare issue number (derived '${ISSUE_NUM}') — cannot key the lifecycle entry for tag '${TAG}'" >&2
+            exit 1 ;;
+    esac
     # Staged BESIDE the destination, never under $TMPDIR, for the same reason
     # lib/pattern-state.sh's _atomic_write is: `mv` is an atomic rename only
     # within one filesystem, so a $TMPDIR staging file on a runner whose /tmp is
