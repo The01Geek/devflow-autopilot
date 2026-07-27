@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.12] — 2026-07-27
+
+### Fixed
+- **Harden raw static-pin command scanning.** Bind raw presence matches to executable shell positions, cover pipeline/background/subshell boundaries, and fail closed when multiple raw guards share one logical line. (#860)
+
 ## [2.22.11] — 2026-07-27
 
 ### Changed
