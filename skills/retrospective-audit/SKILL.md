@@ -130,6 +130,7 @@ Print **exactly one** JSON object to stdout and stop:
 
 - `title` — a clear, action-oriented issue title scoped to the one proposed change (the orchestrator prefixes it with the de-dup key, so do not add one yourself).
 - `body` — the issue body authored in § 4.
+- `extension_unreadable` *(optional, issue #834)* — include this one string key **only** when the by-path consumer prompt-extension handoff the dispatch prompt supplied (a sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective-audit.md` path) named a file that was **present but could not be read**; its value names the path and the read failure so the orchestrator can relay it. An absent or empty extension file is a no-op you report nothing about, and in every non-unreadable case you omit the key. The return stays **exactly one JSON object** — `{title, body}` plus at most this optional key — with nothing else on stdout.
 
 There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do not edit.
 
