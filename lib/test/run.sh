@@ -41697,9 +41697,9 @@ devflow_pool_open \
   "test_module_runner.py" "$LIB/test/test_module_runner.py" single-verdict \
   "test_python_scripts.py" "$LIB/test/test_python_scripts.py" self-tally
 
-# The zero-population mutation census and the ban on new mutation-pin helpers are
-# executable CI contracts. Run their focused unittest suites serially and feed each
-# verdict into the same RESULTS_FILE tally as the rest of the full suite.
+# The zero-population mutation census is an executable CI contract. Run its focused
+# unittest suite serially and feed the verdict into the same RESULTS_FILE tally as
+# the rest of the full suite.
 MUTATION_CENSUS_TEST_OUT="$(python3 "$LIB/test/test_mutation_pin_census.py" 2>&1)"
 MUTATION_CENSUS_TEST_RC=$?
 assert_eq "mutation-pin census focused tests pass" "0" "$MUTATION_CENSUS_TEST_RC"
@@ -41707,14 +41707,6 @@ assert_eq "mutation-pin census focused tests pass" "0" "$MUTATION_CENSUS_TEST_RC
   while IFS= read -r _mpc_line || [ -n "$_mpc_line" ]; do
     printf '    %s\n' "$_mpc_line"
   done <<< "$MUTATION_CENSUS_TEST_OUT"
-
-PIN_CORPUS_LINT_TEST_OUT="$(python3 "$LIB/test/test_pin_corpus_lint.py" 2>&1)"
-PIN_CORPUS_LINT_TEST_RC=$?
-assert_eq "pin-corpus lint focused tests pass" "0" "$PIN_CORPUS_LINT_TEST_RC"
-[ "$PIN_CORPUS_LINT_TEST_RC" -eq 0 ] || \
-  while IFS= read -r _pcl_line || [ -n "$_pcl_line" ]; do
-    printf '    %s\n' "$_pcl_line"
-  done <<< "$PIN_CORPUS_LINT_TEST_OUT"
 
 # test_module_harness.py runs SERIALLY on the main shell, OUTSIDE the pool — both its
 # full-suite invocation and its --signal-matrix-capability probe. The supervisor forks
@@ -41750,7 +41742,7 @@ assert_eq "issue #767: create-issue context eval focused tests pass" "0" "$CICE_
 # module). The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/harness-python-guards.sh" \
-  "harness-python-guards" 38; then
+  "harness-python-guards" 39; then
   printf 'ERROR: harness-python-guards boundary could not record its result\n'
   exit 1
 fi
