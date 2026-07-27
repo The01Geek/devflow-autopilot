@@ -446,6 +446,161 @@ class PinCorpusLint810Tests(unittest.TestCase):
             ),
         )
 
+    def test_raw_presence_matches_bind_to_the_exact_executable_grep(self):
+        inert = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "printf '%s' '$(grep -qF -- \"fake\" \"$DOC\")'; grep --help"
+        )
+        self.assertEqual(
+            [],
+            self.mod.extract_guard_sites(
+                inert, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
+
+        genuine = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "printf '%s' '$(grep -qF -- \"fake\" \"$DOC\")'; "
+            "grep -qF -- 'real' \"$DOC\""
+        )
+        sites = self.mod.extract_guard_sites(
+            genuine, "lib/test/a.sh", repo_root="/repo"
+        )
+        self.assertEqual(1, len(sites))
+        self.assertEqual("real", sites[0].literal)
+        self.assertEqual("/repo/docs/x.md", sites[0].target_path)
+
+    def test_raw_presence_after_shell_command_boundaries_is_extracted(self):
+        prefixes = {
+            "pipe": "true | ",
+            "attached pipe-stderr": "true|&",
+            "background": "true & ",
+            "subshell": "( ",
+        }
+        for label, prefix in prefixes.items():
+            with self.subTest(label=label):
+                source = (
+                    "DOC=\"$LIB/../docs/x.md\"\n"
+                    f"{prefix}grep -qF -- 'literal' \"$DOC\""
+                )
+                sites = self.mod.extract_guard_sites(
+                    source, "lib/test/a.sh", repo_root="/repo"
+                )
+                self.assertEqual(1, len(sites))
+                self.assertEqual("literal", sites[0].literal)
+
+    def test_multiple_executable_raw_presence_commands_fail_closed(self):
+        separators = {
+            "semicolon": "; ",
+            "spaced pipe": " | ",
+            "attached pipe": "|",
+            "attached pipe-stderr": "|&",
+        }
+        for label, separator in separators.items():
+            with self.subTest(label=label):
+                old = (
+                    "DOC=\"$LIB/../docs/x.md\"\n"
+                    "grep -qF -- 'one' \"$DOC\""
+                )
+                source = (
+                    old
+                    + separator
+                    + "grep -qF -- 'two' \"$DOC\""
+                )
+                with self.assertRaisesRegex(
+                    self.mod.InfrastructureError,
+                    "multiple raw presence commands",
+                ):
+                    self.mod.scan_changed_sources(
+                        {"lib/test/a.sh": source},
+                        {"lib/test/a.sh": old},
+                        one_file_diff("lib/test/a.sh", old, source),
+                        repo_root="/repo",
+                    )
+
+    def test_declaration_cannot_hide_a_second_raw_presence_command(self):
+        old = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "grep -qF -- 'one' \"$DOC\""
+        )
+        source = (
+            old
+            + "; grep -qF -- 'two' \"$DOC\"  "
+            "# structural-pin-ok: helper-contract -- first grep is executable"
+        )
+        with self.assertRaisesRegex(
+            self.mod.InfrastructureError,
+            "multiple raw presence commands",
+        ):
+            self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": old},
+                one_file_diff("lib/test/a.sh", old, source),
+                repo_root="/repo",
+            )
+
+    def test_assignment_change_preserves_identical_raw_occurrences(self):
+        calls = (
+            "grep -qF -- 'literal' \"$DOC\"; "
+            "grep -qF -- 'literal' \"$DOC\""
+        )
+        old = "DOC=\"$LIB/../docs/old.md\"\n" + calls
+        source = "DOC=\"$LIB/../docs/new.md\"\n" + calls
+        diff = (
+            "diff --git a/lib/test/a.sh b/lib/test/a.sh\n"
+            "--- a/lib/test/a.sh\n"
+            "+++ b/lib/test/a.sh\n"
+            "@@ -1 +1 @@\n"
+            "-DOC=\"$LIB/../docs/old.md\"\n"
+            "+DOC=\"$LIB/../docs/new.md\"\n"
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": old},
+            diff,
+            repo_root="/repo",
+        )
+        self.assertEqual(2, len(findings))
+        self.assertTrue(
+            all("missing structural declaration" in item for item in findings)
+        )
+
+    def test_quoted_escaped_and_argument_grep_words_are_not_executable(self):
+        source = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "printf '%s' 'grep -qF -- \"one\" \"$DOC\"' "
+            "'grep -qF -- \"two\" \"$DOC\"'; "
+            "\\grep -qF -- 'escaped' \"$DOC\"; "
+            "printf '%s' grep -qF -- 'argument' \"$DOC\""
+        )
+        self.assertEqual(
+            [],
+            self.mod.extract_guard_sites(
+                source, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
+
+    def test_command_substitution_looking_grep_in_comment_is_inert(self):
+        source = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "printf x # $(grep -qF -- 'fake' \"$DOC\")"
+        )
+        self.assertEqual(
+            [],
+            self.mod.extract_guard_sites(
+                source, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
+        self.assertEqual(
+            [],
+            self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root="/repo",
+            ),
+        )
+
     def test_runtime_pipe_count_absence_and_temp_greps_are_not_raw_presence_pins(self):
         source = "\n".join(
             [
