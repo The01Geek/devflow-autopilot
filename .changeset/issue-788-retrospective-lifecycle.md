@@ -16,14 +16,16 @@ carries back-pressure via three new config caps (`max_issues_per_run`,
 occurrence threshold and the open-issues ceiling, `lib/meta-issue.sh` writes a
 number-keyed lifecycle entry instead of a `dismissed` key, and `dismissed{}` is now
 reserved for a maintainer's durable escape valve, written by no filing path. A
-liveness warning fires when nothing is eligible while a pattern recurs suppressed,
+liveness warning fires when nothing is eligible while a pattern has occurred
+at/above `min_occurrences` and is currently suppressed,
 and the run report renders the whole pattern picture with each pattern's state,
 filing outcome, and withholding cap. Migration happens on read, so consumer repos
 get the same lifecycle with no manual step.
 
 The filing decisions and the report fields they feed have one executable owner,
-`lib/filing-decisions.sh`: the back-pressure cap arms and their order, the
-`regressed` bypass, the liveness line the report renders, the won't-fix patterns
+`lib/filing-decisions.sh`: the back-pressure cap arms and their order, the two
+counts those arms compare against (both failing closed to an unestablished — never
+zero — count), the `regressed` bypass, the liveness line the report renders, the won't-fix patterns
 re-raised this run, and the per-pattern filing-outcome annotation. Each was
 previously prose in the retrospective skill with no test, so a mis-ordered cap
 check or a lost bypass would have shipped green.

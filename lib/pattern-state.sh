@@ -76,6 +76,16 @@ _usage() {
     exit 2
 }
 
+# ── the directory holding a path, via bash builtins ───────────────────────────
+# Never `dirname`: `lib/preflight.sh` does not guarantee it, and a missing
+# non-preflight PATH tool does not fail — it yields empty, which would silently
+# relocate every staging file below to the filesystem root.
+_dir_of() {  # $1 = path
+    local d="${1%/*}"
+    [ "$d" = "$1" ] && d="."
+    printf '%s' "$d"
+}
+
 # ── atomic write helper: write $2 (a file) over $1, mktemp-then-mv ─────────────
 # On any failure emit an ::error:: naming the path and exit non-zero, leaving the
 # previous file byte-unchanged.
@@ -89,12 +99,7 @@ _atomic_write() {  # $1 = dest path, $2 = source tmp holding new content
     # a mid-copy failure (the disk-full case) leaves the previous file
     # TRUNCATED — exactly the "byte-unchanged on a failed write" guarantee this
     # helper exists to provide. A same-directory rename cannot half-apply.
-    # The directory is derived with a bash builtin, never `dirname`: a
-    # non-preflight PATH tool that silently yielded empty here would relocate
-    # the staging file to the filesystem root and defeat the guarantee above.
-    local destdir="${dest%/*}"
-    [ "$destdir" = "$dest" ] && destdir="."
-    final="$(mktemp "$destdir/.overrides.XXXXXX")" \
+    final="$(mktemp "$(_dir_of "$dest")/.overrides.XXXXXX")" \
       || { echo "::error::pattern-state: could not create a temp file beside ${dest}" >&2; return 1; }
     if ! cat "$src" > "$final"; then
         rm -f "$final"
@@ -124,7 +129,11 @@ _migrate() {  # $1 = overrides path
     [ "$ver" = "1" ] || return 0
 
     local tmp
-    tmp="$(mktemp)" || { echo "::error::pattern-state: mktemp failed during migration of ${ov}" >&2; return 1; }
+    # Staged beside the destination for the same reason _atomic_write is: the
+    # whole write path stays on one filesystem, and none of it depends on
+    # $TMPDIR being usable on the host.
+    tmp="$(mktemp "$(_dir_of "$ov")/.overrides-mig.XXXXXX")" \
+      || { echo "::error::pattern-state: could not create a temp file beside ${ov} during migration" >&2; return 1; }
     # Convert only loop-written dismissed entries into lifecycle records; keep
     # every hand-written entry verbatim in the v2 dismissed{} map.
     if ! "$DEVFLOW_JQ" --arg writer "$_LOOP_WRITER" '
@@ -261,7 +270,8 @@ _reconcile() {  # $1 = overrides path, $2 = limit
           end' 1>&2 || true
 
     local tmp
-    tmp="$(mktemp)" || { echo "::error::pattern-state: mktemp failed during reconcile of ${ov}" >&2; return 1; }
+    tmp="$(mktemp "$(_dir_of "$ov")/.overrides-rec.XXXXXX")" \
+      || { echo "::error::pattern-state: could not create a temp file beside ${ov} during reconcile" >&2; return 1; }
     if ! printf '%s' "$resolved" | "$DEVFLOW_JQ" --slurpfile ov <(cat "$ov") '
         . as $res
         | $ov[0]

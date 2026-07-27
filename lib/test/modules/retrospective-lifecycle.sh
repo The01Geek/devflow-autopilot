@@ -180,7 +180,7 @@ assert_eq "#788 atomic write: the transition still applied with an unusable \$TM
 # The staging file is cleaned up — a `.overrides.*` left beside the destination
 # would be committed into .devflow/learnings/ by the state PR.
 assert_eq "#788 atomic write: no staging file is left beside the destination" "0" \
-  "$(set -- "$RL_TMP"/.overrides.*; [ -e "$1" ] && echo 1 || echo 0)"
+  "$(set -- "$RL_TMP"/.overrides*; [ -e "$1" ] && echo 1 || echo 0)"
 # (The unwritable-destination-directory arm is deliberately NOT asserted with a
 # `chmod 500` fixture: a root-run container ignores the mode bits, which would
 # make the assertion pass or fail on the host rather than on the code. The
@@ -802,6 +802,37 @@ assert_eq "meta-issue recurrence keeps exactly one number-keyed entry" "1" \
   "$(jq -r '.patterns["recur"].meta_issues | length' "$MI_TMP/ov-recur.json")"
 assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-01-01T00:00:00Z" \
   "$(jq -r '.patterns["recur"].provenance' "$MI_TMP/ov-recur.json")"
+# The lifecycle write stages BESIDE the overrides file, never under $TMPDIR:
+# `mv` is an atomic rename only within one filesystem, so a $TMPDIR staging file
+# on a runner whose /tmp is a separate filesystem is a copy-then-unlink that can
+# truncate overrides.json mid-write. (Same class, same destination, as
+# pattern-state.sh's _atomic_write, which the $TMPDIR case above pins.)
+#
+# Discriminating power is platform-dependent and deliberately not overstated:
+# an unusable $TMPDIR reverts this to a failed write only where a bare `mktemp`
+# honours TMPDIR (GNU coreutils, i.e. CI), whereas macOS's `mktemp` resolves its
+# own per-user temp dir and ignores it. So on CI this assertion goes RED against
+# a $TMPDIR-staged write; at a macOS desk it holds the write's success as an
+# ordinary regression guard on this path.
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-tmpdir.json"
+# Its own create-path stub: the shared $MI_TMP/gh above is rewritten by each
+# preceding case, and the one left in effect is not the create path.
+cat > "$MI_TMP/gh-create" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '' ;;
+  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/4242' ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$MI_TMP/gh-create"
+TMPDIR="$MI_TMP/no-such-tmpdir" DEVFLOW_GH="$MI_TMP/gh-create" bash "$LIB/meta-issue.sh" \
+  --tag tmpdir-free --slug tmpdir-free --title "audit(devflow): x" \
+  --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-tmpdir.json" >/dev/null 2>&1
+assert_eq "#788 meta-issue: the lifecycle record is written with an unusable \$TMPDIR" "filed" \
+  "$(jq -r '.patterns["tmpdir-free"].state' "$MI_TMP/ov-tmpdir.json")"
+assert_eq "#788 meta-issue: no staging file is left beside the overrides file" "0" \
+  "$(set -- "$MI_TMP"/.overrides*; [ -e "$1" ] && echo 1 || echo 0)"
 rm -rf "$MI_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────

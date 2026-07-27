@@ -198,7 +198,20 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
 
     NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     ISSUE_NUM="${URL##*/}"
-    OVERRIDES_TMP="$(mktemp)"
+    # Staged BESIDE the destination, never under $TMPDIR, for the same reason
+    # lib/pattern-state.sh's _atomic_write is: `mv` is an atomic rename only
+    # within one filesystem, so a $TMPDIR staging file on a runner whose /tmp is
+    # a separate filesystem turns this into a copy-then-unlink that can leave
+    # overrides.json truncated. The directory is derived with a bash builtin,
+    # never `dirname` — a non-preflight PATH tool that silently yielded empty
+    # would relocate the staging file to the filesystem root.
+    OVERRIDES_DIR="${OVERRIDES%/*}"
+    [ "$OVERRIDES_DIR" = "$OVERRIDES" ] && OVERRIDES_DIR="."
+    # A mktemp failure must NOT abort under `set -e`: the issue itself was
+    # already created, and aborting here would report it as "not filed" — the
+    # exact misstatement the else-branch below exists to avoid. An empty
+    # OVERRIDES_TMP makes the guarded write below fail into that branch.
+    OVERRIDES_TMP="$(mktemp "$OVERRIDES_DIR/.overrides.XXXXXX" 2>/dev/null || true)"
     # Append (or update in place) a `filed` meta-issue entry on the slug's
     # lifecycle record, KEYED BY ISSUE NUMBER (issue #788): the Step-1 de-dupe
     # re-runs this write on every recurrence with the SAME open issue, so an
@@ -207,7 +220,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # number is already present is updated in place; a new number is appended. The
     # record's provenance is stamped once (first filing) and preserved on
     # recurrence. This writes NO `dismissed` entry — that map is human-owned.
-    if "$DEVFLOW_JQ" \
+    if [ -n "$OVERRIDES_TMP" ] && "$DEVFLOW_JQ" \
         --arg slug "$SLUG" \
         --arg now "$NOW" \
         --arg url "$URL" \

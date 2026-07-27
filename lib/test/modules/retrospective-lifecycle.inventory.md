@@ -13,7 +13,7 @@ and report-field producers in `lib/filing-decisions.sh`.
 | `meta-issue.sh` lifecycle write, de-dup, `--dry-run`, URL-shape and `--slug` grammar guards | `lib/test/run.sh` `meta-issue.sh` block | **Relocated into this module**, together with the number-keyed single-entry assertion. |
 | `pattern-state.sh` migrate + reconcile transitions | new (issue #788) | This module (no former home — the helper is new). |
 | `actionable-patterns.sh` regressed bypass + liveness warning | new (issue #788) | This module (the bypass and the liveness diagnostic are new behavior). |
-| `filing-decisions.sh` cap arms + arm order + fail-closed operands; liveness capture, won't-fix re-raise, per-pattern annotation; end-to-end render of every report section | new (issue #788) | This module (the helper is new — it is the executable owner of decisions that were previously Step 8c/9 prose). |
+| `filing-decisions.sh` cap arms + arm order + fail-closed operands + the two cap comparands and the no-shell-options-leak contract of the sourced helper; liveness capture, won't-fix re-raise, per-pattern annotation; end-to-end render of every report section | new (issue #788) | This module (the helper is new — it is the executable owner of decisions that were previously Step 8c/9 prose). |
 
 ## What deliberately stayed in `lib/test/run.sh`
 
