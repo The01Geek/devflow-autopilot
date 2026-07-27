@@ -200,7 +200,16 @@ whose real before/after shows no decrease is reverted or deferred, never shipped
 reduction.** The synthetic fixture is not this guard — it only proves the eval detects
 a modeled reduction.
 
-> Maintainer before/after record (to be filled at measurement time):
+**Status for the issue-795 change: no measurement is due on THIS axis, and the row below
+is therefore unfilled by decision rather than by omission.** The obligation above binds a
+skill edit *shipped as a peak-context reduction*; #795 is shipped as a state-owner
+**round-trip** reduction, measured on its own axis in the section below, and it claims no
+decrease in peak context or re-emissions. An unfilled row is only honest when its
+not-due-ness is stated — a bare template reads as a dropped obligation, which is exactly
+how a reviewer read it.
+
+> Maintainer before/after record (to be filled when a change IS shipped as a peak-context
+> reduction; unfilled above means no such change is pending, never that one skipped it):
 > - before: run `<id>`, captured `<date>`, peak `<N>`, re-emissions `<M>`
 > - after:  run `<id>`, captured `<date>`, peak `<N'>`, re-emissions `<M'>`  (must be strictly lower)
 
