@@ -85,7 +85,7 @@ CLI:
         -> one `FILE:LINE  RULE  statement` per denied-shape hit, across every FILE
            (a reviewed surface is a BUNDLE — a skill root plus its phase references,
            issue #529 — and each hit stays attributed to the file it came from);
-           exit 1 if any hit, exit 0 when every file is clean. The `review` profile applies R1-R4
+           exit 1 if any hit, exit 0 when every file is clean. The `review` profile applies R1-R5
            (read-only review allowlist). `--profile implement` applies the implement-
            tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
            probe (matcher-probe.yml's implement-probe job):
@@ -183,7 +183,7 @@ def _shape_preprocess_lines(block: str) -> list[str]:
     statement — differing from extract-command-heads.py's stripper, which truncates the opener
     at `<<` and so erases the very signal R3's cat-heredoc arm needs.
 
-    BOTH TIERS READ THIS TEXT — the review rules (R1-R4) as well as the implement rules — so a
+    BOTH TIERS READ THIS TEXT — the review rules (R1-R5) as well as the implement rules — so a
     change here moves both. The blank-vs-drop line preservation is behavior-preserving; the two
     heredoc rules below are a strict TIGHTENING (a statement that used to be silently swallowed
     is now scanned), never a loosening.
@@ -242,7 +242,7 @@ def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], li
         cleaned = out[i]
         # BLANK ONLY ON AGREEMENT between the per-line mask and the carry-state mask. Blanking is
         # the one preprocessing act that DELETES code from the scan, so its false-positive
-        # direction is a silent GREEN on every rule downstream (R1-R4, IR1-IR3) — the worst
+        # direction is a silent GREEN on every rule downstream (R1-R5, IR1-IR3) — the worst
         # failure this file can have. The two masks are each blind where the other sees, so for
         # blanking the fail-closed combination is their INTERSECTION, not their union (the loop
         # scan, whose miss only hides a loop keyword, correctly unions instead):

@@ -33,18 +33,27 @@
 #                                   scratch-file `mktemp` failed, or `create` failed after a
 #                                   confirmed clean absence
 #
-# This mirrors the token-line-plus-exit-code contract the implement tier's early
-# workpad gate uses, but with its OWN codes: 0 for both success tokens and 3 for every
-# SKIP (the implement helper distinguishes CREATE(2) from REFUSED(3); these are read as
-# separate contracts).
+# This is the same token-line-plus-exit-code SHAPE the implement tier's helpers use, but
+# with its OWN codes, and it matches neither of theirs: `scripts/classify-id-exit.sh` (the
+# early workpad gate) prints `adopt`/`create`/`skip` and ALWAYS exits 0, while
+# `scripts/resolve-existing-pr.sh` (the Phase 3.1 PR-resolution helper) is the one that
+# distinguishes CREATE(2) from REFUSED(3). This helper uses 0 for both success tokens and 3
+# for every SKIP. Read all three as separate contracts — do not align exit codes across them.
 #
 # The three screens keep the create arm reachable ONLY from cmd_id's own clean-absence
 # exit:
 #   (S1) A non-numeric PR number is refused BEFORE the id call, so argparse's own exit 2
 #        (`id` declares `issue` as type=int) can never reach the arm split.
-#   (S2) The workpad.py this helper would exec is verified readable, so python3's own
-#        exit 2 on a missing ([Errno 2]) / unreadable ([Errno 13]) script can never be
-#        misread as a clean absence.
+#   (S2) The workpad.py this helper would exec is verified readable BEFORE the id call, so
+#        a broken deploy is refused with a breadcrumb naming its cause instead of reaching
+#        the arm split at all. Note the precise mechanism: this helper execs the script
+#        DIRECTLY through its own shebang (never `python3 <path>`), so a missing script
+#        fails at exec with rc 127 and an unreadable one with rc 126 — neither is python3's
+#        exit 2, so neither could reach the `-eq 2` clean-absence arm even without S2. What
+#        S2 buys is therefore the SPECIFIC diagnosis (a partial vs a permission-broken
+#        deploy), not exit-2 disambiguation; without it both collapse into the generic
+#        SKIP api-error arm. Known limit: S2 tests `-r` only, so an exec-bit-stripped copy
+#        is readable, fails exec with rc 126, and takes that generic arm.
 #   (S3) cmd_id exits 2 SILENTLY (sys.exit(2)); every interpreter-level exit 2 writes a
 #        diagnostic. So exit 2 with a NON-EMPTY captured stderr file is never a clean
 #        scan — it routes to SKIP api-error, never create. Emptiness is derived with
@@ -60,7 +69,18 @@ MARKER="${2:-}"
 BODY_FILE="${3:-}"
 
 # The workpad.py this helper drives lives beside it in scripts/. S2 screens THIS path.
-WORKPAD_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/workpad.py"
+# Check the directory resolution itself rather than appending to whatever it produced: an
+# unreadable parent dir (or a runner that does not populate BASH_SOURCE) makes the
+# substitution empty, and the unguarded form would then screen the literal `/workpad.py`
+# and report a partial deploy — the right token with a diagnosis pointing at the wrong
+# cause, which is exactly the debugging cost this helper exists to remove.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+if [ -z "$SCRIPT_DIR" ]; then
+  echo "devflow review-seed: could not resolve this helper's own directory from '${BASH_SOURCE[0]:-<unset>}' — the workpad.py path cannot be derived (an unreadable parent directory, or a runner that does not populate BASH_SOURCE)" >&2
+  echo "SKIP workpad-unreadable"
+  exit 3
+fi
+WORKPAD_PY="$SCRIPT_DIR/workpad.py"
 
 # (S1) Refuse an empty or non-digit PR number before the id call. The `case` glob is a
 # bash builtin (no PATH tool), so the screen holds even on a stripped-down host.
@@ -83,8 +103,9 @@ if [ -z "$MARKER" ]; then
   exit 3
 fi
 
-# (S2) The workpad.py about to exec must be a readable file; otherwise python3's own
-# exit 2 ([Errno 2] missing / [Errno 13] unreadable) would be misread as a clean absence.
+# (S2) The workpad.py about to exec must be a readable file, so a broken deploy is refused
+# with a breadcrumb naming its cause rather than collapsing into the generic SKIP api-error
+# arm the raw exec failure (rc 127 missing / rc 126 unreadable) would otherwise take.
 if [ ! -r "$WORKPAD_PY" ]; then
   if [ -e "$WORKPAD_PY" ]; then
     echo "devflow review-seed: workpad.py present but unreadable ([Errno 13]) at $WORKPAD_PY — a permission-broken deploy" >&2

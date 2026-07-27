@@ -1377,6 +1377,41 @@ assert_eq "#857 seed helper: create exit 0 with no printed id -> SKIP api-error,
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
   "$(srp857_run 7 m | grep -c .)"
+# ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
+# above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
+# bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr
+# and defeat S3's emptiness discriminator — but the regression it anticipates is the flag
+# being DROPPED from the id call, which every row above survives. This stub records argv.
+srp857_argv_stub() {   # $1=id-exit $2=id-stdout $3=create-exit $4=create-stdout
+  cat > "$SRP857/scripts/workpad.py" <<PYEOF
+#!/usr/bin/env python3
+import sys
+with open("$SRP857/argv.log", "a") as fh:
+    fh.write(" ".join(sys.argv[1:]) + "\n")
+if sys.argv[1] == 'id':
+    sys.stdout.write("""$2""")
+    sys.exit($1)
+if sys.argv[1] == 'create':
+    sys.stdout.write("""$4""")
+    sys.exit($3)
+PYEOF
+  chmod +x "$SRP857/scripts/workpad.py"
+  : > "$SRP857/argv.log"
+}
+# id-call forwarding: the PR number positionally, and the marker behind --marker.
+srp857_argv_stub 0 "999" 0 ""
+srp857_run 7 mark-xyz >/dev/null
+assert_eq "#857 seed helper: the id call forwards the PR number and --marker <marker>" \
+  "id 7 --marker mark-xyz" "$(grep '^id ' "$SRP857/argv.log")"
+# create-arm forwarding: the PR number and the BODY_FILE path this run was given.
+srp857_argv_stub 2 "" 0 "1234"
+srp857_run 7 mark-xyz >/dev/null
+assert_eq "#857 seed helper: the create call forwards the PR number and the body-file path" \
+  "create 7 $SRP857/body.md" "$(grep '^create ' "$SRP857/argv.log")"
+# Positive control: the argv-recording stub still drives the ordinary outcomes, so the two
+# rows above cannot pass against a stub the helper never actually reached.
+assert_eq "#857 seed helper: argv-recording stub still yields the normal CREATED token" \
+  "CREATED 1234" "$(srp857_run 7 mark-xyz)"
 # ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -31776,7 +31811,7 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
 # comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
 # profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
-# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
+# that read-only review-runner matcher (R1–R5), which legitimately denies leading-`VAR=…$(…)`
 # assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).

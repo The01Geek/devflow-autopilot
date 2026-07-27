@@ -179,7 +179,7 @@ The read-write `devflow-implement` profile is a **separate allowlist** with its
 **own** probed denied shapes — **a shape proven on the review tier is unproven
 here** — so the `implement-probe` job in `matcher-probe.yml` covers it
 independently. Its abstract rule set is IR1 / IR2 / IR3 (distinct from review's
-R1–R4), enforced by `lib/test/extract-command-shapes.py --profile implement`
+R1–R5), enforced by `lib/test/extract-command-shapes.py --profile implement`
 against `skills/implement/SKILL.md`, `skills/implement/phases/*.md`, and
 `skills/implement/references/*.md`.
 

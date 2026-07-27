@@ -553,7 +553,7 @@ def _acs_workpad_state(section_lines: list[str], items: list[dict]) -> str:
     return _ACS_SOURCE_ISSUE_BODY
 
 
-def _acs_read_workpad(cmd: str, issue: int):
+def _acs_read_workpad(cmd: str, issue: str):
     """Locate the workpad and parse its `## Acceptance Criteria` section.
 
     Returns `(comment_body, section_lines, items)`. Exits 2 (empty stdout AND
@@ -724,7 +724,7 @@ def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
     return True
 
 
-def _acs_fetch_issue_body(issue: int) -> str:
+def _acs_fetch_issue_body(issue: str) -> str:
     try:
         r = _run([GH, 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'])
     except (subprocess.CalledProcessError, OSError) as e:
