@@ -46,9 +46,17 @@ record_fail() {  # name
 #
 # The module-reachable skip surface, and the answer to #838's reachability question:
 # a module still may not self-skip in general — it may only declare that THIS HOST
-# cannot express a condition, which is the `host-capability` kind alone. That the raw
-# helper stays out of reach is ENFORCED rather than merely asserted: the fold below is
-# the validator, and it rejects any record whose kind is not `host-capability`.
+# cannot express a condition, which is the `host-capability` kind alone.
+#
+# What enforces that, precisely — no single mechanism covers it, so do not read any one
+# of them as doing so. The fold below validates the KIND only: it rejects a record whose
+# kind is not `host-capability`, and it cannot tell a record written through this wrapper
+# from one a module produced by calling `skip` directly or by appending a hand-crafted
+# line. Keeping the RAW helper out of a module's reach is instead the job of two other
+# mechanisms: lib/test/run-module.sh overrides `skip` to a fatal on the focused tier, and
+# lib/test/test_module_runner.py scans every shipped module for a command-position `skip`
+# line. A module that defeats all three is out of scope — this is a test harness, not a
+# sandbox.
 #
 # It emits nothing itself. It delegates to `skip`, which stays the sole `#456`
 # producer of the reserved `  NOTE ` line, and bash resolves that name at CALL time —
@@ -686,6 +694,9 @@ _devflow_restore_signal_traps() { # saved-hup saved-int saved-term
 _DEVFLOW_LIVE_CHILD_PIDS=()
 declare -A _DEVFLOW_LIVE_CHILD_SCRATCH=()
 declare -A _DEVFLOW_LIVE_CHILD_TALLY=()
+# Newline-separated private skip records per child (issue #838) — see
+# _devflow_register_live_child's optional trailing arguments.
+declare -A _DEVFLOW_LIVE_CHILD_SKIPRECS=()
 
 # ── Bounded concurrent Python-suite pool state (issue #720) ───────────────────
 # The pool opens at one call site (devflow_pool_open), stays open while the main
@@ -718,11 +729,16 @@ declare -A _DEVFLOW_POOL_PID_OUTPUT=()
 declare -A _DEVFLOW_POOL_SELFTALLY_LINES=()
 declare -A _DEVFLOW_POOL_SELFTALLY_SUMMARY=()
 
-_devflow_register_live_child() { # pid scratch-root tally-file
+# The two trailing arguments are OPTIONAL and default empty, so the pooled call site's
+# three-argument form is unchanged. They carry the issue-#838 private skip records, which
+# have no cleanup helper of their own (unlike the scratch root and the result tally) and
+# would otherwise be the only allocations the signal path leaks.
+_devflow_register_live_child() { # pid scratch-root tally-file [skips-file] [credit-file]
   local pid="$1"
   _DEVFLOW_LIVE_CHILD_PIDS+=("$pid")
   _DEVFLOW_LIVE_CHILD_SCRATCH["$pid"]="$2"
   _DEVFLOW_LIVE_CHILD_TALLY["$pid"]="$3"
+  _DEVFLOW_LIVE_CHILD_SKIPRECS["$pid"]="${4:-}"$'\n'"${5:-}"
 }
 
 _devflow_deregister_live_child() { # pid
@@ -743,10 +759,11 @@ _devflow_deregister_live_child() { # pid
   fi
   unset '_DEVFLOW_LIVE_CHILD_SCRATCH[$pid]'
   unset '_DEVFLOW_LIVE_CHILD_TALLY[$pid]'
+  unset '_DEVFLOW_LIVE_CHILD_SKIPRECS[$pid]'
 }
 
 _devflow_full_suite_signal() { # signal
-  local signal_name="$1" pid scratch tally
+  local signal_name="$1" pid scratch tally skiprecs skiprec
   # The launch-window guard now covers BOTH the single-module launch
   # (module_launching, a devflow_run_full_suite_module local) AND the pool launch
   # (_DEVFLOW_POOL_LAUNCHING, a global): a signal delivered mid-launch, before the
@@ -771,6 +788,14 @@ _devflow_full_suite_signal() { # signal
       tally="${_DEVFLOW_LIVE_CHILD_TALLY[$pid]:-}"
       [ -z "$scratch" ] || _devflow_cleanup_module_scratch "$scratch" || :
       [ -z "$tally" ] || _devflow_cleanup_full_suite_tally "$tally" || :
+      # The issue-#838 private skip records have no cleanup helper of their own, so they
+      # are removed here directly. Read line by line (a bash builtin) rather than by word
+      # splitting, so a TMPDIR containing spaces cannot turn one path into two.
+      skiprecs="${_DEVFLOW_LIVE_CHILD_SKIPRECS[$pid]:-}"
+      while IFS= read -r skiprec; do
+        [ -n "$skiprec" ] || continue
+        rm -f "$skiprec" || :
+      done <<< "$skiprecs"
     done
     _DEVFLOW_LIVE_CHILD_PIDS=()
   fi
@@ -926,7 +951,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   # module_pid scalar slot (issue #720). Registered after the pid is known so a
   # signal that arrives before this point is caught by the module_launching guard.
   _devflow_register_live_child "$module_pid" "$module_scratch_root" \
-    "$module_results_file"
+    "$module_results_file" "$module_skips_file" "$module_skip_credit_file"
   module_launching=0
   [ "$monitor_was_on" -eq 1 ] || set +m
   _devflow_test_write_pid "${DEVFLOW_TEST_MODULE_PID_FILE:-}" "$module_pid" \
@@ -1015,9 +1040,11 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   fi
 
   # Sum the declared assertion credits. A credit is a DECLARATION the module makes about
-  # how many assertions its gated arm did not run; every shape this cannot use grants
-  # ZERO and records an attributable failure, so a malformed declaration can never buy
-  # floor relief. Arithmetic stays in bash builtins for the same guard-class-2 reason.
+  # how many assertions its gated arm did not run; every NON-BLANK shape this cannot use
+  # grants ZERO and records an attributable failure, so a malformed declaration can never
+  # buy floor relief. (A blank line is not a declaration at all: it is skipped, granting
+  # zero and recording nothing — the one shape that grants nothing without a failure.)
+  # Arithmetic stays in bash builtins for the same guard-class-2 reason.
   # The `-s`/`-r` pair is the same check the skip tally above uses, for the reason stated
   # there: an unreadable record must not read as "nothing was recorded".
   if [ -s "$module_skip_credit_file" ] && [ ! -r "$module_skip_credit_file" ]; then
