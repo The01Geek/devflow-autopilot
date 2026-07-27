@@ -394,14 +394,31 @@ def load_registry(path: Path) -> tuple[list[dict], list[dict]]:
 # ── main ──────────────────────────────────────────────────────────────────────
 
 
-def audit(root: Path, population: list[str], registry_path: Path) -> tuple[list[str], int]:
-    """Return `(errors, record_count)` for the audit over `population`."""
+def audit(
+    root: Path, files_from: Path | None, registry_path: Path
+) -> tuple[list[str], int]:
+    """Return `(errors, record_count)` for the audit.
+
+    The registry is validated **first** — it is the authority, and a shape or
+    read fault must surface regardless of the file population (an empty or unusable
+    population must not mask a malformed registry). Only a well-formed registry then
+    proceeds to enumerate the tree for the scan.
+    """
     errors: list[str] = []
 
     try:
         sites, non_dispatch = load_registry(registry_path)
     except RegistryError as exc:
         return [f"lint-subagent-extension-handoff: {exc}"], 0
+
+    try:
+        population = _pop.enumerate_population(
+            root, files_from, ls_files_argv=_pop.LS_FILES_INDEX
+        )
+    except EnumerationError as exc:
+        return [f"lint-subagent-extension-handoff: enumeration unusable: {exc}"], len(
+            [s for s in sites if isinstance(s, dict)]
+        )
 
     tracked = set(population)
     audited_files = [p for p in population if is_audited(p)]
@@ -547,18 +564,9 @@ def main(argv: list[str] | None = None) -> int:
 
     root = _pop.resolve_root(args.root, tool="lint-subagent-extension-handoff")
     registry_path = Path(args.registry) if args.registry else root / DEFAULT_REGISTRY
+    files_from = Path(args.files_from) if args.files_from else None
 
-    try:
-        population = _pop.enumerate_population(
-            root,
-            Path(args.files_from) if args.files_from else None,
-            ls_files_argv=_pop.LS_FILES_INDEX,
-        )
-    except EnumerationError as exc:
-        print(f"lint-subagent-extension-handoff: enumeration unusable: {exc}", file=sys.stderr)
-        return 1
-
-    errors, record_count = audit(root, population, registry_path)
+    errors, record_count = audit(root, files_from, registry_path)
 
     for error in errors:
         print(error, file=sys.stderr)

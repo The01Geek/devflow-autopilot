@@ -39691,8 +39691,9 @@ E834_REG_EMPTY="$(probe_tmp '#834 reg empty')"
 cat > "$E834_REG_EMPTY" <<'JSON'
 {"schema_version":1,"sites":[],"declared_non_dispatch":[]}
 JSON
-assert_eq "#834 lint: empty registry over an empty file set is audited 0 of 0, exit 0" \
-  "rc=0|audited 0 of 0 records" "$(e834_run "$E834_FX" "$E834_REG_EMPTY")"
+assert_eq "#834 lint: empty registry over a non-dispatching file is audited 0 of 0, exit 0" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/tokenonly.md)" in
+       "rc=0|"*"audited 0 of 0 records"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "#834 lint: empty registry over a dispatching tree fails naming the unregistered site" "yes" \
   "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/real.md)" in
        "rc=0|"*) echo no ;;
