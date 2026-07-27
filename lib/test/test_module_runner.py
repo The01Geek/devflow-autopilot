@@ -2190,6 +2190,34 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         # And the unreadable record never silently buys floor relief.
         self.assertIn("minimum is", observed["completed"].stderr)
 
+    def test_the_fold_reimposes_the_three_field_shape_on_a_hand_written_record(self) -> None:
+        """A second writer must not be able to bend the record shape.
+
+        Binding the child a real SKIPS_FILE means `skip()` is no longer its only writer,
+        so the "exactly three TAB-separated fields" invariant it maintained by
+        construction needs a keeper. lib/test/summary.sh field-splits each line on TAB,
+        so an extra TAB would render a skip's fields transposed and a CR would ride into
+        the summary line. The fold splits and re-emits, so the shape holds regardless of
+        what the writer produced.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            # Four fields plus a CR — the shape skip() could never produce.
+            "printf 'host-capability\\tname\\twith\\textra\\treason\\r\\n' "
+            '>> "$SKIPS_FILE"\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        folded = observed["skips"].splitlines()
+        self.assertEqual(len(folded), 1, observed["skips"])
+        # Exactly three fields survive, the surplus TABs and the CR collapsed to spaces.
+        self.assertEqual(folded[0].count("\t"), 2, repr(folded[0]))
+        self.assertNotIn("\r", folded[0])
+        self.assertEqual(
+            folded[0], "host-capability\tname\twith extra reason ", repr(folded[0])
+        )
+
     def test_focused_runner_stays_fatal_for_a_module_that_self_skips(self) -> None:
         """`run-module.sh` keeps the module contract: a focused run may not self-skip."""
         scripts_dir = self.root / "scripts"

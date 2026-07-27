@@ -814,6 +814,7 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_worker_pid_file=""
   local module_skips_file="" module_skip_credit_file=""
   local skip_credit_total=0 effective_minimum=0 skip_records_lost=0 credited_clause=""
+  local _fold_line="" _credit_line="" _fold_rest="" _fold_name="" _fold_reason=""
   local module_pid="" module_rc=0 assertion_count=0 boundary_rc=0
   local module_launching=0 module_pending_signal="" tally_valid=1
   local saved_hup saved_int saved_term monitor_was_on=0
@@ -1024,10 +1025,34 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       [ -n "$_fold_line" ] || continue
       case "$_fold_line" in
         "host-capability"$'\t'*)
-          if ! printf '%s\n' "$_fold_line" >> "$SKIPS_FILE"; then
+          # Re-impose skip()'s field shape rather than re-appending the line verbatim.
+          # Binding the child a real SKIPS_FILE means skip() is no longer the only writer,
+          # so the "exactly three TAB-separated fields" invariant it maintained by
+          # construction now has a second, unsanitized producer — and lib/test/summary.sh
+          # field-splits each line on TAB, so an extra TAB would render a skip's fields
+          # transposed and an embedded CR would ride into the summary. Splitting and
+          # re-emitting keeps that shape a property of the fold, not of the writer's
+          # goodwill. A newline cannot appear inside a line `read` returned, so only TAB
+          # and CR need collapsing. All bash builtins (guard-class 2).
+          _fold_rest="${_fold_line#host-capability$'\t'}"
+          _fold_name="${_fold_rest%%$'\t'*}"
+          if [ "$_fold_rest" = "$_fold_name" ]; then
+            _fold_reason=""
+          else
+            _fold_reason="${_fold_rest#*$'\t'}"
+          fi
+          if ! printf 'host-capability\t%s\t%s\n' \
+            "${_fold_name//[$'\t'$'\r']/ }" "${_fold_reason//[$'\t'$'\r']/ }" \
+            >> "$SKIPS_FILE"; then
             _devflow_record_module_failure "test module $module_name — could not append private skip tally" || boundary_rc=1
             printf '  FAIL  test module %s — could not append private skip tally\n' \
               "$module_name" >&2
+            # A skip that never reached the shared tally forfeits every credit, exactly as
+            # the unreadable-record arm above does and for the same reason: crediting the
+            # floor while the skip itself is invisible is the laundering this channel
+            # exists to prevent. The append arm lost the skip the same way, so it must
+            # reach the same verdict.
+            skip_records_lost=1
           fi
           ;;
         *)
