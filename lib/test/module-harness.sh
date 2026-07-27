@@ -262,8 +262,25 @@ _devflow_valid_result_count() {
   printf '%s\n' "$count"
 }
 
+# _devflow_echo_capture <path> — echo a captured test output, indented four spaces.
+#
+# Pure-bash indent: piping through sed (a non-preflight PATH tool) would lose the whole
+# captured traceback when sed is absent — the diagnostics must never fail open even though
+# the verdicts that consume them fail closed. It writes to STDOUT, so a failing check's
+# header and its traceback stay on one stream instead of interleaving; callers that print
+# a header before calling this must print it to stdout too. (`_devflow_pool_reap` keeps
+# its own inline copy — it echoes a pooled suite's output from a different code path and
+# was not part of this change.)
+_devflow_echo_capture() {  # path
+  local _devflow_line
+  [ -r "$1" ] || return 0
+  while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
+    printf '    %s\n' "$_devflow_line"
+  done < "$1"
+}
+
 devflow_run_focused_python_test() { # assertion-name script-path output-path
-  local assertion_name="$1" script_path="$2" output_path="$3" test_rc _devflow_line
+  local assertion_name="$1" script_path="$2" output_path="$3" test_rc
 
   # PYTHON_COLORS=0 keeps the captured diagnostics deterministic: a host that
   # forces color (FORCE_COLOR) would otherwise interleave ANSI codes into the
@@ -272,63 +289,81 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
     test_rc=0
   else
     test_rc=$?
-    # Pure-bash indent: piping through sed (a non-preflight PATH tool) would
-    # lose the whole captured traceback when sed is absent — the diagnostics
-    # must never fail open even though the verdict below fails closed.
-    while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-      printf '    %s\n' "$_devflow_line"
-    done < "$output_path"
+    _devflow_echo_capture "$output_path"
   fi
   assert_eq "$assertion_name" "0" "$test_rc"
 }
 
 # devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir>
 #
-# The concurrent sibling of devflow_run_focused_python_test (issue #870): it partitions
-# ONE python3 unittest file across a bounded pool of selector processes and folds every
-# shard into a SINGLE assert_eq. The single-assertion shape is a contract, not a style
-# choice — a module's emitted tally is compared for equality against the assertion floor
-# carried in scripts/workflow-flight-recorder-registry.json AND in run.sh's
-# devflow_run_full_suite_module operand, so a per-shard assertion would move the tally
+# The concurrent sibling of devflow_run_focused_python_test (issue #870): it runs ONE
+# python3 unittest file as many bounded-concurrency selector processes and folds every
+# one of them into a SINGLE assert_eq. The single-assertion shape is a contract, not a
+# style choice — a module's emitted tally is compared for equality against the assertion
+# floor carried in scripts/workflow-flight-recorder-registry.json AND in run.sh's
+# devflow_run_full_suite_module operand, so a per-unit assertion would move the tally
 # with the host's cpu_count and break that triple on every runner of a different width.
 #
-# Width comes from _devflow_pool_resolve_width, the same resolver devflow_pool_open uses,
-# so this file carries one width policy rather than two. The shard count never exceeds it:
-# a module already runs concurrently with the suite's open pool, so fanning out past the
-# resolved width would trade the serial time saved for CPU and IO contention.
+# Scheduling is a DYNAMIC work queue, not a precomputed partition, and that is the
+# design's core: this file's per-test cost spans two orders of magnitude, so any static
+# split — round-robin, contiguous, or by class — floors the wall clock at whichever
+# bucket happens to collect the heaviest tests. A queue needs no cost knowledge and no
+# cost cache, self-corrects on any host, and re-balances for free when a test is added,
+# renamed, or made slower. Its cost is one interpreter start per test instead of one per
+# worker, which is a few seconds of CPU spread across the workers.
 #
-# Fail-closed contract — every one of these is a FAIL, never a silently-passing shard:
-# an enumeration that does not resolve, a zero-test enumeration, a shard that exits
-# non-zero, a shard killed by a signal, a shard whose capture is missing, a capture with
-# no parseable `Ran N test(s)` line, and an executed-or-dispatched total that falls short
-# of the enumerated one (the lossy-partition regression: the suite goes green having
-# tested less). The executed sum decides the emitted verdict, so it is accumulated with
-# bash builtins and never through a non-preflight PATH tool (CLAUDE.md guard-class 2).
+# KNOWN CEILING, so nobody re-derives it from a disappointing measurement: a greedy queue
+# dispatches in enumeration order, which is alphabetical, so a long-running test that
+# sorts late starts late and its duration lands past the point where the other workers
+# have drained. The wall clock therefore floors at roughly (dispatch time of the longest
+# test + its duration), not at total/width. Beating that needs longest-first scheduling,
+# which needs per-test durations — knowledge this driver deliberately does not carry and
+# could not use anyway on the CI runners this exists to speed up, where any duration
+# cache starts cold on every run. Making the individual fixtures cheaper is the lever
+# that moves this ceiling.
 #
-# Shards are launched WITHOUT a new process group (no `set -m`, no setsid) so they stay
+# Concurrency comes from _devflow_pool_resolve_width, the same resolver devflow_pool_open
+# uses, so this file carries one width policy rather than two. In-flight work never
+# exceeds it: a module already runs concurrently with the suite's open pool, so going
+# wider would trade the serial time saved for CPU and IO contention. KNOWN LIMITATION —
+# the two mechanisms share that width POLICY but not one width BUDGET, so peak process
+# count while the suite's pool is open is the pool's in-flight count plus this width. A
+# shared budget is the deeper design; it is not reachable while the pool emits one
+# RESULTS_FILE verdict per member (which would break the tally triple above) and is
+# opened by run.sh, which may not name this module's subject file at all.
+#
+# Every failure mode below fails closed — a unit is never silently green — and each
+# arm carries its own breadcrumb naming which condition fired. The one worth stating
+# outright is the lossy-schedule regression: a scheduler that quietly skips work makes
+# the suite go green having tested less, so the executed total is checked against the
+# enumerated one. That sum decides the emitted verdict, so it is accumulated with bash
+# builtins and never through a non-preflight PATH tool (CLAUDE.md guard-class 2).
+#
+# Workers are launched WITHOUT a new process group (no `set -m`, no setsid) so they stay
 # in the module worker's group and _devflow_terminate_process_group's group-wide signal
-# delivery reaches them; each PID is waited on individually, because a bare `wait`
-# reports only the last job's status and would discard every earlier shard's failure.
+# delivery reaches them. Each unit's exit status is recorded by the unit itself into its
+# own `.rc` file rather than inferred from a bare `wait`, whose last-job-only status
+# would discard every earlier failure.
 #
-# DEVFLOW_TEST_SHARD_PYTHON substitutes the interpreter used for the SHARD launches only
-# (never the enumeration), and DEVFLOW_TEST_SHARD_DROP_ONE drops one selector from the
-# dispatched partition. Both exist so lib/test/test_module_harness.py can drive the
-# spawn-failure and lossy-partition arms, which are otherwise unreachable from a test.
+# DEVFLOW_TEST_SHARD_PYTHON substitutes the interpreter used for the UNIT launches only
+# (never the enumeration), and DEVFLOW_TEST_SHARD_DROP_ONE skips dispatching one unit.
+# Both exist so lib/test/test_module_harness.py can drive the spawn-failure and
+# lossy-schedule arms, which are otherwise unreachable from a test.
 devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   local assertion_name="$1" script_path="$2" capture_dir="$3"
-  local shard_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
-  local width shard_count total dispatched=0 executed=0 agg_rc=0 failure=""
-  local plan_out plan_err index shard shard_rc shard_ran rest num _devflow_line
-  local -a ids=() pids=() caps=() sel=()
+  local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
+  local width total dispatched=0 executed=0 launched=0 failure=""
+  local plan_out plan_err index unit_rc unit_ran num cap
+  local -a ids=()
 
   width="$(_devflow_pool_resolve_width)"
-  plan_out="$capture_dir/shard-plan.out"
-  plan_err="$capture_dir/shard-plan.err"
+  plan_out="$capture_dir/unit-plan.out"
+  plan_err="$capture_dir/unit-plan.err"
 
-  # Enumerate the file's test IDs from the loader rather than a frozen partition, so a
-  # newly added class is sharded (and counted) without editing this driver. The printed
-  # count IS "the number an unsharded run would execute" — derived by collection only,
-  # never by a second full serial run, which would cost exactly what sharding saves.
+  # Enumerate the file's test IDs from the loader rather than a frozen list, so a newly
+  # added class is scheduled (and counted) without editing this driver. The printed count
+  # IS "the number an unsharded run would execute" — derived by collection only, never by
+  # a second full serial run, which would cost exactly what this saves.
   if ! PYTHON_COLORS=0 python3 - "$script_path" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
 import importlib.util
 import pathlib
@@ -346,7 +381,11 @@ spec.loader.exec_module(module)
 
 loader = unittest.TestLoader()
 suite = loader.loadTestsFromModule(module)
-if getattr(loader, "errors", None):
+# Both checks are kept deliberately: loader.errors carries the diagnostic text, while the
+# _FailedTest scan catches a placeholder that reached the suite by any other route. This
+# value is the total the whole fail-closed contract is measured against, so it is cheaper
+# to refuse twice than to trust a placeholder as a real test.
+if loader.errors:
     for entry in loader.errors:
         print(entry, file=sys.stderr)
     raise SystemExit(1)
@@ -378,14 +417,12 @@ print("\n".join(selectors))
 DEVFLOW_SHARD_ENUM
   then
     failure="the unsharded test count could not be established — enumerating $script_path failed"
-    [ -s "$plan_err" ] && while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-      printf '    %s\n' "$_devflow_line"
-    done < "$plan_err"
+    _devflow_echo_capture "$plan_err"
   fi
 
   if [ -z "$failure" ]; then
-    while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-      [ -n "$_devflow_line" ] && ids+=("$_devflow_line")
+    while IFS= read -r num || [ -n "$num" ]; do
+      [ -n "$num" ] && ids+=("$num")
     done < "$plan_out"
     total="${#ids[@]}"
     [ "$total" -gt 0 ] || \
@@ -393,83 +430,81 @@ DEVFLOW_SHARD_ENUM
   fi
 
   if [ -z "$failure" ]; then
-    if [ "$width" -lt "$total" ]; then shard_count="$width"; else shard_count="$total"; fi
-    # Round-robin over the class-ordered ID list balances by cost without hardcoding any
-    # cost knowledge: the file's dominant class is spread across every shard instead of
-    # flooring the wall clock at that one class's serial time.
+    # One unit per test, at most $width in flight. Each unit records its OWN exit status
+    # into <capture>.rc from inside the background subshell, so a status is attributed to
+    # its unit by file rather than by racing to match a pid against `wait`'s return.
     for ((index = 0; index < total; index++)); do
       if [ -n "${DEVFLOW_TEST_SHARD_DROP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
-      shard=$((index % shard_count))
-      sel[shard]="${sel[shard]:-} ${ids[index]}"
+      while [ "$launched" -ge "$width" ]; do
+        wait -n 2>/dev/null || wait
+        launched=$((launched - 1))
+      done
+      cap="$capture_dir/unit-$index.out"
+      (
+        PYTHON_COLORS=0 "$unit_python" "$script_path" "${ids[index]}" > "$cap" 2>&1
+        printf '%s\n' "$?" > "$cap.rc"
+      ) &
+      launched=$((launched + 1))
       dispatched=$((dispatched + 1))
     done
+    wait
 
-    for ((index = 0; index < shard_count; index++)); do
-      caps[index]="$capture_dir/shard-$index.out"
-      # Selectors are dotted unittest identifiers, so the deliberate word-splitting below
-      # is safe; quoting the list would pass it as one bogus selector.
-      # shellcheck disable=SC2086
-      PYTHON_COLORS=0 "$shard_python" "$script_path" ${sel[index]:-} \
-        > "${caps[index]}" 2>&1 &
-      pids[index]=$!
-    done
-
-    for ((index = 0; index < shard_count; index++)); do
-      if wait "${pids[index]}"; then shard_rc=0; else shard_rc=$?; fi
+    for ((index = 0; index < total; index++)); do
+      cap="$capture_dir/unit-$index.out"
+      [ -e "$cap.rc" ] || continue
+      unit_rc=""
+      IFS= read -r unit_rc < "$cap.rc" || unit_rc=""
+      case "$unit_rc" in
+        ''|*[!0-9]*) unit_rc=1 ;;
+      esac
       # unittest's runner writes `Ran N test(s) in ...` to stderr as the LAST thing it
       # emits, so the final match is the authoritative one: a test whose own output
       # happens to print that shape is overtaken rather than believed. Even if such a
       # line were counted, the executed-vs-enumerated comparison below fails CLOSED on
       # the resulting mismatch — it can never inflate a short run into a green one.
-      shard_ran=""
-      if [ -r "${caps[index]}" ]; then
-        while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-          case "$_devflow_line" in
+      unit_ran=""
+      if [ -r "$cap" ]; then
+        while IFS= read -r num || [ -n "$num" ]; do
+          case "$num" in
             "Ran "*" test"*)
-              rest="${_devflow_line#Ran }"
-              num="${rest%% *}"
+              num="${num#Ran }"
+              num="${num%% *}"
               case "$num" in
                 ''|*[!0-9]*) : ;;
-                *) shard_ran="$num" ;;
+                *) unit_ran="$num" ;;
               esac
               ;;
           esac
-        done < "${caps[index]}"
+        done < "$cap"
       fi
-      if [ "$shard_rc" -ne 0 ]; then
-        [ -n "$failure" ] || failure="shard $index exited $shard_rc"
-        printf '    shard %s exited %s:\n' "$index" "$shard_rc" >&2
-        [ -r "${caps[index]}" ] && \
-          while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-            printf '    %s\n' "$_devflow_line"
-          done < "${caps[index]}"
+      if [ "$unit_rc" -ne 0 ]; then
+        [ -n "$failure" ] || failure="${ids[index]} exited $unit_rc"
+        printf '    %s exited %s:\n' "${ids[index]}" "$unit_rc"
+        _devflow_echo_capture "$cap"
       fi
-      if [ -z "$shard_ran" ]; then
-        # Distinct from the exit-code arm above: a shard can exit 0 having produced no
+      if [ -z "$unit_ran" ]; then
+        # Distinct from the exit-status arm above: a unit can exit 0 having produced no
         # parseable count (a truncated or absent capture), which must never be read as a
-        # shard that simply had nothing to run.
+        # unit that simply had nothing to run.
         [ -n "$failure" ] || \
-          failure="shard $index produced no parseable 'Ran N test(s)' count"
-        printf '    shard %s produced no parseable test count\n' "$index" >&2
+          failure="${ids[index]} produced no parseable 'Ran N test(s)' count"
+        printf '    %s produced no parseable test count\n' "${ids[index]}"
       else
-        executed=$((executed + shard_ran))
+        executed=$((executed + unit_ran))
       fi
     done
 
     if [ -z "$failure" ] && { [ "$executed" -ne "$total" ] || [ "$dispatched" -ne "$total" ]; }; then
-      failure="the shard partition dropped work — dispatched $dispatched and executed $executed of $total enumerated tests"
+      failure="the schedule dropped work — dispatched $dispatched and executed $executed of $total enumerated tests"
     fi
   fi
 
   # Logged on the clean path too: a silent no-op is indistinguishable from a driver that
   # never ran, so the reader can always see how much of the file actually executed.
-  printf '  %s: executed %s test(s) across %s shard(s) (%s enumerated)\n' \
-    "${script_path##*/}" "$executed" "${shard_count:-0}" "${total:-unestablished}"
-  if [ -n "$failure" ]; then
-    agg_rc=1
-    printf '    devflow shard driver: %s\n' "$failure" >&2
-  fi
-  assert_eq "$assertion_name" "0" "$agg_rc"
+  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated)\n' \
+    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}"
+  [ -z "$failure" ] || printf '    devflow shard driver: %s\n' "$failure" >&2
+  assert_eq "$assertion_name" "" "$failure"
 }
 
 _devflow_record_module_failure() {  # [identifier]

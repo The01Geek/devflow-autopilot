@@ -10,9 +10,9 @@
 #
 # Contract: the caller sets LIB and RESULTS_FILE, defines assert_eq, and sources
 # lib/test/module-harness.sh first. This module uses assert_eq (caller-provided, per that
-# contract — both run.sh and run-module.sh define it) plus the harness helpers
-# devflow_run_focused_python_test and devflow_module_allocate_owned_directory, and
-# references NO helper that lives ONLY in lib/test/run.sh. The module owns its
+# contract — both run.sh and run-module.sh define it) plus the run/allocate helpers
+# lib/test/module-harness.sh exports, and references NO helper that lives ONLY in
+# lib/test/run.sh. The module owns its
 # private fixture root and cleanup; it never invokes the runner or the full-suite
 # boundary. The inventory in harness-python-guards.inventory.md maps the extracted
 # coverage to its former run.sh locations and records the deliberate exclusions.
@@ -314,13 +314,11 @@ echo "#810 pin-corpus wording-only authoring gate"
 # that run.sh's blocking `pin-corpus-lint.py mutation-routing-worktree` gate
 # consumes. run.sh carries several production pin-corpus-lint.py subcommands, so
 # the gate is named by subcommand rather than by position or by breadth.
-# Sharded rather than run as one serial process (issue #870): this file was the
-# single largest serial block in the required CI check, and its heaviest class pays a
-# git-init-and-commit corpus fixture per test. The driver folds every shard into ONE
-# assertion, so the module's tally — and the registry/run.sh-operand/tally triple it is
-# compared against — is unchanged by the shard count. The tests' independence is what
-# makes this safe: each allocates its own temp dir and passes an explicit cwd, and the
-# file's docstring records that requirement for anything added to it later.
+# Sharded rather than run as one serial process (issue #870): this file was the single
+# largest serial block in the required CI check, and its heaviest class pays a
+# git-init-and-commit corpus fixture per test. What makes sharding safe here is the
+# tests' mutual independence — each allocates its own temp dir and passes an explicit
+# cwd — a property test_pin_corpus_lint.py's own docstring states as a requirement.
 _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
