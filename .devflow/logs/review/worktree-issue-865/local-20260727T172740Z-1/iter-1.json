@@ -1,0 +1,194 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-27T17:27:40Z",
+  "fix_commit_sha": "3d248e99",
+  "fix_files": ["lib/test/modules/harness-python-guards.sh"],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [
+    {"id": "VC-1", "claim": "AC1 removal complete, identifiers absent tree-wide", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:run.sh:pcl-block-removed-in-full", "verdict": "PASS", "evidence": "git grep for all four identifiers returns zero matches tree-wide; grep -c test_pin_corpus_lint.py lib/test/run.sh = 0"},
+    {"id": "VC-2", "claim": "AC2 MUTATION_CENSUS_TEST_OUT block retained and reporting", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:run.sh:mutation-census-block-retained", "verdict": "PASS", "evidence": "run.sh:41661-41667 intact: python3 invocation, rc capture, assert_eq label, _mpc_line loop"},
+    {"id": "VC-3", "claim": "AC3 intro comment narrowed to the census alone", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:run.sh:comment-describes-census-only", "verdict": "PASS", "evidence": "test_mutation_pin_census.py's MutationPinCensusTests covers only the census; the helper ban lives in RetiredMutationHelperBanTests in test_pin_corpus_lint.py"},
+    {"id": "VC-4", "claim": "AC4 #810 comment names the consuming gate explicitly", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:harness-python-guards.sh:comment-names-production-scan", "verdict": "PASS", "raw_verdict": "PASS", "evidence": "Verifier PASSed the original wording; Phase 3 comment-analyzer then refuted the 'whole-tree' characterization against HEAD. AC rewritten (2.2.6) and the comment now names the mutation-routing-worktree gate by subcommand."},
+    {"id": "VC-5", "claim": "AC5 focused-test assertion unchanged", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:harness-python-guards.sh:focused-assertion-unchanged-module-passes", "verdict": "PASS", "evidence": "diff shows the devflow_run_focused_python_test call as context lines only; standalone module run reports 39 passed, 0 failed"},
+    {"id": "VC-6", "claim": "AC6 regression assertion mirrors #798, basename match", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:harness-python-guards.sh:regression-assertion-basename-shape", "verdict": "PASS", "evidence": "Shape matches #798 at :305-306. Verifier planted the removed $LIB-spelled line in a scratch copy of run.sh: grep -cF matched (count 1). Absent/unreadable file yields empty comparand != '0' -> fails closed."},
+    {"id": "VC-7", "claim": "AC7 search domain is run.sh alone; residual recorded", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:harness-python-guards.sh:search-domain-runsh-only-residual", "verdict": "PASS", "evidence": "grep operand is the literal \"$LIB/test/run.sh\"; residual recorded in issue #865 and now also beside the assertion"},
+    {"id": "VC-8", "claim": "AC8 coupled assertion-count triple agrees at 39", "file": "scripts/workflow-flight-recorder-registry.json", "verification_mode": "agent", "claim_signature": "issue_acceptance:registry.json:minimum-assertions-three-way-agree", "verdict": "PASS", "evidence": "registry:41 = 39; run.sh:41703 operand = 39; observed tally 39 passed, 0 failed. test_module_runner.py reads the floor from the registry; no other site carries the number."},
+    {"id": "VC-9", "claim": "AC9 full run.sh reports zero failed and zero skipped", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "issue_acceptance:run.sh:full-suite-zero-failed-zero-skipped", "verdict": "PASS", "evidence": "Full suite on 05f0c95f: '12527 passed, 0 failed' with no skip tally (a skip-free summary is byte-identical to N passed, M failed). Re-running on the fix commit 3d248e99 as the final gate."},
+    {"id": "VC-10", "claim": "removed block was the sole run.sh consumer", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:run.sh:sole-consumer-of-pin-corpus-lint-test", "verdict": "PASS", "evidence": "devflow_pool_open roster names only test_module_runner.py and test_python_scripts.py; coverage-map.json has no pin_corpus_lint entry"},
+    {"id": "VC-11", "claim": "devflow_run_focused_python_test contributes exactly one assertion", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "data_format_assumption:module-harness.sh:assertion-tally-delta-of-one", "verdict": "PASS", "evidence": "module-harness.sh:265-283 contains exactly one assert_eq; assert_eq appends one PASS/FAIL per call"},
+    {"id": "VC-12", "claim": "rc-capture chain intact after the deletion", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "dependency_interaction:run.sh:rc-capture-chain-intact-after-deletion", "verdict": "PASS", "evidence": "MUTATION_CENSUS_TEST_RC=$? still follows its own python3 call; no surviving reference to the deleted variables"},
+    {"id": "VC-13", "claim": "guard is not self-tripping on the module's own references", "file": "lib/test/modules/harness-python-guards.sh", "verification_mode": "agent", "claim_signature": "api_contract:harness-python-guards.sh:guard-not-self-tripping", "verdict": "PASS", "evidence": "grep operand is a single literal file path, not a glob or directory; run.sh does not source module bodies"},
+    {"id": "VC-14", "claim": "registry description unchanged and still accurate", "file": "scripts/workflow-flight-recorder-registry.json", "verification_mode": "agent", "claim_signature": "data_format_assumption:registry.json:description-still-accurate-json-valid", "verdict": "PASS", "evidence": "description byte-identical in the diff; the new assertion sits inside the already-described #810 section; JSON reparses"}
+  ],
+  "dispatched_effort": [
+    {"agent": "devflow:checklist-generator", "phase": "1", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:checklist-verifier", "phase": "2", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort not applicable in-session; ADDITIONALLY the resolved model override 'claude-opus-4-8' was REJECTED by this runner's Agent tool (valid options: sonnet|opus|haiku|fable), so the dispatch was re-issued with no model override and inherited the session model"},
+    {"agent": "devflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:pr-test-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:requesting-code-review", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Critical",
+      "description": "The reworded #810 comment calls the consuming gate 'the production pin-corpus-lint.py whole-tree scan in run.sh'. The #810 machinery it describes is consumed by run.sh:31195 `pin-corpus-lint.py mutation-routing-worktree`, whose scan_worktree runs two subgates over the closed 13-entry AUDITED_PIN_SOURCES registry plus lib/test/test_*.py leaves, diffed against origin/main — registry-closed and diff-scoped, not whole-tree. run.sh also carries `lint` and `wrapped` subcommands, so the phrase had no unique referent.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [314, 314], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "The new raw text-presence assertion falls under the repo's wording-only pin policy and carries no `# structural-pin-ok:` declaration; also flagged as guard-class shape 4 (re-derived consumer contract) and shape 3 (no positive control).",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [327, 328], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The `|| true` collapses grep rc 1 (benign no-match), rc 2 (missing/unreadable) and rc 127 (grep absent) into one indistinguishable success; the fail-closed property rests on grep's stdout-silence-on-error and is nowhere documented, so an -s flag or a second operand would silently invert it.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [327, 328], "kind": "api_misuse"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The comment and assertion name say 'invocation' but the guard is presence-based: any mention of the basename in run.sh, including a bare comment reference, trips it.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [323, 328], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'a second serial execution' carries an exact ordinal, the class CLAUDE.md flags as rot-prone: a third execution channel would silently falsify it.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [323, 324], "kind": "style"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "The accepted residual (a reintroduced invocation in another lib/test/modules/*.sh or in lib/test/module-harness.sh) is recorded only in the issue, not beside the assertion.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [322, 328], "kind": "comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "The new assertion presents no positive control / mutation evidence; cheapest discharge is stating the observed RED in the PR description.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": [326, 328], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "MODULE_DRIVEN_SUITES has no call-site enforcement: nothing asserts a member is absent from run.sh's invocation set, which is how the #865 duplication survived. A generic cross-check in test_module_runner.py would subsume both the #798 and #810 greps for all eleven module-driven suites.",
+      "defect_signature": {"file": "lib/test/test_module_runner.py", "line_range": [1906, 1918], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "3d248e99"},
+    {
+      "finding_id": "F-2",
+      "decision": "pushed_back",
+      "source_file": "lib/test/modules/harness-python-guards.sh",
+      "claim_text": "the new raw text-presence assertion is a prohibited wording-only pin and needs a # structural-pin-ok: declaration",
+      "skip_category": "claim-quality",
+      "evidence": "Refuted by executable evidence on three independent channels: (1) the #810 extractor builds a guard site only for a raw grep carrying BOTH -F and -q (_raw_options_are_fixed_quiet) and exempts count-based guards by helper (COUNT_HELPERS); this assertion is -cF, so extract_guard_sites() returns zero sites for the file — the requesting-code-review reviewer confirmed this by running the real extractor in-process. (2) The full suite, which runs the #810 mutation-routing-worktree gate over AUDITED_PIN_SOURCES (harness-python-guards.sh included), is GREEN. (3) The literal is not wording-only under the policy's own definition: `test_pin_corpus_lint.py` cannot change without the module's own invocation at :321 changing with it, so it cannot change without changing executable behavior. The pre-existing #798 sibling the AC mandates mirroring carries no declaration either.",
+      "parking_evidence": {
+        "basis": "the repo's own #810 extractor exempts count-based grep guards by construction, and the executable gate that would enforce a declaration is green over this exact file",
+        "failing_input": "the added `assert_eq ... grep -cF ... || true` line in an AUDITED_PIN_SOURCES file",
+        "source": "lib/test/pin-corpus-lint.py COUNT_HELPERS and _raw_options_are_fixed_quiet; full-suite run 12527 passed, 0 failed",
+        "finding_ref": {"iter": 1, "index": 1}
+      }
+    },
+    {"finding_id": "F-3", "decision": "applied", "commit": "3d248e99"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "3d248e99"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "3d248e99"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "3d248e99"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "3d248e99"},
+    {
+      "finding_id": "F-8",
+      "decision": "deferred",
+      "source_file": "lib/test/test_module_runner.py",
+      "claim_text": "generalize the per-file no-run.sh-invocation guards into one cross-check over MODULE_DRIVEN_SUITES",
+      "skip_category": "out-of-scope",
+      "evidence": "Issue #865's acceptance criteria prescribe the guard's exact shape (mirroring #798), its exact location (the #810 section of harness-python-guards.sh), and record the unguarded complement as an ACCEPTED RESIDUAL. Generalizing would delete the #798 sibling (not this issue's surface) and re-open the coupled assertion-count triple. The pr-test-analyzer itself rated it 'a separate ticket, not a defect in this diff'. Filed as a Phase 4.0.5 follow-up.",
+      "parking_evidence": {
+        "basis": "the driving issue scopes the guard narrowly by acceptance criterion and records the complement as an accepted residual",
+        "failing_input": "a reintroduced direct invocation inside another lib/test/modules/*.sh or lib/test/module-harness.sh",
+        "source": ".devflow/tmp/issue-body/issue-865.md acceptance criteria 6 and 7",
+        "finding_ref": {"iter": 1, "index": 7}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 18,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {"fix_delta": {"status": "verified", "outcome": "clean", "reason": null}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1": {"calls": 1, "tokens": 68195, "wall_clock_s": 63},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 6, "tokens": 404919, "wall_clock_s": 73},
+    "phase_3": {"calls": 5, "tokens": 397462, "wall_clock_s": 200},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 30, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 10}
+  }
+}
