@@ -502,8 +502,11 @@ def _cat_heredoc_violation(statement: str) -> bool:
 # It is a deliberate DISCIPLINE rule, not probe-backed at the time it lands, exactly
 # like the implement-tier IR3 rule: a PERMITTED result from matcher-probe.yml's new
 # review row retires R5 in a follow-up change.
+# The four command-substitution spellings are covered SYMMETRICALLY — bare and
+# double-quoted, for both `$(…)` and backtick — so a quoted backtick
+# (`elif WP="`cmd`"; then`) cannot evade a rule its bare sibling catches.
 _CONDITION_SUBSTITUTION = re.compile(
-    r"^(?:if|elif)\s+[A-Za-z_][A-Za-z0-9_]*=(?:\"?\$\(|`)"
+    r"^(?:if|elif)\s+[A-Za-z_][A-Za-z0-9_]*=\"?(?:\$\(|`)"
 )
 
 

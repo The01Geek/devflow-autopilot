@@ -25,6 +25,8 @@
 #   RESUME <comment-id>        0     this run's comment already exists (cmd_id exit 0)
 #   CREATED <comment-id>       0     clean absence confirmed; comment created
 #   SKIP not-numeric          3     S1 refused a non-numeric PR number
+#   SKIP bad-marker           3     the run-keyed marker was empty (an empty --marker
+#                                   would defeat S3's stderr-emptiness discriminator)
 #   SKIP workpad-unreadable   3     S2 found workpad.py missing or unreadable
 #   SKIP api-error            3     the catch-all failure token: S3 rejected the create arm
 #                                   (exit 2 WITH stderr), `id` reported a real failure, the
@@ -69,6 +71,18 @@ case "$PR_NUMBER" in
     exit 3 ;;
 esac
 
+# S3's emptiness discriminator SILENTLY DEPENDS on this: `--marker` short-circuits
+# `_workpad_marker` before the `.devflow/config.json` read, and that read can breadcrumb
+# to stderr. An empty MARKER would let the breadcrumb land in $ERRF on a genuine clean
+# absence, so S3 would read the first write as an interpreter-level exit and route it to
+# SKIP api-error — fail-closed, but the live comment is lost with no explanation. Guard
+# the assumption at the boundary rather than leaving it latent.
+if [ -z "$MARKER" ]; then
+  echo "devflow review-seed: the run-keyed marker is empty — refusing the id call (an empty --marker lets a config breadcrumb reach stderr and defeat the exit-2 emptiness discriminator)" >&2
+  echo "SKIP bad-marker"
+  exit 3
+fi
+
 # (S2) The workpad.py about to exec must be a readable file; otherwise python3's own
 # exit 2 ([Errno 2] missing / [Errno 13] unreadable) would be misread as a clean absence.
 if [ ! -r "$WORKPAD_PY" ]; then
@@ -96,13 +110,27 @@ trap 'rm -f "$ERRF"' EXIT
 # under its own shebang bash, so the concern is moot here; the inline form is kept for
 # clarity and parity with the implement gate.
 if WP="$("$WORKPAD_PY" id "$PR_NUMBER" --marker "$MARKER" 2>"$ERRF")"; then
-  # exit 0 — this run's comment already exists.
+  # exit 0 — this run's comment already exists. Validate the id is non-empty rather
+  # than trusting the exit-0 contract: emitting a bare `RESUME ` would hand the caller
+  # an empty $WP that every later `patch` call silently no-ops on — the frozen-comment
+  # failure this helper exists to make diagnosable. Fail closed onto the shared token.
+  if [ -z "$WP" ]; then
+    echo "devflow review-seed: workpad.py id exited 0 but printed no comment id" >&2
+    echo "SKIP api-error"
+    exit 3
+  fi
   echo "RESUME $WP"
   exit 0
 elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
   # exit 2 AND silent ⇒ cmd_id's clean absence. This run's first write: create it. The
   # marker is the body file's first line, so `create` needs no --marker.
   if WP="$("$WORKPAD_PY" create "$PR_NUMBER" "$BODY_FILE" 2>>"$ERRF")"; then
+    # Same non-empty validation as the RESUME arm above.
+    if [ -z "$WP" ]; then
+      echo "devflow review-seed: workpad.py create exited 0 but printed no comment id" >&2
+      echo "SKIP api-error"
+      exit 3
+    fi
     echo "CREATED $WP"
     exit 0
   fi

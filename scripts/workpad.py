@@ -781,6 +781,18 @@ def cmd_acs_resolve(args):
     # the seed helper's `*[!0-9]*` shell guard.
     issue_arg = args.issue
     if not issue_arg or not all(c in '0123456789' for c in issue_arg):
+        # Breadcrumb on stderr so a CALLER bug (a malformed issue argument) is
+        # distinguishable from an infrastructure denial: both route to the same
+        # `resolver-unavailable` token on stdout, and without this line the two are
+        # indistinguishable to whoever reads the run. The old Phase 0.4 fence emitted
+        # a `::warning::` naming this cause; folding the guard into the helper must not
+        # lose that diagnostic. stdout stays byte-identical (it is the routed contract).
+        print(
+            f"workpad.py acs-resolve: issue argument {issue_arg!r} is not numeric — "
+            f"no surface can be examined; routing as "
+            f"{_ACS_SOURCE_RESOLVER_UNAVAILABLE}",
+            file=sys.stderr,
+        )
         print(f'source: {_ACS_SOURCE_RESOLVER_UNAVAILABLE}')
         print('criteria:')
         print('divergence:')

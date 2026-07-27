@@ -124,7 +124,7 @@ mkdir -p .devflow/tmp/review/<slug>/<run-id>
 Read the helper's ONE stdout token line and act on it — the branch is the AGENT's, no shell `if` needed:
 
 - `RESUME <comment-id>` or `CREATED <comment-id>` → hold `$WP = <comment-id>`; the patch loop below rewrites that comment at each phase boundary.
-- `SKIP not-numeric` / `SKIP workpad-unreadable` / `SKIP api-error` → leave `$WP` unset and continue without the live comment (the helper's stderr breadcrumb names which screen refused); do NOT retry.
+- `SKIP not-numeric` / `SKIP bad-marker` / `SKIP workpad-unreadable` / `SKIP api-error` → leave `$WP` unset and continue without the live comment (the helper's stderr breadcrumb names which screen refused); do NOT retry.
 - **No output at all** → a refused command and an absent helper both produce no output, so empty output NEVER authorizes a create. Take the fallback arm below, built only from heads the review profile already grants and shapes already observed permitted on this tier — a `;`-joined statement sequence with no `if` compound:
 
 ```bash

@@ -1341,12 +1341,32 @@ assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs o
 srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
 assert_eq "#857 seed helper (S3): rc-2 with stderr -> SKIP api-error (never CREATED)" "SKIP api-error" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper (S3): SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
-# id exit 1 (a real gh/parse failure) -> SKIP api-error.
+# id exit 1 (a real gh/parse failure) -> SKIP api-error. The token AND its exit code are
+# both asserted on each row: the token alone would stay green if an arm regressed to a
+# non-3 exit, and the exit code is half the helper's published contract.
 srp857_stub 1 "" "gh: boom" 0 ""
 assert_eq "#857 seed helper: id exit 1 -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: id exit 1 SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 # create failing after a confirmed clean absence -> SKIP api-error.
 srp857_stub 2 "" "" 1 ""
 assert_eq "#857 seed helper: create failure after clean absence -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: create-failure SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+# An empty run-keyed marker is refused at the boundary: an empty --marker would let a
+# config breadcrumb reach stderr and defeat S3's exit-2 emptiness discriminator, losing
+# the live comment on a genuine first write. Attributed by its own distinct token.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: empty marker -> SKIP bad-marker" "SKIP bad-marker" "$(srp857_run 7 '')"
+assert_eq "#857 seed helper: SKIP bad-marker exits 3" "3" "$(srp857_run 7 '' >/dev/null; echo $?)"
+assert_eq "#857 seed helper: positive control -- the same fixture RESUMEs with a non-empty marker" \
+  "RESUME 999" "$(srp857_run 7 m)"
+# exit 0 with an EMPTY printed id never becomes a bare `RESUME `/`CREATED ` — an empty
+# $WP would make every later patch call a silent no-op (the frozen-comment failure).
+srp857_stub 0 "" "" 0 ""
+assert_eq "#857 seed helper: id exit 0 with no printed id -> SKIP api-error, never a bare RESUME" \
+  "SKIP api-error" "$(srp857_run 7 m)"
+srp857_stub 2 "" "" 0 ""
+assert_eq "#857 seed helper: create exit 0 with no printed id -> SKIP api-error, never a bare CREATED" \
+  "SKIP api-error" "$(srp857_run 7 m)"
 # No silent path: every reachable arm prints exactly one non-empty token line.
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
@@ -31948,6 +31968,11 @@ assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset,
 printf '%s\n' '```bash' 'elif WP=$(gh pr view 3); then' '```' > "$E363/s-r5d.md"
 assert_eq "#401 R5 flags a command-substitution assignment in if/elif condition position" "yes" \
   "$(python3 "$ECS" "$E363/s-r5d.md" | grep -q '  R5  ' && echo yes || echo no)"
+# ── R5 covers all FOUR substitution spellings symmetrically: bare/quoted x $()/backtick.
+# ── A quoted backtick must not evade a rule its bare sibling catches.
+printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=`gh pr view 2`; then' 'elif WP="`gh pr view 3`"; then' '```' > "$E363/s-r5e.md"
+assert_eq "#401 R5 flags all four condition-substitution spellings (bare/quoted x dollar-paren/backtick)" "3" \
+  "$(python3 "$ECS" "$E363/s-r5e.md" | grep -c '  R5  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"

@@ -17844,9 +17844,9 @@ def _run_workpad_cli(argv):
     # network call would make its result depend on the host's auth state.
     saved_argv = sys.argv
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
-    workpad._repo_full = lambda: 'owner/repo'
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
     workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
-    workpad._run = lambda cmd, **kw: _FakeRun('')
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
     sys.argv = ['workpad.py'] + argv
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -17879,9 +17879,9 @@ assert_eq("#814: --print-body is registered on the update subparser (the real pa
 def _run_acs_resolve_capture(issue_arg):
     saved_argv = sys.argv
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
-    workpad._repo_full = lambda: 'owner/repo'
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
     workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
-    workpad._run = lambda cmd, **kw: _FakeRun('')
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
     sys.argv = ['workpad.py', 'acs-resolve', issue_arg]
     out = io.StringIO()
     code = 0
@@ -17895,11 +17895,47 @@ def _run_acs_resolve_capture(issue_arg):
         workpad._run, workpad._repo_full, workpad._workpad_marker = saved
     return code, out.getvalue()
 
+def _run_acs_resolve_capture_err(issue_arg):
+    """Same driver, but returns stderr — the caller-bug-vs-denial breadcrumb."""
+    saved_argv = sys.argv
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
+    sys.argv = ['workpad.py', 'acs-resolve', issue_arg]
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            workpad.main()
+    except SystemExit:
+        pass
+    finally:
+        sys.argv = saved_argv
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return err.getvalue()
+
+
 for _acs_bad in ('abc', '', '+5', '007x', '1a'):
     _acs_code, _acs_out = _run_acs_resolve_capture(_acs_bad)
     assert_eq("#857 acs_resolve_routes_non_numeric: %r exits 0" % _acs_bad, 0, _acs_code)
     assert_eq("#857 acs_resolve_routes_non_numeric: %r emits source: resolver-unavailable"
               % _acs_bad, True, 'source: resolver-unavailable' in _acs_out)
+    # A CALLER bug must be distinguishable from an infrastructure denial: both route to
+    # the same stdout token, so the stderr breadcrumb is the only discriminator.
+    assert_eq("#857 acs_resolve_routes_non_numeric: %r breadcrumbs the non-numeric cause "
+              "on stderr" % _acs_bad, True,
+              'is not numeric' in _run_acs_resolve_capture_err(_acs_bad))
+
+# Positive control for the guard above: a VALID numeric argument is NOT short-circuited
+# by it — it proceeds past the guard into the real resolve path (the `type=int`->`type=str`
+# change must not have broken the happy path), so it emits neither the breadcrumb nor the
+# resolver-unavailable token.
+_acs_ok_code, _acs_ok_out = _run_acs_resolve_capture('857')
+assert_eq("#857 acs_resolve numeric happy path: a valid issue number exits 0", 0, _acs_ok_code)
+assert_eq("#857 acs_resolve numeric happy path: it is NOT routed to resolver-unavailable",
+          False, 'source: resolver-unavailable' in _acs_ok_out)
+assert_eq("#857 acs_resolve numeric happy path: no non-numeric breadcrumb is emitted",
+          False, 'is not numeric' in _run_acs_resolve_capture_err('857'))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
