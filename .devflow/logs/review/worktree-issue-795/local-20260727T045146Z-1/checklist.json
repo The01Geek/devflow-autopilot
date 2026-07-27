@@ -1,0 +1,1601 @@
+[
+ {
+  "id": "VC-1",
+  "category": "issue_acceptance",
+  "claim": "AC: Round resolution where the state names the round \u2014 a subcommand invoked without --round on a state-determined run produces the same answer and exit code as the identical call with the correct --round.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_resolve_named_round / _require_named_round and the five defaulted cmd_* functions",
+  "verify_hint": "Drive record-return/record-adjudication/record-coverage/record-adjudication-render/query-next-action with and without --round on the same state; compare stdout decided line and exit code",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:round-resolution-parity",
+  "merged_from": [
+   "batch1:VC-1"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "fc4373678d4bba3b",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-1-fc4373678d4bba3b.json"
+ },
+ {
+  "id": "VC-2",
+  "category": "issue_acceptance",
+  "claim": "AC: The deciding rule (naming vs selecting) is stated beside the flag.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_ROUND_DEFAULTED comment block",
+  "verify_hint": "Check the _ROUND_DEFAULTED comment states the name-vs-select rule and the three retained groups",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:deciding-rule-stated",
+  "merged_from": [
+   "batch1:VC-2"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "242f464337d4e221",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-2-242f464337d4e221.json"
+ },
+ {
+  "id": "VC-3",
+  "category": "issue_acceptance",
+  "claim": "AC: record-dispatch keeps required=True with the dispatch-discriminator reason recorded beside the flag.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "build_parser's record-dispatch --round registration",
+  "verify_hint": "Confirm required=True plus the issue #795 retained: dispatch-discriminator note, and that _find_round reads it before validation",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:record-dispatch-round-required",
+  "merged_from": [
+   "batch1:VC-3"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "e7769ebe2195f21b",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-3-e7769ebe2195f21b.json"
+ },
+ {
+  "id": "VC-4",
+  "category": "issue_acceptance",
+  "claim": "AC: record-creation-epoch keeps --round required=True.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "build_parser record-creation-epoch registration",
+  "verify_hint": "Check --round required=True with the caller-selected-round marker",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:creation-epoch-round-required",
+  "merged_from": [
+   "batch1:VC-4"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "b7c32805295a68a5",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-4-b7c32805295a68a5.json"
+ },
+ {
+  "id": "VC-5",
+  "category": "issue_acceptance",
+  "claim": "AC: The cross-round id-scoped channels (record-resolution, record-reopen, record-invalidate, record-finding-evidence, query-finding-evidence, query-adjudication-records) keep required=True.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "build_parser registrations for those six subcommands",
+  "verify_hint": "Confirm each keeps required=True with the per-round-id-selector marker",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:cross-round-channels-required",
+  "merged_from": [
+   "batch1:VC-5"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "eac1ad5e7cc3b611",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-5-eac1ad5e7cc3b611.json"
+ },
+ {
+  "id": "VC-6",
+  "category": "issue_acceptance",
+  "claim": "AC: The defaulted set is exactly the five named subcommands; the other nine retain required=True.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_ROUND_DEFAULTED vs every parser --round registration",
+  "verify_hint": "Enumerate all 14 --round registrations in build_parser and compare to _ROUND_DEFAULTED",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:defaulted-set-is-five",
+  "merged_from": [
+   "batch1:VC-6"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "dc414504d985ee8f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-6-dc414504d985ee8f.json"
+ },
+ {
+  "id": "VC-7",
+  "category": "issue_acceptance",
+  "claim": "AC: record-degraded keeps required=True because a shipped sentence in step-3-6-audit.md asserts it.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "record-degraded parser registration and the shipped sentence",
+  "verify_hint": "Check record-degraded --round required=True (caller-selected-round marker)",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:record-degraded-round-required",
+  "merged_from": [
+   "batch1:VC-7"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "818c65a13e9ac945",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-7-818c65a13e9ac945.json"
+ },
+ {
+  "id": "VC-8",
+  "category": "issue_acceptance",
+  "claim": "AC: The defaulted set is closed and declared in scripts/issue-audit-state.py with the deciding rule beside it.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_ROUND_DEFAULTED constant and its comment",
+  "verify_hint": "Confirm the enumeration names which of the 14 default and which retain required",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:defaulted-set-declared",
+  "merged_from": [
+   "batch1:VC-8"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "9e1bb6c29c3dd399",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-8-9e1bb6c29c3dd399.json"
+ },
+ {
+  "id": "VC-9",
+  "category": "issue_acceptance",
+  "claim": "AC: Explicit --round values keep today's behavior, including every ordering/funding/retry-arm/closed-round refusal with unchanged breadcrumbs.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_resolve_named_round early return on explicit_round and the downstream guards",
+  "verify_hint": "Confirm if explicit_round is not None: return explicit_round, None and that no guard was moved above it",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:explicit-round-unchanged",
+  "merged_from": [
+   "batch1:VC-9"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "68f8917aedcc39f9",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-9-68f8917aedcc39f9.json"
+ },
+ {
+  "id": "VC-10",
+  "category": "issue_acceptance",
+  "claim": "AC: Ambiguity fails closed by class \u2014 mutations exit non-zero with no state write; query-next-action exits 0 with a decided reason= token.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_require_named_round (mutations) vs cmd_query_next_action's _resolve_named_round branch",
+  "verify_hint": "Verify _require_named_round runs before any doc mutation and that cmd_query_next_action prints action=round-closed-no-verdict reason=<amb> and returns 0",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:ambiguity-fails-closed-by-class",
+  "merged_from": [
+   "batch1:VC-10"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "bb3370ae6c9e1869",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-10-bb3370ae6c9e1869.json"
+ },
+ {
+  "id": "VC-11",
+  "category": "issue_acceptance",
+  "claim": "AC: Every guard reachable on the explicit --round path is reachable on the defaulted path for each defaulted subcommand.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "the five cmd_* bodies and the tests in lib/test/test_python_scripts.py",
+  "verify_hint": "Check _require_named_round rebinds args.round before _find_round so all downstream refusals still fire; look for defaulted-path guard rows in the #795 test block",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:defaulted-path-guards-reachable",
+  "merged_from": [
+   "batch1:VC-11"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "54734a7085ec1338",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-11-54734a7085ec1338.json"
+ },
+ {
+  "id": "VC-12",
+  "category": "issue_acceptance",
+  "claim": "AC: next_call= is emitted as the final stdout line for every non-excluded subcommand, in exactly three shapes constrained at the point of return.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_checked_next_call and main()'s emission site",
+  "verify_hint": "Confirm _checked_next_call accepts only next_call=none, the unestablished regex, and the <state-owner> invocation prefix",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:next-call-three-shapes",
+  "merged_from": [
+   "batch1:VC-12"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "e7cfce47130da25c",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-12-e7cfce47130da25c.json"
+ },
+ {
+  "id": "VC-13",
+  "category": "issue_acceptance",
+  "claim": "AC: The invocation shape fills only state-derivable operands and names the rest in needs=.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_render_operand and _next_call_invocation",
+  "verify_hint": "Check bare flags are appended to needs= and filled ones are not; needs=none when empty",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:needs-field-shape",
+  "merged_from": [
+   "batch1:VC-13"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "05e7477c48ec73d3",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-13-05e7477c48ec73d3.json"
+ },
+ {
+  "id": "VC-14",
+  "category": "issue_acceptance",
+  "claim": "AC: The rendered next_call= line carries no program head, only the fixed <state-owner> placeholder.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_STATE_OWNER_PLACEHOLDER usage in _next_call_invocation",
+  "verify_hint": "Confirm no sys.argv[0] or path is rendered anywhere in the next_call line",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:no-program-head",
+  "merged_from": [
+   "batch1:VC-14"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "0fa3e4f0395d29b1",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-14-0fa3e4f0395d29b1.json"
+ },
+ {
+  "id": "VC-15",
+  "category": "issue_acceptance",
+  "claim": "AC: The caller-supplied operand class is closed at six classes and never carries a rendered value, including --round on record-dispatch/record-creation-epoch.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_CALLER_SUPPLIED_FLAGS and _ROUND_IS_CALLER_INTENT",
+  "verify_hint": "Compare the flag set against the criterion's enumeration; confirm _render_operand returns None for each",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:caller-supplied-closed-set",
+  "merged_from": [
+   "batch1:VC-15"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "bc31b06deb50efb9",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-15-bc31b06deb50efb9.json"
+ },
+ {
+  "id": "VC-16",
+  "category": "issue_acceptance",
+  "claim": "AC: All three dispatch-routing answers (query-arm fresh round, query-next-action dispatch-embed-retry and dispatch-inline-degraded) render record-dispatch --round bare in needs=.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_dispatch_next_call and _DISPATCH_ROUTE",
+  "verify_hint": "Confirm the operands list appends ('--round', None) on all three paths",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:three-dispatch-answers-name-round",
+  "merged_from": [
+   "batch1:VC-16"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "89ca9390fb73e415",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-16-89ca9390fb73e415.json"
+ },
+ {
+  "id": "VC-17",
+  "category": "issue_acceptance",
+  "claim": "AC: record-dispatch's --round is rendered bare, never filled, so the branch discriminator is not handed back through the answer channel.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_ROUND_IS_CALLER_INTENT and _dispatch_next_call",
+  "verify_hint": "Trace that --round for record-dispatch cannot be filled even if state holds a round",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:dispatch-round-rendered-bare",
+  "merged_from": [
+   "batch1:VC-17"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "b7812fe9b1b0c027",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-17-b7812fe9b1b0c027.json"
+ },
+ {
+  "id": "VC-18",
+  "category": "issue_acceptance",
+  "claim": "AC: next_call= refuses to name a command where the next step is a user interaction or required verification (foreign nonce, state-unestablished, boundary offer, auditor dispatch, advisory-record rendering, verify-then-revise).",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_ACTION_NOT_A_CALL and _next_call_body's unestablished arms",
+  "verify_hint": "Confirm each named case returns _unestablished(<reason>) and never an invocation",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:unestablished-where-not-a-call",
+  "merged_from": [
+   "batch1:VC-18"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "cf504095581f9f55",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-18-cf504095581f9f55.json"
+ },
+ {
+  "id": "VC-19",
+  "category": "issue_acceptance",
+  "claim": "AC: Rendered operands are shape-checked at the render boundary (absolute path, no newline/CR, no shell metacharacter) and a failure yields next_call=unestablished with a named refusal token.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_shape_check, _RenderRefusal, _NEXT_CALL_REFUSALS",
+  "verify_hint": "Check every refusal token is in _NEXT_CALL_REFUSALS and that _resolve_next_call converts _RenderRefusal into the unestablished shape",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:render-boundary-shape-checks",
+  "merged_from": [
+   "batch1:VC-19"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "36a30e1e9abb5b05",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-19-36a30e1e9abb5b05.json"
+ },
+ {
+  "id": "VC-20",
+  "category": "issue_acceptance",
+  "claim": "AC: The emitted next_call= line is documented in both the procedure and the module docstring as reviewable output, never an instruction.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "module docstring TWO-CLASS CLI CONTRACT section and _resolve_next_call docstring",
+  "verify_hint": "Confirm the docstring states it is a generated suggestion the caller reviews",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:next-call-documented-as-suggestion",
+  "merged_from": [
+   "batch1:VC-20"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "f4a52eb7fa4e25d9",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-20-f4a52eb7fa4e25d9.json"
+ },
+ {
+  "id": "VC-21",
+  "category": "issue_acceptance",
+  "claim": "AC: The existing decided line is byte-identical and remains the first stdout line for every emitting subcommand, including record-dispatch's single-print multi-field line.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "main()'s post-func emission site and the unchanged cmd_* print calls",
+  "verify_hint": "Confirm no cmd_* print was reordered and _emit_next_call runs only after args.func returns",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:decided-line-first-byte-identical",
+  "merged_from": [
+   "batch1:VC-21"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "51be9210b18449fb",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-21-51be9210b18449fb.json"
+ },
+ {
+  "id": "VC-22",
+  "category": "issue_acceptance",
+  "claim": "AC: The next_call= exclusion set is defined by a three-armed predicate (payload stdout, multi-line stdout, capture-consumed stdout) and enumerated from it.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_NEXT_CALL_EXCLUDED and its comment",
+  "verify_hint": "Check the arms named match the enumeration (emit-body, check-claim-staleness, _MULTILINE_READBACKS)",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:exclusion-predicate-three-arms",
+  "merged_from": [
+   "batch1:VC-22"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "8c1b9e0e978f41a1",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-22-8c1b9e0e978f41a1.json"
+ },
+ {
+  "id": "VC-23",
+  "category": "issue_acceptance",
+  "claim": "AC: The complement of the exclusion predicate is analyzed and routed \u2014 a subcommand in none of the three arms emits next_call=.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "verify_against": "check_emitting_complement and the _NEXT_CALL_EXCLUDED comment",
+  "verify_hint": "Confirm the complement rule is stated beside the predicate and machine-checked",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:exclusion-complement-decided",
+  "merged_from": [
+   "batch1:VC-23"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "4af9f187d155e3f0",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-23-4af9f187d155e3f0.json"
+ },
+ {
+  "id": "VC-24",
+  "category": "issue_acceptance",
+  "claim": "AC: emit-body stdout is byte-identical and its refusal path still exits non-zero with empty stdout.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "cmd_emit_body and its presence in _NEXT_CALL_EXCLUDED",
+  "verify_hint": "Confirm emit-body is excluded so no trailing line is appended to the payload bytes",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:emit-body-byte-identical",
+  "merged_from": [
+   "batch1:VC-24"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "536f02fadde8fc81",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-24-536f02fadde8fc81.json"
+ },
+ {
+  "id": "VC-25",
+  "category": "issue_acceptance",
+  "claim": "AC: query-boundary answers the Step 3.6 to Step 4 boundary in one invocation carrying the decided first line of trigger, convergence, coverage and calibration, each byte-identical to its individual query's first line.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_BOUNDARY_PRODUCERS and the four hoisted _*_line producers",
+  "verify_hint": "Confirm cmd_query_triggers/convergence/coverage/calibration print exactly the same hoisted producer output",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:query-boundary-one-read",
+  "merged_from": [
+   "batch1:VC-25"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "8e554ded64cc9769",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-25-8e554ded64cc9769.json"
+ },
+ {
+  "id": "VC-26",
+  "category": "issue_acceptance",
+  "claim": "AC: query-boundary carries no per-dimension coverage rows.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "_coverage_backing_line vs cmd_query_coverage",
+  "verify_hint": "Confirm the hoisted producer returns only the decided line and cmd_query_coverage still prints the key=/outcome= rows",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:boundary-no-coverage-rows",
+  "merged_from": [
+   "batch1:VC-26"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "0ad22ee1ed75921a",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-26-0ad22ee1ed75921a.json"
+ },
+ {
+  "id": "VC-27",
+  "category": "issue_acceptance",
+  "claim": "AC: The individual boundary queries (query-triggers, query-convergence, query-coverage, query-calibration) survive and answer exactly as today.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "the four cmd_query_* functions after the hoist",
+  "verify_hint": "Compare pre/post hoist output strings for each, including the foreign-nonce arms",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:individual-queries-survive",
+  "merged_from": [
+   "batch1:VC-27"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "b3e1c302deb65e74",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-27-b3e1c302deb65e74.json"
+ },
+ {
+  "id": "VC-28",
+  "category": "issue_acceptance",
+  "claim": "AC: The boundary read reports per-component status, naming a component and reason when it cannot be established and returning no short answer readable as complete.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "cmd_query_boundary's per-producer try/except",
+  "verify_hint": "Confirm the failing component emits component=<name> reason=unestablished detail=<Type> in position and the others still answer",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:boundary-per-component-status",
+  "merged_from": [
+   "batch1:VC-28"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "80172d04274496e3",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-28-80172d04274496e3.json"
+ },
+ {
+  "id": "VC-29",
+  "category": "issue_acceptance",
+  "claim": "AC: The dispatch pointer arrives on stderr without a second spawn and is selected by its dispatch-pointer: prefix, byte-identical to the line inside the written file.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "the #795 dispatch-pointer fold block in run.sh and scripts/render-audit-prompt.py | The _emit_dispatch_pointer implementation and the dispatch-instructions branch of main(), plus the prose in step-3-6-audit.md that instructs prefix-based selection.",
+  "verify_hint": "Confirm run.sh's assertions select by prefix (grep -m1 dispatch-pointer:), assert non-emptiness, and assert exactly one stderr pointer line | Check _emit_dispatch_pointer and the main() dispatch-instructions branch, and confirm step-3-6-audit.md no longer contains the retired python3 -c read-back fence.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:dispatch-pointer-stderr-fold",
+  "merged_from": [
+   "batch1:VC-29",
+   "batch2:VC-1"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "00083e0438f3781d",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-29-00083e0438f3781d.json"
+ },
+ {
+  "id": "VC-30",
+  "category": "issue_acceptance",
+  "claim": "AC: The landed criterion keeps both conjuncts \u2014 the generation fence gains && test -s \"<instructions path>\".",
+  "source_file": "lib/test/modules/create-issue-contract.sh",
+  "verify_against": "step-3-6-audit.md's generation fence and the surviving #768 landed pin | The bash generation fence in step-3-6-audit.md and the surrounding landed-criterion prose.",
+  "verify_hint": "Confirm the #768 landed check is exit-zero plus a non-empty file pin survives and the fence carries the test -s conjunct | Check the render-audit-prompt.py dispatch-instructions bash fence for the trailing && test -s, and that the paragraph after it names the instructions-generation-failed arm.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:create-issue-contract.sh:landed-both-conjuncts",
+  "merged_from": [
+   "batch1:VC-30",
+   "batch2:VC-2"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "0aab4671e8409461",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-30-0aab4671e8409461.json"
+ },
+ {
+  "id": "VC-31",
+  "category": "issue_acceptance",
+  "claim": "AC: dispatch-instructions keeps its purity and stdout contract \u2014 no consumer-extension read, stdout byte-identical with its marker pair, #709 regeneration comparand unaffected.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "the #795 run.sh purity assertions and render-audit-prompt.py | render_instructions / instructions_bytes and the dispatch-instructions branch of main(); the marker constants INSTRUCTIONS_PREFIX and END_MARKER.",
+  "verify_hint": "Check the assertion that stdout line 1 starts with dispatch-instructions: and that no render-status: line is emitted | Confirm the dispatch-instructions path still returns the unchanged marker pair and that _emit_dispatch_pointer writes only to sys.stderr, reading no consumer extension.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:dispatch-instructions-purity",
+  "merged_from": [
+   "batch1:VC-31",
+   "batch2:VC-3"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "26eb5286b048399f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-31-26eb5286b048399f.json"
+ },
+ {
+  "id": "VC-32",
+  "category": "issue_acceptance",
+  "claim": "AC: scripts/resolve-main-root.sh remains the sole root resolver at every call site; no site moves to a state-owner query and record-draft-binding --path stays required.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "record-draft-binding parser registration and the MAIN_ROOT fences | Every call site of resolve-main-root.sh across skills/, scripts/, lib/ \u2014 especially the MAIN_ROOT fences in step-3-6-audit.md and step-4-present-create.md.",
+  "verify_hint": "Confirm --path is still required=True and no fence was replaced by a state-owner query | git grep for resolve-main-root.sh and confirm each fence is unchanged and that step-4-present-create.md still says the fallback root comes from the MAIN_ROOT= fence.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:resolver-sole-root-owner",
+  "merged_from": [
+   "batch1:VC-32",
+   "batch2:VC-4"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "62bb1c61b634e51b",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-32-62bb1c61b634e51b.json"
+ },
+ {
+  "id": "VC-33",
+  "category": "issue_acceptance",
+  "claim": "AC: The resolver derives its answer with bash builtins only \u2014 no head/sed/grep \u2014 with unchanged always-exit-0 contract, pwd fallback and breadcrumb text.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "scripts/resolve-main-root.sh and the #795 restricted-PATH fixture | The pre-change version of scripts/resolve-main-root.sh for the breadcrumb string and exit contract.",
+  "verify_hint": "Grep resolve-main-root.sh for head/sed/grep/awk; check the while IFS= read -r / case / ${var#prefix} parse | Check lines 40-70 for any remaining external tool invocation, and diff the breadcrumb and exit 0 against the pre-change file.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:resolve-main-root.sh:builtins-only",
+  "merged_from": [
+   "batch1:VC-33",
+   "batch2:VC-5"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "f2470b71f4539517",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-33-f2470b71f4539517.json"
+ },
+ {
+  "id": "VC-34",
+  "category": "issue_acceptance",
+  "claim": "AC: The hardening is proven behavior-preserving from a linked worktree under a PATH exposing only git and bash, in a new fixture (not one whose cwd equals the main root).",
+  "source_file": "lib/test/run.sh",
+  "source_line": 533,
+  "source_line_end": 571,
+  "verify_against": "the #795 restricted-PATH block in lib/test/run.sh | The test fixture in lib/test/ covering resolve-main-root.sh; look for a newly added restricted-PATH linked-worktree fixture distinct from cli_roundtrip_restricted_path.",
+  "verify_hint": "Verify the fixture uses the linked worktree $RMR_WT, symlinks only git+bash into restricted-bin, and asserts the answer differs from the worktree path | git grep resolve-main-root in lib/test/ and confirm a new fixture cds into a LINKED worktree under a PATH containing only git and bash, and covers all five cases.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:restricted-path-linked-worktree-fixture",
+  "merged_from": [
+   "batch1:VC-34",
+   "batch2:VC-6"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "5981a9c1cbe716f0",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-34-5981a9c1cbe716f0.json"
+ },
+ {
+  "id": "VC-35",
+  "category": "issue_acceptance",
+  "claim": "AC: The new operand-unresolvable refusal class is routed in fallback-state-owner-unavailable.md with the partition's completeness re-established, scoped to mutation exits only.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "skills/create-issue/references/fallback-state-owner-unavailable.md and _require_named_round's breadcrumb | The routing prose in fallback-state-owner-unavailable.md and the actual breadcrumb/exit behavior of the ambiguity refusal in scripts/issue-audit-state.py.",
+  "verify_hint": "Confirm the breadcrumb text emitted by _require_named_round is classifiable under the amended route | Read the amended route-B bullet and confirm the partition claim now scopes to mutation exits and that the described remedy matches what issue-audit-state.py's ambiguity breadcrumb actually asks for.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:operand-unresolvable-routed",
+  "merged_from": [
+   "batch1:VC-35",
+   "batch2:VC-7"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "c6b3865440e73a86",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-35-c6b3865440e73a86.json"
+ },
+ {
+  "id": "VC-36",
+  "category": "issue_acceptance",
+  "claim": "AC: No _fail(...) refusal breadcrumb string in scripts/issue-audit-state.py is removed or altered.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "the diff's _fail call sites",
+  "verify_hint": "Diff every _fail(...) literal in the file against the pre-change version; only additions are permitted",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:no-breadcrumb-changed",
+  "merged_from": [
+   "batch1:VC-36"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "83ebf5d5376097cf",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-36-83ebf5d5376097cf.json"
+ },
+ {
+  "id": "VC-37",
+  "category": "issue_acceptance",
+  "claim": "AC: Every existing behavioral assertion's subject behavior is preserved (the #546 block, its restricted-PATH and malformed-state fixtures, foreign-nonce rows, and the test_python_scripts.py rows) \u2014 neither weakened nor narrowed.",
+  "source_file": "lib/test/test_python_scripts.py",
+  "verify_against": "the decided() re-anchoring in test_python_scripts.py and the run.sh #546 block",
+  "verify_hint": "Confirm no assertion was deleted or its expected value loosened; only whole-stdout captures were narrowed to the first line",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:test_python_scripts.py:behavioral-assertions-preserved",
+  "merged_from": [
+   "batch1:VC-37"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "c5fb327f78c66180",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-37-c5fb327f78c66180.json"
+ },
+ {
+  "id": "VC-38",
+  "category": "issue_acceptance",
+  "claim": "AC: Whole-stdout comparisons are re-anchored to the decided line and the re-anchoring is enumerated (13 of the 15 #546 captures plus the nonce mint).",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "the cat to sed -n 1p conversions in run.sh's #546 block and the NONCE mint",
+  "verify_hint": "Count the converted captures; confirm .rt-body (emit-body) and .rt-files (ls) were left as whole-stdout, and NONCE uses sed -n '1s/nonce=//p'",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:whole-stdout-reanchored-enumerated",
+  "merged_from": [
+   "batch1:VC-38"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "cda906d6fd89e036",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-38-cda906d6fd89e036.json"
+ },
+ {
+  "id": "VC-39",
+  "category": "issue_acceptance",
+  "claim": "AC: The two-class CLI contract is amended in all four carriers \u2014 step-3-6-audit.md, the module docstring, overview 11, and the top-level ArgumentParser description.",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "verify_against": "the four carrier sites | The two-class contract bullet in step-3-6-audit.md compared against the other three carriers.",
+  "verify_hint": "Check 11's paraphrase, the TWO-CLASS CLI CONTRACT docstring, build_parser's description=, and step-3-6-audit.md all say decided answer line and describe next_call= | Check the Queries bullet for print one decided answer line plus the next_call= sentence, and confirm it agrees with the module docstring's TWO-CLASS CLI CONTRACT section.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:DEVFLOW_SYSTEM_OVERVIEW.md:two-class-contract-four-carriers",
+  "merged_from": [
+   "batch1:VC-39",
+   "batch2:VC-8"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "4bba18a97d9107f2",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-39-4bba18a97d9107f2.json"
+ },
+ {
+  "id": "VC-40",
+  "category": "issue_acceptance",
+  "claim": "AC: The overview's read-back enumeration is fixed to match the docstring's (five read-backs plus the composite).",
+  "source_file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "source_line": 55,
+  "verify_against": "_MULTILINE_READBACKS in scripts/issue-audit-state.py",
+  "verify_hint": "Compare 11's named list to _MULTILINE_READBACKS's six members",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:DEVFLOW_SYSTEM_OVERVIEW.md:readback-enumeration-fixed",
+  "merged_from": [
+   "batch1:VC-40"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "186b6be11786730f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-40-186b6be11786730f.json"
+ },
+ {
+  "id": "VC-41",
+  "category": "issue_acceptance",
+  "claim": "AC: The --round-required prose stays true in both clauses (record-dispatch and record-degraded) and the surrounding paragraph gains a statement of which subcommands now resolve the round from state.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "step-3-6-audit.md and both parser registrations | The required=True settings for --round on record-dispatch and record-degraded in scripts/issue-audit-state.py.",
+  "verify_hint": "Confirm both subcommands still required=True and the new rule paragraph exists | Check that the shipped sentence is unmodified, and cross-check both subcommands still declare required=True.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:round-required-prose-true",
+  "merged_from": [
+   "batch1:VC-41",
+   "batch2:VC-10"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "12e07444a9cbd39e",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-41-12e07444a9cbd39e.json"
+ },
+ {
+  "id": "VC-42",
+  "category": "issue_acceptance",
+  "claim": "AC: The module docstring matches the code \u2014 it names five multi-line read-back queries and four empty-store tokens.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2256,
+  "verify_against": "_MULTILINE_READBACKS and each read-back's empty-store token",
+  "verify_hint": "Verify findings=none / claims=none / evidence=none / records=none are the four tokens and that query-coverage's empty-store behavior is not misdescribed",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:issue-audit-state.py:docstring-matches-code",
+  "merged_from": [
+   "batch1:VC-42"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "7e822c55ae3d0e53",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-42-7e822c55ae3d0e53.json"
+ },
+ {
+  "id": "VC-43",
+  "category": "issue_acceptance",
+  "claim": "AC: query-boundary joins the query enumerations in both carriers, and the wording-only five-name pin is deleted rather than extended.",
+  "source_file": "lib/test/modules/create-issue-contract.sh",
+  "source_line": 483,
+  "verify_against": "the deleted #603/AC14 pin and the docstring/step-3-6-audit.md enumerations | The subcommand registration set in scripts/issue-audit-state.py versus the enumeration in step-3-6-audit.md.",
+  "verify_hint": "Confirm the pin is deleted and check-audit-lifecycle-contracts.py now carries the guarantee | Compare the query names listed in the Queries bullet against the registered query-* subparsers; confirm query-boundary appears in both and is named among the multi-line ones.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:create-issue-contract.sh:query-boundary-joins-enumerations",
+  "merged_from": [
+   "batch1:VC-43",
+   "batch2:VC-9"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "b2069ab89ff9d88b",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-43-b2069ab89ff9d88b.json"
+ },
+ {
+  "id": "VC-44",
+  "category": "issue_acceptance",
+  "claim": "AC: The stated call sequence matches the unconditional mandated calls over the joint step-3-6-audit.md + step-4-present-create.md scope (20 calls, 19 from step 3.6).",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "verify_against": "check_sequence and the ordered call-sequence paragraph | The mandated state-owner invocations actually written in step-3-6-audit.md and step-4-present-create.md.",
+  "verify_hint": "Run the helper and compare unconditional_call_count against the sequence paragraph; confirm the step-4 query-draft-binding re-detect is counted | Enumerate the unconditional state-owner calls mandated in both files and compare, in order and count, against the arrow sequence; confirm the scope paragraph names both files.",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:check-audit-lifecycle-contracts.py:call-sequence-joint-scope",
+  "merged_from": [
+   "batch1:VC-44",
+   "batch2:VC-11"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "2c7ec666cba1920f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-44-2c7ec666cba1920f.json"
+ },
+ {
+  "id": "VC-45",
+  "category": "issue_acceptance",
+  "claim": "AC: Both reconciliations are guarded at a machine-consumed boundary, not by parsing prose for a sentence.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "verify_against": "check_readbacks and check_sequence",
+  "verify_hint": "Confirm the comparands are _MULTILINE_READBACKS and build_parser()'s registered choices, not grep hits",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:check-audit-lifecycle-contracts.py:machine-consumed-boundary",
+  "merged_from": [
+   "batch1:VC-45"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "bc5426011903cd91",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-45-bc5426011903cd91.json"
+ },
+ {
+  "id": "VC-46",
+  "category": "issue_acceptance",
+  "claim": "AC: The two prose readers fail closed and never clean-zero \u2014 no section, more than one candidate, or zero invocations turns the suite RED with a named breadcrumb.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "source_line": 218,
+  "source_line_end": 262,
+  "verify_against": "_sole_paragraph and _invocations Refusal arms",
+  "verify_hint": "Confirm all three refusal arms exist and that main() converts Refusal into exit 1 with a stderr breadcrumb",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:check-audit-lifecycle-contracts.py:prose-readers-fail-closed",
+  "merged_from": [
+   "batch1:VC-46"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "be3b9be21acf85a2",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-46-be3b9be21acf85a2.json"
+ },
+ {
+  "id": "VC-47",
+  "category": "issue_acceptance",
+  "claim": "AC: Every existing pin this change falsifies is reconciled in the same commit \u2014 re-anchored onto behavior or deleted (IAS_HELP_546, the #611 AC1 --round assertions, the record-dispatch --round invocation pins).",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "the IAS_HELP_546 re-anchor and lib/test/modules/create-issue-contract.sh",
+  "verify_hint": "Grep run.sh and create-issue-contract.sh for the old literals (decided token, the pointer is extracted with python3); confirm none remain green over falsified prose",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:falsified-pins-reconciled",
+  "merged_from": [
+   "batch1:VC-47"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "904a23fca7b4c582",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-47-904a23fca7b4c582.json"
+ },
+ {
+  "id": "VC-48",
+  "category": "issue_acceptance",
+  "claim": "AC: No pin is left green over a sentence this change falsified.",
+  "source_file": "lib/test/modules/create-issue-contract.sh",
+  "verify_against": "all create-issue pins whose literals touch the amended sentences",
+  "verify_hint": "Sweep the module's pins for literals inside sentences amended by this change (query-class enumeration, --round requirement, pointer extraction)",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:create-issue-contract.sh:no-pin-green-over-falsified",
+  "merged_from": [
+   "batch1:VC-48"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "1609f0ab6a3831e6",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-48-1609f0ab6a3831e6.json"
+ },
+ {
+  "id": "VC-49",
+  "category": "issue_acceptance",
+  "claim": "AC: A committed measurement fixture is derived from the procedure (not hand-authored), excludes conditional calls, is asserted live, and reports both figures on the passing path.",
+  "source_file": "lib/test/run.sh",
+  "source_line": 587,
+  "source_line_end": 599,
+  "verify_against": "check-audit-lifecycle-contracts.py's derived counts and run.sh's MEASURE line",
+  "verify_hint": "Confirm the MEASURE printf runs unconditionally on the green path and _CONDITIONAL excludes record-offer/query-adjudication-records",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:measurement-fixture-derived",
+  "merged_from": [
+   "batch1:VC-49"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "3299ea1b4850b64e",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-49-3299ea1b4850b64e.json"
+ },
+ {
+  "id": "VC-50",
+  "category": "issue_acceptance",
+  "claim": "AC: A real-corpus before/after is recorded in docs/create-issue-context.md with both figures filled in \u2014 not a template with unsubstituted slots.",
+  "source_file": "docs/create-issue-context.md",
+  "source_line": 110,
+  "source_line_end": 121,
+  "verify_against": "the Step 3.6 state-owner round-trips (issue #795) section",
+  "verify_hint": "The after row is left as a template with <start>/<end>/<n> placeholders and declared a post-merge measurement \u2014 check whether this satisfies or violates the criterion's both figures filled in \u2014 not a template with unsubstituted slots",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:create-issue-context.md:real-corpus-before-after-filled",
+  "merged_from": [
+   "batch1:VC-50"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "5dae37ab2631f4c6",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-50-5dae37ab2631f4c6.json"
+ },
+ {
+  "id": "VC-51",
+  "category": "issue_acceptance",
+  "claim": "AC: No new tool grant \u2014 every introduced/modified invocation is python3-headed and lib/capability-profiles.json, its five generated literals, and lib/review-profile.tokens are byte-identical.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "the diff's file list and the capability-profiles module",
+  "verify_hint": "Confirm no capability-profiles.json / review-profile.tokens / workflow literal appears in the change, and the new helper is invoked as python3 <path>",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:no-new-tool-grant",
+  "merged_from": [
+   "batch1:VC-51"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "391860a2ea481597",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-51-391860a2ea481597.json"
+ },
+ {
+  "id": "VC-52",
+  "category": "issue_acceptance",
+  "claim": "AC: lib/test/run.sh reports zero failures and zero skips and shellcheck over the governed tracked shell files reports no findings.",
+  "source_file": "lib/test/run.sh",
+  "verify_against": "a live suite + lint run",
+  "verify_hint": "Run lib/test/run.sh and the shellcheck command from CLAUDE.md; read the terminal summary tallies",
+  "verification_mode": "agent",
+  "claim_signature": "issue_acceptance:run.sh:suite-and-lint-green",
+  "merged_from": [
+   "batch1:VC-52"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "5b54bc1378101426",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-52-5b54bc1378101426.json"
+ },
+ {
+  "id": "VC-53",
+  "category": "dependency_interaction",
+  "claim": "check-audit-lifecycle-contracts.py reads private module attributes _MULTILINE_READBACKS, _NEXT_CALL_EXCLUDED, _ROUND_DEFAULTED, _emit_next_call, build_parser, and registered_subcommands from scripts/issue-audit-state.py; every name must exist with the assumed shape.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "verify_against": "the definitions in scripts/issue-audit-state.py",
+  "verify_hint": "Check each attribute exists, registered_subcommands() returns a frozenset of str, and _emit_next_call(name, args, ctx) takes exactly three positionals",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:check-audit-lifecycle-contracts.py:private-attr-contract",
+  "merged_from": [
+   "batch1:VC-53"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "78129a66ca3f6ec1",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-53-78129a66ca3f6ec1.json"
+ },
+ {
+  "id": "VC-54",
+  "category": "dependency_interaction",
+  "claim": "check_readbacks calls module._emit_next_call(name, None, None) for every excluded subcommand and expects only an AssertionError; but _emit_next_call dereferences args.slug after the exclusion guard, so a non-raising path would AttributeError.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "source_line": 296,
+  "source_line_end": 305,
+  "verify_against": "_emit_next_call's ordering of the exclusion assert vs. args access in scripts/issue-audit-state.py",
+  "verify_hint": "Confirm the if cmd_name in _NEXT_CALL_EXCLUDED: raise AssertionError is the first statement, before any args attribute access",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:check-audit-lifecycle-contracts.py:emit-next-call-probe-args-none",
+  "merged_from": [
+   "batch1:VC-54"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "705a4f46674faded",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-54-705a4f46674faded.json"
+ },
+ {
+  "id": "VC-55",
+  "category": "dependency_interaction",
+  "claim": "check_emitting_complement probes _emit_next_call with argparse.Namespace(slug=\"_probe795\") only, assuming every other namespace field is read via getattr with a default; _emit_next_call must access no attribute besides slug unguarded.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "source_line": 336,
+  "source_line_end": 344,
+  "verify_against": "_emit_next_call in scripts/issue-audit-state.py",
+  "verify_hint": "Verify round, draft_file and nonce are read with getattr(args, ..., None) and that args.slug is the only direct access",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:check-audit-lifecycle-contracts.py:namespace-probe-getattr",
+  "merged_from": [
+   "batch1:VC-55"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "5daada39355a33c2",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-55-5daada39355a33c2.json"
+ },
+ {
+  "id": "VC-56",
+  "category": "dependency_interaction",
+  "claim": "check_round_defaulted walks parser._actions / argparse._SubParsersAction.choices \u2014 private argparse internals \u2014 to decide which subcommands have an optional --round.",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "source_line": 366,
+  "source_line_end": 372,
+  "verify_against": "argparse internals on the supported Python versions and registered_subcommands()'s identical walk",
+  "verify_hint": "Confirm the walk resolves on the repo's minimum Python (3.11+) and that a subparser aliased name would not double-count",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:check-audit-lifecycle-contracts.py:argparse-private-walk",
+  "merged_from": [
+   "batch1:VC-56"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "9d688c635619df17",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-56-9d688c635619df17.json"
+ },
+ {
+  "id": "VC-57",
+  "category": "data_format_assumption",
+  "claim": "_resolve_named_round assumes state['rounds'] is a list whose last element is a dict carrying a 'round' key.",
+  "source_file": "scripts/issue-audit-state.py",
+  "verify_against": "the state schema writer that appends rounds (cmd_record_dispatch) and load_state validation",
+  "verify_hint": "Check every writer of state['rounds'] emits a round key, and whether a hand-corrupted rounds entry can raise KeyError/TypeError out of _resolve_named_round on the mutation path",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:issue-audit-state.py:rounds-last-shape",
+  "merged_from": [
+   "batch1:VC-57"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "da6d8f3106e8f4ca",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-57-da6d8f3106e8f4ca.json"
+ },
+ {
+  "id": "VC-58",
+  "category": "data_format_assumption",
+  "claim": "_next_call_body compares state.get('nonce') != nonce, assuming the persisted nonce is a plain string matching the CLI-supplied value; other call sites use state['nonce'] directly.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2632,
+  "verify_against": "load_state / cmd_init nonce persistence and the sibling foreign-nonce checks",
+  "verify_hint": "Confirm the .get vs [] divergence is intentional and that a missing nonce key yields foreign-nonce rather than a crash",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:issue-audit-state.py:next-call-nonce-read",
+  "merged_from": [
+   "batch1:VC-58"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "2ae77c786469df54",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-58-2ae77c786469df54.json"
+ },
+ {
+  "id": "VC-59",
+  "category": "api_contract",
+  "claim": "The query class's always-exit-0 contract must survive the new trailing emission: main()'s broad except around _emit_next_call must catch everything the resolver can raise, including SystemExit-adjacent cases.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 3311,
+  "source_line_end": 3326,
+  "verify_against": "main()'s except Exception and the AssertionError raised by _checked_next_call / _next_call_ctx",
+  "verify_hint": "Note except Exception does not catch SystemExit/KeyboardInterrupt \u2014 verify no path inside _emit_next_call can raise SystemExit (e.g. via _fail or _query_state)",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:emit-next-call-exit0-preserved",
+  "merged_from": [
+   "batch1:VC-59"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "18363b1dd1d7d4ba",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-59-18363b1dd1d7d4ba.json"
+ },
+ {
+  "id": "VC-60",
+  "category": "api_contract",
+  "claim": "_emit_next_call re-reads state from disk post-mutation via _query_state(args.slug, quiet=True); every subcommand reaching the emitter must register a slug positional.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2777,
+  "verify_against": "build_parser's per-subcommand s.add_argument('slug') registrations",
+  "verify_hint": "Enumerate non-excluded subparsers and confirm each registers a slug positional (check-claim-staleness and emit-body are excluded)",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:emitter-requires-slug",
+  "merged_from": [
+   "batch1:VC-60"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "6b2c63e7750829a8",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-60-6b2c63e7750829a8.json"
+ },
+ {
+  "id": "VC-61",
+  "category": "api_contract",
+  "claim": "_shape_check's metacharacter regex rejects any whitespace, so a legitimate state-derived non-path operand containing a space (e.g. an arm/marker/tier token) would render as unestablished.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2474,
+  "verify_against": "the actual values rendered in _next_call_body (nonce, arm, marker, round, --mode literals, draft paths)",
+  "verify_hint": "Enumerate every value that reaches _shape_check on a non-path flag and confirm none can legally contain a space or metacharacter",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:metacharacter-regex-over-broad",
+  "merged_from": [
+   "batch1:VC-61"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "d1e6a0a5d87969d0",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-61-d1e6a0a5d87969d0.json"
+ },
+ {
+  "id": "VC-62",
+  "category": "api_contract",
+  "claim": "_NEXT_CALL_PATH_FLAGS lists only --draft-file, --path, --instructions-file, but _next_call_body renders --draft-file from ctx and --path bare; every path-valued flag actually rendered with a value must be in that list.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2469,
+  "verify_against": "all filled operands in _next_call_body and _dispatch_next_call",
+  "verify_hint": "Cross-check each filled flag against _NEXT_CALL_PATH_FLAGS; a path-valued flag outside it would hit the metacharacter sweep and be refused",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:path-flag-set-complete",
+  "merged_from": [
+   "batch1:VC-62"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "32a1ec4eec47fbdb",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-62-32a1ec4eec47fbdb.json"
+ },
+ {
+  "id": "VC-63",
+  "category": "test_mock_alignment",
+  "claim": "The decided() helper in test_python_scripts.py returns text.strip().split('\\n')[0], assuming the decided answer is the first line after stripping \u2014 this must hold for subcommands whose first line could be empty or whose stdout is bytes.",
+  "source_file": "lib/test/test_python_scripts.py",
+  "verify_against": "the subcommands the helper is applied to",
+  "verify_hint": "Confirm no re-anchored row applies decided() to an excluded (multi-line/payload) subcommand where the tail is the assertion's subject",
+  "verification_mode": "agent",
+  "claim_signature": "test_mock_alignment:test_python_scripts.py:decided-helper-first-line",
+  "merged_from": [
+   "batch1:VC-63"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "2121e96e12601fa3",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-63-2121e96e12601fa3.json"
+ },
+ {
+  "id": "VC-64",
+  "category": "test_mock_alignment",
+  "claim": "run.sh's #546 nonce mint sed -n '1s/nonce=//p' must yield the identical nonce the previous sed 's/nonce=//' produced for a single-line init stdout.",
+  "source_file": "lib/test/run.sh",
+  "source_line": 671,
+  "verify_against": "cmd_init's stdout shape",
+  "verify_hint": "Confirm init prints nonce=<value> first and that the address-restricted substitution drops the trailing next_call= line",
+  "verification_mode": "agent",
+  "claim_signature": "test_mock_alignment:run.sh:nonce-mint-first-line",
+  "merged_from": [
+   "batch1:VC-64"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "f4e37819b495005d",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-64-f4e37819b495005d.json"
+ },
+ {
+  "id": "VC-65",
+  "category": "data_format_assumption",
+  "claim": "run.sh parses the helper's stdout with sed -n 's/^unconditional_call_count=//p' while capturing it via 2>&1, so any stderr line matching those prefixes or any stderr noise interleaves into the parsed surface.",
+  "source_file": "lib/test/run.sh",
+  "source_line": 581,
+  "source_line_end": 597,
+  "verify_against": "check-audit-lifecycle-contracts.py's report emission (stdout only on success)",
+  "verify_hint": "Confirm nothing writes to stderr on the success path (note the emitting-complement probe redirects both streams) and that ALC_795_RC captures the python3 exit, not the assignment's",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:run.sh:alc-report-parse",
+  "merged_from": [
+   "batch1:VC-65"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "a2999b3cf67aae46",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-65-a2999b3cf67aae46.json"
+ },
+ {
+  "id": "VC-66",
+  "category": "api_contract",
+  "claim": "The create-issue-contract module's full-suite lower-bound operand was lowered from 248 to 245, which must match the module's actual assertion count after the three pin deletions.",
+  "source_file": "lib/test/run.sh",
+  "source_line": 642,
+  "verify_against": "lib/test/modules/create-issue-contract.sh's assertion count and the registry coupling check",
+  "verify_hint": "Three pins were deleted (two #768 + one #603/AC14) \u2014 confirm 248-3=245 matches and that the registry's coupled operand was updated too",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:run.sh:create-issue-contract-lower-bound-245",
+  "merged_from": [
+   "batch1:VC-66"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "a34b15f5fb47a014",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-66-a34b15f5fb47a014.json"
+ },
+ {
+  "id": "VC-67",
+  "category": "data_format_assumption",
+  "claim": "lib/test/modules/coverage-map.json adds a \"795\" entry with an empty note and owner unmodularized; the schema/consumer must accept an empty note.",
+  "source_file": "lib/test/modules/coverage-map.json",
+  "source_line": 446,
+  "source_line_end": 449,
+  "verify_against": "the coverage-map consumer/validator in lib/test/",
+  "verify_hint": "Check whether the validator requires a non-empty note for an unmodularized owner",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:coverage-map.json:795-empty-note",
+  "merged_from": [
+   "batch1:VC-67"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "15d12684d6f534c4",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-67-15d12684d6f534c4.json"
+ },
+ {
+  "id": "VC-68",
+  "category": "data_format_assumption",
+  "claim": "Three rows were removed from lib/test/pin-corpus-adjudications.tsv corresponding to the deleted pins; the corpus consumer must not flag orphaned or missing adjudication rows.",
+  "source_file": "lib/test/pin-corpus-adjudications.tsv",
+  "verify_against": "the pin-corpus consumer in lib/test/",
+  "verify_hint": "Confirm each removed literal hash corresponds to a pin actually deleted in this change and that no remaining row is now orphaned",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:pin-corpus-adjudications.tsv:removed-rows-match-deleted-pins",
+  "merged_from": [
+   "batch1:VC-68"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "9754e9ec0f192e41",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-68-9754e9ec0f192e41.json"
+ },
+ {
+  "id": "VC-69",
+  "category": "dependency_interaction",
+  "claim": "_PROTOCOL_TOKENS gained 'next_call', 'needs', 'component', 'detail' inserted mid-tuple, breaking the surrounding alphabetical ordering the list otherwise follows.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2391,
+  "source_line_end": 2396,
+  "verify_against": "any consumer or test asserting _PROTOCOL_TOKENS ordering or membership",
+  "verify_hint": "Check whether any guard asserts _PROTOCOL_TOKENS is sorted, and that the anchor-floor forgery check now covers the four new tokens",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:issue-audit-state.py:protocol-tokens-insertion",
+  "merged_from": [
+   "batch1:VC-69"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "28d1880023463eef",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-69-28d1880023463eef.json"
+ },
+ {
+  "id": "VC-70",
+  "category": "api_contract",
+  "claim": "cmd_query_coverage's rewrite changes the foreign-nonce path to derive cov = None and print the hoisted line, then return \u2014 the emitted bytes must be byte-identical to the pre-change branch on both the foreign-nonce and normal arms.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2839,
+  "source_line_end": 2864,
+  "verify_against": "_coverage_backing_line vs the removed inline prints",
+  "verify_hint": "Compare the two literal strings character by character, including the reason= fallback to none",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:coverage-hoist-byte-identical",
+  "merged_from": [
+   "batch1:VC-70"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "cc112a78fc4f868f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-70-cc112a78fc4f868f.json"
+ },
+ {
+  "id": "VC-71",
+  "category": "api_contract",
+  "claim": "query-boundary registers no --round but _emit_next_call is not reached for it (it is in _MULTILINE_READBACKS hence excluded); verify the exclusion holds so its multi-line output gains no trailing line.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2349,
+  "source_line_end": 2368,
+  "verify_against": "_MULTILINE_READBACKS / _NEXT_CALL_EXCLUDED and main()'s guard",
+  "verify_hint": "Run query-boundary and confirm stdout is exactly four lines with no next_call=",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:issue-audit-state.py:query-boundary-excluded",
+  "merged_from": [
+   "batch1:VC-71"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "d53a7cf7ba8e8c59",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-71-d53a7cf7ba8e8c59.json"
+ },
+ {
+  "id": "VC-72",
+  "category": "absolute_claim",
+  "claim": "The module docstring asserts that the exclusion predicate's three arms and the caller-supplied six classes are 'complete by construction' and that the complement is decided \u2014 a universal about every current and future subcommand.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "The COMPLEMENT is decided, not residual: a subcommand in none of the three arms emits `next_call=`.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2364,
+  "source_line_end": 2365,
+  "verify_against": "the registered subcommand set vs _NEXT_CALL_EXCLUDED",
+  "verify_hint": "Falsify by enumerating registered_subcommands() - _NEXT_CALL_EXCLUDED and running each; find one whose stdout is multi-line or capture-consumed yet still emits next_call=",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:issue-audit-state.py:exclusion-complete-by-construction",
+  "merged_from": [
+   "batch1:VC-72"
+  ],
+  "_nonce": "2f20418bb38a5f66",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-72-2f20418bb38a5f66.json"
+ },
+ {
+  "id": "VC-73",
+  "category": "absolute_claim",
+  "claim": "_emit_next_call's docstring claims that 'the existing decided line is byte-identical and first' is true BY CONSTRUCTION rather than by hand-edits, because emission happens after the command function returns.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "which is what makes \"the existing decided line is byte-identical and first\" true by construction rather than by 30 correct hand-edits",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2759,
+  "source_line_end": 2761,
+  "verify_against": "every non-excluded cmd_* function's print calls",
+  "verify_hint": "Falsify by finding a non-excluded subcommand that prints more than one line, or writes to stdout after returning ctx",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:issue-audit-state.py:decided-line-first-by-construction",
+  "merged_from": [
+   "batch1:VC-73"
+  ],
+  "_nonce": "07967e979803a11d",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-73-07967e979803a11d.json"
+ },
+ {
+  "id": "VC-74",
+  "category": "absolute_claim",
+  "claim": "_require_named_round's docstring claims every refusal reachable on the explicit path stays reachable on the defaulted path for the four mutation members.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "so every guard downstream runs against that number with its own breadcrumb text unchanged \u2014 which is what keeps every refusal reachable on the explicit path reachable on the defaulted path",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2437,
+  "source_line_end": 2440,
+  "verify_against": "cmd_record_return / cmd_record_adjudication / cmd_record_adjudication_render / cmd_record_coverage guards",
+  "verify_hint": "Falsify by constructing a state where the last recorded round is one the explicit path would refuse (e.g. an already-adjudicated round) and checking the defaulted call still raises the same refusal rather than resolving to a different, legal round",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:issue-audit-state.py:defaulted-refusals-all-reachable",
+  "merged_from": [
+   "batch1:VC-74"
+  ],
+  "_nonce": "b7c74c9cf2d1383a",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-74-b7c74c9cf2d1383a.json"
+ },
+ {
+  "id": "VC-75",
+  "category": "absolute_claim",
+  "claim": "_resolve_named_round's docstring claims ambiguity_token is non-None ONLY where the state does not uniquely determine a round \u2014 i.e. the last recorded round is always the right one for every member of _ROUND_DEFAULTED.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "`ambiguity_token` is non-None only where the state does NOT uniquely determine a round: there is no state at all, or no round has been recorded.",
+  "source_file": "scripts/issue-audit-state.py",
+  "source_line": 2419,
+  "source_line_end": 2421,
+  "verify_against": "the lifecycle: concurrent open rounds, a reopened earlier round, cross-round resolution",
+  "verify_hint": "Falsify by building a run where an earlier round is still awaiting adjudication while a later round was recorded \u2014 check whether the defaulted record-adjudication silently targets the wrong round with no ambiguity token",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:issue-audit-state.py:last-round-uniquely-determines",
+  "merged_from": [
+   "batch1:VC-75"
+  ],
+  "_nonce": "6ed124b2e3333745",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-75-6ed124b2e3333745.json"
+ },
+ {
+  "id": "VC-76",
+  "category": "absolute_claim",
+  "claim": "check-audit-lifecycle-contracts.py's module docstring claims 'FAIL CLOSED, NEVER CLEAN-ZERO' for both prose readers.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "FAIL CLOSED, NEVER CLEAN-ZERO. Both prose readers parse a human-editable markdown file, so each refuses rather than reporting an empty result",
+  "source_file": "lib/test/check-audit-lifecycle-contracts.py",
+  "source_line": 156,
+  "source_line_end": 158,
+  "verify_against": "_sole_paragraph, _invocations, check_readbacks, check_sequence",
+  "verify_hint": "Falsify by feeding a step-3-6-audit.md whose sequence paragraph contains one backticked registered name repeated trivially, or whose docstring anchor appears in a code block \u2014 check whether a degenerate-but-nonzero extraction passes vacuously",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:check-audit-lifecycle-contracts.py:fail-closed-never-clean-zero",
+  "merged_from": [
+   "batch1:VC-76"
+  ],
+  "_nonce": "525659b1256b44d8",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-76-525659b1256b44d8.json"
+ },
+ {
+  "id": "VC-77",
+  "category": "absolute_claim",
+  "claim": "The run.sh #795 comment asserts the new restricted-PATH fixture is green only if the porcelain parse actually ran, because pwd and the correct answer differ by construction in a linked worktree.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "so the restricted-PATH run is only green if the parse actually ran",
+  "source_file": "lib/test/run.sh",
+  "source_line": 541,
+  "verify_against": "the fixture's use of $RMR_WT and $RMR_FROM_MAIN",
+  "verify_hint": "Falsify by checking whether $RMR_WT is a genuine linked worktree whose path differs from $RMR_MAIN, and whether an empty $RMR_WT_RESTRICTED (helper not found) could make the first assertion fail loudly rather than pass",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:run.sh:restricted-path-only-green-if-parse-ran",
+  "merged_from": [
+   "batch1:VC-77"
+  ],
+  "_nonce": "2c1b33d1d2dcba67",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-77-2c1b33d1d2dcba67.json"
+ },
+ {
+  "id": "VC-78",
+  "category": "dependency_interaction",
+  "claim": "_emit_dispatch_pointer writes to sys.stderr, assuming sys is imported at module scope in render-audit-prompt.py.",
+  "source_file": "scripts/render-audit-prompt.py",
+  "source_line": 805,
+  "verify_against": "The import block at the top of scripts/render-audit-prompt.py.",
+  "verify_hint": "Confirm import sys is present at module scope.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:render-audit-prompt.py:sys-import-available",
+  "merged_from": [
+   "batch2:VC-12"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "8fcd1fa7af5b0c8c",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-78-8fcd1fa7af5b0c8c.json"
+ },
+ {
+  "id": "VC-79",
+  "category": "data_format_assumption",
+  "claim": "The emitted pointer line is assumed byte-identical to the line inside the written instruction file \u2014 the claim depends on no encoding/newline transformation differing between the stdout write and the stderr write.",
+  "source_file": "scripts/render-audit-prompt.py",
+  "source_line": 803,
+  "source_line_end": 806,
+  "verify_against": "instructions_bytes (utf-8 encode/decode round trip) and the CLI's stdout write path; the template block that renders the dispatch-pointer: line.",
+  "verify_hint": "Check that rendered.splitlines() cannot alter the line's bytes (e.g. via a non-\\n line separator such as \\x0b, \\x0c, or \\u2028 present in the template) and that the file's copy of the line matches exactly.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:render-audit-prompt.py:pointer-line-byte-identity",
+  "merged_from": [
+   "batch2:VC-13"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "2d4bd33f4023a6a2",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-79-2d4bd33f4023a6a2.json"
+ },
+ {
+  "id": "VC-80",
+  "category": "absolute_claim",
+  "claim": "The docstring asserts the pointer line is rendered unconditionally in this mode, so an absent pointer line can only be a template-shape defect \u2014 meaning no valid dispatch-instructions render can silently emit no stderr pointer.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "An absent pointer line is a template-shape defect, not a mode failure \u2014 the generator's own executable test proves the line is rendered unconditionally in this mode \u2014 so nothing is raised here and stdout is unaffected either way.",
+  "source_file": "scripts/render-audit-prompt.py",
+  "source_line": 791,
+  "source_line_end": 793,
+  "verify_against": "The audit-prompt template's dispatch-pointer block and the renderer's executable test asserting it.",
+  "verify_hint": "Falsify by constructing a dispatch-instructions render that alters or suppresses the pointer block and observing whether stderr still carries a dispatch-pointer: line; also locate the executable test the docstring cites and confirm it actually asserts unconditional rendering rather than one happy-path case.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:render-audit-prompt.py:pointer-rendered-unconditionally",
+  "merged_from": [
+   "batch2:VC-14"
+  ],
+  "_nonce": "5d5915baf197665f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-80-5d5915baf197665f.json"
+ },
+ {
+  "id": "VC-81",
+  "category": "absolute_claim",
+  "claim": "The docstring asserts prefix matching after lstrip() with first-match-wins is byte-for-byte the recognition the retired extraction fence performed.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "The prefix is matched after `lstrip()`, and the FIRST match wins \u2014 byte-for-byte the recognition the retired extraction fence performed.",
+  "source_file": "scripts/render-audit-prompt.py",
+  "source_line": 795,
+  "source_line_end": 796,
+  "verify_against": "The retired python3 -c fence removed from step-3-6-audit.md (see the diff's removed lines).",
+  "verify_hint": "Compare against the removed fence, which iterated open(path) lines and wrote line (which INCLUDES the trailing newline) whereas the new code writes line + \"\\n\" from splitlines() (which strips it) \u2014 construct the final-line-without-trailing-newline case and any CRLF case and check whether emitted bytes really match the old fence.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:render-audit-prompt.py:byte-for-byte-same-as-retired-fence",
+  "merged_from": [
+   "batch2:VC-15"
+  ],
+  "_nonce": "2df6769293573812",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-81-2df6769293573812.json"
+ },
+ {
+  "id": "VC-82",
+  "category": "absolute_claim",
+  "claim": "The shell comment asserts the new builtin loop inspects the same scope the previous head -n 1 / sed -n '1,/^$/p' pair inspected \u2014 i.e. the rewrite is scope-equivalent to the retired pipeline in every case.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "The blank line terminates the FIRST record \u2014 the same scope the previous\n    # `head -n 1` / `sed -n '1,/^$/p'` pair inspected.",
+  "source_file": "scripts/resolve-main-root.sh",
+  "source_line": 44,
+  "source_line_end": 45,
+  "verify_against": "The pre-change resolve-main-root.sh pipeline and real git worktree list --porcelain output shapes.",
+  "verify_hint": "Falsify by running both forms over porcelain shapes where they could diverge: empty output, output whose first line is not worktree, a single-record repo with no trailing blank line, and a path containing a leading/trailing space or a backslash.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:resolve-main-root.sh:same-scope-as-retired-pipeline",
+  "merged_from": [
+   "batch2:VC-16"
+  ],
+  "_nonce": "4b2c0667b085668f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-82-4b2c0667b085668f.json"
+ },
+ {
+  "id": "VC-83",
+  "category": "dependency_interaction",
+  "claim": "The bare-repo detection assumes git worktree list --porcelain emits the attribute line as the exact bare word bare (matched by case \"$line\" in bare)), on the first record, before the blank-line break.",
+  "source_file": "scripts/resolve-main-root.sh",
+  "source_line": 52,
+  "verify_against": "git worktree list --porcelain output format for a bare repository.",
+  "verify_hint": "Run git worktree list --porcelain in a bare repo and confirm the literal attribute token is exactly bare with no trailing content, and that it appears before the record-terminating blank line.",
+  "verification_mode": "agent",
+  "claim_signature": "dependency_interaction:resolve-main-root.sh:bare-attribute-token-exact",
+  "merged_from": [
+   "batch2:VC-17"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "94d6101a3c5ea013",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-83-94d6101a3c5ea013.json"
+ },
+ {
+  "id": "VC-84",
+  "category": "data_format_assumption",
+  "claim": "The heredoc done <<EOF / $porcelain / EOF is assumed to feed the porcelain text unmodified; an unquoted heredoc performs parameter/command/backslash expansion on its body.",
+  "source_file": "scripts/resolve-main-root.sh",
+  "source_line": 55,
+  "source_line_end": 57,
+  "verify_against": "Bash heredoc expansion semantics for an unquoted delimiter, and whether worktree paths can contain $, backtick, or backslash characters.",
+  "verify_hint": "Determine whether a worktree path containing $, a backtick, or a trailing backslash would be altered by the unquoted heredoc; compare with the retired printf '%s\\n' \"$porcelain\" | form which did not expand.",
+  "verification_mode": "agent",
+  "claim_signature": "data_format_assumption:resolve-main-root.sh:heredoc-unquoted-expansion",
+  "merged_from": [
+   "batch2:VC-18"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "e9583c865468aad2",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-84-e9583c865468aad2.json"
+ },
+ {
+  "id": "VC-85",
+  "category": "api_contract",
+  "claim": "The create-issue-contract registry entry lowers minimum_assertions from 248 to 245, which must be at or below the actual assertion count lib/test/modules/create-issue-contract.sh now drives.",
+  "source_file": "scripts/workflow-flight-recorder-registry.json",
+  "source_line": 134,
+  "verify_against": "The assertion count the flight-recorder computes for the module, and the consumer of minimum_assertions.",
+  "verify_hint": "Find the reader of minimum_assertions and confirm the module's current assertion count satisfies the 245 floor; confirm the lowering is justified by pins deleted in this change rather than masking a lost assertion.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:workflow-flight-recorder-registry.json:create-issue-minimum-assertions-245",
+  "merged_from": [
+   "batch2:VC-19"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "6e57c6bb037d30b4",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-85-6e57c6bb037d30b4.json"
+ },
+ {
+  "id": "VC-86",
+  "category": "api_contract",
+  "claim": "step-3-6-audit.md's call sequence now names query-boundary and two query-draft-binding reads plus record-draft-binding, all of which must be registered subcommands with the flags the fences pass.",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 215,
+  "verify_against": "The subparser registration block in scripts/issue-audit-state.py.",
+  "verify_hint": "Confirm query-boundary, query-draft-binding, and record-draft-binding are all registered subcommands.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:step-3-6-audit.md:sequence-subcommands-registered",
+  "merged_from": [
+   "batch2:VC-20"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "6615f94c65f4b2d5",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-86-6615f94c65f4b2d5.json"
+ },
+ {
+  "id": "VC-87",
+  "category": "api_contract",
+  "claim": "step-3-6-audit.md's next_call= paragraph states the exclusion set is emit-body, the multi-line read-backs, and check-claim-staleness, and that the three dispatch-routing answers render record-dispatch --round bare in needs= \u2014 these must match the implemented resolver.",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 227,
+  "verify_against": "The next_call= resolver and exclusion-set logic in scripts/issue-audit-state.py.",
+  "verify_hint": "Compare the excluded-subcommand set and the needs= rendering for query-arm / query-next-action's two dispatch answers against the prose.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:step-3-6-audit.md:next-call-exclusion-set-matches-code",
+  "merged_from": [
+   "batch2:VC-21"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "58cee490cc65de29",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-87-58cee490cc65de29.json"
+ },
+ {
+  "id": "VC-88",
+  "category": "api_contract",
+  "claim": "step-3-6-audit.md states query-boundary carries the decided line of the trigger, convergence, coverage and calibration answers each byte-identical to the first line its individual query prints, one per line, and names unestablished components with their reason.",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 206,
+  "verify_against": "cmd_query_boundary and the four individual query command functions.",
+  "verify_hint": "Check cmd_query_boundary composes its lines from the same producers as the four individual queries rather than re-deriving them, and that it emits a per-component reason line when one cannot be established.",
+  "verification_mode": "agent",
+  "claim_signature": "api_contract:step-3-6-audit.md:query-boundary-component-line-identity",
+  "merged_from": [
+   "batch2:VC-22"
+  ],
+  "claim_provenance": "generated_paraphrase",
+  "_nonce": "722194bcd3323590",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-88-722194bcd3323590.json"
+ },
+ {
+  "id": "VC-89",
+  "category": "absolute_claim",
+  "claim": "The amended fallback file asserts the three-destination routing is complete by construction over all mutation exits after widening route B to cover an omitted operand.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "Two other non-zero mutation exits route **elsewhere, never here** \u2014 so every breadcrumb has exactly one route (complete by construction across all three destinations; the routes partition the **mutation** exits, and the second of the two below carries both a *wrong* argument and an *unresolvably omitted* one)",
+  "source_file": "skills/create-issue/references/fallback-state-owner-unavailable.md",
+  "source_line": 147,
+  "verify_against": "Every _fail(...) breadcrumb reachable from a mutation subcommand in scripts/issue-audit-state.py.",
+  "verify_hint": "Falsify by enumerating the mutation _fail breadcrumbs \u2014 including the new round-ambiguity breadcrumb and any argparse-level exit-2 path \u2014 and finding one that fits none of the three destinations or fits two of them under the file's stated whose input is bad discriminator.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:fallback-state-owner-unavailable.md:partition-complete-by-construction",
+  "merged_from": [
+   "batch2:VC-23"
+  ],
+  "_nonce": "24077576cf32317c",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-89-24077576cf32317c.json"
+ },
+ {
+  "id": "VC-90",
+  "category": "absolute_claim",
+  "claim": "The amended fallback file asserts the query class's always-exit-0 guarantee is unbroken by the widening \u2014 query-next-action answers an unresolvable round with a decided reason= token at exit 0 and never routes anywhere.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "The widening is over **mutation** exits only; the query class's always-exit-0 guarantee is unbroken \u2014 `query-next-action` answers an unresolvable round with a decided `reason=` token at exit 0 and never routes anywhere.",
+  "source_file": "skills/create-issue/references/fallback-state-owner-unavailable.md",
+  "source_line": 150,
+  "verify_against": "cmd_query_next_action and the round-resolution helper.",
+  "verify_hint": "Falsify by constructing a state where the round is not uniquely determined and invoking query-next-action with --round omitted; observe whether the exit code is actually 0 and a reason= token is printed.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:fallback-state-owner-unavailable.md:query-exit-0-unbroken",
+  "merged_from": [
+   "batch2:VC-24"
+  ],
+  "_nonce": "eb608c41223a83e5",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-90-eb608c41223a83e5.json"
+ },
+ {
+  "id": "VC-91",
+  "category": "absolute_claim",
+  "claim": "step-3-6-audit.md asserts that because the decided answer line stays FIRST, a caller that reads the first line parses exactly what it always did for every emitting subcommand.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "the decided answer line is unchanged and stays FIRST, so a caller that reads the first line parses exactly what it always did.",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 163,
+  "verify_against": "Every emitting subcommand's print path, and every fence in step-3-6-audit.md / step-4-present-create.md that captures a subcommand's stdout.",
+  "verify_hint": "Falsify by finding a shipped fence or consumer that captures WHOLE stdout rather than the first line, where the appended next_call= line changes what the caller parses.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:step-3-6-audit.md:first-line-unchanged-for-all-callers",
+  "merged_from": [
+   "batch2:VC-25"
+  ],
+  "_nonce": "f78103ed60873f8f",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-91-f78103ed60873f8f.json"
+ },
+ {
+  "id": "VC-92",
+  "category": "absolute_claim",
+  "claim": "step-3-6-audit.md asserts the ordered call sequence names every state-owner invocation this file and step-4-present-create.md jointly mandate unconditionally on a nominal single-round zero-finding clean run.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "It names every state-owner invocation this file and `references/step-4-present-create.md` **jointly** mandate unconditionally on a nominal single-round zero-finding clean run",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 217,
+  "verify_against": "All mandated state-owner invocations in both files.",
+  "verify_hint": "Falsify by walking both files for every mandated (non-conditional) invocation on a clean single-round run and finding one absent from the arrow sequence, or one in the sequence that is actually conditional.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:step-3-6-audit.md:sequence-names-every-mandated-call",
+  "merged_from": [
+   "batch2:VC-26"
+  ],
+  "_nonce": "7ab2b317a3861320",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-92-7ab2b317a3861320.json"
+ },
+ {
+  "id": "VC-93",
+  "category": "absolute_claim",
+  "claim": "The resolve-main-root.sh comment asserts that under a PATH holding only git and bash the previous pipeline yielded an EMPTY main_root and silently fell back to pwd.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "under a PATH holding only `git` and `bash` the previous pipeline emitted\n# `command not found` and yielded an EMPTY main_root, silently falling back to\n# `pwd`",
+  "source_file": "scripts/resolve-main-root.sh",
+  "source_line": 34,
+  "source_line_end": 36,
+  "verify_against": "The pre-change pipeline under a restricted PATH.",
+  "verify_hint": "Falsify by checking out the pre-change resolve-main-root.sh and running it with PATH set to only the dirs holding git and bash, from inside a linked worktree; confirm the output is the worktree pwd and stderr carries the fallback breadcrumb (note printf and head may be bash builtins on some hosts, which would refute the claim).",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:resolve-main-root.sh:previous-pipeline-empty-under-restricted-path",
+  "merged_from": [
+   "batch2:VC-27"
+  ],
+  "_nonce": "561f797c8c56d665",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-93-561f797c8c56d665.json"
+ },
+ {
+  "id": "VC-94",
+  "category": "absolute_claim",
+  "claim": "step-3-6-audit.md asserts the renderer's extension-path resolver runs unconditionally before the mode branch and emits a breadcrumb on a SUCCESSFUL run in a cwd with neither a git root nor a .devflow/, so a run there emits two stderr lines.",
+  "claim_provenance": "source_authored",
+  "source_excerpt": "The renderer resolves the consumer-extension path *unconditionally*, before the mode branch, and that resolver emits a breadcrumb on a **successful** run in a cwd with neither a git repo root nor a `.devflow/` \u2014 so a run there emits **two** stderr lines and a positional read would take the breadcrumb as the auditor prompt.",
+  "source_file": "skills/create-issue/references/step-3-6-audit.md",
+  "source_line": 195,
+  "verify_against": "_default_extension_path() and main()'s ordering in scripts/render-audit-prompt.py.",
+  "verify_hint": "Falsify by running render-audit-prompt.py dispatch-instructions from a temp cwd with no git root and no .devflow/ and observing the actual stderr line count and their order.",
+  "verification_mode": "agent",
+  "claim_signature": "absolute_claim:step-3-6-audit.md:two-stderr-lines-in-bare-cwd",
+  "merged_from": [
+   "batch2:VC-28"
+  ],
+  "_nonce": "dc082c2607771a26",
+  "_verdict_file": ".devflow/tmp/review/worktree-issue-795/local-20260727T045146Z-1/verdicts/iter-1/VC-94-dc082c2607771a26.json"
+ }
+]
