@@ -77,8 +77,29 @@ NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
     compound: each arm body is emitted as a bare statement with its `LABEL)` selector
     stripped, and the `case`/`esac` keywords are emitted as their own statements. So a
     `VAR=$(cmd)` inside a `case` arm is NOT decomposed into an `if`/`elif` condition and
-    R5 does not reach it — R5's reach is exactly a statement whose own leading keyword is
-    `if`/`elif`, never a substitution nested inside a `case` arm.
+    R5 does not reach it.
+  * R5's reach is exactly a statement whose leading keyword is `if`/`elif` AND whose
+    condition BEGINS with the assignment. Two condition spellings are therefore outside
+    it, both deliberately:
+      - the NEGATED form `if ! VAR=$(cmd); then` — this is the repo's own #284-mandated
+        idiom for reading a helper's exit status inline (four live sites in the review
+        bundle alone: phase-0-setup.md's `if ! BASE=$(config-get.sh …)`,
+        phase-0-6-stale-prose-lint.md, phase-4-verdict.md), and it was never the shape
+        #857 measured as refused. Flagging it would turn the bundle RED on the idiom the
+        repo prescribes, so it is EXEMPT by decision, not by oversight. State the cost
+        plainly rather than implying a fallback: NO rule reports it — R1 does not pick it
+        up either, because after control-word stripping the leading token is `!`, not the
+        assignment. So this spelling passes the lint silently, and a reintroduction of the
+        #857 branch written this way would be desk-green. That is the accepted price of
+        not flagging the prescribed idiom; the probe row is what would settle whether the
+        negated spelling is permitted in cloud at all.
+      - a condition with a PRECEDING test, `elif [ -n "$P" ] && VAR=$(cmd); then` — the
+        anchored pattern does not reach past the leading test. This one IS a coverage
+        limit rather than a decision: it is the second spelling #857 removed from
+        phase-0-setup.md §0.4, and R5 would not catch its reintroduction.
+    Both are pinned by negative-control rows in lib/test/run.sh, so a later widening of
+    the pattern is a deliberate edit that turns those rows RED rather than a silent
+    scope change.
 
 CLI:
     extract-command-shapes.py [--profile review|implement] FILE...

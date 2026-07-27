@@ -32028,6 +32028,25 @@ assert_eq "#401/#857 R5 does NOT fire on a command substitution nested in a case
 printf '%s\n' '```bash' 'if WP=$(gh pr view 4); then' '```' > "$E363/s-r5g.md"
 assert_eq "#401/#857 R5 case-arm control is not vacuous — the same capture in condition position fires" "1" \
   "$(python3 "$ECS" "$E363/s-r5g.md" | grep -c '  R5  ')"
+# ── R5's TWO documented condition-spelling exemptions (#857), each pinned so a later
+# ── widening of the anchored pattern is a deliberate edit that turns these RED rather than
+# ── a silent scope change. (1) The NEGATED form is the repo's own #284-mandated idiom —
+# ── four live sites in this very bundle — so R5 must NOT claim it; it is still reported,
+# ── under R1, which the second assertion pins so the exemption is never a silent green.
+printf '%s\n' '```bash' 'if ! BASE=$(.devflow/vendor/devflow/scripts/config-get.sh .base_branch main); then' '```' > "$E363/s-r5h.md"
+assert_eq "#401/#857 R5 does NOT claim the negated 'if ! VAR=\$(cmd)' idiom (the #284 form this bundle prescribes)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R5  ')"
+# The exemption's COST, pinned rather than glossed: NO rule reports the negated spelling
+# (R1 does not reach it either — after control-word stripping the leading token is `!`),
+# so it is desk-green. This row exists so that stays a disclosed, deliberate hole: a later
+# change that starts reporting it turns this RED and forces the NON-GOALS text to move too.
+assert_eq "#401/#857 the negated idiom is reported by NO rule — the disclosed silent gap, not an R1 fallback" "0" \
+  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R[0-9]  ')"
+# ── (2) A condition with a PRECEDING test is outside the anchored pattern — a coverage
+# ── limit, not a decision. Pinned so the NON-GOALS statement of it stays true.
+printf '%s\n' '```bash' 'elif [ -n "$P" ] && ACS=$(gh pr view 5); then' '```' > "$E363/s-r5i.md"
+assert_eq "#401/#857 R5 does NOT reach a condition-substitution behind a preceding test (documented coverage limit)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5i.md" | grep -c '  R5  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"
