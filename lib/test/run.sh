@@ -14575,7 +14575,7 @@ STUB
 
 # ── #519: retrospective-weekly Step-1 stale-scratch cleanup literal (coupled) ──
 assert_eq "#519 pin: retrospective-weekly Step 1 removes prior-run per-PR scratch" "yes" \
-  "$(grep -qF -- "find .devflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)
+  "$(grep -qF -- "find .devflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)  # structural-pin-ok: cross-file-phase-contract -- the pinned literal is an EXECUTABLE fence the retrospective orchestrator runs, not prose: it names exactly which per-run scratch files Step 0 deletes, and lib/filing-decisions.sh's devflow_declined_refiled guards its input by readability alone, so a name dropped from this set leaves a READABLE stale snapshot that the guard accepts and the report renders from the previous run's state
 PSR="$(echo '<!-- devflow:audit-report -->' > /tmp/devflow-test-report.md; bash "$LIB/post-status.sh" --pr 900 --report-file /tmp/devflow-test-report.md --dry-run 2>/dev/null; rm -f /tmp/devflow-test-report.md)"
 assert_eq "post-status dry-run echoes DRYRUN" "true" "$(echo "$PSR" | grep -q 'DRYRUN' && echo true || echo false)"
 
