@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.11] — 2026-07-27
+
+### Changed
+- Pin-corpus adjudications now represent current active state, with branch-manifest authorization for every decision change and explicit structural review for any retired wording-pin revival. (#849)
+
 ## [2.22.10] — 2026-07-26
 
 ### Changed
