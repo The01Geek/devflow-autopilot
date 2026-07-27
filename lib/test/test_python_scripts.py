@@ -8477,6 +8477,7 @@ _sc_planted = {
     "R2": "cd /tmp",
     "R3": "printf hi > /tmp/devflow-678.txt",
     "R4": "python3 -c pass",
+    "R5": 'if WP=$(.devflow/vendor/devflow/scripts/workpad.py id 1); then :; fi',
     "IR1": 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR2": 'while read -r n; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR3": 'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)',
@@ -17863,9 +17864,9 @@ def _run_workpad_cli(argv):
     # network call would make its result depend on the host's auth state.
     saved_argv = sys.argv
     saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
-    workpad._repo_full = lambda: 'owner/repo'
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
     workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
-    workpad._run = lambda cmd, **kw: _FakeRun('')
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
     sys.argv = ['workpad.py'] + argv
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -17889,6 +17890,76 @@ assert_eq("#814: --print-body on a subcommand that does not define it exits 2",
 assert_eq("#814: --print-body is registered on the update subparser (the real parser "
           "accepts it, rather than exiting 2 on an unrecognized argument)",
           True, _run_workpad_cli(['update', '999', '--print-body', '--note', 'n']) != 2)
+
+# #857: cmd_acs_resolve routes a non-numeric / empty `issue` argument as the
+# `resolver-unavailable` source token with exit 0 (its numeric guard moved here from the
+# Phase 0.4 fence's pre-call `case`), preserving the always-exit-0-on-a-resolvable-state
+# contract. A non-numeric argument reaches this guard BEFORE any `gh`/section-parse work,
+# so no stub of those is needed.
+def _run_acs_resolve_capture(issue_arg):
+    saved_argv = sys.argv
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
+    sys.argv = ['workpad.py', 'acs-resolve', issue_arg]
+    out = io.StringIO()
+    code = 0
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            workpad.main()
+    except SystemExit as e:
+        code = e.code if e.code is not None else 0
+    finally:
+        sys.argv = saved_argv
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return code, out.getvalue()
+
+def _run_acs_resolve_capture_err(issue_arg):
+    """Same driver, but returns stderr — the caller-bug-vs-denial breadcrumb."""
+    saved_argv = sys.argv
+    saved = (workpad._run, workpad._repo_full, workpad._workpad_marker)
+    workpad._repo_full = lambda *a, **kw: 'owner/repo'
+    workpad._workpad_marker = lambda explicit=None: '<!-- devflow:workpad -->'
+    workpad._run = lambda cmd, *a, **kw: _FakeRun('')
+    sys.argv = ['workpad.py', 'acs-resolve', issue_arg]
+    err = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            workpad.main()
+    except SystemExit:
+        pass
+    finally:
+        sys.argv = saved_argv
+        workpad._run, workpad._repo_full, workpad._workpad_marker = saved
+    return err.getvalue()
+
+
+# '٥' (Arabic-Indic five) is the row that pins the guard's ASCII-ONLY spelling:
+# str.isdigit() accepts it, so reverting `all(c in '0123456789' ...)` to `.isdigit()` would
+# keep every other row here green while widening what reaches the int() conversion and the
+# shell S1 guard's `*[!0-9]*` contract (whose matching row lives in lib/test/run.sh).
+for _acs_bad in ('abc', '', '+5', '007x', '1a', '٥'):
+    _acs_code, _acs_out = _run_acs_resolve_capture(_acs_bad)
+    assert_eq("#857 acs_resolve_routes_non_numeric: %r exits 0" % _acs_bad, 0, _acs_code)
+    assert_eq("#857 acs_resolve_routes_non_numeric: %r emits source: resolver-unavailable"
+              % _acs_bad, True, 'source: resolver-unavailable' in _acs_out)
+    # A CALLER bug must be distinguishable from an infrastructure denial: both route to
+    # the same stdout token, so the stderr breadcrumb is the only discriminator.
+    assert_eq("#857 acs_resolve_routes_non_numeric: %r breadcrumbs the non-numeric cause "
+              "on stderr" % _acs_bad, True,
+              'is not numeric' in _run_acs_resolve_capture_err(_acs_bad))
+
+# Positive control for the guard above: a VALID numeric argument is NOT short-circuited
+# by it — it proceeds past the guard into the real resolve path (the `type=int`->`type=str`
+# change must not have broken the happy path), so it emits neither the breadcrumb nor the
+# resolver-unavailable token.
+_acs_ok_code, _acs_ok_out = _run_acs_resolve_capture('857')
+assert_eq("#857 acs_resolve numeric happy path: a valid issue number exits 0", 0, _acs_ok_code)
+assert_eq("#857 acs_resolve numeric happy path: it is NOT routed to resolver-unavailable",
+          False, 'source: resolver-unavailable' in _acs_ok_out)
+assert_eq("#857 acs_resolve numeric happy path: no non-numeric breadcrumb is emitted",
+          False, 'is not numeric' in _run_acs_resolve_capture_err('857'))
 
 print()
 print("issue-audit-state: round resolution, next_call=, query-boundary (issue #795)")

@@ -1262,26 +1262,167 @@ assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "review live-comment seeding: rc-2 arm screens an interpreter-level exit 2 (#384)"
+echo "review live-comment seeding: scripts/seed-review-progress.sh token-line contract (#857)"
 # ────────────────────────────────────────────────────────────────────────────
-# skills/review/SKILL.md seeds its live progress comment by branching on workpad.py `id`'s
-# exit code, where rc 2 means cmd_id's clean-absence "first write → create". But rc 2 is
-# NOT cmd_id's alone: python3 also exits 2 when it cannot open the script ([Errno 2] on a
-# partial vendor copy; [Errno 13] on an unreadable one) and argparse exits 2 on a usage
-# error (the `id` subcommand declares `issue` as type=int, so a non-numeric PR number lands
-# there). Any of those, misread as "first write", would wrongly take the create arm. Three
-# coupled screens keep that arm reachable ONLY from cmd_id's own SILENT sys.exit(2). Pin
-# each so deleting one goes RED independently of the others — AC5's requirement that the
-# readable-path check and the stderr discriminator each fail on their own (and vice versa).
-# (S1) refuse a non-numeric $PR_NUMBER before the id call, so argparse's own rc 2 can't reach it:
-assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$REVIEW_ROOT"
-# (S2) verify the workpad.py path is a readable file before exec — shares the consumer's own
-# operation as the guard rather than re-deriving python3's open contract. Deleting THIS alone → RED:
-assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$REVIEW_ROOT"
-# (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
-# with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
-# THIS alone → RED (the vice-versa half of AC5 relative to S2):
-assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]' "$ST_REV"
+# The review live-progress seed's S1/S2/S3 screens moved OUT of the SKILL.md prompt fence
+# (which the cloud review matcher refused as a compound, so the screens never ran there)
+# and INTO scripts/seed-review-progress.sh, which owns the find-or-create decision as
+# ordinary shell driven here per-outcome (the classify-id-exit.sh / describe-denial-count.sh
+# precedent). The four old prompt-fence pins (#384 S1/S2/S3, #284 positive elif) are retired
+# with the fence they guarded; this driver is their behavioral replacement. Each row asserts
+# one token line + its exit code against a stubbed workpad.py, so a screen regression — a
+# non-numeric argument reaching `id`, an unreadable-script exit-2 misread as a clean absence,
+# an rc-2-with-stderr taking the create arm (the #384 duplicate-comment defect) — turns RED.
+SRP857="$(git_sandbox '#857 seed-review-progress driver')"
+mkdir -p "$SRP857/scripts"
+cp "$LIB/../scripts/seed-review-progress.sh" "$SRP857/scripts/seed-review-progress.sh"
+chmod +x "$SRP857/scripts/seed-review-progress.sh"
+SRP857_SH="$SRP857/scripts/seed-review-progress.sh"
+: > "$SRP857/body.md"
+# Emit a stub workpad.py whose `id`/`create` exit behavior each row selects via env vars.
+srp857_stub() {  # $1=id-exit $2=id-stdout $3=id-stderr $4=create-exit $5=create-stdout
+  cat > "$SRP857/scripts/workpad.py" <<PYEOF
+#!/usr/bin/env python3
+import sys
+if sys.argv[1] == 'id':
+    sys.stderr.write("""$3""")
+    sys.stdout.write("""$2""")
+    sys.exit($1)
+if sys.argv[1] == 'create':
+    sys.stdout.write("""$5""")
+    sys.exit($4)
+PYEOF
+  chmod +x "$SRP857/scripts/workpad.py"
+}
+srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=marker
+# RESUME: id exit 0 prints the comment id.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: existing comment -> RESUME <id> stdout" "RESUME 999" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: RESUME exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
+# CREATED: id exit 2 silent (clean absence) -> create prints the new id.
+srp857_stub 2 "" "" 0 "1234"
+assert_eq "#857 seed helper: clean absence -> CREATED <id> stdout" "CREATED 1234" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: CREATED exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
+# S1: a non-numeric / empty PR number is refused BEFORE the id call.
+srp857_stub 0 "999" "" 0 ""   # stub would RESUME if reached — it must not be
+assert_eq "#857 seed helper (S1): empty PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '' m)"
+assert_eq "#857 seed helper (S1): non-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run abc m)"
+assert_eq "#857 seed helper (S1): leading-+ PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '+5' m)"
+assert_eq "#857 seed helper (S1): mixed-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '1a' m)"
+# A NON-ASCII digit (Arabic-Indic five) is what separates the `*[!0-9]*` glob from a
+# unicode-aware digit test: python3's str.isdigit() accepts it, and workpad.py's own guard
+# is ASCII-only for exactly this reason. Without this row, widening either guard to a
+# unicode-aware test keeps every other row green.
+assert_eq "#857 seed helper (S1): non-ASCII digit PR number -> SKIP not-numeric (the ASCII-only guarantee)" \
+  "SKIP not-numeric" "$(srp857_run '٥' m)"
+assert_eq "#857 seed helper (S1): SKIP exits 3" "3" "$(srp857_run '' m >/dev/null; echo $?)"
+# S2: an unreadable / missing workpad.py never reaches the create arm.
+mv "$SRP857/scripts/workpad.py" "$SRP857/scripts/workpad.py.hidden"
+assert_eq "#857 seed helper (S2): missing workpad.py -> SKIP workpad-unreadable" "SKIP workpad-unreadable" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S2): SKIP workpad-unreadable exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+mv "$SRP857/scripts/workpad.py.hidden" "$SRP857/scripts/workpad.py"
+# S2's OTHER arm: PRESENT-but-unreadable is [Errno 13], a distinct breadcrumb from the
+# missing-file [Errno 2] above. Attribute the rejection by its own breadcrumb, not just
+# the shared token, so this arm cannot pass on the sibling arm's rejection.
+chmod 000 "$SRP857/scripts/workpad.py"
+assert_eq "#857 seed helper (S2): the unreadable fixture is genuinely unreadable (positive control against a vacuous pass)" \
+  "unreadable" "$([ -r "$SRP857/scripts/workpad.py" ] && echo readable || echo unreadable)"
+assert_eq "#857 seed helper (S2): present-but-unreadable workpad.py -> SKIP workpad-unreadable" \
+  "SKIP workpad-unreadable" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S2): present-but-unreadable names [Errno 13], not the missing-file [Errno 2]" \
+  "yes" "$("$SRP857_SH" 7 m "$SRP857/body.md" 2>&1 >/dev/null | grep -q 'present but unreadable (\[Errno 13\])' && echo yes || echo no)"
+chmod 755 "$SRP857/scripts/workpad.py"
+# Positive control on the SAME fixture: with the mode restored, the very same call
+# RESUMEs — so the two arms above are the unreadability rejection, not a fixture that
+# was broken for some unrelated reason.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
+  "RESUME 999" "$(srp857_run 7 m)"
+# NOT driven, deliberately: the mktemp-failure arm (`ERRF` empty -> SKIP api-error).
+# Forcing mktemp to fail is not portable -- BSD/macOS mktemp ignores TMPDIR (verified),
+# so the only levers are root-dependent or GNU-only, both barred by this repo's
+# portability convention. The arm fails CLOSED onto the already-driven SKIP api-error
+# token+exit contract, so what is undriven is the breadcrumb wording alone.
+# S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
+srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
+assert_eq "#857 seed helper (S3): rc-2 with stderr -> SKIP api-error (never CREATED)" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S3): SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+# id exit 1 (a real gh/parse failure) -> SKIP api-error. The token AND its exit code are
+# both asserted on each row: the token alone would stay green if an arm regressed to a
+# non-3 exit, and the exit code is half the helper's published contract.
+srp857_stub 1 "" "gh: boom" 0 ""
+assert_eq "#857 seed helper: id exit 1 -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: id exit 1 SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+# create failing after a confirmed clean absence -> SKIP api-error.
+srp857_stub 2 "" "" 1 ""
+assert_eq "#857 seed helper: create failure after clean absence -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: create-failure SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+# An empty run-keyed marker is refused at the boundary: an empty --marker would let a
+# config breadcrumb reach stderr and defeat S3's exit-2 emptiness discriminator, losing
+# the live comment on a genuine first write. Attributed by its own distinct token.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: empty marker -> SKIP bad-marker" "SKIP bad-marker" "$(srp857_run 7 '')"
+assert_eq "#857 seed helper: SKIP bad-marker exits 3" "3" "$(srp857_run 7 '' >/dev/null; echo $?)"
+assert_eq "#857 seed helper: positive control -- the same fixture RESUMEs with a non-empty marker" \
+  "RESUME 999" "$(srp857_run 7 m)"
+# exit 0 with an EMPTY printed id never becomes a bare `RESUME `/`CREATED ` — an empty
+# $WP would make every later patch call a silent no-op (the frozen-comment failure).
+srp857_stub 0 "" "" 0 ""
+assert_eq "#857 seed helper: id exit 0 with no printed id -> SKIP api-error, never a bare RESUME" \
+  "SKIP api-error" "$(srp857_run 7 m)"
+srp857_stub 2 "" "" 0 ""
+assert_eq "#857 seed helper: create exit 0 with no printed id -> SKIP api-error, never a bare CREATED" \
+  "SKIP api-error" "$(srp857_run 7 m)"
+# No silent path: every reachable arm prints exactly one non-empty token line.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
+  "$(srp857_run 7 m | grep -c .)"
+# The CALL SITE's positional contract. The behavioral rows below drive the helper through
+# srp857_run, which hard-codes the argument order — so a transposed $MARKER and body path in
+# the SKILL.md fence (or a drop to two args) leaves every one of them green while every cloud
+# review silently loses its live comment on a SKIP bad-marker. The head extractor pins the
+# leading token only and is insensitive to arguments, so this is the one place the fence's
+# arity and order are checked.
+# structural-pin-ok: helper-contract -- the helper's three positional parameters are a typed
+# executable boundary between the shipped fence and scripts/seed-review-progress.sh; no
+# behavioral test can reach the fence, which is prompt text an agent emits.
+assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in that order" "1" \
+  "$(grep -c 'seed-review-progress\.sh "\$PR_NUMBER" "\$MARKER" \.devflow/tmp/review/<slug>/<run-id>/review-wp\.md' "$ST_REV")"
+# ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
+# above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
+# bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr
+# and defeat S3's emptiness discriminator — but the regression it anticipates is the flag
+# being DROPPED from the id call, which every row above survives. This stub records argv.
+srp857_argv_stub() {   # $1=id-exit $2=id-stdout $3=create-exit $4=create-stdout
+  cat > "$SRP857/scripts/workpad.py" <<PYEOF
+#!/usr/bin/env python3
+import sys
+with open("$SRP857/argv.log", "a") as fh:
+    fh.write(" ".join(sys.argv[1:]) + "\n")
+if sys.argv[1] == 'id':
+    sys.stdout.write("""$2""")
+    sys.exit($1)
+if sys.argv[1] == 'create':
+    sys.stdout.write("""$4""")
+    sys.exit($3)
+PYEOF
+  chmod +x "$SRP857/scripts/workpad.py"
+  : > "$SRP857/argv.log"
+}
+# id-call forwarding: the PR number positionally, and the marker behind --marker.
+srp857_argv_stub 0 "999" 0 ""
+srp857_run 7 mark-xyz >/dev/null
+assert_eq "#857 seed helper: the id call forwards the PR number and --marker <marker>" \
+  "id 7 --marker mark-xyz" "$(grep '^id ' "$SRP857/argv.log")"
+# create-arm forwarding: the PR number and the BODY_FILE path this run was given.
+srp857_argv_stub 2 "" 0 "1234"
+srp857_run 7 mark-xyz >/dev/null
+assert_eq "#857 seed helper: the create call forwards the PR number and the body-file path" \
+  "create 7 $SRP857/body.md" "$(grep '^create ' "$SRP857/argv.log")"
+# Positive control: the argv-recording stub still drives the ordinary outcomes, so the two
+# rows above cannot pass against a stub the helper never actually reached.
+assert_eq "#857 seed helper: argv-recording stub still yields the normal CREATED token" \
+  "CREATED 1234" "$(srp857_run 7 mark-xyz)"
 # ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -29855,14 +29996,9 @@ assert_pin_unique "#284 positive: receiving-code-review discriminates via single
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-# #384 appended the silent-exit discriminator (`&& [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]`)
-# to this elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
-# leading inline read of the id call's own exit status (never a captured rc read in a later
-# statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
-# discriminator can't be silently dropped from this exact site either. (#401 retargeted the
-# stderr capture off /tmp into the run-scoped scratch dir — an in-workspace path; the probe
-# denies only /tmp-targeted redirects, and real-run 29105381021 executed such 2> captures.)
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then' "$ST_REV"
+# (The review live-comment 3-way `elif [ "$?" -eq 2 ] …` pin was retired with the seed
+# prompt fence in issue #857 — the find-or-create decision, including its inline exit-code
+# read, now lives in scripts/seed-review-progress.sh and is driven behaviorally above.)
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
@@ -31748,8 +31884,8 @@ assert_eq "#363 every already-pinned arm shape (incl. optional-leading-paren) st
 # Regression guard: the arm-position fix is a NO-OP on today's Review engine BUNDLE
 # (root + skills/review/phases/*.md — #529 split the engine, so the reviewed surface
 # is every source, not just the root).
-assert_eq "#363 the review-skill head set matches the reviewed count (32 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo), so the distinct set is unchanged)" \
-  "32" "$(python3 -c 'import importlib.util,sys
+assert_eq "#363 the review-skill head set matches the reviewed count (33 distinct names over the whole bundle; #529 moved fences into references and added only already-counted heads (git hash-object, echo); #857 added seed-review-progress.sh, the one genuinely new name)" \
+  "33" "$(python3 -c 'import importlib.util,sys
 s=importlib.util.spec_from_file_location("e",sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 h=m.extract_heads(open(sys.argv[2],encoding="utf-8").read());print(len({m.name_of(x) for x in h}))' "$ECH" "$REVIEW_BUNDLE")"
 
@@ -31795,7 +31931,7 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
 # comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
 # profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
-# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
+# that read-only review-runner matcher (R1–R5), which legitimately denies leading-`VAR=…$(…)`
 # assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).
@@ -31973,8 +32109,10 @@ assert_eq "#401 R1 flags a CHAINED env-prefix compound with a substitution-value
 printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"
 assert_eq "#401 R3 flags a 2> stderr redirect to a /tmp target" "yes" \
   "$(python3 "$ECS" "$E363/s-r3d.md" | grep -q '  R3  ' && echo yes || echo no)"
-# ── Control-word stripping: a violation BEHIND a stripped control word still fires; a pure
-# ── capture behind one stays clean (the `elif WP=$(…)` idiom Phase 0.3.5 relies on).
+# ── Control-word stripping: a violation BEHIND a stripped control word still fires. (The
+# ── `elif WP=$(…)` condition-capture that used to be listed as permitted below is now R5's
+# ── own violation — issue #857 retired that idiom from Phase 0.3.5 in favour of the
+# ── single-leading-token seed helper, and the cloud matcher refused the compound anyway.)
 printf '%s\n' '```bash' 'if M=x printf hi; then' 'echo y' 'fi' '```' > "$E363/s-r1e.md"
 assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)" "yes" \
   "$(python3 "$ECS" "$E363/s-r1e.md" | grep -q '  R1  ' && echo yes || echo no)"
@@ -31983,9 +32121,52 @@ assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)
 # ── lint must avoid: a capture, an empty reset, `IFS= read`, `tee`, a pipe into `tee`, and
 # ── a `>` redirect to an in-workspace .devflow/tmp target all pass).
 { printf '%s\n' '```bash' 'WP=$(gh pr view 1)' 'WP=""' 'IFS= read -r x' "tee f <<'EOF'" 'body' 'EOF' \
-    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'elif WP=$(gh pr view 3); then' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
-assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, elif-capture, near-miss heads)" "" \
+    'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
+assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, near-miss heads)" "" \
   "$(python3 "$ECS" "$E363/s-ok.md")"
+# ── R5 discrimination (#857): the BARE capture above stays clean, but the same capture in
+# ── `if`/`elif` CONDITION position is R5's violation — the seed fence's refused shape.
+printf '%s\n' '```bash' 'elif WP=$(gh pr view 3); then' '```' > "$E363/s-r5d.md"
+assert_eq "#401 R5 flags a command-substitution assignment in if/elif condition position" "yes" \
+  "$(python3 "$ECS" "$E363/s-r5d.md" | grep -q '  R5  ' && echo yes || echo no)"
+# ── R5 covers all FOUR substitution spellings symmetrically: bare/quoted x $()/backtick.
+# ── A quoted backtick must not evade a rule its bare sibling catches.
+printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=`gh pr view 2`; then' 'elif WP="`gh pr view 3`"; then' '```' > "$E363/s-r5e.md"
+assert_eq "#401 R5 flags all four condition-substitution spellings (bare/quoted x dollar-paren/backtick)" "3" \
+  "$(python3 "$ECS" "$E363/s-r5e.md" | grep -c '  R5  ')"
+# ── R5 NEGATIVE CONTROL for its documented scoping guarantee (#857): the statement
+# ── splitter FLATTENS a `case` compound, emitting each arm body with its `LABEL)` selector
+# ── stripped — so a `VAR=$(cmd)` inside a `case` arm is never decomposed into an if/elif
+# ── condition and R5 must NOT reach it. Without this row the docstring's "R5's reach is
+# ── exactly a statement whose own leading keyword is if/elif" survives a mutation widening
+# ── the pattern to any `VAR=$(…)`, because only the bare-capture and if/elif rows are driven.
+printf '%s\n' '```bash' 'case "$X" in' '  a) WP=$(gh pr view 4) ;;' 'esac' '```' > "$E363/s-r5f.md"
+assert_eq "#401/#857 R5 does NOT fire on a command substitution nested in a case arm (documented scoping guarantee)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5f.md" | grep -c '  R5  ')"
+# ── Positive control on the SAME fixture shape: the identical capture in condition position
+# ── DOES fire, so the row above is R5's scoping, not a fixture the lint never parsed.
+printf '%s\n' '```bash' 'if WP=$(gh pr view 4); then' '```' > "$E363/s-r5g.md"
+assert_eq "#401/#857 R5 case-arm control is not vacuous — the same capture in condition position fires" "1" \
+  "$(python3 "$ECS" "$E363/s-r5g.md" | grep -c '  R5  ')"
+# ── R5's TWO documented condition-spelling exemptions (#857), each pinned so a later
+# ── widening of the anchored pattern is a deliberate edit that turns these RED rather than
+# ── a silent scope change. (1) The NEGATED form is the repo's own #284-mandated idiom —
+# ── four live sites in this very bundle — so R5 must NOT claim it; it is still reported,
+# ── under R1, which the second assertion pins so the exemption is never a silent green.
+printf '%s\n' '```bash' 'if ! BASE=$(.devflow/vendor/devflow/scripts/config-get.sh .base_branch main); then' '```' > "$E363/s-r5h.md"
+assert_eq "#401/#857 R5 does NOT claim the negated 'if ! VAR=\$(cmd)' idiom (the #284 form this bundle prescribes)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R5  ')"
+# The exemption's COST, pinned rather than glossed: NO rule reports the negated spelling
+# (R1 does not reach it either — after control-word stripping the leading token is `!`),
+# so it is desk-green. This row exists so that stays a disclosed, deliberate hole: a later
+# change that starts reporting it turns this RED and forces the NON-GOALS text to move too.
+assert_eq "#401/#857 the negated idiom is reported by NO rule — the disclosed silent gap, not an R1 fallback" "0" \
+  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R[0-9]  ')"
+# ── (2) A condition with a PRECEDING test is outside the anchored pattern — a coverage
+# ── limit, not a decision. Pinned so the NON-GOALS statement of it stays true.
+printf '%s\n' '```bash' 'elif [ -n "$P" ] && ACS=$(gh pr view 5); then' '```' > "$E363/s-r5i.md"
+assert_eq "#401/#857 R5 does NOT reach a condition-substitution behind a preceding test (documented coverage limit)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5i.md" | grep -c '  R5  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"
