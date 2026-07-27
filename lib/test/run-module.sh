@@ -320,7 +320,13 @@ MODULE_LAUNCHING=1
     }
 
     skip() {
-      printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite\n' >&2
+      # This fires for a raw `skip` AND for module_host_capability_skip, which delegates
+      # to it (issue #838) — so the message must not accuse the module of a contract
+      # violation it may not have committed: a host-capability declaration is sanctioned,
+      # it is just not expressible on THIS tier, where a focused run has no skip channel
+      # to fold it into. The first clause is the durable literal callers assert on.
+      printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite.\n' >&2
+      printf 'If this came from module_host_capability_skip, the declaration is legitimate but the focused runner cannot account for it; run the full suite (lib/test/run.sh) to have the skip folded and its assertion credit applied.\n' >&2
       exit 1
     }
 
