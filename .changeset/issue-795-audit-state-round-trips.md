@@ -69,3 +69,15 @@ bump: minor
   advisory or invalid finding, so the sequence prescribed a call that cannot succeed on the
   clean path; the derived unconditional-invocation count moves from 19 to 18
   ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- `init --nonce` over an unloadable state now routes by whose input is bad. Both arms
+  ended in "omit `--nonce` for a cold start" — the correct remedy when the state file is
+  genuinely absent, but a Route-B remedy under a Route-C condition when the file is
+  present-but-unreadable, where a cold start silently discards the recorded state. The two
+  cases are now separate breadcrumbs ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- Corrected three prose claims stronger than what the code establishes: the lifecycle
+  checker's fail-closed guarantee is scoped to "not empty" and does not exclude a
+  degenerate-but-nonzero paragraph; the dispatch-pointer's unconditional rendering is backed
+  structurally by the template's single unconditional render block, not by an executable
+  test that samples one invocation; and `resolve-main-root.sh`'s builtin parse loop diverges
+  from the retired `head -n 1` on input git does not emit
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).

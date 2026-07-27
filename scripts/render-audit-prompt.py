@@ -788,9 +788,14 @@ def _emit_dispatch_pointer(rendered: str) -> None:
     two lines and a positional read would take that breadcrumb as the auditor
     prompt.
 
-    An absent pointer line is a template-shape defect, not a mode failure — the
-    generator's own executable test proves the line is rendered unconditionally in
-    this mode — so nothing is raised here and stdout is unaffected either way.
+    An absent pointer line is a template-shape defect, not a mode failure, so nothing
+    is raised here and stdout is unaffected either way. What backs that routing is
+    structural rather than exhaustive, and is worth stating precisely: the pointer
+    line sits inside the single unconditional `render-block: di` span of the template
+    with no nested conditional sub-marker around it, so no rendered output of this
+    mode can omit it. The generator's executable test SAMPLES that (one invocation,
+    one slug, one draft path) — it is a regression guard on the sampled shape, not a
+    proof over every input, and the earlier wording here claimed the stronger thing.
 
     The prefix is matched after `lstrip()`, and the FIRST match wins — byte-for-byte
     the recognition the retired extraction fence performed. Both details are

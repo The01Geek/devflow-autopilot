@@ -50,6 +50,14 @@ while IFS= read -r line; do
         # working tree — treat it as unresolved and fall back to pwd (the
         # degenerate case).
         bare) saw_bare=1 ;;
+        # First `worktree `-prefixed line in the record wins. This is a deliberate,
+        # scoped DIVERGENCE from the retired `head -n 1`, which took record 1's
+        # literal first line whatever it was: on output whose first record does not
+        # OPEN with `worktree ` the old form yielded that foreign line as the path
+        # (garbage, then a pwd fallback) while this one finds the real one. git
+        # always opens a record with `worktree `, so the two agree on every output
+        # git actually produces — the divergence is confined to input git does not
+        # emit, and there the new form is the more robust of the two.
         'worktree '*) [ -n "$main_root" ] || main_root="${line#worktree }" ;;
     esac
 done <<EOF

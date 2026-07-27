@@ -4251,7 +4251,19 @@ def cmd_init(args):
             # mask a present-but-corrupt file behind a message recommending the
             # budget-resetting cold start.
             detail = f' (the load failed: {load_error})' if load_error else ''
-            _fail('init', 'a nonce was supplied but no readable state file exists for '
+            # ...and the REMEDY has to split with it. Both arms used to end in "omit
+            # --nonce for a cold start", which is the routing-prose's Route-B shape (fix
+            # the call you just made). That is right when the file is genuinely ABSENT,
+            # and wrong when it is present-but-unreadable: there a cold start silently
+            # discards recorded state, and the condition is squarely the routing prose's
+            # Route C (a load-time state error). Discriminate on the file's existence,
+            # which is the only operand that separates the two.
+            if state_path(args.slug).exists():
+                _fail('init', 'a nonce was supplied and a state file exists for slug '
+                              f'{args.slug!r} but could not be read{detail}; this is a '
+                              'state-owner-unavailable condition — do NOT cold-start over '
+                              'it, since that would discard the recorded state')
+            _fail('init', 'a nonce was supplied but no state file exists for '
                           f'slug {args.slug!r}{detail}; omit --nonce for a cold start')
         if existing['nonce'] != args.nonce:
             _fail('init', 'nonce mismatch — this call does not belong to the run that '

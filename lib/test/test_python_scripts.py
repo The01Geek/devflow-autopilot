@@ -17977,6 +17977,38 @@ def _row795_nonce_recovery(r):
 _with795(_row795_nonce_recovery)
 
 
+# --- `init --nonce` over an unloadable state routes by whose input is bad. Both arms used
+# --- to end in "omit --nonce for a cold start" -- the routing prose's Route-B remedy --
+# --- even when the file was present-but-corrupt, where a cold start DISCARDS recorded
+# --- state and the condition is squarely Route C.
+def _row795_init_nonce_load_split(r):
+    _state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+
+    # (a) present but unparseable -> never recommends the cold start.
+    _saved = _state.read_bytes()
+    _state.write_text('{ broken', encoding='utf-8')
+    proc = r('init', r.slug, '--nonce', 'abc')
+    assert_eq("#795 init: an unreadable-but-PRESENT state exits non-zero", True,
+              proc.returncode != 0)
+    assert_eq("#795 init: ... names the state-owner-unavailable condition", True,
+              'state-owner-unavailable' in proc.stderr)
+    assert_eq("#795 init: ... and does NOT prescribe the budget-resetting cold start",
+              False, 'omit --nonce for a cold start' in proc.stderr)
+
+    # (b) genuinely absent -> the cold-start remedy is the correct one and survives.
+    _state.unlink()
+    proc = r('init', r.slug, '--nonce', 'abc')
+    assert_eq("#795 init: an ABSENT state still prescribes the cold start", True,
+              'omit --nonce for a cold start' in proc.stderr)
+    assert_eq("#795 init: ... and is not mislabelled state-owner-unavailable", False,
+              'state-owner-unavailable' in proc.stderr)
+    _state.parent.mkdir(parents=True, exist_ok=True)
+    _state.write_bytes(_saved)
+
+
+_with795(_row795_init_nonce_load_split)
+
+
 # --- AC: an omitted --round on a state-determined subcommand produces the SAME answer and
 # --- exit code as the identical call with the correct --round passed.
 def _row795_defaulted_round(r):

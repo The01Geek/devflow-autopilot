@@ -24,9 +24,17 @@ plus the measurement figure derived from the second:
                MOVES the figure instead of leaving a stale literal behind.
 
 FAIL CLOSED, NEVER CLEAN-ZERO. Both prose readers parse a human-editable markdown file, so
-each refuses rather than reporting an empty result: no candidate section, more than one
+each refuses rather than reporting an EMPTY result: no candidate section, more than one
 candidate section, or zero invocations extracted is a named RED breadcrumb. A rewrap or a
 duplicated heading must not make a check pass vacuously and freeze the figure.
+
+The scope of that guarantee is exactly "not empty", and no more. A DEGENERATE-but-nonzero
+paragraph — one that names a single registered subcommand, or repeats one — still extracts
+successfully and still reports a figure, so the zero-guard is not a proof that the
+paragraph is a meaningful sequence. Distinctness deliberately is NOT required, because the
+real sequence legitimately names `query-draft-binding` twice. What catches a degenerate
+rewrite is the figure moving, which is why the figure is reported on the success path
+rather than only on failure.
 
 Exit 0 with a report on stdout when every reconciliation holds; exit 1 with the failing
 reconciliation named on stderr otherwise.
