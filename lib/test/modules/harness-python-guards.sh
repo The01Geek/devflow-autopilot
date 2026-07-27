@@ -311,7 +311,9 @@ echo "#810 pin-corpus wording-only authoring gate"
 # ────────────────────────────────────────────────────────────────────────────
 # These focused tests drive the same path-aware parser, registry-closed source
 # population, classification-preserving move logic, and fail-closed worktree setup
-# that the blocking run.sh invocation above consumes.
+# that run.sh's blocking `pin-corpus-lint.py mutation-routing-worktree` gate
+# consumes. run.sh carries several production pin-corpus-lint.py subcommands, so
+# the gate is named by subcommand rather than by position or by breadth.
 _HPG_PIN_LINT_OUT="$(mktemp "$_hpg_tmp_root/pin-lint-unit.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint unit-test capture\n' >&2
   return 1
@@ -320,6 +322,20 @@ devflow_run_focused_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
   "$_HPG_PIN_LINT_OUT"
+# The focused unit suite is module-driven only: a direct run.sh invocation of it
+# would re-execute an identical population serially, on top of the module-driven
+# run above (issue #865). Match on the basename: an invocation may spell its path
+# through $LIB, which a repo-relative literal would miss. The price is that this
+# trips on ANY mention of the basename in run.sh, a bare comment reference
+# included, not only on an invocation. `grep` writes its diagnostics to stderr and
+# nothing to stdout, so an absent or unreadable run.sh yields an EMPTY comparand
+# that fails this assertion; keep the single file operand, because two or more (a
+# second path, or a glob expanding past one file) switch `grep -c` to prefixed
+# `file:count` output that never equals "0". Search domain is run.sh alone: a
+# reintroduced invocation in another lib/test/modules/*.sh, or in
+# lib/test/module-harness.sh, is an accepted residual this assertion misses.
+assert_eq "#810 pin-corpus lint tests remain module-driven (no run.sh invocation)" \
+  "0" "$(grep -cF 'test_pin_corpus_lint.py' "$LIB/test/run.sh" || true)"
 rm -f "$_HPG_PIN_LINT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
