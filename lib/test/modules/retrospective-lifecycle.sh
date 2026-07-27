@@ -99,6 +99,41 @@ DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/t6.json" 2>"$RL
 assert_eq "#788 reconcile no-url record → ::warning:: names the slug" "true" \
   "$(grep -q 'nourl' "$RL_TMP/t6.err" && grep -q '::warning::' "$RL_TMP/t6.err" && echo true || echo false)"
 
+# A number the prefetch does not cover AND the by-number fallback cannot resolve
+# is recorded unresolved: no transition, and a per-slug ::warning:: naming the
+# number — the branch that keeps a permanently-inaccessible entry visible rather
+# than silently frozen. Attributed by the unresolved wording, since the no-url
+# branch above also emits a ::warning:: for the same slug shape.
+cat > "$RL_TMP/gh-unres.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '[]'; exit 0; fi
+exit 1   # every by-number view fails
+STUB
+chmod +x "$RL_TMP/gh-unres.sh"
+printf '%s' "$(rl_record unresolvable 606)" > "$RL_TMP/t6b.json"
+DEVFLOW_GH="$RL_TMP/gh-unres.sh" bash "$RL_PS" reconcile "$RL_TMP/t6b.json" 2>"$RL_TMP/t6b.err" >/dev/null
+assert_eq "#788 reconcile unresolvable number → ::warning:: names the number" "true" \
+  "$(grep -q 'meta-issue 606 could not be resolved' "$RL_TMP/t6b.err" && echo true || echo false)"
+assert_eq "#788 reconcile unresolvable number → the entry keeps its prior state" "filed" \
+  "$(jq -r '.patterns["unresolvable"].meta_issues[0].state' "$RL_TMP/t6b.json")"
+
+# All entries closed → the record derives from the entry with the NEWEST
+# closedAt, not the first or the last in array order. The array is deliberately
+# ordered oldest-last so a `first`/array-order derivation picks the wrong one.
+printf '%s' '{"schema_version":2,"patterns":{"allclosed":{"state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":502,"url":"https://o/r/issues/502","state":"filed","closedAt":null},{"number":501,"url":"https://o/r/issues/501","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/t6c.json"
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/t6c.json" >/dev/null 2>&1
+# 502 closed NOT_PLANNED on 06-02 (newest); 501 closed COMPLETED on 06-01.
+assert_eq "#788 reconcile all-closed → record state comes from the newest closedAt" "declined" \
+  "$(jq -r '.patterns["allclosed"].state' "$RL_TMP/t6c.json")"
+assert_eq "#788 reconcile all-closed → record fixed_at is the newest entry's" "2026-06-02T00:00:00Z" \
+  "$(jq -r '.patterns["allclosed"].fixed_at' "$RL_TMP/t6c.json")"
+# The terminal `declined` status arm: a declined record with NO later occurrence
+# stays declined (the regressed arm above it must not claim it).
+assert_eq "#788 arm order: declined record with no later occurrence stays declined" "declined" \
+  "$(rl_cp '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["decl-only"]}' \
+      '{"schema_version":2,"patterns":{"decl-only":{"state":"declined","fixed_at":"2026-06-01T00:00:00Z","provenance":"x","meta_issues":[{"number":1,"url":"u","state":"declined","closedAt":"2026-06-01T00:00:00Z","state_reason":"NOT_PLANNED"}]}},"dismissed":{}}' \
+    | jq -r '.["decl-only"].status')"
+
 # Two-entry record (one COMPLETED, one OPEN) → derives to filed, per-cat count 1.
 printf '%s' '{"schema_version":2,"patterns":{"multi":{"state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":501,"url":"https://o/r/issues/501","state":"filed","closedAt":null},{"number":504,"url":"https://o/r/issues/504","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/t7.json"
 DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/t7.json" >/dev/null 2>&1
@@ -298,6 +333,31 @@ assert_eq "#788 meta-issue writes state=filed, no dismissed entry" "filed" "$(jq
 # --slug grammar validation
 DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'bad slug' --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1; RL_SLUG_RC=$?
 assert_eq "#788 meta-issue rejects a non-slug --slug (non-zero exit)" "true" "$([ "$RL_SLUG_RC" -ne 0 ] && echo true || echo false)"
+# The --slug grammar is [A-Za-z0-9_-]+. Each rejected variant is a shape that
+# would otherwise become a non-canonical patterns{} key (a path segment, a search
+# qualifier, an empty key), and each rejection is attributed to the slug guard by
+# its own message — the tag guard above it rejects on the same grammar, so an
+# exit code alone could not tell the two apart.
+for _rl_bad in 'a/b' 'foo:bar' ''; do
+  DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug "$_rl_bad" --title T \
+    --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>"$RL_TMP/slug.err"; _rl_rc=$?
+  assert_eq "#788 meta-issue rejects --slug '${_rl_bad:-<empty>}' (non-zero exit)" "true" \
+    "$([ "$_rl_rc" -ne 0 ] && echo true || echo false)"
+  # An empty --slug is caught by the required-argument check, which names the
+  # argument; a present-but-malformed one is caught by the grammar guard.
+  if [ -n "$_rl_bad" ]; then
+    assert_eq "#788 meta-issue: --slug '${_rl_bad}' rejection is attributed to the slug grammar" "true" \
+      "$(grep -q "invalid --slug '${_rl_bad}'" "$RL_TMP/slug.err" && echo true || echo false)"
+  else
+    assert_eq "#788 meta-issue: an empty --slug is attributed to the missing-argument check" "true" \
+      "$(grep -q -- '--slug' "$RL_TMP/slug.err" && echo true || echo false)"
+  fi
+done
+# Positive control on the same invocation shape: a well-formed slug is accepted,
+# so the rejections above are the guards firing and not a broken fixture.
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'good-slug_9' --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1; _rl_rc=$?
+assert_eq "#788 meta-issue: a well-formed --slug is accepted (positive control)" "0" "$_rl_rc"
 
 # ── actionable-patterns regressed bypass + liveness ──────────────────────────
 # A regressed pattern with occurrence_count BELOW min_occurrences is still
@@ -354,6 +414,22 @@ printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"filed","fi
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov2.json" 2>"$RL_TMP/live2.err" >/dev/null
 assert_eq "#788 liveness: all-filed recurring set emits NO warning" "false" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live2.err" && echo true || echo false)"
+
+# --full: the UNFILTERED view the report renders. It carries the suppressed
+# pattern the default (eligible-only) view filters out, and it suppresses the
+# liveness diagnostic — the caller asked for the raw view, not a verdict on it.
+RL_FULLOUT="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full 2>"$RL_TMP/full.err")"
+assert_eq "#788 --full: the suppressed pattern the default view omits is present" "true" \
+  "$(printf '%s' "$RL_FULLOUT" | jq 'any(.[]; .tag=="doc-accuracy")')"
+assert_eq "#788 --full: the pattern carries its lifecycle status" "fixed" \
+  "$(printf '%s' "$RL_FULLOUT" | jq -r '.[] | select(.tag=="doc-accuracy") | .status')"
+assert_eq "#788 --full: the liveness diagnostic is suppressed" "false" \
+  "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/full.err" && echo true || echo false)"
+# Control on the same fixture: without --full the same input DOES emit it, so the
+# assertion above pins the --full suppression and not an inert fixture.
+assert_eq "#788 --full: the same fixture emits the diagnostic without --full" "true" \
+  "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live.err" && echo true || echo false)"
 
 # ── caps: open-count derivation + report rendering ───────────────────────────
 # The cap counts are derived from `filed` lifecycle entries across records, never
