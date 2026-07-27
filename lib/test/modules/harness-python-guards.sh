@@ -311,7 +311,7 @@ echo "#810 pin-corpus wording-only authoring gate"
 # ────────────────────────────────────────────────────────────────────────────
 # These focused tests drive the same path-aware parser, registry-closed source
 # population, classification-preserving move logic, and fail-closed worktree setup
-# that the blocking run.sh invocation above consumes.
+# that the production pin-corpus-lint.py whole-tree scan in run.sh consumes.
 _HPG_PIN_LINT_OUT="$(mktemp "$_hpg_tmp_root/pin-lint-unit.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint unit-test capture\n' >&2
   return 1
@@ -320,6 +320,12 @@ devflow_run_focused_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
   "$_HPG_PIN_LINT_OUT"
+# The focused unit suite is module-driven only: a direct run.sh invocation of it
+# would re-add a second serial execution of an identical population (issue #865).
+# The basename is the match literal because the removed invocation spelled its
+# argument through $LIB, which a fully-literal path would not have caught.
+assert_eq "#810 pin-corpus lint tests remain module-driven (no run.sh invocation)" \
+  "0" "$(grep -cF 'test_pin_corpus_lint.py' "$LIB/test/run.sh" || true)"
 rm -f "$_HPG_PIN_LINT_OUT"
 
 # ────────────────────────────────────────────────────────────────────────────
