@@ -114,7 +114,11 @@ mkdir -p .devflow/tmp/review/<slug>/<run-id>
 # S1/S2/S3 screens as ordinary shell and prints EXACTLY ONE token line — it has no silent
 # path — so this is a single leading-token statement the cloud matcher permits. The old
 # case/if/elif seed compound was refused outright in cloud, so the screens never ran there.
-.devflow/vendor/devflow/scripts/seed-review-progress.sh "$PR_NUMBER" "$MARKER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md
+# Resolve the skill-dir anchor INLINE here (never captured into a shell variable a later
+# statement reads — issue #275); it resolves to the granted
+# `.devflow/vendor/devflow/scripts/seed-review-progress.sh` literal in cloud and to the
+# real repo-root `scripts/` copy on every non-vendored runner.
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/seed-review-progress.sh "$PR_NUMBER" "$MARKER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md
 ```
 
 Read the helper's ONE stdout token line and act on it — the branch is the AGENT's, no shell `if` needed:
@@ -124,10 +128,10 @@ Read the helper's ONE stdout token line and act on it — the branch is the AGEN
 - **No output at all** → a refused command and an absent helper both produce no output, so empty output NEVER authorizes a create. Take the fallback arm below, built only from heads the review profile already grants and shapes already observed permitted on this tier — a `;`-joined statement sequence with no `if` compound:
 
 ```bash
-mkdir -p .devflow/tmp/review/<slug>/<run-id> ; WP=$(.devflow/vendor/devflow/scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty
+mkdir -p .devflow/tmp/review/<slug>/<run-id> ; WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty
 ```
 
-Read the two emitted tokens (`id-rc=…` and the `stderr=…` token — the `[ -s … ]` statement emits a POSITIVE token in BOTH directions, so a missing token can never be read as "stderr was empty"). Create the comment ONLY when `id-rc=2` AND `stderr=empty` (cmd_id's silent clean-absence exit): emit the single statement `WP=$(.devflow/vendor/devflow/scripts/workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err)` and hold its printed id as `$WP`. On `id-rc=0`, resume that printed `$WP`. On EVERY other combination — including a missing token — leave `$WP` unset and emit a `::warning::` breadcrumb naming the `id-rc`/`stderr` you observed; never create (an rc-2 WITH stderr is an interpreter-level exit, not cmd_id's clean scan — this is the #384 duplicate-comment guard).
+Read the two emitted tokens (`id-rc=…` and the `stderr=…` token — the `[ -s … ]` statement emits a POSITIVE token in BOTH directions, so a missing token can never be read as "stderr was empty"). Create the comment ONLY when `id-rc=2` AND `stderr=empty` (cmd_id's silent clean-absence exit): emit the single statement `WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err)` and hold its printed id as `$WP`. On `id-rc=0`, resume that printed `$WP`. On EVERY other combination — including a missing token — leave `$WP` unset and emit a `::warning::` breadcrumb naming the `id-rc`/`stderr` you observed; never create (an rc-2 WITH stderr is an interpreter-level exit, not cmd_id's clean scan — this is the #384 duplicate-comment guard).
 
 ```bash
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets the

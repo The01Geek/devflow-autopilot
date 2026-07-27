@@ -251,9 +251,13 @@ When `$ISSUE_NUM` resolved, call it:
 # single bare statement, no `case` and no `if` compound the cloud matcher would refuse.
 # In PR mode pass `--pr "$PR_NUMBER"`; in current-branch mode OMIT the flag entirely
 # (emit the second form) rather than passing an empty value (`--pr` is type=int):
-ACS_OUT=$(.devflow/vendor/devflow/scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
+# Resolve the skill-dir anchor INLINE at each call site (never captured into a shell
+# variable a later statement reads — issue #275); it resolves to the granted
+# `.devflow/vendor/devflow/scripts/workpad.py` literal in cloud and to the real repo-root
+# `scripts/` copy on every non-vendored runner.
+ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
 # current-branch mode (no PR to bind to):
-ACS_OUT=$(.devflow/vendor/devflow/scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
+ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
 ```
 
 `acs-resolve` itself exits 0 on every resolvable state, including an absent or unreadable workpad, which it routes as an outcome carrying its own source token rather than as a run-ending error; a non-numeric `$ISSUE_NUM` is likewise routed (as `resolver-unavailable`, exit 0) by `cmd_acs_resolve`'s own guard rather than by a pre-call `case`. This mirrors how `skills/review/SKILL.md` seeds its live progress comment: the S1 numeric guard, the S2 `workpad.py` readability precheck, and the S3 rc-2 silent-exit discriminator (screens S1–S3) now live inside the bundled helper `scripts/seed-review-progress.sh`, which owns those screens as executable shell, rather than in a prompt fence.
