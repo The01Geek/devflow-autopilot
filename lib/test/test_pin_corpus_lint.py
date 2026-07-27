@@ -608,10 +608,30 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 "assert_eq \"count\" \"1\" \"$(grep -cF x \"$DOC\")\"",
                 "assert_eq \"absence\" \"no\" \"$(grep -qF x \"$DOC\" && echo yes || echo no)\"",
                 "assert_eq \"temp\" \"yes\" \"$(grep -qF x \"$TMP_FILE\" && echo yes || echo no)\"",
+                # A scratch DIR plus a relative capture name is the ordinary way to
+                # write a runtime haystack; it is the same carve-out as the bare var.
+                "assert_eq \"temp dir\" \"yes\" \"$(grep -qF x \"$TMP_MI/edit-args\" && echo yes || echo no)\"",
+                "assert_eq \"temp braced\" \"yes\" \"$(grep -qF x \"${TEMP_D}/args\" && echo yes || echo no)\"",
             ]
         )
         sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
         self.assertEqual([], [site for site in sites if site.family == "raw-presence"])
+
+    def test_a_temp_named_var_that_resolves_into_the_repo_stays_in_scope(self):
+        # The carve-out is for UNRESOLVABLE runtime scratch only. A `TMP_`-named var
+        # that actually resolves to repository source is a source-presence pin and
+        # must not be exempted by its name.
+        source = "\n".join(
+            [
+                'TMP_DOC="$LIB/../docs/x.md"',
+                "assert_eq \"named temp\" \"yes\" \"$(grep -qF x \"$TMP_DOC\" && echo yes || echo no)\"",
+                "assert_eq \"inline temp\" \"yes\" \"$(grep -qF x \"$TMP_DOC/y\" && echo yes || echo no)\"",
+            ]
+        )
+        sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
+        self.assertEqual(
+            2, len([site for site in sites if site.family == "raw-presence"])
+        )
 
     def test_moves_are_reclassified_under_the_current_site_policy(self):
         marker = "# structural-pin-ok: helper-contract -- the helper name is invoked"

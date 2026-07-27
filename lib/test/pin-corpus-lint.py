@@ -2844,6 +2844,18 @@ def _raw_guard_site(
             if os.path.isabs(target_token)
             else os.path.join(repo_root, target_token)
         )
+    # A runtime scratch haystack is out of scope: it holds what THIS run produced
+    # (captured argv, a stub's stderr), not repository source, so a grep over it is
+    # an executable assertion rather than a source-presence pin. The `TMP_`/`TEMP_`
+    # name is the declaration. Recognize the inline `"$TMP_DIR/capture"` shape as
+    # well as a bare `"$TMP_FILE"` — a scratch dir plus a relative capture name is
+    # the ordinary way to write one, and exempting only the bare form was an
+    # artifact of `_VARREF` being whole-token-anchored, not a narrower policy. The
+    # carve-out still fires ONLY when the path is otherwise unresolvable, so it can
+    # never mask a target that does resolve into the repository.
+    if target is None and not var_name:
+        inline_var = _INLINE_VAR.match(target_token)
+        var_name = inline_var.group(1) if inline_var else ""
     if (
         target is None
         and var_name
