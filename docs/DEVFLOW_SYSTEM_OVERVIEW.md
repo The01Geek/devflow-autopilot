@@ -174,7 +174,7 @@ This is the canonical story for a demo video or "how it works" slide:
 | `/devflow:docs-bootstrap-external` | Generate initial external docs from internal docs | interactively |
 | `/devflow:create-issue` | Rough idea → well-structured GitHub issue | interactively |
 | `/devflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh schema | interactively |
-| `/devflow:retrospective-weekly` | The weekly self-improvement loop orchestrator | interactively / headless |
+| `/devflow:retrospective-weekly` | The weekly self-improvement loop orchestrator | interactively (no documented unattended recipe) |
 | `/devflow:retrospective` | Stage A: per-PR retrospective analysis | subagent only |
 | `/devflow:retrospective-audit` | Stage B: per-pattern issue-spec drafting | subagent only |
 
