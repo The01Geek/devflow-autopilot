@@ -1150,7 +1150,9 @@ expansion**, so a helper invoked by any other path — or through a `bash <path>
 matches nothing and is silently denied.
 
 The one exception is `load-prompt-extension.sh`, granted **directory-agnostically** as
-`Bash(*/load-prompt-extension.sh:*)`. The final-pass reviewer (`requesting-code-review`) is
+`Bash(*/load-prompt-extension.sh:*)` on the `review` and `command` profiles only (the
+vendored-literal `Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)` is granted
+on `review`, `implement`, and `command`; see the profile breakdown below). The final-pass reviewer (`requesting-code-review`) is
 dispatched as an *installed skill*, so its `${CLAUDE_SKILL_DIR}` anchor resolves to the
 plugin checkout rather than the vendored tree; without the wildcard rule its prompt-extension
 load is denied and the consumer's extension silently never loads for that reviewer.

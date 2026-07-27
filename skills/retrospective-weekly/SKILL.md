@@ -234,8 +234,28 @@ each). Each subagent prompt:
 >
 > Your context bundle path is: `<path>`
 >
+> Consumer prompt-extension handoff: your extension file for this skill is at the
+> absolute path `<REPO_ROOT>/.devflow/prompt-extensions/retrospective.md`. Read it
+> with your file-read tool and honor any content as instructions appended to the
+> retrospective skill's own prompt. If the file is absent or empty, treat it as a
+> no-op and report nothing about it; if it is present but you cannot read it, report
+> that via the optional `extension_unreadable` key in your returned JSON object.
+>
 > Print exactly one JSON object (the retrospective entry) and **nothing else**
 > on stdout.
+
+**Resolve `<REPO_ROOT>` before dispatch (by-path handoff, issue #834).** A
+subagent receives neither `$CLAUDE_SKILL_DIR` nor a `Base directory for this skill:`
+context line, so it cannot resolve its own anchor to reach the extension. You
+(the orchestrator) run as a skill, so *you* resolve the repository root
+(`git rev-parse --show-toplevel`) and substitute it for `<REPO_ROOT>` in the
+handoff sentence above, giving the child an absolute path its own working directory
+cannot change. Append the sentence **unconditionally** — it is inert when no
+extension exists (a child that reads an absent file finds nothing to honor). Run
+**no** probe and read **no** extension file yourself: no extension content enters
+this orchestrator's context on any path. The child performs a **file read**, never
+a command invocation, so this handoff needs no allowlist entry and no permission
+grant on any tier.
 
 (The subagent picks `categories` from the fixed vocabulary in that skill — no
 "existing tags" list is passed; the vocabulary *is* the bounded list.)
@@ -279,6 +299,11 @@ operate on the file. For each result:
    `"PR #<n>: retrospective analysis failed"` and skip that PR.
 5. If valid (a real retrospective entry, no `"skip"`/`"error"` key), append:
    `$LIB/../scripts/run-jq.sh -c . < .devflow/tmp/result-<n>.json >> .devflow/tmp/new-entries.jsonl`
+6. **Relay a child-reported unreadable extension (issue #834).** If the parsed
+   object carries an `extension_unreadable` key (the by-path handoff found the
+   consumer extension present but unreadable), surface it in the run report by
+   appending a one-line record naming the child skill and the reported value —
+   `skip_records+=("Stage A PR #<n>: consumer prompt extension for retrospective present but unreadable: $($LIB/../scripts/run-jq.sh -r '.extension_unreadable' < .devflow/tmp/result-<n>.json)")` — so the operator sees the extension could not be honored. This never fails the PR's analysis: the entry (extra key and all) is still appended in step 5.
 
 ---
 
@@ -560,9 +585,26 @@ subagent's prompt:
 >
 > Pattern metadata: `<the pattern json object>`
 >
+> Consumer prompt-extension handoff: your extension file for this skill is at the
+> absolute path `<REPO_ROOT>/.devflow/prompt-extensions/retrospective-audit.md`.
+> Read it with your file-read tool and honor any content as instructions appended
+> to the retrospective-audit skill's own prompt. If the file is absent or empty,
+> treat it as a no-op and report nothing about it; if it is present but you cannot
+> read it, report that via the optional `extension_unreadable` key in your returned
+> JSON object.
+>
 > Make **no** edits and **no** worktree. Print exactly one JSON object (the
 > `{title, body}` return contract from § 5 of that skill) and **nothing else**
 > on stdout.
+
+**Resolve `<REPO_ROOT>` before dispatch (by-path handoff, issue #834).** As in
+Step 4, a subagent resolves no anchor of its own, so you (the orchestrator) resolve
+the repository root (`git rev-parse --show-toplevel`) and substitute it for
+`<REPO_ROOT>` in the handoff sentence above. Append the sentence
+**unconditionally** (it is inert when no extension exists), run **no** probe, and
+read **no** extension file yourself — no extension content enters this
+orchestrator's context. The child performs a file read, never a command
+invocation, so no allowlist entry or permission grant is needed on any tier.
 
 Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
@@ -736,6 +778,15 @@ else
     #    the shell) and the title to a shell var.
     $LIB/../scripts/run-jq.sh -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
     TITLE="$($LIB/../scripts/run-jq.sh -r '.title' < ".devflow/tmp/result-${SLUG}.json")"
+
+    # Relay a child-reported unreadable consumer extension (issue #834). The by-path
+    # handoff (§8b) tells the retrospective-audit child to report a present-but-unreadable
+    # extension via an optional `extension_unreadable` key; surface it on this run's own
+    # output channel naming the child skill. Informational only — it never blocks filing.
+    EXT_UNREADABLE="$($LIB/../scripts/run-jq.sh -r '.extension_unreadable // empty' < ".devflow/tmp/result-${SLUG}.json")"
+    if [ -n "$EXT_UNREADABLE" ]; then
+        echo "::warning::retrospective Stage B (pattern ${SLUG}): consumer prompt extension for retrospective-audit present but unreadable: ${EXT_UNREADABLE}" >&2
+    fi
 
     # 3. File exactly one issue. meta-issue.sh stamps DevFlow + Retrospective
     #    (best-effort), records a number-keyed `filed` overrides.json lifecycle

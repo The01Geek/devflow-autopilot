@@ -50,6 +50,31 @@ These figures are a **past-time snapshot**, not a live measurement: they record 
 move cost at the moment it was made, so a later change to either file does not retroactively
 falsify the record. The counter is `wc -c`.
 
+## Ceiling raise — issue #834 (registered per the #656 enforcement-constant exception)
+
+Issue #834 appends a consumer prompt-extension by-path handoff sentence to the Phase 4.1
+`devflow:docs` dispatch in `skills/implement/phases/phase-4-documentation.md`. The addition
+is **unconditional** — every Phase 4.1 run dispatches that subagent, and the child cannot
+resolve its own skill anchor — so it is not routable behind a conditional
+progressively-loaded reference the way section 4.0 was: a gate that always fires saves no
+context and adds a degraded arm that could silently drop the handoff. The 359 bytes the move
+left under the ceiling are residual headroom, not slack budgeted for this, so the ceiling is
+re-registered rather than the addition being deferred or shrunk past its operative content.
+
+| ref | `wc -c skills/implement/phases/phase-4-documentation.md` |
+| --- | --- |
+| pre-#834 (`main` at the raise) | 96,264 |
+| #834 first draft | 98,005 |
+| #834 after trimming the paragraph's non-operative rationale | 97,729 |
+
+The paragraph was trimmed before the raise was taken: the two sentences restating what the
+quoted child-facing sentence already says (that it is inert when no extension exists, and
+that a file read needs no allowlist or permission grant) were removed, keeping the
+substitution rule, the verbatim child sentence, the no-probe prohibition, and the
+unreadable-extension relay. The new ceiling is **97,729** — the trimmed measurement with
+**no added slack**, so the next edit that grows this file goes RED and must register its own
+raise. These figures are a past-time snapshot on the same terms as the table above.
+
 ## Conservation
 
 The relocated prose moves verbatim apart from four recorded deviations, each of which the

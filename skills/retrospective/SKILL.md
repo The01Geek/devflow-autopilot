@@ -271,6 +271,17 @@ newlines that break naive serialization).
 }
 ```
 
+**Optional `extension_unreadable` key (consumer prompt-extension handoff, issue #834).**
+When the dispatching parent supplies a by-path consumer prompt-extension handoff (a
+sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective.md`
+path and instructing you to read it with your file-read tool), honor it: read that
+file and treat any content as instructions appended to this skill's prompt. An absent
+or empty file is a no-op you report nothing about. If the file is **present but you
+cannot read it**, add **one** optional string key `extension_unreadable` to the object
+above (naming the path and the read failure) so the orchestrator can relay it — the
+returned value stays **exactly one JSON object** with nothing else on stdout. Omit the
+key entirely in every other case.
+
 `categories` must be drawn from the fixed vocabulary above; `descriptors` is
 free text. Echo `pr`, `issue`, `branch`, `head_sha`, `merge_commit_sha`,
 `merged_at`, and `signals` straight from the bundle — do not recompute them.
