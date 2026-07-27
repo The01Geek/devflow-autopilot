@@ -77,6 +77,10 @@ _usage() {
 }
 
 # ── the directory holding a path, via bash builtins ───────────────────────────
+# Coupled pair: lib/meta-issue.sh writes the SAME overrides.json and carries the
+# same two-line derivation inline. It is a standalone executable, so it cannot
+# source this one (that would run this script's arg parsing) — the duplication is
+# deliberate, not an oversight. Change the staging rule in both or neither.
 # Never `dirname`: `lib/preflight.sh` does not guarantee it, and a missing
 # non-preflight PATH tool does not fail — it yields empty, which would silently
 # relocate every staging file below to the filesystem root.

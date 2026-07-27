@@ -204,7 +204,9 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # a separate filesystem turns this into a copy-then-unlink that can leave
     # overrides.json truncated. The directory is derived with a bash builtin,
     # never `dirname` — a non-preflight PATH tool that silently yielded empty
-    # would relocate the staging file to the filesystem root.
+    # would relocate the staging file to the filesystem root. Coupled pair with
+    # pattern-state.sh's `_dir_of`: that script is a standalone executable, so
+    # sourcing its helper here would run its arg parsing. Change both or neither.
     OVERRIDES_DIR="${OVERRIDES%/*}"
     [ "$OVERRIDES_DIR" = "$OVERRIDES" ] && OVERRIDES_DIR="."
     # A mktemp failure must NOT abort under `set -e`: the issue itself was
