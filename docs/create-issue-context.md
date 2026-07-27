@@ -262,7 +262,23 @@ corpus — every one of those 57 runs executed the *pre*-change lifecycle, so th
 would reproduce the "before" column exactly and report a change of zero. The honest
 "after" requires create-issue runs made *with* this change, which cannot exist before it
 merges. Fill the row below from a re-run of the same analysis over a post-merge window of
-comparable size:
+comparable size.
+
+**Reproduction recipe (post-merge).** No committed script produces this table — the before
+column came from an ad-hoc analysis, and naming a script here that does not exist would be
+worse than naming none. The recipe is therefore stated as its inputs, which is what makes
+the re-run comparable:
+
+- **Corpus root:** the maintainer machine's `~/.claude*/projects/**/*.jsonl` transcripts
+  (the same root `scripts/inventory-workflow-transcripts.py` walks).
+- **Selection predicate:** transcripts containing a `/devflow:create-issue` invocation whose
+  run reached Step 3.6, restricted to a contiguous post-merge date window; take a window
+  large enough to yield a run count of the same order as the before column's 57.
+- **Metric definitions:** identical to the before table's row labels — a "state-owner shell
+  call" is one Bash invocation whose command names `issue-audit-state.py`; an "invocation"
+  counts each subcommand within it; an "accidental caller-contract failure" is a non-zero
+  exit whose stderr carries a `_fail(...)` breadcrumb; "per audit round" divides by the
+  count of distinct `--round` values recorded in that run's state file.
 
 > Maintainer post-merge record (fill from a post-merge corpus window):
 > - after: window `<start>`→`<end>`, runs `<n>`, median state-owner shell calls per run `<N>`,
