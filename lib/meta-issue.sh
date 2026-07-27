@@ -218,6 +218,23 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
         }
     fi
 
+    # Refuse to record into a file this helper is not the migrator for. The jq
+    # below sets `.schema_version = 2` and performs NO v1 conversion, so stamping
+    # an unmigrated v1 file would claim a migration that never happened — and
+    # pattern-state.sh's `_migrate` gates on `schema_version == 1`, so it would
+    # then never run. Every loop-written v1 `dismissed{}` entry would be frozen as
+    # a human-owned PERMANENT suppression: the unclearable-dismissal failure this
+    # whole issue exists to end, arriving through the loop's own writer. Decline
+    # the record instead and route to the issue-WAS-filed recovery below, so the
+    # filing is still reported and de-dupe still prevents a duplicate next run.
+    # (`// 1` mirrors _migrate's own read, so an absent key reads as v1 there too.)
+    _MI_SCHEMA="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$OVERRIDES" 2>/dev/null)" || _MI_SCHEMA=""
+    if [ "$_MI_SCHEMA" != "2" ]; then
+        echo "::error::meta-issue: issue WAS filed (${URL}) but ${OVERRIDES} reports schema_version '${_MI_SCHEMA:-unreadable}', not 2 — refusing to stamp a v2 lifecycle record onto a file this helper does not migrate (run 'pattern-state.sh migrate ${OVERRIDES}' first); de-dupe will prevent a duplicate next run" >&2
+        printf '%s\n' "$URL"
+        exit 0
+    fi
+
     NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || {
         echo "::error::meta-issue: issue WAS filed (${URL}) but the timestamp for its lifecycle record could not be derived — de-dupe will prevent a duplicate next run" >&2
         printf '%s\n' "$URL"

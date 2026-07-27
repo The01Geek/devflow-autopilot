@@ -70,7 +70,14 @@ def slugify:
 # Grouping tags for an implementation entry: v2 `categories`, falling back to
 # v1 `theme_tags`. Defined once so occurrences_for and the tag-collection
 # reducer stay in sync.
-def grouping_tags: (.categories // .theme_tags) // [];
+# Totality is load-bearing on BOTH limbs: this side of the derivation is written
+# by an LLM subagent, so a `"categories": "tooling-gap"` (string) or `[7]`
+# (non-string member) is an ordinary agent slip, not corruption. Unguarded, the
+# first aborts on `Cannot iterate over string` and the second on `explode input
+# must be a string` — taking the WHOLE weekly derivation down over one row. The
+# overrides.json side was hardened against exactly this class; this side is the
+# same hazard from a less trustworthy writer.
+def grouping_tags: ((((.categories // .theme_tags) // []) | arrays) // []) | map(select(strings));
 
 def occurrences_for($entries; $slug):
   [$entries[]
@@ -127,7 +134,12 @@ def fixes_for($entries; $slug):
     | (($lifecycle[$slug] | objects) // null) as $rec
     # Fix-timestamp precedence: the lifecycle record's fixed_at when a record
     # exists (authoritative), else the legacy audit fix history.
-    | (if $rec != null then $rec.fixed_at else (($fixes | last).ts // null) end) as $last_fix_ts
+    # `strings` is load-bearing here, unlike the key guard above: jq's `>` is a
+    # TOTAL order across types and never errors, so a hand-edited non-string
+    # fixed_at does not fail — it silently decides the regressed arm (`false`
+    # sorts below every timestamp and forces `regressed`; a non-date string can
+    # pin a pattern at `fixed` forever). Treat a non-string as absent.
+    | (if $rec != null then (($rec.fixed_at | strings) // null) else ((($fixes | last).ts | strings) // null) end) as $last_fix_ts
     | (($occs  | last).ts // null) as $last_occ_ts
     | (if $rec != null then $rec.state else null end) as $rec_state
     | (

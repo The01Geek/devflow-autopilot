@@ -1395,6 +1395,62 @@ assert_eq "#788 prefetch: the only key is the one the record already held" "pref
 assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture page (control)" "true" \
   "$("$RL_TMP/gh-prefetch.sh" issue list | jq 'any(.[]; .number==602)')"
 
+# ── the derivation survives a malformed agent-written categories row ─────────
+# retrospectives.jsonl is written by an LLM subagent, so a scalar `categories`
+# or a non-string member is an ordinary slip. Unguarded it aborts the WHOLE
+# weekly derivation over one row ("Cannot iterate over string" / "explode input
+# must be a string"), losing every other pattern with it.
+RL_CAT_ENTRIES='{"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":"not-an-array"}
+{"kind":"implementation","pr":2,"merged_at":"2026-01-02T00:00:00Z","verdict":"imperfect","categories":[7,"good-tag"]}
+{"kind":"implementation","pr":3,"merged_at":"2026-01-03T00:00:00Z","verdict":"imperfect","categories":["good-tag"]}'
+RL_CAT_VIEW="$(rl_cp "$RL_CAT_ENTRIES" '{"schema_version":2,"patterns":{},"dismissed":{}}' 2>"$RL_TMP/cat.err")"; RL_CAT_RC=$?
+assert_eq "#788 categories: a malformed row does not abort the derivation" "0" "$RL_CAT_RC"
+assert_eq "#788 categories: the well-formed tag beside it is still derived" "2" \
+  "$(printf '%s' "$RL_CAT_VIEW" | jq -r '.["good-tag"].occurrence_count // "MISSING"')"
+assert_eq "#788 categories: the non-string member is dropped, not slugified" "false" \
+  "$(printf '%s' "$RL_CAT_VIEW" | jq -r 'has("7")')"
+
+# ── a non-string fixed_at cannot silently drive the regressed arm ────────────
+# jq's `>` is a TOTAL order and never errors, so a hand-edited non-string
+# fixed_at does not fail loudly — it decides the arm. `false` sorts below every
+# timestamp and would force `regressed`; a non-date string can pin a pattern at
+# `fixed` forever. Both must read as absent instead.
+RL_FT_ENTRY='{"kind":"implementation","pr":9,"merged_at":"2026-02-01T00:00:00Z","verdict":"imperfect","categories":["ft"]}'
+assert_eq "#788 fixed_at: a boolean fixed_at does not force 'regressed'" "fixed" \
+  "$(rl_cp "$RL_FT_ENTRY" '{"schema_version":2,"dismissed":{},"patterns":{"ft":{"state":"fixed","fixed_at":false,"meta_issues":[]}}}' 2>/dev/null | jq -r '.ft.status')"
+# Control on the same fixture: a REAL older timestamp does derive regressed, so
+# the assertion above pins the type guard and not an arm that never fires.
+assert_eq "#788 fixed_at: a real older timestamp DOES derive regressed (control)" "regressed" \
+  "$(rl_cp "$RL_FT_ENTRY" '{"schema_version":2,"dismissed":{},"patterns":{"ft":{"state":"fixed","fixed_at":"2026-01-01T00:00:00Z","meta_issues":[]}}}' 2>/dev/null | jq -r '.ft.status')"
+
+# ── meta-issue refuses to stamp v2 on an unmigrated v1 file ──────────────────
+# The lifecycle write sets `.schema_version = 2` and performs NO v1 conversion.
+# Stamping the version it did not perform is permanent silence via this PR's own
+# writer: _migrate gates on `schema_version == 1`, so once the file claims v2 the
+# migration never runs again and every loop-written v1 `dismissed{}` entry is
+# frozen as a human-owned permanent suppression — the exact failure #788 exists
+# to end. It must decline the record (taking the issue-WAS-filed recovery) rather
+# than convert a file it is not the migrator for.
+printf '%s' '{"schema_version":1,"dismissed":{"legacy-slug":{"dismissed_by":"retrospective-weekly","meta_issue":"https://github.com/o/r/issues/5"}}}' \
+  > "$RL_TMP/mi-v1.json"
+cp "$RL_TMP/mi-v1.json" "$RL_TMP/mi-v1-before.json"
+RL_MIV1_OUT="$(DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag legacy-slug --slug legacy-slug \
+  --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v1.json" 2>"$RL_TMP/mi-v1.err")"; RL_MIV1_RC=$?
+assert_eq "#788 meta-issue: a v1 overrides file still exits 0 (the issue WAS filed)" "0" "$RL_MIV1_RC"
+assert_eq "#788 meta-issue: a v1 overrides file still prints the filed issue URL" "true" \
+  "$(case "$RL_MIV1_OUT" in *"/issues/"*) echo true ;; *) echo false ;; esac)"
+assert_eq "#788 meta-issue: it leaves the v1 file BYTE-unchanged, never stamped v2" "true" \
+  "$(cmp -s "$RL_TMP/mi-v1.json" "$RL_TMP/mi-v1-before.json" && echo true || echo false)"
+assert_eq "#788 meta-issue: the refusal names the unmigrated schema as the cause" "true" \
+  "$(grep -q 'schema_version' "$RL_TMP/mi-v1.err" && echo true || echo false)"
+# Control on the same invocation shape: a v2 file DOES get the lifecycle record,
+# so the three assertions above pin the schema guard and not a broken fixture.
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi-v2.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok-slug --slug ok-slug \
+  --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v2.json" >/dev/null 2>&1
+assert_eq "#788 meta-issue: a v2 file still receives its lifecycle record (control)" "filed" \
+  "$(jq -r '.patterns["ok-slug"].state // "MISSING"' "$RL_TMP/mi-v2.json")"
+
 # ── the three cap keys, swept over the adversarial config-shape matrix ───────
 # CLAUDE.md's best-effort-parser rule governs every config value that turns into
 # a decision, and these three turn into the filing budget. The boundary that
