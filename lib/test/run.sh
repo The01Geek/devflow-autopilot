@@ -32620,14 +32620,19 @@ else
   skip "#815 section 4.0 no longer carries the follow-up-issue create fence" host-capability \
     "could not allocate a scratch file for the section-4.0 slice"
 fi
-# An enforcement constant, registered per the #656 exception: 96623 is issue #815's
-# acceptance ceiling, fixed by the issue against the 116,623 the file measured when it was
-# filed (this branch's merge base had since grown to 116,879, which the ceiling still
-# clears). It is pinned rather than rendered because a rendered figure would move with the
-# file and enforce nothing. Provenance and the measured delta:
+# An enforcement constant, registered per the #656 exception. It began as issue #815's
+# acceptance ceiling of 96623, fixed by that issue against the 116,623 the file measured
+# when it was filed. Issue #834's unconditional consumer-prompt-extension handoff sentence
+# — an addition the Phase 4.1 dispatch requires on every run, so it cannot be routed behind
+# a conditional progressively-loaded reference — does not fit inside the residual headroom
+# #815's move happened to leave, so the ceiling is re-registered here at the trimmed
+# post-#834 measurement with NO added slack: the next edit that grows this file goes RED and
+# must register its own raise, exactly as #815 intended. It is pinned rather than rendered
+# because a rendered figure would move with the file and enforce nothing. Provenance, both
+# measured deltas, and the raise rationale:
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 96623 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 97729 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
@@ -39721,6 +39726,319 @@ assert_pin_unique "#711 CLAUDE.md carries the enumeration-source rule" \
   'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: surface-presence pin on the Conventions rule; the enumeration behaviour it describes is proven by the fixture-driven #711 assertions above
 assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+# #834 subagent extension-handoff lint (lib/test/lint-subagent-extension-handoff.py).
+# The registry (lib/subagent-dispatch-sites.json) is the authority; the lint gates
+# that a subagent dispatch of a DevFlow skill is registered. Fixture trees and
+# registries are built in scratch dirs (like the #711 block) and driven through
+# --root/--files-from/--registry; the lint under test is never mocked.
+# ────────────────────────────────────────────────────────────────────────────
+echo "#834 subagent extension-handoff lint"
+E834_LINT="$LIB/test/lint-subagent-extension-handoff.py"
+E834_REG_REAL="$LIB/subagent-dispatch-sites.json"
+
+# Real-tree run: clean now, plus a POSITIVE record tally so a collapsed audit can't read clean.
+E834_OUT="$(python3 "$E834_LINT" --root "$LIB/.." 2>&1)"; E834_RC=$?
+assert_eq "#834 lint: clean on the tree as it stands" "rc=0" \
+  "$([ "$E834_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E834_RC" "$E834_OUT")"
+assert_eq "#834 lint: the real-tree run audited a positive number of records" "yes" \
+  "$(printf '%s' "$E834_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) of", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Positive control over the REAL tree (AC16): for every non-inherited registry record,
+# a registry missing that record makes the lint exit non-zero — because the site's real
+# dispatch wording still flags in the tree but no record accounts for it. Inherited
+# records (the shadow re-dispatch) are the sole exemption. This is the assertion that
+# fails if the token set / reference forms ever stop matching a registered site.
+E834_POSCTL="$(python3 - "$E834_REG_REAL" "$LIB/.." "$E834_LINT" <<'PY'
+import json, subprocess, sys, tempfile, os
+reg_path, root, lint = sys.argv[1], sys.argv[2], sys.argv[3]
+reg = json.load(open(reg_path))
+results = []
+for i, rec in enumerate(reg["sites"]):
+    if rec.get("handoff") == "inherited":
+        continue
+    trimmed = {**reg, "sites": [s for j, s in enumerate(reg["sites"]) if j != i]}
+    fd, tmp = tempfile.mkstemp(suffix=".json"); os.close(fd)
+    json.dump(trimmed, open(tmp, "w"))
+    rc = subprocess.run([sys.executable, lint, "--root", root, "--registry", tmp],
+                        capture_output=True).returncode
+    os.unlink(tmp)
+    results.append(f"{rec['dispatcher']}::{rec['skill']}={'nonzero' if rc != 0 else 'ZERO'}")
+print("all-nonzero" if all(r.endswith("nonzero") for r in results) and results else "|".join(results))
+PY
+)"
+assert_eq "#834 lint: every non-inherited registered site is a positive control (removal → red)" \
+  "all-nonzero" "$E834_POSCTL"
+
+# --- Fixture tree. Build a synthetic skills/ tree so slugs resolve and dispatcher
+# --- md files are audited. Registries are generated inline per assertion.
+e834_write() {  # <root> <relpath> <line…>
+  local root="$1" rel="$2" dir; shift 2
+  dir="${rel%/*}"; [ "$dir" = "$rel" ] || mkdir -p "$root/$dir"
+  printf '%s\n' "$@" > "$root/$rel"
+}
+e834_run() {  # <root> <registry> <path…> -> "rc=<n>|<stdout+stderr>"
+  local root="$1" reg="$2"; shift 2
+  local list out rc
+  list="$(probe_tmp '#834 fixture list')" || list=""
+  case "$list" in
+    ""|/dev/null) printf 'rc=probe-unavailable|fixture list could not be allocated'; return 0 ;;
+  esac
+  printf '%s\n' "$@" > "$list"
+  out="$(python3 "$E834_LINT" --root "$root" --files-from "$list" --registry "$reg" 2>&1)"; rc=$?
+  rm -f "$list"
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+
+E834_FX="$(probe_tmp '#834 fixture root')"
+case "$E834_FX" in ""|/dev/null) : ;; *) rm -f "$E834_FX"; mkdir -p "$E834_FX" ;; esac
+# Resolvable slugs: childskill/otherskill under skills/, someagent under agents/.
+e834_write "$E834_FX" skills/childskill/.keep ""
+e834_write "$E834_FX" skills/otherskill/.keep ""
+e834_write "$E834_FX" agents/someagent.md "an agent definition"
+# Real dispatch (invoke form) and a second real dispatch (path form).
+e834_write "$E834_FX" skills/d/real.md \
+  "## Real dispatch" "Spawn a subagent with the Agent tool and instruct it to invoke the \`devflow:childskill\` skill."
+e834_write "$E834_FX" skills/d/pathform.md \
+  "## Path-form dispatch" "Use the Agent tool. Read and follow \`../childskill/SKILL.md\` exactly."
+# Prose ABOUT a dispatch — same lexical shape, but not a real dispatch → needs an nd exemption.
+e834_write "$E834_FX" skills/d/prose.md \
+  "## Prose about dispatch" "The Agent tool path where the run would invoke the \`devflow:childskill\` skill is described here for context; nothing is dispatched."
+# Complement inputs, each present so the claimed non-flagging is exercised, not assumed.
+e834_write "$E834_FX" skills/d/agentref.md \
+  "## Agent ref" "Use the Agent tool to invoke the \`devflow:someagent\` skill."     # resolves agents/
+e834_write "$E834_FX" skills/d/superref.md \
+  "## Super ref" "Use the Agent tool to invoke the \`superpowers:writing-skills\` skill."  # not devflow
+e834_write "$E834_FX" skills/d/tokenonly.md "## Token only" "Use the Agent tool here."
+e834_write "$E834_FX" skills/d/refonly.md "## Ref only" "Please invoke the \`devflow:childskill\` skill."
+e834_write "$E834_FX" skills/d/split.md \
+  "# Token section" "Use the Agent tool." "# Ref section" "invoke the \`devflow:childskill\` skill"
+e834_write "$E834_FX" skills/d/fenced.md \
+  "## Fenced" "Example below:" '```' "# Agent tool: invoke the \`devflow:childskill\` skill" '```' "Nothing outside the fence."
+# An UNTERMINATED fence must NOT hide a real dispatch after it — the scan fails CLOSED
+# (matching the sibling git-ls-files lints), so the region stays scannable.
+e834_write "$E834_FX" skills/d/unterminated.md \
+  "## After an unterminated fence" '```' "an example fence that is never closed" "Use the Agent tool to invoke the \`devflow:childskill\` skill."
+# A file whose one section dispatches TWO children — the second-dispatch-in-a-registered-file case.
+e834_write "$E834_FX" skills/d/twochild.md \
+  "## Two children" "Use the Agent tool to invoke the \`devflow:childskill\` skill and also invoke the \`devflow:otherskill\` skill."
+# Preamble + token/ref split across two DIFFERENT sections → NOT flagged (own-line attribution:
+# the level-0 preamble owns only its pre-heading text, so it cannot re-unite them file-wide).
+e834_write "$E834_FX" skills/d/preamble-split.md \
+  "Some intro before any heading." "" "# Section A" "Use the Agent tool." "# Section B" "Please invoke the \`devflow:childskill\` skill."
+# Nested: a PARENT section carries its own dispatch AND a deeper child qualifies. Own-line
+# attribution flags BOTH — the parent's own dispatch is not masked by the nested child (fail-open fix).
+e834_write "$E834_FX" skills/d/nested.md \
+  "## Parent dispatch" "Use the Agent tool to invoke the \`devflow:otherskill\` skill." \
+  "### Child dispatch" "Use the Agent tool to invoke the \`devflow:childskill\` skill."
+
+# Happy path: sites cover real.md + pathform.md, nd exempts prose.md → exact agreement, exit 0.
+E834_REG_OK="$(probe_tmp '#834 reg ok')"
+cat > "$E834_REG_OK" <<'JSON'
+{"schema_version":1,
+ "sites":[{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"by-path"},
+          {"dispatcher":"skills/d/pathform.md","skill":"childskill","handoff":"by-path"}],
+ "declared_non_dispatch":[{"dispatcher":"skills/d/prose.md","section":"Prose about dispatch","reason":"prose describing a dispatch, not a dispatch"}]}
+JSON
+assert_eq "#834 lint: happy path over agreeing fixture exits 0 with a machine-rendered tally" \
+  "rc=0|audited 2 of 2 records" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_OK" skills/d/real.md skills/d/pathform.md skills/d/prose.md)" in
+       "rc=0|"*"audited 2 of 2 records"*) echo "rc=0|audited 2 of 2 records" ;;
+       *) e834_run "$E834_FX" "$E834_REG_OK" skills/d/real.md skills/d/pathform.md skills/d/prose.md ;; esac)"
+
+# Singular-tally path and empty-registry path.
+E834_REG_ONE="$(probe_tmp '#834 reg one')"
+cat > "$E834_REG_ONE" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: one-record registry prints the singular tally" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_ONE" skills/d/real.md)" in *"audited 1 of 1 record"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_EMPTY="$(probe_tmp '#834 reg empty')"
+cat > "$E834_REG_EMPTY" <<'JSON'
+{"schema_version":1,"sites":[],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: empty registry over a non-dispatching file is audited 0 of 0, exit 0" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/tokenonly.md)" in
+       "rc=0|"*"audited 0 of 0 records"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "#834 lint: empty registry over a dispatching tree fails naming the unregistered site" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/real.md)" in
+       "rc=0|"*) echo no ;;
+       *"unregistered dispatch"*"skills/d/real.md"*"childskill"*) echo yes ;; *) echo no ;; esac)"
+
+# Second dispatch added to a registered file is caught, naming the (dispatcher, skill) pair.
+E834_REG_TWO="$(probe_tmp '#834 reg twochild')"
+cat > "$E834_REG_TWO" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/twochild.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a second dispatch in a registered file is caught, naming the pair" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_TWO" skills/d/twochild.md)" in
+       *"skills/d/twochild.md"*"otherskill"*) echo yes ;; *) echo no ;; esac)"
+
+# Complement: agents/-resolving, non-devflow, token-only, ref-only, split, fenced → not flagged.
+assert_eq "#834 lint: the complement (agents/, superpowers, token-only, ref-only, split, fenced) is not flagged" \
+  "rc=0" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md)" in
+       "rc=0|"*) echo "rc=0" ;; *) e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md ;; esac)"
+
+# Section-scoped conjunction: a token and a reference in two DIFFERENT sections, even with a
+# file-level preamble, produce no finding (own-line attribution — no whole-file preamble span).
+assert_eq "#834 lint: token and reference in two different sections (with a preamble) is not flagged" \
+  "rc=0" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/preamble-split.md)" in
+       "rc=0|"*) echo "rc=0" ;; *) e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/preamble-split.md ;; esac)"
+
+# A parent section's OWN dispatch is not masked by a qualifying nested child (fail-open fix):
+# with only the child registered, the parent's own unregistered dispatch is still caught.
+E834_REG_NEST="$(probe_tmp '#834 reg nested')"
+cat > "$E834_REG_NEST" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/nested.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a parent-section dispatch is not masked by a qualifying nested child" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_NEST" skills/d/nested.md)" in
+       *"skills/d/nested.md"*"otherskill"*) echo yes ;; *) echo no ;; esac)"
+
+# Direction-2 in isolation: a registered NON-inherited site the scan does not flag (its section
+# has a token but no reference) fails "does not reach"; the same record marked `inherited` is clean.
+E834_REG_UNREACH="$(probe_tmp '#834 reg unreach')"
+cat > "$E834_REG_UNREACH" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/tokenonly.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a non-inherited registered site the scan does not reach fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_UNREACH" skills/d/tokenonly.md)" in *"does not reach"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_INHER="$(probe_tmp '#834 reg inherited')"
+cat > "$E834_REG_INHER" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/tokenonly.md","skill":"childskill","handoff":"inherited"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: an inherited registered site is exempt from the reach check (clean)" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_INHER" skills/d/tokenonly.md)" in "rc=0|"*) echo yes ;; *) echo no ;; esac)"
+
+# Malformed (non-JSON) and top-level-non-object registries fail with their own messages
+# (CLAUDE.md config-parser boundary rows), plus the string-scalar shape the six-shape loop omits.
+E834_REG_BADJSON="$(probe_tmp '#834 reg badjson')"
+printf 'not json{\n' > "$E834_REG_BADJSON"
+assert_eq "#834 lint: a non-JSON registry fails naming invalid JSON" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_BADJSON" skills/d/tokenonly.md)" in *"not valid JSON"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_TOPARR="$(probe_tmp '#834 reg toparr')"
+printf '[]\n' > "$E834_REG_TOPARR"
+assert_eq "#834 lint: a top-level non-object registry fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_TOPARR" skills/d/tokenonly.md)" in *"top-level JSON object"*) echo yes ;; *) echo no ;; esac)"
+
+# Fail-closed: a dispatch after an UNTERMINATED fence is still flagged (not hidden).
+assert_eq "#834 lint: a dispatch after an unterminated fence is not hidden (fails closed)" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/unterminated.md)" in
+       *"unregistered dispatch"*"skills/d/unterminated.md"*"childskill"*) echo yes ;; *) echo no ;; esac)"
+
+# Stale declared_non_dispatch (names a section the scan no longer flags) → red.
+E834_REG_STALE="$(probe_tmp '#834 reg stale')"
+cat > "$E834_REG_STALE" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[{"dispatcher":"skills/d/tokenonly.md","section":"Token only","reason":"stale"}]}
+JSON
+assert_eq "#834 lint: a stale declared_non_dispatch entry fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_STALE" skills/d/real.md skills/d/tokenonly.md)" in *"stale"*) echo yes ;; *) echo no ;; esac)"
+
+# Duplicate (dispatcher, skill), absent dispatcher, bad handoff, missing handoff.
+E834_REG_DUP="$(probe_tmp '#834 reg dup')"
+cat > "$E834_REG_DUP" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"by-path"},{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: duplicate (dispatcher, skill) fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_DUP" skills/d/real.md)" in *"duplicate"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_ABSENT="$(probe_tmp '#834 reg absent')"
+cat > "$E834_REG_ABSENT" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/nope.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a dispatcher absent from the tree fails, naming it" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_ABSENT" skills/d/real.md)" in *"skills/d/nope.md"*"absent"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_BADH="$(probe_tmp '#834 reg badh')"
+cat > "$E834_REG_BADH" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/real.md","skill":"childskill","handoff":"whatever"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a handoff value outside the closed set fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_BADH" skills/d/real.md)" in *"outside the closed set"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_NOH="$(probe_tmp '#834 reg noh')"
+cat > "$E834_REG_NOH" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/real.md","skill":"childskill"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: an absent handoff key fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_NOH" skills/d/real.md)" in *"handoff"*"absent"*) echo yes ;; *) echo no ;; esac)"
+
+# Six-shape adversarial matrix, driven for BOTH array-valued keys. Each shape gets a
+# shape-specific message and a non-zero exit — never a traceback, never a silent pass.
+e834_sixshape() {  # <key> <shape-json-for-key> -> rc + message
+  local key="$1" shape="$2" reg
+  reg="$(probe_tmp "#834 sixshape $key")" || { printf 'probe-unavailable'; return 0; }
+  # Build a registry object where <key> takes <shape>; the other key stays a valid array.
+  python3 - "$reg" "$key" "$shape" <<'PY'
+import json, sys
+reg_path, key, shape = sys.argv[1], sys.argv[2], sys.argv[3]
+base = {"schema_version": 1, "sites": [], "declared_non_dispatch": []}
+if shape == "__MISSING__":
+    base.pop(key, None)
+else:
+    base[key] = json.loads(shape)
+json.dump(base, open(reg_path, "w"))
+PY
+  local out; out="$(e834_run "$E834_FX" "$reg")"
+  rm -f "$reg"
+  printf '%s' "$out"
+}
+for _e834_key in sites declared_non_dispatch; do
+  # object, array-of-scalars, scalar(number), valid-falsy(false), null(wrong type), missing.
+  # (The scalar(string) shape is driven by its own assertion below, not this loop.)
+  assert_eq "#834 lint: $_e834_key as an object fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" '{}')" in "rc=0|"*) echo no ;; *"not an object"*) echo yes ;; *) echo no ;; esac)"
+  assert_eq "#834 lint: $_e834_key as an array of scalars fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" '[1,2]')" in "rc=0|"*) echo no ;; *"array of scalars"*) echo yes ;; *) echo no ;; esac)"
+  assert_eq "#834 lint: $_e834_key as a numeric scalar fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" '5')" in "rc=0|"*) echo no ;; *"not a number (scalar)"*) echo yes ;; *) echo no ;; esac)"
+  assert_eq "#834 lint: $_e834_key as a valid-falsy value fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" 'false')" in "rc=0|"*) echo no ;; *"valid-falsy"*) echo yes ;; *) echo no ;; esac)"
+  assert_eq "#834 lint: $_e834_key as null (wrong type) fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" 'null')" in "rc=0|"*) echo no ;; *"wrong type"*) echo yes ;; *) echo no ;; esac)"
+  assert_eq "#834 lint: $_e834_key missing fails shape-specifically" "yes" \
+    "$(case "$(e834_sixshape "$_e834_key" '__MISSING__')" in "rc=0|"*) echo no ;; *"key is missing"*) echo yes ;; *) echo no ;; esac)"
+done
+# The scalar(string) shape, driven separately from the loop (its own distinct message arm).
+assert_eq "#834 lint: sites as a string scalar fails shape-specifically" "yes" \
+  "$(case "$(e834_sixshape sites '"x"')" in "rc=0|"*) echo no ;; *"not a string (scalar)"*) echo yes ;; *) echo no ;; esac)"
+
+# schema_version must be an integer; a non-integer fails with its own message.
+E834_REG_VER="$(probe_tmp '#834 reg ver')"
+cat > "$E834_REG_VER" <<'JSON'
+{"schema_version":"1","sites":[],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a non-integer schema_version fails with its own message" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_VER")" in *"schema_version"*"integer"*) echo yes ;; *) echo no ;; esac)"
+
+# A registry file present but unreadable reports unestablished, never treats the population as empty.
+assert_eq "#834 lint: an unreadable registry reports unestablished, not empty" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_FX/skills/d/nope-registry.json")" in *"could not be read"*|*"unestablished"*) echo yes ;; *) echo no ;; esac)"
+
+# --- Stage A / Stage B JSON-parser widening (issue #834): every lib helper that
+# --- parses the retrospective children's returned JSON accepts the added optional
+# --- key without error and produces the same result it does without it.
+E834_MAT="$LIB/materialize-retrospectives.sh"
+E834_JD="$(probe_tmp '#834 jsonl dir')"
+case "$E834_JD" in ""|/dev/null) : ;; *) rm -f "$E834_JD"; mkdir -p "$E834_JD" ;; esac
+printf '%s\n' '{"pr":901,"kind":"implementation","verdict":"imperfect","extension_unreadable":"present but unreadable: .devflow/prompt-extensions/retrospective.md"}' > "$E834_JD/new.jsonl"
+: > "$E834_JD/store.jsonl"
+E834_MAT_OUT="$(bash "$E834_MAT" "$E834_JD/new.jsonl" "$E834_JD/store.jsonl" 2>&1)"; E834_MAT_RC=$?
+assert_eq "#834 Stage A parser: materialize-retrospectives.sh accepts the extension_unreadable key" "rc=0" \
+  "$([ "$E834_MAT_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s|%s' "$E834_MAT_RC" "$E834_MAT_OUT")"
+assert_eq "#834 Stage A parser: the added key survives materialization (not discarded)" "yes" \
+  "$(python3 -c 'import json,sys
+obj=json.loads(open(sys.argv[1]).read().strip().splitlines()[-1])
+print("yes" if obj.get("extension_unreadable") and obj.get("pr")==901 else "no")' "$E834_JD/store.jsonl")"
+# Stage B: the `.title and .body` gate and the .title/.body extraction ignore the extra key.
+E834_SB="$(probe_tmp '#834 stageB')"
+printf '%s\n' '{"title":"T","body":"B","extension_unreadable":"present but unreadable: .devflow/prompt-extensions/retrospective-audit.md"}' > "$E834_SB"
+assert_eq "#834 Stage B parser: the .title-and-.body gate passes with the added key present" "yes" \
+  "$("$LIB/../scripts/run-jq.sh" -e '.title and .body' < "$E834_SB" >/dev/null 2>&1 && echo yes || echo no)"
+assert_eq "#834 Stage B parser: .title/.body extraction ignores the added key" "T|B" \
+  "$(printf '%s|%s' "$("$LIB/../scripts/run-jq.sh" -r '.title' < "$E834_SB")" "$("$LIB/../scripts/run-jq.sh" -r '.body' < "$E834_SB")")"
 
 echo "#693 issue-body cache: no cut-over site re-fetches the body"
 IBR_LINT="$LIB/test/lint-issue-body-refetch.py"
