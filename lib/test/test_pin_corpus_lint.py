@@ -2794,15 +2794,16 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             "# structural-pin-ok: machine-sentinel-provenance -- "
             "the fixture token is an executable sentinel"
         )
-        for separator in (";", "&&"):
-            with self.subTest(separator=separator), tempfile.TemporaryDirectory() as td:
+        joiners = (" ; ", " && ", " | ", " |& ", " & ", ";", "|", "|&", "&")
+        for joiner in joiners:
+            with self.subTest(joiner=joiner), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
                 self._repo(root)
                 source = root / "lib/test/run.sh"
                 source.write_text(
                     source.read_text(encoding="utf-8")
                     + "\nassert_pin_unique 'typed first' 'STATIC_PIN_FIXTURE=1' "
-                    + f"\"$LIB/test/static-pin-fixture.sh\" {separator} "
+                    + f"\"$LIB/test/static-pin-fixture.sh\"{joiner}"
                     + "assert_pin_unique 'undeclared second' 'STATIC_PIN_FIXTURE=1' "
                     + f"\"$LIB/test/static-pin-fixture.sh\" {marker}\n",
                     encoding="utf-8",
@@ -2811,6 +2812,55 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 self.assertEqual(2, rc)
                 self.assertEqual("", stdout)
                 self.assertIn("multiple supported helper calls", stderr)
+
+    def test_pipe_background_and_subshell_rhs_helpers_are_scanned(self):
+        leaders = (": | ", ":|", ": |& ", ":|&", ": & ", ":&", "( ", "(")
+        for leader in leaders:
+            with self.subTest(leader=leader), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                suffix = " )" if leader.startswith("(") else ""
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\n{leader}assert_pin_unique 'operator-prefixed pin' "
+                    + "'STATIC_PIN_FIXTURE=1' "
+                    + f"\"$LIB/test/static-pin-fixture.sh\"{suffix}\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(3, rc, stderr)
+                self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
+
+    def test_quoted_and_escaped_operator_suffixes_are_not_command_boundaries(self):
+        values = (
+            "'|'",
+            "'|&'",
+            "'&'",
+            "';'",
+            "'not|'",
+            "'not|&'",
+            "'not&'",
+            "'not;'",
+            r"\|",
+            r"\&",
+            r"\;",
+        )
+        for value in values:
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + f"\nprintf '%s\\n' {value} assert_pin_unique "
+                    + "'argument only' 'STATIC_PIN_FIXTURE=1' "
+                    + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(0, rc, stderr)
+                self.assertEqual("", stdout)
 
     def test_command_prefixed_direct_helper_is_not_skipped(self):
         for prefix in ("command", "command --", "command -p"):

@@ -187,19 +187,48 @@ def join_logical_lines(text):
         i += 1
 
 
-def tokenize(s):
+def tokenize(s, *, split_shell_operators=False):
     """Split a shell fragment into argument tokens, quote-aware.
 
     Returns a list of tokens, each a list of (kind, value) segments where kind
-    is 'sq' (single-quoted, literal), 'dq' (double-quoted), or 'bare'. Adjacent
-    segments with no separating whitespace belong to one token (shell
-    concatenation, e.g. `'a'"$B"`).
+    is 'sq' (single-quoted, literal), 'dq' (double-quoted), 'bare', or — in
+    shell-operator mode — 'escaped'. Adjacent segments with no separating
+    whitespace belong to one token (shell concatenation, e.g. `'a'"$B"`).
+    When ``split_shell_operators`` is true, unquoted, unescaped command
+    operators are emitted as separate bare tokens.
     """
     tokens = []
     cur = []  # list of (kind, value) segments for the current token
     i, n = 0, len(s)
     while i < n:
         c = s[i]
+        if (
+            split_shell_operators
+            and c == "("
+            and i + 1 < n
+            and s[i + 1] == ")"
+            and cur
+            and all(kind == "bare" for kind, _ in cur)
+            and re.fullmatch(r"[A-Za-z_]\w*", _token_value(cur))
+        ):
+            # Keep a Bash function-definition name (`name()`) opaque. Its body
+            # is scanned independently; treating `name` as an invocation would
+            # double-count inferred wrappers or trigger the multi-call guard.
+            cur.append(("bare", "()"))
+            i += 2
+            continue
+        if split_shell_operators and c in ";&|()":
+            if cur:
+                tokens.append(cur)
+                cur = []
+            operator = (
+                s[i : i + 2]
+                if s[i : i + 2] in {"&&", "||", "|&"}
+                else c
+            )
+            tokens.append([("bare", operator)])
+            i += len(operator)
+            continue
         if c in " \t\n":
             if cur:
                 tokens.append(cur)
@@ -232,13 +261,22 @@ def tokenize(s):
         j = i
         buf = []
         while j < n and s[j] not in " \t\n'\"":
+            if split_shell_operators and s[j] in ";&|()":
+                break
             if s[j] == "\\" and j + 1 < n:
-                buf.append(s[j + 1])
+                if split_shell_operators:
+                    if buf:
+                        cur.append(("bare", "".join(buf)))
+                        buf = []
+                    cur.append(("escaped", s[j + 1]))
+                else:
+                    buf.append(s[j + 1])
                 j += 1
             else:
                 buf.append(s[j])
             j += 1
-        cur.append(("bare", "".join(buf)))
+        if buf:
+            cur.append(("bare", "".join(buf)))
         i = j
     if cur:
         tokens.append(cur)
@@ -1840,11 +1878,11 @@ def _is_executable_helper_prefix(tokens):
 
 
 def _helper_calls(tokens, helper_specs):
-    """Return every executable supported helper token on a shell fragment.
+    """Return supported helper tokens in recognized shell command positions.
 
-    Shell control prefixes such as ``if`` and ``!`` remain separate bare
-    tokens, so scanning the token stream covers guarded calls without treating
-    a helper name inside an assertion label as executable.
+    The closed boundary set covers guarded, pipeline, background, and subshell
+    positions without treating a helper name inside an assertion label as
+    executable.
     """
     command_boundaries = {
         "if",
@@ -1856,7 +1894,11 @@ def _helper_calls(tokens, helper_specs):
         "!",
         "&&",
         "||",
+        "|",
+        "|&",
+        "&",
         ";",
+        "(",
         "{",
     }
     assignment = re.compile(r"^[A-Za-z_]\w*=.*$")
@@ -1867,12 +1909,17 @@ def _helper_calls(tokens, helper_specs):
         value = _token_value(token)
         if value not in helper_specs:
             continue
-        before = [_token_value(item) for item in tokens[:index]]
         segment_start = 0
-        for prior_index, prior in enumerate(before):
-            if prior in command_boundaries or prior.endswith(";"):
+        for prior_index, prior in enumerate(tokens[:index]):
+            if (
+                prior
+                and all(kind == "bare" for kind, _ in prior)
+                and _token_value(prior) in command_boundaries
+            ):
                 segment_start = prior_index + 1
-        segment = before[segment_start:]
+        segment = [
+            _token_value(item) for item in tokens[segment_start:index]
+        ]
         while segment and assignment.match(segment[0]):
             segment.pop(0)
         if _is_executable_helper_prefix(segment):
@@ -1913,7 +1960,9 @@ def helper_specs_for_source(
             if name in specs:
                 continue
             for body_lineno, logical_line in join_logical_lines(body):
-                tokens = tokenize(logical_line.strip())
+                tokens = tokenize(
+                    logical_line.strip(), split_shell_operators=True
+                )
                 index, callee = _helper_call(tokens, specs)
                 if callee is None:
                     continue
@@ -2729,7 +2778,9 @@ def extract_guard_sites(text, source_path, repo_root):
     }
     invoked_wrappers = set()
     for invocation_line, invocation_text in join_logical_lines(text):
-        invocation_tokens = tokenize(invocation_text.lstrip())
+        invocation_tokens = tokenize(
+            invocation_text.lstrip(), split_shell_operators=True
+        )
         _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
         if (
             invocation_helper in definitions
@@ -2750,7 +2801,7 @@ def extract_guard_sites(text, source_path, repo_root):
             continue
         path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
-        toks = tokenize(stripped)
+        toks = tokenize(stripped, split_shell_operators=True)
         helper_index, helper = _helper_call(toks, helper_specs)
         if helper is not None:
             args = toks[helper_index + 1 :]
