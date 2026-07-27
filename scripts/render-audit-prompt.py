@@ -765,6 +765,47 @@ def render_instructions(
     )
 
 
+_DISPATCH_POINTER_PREFIX = "dispatch-pointer:"
+
+
+def _emit_dispatch_pointer(rendered: str) -> None:
+    """Echo the `dispatch-pointer:` line to stderr (issue #795).
+
+    The caller used to re-read the just-written instruction file in a standalone
+    `python3 -c` process solely to extract this one line — a whole extra spawn and
+    Bash round-trip for a line the generator had already rendered. It is emitted
+    here from the SAME string just written to stdout, so it is byte-identical to
+    the line inside that file by construction rather than by re-derivation.
+
+    This changes NO stdout byte and reads no consumer extension, so
+    `dispatch-instructions` keeps its purity and the issue-#709 regeneration
+    comparand stays a pure function of the round's recorded inputs.
+
+    The caller selects this line by its `dispatch-pointer:` PREFIX, never as "the
+    stderr output": `_default_extension_path()` runs unconditionally before the
+    mode branch and emits its own breadcrumb on a fully successful run in a cwd
+    with neither a git root nor a `.devflow/`, so stderr can legitimately carry
+    two lines and a positional read would take that breadcrumb as the auditor
+    prompt.
+
+    An absent pointer line is a template-shape defect, not a mode failure — the
+    generator's own executable test proves the line is rendered unconditionally in
+    this mode — so nothing is raised here and stdout is unaffected either way.
+
+    The prefix is matched after `lstrip()`, and the FIRST match wins — byte-for-byte
+    the recognition the retired extraction fence performed. Both details are
+    load-bearing: the pointer block is indented in the template, so an unstripped
+    `startswith` matches nothing at all; and an earlier line of the rendered prose
+    *describes* the prefix inline, so a substring search would take that sentence
+    instead. The emitted bytes are the WHOLE line, indentation included, exactly as
+    the retired fence wrote it.
+    """
+    for line in rendered.splitlines():
+        if line.lstrip().startswith(_DISPATCH_POINTER_PREFIX):
+            sys.stderr.write(line + "\n")
+            return
+
+
 def instructions_bytes(*args, **kwargs) -> bytes:
     """The EXACT bytes the CLI writes for a ``dispatch-instructions`` render.
 
@@ -1276,15 +1317,15 @@ def main(argv: list[str]) -> int:
             # through to the shared `out + "\n"` tail below: `instructions_bytes` IS
             # the on-disk contract the state owner regenerates against, so this mode's
             # framing must come from that one function, never from a second site.
-            sys.stdout.write(
-                instructions_bytes(
-                    template_path,
-                    args.slug,
-                    args.draft_path,
-                    args.instructions_path,
-                    draft_text,
-                ).decode("utf-8")
-            )
+            rendered = instructions_bytes(
+                template_path,
+                args.slug,
+                args.draft_path,
+                args.instructions_path,
+                draft_text,
+            ).decode("utf-8")
+            sys.stdout.write(rendered)
+            _emit_dispatch_pointer(rendered)
             return 0
         else:  # unreachable: choices already constrain mode
             raise RenderError(f"unknown mode {args.mode}")

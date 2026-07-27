@@ -27,14 +27,36 @@ set -uo pipefail
 # blank lines; the FIRST record is always the main worktree, whose `worktree`
 # attribute line carries its absolute path. Empty output means git failed / the
 # cwd is not a repo — main_root ends up empty and we fall back to pwd below.
+#
+# The first record is parsed with BASH BUILTINS ONLY — `while IFS= read -r`,
+# `case`, and `${var#prefix}` (issue #795). `lib/preflight.sh` guarantees only
+# git/gh/jq/python3+PyYAML, so `head`/`sed`/`grep` are NOT guaranteed on the host:
+# under a PATH holding only `git` and `bash` the previous pipeline emitted
+# `command not found` and yielded an EMPTY main_root, silently falling back to
+# `pwd` — and `pwd` inside a linked worktree is the WORKTREE root, not the main
+# root, so the bound draft root this value decides would have been wrong with no
+# error. A value that decides a selection must not be derived through a
+# non-preflight PATH tool.
 porcelain="$(git worktree list --porcelain 2>/dev/null)"
-main_root="$(printf '%s\n' "$porcelain" | head -n 1 | sed 's/^worktree //')"
+main_root=""
+saw_bare=0
+while IFS= read -r line; do
+    # The blank line terminates the FIRST record — the same scope the previous
+    # `head -n 1` / `sed -n '1,/^$/p'` pair inspected.
+    [ -n "$line" ] || break
+    case "$line" in
+        # A BARE main repo lists its first record with a `bare` attribute and a
+        # worktree path pointing at the bare git dir, which is not a usable
+        # working tree — treat it as unresolved and fall back to pwd (the
+        # degenerate case).
+        bare) saw_bare=1 ;;
+        'worktree '*) [ -n "$main_root" ] || main_root="${line#worktree }" ;;
+    esac
+done <<EOF
+$porcelain
+EOF
 
-# A BARE main repo lists its first record with a `bare` attribute and a worktree
-# path pointing at the bare git dir, which is not a usable working tree — treat
-# it as unresolved and fall back to pwd (the degenerate case). Inspect only the
-# first record (lines 1..first blank line).
-if printf '%s\n' "$porcelain" | sed -n '1,/^$/p' | grep -qx 'bare'; then
+if [ "$saw_bare" -eq 1 ]; then
     main_root=""
 fi
 

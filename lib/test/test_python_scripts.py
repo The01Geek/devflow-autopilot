@@ -132,6 +132,20 @@ def _pool_tally(verdict, name=None):
         )
 
 
+def decided(text):
+    """The DECIDED first line of a state-owner subcommand's stdout (issue #795).
+
+    Most `issue-audit-state.py` subcommands now print a trailing `next_call=` line after
+    their own decided answer line. Every whole-stdout comparison below whose subject is
+    that decided answer is re-anchored onto this helper rather than being deleted or
+    loosened: the assertion still pins the answer byte-for-byte, it just stops also
+    pinning the absence of a second line. The multi-line read-backs (`query-findings`,
+    `query-coverage`, `emit-body`, …) keep comparing whole stdout — they emit no
+    `next_call=` line, and their tails are exactly what those rows exist to assert.
+    """
+    return text.strip().split('\n')[0]
+
+
 def assert_eq(name, expected, actual):
     global PASS, FAIL
     if expected == actual:
@@ -11411,21 +11425,21 @@ def _row1(r):
       stdin='revised bytes\n', nonce=True)
     assert_eq("#603-1 regression: T1 holds while the ledger carries unresolved entries",
               't1=hold t2=hold coverage=not-hold calibration=not-hold reason=steering-unestablished',
-              r('query-triggers', r.slug, nonce=True).stdout.strip())
+              decided(r('query-triggers', r.slug, nonce=True).stdout))
     assert_eq("#603-1 regression: convergence refuses while entries are unresolved",
               'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
     res = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
             '--resolved-ids', '1,2,3', nonce=True)
     assert_eq("#603-1/AC2 regression: record-resolution derives remaining=0",
               (0, 'round=1 revision_ordinal=1 frozen=3 remaining=0'),
-              (res.returncode, res.stdout.strip()))
+              (res.returncode, decided(res.stdout)))
     assert_eq("#603-1/AC6 regression: T1 releases once every entry is settled",
               't1=not-hold t2=hold coverage=not-hold calibration=not-hold reason=steering-unestablished',
-              r('query-triggers', r.slug, nonce=True).stdout.strip())
+              decided(r('query-triggers', r.slug, nonce=True).stdout))
     assert_eq("#603-1/AC7 regression: the run converges on a resolution basis",
               'converged=yes reason= basis=resolution unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row1)
@@ -11464,7 +11478,7 @@ def _row2(r):
               0, ok.returncode)
     assert_eq("#603-2/AC5: it derives an effective count of 1",
               'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
     # Read the recorded state, not query-findings: that query prints only
     # round/id/status/summary, so an stdout check could not observe this stamp at all and
     # would pass unchanged if _ingest_ledger stopped writing it. The stamp is load-bearing —
@@ -11501,7 +11515,7 @@ def _row2d(r):
     # settling stamp is the ingestion provenance, and reopen must still take it.
     reop = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
     assert_eq("#603-2d/AC4: an ingested-resolved entry reopens with no revision recorded",
-              (0, 'round=1 reopened=1 remaining=3'), (reop.returncode, reop.stdout.strip()))
+              (0, 'round=1 reopened=1 remaining=3'), (reop.returncode, decided(reop.stdout)))
     # Batch atomicity: one bad id in the list must mutate NOTHING, so the whole batch is
     # re-issuable after correcting it. Named ids 2 (legal) and 9 (unknown).
     bad = r('record-invalidate', r.slug, '--round', '1', '--ids', '2,9',
@@ -11560,21 +11574,21 @@ def _row3(r):
     inv = r('record-invalidate', r.slug, '--round', '1', '--ids', '2',
             '--reason', 'misclassified: advisory, not must-revise', nonce=True)
     assert_eq("#603-3/AC19: invalidation retires the entry and re-derives remaining",
-              (0, 'round=1 invalidated=1 remaining=1'), (inv.returncode, inv.stdout.strip()))
+              (0, 'round=1 invalidated=1 remaining=1'), (inv.returncode, decided(inv.stdout)))
     r('record-revision', r.slug, '--after-round', '1', '--stdin-digest',
       stdin='revised bytes\n', nonce=True)
     part = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
              '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3/AC2: full resolution of the remainder reaches remaining=0",
               (0, 'round=1 revision_ordinal=1 frozen=2 remaining=0'),
-              (part.returncode, part.stdout.strip()))
+              (part.returncode, decided(part.stdout)))
     reopen = r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
     assert_eq("#603-4/AC4: reopen re-raises the effective count",
               (0, 'round=1 reopened=1 remaining=1'),
-              (reopen.returncode, reopen.stdout.strip()))
+              (reopen.returncode, decided(reopen.stdout)))
     assert_eq("#603-5/AC6: a reopened entry re-holds T1",
               't1=hold t2=hold coverage=not-hold calibration=not-hold reason=steering-unestablished',
-              r('query-triggers', r.slug, nonce=True).stdout.strip())
+              decided(r('query-triggers', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row3)
@@ -11593,7 +11607,7 @@ def _row6(r):
               (0, True), (got.returncode, 'superseded=2' in got.stdout))
     assert_eq("#603-6/AC7: it converges on the auditor-accepted basis",
               'converged=yes reason= basis=adjudicated unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
     assert_eq("#603-5/AC6: supersession releases T1",
               'not-hold', r('query-triggers', r.slug, nonce=True).stdout.split()[0]
               .split('=')[1])
@@ -11629,7 +11643,7 @@ def _row6(r):
     # state collapsing to unestablished on the next read.
     assert_eq("#603-3/AC21: the refused terminal mutations left the state loadable",
               'converged=yes reason= basis=adjudicated unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row6)
@@ -11690,7 +11704,7 @@ def _row6f(r):
     assert_eq("#603-6f/AC7: and _convergence_basis READS that retained key — the basis "
               "is stale, which is why the exemption is not 'it can never be read'",
               'converged=yes reason= basis=resolution-stale unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row6f)
@@ -11712,7 +11726,7 @@ def _row6b(r):
     assert_eq("#603-6/AC7: an interleaved resolve/revise/resolve run stays stale on the "
               "earlier entry's account",
               'converged=yes reason= basis=resolution-stale unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row6b)
@@ -12134,7 +12148,7 @@ def _row6c(r):
     assert_eq("#603-6c/AC7: an ingested-resolved entry counts as ordinal zero, so a later "
               "revision leaves the run stale on its account",
               'converged=yes reason= basis=resolution-stale unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row6c)
@@ -12151,14 +12165,14 @@ def _row6d(r):
       '--resolved-ids', '1', nonce=True)
     assert_eq("#603-6d/AC7: the first resolution converges on a plain resolution basis",
               'converged=yes reason= basis=resolution unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
     r('record-reopen', r.slug, '--round', '1', '--ids', '1', nonce=True)
     r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '1',
       '--resolved-ids', '1', nonce=True)
     assert_eq("#603-6d/AC7: re-resolving against the ordinal the reopen just disproved is "
               "reported stale, not clean",
               'converged=yes reason= basis=resolution-stale unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run603(_row6d)
@@ -12174,19 +12188,19 @@ def _row3d(r):
     r.adjudicate(2, 'REVISE', 1, '1', 'unresolved: shared defect\n')
     assert_eq("#603-3d/AC5: a defect listed on two rounds' ledgers counts per listing",
               'converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none',
-              r('query-convergence', r.slug, nonce=True).stdout.strip())
+              decided(r('query-convergence', r.slug, nonce=True).stdout))
     r('record-revision', r.slug, '--after-round', '2', '--stdin-digest',
       stdin='revised bytes\n', nonce=True)
     one = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '2',
             '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3d/AC5: resolving only the later listing leaves the earlier one holding",
               (0, 'round=2 revision_ordinal=2 frozen=1 remaining=1'),
-              (one.returncode, one.stdout.strip()))
+              (one.returncode, decided(one.stdout)))
     two = r('record-resolution', r.slug, '--round', '1', '--revision-ordinal', '2',
             '--resolved-ids', '1', nonce=True)
     assert_eq("#603-3d/AC3: cross-round resolution clears the EARLIER round's entry",
               (0, 'round=1 revision_ordinal=2 frozen=1 remaining=0'),
-              (two.returncode, two.stdout.strip()))
+              (two.returncode, decided(two.stdout)))
 
 
 _with_run603(_row3d)
@@ -12243,7 +12257,7 @@ def _row10b(r):
               True,
               'effective_unresolved=unestablished convergence_basis=none coverage_backing=unestablished coverage_render=none coverage_reason=no-clean-round calibration_backing=unestablished adjudication_render=none calibration_trigger=no final_byte_passes=0 final_byte_exhausted=no final_byte_coverage=unestablished bound_root=' in unest)
     assert_eq("#603-10b/AC11: ... and attestation= stays the trailing field",
-              True, unest.strip().endswith('attestation=none'))
+              True, decided(unest).endswith('attestation=none'))
 
 
 _with_run603(_row10b)
@@ -12457,16 +12471,16 @@ def _row16(r):
     # ones that pin the de-duplication itself (they DO echo a count).
     assert_eq("#603-16/AC3: a repeated id leaves record-resolution's echo unchanged",
               (0, 'round=1 revision_ordinal=1 frozen=2 remaining=1'),
-              (dup.returncode, dup.stdout.strip()))
+              (dup.returncode, decided(dup.stdout)))
     dupre = r('record-reopen', r.slug, '--round', '1', '--ids', '1,1', nonce=True)
     assert_eq("#603-16/AC4: record-reopen echoes the de-duplicated count",
               (0, 'round=1 reopened=1 remaining=2'),
-              (dupre.returncode, dupre.stdout.strip()))
+              (dupre.returncode, decided(dupre.stdout)))
     dupinv = r('record-invalidate', r.slug, '--round', '1', '--ids', '2,2',
                '--reason', 'misclassified', nonce=True)
     assert_eq("#603-16/AC19: record-invalidate echoes the de-duplicated count",
               (0, 'round=1 invalidated=1 remaining=1'),
-              (dupinv.returncode, dupinv.stdout.strip()))
+              (dupinv.returncode, decided(dupinv.stdout)))
     # De-duplication must not swallow validation: an unknown id still fails closed even
     # when a legal id precedes it and a duplicate surrounds it.
     bad = r('record-reopen', r.slug, '--round', '1', '--ids', '1,1,9', nonce=True)
@@ -12629,7 +12643,7 @@ def _row22(r):
     assert_eq("#603-22/AC11: a post-close echo renders an unestablished run-wide count as "
               "the literal token — unknown is never collapsed onto a digit",
               (0, 'round=1 reopened=1 remaining=unestablished'),
-              (reop.returncode, reop.stdout.strip()))
+              (reop.returncode, decided(reop.stdout)))
     # `query-findings`' state-unestablished arm: corrupt the state file so `_query_state`
     # answers None, and confirm the query still exits 0 with its decided single line.
     Path(r.tmp, '.devflow', 'tmp', 'issue-audit-state-s603.json').write_text(
@@ -13982,16 +13996,19 @@ class _Run709(_Run603):
             argv += ['--extra-dispatch-content', extra]
         return self(*argv, nonce=True)
 
+    # issue #795: each accessor asks for its subcommand's DECIDED answer line, so it is
+    # re-anchored through `decided()` rather than pinning the absence of the trailing
+    # `next_call=` line every row below would otherwise have to account for.
     def eligibility(self):
-        return self('query-eligibility', self.slug, '--mode', 'approve',
-                    '--draft-file', self.draft, nonce=True).stdout.strip()
+        return decided(self('query-eligibility', self.slug, '--mode', 'approve',
+                            '--draft-file', self.draft, nonce=True).stdout)
 
     def triggers(self):
-        return self('query-triggers', self.slug, nonce=True).stdout.strip()
+        return decided(self('query-triggers', self.slug, nonce=True).stdout)
 
     def summary(self):
-        return self('query-summary', self.slug, '--draft-file', self.draft,
-                    nonce=True).stdout.strip()
+        return decided(self('query-summary', self.slug, '--draft-file', self.draft,
+                            nonce=True).stdout)
 
 
 def _with_run709(fn, **kw):
@@ -15546,7 +15563,7 @@ def _row743_roundtrip(r):
                        '--record-class', 'invalid', nonce=True).stdout.strip().split('\n')))
     # calibration: the impact-bearing advisory carries no evidence → under-evidenced, trigger yes,
     # unevidenced names its id; the optional one is evidenced and does not count.
-    cal = r('query-calibration', r.slug, nonce=True).stdout.strip()
+    cal = decided(r('query-calibration', r.slug, nonce=True).stdout)
     assert_eq("#743: calibration is under-evidenced with the unevidenced impact-bearing id named",
               True, ('calibration_backing=under-evidenced' in cal
                      and 'calibration_trigger=yes' in cal and 'unevidenced=1' in cal))
@@ -15564,7 +15581,7 @@ def _row743_roundtrip(r):
     rr = r('record-adjudication-render', r.slug, '--round', '1', '--landed', 'yes', nonce=True)
     assert_eq("#743: record-adjudication-render reports the rendering (exit 0)",
               True, rr.returncode == 0 and 'adjudication_render=reported' in rr.stdout)
-    cal2 = r('query-calibration', r.slug, nonce=True).stdout.strip()
+    cal2 = decided(r('query-calibration', r.slug, nonce=True).stdout)
     assert_eq("#743: after a reported render the render flips but under-evidenced still triggers",
               True, ('adjudication_render=reported' in cal2 and 'calibration_trigger=yes' in cal2))
 
@@ -15864,7 +15881,7 @@ class _Run792(_Run709):
         argv = ['query-final-byte', self.slug]
         if draft:
             argv += ['--draft-file', self.draft]
-        return self(*argv, nonce=True).stdout.strip()
+        return decided(self(*argv, nonce=True).stdout)
 
     def offer(self, accepted=True):
         argv = ['record-final-byte-offer', self.slug, '--draft-file', self.draft]
@@ -16853,7 +16870,7 @@ def _row792_bound_file_wins_for_new_commands(r):
     _state792(r).write_text(_json.dumps(_doc), encoding='utf-8')
     _decoy = str(Path(r.tmp, 'decoy-draft.md'))
     Path(_decoy).write_text('# Decoy\n\n## Problem Statement\n\ndrifted\n', encoding='utf-8')
-    _line = r('query-final-byte', r.slug, '--draft-file', _decoy, nonce=True).stdout.strip()
+    _line = decided(r('query-final-byte', r.slug, '--draft-file', _decoy, nonce=True).stdout)
     assert_eq("#792 iter3: query-final-byte grounds on the BOUND draft file, so a drifted "
               "--draft-file cannot flip the answer to digest-mismatch",
               ('covered', 'none'),
@@ -16877,7 +16894,7 @@ _with_run792(_row792_bound_file_wins_for_new_commands)
 def _row792_axis_is_inert(r):
     r.uncovered_round()
     elig_before, trig_before = r.eligibility(), r.triggers()
-    conv_before = r('query-convergence', r.slug, nonce=True).stdout.strip()
+    conv_before = decided(r('query-convergence', r.slug, nonce=True).stdout)
     assert_eq("#792 AC96 precondition: the final-byte trigger holds on this run",
               'hold', _field704(r.fb(), 'final_byte_trigger='))
     r.offer(accepted=False)
@@ -16887,7 +16904,7 @@ def _row792_axis_is_inert(r):
               "own query, never appended here)", trig_before, r.triggers())
     assert_eq("#792 AC108: query-convergence is byte-identical across the lifecycle records "
               "this change introduces",
-              conv_before, r('query-convergence', r.slug, nonce=True).stdout.strip())
+              conv_before, decided(r('query-convergence', r.slug, nonce=True).stdout))
 
 
 _with_run792(_row792_axis_is_inert)
