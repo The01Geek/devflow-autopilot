@@ -74,8 +74,12 @@ record_fail() {  # name
 module_host_capability_skip() {  # name reason assertions-covered
   local _hcs_name="$1" _hcs_reason="$2" _hcs_credit="${3:-0}"
   skip "$_hcs_name" host-capability "$_hcs_reason"
-  # Recorded verbatim — the boundary is the validator, so a malformed declaration is
-  # rejected there with an attributable failure rather than silently normalized here.
+  # Recorded as ONE line — the boundary is the validator, so a malformed declaration is
+  # rejected there with an attributable failure rather than repaired here. The only
+  # transform is load-bearing and must stay: collapsing TAB/NL/CR to spaces keeps a
+  # multi-line declaration ("2\n3") from splitting into two separately-valid credit
+  # lines at the validator, which would launder it into 5 credits. The collapsed
+  # result is not digits-only, so the validator still rejects it, attributably.
   if [ -n "${MODULE_SKIP_CREDIT_FILE:-}" ]; then
     printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE"
   fi
@@ -1086,7 +1090,9 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
           printf '  FAIL  test module %s — malformed skip-assertion credit: %s\n' \
             "$module_name" "$_credit_line" >&2
           ;;
-        *) skip_credit_total=$((skip_credit_total + _credit_line)) ;;
+        # `10#` forces base 10: a leading-zero shape (010, 08) is a decimal credit,
+        # never an octal reinterpretation or a "value too great for base" abort.
+        *) skip_credit_total=$((skip_credit_total + 10#$_credit_line)) ;;
       esac
     done < "$module_skip_credit_file"
   fi

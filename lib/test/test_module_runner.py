@@ -2190,6 +2190,47 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         # And the unreadable record never silently buys floor relief.
         self.assertIn("minimum is", observed["completed"].stderr)
 
+    def test_an_unreadable_private_credit_record_is_reported_not_silently_empty(self) -> None:
+        """The credit record gets the same treatment as the skip tally.
+
+        A non-empty but unreadable credit record makes the summing loop's redirect fail
+        and the credits vanish. That direction is the safe one (no relief is granted),
+        but it must still be attributable rather than a silent read of "no credit was
+        declared" — the same reason the skip tally's arm exists.
+        """
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$MODULE_SKIP_CREDIT_FILE"\n',
+            3,
+        )
+        self.assertIn("skip-credit record is unreadable", observed["failures"])
+        # And the forfeited credit never buys floor relief.
+        self.assertIn("minimum is", observed["completed"].stderr)
+
+    def test_a_leading_zero_credit_is_summed_as_decimal(self) -> None:
+        """A digit-only credit the validator accepts must sum in base 10.
+
+        `08`/`09` are not valid octal and `010` is not 10 in octal, so an unforced
+        arithmetic expansion would either abort with "value too great for base" or
+        silently mis-sum — neither of which is the attributable rejection the validator
+        promises for a shape it declines to accept. The validator accepts these, so the
+        sum must honor them at face value.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 08\n',
+            9,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertNotIn("value too great for base", completed.stderr)
+        # 1 executed + 8 credited == the floor of 9: credited as decimal 8, not octal.
+        self.assertNotIn("minimum is", completed.stderr)
+        self.assertEqual(observed["failures"], "")
+
     def test_the_fold_reimposes_the_three_field_shape_on_a_hand_written_record(self) -> None:
         """A second writer must not be able to bend the record shape.
 
