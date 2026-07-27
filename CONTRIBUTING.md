@@ -333,7 +333,9 @@ selectable module, complete all of the following in the same PR:
    cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no
    monolith helper). Comply **by reference** to that header — do not restate its
    cleanup/trap terms here, so this checklist cannot go stale as the contract
-   evolves.
+   evolves. "No self-skip" bars the raw `skip` helper, not a host that genuinely
+   cannot express a condition: declare that through `module_host_capability_skip`
+   (issue #838), whose contract the same header documents.
 8. **Focused-runner smoke test** — add a `runs_green_through_the_real_runner` test
    for the module to `lib/test/test_module_runner.py`, matching the shape the
    existing module tests use: invoke `lib/test/run-module.sh <module-id>`, read the

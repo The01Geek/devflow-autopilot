@@ -376,18 +376,18 @@ assert_eq "#415 swv: helper exits 0 even on an absent execution file" "0" \
 # "Always exits 0" contract — instead of raising an uncaught traceback through
 # render()/main() (which under matcher-probe.yml's `set -euo pipefail` verdict step
 # yields a red step with NO verdict table, on exactly the degraded run the probe exists
-# to handle). Skipped only where chmod 000 does not actually deny reads (running as
-# root, or a filesystem ignoring the mode). NOTE (issue #746): since extraction the
-# module's assertion floor is an EQUALITY check, so taking that arm now lowers the tally
-# and fails the boundary with a count mismatch rather than passing quietly. That is the
-# honest signal — a module may not self-skip, so a silent pass would be the worse
-# outcome — but it means this arm is a host requirement (non-root), not a portability
-# accommodation. Do not read the branch as "green everywhere".
+# to handle). Gated only where chmod 000 does not actually deny reads (running as
+# root, or a filesystem ignoring the mode). Issue #838: that gate reports through
+# module_host_capability_skip, so such a host yields a VISIBLE host-capability skip
+# whose declared credit reconciles the module's assertion floor — not the silent
+# assertion drop and count-mismatch floor trip the bare echo used to produce. Every
+# chmod-000 read-probe gate in this file is treated the same way.
 SWV_UNREAD="$(probe_tmp swv.unreadable)"
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/hosts"}},{"type":"tool_use","name":"Bash","input":{"command":"grep x /etc/os-release"}}]' > "$SWV_UNREAD"
 chmod 000 "$SWV_UNREAD"
 if python3 -c "open('$SWV_UNREAD').read()" 2>/dev/null; then
-  echo "  (skipped #415 swv unreadable-file arm — reads not denied here, e.g. running as root)"
+  module_host_capability_skip "#415 swv unreadable-execution-file arm" \
+    "chmod 000 does not deny reads on this host (e.g. running as root, or a filesystem ignoring the mode)" 2
 else
   assert_eq "#415 swv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
     "$(swv_has_row "$SWV_UNREAD" '| **INCONCLUSIVE** | no |')"
@@ -530,12 +530,14 @@ assert_eq "#610 asv: mixed-case probe subagent name still reads dispatch_attempt
 # INCONCLUSIVE floor and still exit 0 — honoring "always exits 0" — never raise an uncaught
 # traceback (which under the workflow's `set -euo pipefail` verdict step yields a red step
 # with NO verdict table). Parity with the #415 swv sibling (PR #667 review, pr-test-analyzer).
-# Skipped where chmod 000 does not actually deny reads (running as root) so the suite stays green.
+# Gated where chmod 000 does not actually deny reads (running as root); that gate reports
+# through module_host_capability_skip (issue #838), so the host yields a visible skip.
 ASV_UNREAD="$(probe_tmp asv.unreadable)"
 printf '%s' '[{"type":"tool_use","name":"Task","input":{"subagent_type":"seam-probe-agent"}}]' > "$ASV_UNREAD"
 chmod 000 "$ASV_UNREAD"
 if python3 -c "open('$ASV_UNREAD').read()" 2>/dev/null; then
-  echo "  (skipped #610 asv unreadable-file arm — reads not denied here, e.g. running as root)"
+  module_host_capability_skip "#610 asv unreadable-execution-file arm" \
+    "chmod 000 does not deny reads on this host (e.g. running as root, or a filesystem ignoring the mode)" 2
 else
   assert_eq "#610 asv: present-but-unreadable execution file -> INCONCLUSIVE (no ship), not a raised traceback" "yes" \
     "$(asv_has_row "$ASV_UNREAD" '| **INCONCLUSIVE** | no |')"
@@ -1143,7 +1145,8 @@ BGV_UNREAD="$(probe_tmp '#812 background-tasks unreadable fixture')"
 printf '%s' '[{"type":"tool_use","name":"Bash","input":{"command":"printf %s BGPROBE_CONTROL_BEFORE"}}]' > "$BGV_UNREAD"
 chmod 000 "$BGV_UNREAD"
 if python3 -c "open('$BGV_UNREAD').read()" 2>/dev/null; then
-  echo "  (skipped #812 bgv unreadable-file arm — reads not denied here, e.g. running as root)"
+  module_host_capability_skip "#812 bgv unreadable-execution-file arm" \
+    "chmod 000 does not deny reads on this host (e.g. running as root, or a filesystem ignoring the mode)" 2
 else
   assert_eq "#812 bgv: present-but-unreadable execution file -> INCONCLUSIVE, not a raised traceback" "yes" \
     "$(bgv_has "$BGV_UNREAD" '| **INCONCLUSIVE** | no |')"
