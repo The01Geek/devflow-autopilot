@@ -1309,6 +1309,12 @@ assert_eq "#857 seed helper (S1): empty PR number -> SKIP not-numeric" "SKIP not
 assert_eq "#857 seed helper (S1): non-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run abc m)"
 assert_eq "#857 seed helper (S1): leading-+ PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '+5' m)"
 assert_eq "#857 seed helper (S1): mixed-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '1a' m)"
+# A NON-ASCII digit (Arabic-Indic five) is what separates the `*[!0-9]*` glob from a
+# unicode-aware digit test: python3's str.isdigit() accepts it, and workpad.py's own guard
+# is ASCII-only for exactly this reason. Without this row, widening either guard to a
+# unicode-aware test keeps every other row green.
+assert_eq "#857 seed helper (S1): non-ASCII digit PR number -> SKIP not-numeric (the ASCII-only guarantee)" \
+  "SKIP not-numeric" "$(srp857_run '٥' m)"
 assert_eq "#857 seed helper (S1): SKIP exits 3" "3" "$(srp857_run '' m >/dev/null; echo $?)"
 # S2: an unreadable / missing workpad.py never reaches the create arm.
 mv "$SRP857/scripts/workpad.py" "$SRP857/scripts/workpad.py.hidden"
@@ -31973,6 +31979,20 @@ assert_eq "#401 R5 flags a command-substitution assignment in if/elif condition 
 printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=`gh pr view 2`; then' 'elif WP="`gh pr view 3`"; then' '```' > "$E363/s-r5e.md"
 assert_eq "#401 R5 flags all four condition-substitution spellings (bare/quoted x dollar-paren/backtick)" "3" \
   "$(python3 "$ECS" "$E363/s-r5e.md" | grep -c '  R5  ')"
+# ── R5 NEGATIVE CONTROL for its documented scoping guarantee (#857): the statement
+# ── splitter FLATTENS a `case` compound, emitting each arm body with its `LABEL)` selector
+# ── stripped — so a `VAR=$(cmd)` inside a `case` arm is never decomposed into an if/elif
+# ── condition and R5 must NOT reach it. Without this row the docstring's "R5's reach is
+# ── exactly a statement whose own leading keyword is if/elif" survives a mutation widening
+# ── the pattern to any `VAR=$(…)`, because only the bare-capture and if/elif rows are driven.
+printf '%s\n' '```bash' 'case "$X" in' '  a) WP=$(gh pr view 4) ;;' 'esac' '```' > "$E363/s-r5f.md"
+assert_eq "#401/#857 R5 does NOT fire on a command substitution nested in a case arm (documented scoping guarantee)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5f.md" | grep -c '  R5  ')"
+# ── Positive control on the SAME fixture shape: the identical capture in condition position
+# ── DOES fire, so the row above is R5's scoping, not a fixture the lint never parsed.
+printf '%s\n' '```bash' 'if WP=$(gh pr view 4); then' '```' > "$E363/s-r5g.md"
+assert_eq "#401/#857 R5 case-arm control is not vacuous — the same capture in condition position fires" "1" \
+  "$(python3 "$ECS" "$E363/s-r5g.md" | grep -c '  R5  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"

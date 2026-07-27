@@ -115,7 +115,7 @@ if WP="$("$WORKPAD_PY" id "$PR_NUMBER" --marker "$MARKER" 2>"$ERRF")"; then
   # an empty $WP that every later `patch` call silently no-ops on — the frozen-comment
   # failure this helper exists to make diagnosable. Fail closed onto the shared token.
   if [ -z "$WP" ]; then
-    echo "devflow review-seed: workpad.py id exited 0 but printed no comment id" >&2
+    echo "devflow review-seed: workpad.py id exited 0 but printed no comment id: $(cat "$ERRF" 2>/dev/null)" >&2
     echo "SKIP api-error"
     exit 3
   fi
@@ -127,20 +127,26 @@ elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
   if WP="$("$WORKPAD_PY" create "$PR_NUMBER" "$BODY_FILE" 2>>"$ERRF")"; then
     # Same non-empty validation as the RESUME arm above.
     if [ -z "$WP" ]; then
-      echo "devflow review-seed: workpad.py create exited 0 but printed no comment id" >&2
+      echo "devflow review-seed: workpad.py create exited 0 but printed no comment id: $(cat "$ERRF" 2>/dev/null)" >&2
       echo "SKIP api-error"
       exit 3
     fi
     echo "CREATED $WP"
     exit 0
   fi
-  echo "devflow review-seed: workpad.py create failed after a confirmed clean absence" >&2
+  # Fold the captured stderr into the breadcrumb (the inline seed this helper replaced
+  # did the same): a generic SKIP api-error with no underlying cause is exactly the
+  # undiagnosable missing-comment failure issue #857 exists to eliminate. `cat` is used
+  # for a COSMETIC diagnostic only — no arm was selected by it, and its absence empties
+  # the clause rather than changing an outcome (the non-preflight-PATH-tool rule).
+  echo "devflow review-seed: workpad.py create failed after a confirmed clean absence: $(cat "$ERRF" 2>/dev/null)" >&2
   echo "SKIP api-error"
   exit 3
 else
   # A real gh-api/parse failure (exit 1), or exit 2 WITH stderr (an interpreter-level
   # exit, not cmd_id's clean scan). Skip to avoid a duplicate comment.
-  echo "devflow review-seed: workpad.py id failed (exit != 0, or exit 2 with non-empty stderr — an interpreter-level exit, not cmd_id's clean scan)" >&2
+  # Same cosmetic-only stderr fold as the create arm above.
+  echo "devflow review-seed: workpad.py id failed (exit != 0, or exit 2 with non-empty stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat "$ERRF" 2>/dev/null)" >&2
   echo "SKIP api-error"
   exit 3
 fi

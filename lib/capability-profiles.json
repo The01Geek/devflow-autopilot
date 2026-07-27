@@ -1,5 +1,5 @@
 {
-  "manifest_version": 11,
+  "manifest_version": 10,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",

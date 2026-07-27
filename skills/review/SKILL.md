@@ -125,7 +125,7 @@ Read the helper's ONE stdout token line and act on it — the branch is the AGEN
 
 - `RESUME <comment-id>` or `CREATED <comment-id>` → hold `$WP = <comment-id>`; the patch loop below rewrites that comment at each phase boundary.
 - `SKIP not-numeric` / `SKIP bad-marker` / `SKIP workpad-unreadable` / `SKIP api-error` → leave `$WP` unset and continue without the live comment (the helper's stderr breadcrumb names which screen refused); do NOT retry.
-- **No output at all** → a refused command and an absent helper both produce no output, so empty output NEVER authorizes a create. Take the fallback arm below, built only from heads the review profile already grants and shapes already observed permitted on this tier — a `;`-joined statement sequence with no `if` compound:
+- **No output at all** → a refused command and an absent helper both produce no output, so empty output NEVER authorizes a create. Take the fallback arm below, built only from heads the review profile already grants and from the shapes `matcher-probe.yml`'s rows 16–17 exercise (pending confirmation) — a `;`-joined statement sequence with no `if` compound:
 
 ```bash
 mkdir -p .devflow/tmp/review/<slug>/<run-id> ; WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty

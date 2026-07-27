@@ -17915,7 +17915,11 @@ def _run_acs_resolve_capture_err(issue_arg):
     return err.getvalue()
 
 
-for _acs_bad in ('abc', '', '+5', '007x', '1a'):
+# '٥' (Arabic-Indic five) is the row that pins the guard's ASCII-ONLY spelling:
+# str.isdigit() accepts it, so reverting `all(c in '0123456789' ...)` to `.isdigit()` would
+# keep every other row here green while widening what reaches the int() conversion and the
+# shell S1 guard's `*[!0-9]*` contract (whose matching row lives in lib/test/run.sh).
+for _acs_bad in ('abc', '', '+5', '007x', '1a', '٥'):
     _acs_code, _acs_out = _run_acs_resolve_capture(_acs_bad)
     assert_eq("#857 acs_resolve_routes_non_numeric: %r exits 0" % _acs_bad, 0, _acs_code)
     assert_eq("#857 acs_resolve_routes_non_numeric: %r emits source: resolver-unavailable"
