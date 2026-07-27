@@ -33,12 +33,15 @@ worktree under `.claude/worktrees/` cannot change the result — issue #711):
 * every tracked `.devflow/prompt-extensions/*.md` (exactly one level deep).
 
 Section model. A file is split into sections at markdown headings (`#`..`######`).
-A section spans from its heading line to the next heading whose level is **not
-deeper** (level <= this heading's level), so a section includes its own deeper
-subsections; when both a token and a skill reference co-occur in more than one
-nested section, only the **innermost** such section is reported, so a parent is
-never double-counted with the child that actually carries the dispatch. Content
-before the first heading is the file-level (empty-heading) section. Heading
+Each section owns only its **own** lines — its heading line through to the next
+heading of *any* level, so a nested subsection is a separate section, never part of
+its parent. The candidate conjunction is evaluated over a section's own lines, so a
+token in one section and a reference in a *different* section never co-occur; a real
+dispatch prompt keeps its token and its child-skill reference together in one
+section's prose, so this catches every real site without the whole-file-preamble
+false positive or the parent-dispatch-masked-by-a-nested-child fail-open a full "not
+deeper" span reconstruction would introduce. Content before the first heading is the
+file-level (empty-heading) section, owning only that pre-heading text. Heading
 recognition and candidate matching both ignore the interior of fenced code blocks
 (``` ``` ``` and `~~~`), so a `#`-prefixed comment line inside a fence neither opens
 a section nor contributes a match.
@@ -170,8 +173,8 @@ DISPATCH_TOKENS_CASE = (
 )
 
 #: The two dispatch-shaped DevFlow skill-reference forms. The path form captures the
-#: directory before `/SKILL.md`; the invoke form captures a `devflow:<slug>` the word
-#: `invoke` immediately precedes (a bare cross-reference is deliberately excluded).
+#: directory before `/SKILL.md`; the invoke form captures a `devflow:<slug>` the phrase
+#: `invoke the` immediately precedes (a bare cross-reference is deliberately excluded).
 _DEVFLOW_REF = re.compile(r"/?devflow:([a-z0-9][a-z0-9-]*)")
 _SKILL_PATH_REF = re.compile(r"\.\./([a-z0-9][a-z0-9-]*)/SKILL\.md")
 #: The invoke-a-skill phrase that must precede a `devflow:<slug>` occurrence, and how
@@ -281,7 +284,7 @@ def _skills_refs(root: Path, content: str) -> set[str]:
     """Return the set of slugs referenced in `content` that resolve under `skills/`.
 
     Only the two dispatch-shaped forms count: an anchor-relative `.../<slug>/SKILL.md`
-    path, and a `devflow:<slug>` the word `invoke` precedes within `_INVOKE_WINDOW`
+    path, and a `devflow:<slug>` the phrase `invoke the` precedes within `_INVOKE_WINDOW`
     characters. A bare cross-reference (`see /devflow:review`) is not a reference form.
     """
     slugs: set[str] = set()
@@ -298,48 +301,25 @@ def _skills_refs(root: Path, content: str) -> set[str]:
 def scan_file(root: Path, relative: str, text: str) -> list[tuple[str, set[str]]]:
     """Return `(section_heading, skills_refs)` for every flagged section of one file.
 
-    A section is flagged when its span contains both a dispatch token and a
-    `skills`-resolving reference; when nested sections both qualify, only the
-    innermost is reported so a parent is never double-counted with its child.
+    A section is flagged when its **own** lines (the heading through to the next
+    heading of any level — a nested subsection is a separate section, not part of its
+    parent) contain both a dispatch token and a `skills`-resolving reference. A real
+    dispatch prompt keeps its token and its child-skill reference together in one
+    section's prose, so own-line attribution catches every real site while a token in
+    one section and a reference in a *different* section never co-occur — the
+    section-scoped conjunction, without the whole-file-preamble false positive or the
+    parent-dispatch-masked-by-a-nested-child fail-open a full-span reconstruction
+    would introduce.
     """
-    raw_sections = split_sections(text)
-    # Reconstruct each section's FULL span content (its own lines plus every deeper
-    # subsection's lines) under the "not deeper" rule, so a token in an intro and a
-    # ref in a subsection still co-occur; then keep only the innermost qualifying one.
-    n = len(raw_sections)
-    span_content: list[str] = []
-    span_end: list[int] = []  # exclusive end index of each section's "not deeper" span
-    for i, (_title, level, _content) in enumerate(raw_sections):
-        acc: list[str] = list(raw_sections[i][2])
-        j = i + 1
-        while j < n and raw_sections[j][1] > level:
-            acc.extend(raw_sections[j][2])
-            j += 1
-        span_content.append("\n".join(acc))
-        span_end.append(j)
-
-    qualifies = [False] * n
-    refs_per: list[set[str]] = [set() for _ in range(n)]
-    for i in range(n):
-        content = span_content[i]
+    flagged: list[tuple[str, set[str]]] = []
+    for title, _level, content_lines in split_sections(text):
+        content = "\n".join(content_lines)
         if not _has_token(content):
             continue
         refs = _skills_refs(root, content)
         if not refs:
             continue
-        qualifies[i] = True
-        refs_per[i] = refs
-
-    flagged: list[tuple[str, set[str]]] = []
-    for i, (title, _level, _content) in enumerate(raw_sections):
-        if not qualifies[i]:
-            continue
-        # Innermost only: suppress this section if a deeper nested section (within its
-        # span, computed once above) also qualifies — that child carries the actual
-        # co-location.
-        if any(qualifies[k] for k in range(i + 1, span_end[i])):
-            continue
-        flagged.append((title, refs_per[i]))
+        flagged.append((title, refs))
     return flagged
 
 

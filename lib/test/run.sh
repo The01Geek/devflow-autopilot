@@ -39669,6 +39669,15 @@ e834_write "$E834_FX" skills/d/unterminated.md \
 # A file whose one section dispatches TWO children — the second-dispatch-in-a-registered-file case.
 e834_write "$E834_FX" skills/d/twochild.md \
   "## Two children" "Use the Agent tool to invoke the \`devflow:childskill\` skill and also invoke the \`devflow:otherskill\` skill."
+# Preamble + token/ref split across two DIFFERENT sections → NOT flagged (own-line attribution:
+# the level-0 preamble owns only its pre-heading text, so it cannot re-unite them file-wide).
+e834_write "$E834_FX" skills/d/preamble-split.md \
+  "Some intro before any heading." "" "# Section A" "Use the Agent tool." "# Section B" "Please invoke the \`devflow:childskill\` skill."
+# Nested: a PARENT section carries its own dispatch AND a deeper child qualifies. Own-line
+# attribution flags BOTH — the parent's own dispatch is not masked by the nested child (fail-open fix).
+e834_write "$E834_FX" skills/d/nested.md \
+  "## Parent dispatch" "Use the Agent tool to invoke the \`devflow:otherskill\` skill." \
+  "### Child dispatch" "Use the Agent tool to invoke the \`devflow:childskill\` skill."
 
 # Happy path: sites cover real.md + pathform.md, nd exempts prose.md → exact agreement, exit 0.
 E834_REG_OK="$(probe_tmp '#834 reg ok')"
@@ -39717,6 +39726,49 @@ assert_eq "#834 lint: the complement (agents/, superpowers, token-only, ref-only
   "rc=0" \
   "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md)" in
        "rc=0|"*) echo "rc=0" ;; *) e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md ;; esac)"
+
+# Section-scoped conjunction: a token and a reference in two DIFFERENT sections, even with a
+# file-level preamble, produce no finding (own-line attribution — no whole-file preamble span).
+assert_eq "#834 lint: token and reference in two different sections (with a preamble) is not flagged" \
+  "rc=0" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/preamble-split.md)" in
+       "rc=0|"*) echo "rc=0" ;; *) e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/preamble-split.md ;; esac)"
+
+# A parent section's OWN dispatch is not masked by a qualifying nested child (fail-open fix):
+# with only the child registered, the parent's own unregistered dispatch is still caught.
+E834_REG_NEST="$(probe_tmp '#834 reg nested')"
+cat > "$E834_REG_NEST" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/nested.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a parent-section dispatch is not masked by a qualifying nested child" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_NEST" skills/d/nested.md)" in
+       *"skills/d/nested.md"*"otherskill"*) echo yes ;; *) echo no ;; esac)"
+
+# Direction-2 in isolation: a registered NON-inherited site the scan does not flag (its section
+# has a token but no reference) fails "does not reach"; the same record marked `inherited` is clean.
+E834_REG_UNREACH="$(probe_tmp '#834 reg unreach')"
+cat > "$E834_REG_UNREACH" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/tokenonly.md","skill":"childskill","handoff":"by-path"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: a non-inherited registered site the scan does not reach fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_UNREACH" skills/d/tokenonly.md)" in *"does not reach"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_INHER="$(probe_tmp '#834 reg inherited')"
+cat > "$E834_REG_INHER" <<'JSON'
+{"schema_version":1,"sites":[{"dispatcher":"skills/d/tokenonly.md","skill":"childskill","handoff":"inherited"}],"declared_non_dispatch":[]}
+JSON
+assert_eq "#834 lint: an inherited registered site is exempt from the reach check (clean)" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_INHER" skills/d/tokenonly.md)" in "rc=0|"*) echo yes ;; *) echo no ;; esac)"
+
+# Malformed (non-JSON) and top-level-non-object registries fail with their own messages
+# (CLAUDE.md config-parser boundary rows), plus the string-scalar shape the six-shape loop omits.
+E834_REG_BADJSON="$(probe_tmp '#834 reg badjson')"
+printf 'not json{\n' > "$E834_REG_BADJSON"
+assert_eq "#834 lint: a non-JSON registry fails naming invalid JSON" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_BADJSON" skills/d/tokenonly.md)" in *"not valid JSON"*) echo yes ;; *) echo no ;; esac)"
+E834_REG_TOPARR="$(probe_tmp '#834 reg toparr')"
+printf '[]\n' > "$E834_REG_TOPARR"
+assert_eq "#834 lint: a top-level non-object registry fails" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_TOPARR" skills/d/tokenonly.md)" in *"top-level JSON object"*) echo yes ;; *) echo no ;; esac)"
 
 # Fail-closed: a dispatch after an UNTERMINATED fence is still flagged (not hidden).
 assert_eq "#834 lint: a dispatch after an unterminated fence is not hidden (fails closed)" "yes" \
@@ -39778,7 +39830,8 @@ PY
   printf '%s' "$out"
 }
 for _e834_key in sites declared_non_dispatch; do
-  # object, array-of-scalars, scalar(number), scalar(string), valid-falsy(false), null(wrong type), missing.
+  # object, array-of-scalars, scalar(number), valid-falsy(false), null(wrong type), missing.
+  # (The scalar(string) shape is driven by its own assertion below, not this loop.)
   assert_eq "#834 lint: $_e834_key as an object fails shape-specifically" "yes" \
     "$(case "$(e834_sixshape "$_e834_key" '{}')" in "rc=0|"*) echo no ;; *"not an object"*) echo yes ;; *) echo no ;; esac)"
   assert_eq "#834 lint: $_e834_key as an array of scalars fails shape-specifically" "yes" \
@@ -39792,6 +39845,9 @@ for _e834_key in sites declared_non_dispatch; do
   assert_eq "#834 lint: $_e834_key missing fails shape-specifically" "yes" \
     "$(case "$(e834_sixshape "$_e834_key" '__MISSING__')" in "rc=0|"*) echo no ;; *"key is missing"*) echo yes ;; *) echo no ;; esac)"
 done
+# The scalar(string) shape, driven separately from the loop (its own distinct message arm).
+assert_eq "#834 lint: sites as a string scalar fails shape-specifically" "yes" \
+  "$(case "$(e834_sixshape sites '"x"')" in "rc=0|"*) echo no ;; *"not a string (scalar)"*) echo yes ;; *) echo no ;; esac)"
 
 # schema_version must be an integer; a non-integer fails with its own message.
 E834_REG_VER="$(probe_tmp '#834 reg ver')"
