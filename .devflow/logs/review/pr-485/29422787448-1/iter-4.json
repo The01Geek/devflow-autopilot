@@ -7,5 +7,6 @@
     "scripts/derive-review-preconditions.sh"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

@@ -8,5 +8,6 @@
     "scripts/describe-skip-title.sh"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

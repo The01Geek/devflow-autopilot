@@ -10,5 +10,6 @@
     "skills/implement/phases/phase-4-documentation.md"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

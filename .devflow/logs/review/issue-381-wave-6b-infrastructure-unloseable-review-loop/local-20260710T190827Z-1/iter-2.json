@@ -6,5 +6,6 @@
     "lib/test/run.sh"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

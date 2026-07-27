@@ -3,5 +3,6 @@
   "fix_commit_sha": "ab0814af7a4e28e19ebfb539a6db4ec5b7e74fae",
   "fix_files": [],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

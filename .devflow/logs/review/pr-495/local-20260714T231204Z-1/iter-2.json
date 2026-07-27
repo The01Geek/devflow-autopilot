@@ -8,5 +8,6 @@
     "scripts/validate-telemetry-artifact.sh"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

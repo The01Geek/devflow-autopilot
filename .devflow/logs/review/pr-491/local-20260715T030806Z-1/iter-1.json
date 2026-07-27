@@ -136,5 +136,6 @@
   "shadow": {
     "shadow_synthesized": true,
     "promoted_to_iter_next": true
-  }
+  },
+  "telemetry": "unavailable"
 }

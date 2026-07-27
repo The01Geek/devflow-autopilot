@@ -10,5 +10,6 @@
     "scripts/build-experiment-records.py"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

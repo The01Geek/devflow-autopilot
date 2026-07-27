@@ -72,7 +72,7 @@
   "telemetry": [
     {
       "iter": 1,
-      "phases": null
+      "phases": "unavailable"
     }
   ]
 }

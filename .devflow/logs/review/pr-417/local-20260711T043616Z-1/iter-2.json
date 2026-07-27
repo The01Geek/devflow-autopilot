@@ -2,25 +2,128 @@
   "iter": 2,
   "started_at": "2026-07-11T04:55:00Z",
   "fix_commit_sha": "94f630b",
-  "fix_files": ["lib/test/run.sh"],
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
   "loop_role": "promoted",
-  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
   "phase3_dispatched": [],
   "phase3_findings": [
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "shadow-promoted: control_before conjunct of REMOVED gate unguarded — add symmetric after-only fixture", "defect_signature": {"file": "lib/test/run.sh", "line_range": [21306, 21310], "kind": "test-coverage"}, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "shadow-promoted: self-authored 'mutation proof below' comment falsehood (documented-falsehood carve-out)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [21321, 21321], "kind": "documented-falsehood"}, "step25_classification": "codebase", "fix_decision": "applied"},
-    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "shadow-promoted sibling: else-branch [!WARNING] text + wholly-unparseable path unasserted", "defect_signature": {"file": "lib/test/run.sh", "line_range": [21311, 21313], "kind": "test-coverage"}, "step25_classification": "codebase", "fix_decision": "applied"}
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "shadow-promoted: control_before conjunct of REMOVED gate unguarded — add symmetric after-only fixture",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21306,
+          21310
+        ],
+        "kind": "test-coverage"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "shadow-promoted: self-authored 'mutation proof below' comment falsehood (documented-falsehood carve-out)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21321,
+          21321
+        ],
+        "kind": "documented-falsehood"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "shadow-promoted sibling: else-branch [!WARNING] text + wholly-unparseable path unasserted",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21311,
+          21313
+        ],
+        "kind": "test-coverage"
+      },
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
   ],
   "fix_decisions": [
-    {"finding_id": "S-1", "decision": "applied", "commit": "94f630b"},
-    {"finding_id": "S-3", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "control_before conjunct unguarded", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "coverage hole on the dangerous fail-open-to-REMOVED direction (symmetric partner of the partial-JSONL fix); not a fail-closed/diagnostic-only over-grade — kept Important, fixed"},
-    {"finding_id": "S-2", "decision": "applied", "commit": "94f630b"},
-    {"finding_id": "S-4", "decision": "applied", "commit": "94f630b"},
-    {"finding_id": "A-1", "decision": "deferred", "source_file": "scripts/schedulewakeup-probe-verdict.py", "claim_text": "substring signal detection can theoretically false-positive on Bash command text containing schedulewakeup/etc/hosts/etc/os-release", "skip_category": "uncategorized", "evidence": "conservative — every misread errs toward not-shipping (AVAILABLE/INCONCLUSIVE); probe prompt forbids workarounds; documented"},
-    {"finding_id": "A-2", "decision": "deferred", "source_file": "scripts/schedulewakeup-probe-verdict.py", "claim_text": "note_top precedence downgrades a genuine denial on partial corruption to INCONCLUSIVE", "skip_category": "uncategorized", "evidence": "intentional and documented; conservative (one-shot operator-rerun diagnostic); pinned"},
-    {"finding_id": "A-3", "decision": "deferred", "source_file": "scripts/schedulewakeup-probe-verdict.py", "claim_text": "pretty-printed multi-line single-JSON execution file would read INCONCLUSIVE", "skip_category": "uncategorized", "evidence": "fail-closed; shared format assumption with the sibling matcher-probe job; latent only if upstream format changes"},
-    {"finding_id": "A-4", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "swv_has_row comment says 'row starts with it' but uses unanchored grep -F", "skip_category": "uncategorized", "evidence": "pre-existing cosmetic comment nit, out of iteration scope, harmless"}
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "94f630b"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "control_before conjunct unguarded",
+      "original_severity": "Important",
+      "calibrated_severity": "Important",
+      "evidence": "coverage hole on the dangerous fail-open-to-REMOVED direction (symmetric partner of the partial-JSONL fix); not a fail-closed/diagnostic-only over-grade — kept Important, fixed"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "94f630b"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "94f630b"
+    },
+    {
+      "finding_id": "A-1",
+      "decision": "deferred",
+      "source_file": "scripts/schedulewakeup-probe-verdict.py",
+      "claim_text": "substring signal detection can theoretically false-positive on Bash command text containing schedulewakeup/etc/hosts/etc/os-release",
+      "skip_category": "uncategorized",
+      "evidence": "conservative — every misread errs toward not-shipping (AVAILABLE/INCONCLUSIVE); probe prompt forbids workarounds; documented"
+    },
+    {
+      "finding_id": "A-2",
+      "decision": "deferred",
+      "source_file": "scripts/schedulewakeup-probe-verdict.py",
+      "claim_text": "note_top precedence downgrades a genuine denial on partial corruption to INCONCLUSIVE",
+      "skip_category": "uncategorized",
+      "evidence": "intentional and documented; conservative (one-shot operator-rerun diagnostic); pinned"
+    },
+    {
+      "finding_id": "A-3",
+      "decision": "deferred",
+      "source_file": "scripts/schedulewakeup-probe-verdict.py",
+      "claim_text": "pretty-printed multi-line single-JSON execution file would read INCONCLUSIVE",
+      "skip_category": "uncategorized",
+      "evidence": "fail-closed; shared format assumption with the sibling matcher-probe job; latent only if upstream format changes"
+    },
+    {
+      "finding_id": "A-4",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "swv_has_row comment says 'row starts with it' but uses unanchored grep -F",
+      "skip_category": "uncategorized",
+      "evidence": "pre-existing cosmetic comment nit, out of iteration scope, harmless"
+    }
   ],
-  "convergence_inputs": {"fixes_applied": 4, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
-  "notes": "Promoted iter from the engine_self_modifying early-shadow trigger. Delta is entirely test/comment (0 product-code lines) -> converged. Post-shadow iter-2 delta blinded-reviewed clean (post-shadow-edit-gate bounded delta-review)."
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "notes": "Promoted iter from the engine_self_modifying early-shadow trigger. Delta is entirely test/comment (0 product-code lines) -> converged. Post-shadow iter-2 delta blinded-reviewed clean (post-shadow-edit-gate bounded delta-review).",
+  "telemetry": "unavailable"
 }

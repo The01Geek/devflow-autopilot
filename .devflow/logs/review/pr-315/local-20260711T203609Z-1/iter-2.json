@@ -12,7 +12,7 @@
   ],
   "fix_severity_threshold": "important",
   "verdict_severity_threshold": "critical",
-  "phase_1_2_skipped": "promoted iter \u2014 inputs are a full Phase 1+2+3 shadow result",
+  "phase_1_2_skipped": "promoted iter — inputs are a full Phase 1+2+3 shadow result",
   "phase3_findings": [
     {
       "id": "S1",
@@ -113,7 +113,7 @@
       "claim_text": "degraded base-read silent reroute + misdirecting guard",
       "original_severity": "Important",
       "calibrated_severity": "Important",
-      "evidence": "over-grade gate shape-3 flag (single-source silent-failure-hunter): evaluated \u2014 fail direction is fail-OPEN (a configured provider silently dropped to Anthropic default on a transient/malformed read) plus a false error naming the wrong remedy; not diagnostic-only and not fail-closed, so Important affirmed, not demoted."
+      "evidence": "over-grade gate shape-3 flag (single-source silent-failure-hunter): evaluated — fail direction is fail-OPEN (a configured provider silently dropped to Anthropic default on a transient/malformed read) plus a false error naming the wrong remedy; not diagnostic-only and not fail-closed, so Important affirmed, not demoted."
     },
     {
       "finding_id": "S2",
@@ -127,7 +127,7 @@
       "claim_text": "env-map key forge",
       "original_severity": "Important",
       "calibrated_severity": "Important",
-      "evidence": "over-grade gate shape-3 flag (single-source): evaluated \u2014 an unvalidated key forges a job env-var name or aborts opaquely; guard-completeness gap in code this PR authored (extension guard-class 4). Fail-open on the emit surface \u2014 Important affirmed."
+      "evidence": "over-grade gate shape-3 flag (single-source): evaluated — an unvalidated key forges a job env-var name or aborts opaquely; guard-completeness gap in code this PR authored (extension guard-class 4). Fail-open on the emit surface — Important affirmed."
     },
     {
       "finding_id": "S3",
@@ -148,61 +148,61 @@
   "deferred_advisory": [
     {
       "id": "S5",
-      "reason": "Suggestion below threshold; cargs empty-MODEL remedy vs extract-guard remedy wording mismatch \u2014 cosmetic, unreachable tripwire",
+      "reason": "Suggestion below threshold; cargs empty-MODEL remedy vs extract-guard remedy wording mismatch — cosmetic, unreachable tripwire",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S6",
-      "reason": "Suggestion; effort-enum coupling test \u2014 nice-to-have, the enum is already pinned present via the guard-arm tests",
+      "reason": "Suggestion; effort-enum coupling test — nice-to-have, the enum is already pinned present via the guard-arm tests",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S7",
-      "reason": "Suggestion; providers schema-contract pins \u2014 the resolver is the runtime enforcement and is fully behaviorally tested",
+      "reason": "Suggestion; providers schema-contract pins — the resolver is the runtime enforcement and is fully behaviorally tested",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S8",
-      "reason": "Suggestion; drive doc example JSONs through resolver \u2014 R313_CFG already covers the shape",
+      "reason": "Suggestion; drive doc example JSONs through resolver — R313_CFG already covers the shape",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S9",
-      "reason": "Suggestion; EFFORT_SUPPORTED empty/garbage cell \u2014 fail-closed by construction",
+      "reason": "Suggestion; EFFORT_SUPPORTED empty/garbage cell — fail-closed by construction",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S10",
-      "reason": "Suggestion, style/comment_drift; runner-specific prose in shared body \u2014 true, editing would break byte-identity",
+      "reason": "Suggestion, style/comment_drift; runner-specific prose in shared body — true, editing would break byte-identity",
       "decision": "pushed_back",
       "skip_category": "claim-quality"
     },
     {
       "id": "S11",
-      "reason": "Suggestion; config.example.json providers pointer \u2014 deliberately untouched per AC 2",
+      "reason": "Suggestion; config.example.json providers pointer — deliberately untouched per AC 2",
       "decision": "pushed_back",
       "skip_category": "out-of-scope"
     },
     {
       "id": "S12",
-      "reason": "Suggestion, style; awkward comment wrap \u2014 cosmetic",
+      "reason": "Suggestion, style; awkward comment wrap — cosmetic",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S13",
-      "reason": "Suggestion, style; clarify command-workflow env comment \u2014 cosmetic",
+      "reason": "Suggestion, style; clarify command-workflow env comment — cosmetic",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     },
     {
       "id": "S14",
-      "reason": "Suggestion, style; bare AC numbers \u2014 cosmetic",
+      "reason": "Suggestion, style; bare AC numbers — cosmetic",
       "decision": "pushed_back",
       "skip_category": "uncategorized"
     }
@@ -214,9 +214,10 @@
   },
   "reflections": [
     "over-grade calibration gate (promoted iter): S2, S3 flagged (shape 3, single-source silent-failure-hunter); severity-calibrated evaluations recorded affirming Important (both fail-open); S1 from code-reviewer, no flag",
-    "Step 3 item 3a mechanism re-sweep: S1 moved the inject step's POSITION (a control-flow/where-it-runs change) \u2014 re-verified comments describing inject ordering/placement across the three workflows; added the placement-rationale comment and SYSTEM_OVERVIEW clause; no stale mirror survived",
+    "Step 3 item 3a mechanism re-sweep: S1 moved the inject step's POSITION (a control-flow/where-it-runs change) — re-verified comments describing inject ordering/placement across the three workflows; added the placement-rationale comment and SYSTEM_OVERVIEW clause; no stale mirror survived",
     "Step 3 item 3b: 2.3.0c(a) operand table for the new key-validation guard (comparand: env keys from DECISION, always present as object via resolver) and config_source (produced on every baseprovision path: ok/absent/degraded); 2.3.4 reproduced the guard's jq behavior on newline/<<-escape/space/leading-digit keys in scratch (all rc=1, zero bytes written; valid keys pass)",
-    "mutation/behavioral checks: S1 order-pin (real pi<ii<ri true, mutated inject-before-provision \u2192 RED); S3 validate-before-emit (bad key rc=1 + 0 bytes; valid keys write); S2 degraded branch names unreadable-config and avoids false 'no provider'",
+    "mutation/behavioral checks: S1 order-pin (real pi<ii<ri true, mutated inject-before-provision → RED); S3 validate-before-emit (bad key rc=1 + 0 bytes; valid keys write); S2 degraded branch names unreadable-config and avoids false 'no provider'",
     "10 Suggestions (S5-S14) below the important threshold pushed back as advisory (recorded above); none is a self-contradicting-diff falsehood"
-  ]
+  ],
+  "telemetry": "unavailable"
 }

@@ -1,16 +1,100 @@
 {
-  "iter": 2, "fix_commit_sha": "962bf0c",
-  "fix_files": ["scripts/match-lint-adjudications.py", "skills/review/SKILL.md", "lib/test/run.sh"],
-  "loop_role": "fix",
-  "diff_profile": {"engine_self_modifying": true, "has_new_types": false, "checklist_skipped": null},
-  "phase3_dispatched": ["devflow:silent-failure-hunter","devflow:comment-analyzer","devflow:pr-test-analyzer","devflow:requesting-code-review"],
-  "phase3_findings": [
-    {"agent":"devflow:requesting-code-review","severity":"Important","description":"sentinel guard fails open on sectionless trusted comment + single forged pair","defect_signature":{"file":"scripts/match-lint-adjudications.py","line_range":[256,266],"kind":"security"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"},
-    {"agent":"devflow:silent-failure-hunter","severity":"Important","description":"docstring Output stats omits sentinel_tampered_comments","defect_signature":{"file":"scripts/match-lint-adjudications.py","line_range":[63,70],"kind":"documented_falsehood"},"corroboration_count":2,"step25_classification":"codebase","fix_decision":"applied"},
-    {"agent":"devflow:pr-test-analyzer","severity":"Important","description":"widened _config_get rc!=0 breadcrumb untested; END-only arm untested; 0-match untested; allowed_bots six-shape untested","defect_signature":{"file":"scripts/match-lint-adjudications.py","line_range":[179,192],"kind":"test_gap"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"applied"}
+  "iter": 2,
+  "fix_commit_sha": "962bf0c",
+  "fix_files": [
+    "scripts/match-lint-adjudications.py",
+    "skills/review/SKILL.md",
+    "lib/test/run.sh"
   ],
-  "fix_decisions":[{"finding_id":"F-A","decision":"applied","commit":"962bf0c"},{"finding_id":"F-B","decision":"applied","commit":"962bf0c"},{"finding_id":"F-C","decision":"applied","commit":"962bf0c"}],
-  "convergence_inputs":{"fixes_applied":6,"fix_diff_lines":110,"new_corroborated_critical_count":0},
-  "verification_evidence":{"command":"lib/test/run.sh","result":"pass","duration_s":145},
-  "notes":"iter2 findings all NEW (no iter1 re-raise). Security residual root-fixed producer-side (Phase 4.1.7 neutralization) + documented bounded residual. docstring drift now mechanized. 38->53 mla checks."
+  "loop_role": "fix",
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "has_new_types": false,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "sentinel guard fails open on sectionless trusted comment + single forged pair",
+      "defect_signature": {
+        "file": "scripts/match-lint-adjudications.py",
+        "line_range": [
+          256,
+          266
+        ],
+        "kind": "security"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "docstring Output stats omits sentinel_tampered_comments",
+      "defect_signature": {
+        "file": "scripts/match-lint-adjudications.py",
+        "line_range": [
+          63,
+          70
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "widened _config_get rc!=0 breadcrumb untested; END-only arm untested; 0-match untested; allowed_bots six-shape untested",
+      "defect_signature": {
+        "file": "scripts/match-lint-adjudications.py",
+        "line_range": [
+          179,
+          192
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-A",
+      "decision": "applied",
+      "commit": "962bf0c"
+    },
+    {
+      "finding_id": "F-B",
+      "decision": "applied",
+      "commit": "962bf0c"
+    },
+    {
+      "finding_id": "F-C",
+      "decision": "applied",
+      "commit": "962bf0c"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 6,
+    "fix_diff_lines": 110,
+    "new_corroborated_critical_count": 0
+  },
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 145
+  },
+  "notes": "iter2 findings all NEW (no iter1 re-raise). Security residual root-fixed producer-side (Phase 4.1.7 neutralization) + documented bounded residual. docstring drift now mechanized. 38->53 mla checks.",
+  "telemetry": "unavailable"
 }

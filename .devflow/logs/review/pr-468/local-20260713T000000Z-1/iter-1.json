@@ -6,5 +6,6 @@
     "scripts/match-lint-adjudications.py"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }

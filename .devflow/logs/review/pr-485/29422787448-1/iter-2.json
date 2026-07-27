@@ -7,5 +7,6 @@
     "scripts/post-review-backstop-comment.sh"
   ],
   "loop_role": "fix",
-  "synthesized": true
+  "synthesized": true,
+  "telemetry": "unavailable"
 }
