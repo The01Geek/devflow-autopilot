@@ -1214,26 +1214,6 @@ _RETIREMENT_MANIFEST_SPECS = {
         frozenset({"prose_retire", "redundant_retire"}),
     ),
 }
-_MIGRATION_BUNDLE_ID = "2026-07-26-pr-849"
-_MIGRATION_CERTIFICATE_PATH = (
-    f"{_ADJUDICATION_BUNDLE_ROOT}/{_MIGRATION_BUNDLE_ID}/migration.tsv"
-)
-_LEGACY_ADJUDICATION_SHA256 = (
-    "db13cb2caa85b95c3bcdca6488f87c1b79428de5d4055e2faaf3b9636bc985cd"
-)
-_RESOLVED_ADJUDICATION_SHA256 = (
-    "bc955639aee8f6fa37a8a41cf42202e175254bff95cfb13e5a347bbe527a2aa9"
-)
-_RESOLVED_ADJUDICATION_SEMANTIC_SHA256 = (
-    "63eae0fc7617e23a4ab3ec71e36cac0e81f246515759bbb381557f007707c0c5"
-)
-_MIGRATION_CERTIFICATE_BYTES = (
-    "legacy_sha256\tresolved_sha256\tsemantic_map_sha256\n"
-    f"{_LEGACY_ADJUDICATION_SHA256}\t{_RESOLVED_ADJUDICATION_SHA256}\t"
-    f"{_RESOLVED_ADJUDICATION_SEMANTIC_SHA256}\n"
-).encode("ascii")
-
-
 class RevivalAuthorization(NamedTuple):
     source_path: str
     family: str
@@ -1574,16 +1554,6 @@ def hash_adjudication_table_state(adjudications):
     ).hexdigest()
 
 
-def hash_adjudication_semantic_map(adjudications):
-    """Hash canonical sorted TSV rows without coupling semantics to a header."""
-    canonical_adjudication_table_state(adjudications)
-    payload = "".join(
-        f"{key}\t{adjudications[key][0]}\t{adjudications[key][1]}\n"
-        for key in sorted(adjudications)
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def compute_adjudication_delta(base, current):
     """Return the complete base-to-current state delta, including deletions."""
     canonical_adjudication_table_state(base)
@@ -1657,7 +1627,6 @@ def discover_new_adjudication_delta_manifests(
     repo_root,
     merge_base,
     *,
-    include_migration=False,
     include_revivals=False,
     git_runner=subprocess.run,
 ):
@@ -1727,12 +1696,7 @@ def discover_new_adjudication_delta_manifests(
         revival_path = (
             f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
         )
-        is_migration = (
-            include_migration
-            and change_id == _MIGRATION_BUNDLE_ID
-            and path == _MIGRATION_CERTIFICATE_PATH
-        )
-        if path not in {delta_path, revival_path} and not is_migration:
+        if path not in {delta_path, revival_path}:
             raise InfrastructureError(f"adjudication bundle has unexpected bundle path: {path!r}")
         if status != "A" or change_id in historical_ids:
             raise InfrastructureError(
@@ -1740,18 +1704,14 @@ def discover_new_adjudication_delta_manifests(
             )
         new_paths.setdefault(change_id, set()).add(path)
     for change_id, paths in new_paths.items():
-        if change_id == _MIGRATION_BUNDLE_ID:
-            expected_paths = {_MIGRATION_CERTIFICATE_PATH}
-            valid = paths == expected_paths
-        else:
-            delta_path = (
-                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
-            )
-            revival_path = (
-                f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
-            )
-            expected_paths = {delta_path, revival_path}
-            valid = delta_path in paths and paths <= expected_paths
+        delta_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/adjudication-delta.tsv"
+        )
+        revival_path = (
+            f"{_ADJUDICATION_BUNDLE_ROOT}/{change_id}/retired-pin-revivals.tsv"
+        )
+        expected_paths = {delta_path, revival_path}
+        valid = delta_path in paths and paths <= expected_paths
         if not valid:
             unexpected = sorted(paths - expected_paths or paths)
             raise InfrastructureError(
@@ -1759,7 +1719,6 @@ def discover_new_adjudication_delta_manifests(
             )
     manifests = []
     revival_authorizations = set()
-    migration_bytes = None
     for change_id in sorted(new_paths):
         for payload_path in sorted(new_paths[change_id]):
             listing = _run_git(git_runner, repo_root, "ls-tree", "HEAD", "--", payload_path)
@@ -1774,9 +1733,7 @@ def discover_new_adjudication_delta_manifests(
                     f"new adjudication bundle payload is not a regular HEAD blob: {payload_path}"
                 )
             payload = _run_git_bytes(git_runner, repo_root, "show", f"HEAD:{payload_path}")
-            if payload_path == _MIGRATION_CERTIFICATE_PATH:
-                migration_bytes = payload
-            elif payload_path.endswith("/adjudication-delta.tsv"):
+            if payload_path.endswith("/adjudication-delta.tsv"):
                 manifests.append(
                     parse_adjudication_delta_manifest(
                         _decode_utf8(payload, f"adjudication bundle payload {payload_path}")
@@ -1793,10 +1750,6 @@ def discover_new_adjudication_delta_manifests(
                         f"{sorted(duplicates)[0]}"
                     )
                 revival_authorizations.update(parsed)
-    if include_migration and include_revivals:
-        return manifests, migration_bytes, frozenset(revival_authorizations)
-    if include_migration:
-        return manifests, migration_bytes
     if include_revivals:
         return manifests, frozenset(revival_authorizations)
     return manifests
@@ -3870,42 +3823,12 @@ def analyze_adjudication_changes(
         "show",
         f"{merge_base}:{_ADJUDICATION_TABLE_PATH}",
     )
-    (
-        manifests,
-        migration_bytes,
-        revival_authorizations,
-    ) = discover_new_adjudication_delta_manifests(
+    manifests, revival_authorizations = discover_new_adjudication_delta_manifests(
         repo_root,
         merge_base,
-        include_migration=True,
         include_revivals=True,
         git_runner=git_runner,
     )
-    base_digest = hashlib.sha256(base_bytes).hexdigest()
-    current_digest = hashlib.sha256(current_bytes).hexdigest()
-    if base_digest == _LEGACY_ADJUDICATION_SHA256:
-        require_current_adjudication_base(
-            repo_root,
-            base_ref,
-            merge_base=merge_base,
-            git_runner=git_runner,
-        )
-        if (
-            current_digest != _RESOLVED_ADJUDICATION_SHA256
-            or migration_bytes != _MIGRATION_CERTIFICATE_BYTES
-            or manifests
-            or hash_adjudication_semantic_map(current)
-            != _RESOLVED_ADJUDICATION_SEMANTIC_SHA256
-        ):
-            raise InfrastructureError(
-                "adjudication migration does not match the exact bootstrap certificate"
-            )
-        return AdjudicationAnalysis([], current, current, {}, frozenset())
-
-    if migration_bytes is not None:
-        raise InfrastructureError(
-            "adjudication migration certificate is invalid for a strict base table"
-        )
     base = parse_current_adjudications(
         _decode_utf8(base_bytes, "base adjudication table")
     )

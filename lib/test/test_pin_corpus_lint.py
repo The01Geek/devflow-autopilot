@@ -1996,16 +1996,9 @@ class AdjudicationStateTests(unittest.TestCase):
 
 
 class AdjudicationChangeScanTests(unittest.TestCase):
-    LEGACY_SHA256 = "db13cb2caa85b95c3bcdca6488f87c1b79428de5d4055e2faaf3b9636bc985cd"
-    RESOLVED_SHA256 = "bc955639aee8f6fa37a8a41cf42202e175254bff95cfb13e5a347bbe527a2aa9"
-    SEMANTIC_SHA256 = "63eae0fc7617e23a4ab3ec71e36cac0e81f246515759bbb381557f007707c0c5"
     MIGRATION_PATH = (
         ".devflow/logs/pin-corpus-adjudication-changes/"
         "2026-07-26-pr-849/migration.tsv"
-    )
-    MIGRATION_TEXT = (
-        "legacy_sha256\tresolved_sha256\tsemantic_map_sha256\n"
-        f"{LEGACY_SHA256}\t{RESOLVED_SHA256}\t{SEMANTIC_SHA256}\n"
     )
 
     @classmethod
@@ -2026,6 +2019,9 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             capture_output=True,
             text=True,
         ).stdout
+        cls.migration_certificate = (
+            REPO_ROOT / cls.MIGRATION_PATH
+        ).read_text(encoding="utf-8")
 
     def _commit(self, root, message):
         subprocess.run(["git", "add", "."], cwd=root, check=True)
@@ -2072,87 +2068,62 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             root, merge_base, "origin/main"
         )
 
-    def test_exact_legacy_to_resolved_bootstrap_is_the_only_accepted_migration(self):
-        self.assertEqual(
-            self.LEGACY_SHA256,
-            hashlib.sha256(self.legacy_table.encode("utf-8")).hexdigest(),
-        )
-        self.assertEqual(
-            self.RESOLVED_SHA256,
-            hashlib.sha256(self.live_table.encode("utf-8")).hexdigest(),
-        )
+    def test_former_legacy_base_is_rejected_by_strict_current_state_parser(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             base, table = self._repo(root, self.legacy_table)
             table.write_text(self.live_table, encoding="utf-8")
-            self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
-            self._commit(root, "exact migration")
-            self.assertEqual([], self._scan(root, base))
+            self._commit(root, "replace legacy event table")
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "invalid adjudication key"
+            ):
+                self._scan(root, base)
 
-        variants = {
-            "legacy bytes": (
-                self.legacy_table.replace("boundary", "generated", 1),
-                self.live_table,
-                self.MIGRATION_TEXT,
-            ),
-            "resolved bytes": (
-                self.legacy_table,
-                self.live_table.replace("boundary", "generated", 1),
-                self.MIGRATION_TEXT,
-            ),
-            "certificate bytes": (
-                self.legacy_table,
-                self.live_table,
-                self.MIGRATION_TEXT.replace(self.SEMANTIC_SHA256, "0" * 64),
-            ),
-        }
-        for label, (base_text, current_text, certificate) in variants.items():
-            with self.subTest(variant=label), tempfile.TemporaryDirectory() as td:
+    def test_new_migration_certificate_is_not_a_supported_bundle_payload(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            base, _table = self._repo(root, self.live_table)
+            self._write_bundle(
+                root, self.MIGRATION_PATH, self.migration_certificate
+            )
+            self._commit(root, "attempt a second migration")
+            with self.assertRaisesRegex(
+                self.mod.InfrastructureError, "unexpected bundle path"
+            ):
+                self._scan(root, base)
+
+    def test_historical_migration_certificate_is_inert_but_immutable(self):
+        for mutation in ("edit", "delete", "type"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
-                base, table = self._repo(root, base_text)
-                table.write_text(current_text, encoding="utf-8")
-                self._write_bundle(root, self.MIGRATION_PATH, certificate)
-                self._commit(root, "nearby migration")
+                _base, _table = self._repo(root, self.live_table)
+                certificate = self._write_bundle(
+                    root, self.MIGRATION_PATH, self.migration_certificate
+                )
+                base = self._commit(root, "record historical migration")
+                subprocess.run(
+                    ["git", "update-ref", "refs/remotes/origin/main", base],
+                    cwd=root,
+                    check=True,
+                )
+                self.assertEqual([], self._scan(root, base))
+
+                if mutation == "edit":
+                    certificate.write_text(
+                        self.migration_certificate + "changed\n",
+                        encoding="utf-8",
+                    )
+                else:
+                    certificate.unlink()
+                    if mutation == "type":
+                        target = root / "historical-certificate.tsv"
+                        target.write_text(
+                            self.migration_certificate, encoding="utf-8"
+                        )
+                        certificate.symlink_to(target)
+                self._commit(root, f"{mutation} historical migration")
                 with self.assertRaises(self.mod.InfrastructureError):
                     self._scan(root, base)
-
-    def test_migration_bundle_accepts_only_the_exact_regular_certificate(self):
-        for label, extra_path in (
-            (
-                "delta sibling",
-                ".devflow/logs/pin-corpus-adjudication-changes/"
-                "2026-07-26-pr-849/adjudication-delta.tsv",
-            ),
-            (
-                "nested payload",
-                ".devflow/logs/pin-corpus-adjudication-changes/"
-                "2026-07-26-pr-849/nested/payload.tsv",
-            ),
-        ):
-            with self.subTest(case=label), tempfile.TemporaryDirectory() as td:
-                root = Path(td)
-                base, table = self._repo(root, self.legacy_table)
-                table.write_text(self.live_table, encoding="utf-8")
-                self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
-                self._write_bundle(root, extra_path, "unexpected\n")
-                self._commit(root, "migration with extra payload")
-                with self.assertRaisesRegex(
-                    self.mod.InfrastructureError, "unexpected bundle path"
-                ):
-                    self._scan(root, base)
-
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            base, table = self._repo(root, self.legacy_table)
-            table.write_text(self.live_table, encoding="utf-8")
-            certificate = root / self.MIGRATION_PATH
-            certificate.parent.mkdir(parents=True)
-            target = root / "outside.tsv"
-            target.write_text(self.MIGRATION_TEXT, encoding="utf-8")
-            certificate.symlink_to(target)
-            self._commit(root, "symlink certificate")
-            with self.assertRaisesRegex(self.mod.InfrastructureError, "regular HEAD blob"):
-                self._scan(root, base)
 
     def test_strict_table_delta_requires_exact_authorization(self):
         key = "literal:" + "a" * 64
@@ -2267,16 +2238,15 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             ):
                 self._scan(root, base)
 
-    def test_migration_rejects_a_committed_table_symlink(self):
+    def test_adjudication_change_rejects_a_committed_table_symlink(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            base, table = self._repo(root, self.legacy_table)
+            base, table = self._repo(root, self.live_table)
             resolved = root / "resolved.tsv"
             resolved.write_text(self.live_table, encoding="utf-8")
             table.unlink()
             table.symlink_to("../../resolved.tsv")
-            self._write_bundle(root, self.MIGRATION_PATH, self.MIGRATION_TEXT)
-            self._commit(root, "symlinked migration table")
+            self._commit(root, "symlinked adjudication table")
             with self.assertRaisesRegex(
                 self.mod.InfrastructureError,
                 "adjudication table is not a regular HEAD blob",
