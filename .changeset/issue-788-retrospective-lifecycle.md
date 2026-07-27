@@ -1,8 +1,9 @@
 ---
 bump: patch
+type: Fixed
 ---
 
-Restore the weekly retrospective loop by replacing the permanent, unclearable
+- **Restore the weekly retrospective loop (#788).** Replaces the permanent, unclearable
 `overrides.json` dismissal with an issue-closure lifecycle. A new reconciler
 (`lib/pattern-state.sh`) migrates the overrides file to schema v2 and refreshes
 every pattern's `filed`/`fixed`/`declined` state against the live state of its own
@@ -22,10 +23,11 @@ and the run report renders the whole pattern picture with each pattern's state,
 filing outcome, and withholding cap. Migration happens on read, so consumer repos
 get the same lifecycle with no manual step.
 
-The filing decisions and the report fields they feed have one executable owner,
+- **Give the filing decisions one executable owner (#788).** The cap decisions and the report fields they feed now live in
 `lib/filing-decisions.sh`: the back-pressure cap arms and their order, the two
 counts those arms compare against (both failing closed to an unestablished — never
-zero — count), the `regressed` bypass, the liveness line the report renders, the won't-fix patterns
+zero — count), the `regressed` bypass of that open-issues ceiling (the occurrence-threshold
+bypass stays in `lib/actionable-patterns.sh`), the liveness line the report renders, the won't-fix patterns
 re-raised this run, and the per-pattern filing-outcome annotation. Each was
 previously prose in the retrospective skill with no test, so a mis-ordered cap
 check or a lost bypass would have shipped green.

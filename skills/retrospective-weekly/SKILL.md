@@ -75,17 +75,21 @@ git branch --show-current
 
 If not on `main`, run `git checkout main`.
 
-Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable). This also removes prior-run per-PR scratch (`result-*.json`, `pr-*.context.json`) so a run starts clean and can never read another run's stale bundle or output:
+Prepare the scratch directory (`$LIB` below is the textual notation from the top of this skill — expand it when composing commands, do not assign a shell variable). This also removes prior-run scratch (`result-*.json`, `pr-*.context.json`, `overrides-prefiling.json`) so a run starts clean and can never read another run's stale bundle, output, or overrides snapshot:
 
 ```bash
 mkdir -p .devflow/tmp
 rm -f .devflow/tmp/new-entries.jsonl
-# Remove prior-run per-PR scratch. `find … -delete` (not a bare `rm -f <glob>`)
-# is shell- and OS-agnostic: it is a safe no-op when neither or only one pattern
-# matches, whereas under zsh an unmatched glob is a fatal `no matches found` that
-# would abort the whole rm (leaving BOTH patterns uncleaned). Step 1 runs before
+# Remove prior-run scratch. `find … -delete` (not a bare `rm -f <glob>`)
+# is shell- and OS-agnostic: it is a safe no-op when no pattern or only some
+# patterns match, whereas under zsh an unmatched glob is a fatal `no matches found`
+# that would abort the whole rm (leaving EVERY pattern uncleaned). Step 1 runs before
 # any fetch, so it never touches the current run's own freshly-written files.
-find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' \) -delete 2>/dev/null
+# `overrides-prefiling.json` is cleaned here for a distinct reason: Step 9 reads it
+# to decide the won't-fix re-raise section, and a surviving copy from an earlier run
+# is READABLE — so the missing/unreadable warning never fires and the report renders
+# confidently from the previous run's overrides state.
+find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' \) -delete 2>/dev/null
 ```
 
 ---
@@ -334,7 +338,16 @@ cat .devflow/tmp/patterns.stderr >&2 || true
 # overrides file is unreadable when it is intact. It must be taken AFTER the
 # reconcile (which writes the `state_reason` the read keys off) and BEFORE any
 # filing (which would make a re-raised pattern look freshly `filed`).
-cp .devflow/learnings/overrides.json .devflow/tmp/overrides-prefiling.json
+# The destination is removed first and the copy is GUARDED, because a failed `cp`
+# does not leave Step 9 with nothing to read: `devflow_declined_refiled` tests only
+# whether the snapshot is unreadable, so any surviving file — a stale one from an
+# earlier run — silently satisfies that test and the won't-fix re-raise section is
+# rendered from state this run never took.
+rm -f .devflow/tmp/overrides-prefiling.json
+cp .devflow/learnings/overrides.json .devflow/tmp/overrides-prefiling.json || {
+  echo "::error::retrospective Step 6: could not snapshot the pre-filing overrides file — aborting rather than letting Step 9 render its won't-fix re-raise section from a stale or absent snapshot" >&2
+  exit 1
+}
 # The UNFILTERED whole-pattern view (every lifecycle state, below-threshold and
 # suppressed included) for the run report; --full drops the actionable filters.
 bash $LIB/actionable-patterns.sh \
@@ -456,9 +469,14 @@ git checkout main
 ```
 
 The working tree now has the updated
-`.devflow/learnings/retrospectives.jsonl` (and possibly a modified
-`.devflow/learnings/overrides.json` from meta-issue lifecycle records written in
-a previous run). These changes are in-place on `main`'s working tree and have **never
+`.devflow/learnings/retrospectives.jsonl` and, normally, a modified
+`.devflow/learnings/overrides.json`. That overrides diff is **this** run's output,
+not carry-over: Step 6's reconcile rewrites the file unconditionally, so an
+unexpected-looking diff there is the reconcile normalizing entries (schema
+migration, refreshed `state_reason` and lifecycle states) — and it may additionally
+carry meta-issue lifecycle records written by earlier runs that were never
+committed. Review it as fresh reconcile output; do not discard it as stale. These
+changes are in-place on `main`'s working tree and have **never
 been committed to `main`** — `open-state-pr.sh` handles committing them onto
 a separate branch.
 
@@ -540,8 +558,9 @@ Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
 #### 8c — File one issue per pattern (serial, under the filing back-pressure caps)
 
-Before filing, read the three back-pressure caps and the current open-issue counts
-from the lifecycle records (issue #788). The counts are derived from the
+Before filing, read the three back-pressure caps, and source the helper that owns
+both the open-issue counts and the cap decision (issue #788). The counts are derived
+from the
 `overrides.json` lifecycle records — the meta-issue entries whose reconciled state
 is `filed` — never from the `Retrospective` label query or a title parse, so a
 human-applied label cannot consume the loop's budget and a loop-filed issue whose
@@ -561,17 +580,19 @@ source $LIB/filing-decisions.sh || {
   echo "::error::retrospective: lib/filing-decisions.sh could not be sourced — the filing decisions have no owner; aborting rather than silently withholding every pattern" >&2
   exit 1
 }
-# Total `filed` entries across every record.
-OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
 # Initialize the per-run counter EXPLICITLY. Left unset it expands empty, which
 # devflow_filing_cap_verdict correctly rejects as `invalid-operand` — withholding
 # every pattern for the whole run. "Starts at 0" in prose is not a binding.
 filed_this_run=0
 ```
 
-Track `filed_this_run` (starts at 0) and, for each slug, its current per-category
-`filed` count via `PER_CAT="$(devflow_open_filed_in_category
-.devflow/learnings/overrides.json "$SLUG")"`.
+`filed_this_run` is the only counter this orchestrator carries across patterns; you
+increment it yourself after each successful filing. The two `filed`-count comparands
+— the whole-file total and the per-category count for the slug — are **re-derived
+from the overrides file inside the per-pattern block below**, not tracked here:
+`meta-issue.sh` writes each pattern's lifecycle record as it files, so a fresh read
+already reflects every filing this run has done, and a re-derivation cannot drift
+the way a hand-maintained running total can.
 
 Both count helpers fail **closed** by printing nothing — never `0` — when the
 overrides file is missing, unreadable, or malformed. Do not default an empty
@@ -609,6 +630,24 @@ case "$STATUS" in
   *) echo "::error::retrospective Step 8c: could not bind a lifecycle status for pattern '$TAG' (got '$STATUS') — refusing to apply the filing caps on an unestablished status, which would silently disable the regressed bypass" >&2
      exit 1 ;;
 esac
+# Bind the two `filed`-count comparands HERE, re-derived from the overrides file on
+# every iteration. Binding them in prose alone leaves them expanding empty, which
+# devflow_filing_cap_verdict reports as `invalid-operand` — withholding every
+# pattern for the whole run, a wiring failure that reads exactly like legitimate
+# back-pressure. Re-deriving (rather than incrementing a carried total) is also
+# self-correcting: meta-issue.sh writes each lifecycle record at filing time, so the
+# read already includes everything filed earlier in this run.
+PER_CAT="$(devflow_open_filed_in_category .devflow/learnings/overrides.json "$SLUG")"
+case "$PER_CAT" in
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the per-category filed count for slug '$SLUG' (got '$PER_CAT') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+     exit 1 ;;
+esac
+# Total `filed` entries across every record, re-derived for the same reasons.
+OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
+case "$OPEN_TOTAL" in
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the total filed count (got '$OPEN_TOTAL') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+     exit 1 ;;
+esac
 VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" \
                                       "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
 ```
@@ -618,8 +657,10 @@ it (`max_issues_per_run` / `max_open_per_category` / `max_open_issues`, or
 `invalid-operand` when a count could not be established): record
 `{tag, cap: "$VERDICT"}` in `withheld` and skip to the next pattern.
 
-Only on `file` do you file (below), then increment `filed_this_run`, `OPEN_TOTAL`,
-and that slug's per-category count, and append the slug to `filed_slugs`. Carry
+Only on `file` do you file (below), then increment `filed_this_run` and append the
+slug to `filed_slugs`. Do **not** increment `OPEN_TOTAL` or the per-category count —
+the next iteration re-derives both from the overrides file, and a manual increment on
+top of that would double-count the filing. Carry
 `withheld` into the Step 9 summary as `withheld_patterns` (each `{tag, cap}`) so the
 report names every pattern withheld together with the cap that withheld it, and carry
 `filed_slugs` so Step 9 can annotate each pattern with its filing outcome.

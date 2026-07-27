@@ -57,16 +57,33 @@
 # could not be derived is unknown, never zero — filing on it is the failure this
 # guard exists to stop.
 devflow_filing_cap_verdict() {
+    # Every `invalid-operand` return withholds the pattern, and when the unusable
+    # operand is a CONFIG cap it withholds every pattern for the whole run. The
+    # two count helpers above breadcrumb their own unestablished counts; a cap
+    # that arrives unusable from config had no such voice, so the run filed
+    # nothing with no named cause — the reading ambiguity issue #788 exists to
+    # remove. Name the operand on every arm.
     if [ "$#" -ne 7 ]; then
+        echo "::error::filing-decisions: cap verdict called with $# operands, expected 7 — withholding this pattern as invalid-operand" >&2
         echo "invalid-operand" ; return 0
     fi
     local status="$1" filed_this_run="$2" max_per_run="$3" \
           per_cat_count="$4" max_per_cat="$5" open_total="$6" max_open="$7"
-    local n
-    for n in "$filed_this_run" "$max_per_run" "$per_cat_count" \
-             "$max_per_cat" "$open_total" "$max_open"; do
+    local n label
+    for label in filed_this_run max_issues_per_run per_category_count \
+                 max_open_per_category open_total max_open_issues; do
+        case "$label" in
+            filed_this_run)        n="$filed_this_run" ;;
+            max_issues_per_run)    n="$max_per_run" ;;
+            per_category_count)    n="$per_cat_count" ;;
+            max_open_per_category) n="$max_per_cat" ;;
+            open_total)            n="$open_total" ;;
+            max_open_issues)       n="$max_open" ;;
+        esac
         case "$n" in
-            ''|*[!0-9]*) echo "invalid-operand" ; return 0 ;;
+            ''|*[!0-9]*)
+                echo "::error::filing-decisions: the '${label}' operand is not a non-negative integer (got '${n}') — withholding this pattern as invalid-operand. A malformed .devflow_retrospective cap key reaches here as a coerced string, so a config typo withholds EVERY pattern this run." >&2
+                echo "invalid-operand" ; return 0 ;;
         esac
     done
 

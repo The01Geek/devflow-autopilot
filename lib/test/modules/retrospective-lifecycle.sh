@@ -1386,6 +1386,55 @@ assert_eq "#788 prefetch: the only key is the one the record already held" "pref
 assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture page (control)" "true" \
   "$("$RL_TMP/gh-prefetch.sh" issue list | jq 'any(.[]; .number==602)')"
 
+# ── the three cap keys, swept over the adversarial config-shape matrix ───────
+# CLAUDE.md's best-effort-parser rule governs every config value that turns into
+# a decision, and these three turn into the filing budget. The boundary that
+# matters is COMPOSED — config-get.sh's coercion feeding devflow_filing_cap_verdict
+# — so drive both together and assert the verdict token each shape produces.
+# Two arms are silent-laundering RESIDUALS of config-get.sh's repo-wide coercion,
+# not of this PR's code: they are pinned here (not fixed here) so the behaviour is
+# visible and a future change to that coercion turns the desk RED instead of
+# silently re-tuning the filing budget.
+(
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  mkdir -p "$RL_TMP/cfg/.devflow"
+  # rl_cap_token <json-value-for-max_issues_per_run> -> the verdict token
+  # filed_this_run=0 against the resolved cap, every other operand slack, so the
+  # token reflects the CAP's usability and nothing else.
+  rl_cap_token() {
+    printf '{"devflow_retrospective":{"max_issues_per_run":%s}}' "$1" > "$RL_TMP/cfg/.devflow/config.json"
+    local cap
+    cap="$(cd "$RL_TMP/cfg" && CONFIG_FILE=.devflow/config.json \
+             "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 2>/dev/null)"
+    devflow_filing_cap_verdict open 0 "$cap" 0 99 0 99 2>/dev/null
+  }
+  # scalar — the ordinary shape
+  assert_eq "#788 cap-shape: a scalar cap is usable" "file" "$(rl_cap_token 3)"
+  # valid-falsy 0 — the operator's legitimate "file nothing this run" off-switch.
+  # It must survive as a real 0 (filed_this_run=0 >= 0 withholds), never be
+  # laundered into the default 3.
+  assert_eq "#788 cap-shape: an explicit 0 is a real off-switch, not the default" "max_issues_per_run" "$(rl_cap_token 0)"
+  # valid-falsy false — coerces to the string "false", correctly unusable
+  assert_eq "#788 cap-shape: a false cap is rejected, not treated as 0" "invalid-operand" "$(rl_cap_token false)"
+  # object / multi-element array / non-numeric string — all correctly unusable
+  assert_eq "#788 cap-shape: an object cap is rejected" "invalid-operand" "$(rl_cap_token '{}')"
+  assert_eq "#788 cap-shape: a multi-element array cap is rejected" "invalid-operand" "$(rl_cap_token '[3,4]')"
+  assert_eq "#788 cap-shape: a non-numeric string cap is rejected" "invalid-operand" "$(rl_cap_token '"abc"')"
+  # missing / null — fall back to the declared default, which is usable
+  printf '{"devflow_retrospective":{}}' > "$RL_TMP/cfg/.devflow/config.json"
+  assert_eq "#788 cap-shape: a missing cap falls back to the default" "file" \
+    "$(devflow_filing_cap_verdict open 0 "$(cd "$RL_TMP/cfg" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 2>/dev/null)" 0 99 0 99 2>/dev/null)"
+  assert_eq "#788 cap-shape: a null cap falls back to the default" "file" "$(rl_cap_token null)"
+  # RESIDUALS (pinned, not fixed — config-get.sh coercion is repo-wide and out of
+  # this PR's scope). Both launder a wrong-typed value into a REAL filing budget:
+  assert_eq "#788 cap-shape RESIDUAL: a single-element array is laundered into that cap" "file" "$(rl_cap_token '[3]')"
+  assert_eq "#788 cap-shape RESIDUAL: an explicit empty string falls back to the default" "file" "$(rl_cap_token '""')"
+  # An unusable cap must NAME itself — a run that files nothing has to say why.
+  RL_CAP_ERR="$(devflow_filing_cap_verdict open 0 '[object Object]' 0 99 0 99 2>&1 >/dev/null)"
+  assert_eq "#788 cap-shape: the unusable cap breadcrumb names the operand" "true" \
+    "$(case "$RL_CAP_ERR" in *"'max_issues_per_run' operand is not a non-negative integer"*) echo true ;; *) echo false ;; esac)"
+)
+
 # ── the cap comparands survive ONE malformed lifecycle record ────────────────
 # overrides.json is hand-editable, and compute-patterns.jq/_migrate were both
 # explicitly hardened against a non-object record. These two readers of the SAME
