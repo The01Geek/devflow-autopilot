@@ -73,8 +73,10 @@ additionally pinned to zero against the **live** index, because builder/oracle a
 alone would let a newly tracked symlink or submodule leave every fixture silently
 incomplete while both halves agree about the omission. The symlink index-entry rows are
 gated on a runtime `ln -s` capability probe: a `core.symlinks=false` checkout (Windows
-without the symlink privilege) omits `link.md` from the fixture and announces the gated
-rows on stderr, rather than going RED over a symlink git was never given. Unmerged
+without the symlink privilege) omits `link.md` from the fixture and declares the two
+gated rows through `module_host_capability_skip` (issue #838; credit 2) so the host
+yields a visible, accounted host-capability skip, rather than going RED over a symlink
+git was never given. Unmerged
 paths contribute once, not once per stage. The `#619 pristine fixture …` / `#619 fixture
 builder …` assertions check all of this against an independent oracle that re-reads the
 index itself, with the temp-repository arms exercised against a real git index rather
