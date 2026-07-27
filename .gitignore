@@ -4,6 +4,12 @@
 # a wholesale dir-ignore can't be overridden per-path.)
 /.devflow/*
 !/.devflow/learnings/
+# The overrides.json writers (lib/pattern-state.sh, lib/meta-issue.sh) stage
+# their rewrite BESIDE the destination so every `mv` is a same-filesystem
+# rename. That staging file is removed on both the success and the failure path,
+# but a run killed between mktemp and mv would leave one inside this
+# re-included (tracked) tree, where a `git add -A` could commit it.
+/.devflow/learnings/.overrides*
 # Per-run /devflow:review-and-fix effectiveness records (one file per run).
 # Tracked so the data survives ephemeral GH-runner teardown — see
 # docs/efficiency-trace.md. In adopter repos the scaffolder's .devflow/.gitignore
