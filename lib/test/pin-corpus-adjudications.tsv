@@ -92,7 +92,6 @@ literal:1d36854001cbe8b4ebc5dc609a38275fc57e3c1a94ef411ee595b3142fb67fb2	boundar
 literal:1e15452da16cf4f9ebb63b6e56f75ba1291ec2a7242c4ea682b9ad822f1ab972	boundary	Retain exact schema/sentinel contract: #603/AC1: the ledger fence uses a QUOTED heredoc delimiter.
 literal:1e30ca93e1e6fe58ae0db05759c689865ca64f6afef5a9b6619f11941e2f8188	boundary	Retain operative cross-surface contract: #443: audit prompt reserves exactly one Quiet Killer slot.
 literal:1e67f3a8a82637095570a27458101c0890355fd36b3db5360b08592b7c2ebbbf	boundary	maintainer adjudication: other-skills revision-operand: The exact two-dot revision range is load-bearing and has regressed before.
-literal:1ee7e25cd5f0e9027e68d52572713ac918cfdae1d99231463eb6c57707850c49	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the pointer is extracted with python3, never grep/sed/awk
 literal:1ef357a08db89fccd5a60e5e340be69479bb2954c33e96d04490069c6a1e8b9c	boundary	maintainer adjudication: review-and-fix STATE_SCHEMA: Defines valid absence of a conditional field.
 literal:1f6041831f57203820253d627ae51535c636efcbf06ab1a6b09ccdf86ccae838	boundary	maintainer adjudication: cloud fallback discriminator is a credential boundary
 literal:1fee9adf0382b28358b947cdd51644f928ceb953cf96ee97256a82136bd8f788	boundary	maintainer adjudication: planning-discovered workflow residence is a credential backstop boundary
@@ -280,7 +279,6 @@ literal:57198d23ad57dcdde6fc820a82f4d6c1e9dcfbdb440428319cf18ac37146971b	boundar
 literal:57317a34526a4f43d7f30b86eea5351588894a37c4fa1d270f75500ffaa065bd	boundary	maintainer adjudication: declared security or interface boundary
 literal:5795a1d4edc524defdb9bff1da08086a62597bcfdd20105f055cabe54724dcc7	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:58277a4cef7ad14aab11778b37e32186f4580f5251f80699c29b0db1d83744b9	boundary	maintainer adjudication: deferral merge call is an external-helper boundary
-literal:583c9ac1850c40505b9f8563859a84b2272abe587eedad2b898ce0cf28b0f12d	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the extraction returns the pointer line byte-identically
 literal:587bacb0dcaffd8c9588453e9d9ebda3be0a766c16f493c69ad73d8d07e96414	boundary	maintainer adjudication: final-modules routing-anchor: The section heading is the extraction and cross-reference anchor for the byte-identical generated-artifact conflict rule.
 literal:5920bebf28de026c84c6cfcdefcbd7384c5ac35119e7fb0260257d96891ce87f	boundary	Exact clean-state record marker for each iteration.
 literal:596e219239d0ef39d4e1673c948893b6480d6ffef4c29bbd9cde70a100b76ffe	boundary	Retain routing/state-transition contract: #312 item 2 (broadened #446): Step 3.5 ladder reaches the ask-the-user arm.
@@ -380,7 +378,6 @@ literal:823e1f400c80c15c5f586753add268dea6b0494f59f278cbd98bf6181762a7e2	boundar
 literal:827a7dc5efcff82873a8b16f5143ef5f23bd2c4f766cd9cbe0f218604b481564	boundary	maintainer adjudication: final-modules vendored-routing: Keeps workflow dedupe routed through the vendored shared detector.
 literal:82cd0d38479aab4208cdc24bd465ffe200bbc16bea0e39b5489383c95146fec2	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the revise-and-recover sequence records a resolution
 literal:82e23cf8fd86b7e68f660d5d22042e8e3545c3498f8ffc3320c0864484072f54	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC3/producer): the fast path records the checklist-not-run sentinel tally
-literal:8321a99ab66c2e7dd7ecd4655dfe6fa6b5f1a45b77edfac39ddd10efdf410e34	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the multi-line read-back query class is named
 literal:8383be0ad6dacc92544be8acc35e8f8fc872a8aafa412b734a5abe537c106f4e	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft
 literal:83aa404bf9c269037052f054eae02984f4ef43cf01def346f9c9e8dde8e57606	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7a): bad-input arm one re-Write and re-invoke
 literal:842d48afe3a03f6c33c753d88eeecadc7c4e6689c1463da0fa51c985aa8235c7	boundary	Severity-dependent routing transition.
