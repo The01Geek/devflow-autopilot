@@ -498,17 +498,16 @@ if ln -s TOP.md "$_ra_tmp_root/.ra-symlink-probe" 2>/dev/null &&
   _ra_symlink_ok=yes
 fi
 rm -f "$_ra_tmp_root/.ra-symlink-probe" 2>/dev/null || :
-# NOT a `  NOTE ` emit: that exact shape is reserved for `lib/test/run.sh`'s `skip`
-# helper (a meta-assertion REDs the suite on any other producer). Announce the gated
-# rows on stderr instead, so an unsupported host leaves an auditable trace rather than
-# a silently smaller assertion set. Issue #838 added `module_host_capability_skip`, the
-# accounted channel a module uses to declare exactly this kind of condition; this gate
-# is a peer instance that should route through it. It was left unconverted only because
-# it falls outside #838's acceptance criteria, not for any technical obstacle — the
-# gated arm's assertion delta is an ordinary count, so the conversion is a follow-up
-# rather than a redesign. This stderr trace remains the record until then.
+# On a symlink-incapable host the gated arm below (the `if [ "$_ra_symlink_ok" = yes ]`
+# block) omits its two assertions. Route that condition through the accounted skip
+# channel issue #838 added — `module_host_capability_skip` — so such a host yields a
+# VISIBLE host-capability skip whose declared credit (2, the count of assertions the
+# gated arm does not run) reconciles the module's assertion floor, rather than the silent
+# stderr breadcrumb and smaller assertion set the #456 accounting cannot see (issue #856).
+# The credit MUST equal the number of assertions inside the gated arm below.
 [ "$_ra_symlink_ok" = yes ] ||
-  printf 'regenerate-artifacts: symlink index-entry rows gated out (host-capability: this filesystem/checkout cannot create a symlink, so a 120000 index entry cannot be built)\n' >&2
+  module_host_capability_skip "#619 regenerate-artifacts symlink index-entry rows" \
+    "this filesystem/checkout cannot create a symlink, so a 120000 index entry cannot be built" 2
 mkdir -p "$_ra_ix/sub dir"
 (
   cd "$_ra_ix" || exit 1
