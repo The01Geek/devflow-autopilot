@@ -414,7 +414,16 @@ cp "$RL_TMP/live.err" "$RL_TMP/live-real.err"
 )
 # Negative case: `filed` (an open meta-issue) is excluded even at/above min.
 printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":9,"url":"https://o/r/issues/9","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/live-ov2.json"
-DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov2.json" 2>"$RL_TMP/live2.err" >/dev/null
+DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov2.json" 2>"$RL_TMP/live2.err" >"$RL_TMP/live2.out"; RL_LIVE2_RC=$?
+# An absent warning is only evidence of the `filed` exclusion if the run REACHED
+# the liveness block. Without the rc and stdout assertions this is a grep for a
+# string over the stderr of a command that may have aborted for any unrelated
+# reason — an arg-guard change, an unresolvable config path, a jq failure — all of
+# which put a DIFFERENT error on stderr, miss the grep, and report PASS while the
+# named behaviour is untested.
+assert_eq "#788 liveness: the all-filed invocation actually succeeded (rc 0)" "0" "$RL_LIVE2_RC"
+assert_eq "#788 liveness: it produced a well-formed (empty) eligible set on stdout" "0" \
+  "$(jq 'length' "$RL_TMP/live2.out" 2>/dev/null || echo MALFORMED)"
 assert_eq "#788 liveness: all-filed set at/above min emits NO warning" "false" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live2.err" && echo true || echo false)"
 

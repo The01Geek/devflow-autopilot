@@ -513,6 +513,11 @@ Initialize Stage B counters:
 ```bash
 intervention_issues=()   # will hold {tag, url} objects — one per filed pattern
 blockers=()              # will hold strings
+# Step 9 slurps both of these. Declaring them here rather than relying on the
+# first append means a run where nothing is filed and nothing is withheld still
+# has an array to slurp, instead of a name Step 9 discovers is unset.
+filed_slugs=()           # will hold slug strings — one per filed pattern
+withheld=()              # will hold {tag, cap} objects — one per pattern a cap held back
 ```
 
 ---
@@ -616,8 +621,13 @@ increment it yourself after each successful filing. The two `filed`-count compar
 — the whole-file total and the per-category count for the slug — are **re-derived
 from the overrides file inside the per-pattern block below**, not tracked here:
 `meta-issue.sh` writes each pattern's lifecycle record as it files, so a fresh read
-already reflects every filing this run has done, and a re-derivation cannot drift
-the way a hand-maintained running total can.
+reflects the filings this run has done, and a re-derivation cannot drift the way a
+hand-maintained running total can. The one filing a fresh read misses is
+`meta-issue.sh`'s recovery path — a create that succeeded but whose lifecycle write
+failed, which reports the issue as filed (exit 0 + URL + a loud `::error::`) with no
+record on disk. That stays safe here because `filed_this_run` counts it regardless,
+so the per-run cap still bounds the run; only the overrides-derived caps read one
+filing low, and the next run's de-dupe restores the missing record.
 
 Both count helpers fail **closed** by printing nothing — never `0` — when the
 overrides file is missing, unreadable, or malformed. Do not default an empty
@@ -679,8 +689,18 @@ VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN"
 
 `file` means no cap withheld this pattern. Any other token is the cap that withheld
 it (`max_issues_per_run` / `max_open_per_category` / `max_open_issues`, or
-`invalid-operand` when a count could not be established): record
-`{tag, cap: "$VERDICT"}` in `withheld` and skip to the next pattern.
+`invalid-operand` when a count could not be established): append the pattern to
+`withheld` with the concrete statement below, then skip to the next pattern.
+
+```bash
+# Build the element with jq so what lands in `withheld` is valid JSON. Step 9
+# slurps this array with `run-jq.sh -sc` — a JSON slurp — so an element written in
+# jq's object-construction shorthand (bare keys, unquoted names) makes that slurp
+# exit non-zero, leaves WITHHELD_JSON empty, and trips its `:?` guard: the run
+# aborts and every pattern the caps held back goes unnamed, which is exactly the
+# report content the caps exist to disclose.
+withheld+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$TAG" --arg cap "$VERDICT" '{tag:$tag,cap:$cap}')")
+```
 
 Only on `file` do you file (below), then increment `filed_this_run` and append the
 slug to `filed_slugs`. Do **not** increment `OPEN_TOTAL` or the per-category count —
@@ -812,7 +832,7 @@ trap 'rm -rf "$_SUMMARY_TMP"' EXIT
 # three are upstream producer output, valid JSON ([] at minimum) on success — an empty
 # string means that producer failed, so fail loud rather than emit analyzed/patterns:null.
 : "${ANALYZED_JSON:?devflow retrospective Step 9: ANALYZED_JSON is empty — upstream Stage-A analysis failed}"
-: "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — Step 6 patterns.json missing/empty}"
+: "${PATTERNS_JSON:?devflow retrospective Step 9: PATTERNS_JSON is empty — devflow_annotate_patterns printed nothing over .devflow/tmp/patterns-full.json (missing, empty, or unreadable)}"
 : "${RECURRING_TARGETS_JSON:?devflow retrospective Step 9: RECURRING_TARGETS_JSON is empty — recurring-targets.sh failed}"
 # Same fail-loud property for the two #788 operands: both helpers print at
 # minimum `[]` on success, so an empty string is producer failure, not "nothing
