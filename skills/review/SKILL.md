@@ -107,77 +107,29 @@ MARKER=$(printf '%s' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(
 # (capture form, same probe rationale as $MARKER above):
 RUN_URL=$(printf '%s' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
 # The body file was authored ABOVE via the Write tool into .devflow/tmp/review/<slug>/
-# <run-id>/review-wp.md — $MARKER is its FIRST line; the create/patch calls below read it.
-# (Write-tool authoring under .devflow/tmp/ is probe-permitted; /tmp redirects and
-# cat-heredocs are denied. In-workspace 2> captures of a granted head are fine.)
-# find-or-resume THIS run's comment by its run-keyed marker (a prior run's has a different
-# key and is never matched). `id` exit codes FROM cmd_id: 0 = found (resume), 2 = scanned
-# cleanly but absent (this run's first write → create), 1 = a real gh-api/parse failure.
-# Branch on the code so a transient API error is NOT mistaken for "first write" (a duplicate).
-#
-# BUT rc 2 is not cmd_id's alone (issue #384): `python3` ALSO exits 2 when it cannot open
-# the script (`[Errno 2]` on a partial vendor copy; `[Errno 13]` on an unreadable one), and
-# `argparse` exits 2 on a usage error (`id` declares `issue` as `type=int`). Misread as
-# cmd_id's clean-absence rc 2, any would wrongly take the `create` arm — and the old code
-# DISCARDED that arm's stderr. Three coupled screens keep the "first write" arm reachable
-# ONLY from cmd_id's own exit (the issue #384 fix pattern):
-#   (S1) Refuse a non-numeric $PR_NUMBER BEFORE the id call, so argparse's own rc 2
-#        (`type=int` on `issue`) can never reach the arm split.
-#   (S2) Verify the workpad.py path about to exec is a readable file — never re-derive
-#        python3's open contract — with a distinct breadcrumb naming missing ([Errno 2])
-#        vs. unreadable ([Errno 13]).
-#   (S3) Backstop on the observable separating the rc-2 sources: cmd_id exits 2 SILENTLY
-#        (`sys.exit(2)`); every interpreter-level rc 2 writes a diagnostic. So `rc == 2`
-#        with NON-EMPTY captured stderr is never a clean scan. This relies on the caller
-#        always passing an explicit `--marker` (it does), short-circuiting `_workpad_marker`
-#        before the `.devflow/config.json` read that could breadcrumb to stderr and spoil it.
-# Capture id's stderr to a temp file (NOT /dev/null) so EVERY failure arm surfaces the
-# actual error. Branch on the command's OWN exit status via a single-statement
-# `if`/`elif [ "$?" … ]` chain — never a captured rc read in a later statement (an
-# inline-bash runner — Copilot CLI / Cursor / Codex CLI / Gemini CLI — strips such
-# cross-statement reads and collapses the three-way). The `elif` reads `$?` from the failed
-# `if` condition (the `id` call) inline. Resolve the skill-dir anchor INLINE at each call
-# site (never captured into a shell variable a later statement reads — issue #275).
-# Defensive re-create of the run-scoped scratch dir (idempotent; `mkdir` is granted): the
-# `2>` captures below target it; without it, a skipped Phase 0.2 mkdir turns each capture
-# into a shell redirect FAILURE whose rc≠2 lands in the generic else arm — a misdirected
-# breadcrumb, not a live comment.
+# <run-id>/review-wp.md — $MARKER is its FIRST line; the helper's create call reads it.
+# Defensive re-create of the run-scoped scratch dir (idempotent; `mkdir` is granted).
 mkdir -p .devflow/tmp/review/<slug>/<run-id>
-case "$PR_NUMBER" in
-  ''|*[!0-9]*)
-    # (S1) argparse would exit 2 on a non-numeric $PR_NUMBER (id declares `issue` as
-    # type=int) — indistinguishable from cmd_id's clean-absence rc 2. Refuse before the
-    # id call so it can never reach the "first write" arm:
-    WP=""
-    echo "::warning::devflow review: PR number '$PR_NUMBER' is not numeric — refusing the workpad.py id call (argparse would exit 2, indistinguishable from cmd_id's clean-absence rc 2); continuing without the live comment" >&2 ;;
-  *)
-    if [ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]; then
-      # (S2) missing/unreadable script — python3 would exit 2 ([Errno 2]/[Errno 13]) and be
-      # misread as "first write". Take a read-failure arm with a distinct breadcrumb naming
-      # the cause, NEVER the create arm ([ -e ] present-but-unreadable ⇒ [Errno 13]; else missing ⇒ [Errno 2]):
-      WP=""
-      echo "::warning::devflow review: workpad.py is missing or unreadable — cannot seed the live progress comment; skipping. $( [ -e "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ] && echo 'present but unreadable ([Errno 13]) — a permission-broken vendor copy' || echo 'not present ([Errno 2]) — a partial vendor copy' )" >&2
-    elif WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err); then
-      :                                                                                    # rc 0 — resume $WP (this run's own comment)
-    elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then
-      # (S3) rc 2 AND silent ⇒ genuinely cmd_id's clean-absence exit. This run's first
-      # GitHub write — the marker is the body file's first line, so `create` needs no --marker.
-      # Guard the create like the id call: a create failure (gh-api error, rate limit,
-      # malformed body file) otherwise leaves WP="" and the patch a silent no-op — the
-      # baffling missing-comment this block eliminates. So capture its stderr and breadcrumb:
-      if ! WP=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err); then
-        WP=""
-        echo "::warning::devflow review: live progress-comment create failed (workpad.py create rc≠0): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-create.err 2>/dev/null); continuing without the live comment" >&2
-      fi
-    else
-      # A real gh-api/parse failure (rc 1), OR an rc-2 WITH stderr (an interpreter-level exit
-      # — NOT cmd_id's clean scan). Skip seeding to avoid a duplicate, and surface the
-      # captured stderr (previously discarded on the misdiagnosed create arm) so a missing
-      # comment is diagnosable:
-      WP=""
-      echo "::warning::devflow review: live progress-comment seeding failed (workpad.py id rc≠0, or rc 2 with stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat .devflow/tmp/review/<slug>/<run-id>/rv-id.err 2>/dev/null); continuing without the live comment" >&2
-    fi ;;
-esac
+# Seed the live comment with the bundled find-or-create helper (issue #857). It owns the
+# S1/S2/S3 screens as ordinary shell and prints EXACTLY ONE token line — it has no silent
+# path — so this is a single leading-token statement the cloud matcher permits. The old
+# case/if/elif seed compound was refused outright in cloud, so the screens never ran there.
+.devflow/vendor/devflow/scripts/seed-review-progress.sh "$PR_NUMBER" "$MARKER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md
+```
+
+Read the helper's ONE stdout token line and act on it — the branch is the AGENT's, no shell `if` needed:
+
+- `RESUME <comment-id>` or `CREATED <comment-id>` → hold `$WP = <comment-id>`; the patch loop below rewrites that comment at each phase boundary.
+- `SKIP not-numeric` / `SKIP workpad-unreadable` / `SKIP api-error` → leave `$WP` unset and continue without the live comment (the helper's stderr breadcrumb names which screen refused); do NOT retry.
+- **No output at all** → a refused command and an absent helper both produce no output, so empty output NEVER authorizes a create. Take the fallback arm below, built only from heads the review profile already grants and shapes already observed permitted on this tier — a `;`-joined statement sequence with no `if` compound:
+
+```bash
+mkdir -p .devflow/tmp/review/<slug>/<run-id> ; WP=$(.devflow/vendor/devflow/scripts/workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty
+```
+
+Read the two emitted tokens (`id-rc=…` and the `stderr=…` token — the `[ -s … ]` statement emits a POSITIVE token in BOTH directions, so a missing token can never be read as "stderr was empty"). Create the comment ONLY when `id-rc=2` AND `stderr=empty` (cmd_id's silent clean-absence exit): emit the single statement `WP=$(.devflow/vendor/devflow/scripts/workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err)` and hold its printed id as `$WP`. On `id-rc=0`, resume that printed `$WP`. On EVERY other combination — including a missing token — leave `$WP` unset and emit a `::warning::` breadcrumb naming the `id-rc`/`stderr` you observed; never create (an rc-2 WITH stderr is an interpreter-level exit, not cmd_id's clean scan — this is the #384 duplicate-comment guard).
+
+```bash
 # rewrite in place at each phase boundary (only when $WP is set); `patch` targets the
 # comment by its ID, so it needs no marker either. Guard it like the seed: a mid-run patch
 # failure is the most visible failure mode (a frozen comment), so capture rc + stderr and

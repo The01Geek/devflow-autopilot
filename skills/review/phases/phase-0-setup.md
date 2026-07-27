@@ -245,41 +245,22 @@ Store the issue title and truncated body as `issue_context`.
 When `$ISSUE_NUM` resolved, call it:
 
 ```bash
-case "${ISSUE_NUM:-}" in
-  ''|*[!0-9]*)
-    # Non-numeric (or absent) issue number: argparse would exit 2, indistinguishable from a
-    # clean-absence exit. Refuse the call.
-    ACS_OUT=""
-    echo "::warning::devflow review: issue number '${ISSUE_NUM:-}' is not numeric — refusing the workpad.py acs-resolve call; continuing without resolved acceptance criteria" >&2 ;;
-  *)
-    if [ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]; then
-      ACS_OUT=""
-      echo "::warning::devflow review: workpad.py is missing or unreadable — cannot resolve acceptance criteria; continuing without them" >&2
-    # Two sibling arms, selected on whether `$PR_NUMBER` is set: the PR-mode arm
-    # passes `--pr "$PR_NUMBER"`, and the current-branch arm OMITS the flag
-    # entirely rather than passing an empty value (`--pr` is `type=int`, so an
-    # empty value is an argparse exit 2 that the rc≠0 arm below would absorb into
-    # the generic warning, losing the criteria; and there is no PR for a
-    # scope-decision record to bind to anyway — the guard then fails closed to
-    # pr-identity-mismatch on a narrowed workpad). The `-z` guard on the second
-    # arm is what keeps a genuine PR-mode rc≠0 falling through to the warning
-    # instead of being retried without the flag.
-    elif [ -n "${PR_NUMBER:-}" ] && ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
-      :                                   # rc 0 — a resolved state; the source token names which surface
-    elif [ -z "${PR_NUMBER:-}" ] && ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err); then
-      :                                   # rc 0 — current-branch mode, same resolved-state contract
-    else
-      ACS_OUT=""
-      echo "::warning::devflow review: acs-resolve rc≠0 (rc 3 = the issue body itself could not be read): $(cat .devflow/tmp/review/<slug>/<run-id>/acs.err 2>/dev/null); continuing without resolved acceptance criteria" >&2
-    fi ;;
-esac
+# The numeric guard and the workpad-read routing now live INSIDE cmd_acs_resolve
+# (issue #857): a non-numeric $ISSUE_NUM is a routed `resolver-unavailable` outcome with
+# exit 0, and an absent/unreadable workpad COMMENT is `workpad-read-failed` — so this is a
+# single bare statement, no `case` and no `if` compound the cloud matcher would refuse.
+# In PR mode pass `--pr "$PR_NUMBER"`; in current-branch mode OMIT the flag entirely
+# (emit the second form) rather than passing an empty value (`--pr` is type=int):
+ACS_OUT=$(.devflow/vendor/devflow/scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
+# current-branch mode (no PR to bind to):
+ACS_OUT=$(.devflow/vendor/devflow/scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
 ```
 
-**Discriminate a clean absence from a usage error by stderr: an exit 2 with EMPTY stderr is the helper's own clean-absence exit, while argparse's exit 2 on a malformed invocation always writes a diagnostic** — the same discrimination `skills/review/SKILL.md` applies to its own `workpad.py id` call (screens S1–S3 there), which is why the numeric guard and the readability pre-check above run *before* the call rather than after it. `acs-resolve` itself exits 0 on every resolvable state, including an absent or unreadable workpad, which it routes as an outcome carrying its own source token rather than as a run-ending error.
+`acs-resolve` itself exits 0 on every resolvable state, including an absent or unreadable workpad, which it routes as an outcome carrying its own source token rather than as a run-ending error; a non-numeric `$ISSUE_NUM` is likewise routed (as `resolver-unavailable`, exit 0) by `cmd_acs_resolve`'s own guard rather than by a pre-call `case`. This mirrors how `skills/review/SKILL.md` seeds its live progress comment: the S1 numeric guard, the S2 `workpad.py` readability precheck, and the S3 rc-2 silent-exit discriminator (screens S1–S3) now live inside the bundled helper `scripts/seed-review-progress.sh`, which owns those screens as executable shell, rather than in a prompt fence.
 
 Store the helper's three output blocks under exactly these run-scoped names, which later phases consume: `acceptance_criteria` (the reviewer-facing criteria block from the `criteria:` section), `acceptance_criteria_source` (the `source:` token), and `acceptance_criteria_divergence` (the `divergence:` lines). **The criteria are injected with box state neutralized — a tick is Phase 3.4's assertion by the author of the code under review that the criterion is satisfied, so shipping the box column would hand the merge-gating judge a specification pre-annotated by the party it is judging** (the helper has already applied both the post-merge filter and the box neutralization to this value; apply neither again).
 
-**Each of the three refusal arms above — the non-numeric issue number, the absent/unreadable `workpad.py`, and the rc≠0 arm (which also absorbs a permission/allowlist denial of the helper, an rc 126/127 not-executable-or-not-found, and rc 3's unreadable issue body) — sets `acceptance_criteria_source` to `resolver-unavailable`, and the reason Phase 4 renders is that arm's own warning text. On those arms the helper never ran, so it produced no `source:` token at all and `none` must never be substituted for the token it never produced.**
+**Each `resolver-unavailable` case — a non-numeric `$ISSUE_NUM` (now routed by `cmd_acs_resolve`'s own guard as an exit-0 `resolver-unavailable` source token, not a pre-call `case`), the `workpad.py` helper itself being absent/unreadable/non-executable, a permission/allowlist denial of the helper, an rc 126/127 not-executable-or-not-found, or the helper's own rc 3 (the issue body itself could not be read) — sets `acceptance_criteria_source` to `resolver-unavailable`, and the reason Phase 4 renders is that case's own warning text. When the helper never ran (or could not begin), it produced no reviewer-facing `source:` token, so `none` must never be substituted for the token it never produced.**
 
 `acceptance_criteria_source` is exactly one of `workpad`, `issue-body`, `workpad-unmirrored`, `workpad-read-failed`, `pr-identity-mismatch`, `resolver-unavailable`, or `none`, and **Phase 4 reports each of them distinctly** — in particular `resolver-unavailable` (any refusal arm above: a non-numeric issue number, an absent/unreadable/non-executable `workpad.py`, a denied invocation, or any rc≠0 including rc 3's unreadable issue body) means **no surface was examined at all**, so it must never be reported in the wording used for a run that examined both surfaces and found nothing, and `workpad-unmirrored` (Phase 1.2 mirroring never ran) is the *opposite* claim from a legitimately empty section and must never be reported in the wording used for a PR that simply has no workpad, and `workpad-read-failed` is a transport failure that must not present as a normal issue-body resolution.
 

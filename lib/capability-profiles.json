@@ -1,5 +1,5 @@
 {
-  "manifest_version": 9,
+  "manifest_version": 10,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -128,6 +128,7 @@
       "Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/workpad.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*)",
@@ -190,6 +191,7 @@
       "Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/workpad.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/reception-record.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*)",

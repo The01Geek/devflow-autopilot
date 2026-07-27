@@ -1262,26 +1262,73 @@ assert_eq "sev(rcv): vendored body has no repo-specific test path (lib/test/run.
 assert_eq "sev(rcv): vendored body has no repo-specific CI job name (lib + python tests)" "no" "$(grep -qF 'lib + python tests' "$ST_RCV" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "review live-comment seeding: rc-2 arm screens an interpreter-level exit 2 (#384)"
+echo "review live-comment seeding: scripts/seed-review-progress.sh token-line contract (#857)"
 # ────────────────────────────────────────────────────────────────────────────
-# skills/review/SKILL.md seeds its live progress comment by branching on workpad.py `id`'s
-# exit code, where rc 2 means cmd_id's clean-absence "first write → create". But rc 2 is
-# NOT cmd_id's alone: python3 also exits 2 when it cannot open the script ([Errno 2] on a
-# partial vendor copy; [Errno 13] on an unreadable one) and argparse exits 2 on a usage
-# error (the `id` subcommand declares `issue` as type=int, so a non-numeric PR number lands
-# there). Any of those, misread as "first write", would wrongly take the create arm. Three
-# coupled screens keep that arm reachable ONLY from cmd_id's own SILENT sys.exit(2). Pin
-# each so deleting one goes RED independently of the others — AC5's requirement that the
-# readable-path check and the stderr discriminator each fail on their own (and vice versa).
-# (S1) refuse a non-numeric $PR_NUMBER before the id call, so argparse's own rc 2 can't reach it:
-assert_pin_unique "#384 review-seed: non-numeric PR-number guard before the id call" "''|*[!0-9]*)" "$REVIEW_ROOT"
-# (S2) verify the workpad.py path is a readable file before exec — shares the consumer's own
-# operation as the guard rather than re-deriving python3's open contract. Deleting THIS alone → RED:
-assert_pin_unique "#384 review-seed: readable-path precheck on workpad.py before exec" '[ ! -r "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py ]' "$REVIEW_ROOT"
-# (S3) stderr discriminator on the rc-2 arm: cmd_id's clean-absence exit is silent, so rc 2
-# with non-empty captured stderr is an interpreter-level exit, never a clean scan. Deleting
-# THIS alone → RED (the vice-versa half of AC5 relative to S2):
-assert_pin_unique "#384 review-seed: rc-2 arm requires empty captured stderr (silent-exit discriminator)" '[ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]' "$ST_REV"
+# The review live-progress seed's S1/S2/S3 screens moved OUT of the SKILL.md prompt fence
+# (which the cloud review matcher refused as a compound, so the screens never ran there)
+# and INTO scripts/seed-review-progress.sh, which owns the find-or-create decision as
+# ordinary shell driven here per-outcome (the classify-id-exit.sh / describe-denial-count.sh
+# precedent). The four old prompt-fence pins (#384 S1/S2/S3, #284 positive elif) are retired
+# with the fence they guarded; this driver is their behavioral replacement. Each row asserts
+# one token line + its exit code against a stubbed workpad.py, so a screen regression — a
+# non-numeric argument reaching `id`, an unreadable-script exit-2 misread as a clean absence,
+# an rc-2-with-stderr taking the create arm (the #384 duplicate-comment defect) — turns RED.
+SRP857="$(probe_tmp '#857 seed-review-progress driver')"
+mkdir -p "$SRP857/scripts"
+cp "$LIB/../scripts/seed-review-progress.sh" "$SRP857/scripts/seed-review-progress.sh"
+chmod +x "$SRP857/scripts/seed-review-progress.sh"
+SRP857_SH="$SRP857/scripts/seed-review-progress.sh"
+: > "$SRP857/body.md"
+# Emit a stub workpad.py whose `id`/`create` exit behavior each row selects via env vars.
+srp857_stub() {  # $1=id-exit $2=id-stdout $3=id-stderr $4=create-exit $5=create-stdout
+  cat > "$SRP857/scripts/workpad.py" <<PYEOF
+#!/usr/bin/env python3
+import sys
+if sys.argv[1] == 'id':
+    sys.stderr.write("""$3""")
+    sys.stdout.write("""$2""")
+    sys.exit($1)
+if sys.argv[1] == 'create':
+    sys.stdout.write("""$5""")
+    sys.exit($4)
+PYEOF
+  chmod +x "$SRP857/scripts/workpad.py"
+}
+srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=marker
+# RESUME: id exit 0 prints the comment id.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: existing comment -> RESUME <id> stdout" "RESUME 999" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: RESUME exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
+# CREATED: id exit 2 silent (clean absence) -> create prints the new id.
+srp857_stub 2 "" "" 0 "1234"
+assert_eq "#857 seed helper: clean absence -> CREATED <id> stdout" "CREATED 1234" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: CREATED exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
+# S1: a non-numeric / empty PR number is refused BEFORE the id call.
+srp857_stub 0 "999" "" 0 ""   # stub would RESUME if reached — it must not be
+assert_eq "#857 seed helper (S1): empty PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '' m)"
+assert_eq "#857 seed helper (S1): non-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run abc m)"
+assert_eq "#857 seed helper (S1): leading-+ PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '+5' m)"
+assert_eq "#857 seed helper (S1): mixed-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '1a' m)"
+assert_eq "#857 seed helper (S1): SKIP exits 3" "3" "$(srp857_run '' m >/dev/null; echo $?)"
+# S2: an unreadable / missing workpad.py never reaches the create arm.
+mv "$SRP857/scripts/workpad.py" "$SRP857/scripts/workpad.py.hidden"
+assert_eq "#857 seed helper (S2): missing workpad.py -> SKIP workpad-unreadable" "SKIP workpad-unreadable" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S2): SKIP workpad-unreadable exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+mv "$SRP857/scripts/workpad.py.hidden" "$SRP857/scripts/workpad.py"
+# S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
+srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
+assert_eq "#857 seed helper (S3): rc-2 with stderr -> SKIP api-error (never CREATED)" "SKIP api-error" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S3): SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+# id exit 1 (a real gh/parse failure) -> SKIP api-error.
+srp857_stub 1 "" "gh: boom" 0 ""
+assert_eq "#857 seed helper: id exit 1 -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+# create failing after a confirmed clean absence -> SKIP api-error.
+srp857_stub 2 "" "" 1 ""
+assert_eq "#857 seed helper: create failure after clean absence -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
+# No silent path: every reachable arm prints exactly one non-empty token line.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
+  "$(srp857_run 7 m | grep -c .)"
 # ────────────────────────────────────────────────────────────────────────────
 echo "self-contradicting-diff verdict carve-out (Phase 4.2, threshold-independent) (#263)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -29746,14 +29793,9 @@ assert_pin_unique "#284 positive: receiving-code-review discriminates via single
 assert_pin_unique "#284 positive: review-and-fix fix-threshold discriminates via single-statement if!" 'if ! FIX_THRESHOLD=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review-and-fix max_iterations discriminates via single-statement if!" 'if ! MAX_ITERS=$(' "$ST_RAF"
 assert_pin_unique "#284 positive: review verdict-threshold discriminates via single-statement if!" 'if ! VERDICT_THRESHOLD=$(' "$ST_REV"
-# #384 appended the silent-exit discriminator (`&& [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]`)
-# to this elif, but the invariant this pin protects is unchanged: `[ "$?" -eq 2 ]` is STILL the
-# leading inline read of the id call's own exit status (never a captured rc read in a later
-# statement). Pin the new form so a revert to a captured-rc read fails, and so the #384
-# discriminator can't be silently dropped from this exact site either. (#401 retargeted the
-# stderr capture off /tmp into the run-scoped scratch dir — an in-workspace path; the probe
-# denies only /tmp-targeted redirects, and real-run 29105381021 executed such 2> captures.)
-assert_pin_unique "#284 positive: review live-comment 3-way reads \$? inline in the elif (with #384 stderr discriminator)" 'elif [ "$?" -eq 2 ] && [ ! -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ]; then' "$ST_REV"
+# (The review live-comment 3-way `elif [ "$?" -eq 2 ] …` pin was retired with the seed
+# prompt fence in issue #857 — the find-or-create decision, including its inline exit-code
+# read, now lives in scripts/seed-review-progress.sh and is driven behaviorally above.)
 # The efficiency-trace render reads are the QUOTED command-substitution sites the absence
 # detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
 # idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended

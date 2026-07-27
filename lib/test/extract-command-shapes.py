@@ -54,6 +54,31 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
       discipline in favor of the proven `tee` (row 6) / Write-tool (row 9) forms).
   R4  a leading interpreter (`python3`, `python`, `node`) — the read-only
       `review` profile grants no interpreter (run 29105381021 denials).
+  R5  a command-substitution assignment used as an `if`/`elif` CONDITION
+      (`if WP=$(cmd); then`, `elif WP="$(cmd)"; then`, backtick form) — issue #857,
+      the old review-seed fence's branch shape the cloud matcher refused. Scoped to
+      CONDITION position, so it does NOT flag the bare `VAR=$(cmd)` capture the R1
+      carve-out records as proven-permitted (a bare capture carries no `if`/`elif`
+      keyword). R5 is a deliberate DISCIPLINE rule, NOT probe-backed when it lands —
+      the same posture as the implement-tier IR3 rule — and a PERMITTED result from
+      matcher-probe.yml's new `if VAR=$(granted-helper …)` review row RETIRES R5 in a
+      follow-up change.
+
+NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
+  * The guard validates each STATEMENT's LEADING TOKEN (and the redirect/heredoc/
+    condition shapes above); it does NOT establish that the enclosing CONSTRUCT is a
+    permitted shape. A `case … esac` whose every arm's leading token is granted, or an
+    `if … fi` whose condition and body are individually clean, passes this guard even
+    though the cloud matcher may refuse the compound as a whole (issue #857 — the
+    review-seed `case`/`if`/`elif` compound was refused despite each inner statement
+    being individually granted). Establishing enclosing-construct permission is a probe
+    question (matcher-probe.yml's review rows), not a static one this guard can answer.
+  * The STATEMENT SPLITTER (shared with the #363 head extractor) FLATTENS a `case`
+    compound: each arm body is emitted as a bare statement with its `LABEL)` selector
+    stripped, and the `case`/`esac` keywords are emitted as their own statements. So a
+    `VAR=$(cmd)` inside a `case` arm is NOT decomposed into an `if`/`elif` condition and
+    R5 does not reach it — R5's reach is exactly a statement whose own leading keyword is
+    `if`/`elif`, never a substitution nested inside a `case` arm.
 
 CLI:
     extract-command-shapes.py [--profile review|implement] FILE...
@@ -467,6 +492,25 @@ def _cat_heredoc_violation(statement: str) -> bool:
     return has_redirect and has_heredoc
 
 
+# R5: a command-substitution assignment used as an `if`/`elif` CONDITION (issue
+# #857). The old review-seed fence branched on `elif WP=$(workpad.py id …); then`,
+# and the cloud review matcher refused the enclosing compound outright. This flags a
+# statement whose leading keyword is `if`/`elif` and whose condition is a
+# `VAR=$(…)` / `VAR="$(…)"` / backtick capture — the condition-position spelling —
+# WITHOUT flagging the bare `VAR=$(cmd)` capture the R1 carve-out records as
+# proven-permitted (that statement has no `if`/`elif` keyword, so it never matches).
+# It is a deliberate DISCIPLINE rule, not probe-backed at the time it lands, exactly
+# like the implement-tier IR3 rule: a PERMITTED result from matcher-probe.yml's new
+# review row retires R5 in a follow-up change.
+_CONDITION_SUBSTITUTION = re.compile(
+    r"^(?:if|elif)\s+[A-Za-z_][A-Za-z0-9_]*=(?:\"?\$\(|`)"
+)
+
+
+def _condition_substitution_violation(statement: str) -> bool:
+    return bool(_CONDITION_SUBSTITUTION.match(statement.strip()))
+
+
 # The two profiles' rule-id sets, exported so a consumer that must enumerate the
 # tables (lib/test/cloud_writer_contract.py's AC4 shape-conformance guard, issue
 # #678) reads them from here rather than mirroring the ids into a second list that
@@ -476,7 +520,7 @@ def _cat_heredoc_violation(statement: str) -> bool:
 # the suite RED; its companion `a planted control exists for every rule id`
 # assertion turns the reverse drift RED — a rule added to a finder and to these
 # sets without a control.
-REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
+REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4", "R5"})
 IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
 
 
@@ -492,6 +536,8 @@ def classify(statement: str) -> list[str]:
         hits.append("R3")
     if head and head[0] in _INTERPRETERS:
         hits.append("R4")
+    if _condition_substitution_violation(statement):
+        hits.append("R5")
     return hits
 
 

@@ -441,6 +441,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/seed-review-progress.sh": {
+      "note": "review live-progress seed find-or-create helper; driven per token outcome by the #857 run_sh_blocks block",
+      "owner": "unmodularized"
+    },
     "scripts/stage-draft-write.py": {
       "note": "#705 helper unit tests: lib/test/test_python_scripts.py (stage/emit/apply modes) driven by run.sh",
       "owner": "unmodularized"
@@ -1670,6 +1674,10 @@
     "839": {
       "note": "",
       "owner": "review-stall-backstop"
+    },
+    "857": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "88": {
       "note": "",
