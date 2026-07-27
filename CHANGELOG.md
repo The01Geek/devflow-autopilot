@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.22.13] — 2026-07-27
+
+### Changed
+Remove the completed one-time legacy adjudication bootstrap from the live pin-corpus gate while retaining its historical migration evidence.
+
 ## [2.22.12] — 2026-07-27
 
 ### Fixed
