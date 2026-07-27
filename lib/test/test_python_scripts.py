@@ -139,9 +139,12 @@ def decided(text):
     their own decided answer line. Every whole-stdout comparison below whose subject is
     that decided answer is re-anchored onto this helper rather than being deleted or
     loosened: the assertion still pins the answer byte-for-byte, it just stops also
-    pinning the absence of a second line. The multi-line read-backs (`query-findings`,
-    `query-coverage`, `emit-body`, …) keep comparing whole stdout — they emit no
-    `next_call=` line, and their tails are exactly what those rows exist to assert.
+    pinning the absence of a second line. The subcommands EXCLUDED from that line keep
+    comparing whole stdout — they emit no `next_call=` line, and their tails are exactly
+    what those rows exist to assert. That set is the multi-line read-backs
+    (`query-findings`, `query-coverage`, …) PLUS `emit-body`, the gated payload emitter,
+    and `check-claim-staleness`; `emit-body` is deliberately not one of the read-backs,
+    and the module keeps the two apart.
     """
     return text.strip().split('\n')[0]
 
@@ -17886,6 +17889,201 @@ assert_eq("#814: --print-body on a subcommand that does not define it exits 2",
 assert_eq("#814: --print-body is registered on the update subparser (the real parser "
           "accepts it, rather than exiting 2 on an unrecognized argument)",
           True, _run_workpad_cli(['update', '999', '--print-body', '--note', 'n']) != 2)
+
+print()
+print("issue-audit-state: round resolution, next_call=, query-boundary (issue #795)")
+
+_IAS795 = str(SCRIPTS / 'issue-audit-state.py')
+
+
+class _Run795:
+    """A scratch run driven through the real CLI in its own temp git repo."""
+
+    def __init__(self, tmp, slug='s795'):
+        self.tmp = tmp
+        self.slug = slug
+        _subprocess.run(['git', 'init', '-q', '.'], cwd=tmp, capture_output=True)
+        Path(tmp, 'd.md').write_text('# T\n\nbody\n', encoding='utf-8')
+        out = self('init', slug)
+        self.nonce = out.stdout.splitlines()[0].split('nonce=', 1)[1].strip()
+
+    def __call__(self, *argv, nonce=False, stdin=None):
+        args = [sys.executable, _IAS795, *argv]
+        if nonce:
+            args += ['--nonce', self.nonce]
+        return _subprocess.run(args, cwd=self.tmp, input=stdin, capture_output=True,
+                               text=True)
+
+    def state_bytes(self):
+        return Path(self.tmp, '.devflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
+
+    def open_round(self, n=1):
+        return self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+                    '--draft-file', 'd.md', nonce=True)
+
+
+def _with795(fn):
+    with tempfile.TemporaryDirectory() as tmp:
+        fn(_Run795(tmp))
+
+
+# --- AC: every non-excluded subcommand emits next_call= as its FINAL line, and the
+# --- decided answer line is byte-identical and first. This is the row whose absence let a
+# --- reproducible crash ship: it exercises the emitting COMPLEMENT of the exclusion set.
+def _row795_emission(r):
+    r.open_round(1)
+    for name, argv, excluded in (
+        ('query-triggers', ('query-triggers', r.slug), False),
+        ('query-summary', ('query-summary', r.slug), False),
+        ('query-nonce', ('query-nonce', r.slug), False),
+        ('query-findings', ('query-findings', r.slug), True),
+        ('query-coverage', ('query-coverage', r.slug), True),
+    ):
+        proc = r(*argv, nonce=(name != 'query-nonce'))
+        lines = proc.stdout.strip().split('\n')
+        assert_eq(f"#795 emission: {name} exits 0 (the query class's contract)",
+                  0, proc.returncode)
+        if excluded:
+            assert_eq(f"#795 emission: the excluded {name} emits NO next_call= line",
+                      0, sum(1 for ln in lines if ln.startswith('next_call=')))
+        else:
+            assert_eq(f"#795 emission: {name}'s FINAL stdout line is next_call=",
+                      True, lines[-1].startswith('next_call='))
+            assert_eq(f"#795 emission: {name}'s decided answer line is still FIRST",
+                      False, lines[0].startswith('next_call='))
+
+
+_with795(_row795_emission)
+
+
+# --- The regression row for the shipped Critical: `query-nonce` registers no --nonce at
+# --- all (it EXISTS to recover one), so the emitter must tolerate the absent attribute.
+def _row795_nonce_recovery(r):
+    proc = r('query-nonce', r.slug)
+    assert_eq("#795 query-nonce: the compaction-recovery read exits 0, not a traceback",
+              0, proc.returncode)
+    assert_eq("#795 query-nonce: ... and answers the run's real nonce on its first line",
+              f'nonce={r.nonce}', decided(proc.stdout))
+    assert_eq("#795 query-nonce: ... with no AttributeError on stderr",
+              False, 'AttributeError' in proc.stderr)
+
+
+_with795(_row795_nonce_recovery)
+
+
+# --- AC: an omitted --round on a state-determined subcommand produces the SAME answer and
+# --- exit code as the identical call with the correct --round passed.
+def _row795_defaulted_round(r):
+    r.open_round(1)
+    explicit = r('query-next-action', r.slug, '--round', '1', nonce=True)
+    defaulted = r('query-next-action', r.slug, nonce=True)
+    assert_eq("#795 defaulted --round: the answer is identical to the explicit call",
+              decided(explicit.stdout), decided(defaulted.stdout))
+    assert_eq("#795 defaulted --round: ... and so is the exit code",
+              explicit.returncode, defaulted.returncode)
+
+
+_with795(_row795_defaulted_round)
+
+
+# --- AC: ambiguity fails closed BY CLASS. A mutation exits non-zero and writes NO state;
+# --- a query still exits 0 and prints a decided answer carrying a reason= token.
+def _row795_ambiguity_by_class(r):
+    before = r.state_bytes()
+    mut = r('record-coverage', r.slug, '--render', 'full', '--expected-keys', 'a',
+            '--coverage-stdin', nonce=True, stdin='a exercised\n')
+    assert_eq("#795 ambiguity (mutation): exits non-zero", True, mut.returncode != 0)
+    assert_eq("#795 ambiguity (mutation): names the ambiguity in its breadcrumb",
+              True, 'does not uniquely determine a round' in mut.stderr)
+    assert_eq("#795 ambiguity (mutation): writes NO state", before, r.state_bytes())
+    q = r('query-next-action', r.slug, nonce=True)
+    assert_eq("#795 ambiguity (query): still exits 0", 0, q.returncode)
+    assert_eq("#795 ambiguity (query): prints a decided answer carrying a reason= token",
+              'action=round-closed-no-verdict reason=no-round-recorded', decided(q.stdout))
+
+
+_with795(_row795_ambiguity_by_class)
+
+
+# --- AC: query-boundary carries the DECIDED FIRST LINE of each of the four individual
+# --- queries, byte-identically, one per line, in component order — and no coverage rows.
+def _row795_boundary(r):
+    r.open_round(1)
+    b = r('query-boundary', r.slug, nonce=True)
+    assert_eq("#795 query-boundary: exits 0", 0, b.returncode)
+    lines = b.stdout.strip().split('\n')
+    expected = [decided(r(q, r.slug, nonce=True).stdout) for q in
+                ('query-triggers', 'query-convergence', 'query-coverage',
+                 'query-calibration')]
+    assert_eq("#795 query-boundary: the four lines are byte-identical to the individual "
+              "queries' decided lines, in component order", expected, lines)
+    assert_eq("#795 query-boundary: carries NO per-dimension coverage rows",
+              0, sum(1 for ln in lines if ln.startswith('key=')))
+    assert_eq("#795 query-boundary: emits no next_call= line (it is multi-line stdout)",
+              0, sum(1 for ln in lines if ln.startswith('next_call=')))
+    assert_eq("#795 query-boundary: the individual queries survive and still answer",
+              0, r('query-triggers', r.slug, nonce=True).returncode)
+
+
+_with795(_row795_boundary)
+
+
+# --- AC: the render boundary shape-checks every operand taken from recorded state, and a
+# --- failing value yields a named refusal rather than an emitted string.
+_ias795 = _load('ias795', SCRIPTS / 'issue-audit-state.py')
+
+for _name, _flag, _value, _want in (
+    ('a newline', '--reason', 'a\nb', 'render-value-carries-newline'),
+    ('a carriage return', '--reason', 'a\rb', 'render-value-carries-newline'),
+    ('a shell metacharacter', '--marker', 'x;rm -rf /',
+     'render-value-carries-shell-metacharacter'),
+    ('a relative path', '--draft-file', 'rel/d.md', 'render-path-not-absolute'),
+    ('a bool', '--marker', True, 'render-value-not-a-string'),
+):
+    try:
+        _ias795._shape_check(_flag, _value)
+        _got = None
+    except _ias795._RenderRefusal as _exc:
+        _got = _exc.token
+    assert_eq(f"#795 render boundary: {_name} is refused with a named token",
+              _want, _got)
+
+assert_eq("#795 render boundary: an int operand renders as its decimal form",
+          '3', _ias795._shape_check('--round', 3))
+assert_eq("#795 render boundary: an absolute path with a space is SHELL-QUOTED, so the "
+          "suggestion pastes back as one argument",
+          "'/a b/d.md'", _ias795._shape_check('--draft-file', '/a b/d.md'))
+assert_eq("#795 render boundary: an ordinary absolute path is unchanged by the quoting",
+          '/a/d.md', _ias795._shape_check('--draft-file', '/a/d.md'))
+
+# The three sanctioned shapes are constrained at the resolver's point of return.
+assert_eq("#795 next_call: `none` is a sanctioned shape",
+          'next_call=none', _ias795._checked_next_call('next_call=none'))
+assert_eq("#795 next_call: an `unestablished reason=` line is a sanctioned shape",
+          'next_call=unestablished reason=boundary-offer',
+          _ias795._checked_next_call('next_call=unestablished reason=boundary-offer'))
+assert_raises("#795 next_call: a FOURTH shape is refused at the point of return",
+              AssertionError, lambda: _ias795._checked_next_call('next_call=whatever'))
+assert_raises("#795 next_call: an unknown context key is refused at the producer",
+              AssertionError, lambda: _ias795._next_call_ctx(nonsuch='x'))
+
+# `needs=` composition: caller-supplied operands render BARE and are named; state-derived
+# ones render filled and are not.
+_line = _ias795._next_call_invocation(
+    'record-return', 'record-adjudication s',
+    [('--nonce', 'abc'), ('--round', 2), ('--verdict', None)])
+assert_eq("#795 needs=: caller-supplied operands render bare and are named in needs=",
+          'next_call=<state-owner> record-adjudication s --nonce abc --round 2 '
+          '--verdict needs=--verdict', _line)
+_line_none = _ias795._next_call_invocation('query-summary', 'query-summary s',
+                                           [('--nonce', 'abc')])
+assert_eq("#795 needs=: a fully state-derived invocation renders needs=none",
+          'next_call=<state-owner> query-summary s --nonce abc needs=none', _line_none)
+assert_eq("#795 needs=: --round is rendered BARE on record-dispatch (caller intent), "
+          "never filled from state",
+          None, _ias795._render_operand('record-dispatch', '--round', 7))
+assert_eq("#795 needs=: ... but filled on a state-determined subcommand",
+          '7', _ias795._render_operand('record-return', '--round', 7))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

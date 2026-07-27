@@ -70,6 +70,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -3637,17 +3638,21 @@ def _shape_check(flag, value):
     if not isinstance(value, str):
         raise _RenderRefusal('render-value-not-a-string')
     if _record_splitting_char(value) is not None:
-        # The file's shared record-splitter predicate, not a 13th private copy: the hazard
-        # is identical (a value forging a LINE on the printed surface), so if that set ever
-        # widens this boundary moves with the other twelve.
+        # The file's shared record-splitter predicate, not a private copy: the hazard is
+        # identical (a value forging a LINE on the printed surface), so if that set ever
+        # widens this boundary moves with the predicate's other callers.
         raise _RenderRefusal('render-value-carries-newline')
     if flag in _NEXT_CALL_PATH_FLAGS:
         if not _is_bound_path(value):
             raise _RenderRefusal('render-path-not-absolute')
-        # A path legitimately carries `/` and may carry a space, so it is exempted from
-        # the metacharacter sweep below — `_is_bound_path` is its shape check, and the
-        # newline/CR refusal above still binds.
-        return value
+        # A path legitimately carries `/` and, per `_is_bound_path`, may carry a SPACE — so
+        # it cannot go through the metacharacter sweep below. It is SHELL-QUOTED instead of
+        # exempted: the emitted line is a command a human pastes into a shell, so an
+        # unquoted `/Users/jo/My Repos/d.md` would paste as two arguments and run a
+        # different, wrong invocation. `shlex.quote` is a no-op on an ordinary path and
+        # makes any other legal-but-awkward one paste back as the single argument recorded.
+        # The newline/CR refusal above still binds and is not delegated to quoting.
+        return shlex.quote(value)
     if _NEXT_CALL_METACHARACTERS.search(value):
         raise _RenderRefusal('render-value-carries-shell-metacharacter')
     return value
@@ -3722,14 +3727,19 @@ def _unestablished(reason):
 # The dispatch-routing answers that mandate a `record-dispatch` call, and the arm (and
 # marker, where the arm hard-requires one) each names. Translating an answer token into an
 # invocation used to be prose work in a separately gated file; this table is what lets the
-# tool publish the invocation instead. ALL THREE routing answers name `--round` BARE — the
-# fresh-round answer through `query-arm` below, and these two retry/degraded answers —
-# because the shipped procedure states the forgotten-flag trap bites on exactly these arms.
+# tool publish the invocation instead. Each rendered answer names `--round` BARE — as does
+# `query-arm`'s fresh-round answer — because the shipped procedure names those arms as
+# where the forgotten-flag trap bites.
 _DISPATCH_ROUTE = {
     'dispatch-embed-retry': ('embed', 'file-unreadable'),
-    'dispatch-retry-same-arm': (None, None),
     'dispatch-inline-degraded': ('inline', None),
 }
+
+# `dispatch-retry-same-arm` is DELIBERATELY absent: the arm to retry is whichever the round
+# already ran, which this table cannot name, so the resolver answers `unestablished
+# reason=dispatch-arm-unestablished` there rather than rendering a call with a guessed arm.
+# It is not one of the routing answers that name `--round` bare — those are `query-arm`'s
+# fresh-round answer plus the members of the table above.
 
 # Answer tokens whose mandated next step is NOT a tool call — a user interaction or a
 # required verification — and the reason each answers with.
@@ -3779,7 +3789,7 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
         # round is the caller's to supply on `record-dispatch`, so it is rendered bare.
         return _dispatch_next_call(cmd_name, slug, nonce, None,
                                    arm=ctx.get('arm'), marker=ctx.get('marker'))
-    if cmd_name in ('query-next-action', 'record-degraded'):
+    if cmd_name == 'query-next-action':
         action = ctx.get('action')
         if action in _DISPATCH_ROUTE:
             return _dispatch_next_call(cmd_name, slug, nonce, action)
@@ -3861,6 +3871,14 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
     return 'next_call=none'
 
 
+# The closed key set the four context-producing commands may hand back. Checked at the
+# producer, so a renamed or misspelled key is a loud AssertionError rather than a silent
+# degradation to `next_call=unestablished` — the same invisibility this channel replaced a
+# `setattr` side-channel to avoid.
+_NEXT_CALL_CTX_KEYS = frozenset(
+    ('nonce', 'arm', 'marker', 'action', 'ambiguity', 'bound', 'round', 'draft_file'))
+
+
 def _next_call_ctx(**ctx):
     """A command's own local decision, RETURNED to the `next_call=` resolver.
 
@@ -3877,6 +3895,12 @@ def _next_call_ctx(**ctx):
     where a string-keyed attribute stashed onto `args` is invisible to a reader and to any
     static check, and could be written after a `return` had already left the function.
     """
+    unknown = sorted(set(ctx) - _NEXT_CALL_CTX_KEYS)
+    if unknown:
+        raise AssertionError(
+            f'issue-audit-state: _next_call_ctx got unknown key(s) {unknown}; the resolver '
+            f'reads only {sorted(_NEXT_CALL_CTX_KEYS)}, so an unlisted key would degrade '
+            'silently to next_call=unestablished')
     return ctx
 
 
@@ -3901,14 +3925,20 @@ def _emit_next_call(cmd_name, args, ctx):
     # `next_call=` answers against what it just wrote. A read failure is not a crash —
     # `_query_state` is the read-only, never-raising accessor the queries already use, and
     # a `None` state resolves to `next_call=unestablished reason=state-unestablished`.
-    state = _query_state(args.slug)
+    state = _query_state(args.slug, quiet=True)
     # A command that MINTS or rewrites the run's nonce hands the value back through the
     # same context channel (`init` does — its `--nonce` is optional and drives cold-start
     # vs re-init, so the caller-supplied value is absent on the cold path and comparing it
     # would answer `foreign-nonce` about the run `init` just created). Reading it from the
     # context rather than testing `cmd_name` here keeps this emitter subcommand-agnostic:
     # a second nonce-minting subcommand needs no second `if cmd_name ==` arm.
-    nonce = ctx.pop('nonce', None) or args.nonce
+    # Read EVERY namespace field the same guarded way (issue #795 review): `query-nonce`
+    # registers no `--nonce` at all — it EXISTS to recover the nonce after a compaction — so
+    # an unguarded `args.nonce` crashed the one call a lost run makes, breaking the query
+    # class's exit-0 contract on the recovery path it exists for. The emitter must depend on no
+    # parser shape it does not itself check; the resolver already answers `foreign-nonce` /
+    # `state-unestablished` for an absent value.
+    nonce = ctx.pop('nonce', None) or getattr(args, 'nonce', None)
     print(_resolve_next_call(cmd_name, state, args.slug, nonce, **ctx))
 
 
@@ -6882,6 +6912,13 @@ def cmd_query_boundary(args):
             # In POSITION, not appended after the answers: a failing component that moved
             # to the end would break the docstring's own "one per line, in
             # `_BOUNDARY_COMPONENTS` order" promise and make a positional read wrong.
+            # The stdout token stays free of the exception TEXT (untrusted document
+            # content must never reach the parsed surface), but the cause is not dropped:
+            # its siblings (`_query_state`, `cmd_query_arm`) both keep the diagnosis on
+            # stderr, and a bare `detail=KeyError` names no key, field, or round.
+            sys.stderr.write(
+                f'issue-audit-state.py query-boundary: component {name!r} could not be '
+                f'established — {type(exc).__name__}: {exc}\n')
             out.append(f'component={name} reason=unestablished '
                        f'detail={type(exc).__name__}')
     for line in out:
@@ -6952,11 +6989,20 @@ def cmd_emit_body(args):
     sys.stdout.buffer.write(body)
 
 
-def _query_state(slug):
+def _query_state(slug, quiet=False):
+    """Read the run's state, or None with a breadcrumb naming why (never a raise).
+
+    `quiet` suppresses the breadcrumb for a SECOND read of the same file in one process —
+    the `next_call=` emitter's post-mutation re-read (issue #795 review). The command
+    itself has already emitted the identical line for the identical path, and two
+    consecutive copies of one diagnostic on a surface the state-owner-unavailable fallback
+    routes on reads as two separate failures.
+    """
     try:
         return load_state(slug)
     except StateError as exc:
-        sys.stderr.write(f'issue-audit-state.py query: state unestablished — {exc}\n')
+        if not quiet:
+            sys.stderr.write(f'issue-audit-state.py query: state unestablished — {exc}\n')
         return None
 
 
@@ -7794,7 +7840,21 @@ def main():
     # function returned, so every existing decided line stays byte-identical and first, and
     # a refusal (which raises `SystemExit` out of `_fail`) never reaches here.
     if args.cmd not in _NEXT_CALL_EXCLUDED:
-        _emit_next_call(args.cmd, args, ctx)
+        try:
+            _emit_next_call(args.cmd, args, ctx)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # DELIBERATELY broad, and never a swallow. By this point the decided answer
+            # line is already printed and any mutation is already persisted, so an
+            # exception escaping here would exit non-zero on a call that SUCCEEDED — and
+            # the whole CLI is contract-typed on that exit code: a caller reads a non-zero
+            # query as the fallback's "no contract output" class and a non-zero mutation as
+            # an illegal transition or an unpersistable state, so it would retry or degrade
+            # over work that actually landed. `next_call=` is a generated suggestion; its
+            # failure is named on stderr and the decided answer stands.
+            sys.stderr.write(
+                f'issue-audit-state.py {args.cmd}: the next_call= suggestion could not be '
+                f'rendered ({type(exc).__name__}: {exc}); the decided answer above stands '
+                'and this call succeeded\n')
 
 
 if __name__ == '__main__':

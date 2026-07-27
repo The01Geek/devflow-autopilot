@@ -13962,7 +13962,8 @@ assert_eq "#332 AC3: resolver from a subdirectory does NOT print the subdirector
 # construction — `pwd` is the worktree, the correct answer is the main root — so the
 # restricted-PATH run is only green if the parse actually ran.
 #
-# `bash` is in the restricted bin because the helper's shebang needs it. The pre-change
+# `bash` is in the restricted bin because the run below invokes the helper through an
+# explicit `bash` head, which PATH must still resolve. The pre-change
 # `head`/`sed`/`grep` pipeline emitted `command not found` here and fell through to `pwd`;
 # a value that decides the bound draft root must not be derived through a tool
 # `lib/preflight.sh` does not guarantee.

@@ -243,8 +243,9 @@ reductions compose into it:
   the line on its own stderr — **one process spawn and one Bash round-trip removed per
   round**.
 - A forgotten `--round` on any of the five state-determined subcommands no longer costs a
-  corrective round-trip at all, and the three dispatch-routing answers now name the flag in
-  `needs=` on the arms where the measured trap bit — the 24-of-63 missing-`--round` class.
+  corrective round-trip at all, and the dispatch-routing answers that name a call now
+  render the flag in `needs=` on the arms where the measured trap bit — the 24-of-63
+  missing-`--round` class.
 
 **The real-corpus "after" figure is a post-merge measurement, and is deliberately not
 filled in here.** Re-running the same transcript analysis today would re-read the same

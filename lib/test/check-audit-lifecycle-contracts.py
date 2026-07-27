@@ -34,7 +34,10 @@ reconciliation named on stderr otherwise.
 
 from __future__ import annotations
 
+import argparse
+import contextlib
 import importlib.util
+import io
 import re
 import sys
 from pathlib import Path
@@ -151,8 +154,9 @@ def check_readbacks(module, registered, report):
     # The docstring↔dispatched comparison above is a prose reconciliation. Anchor the same
     # guarantee on BEHAVIOR too, so the arm does not rest on documentation presence alone:
     # every excluded subcommand must really be one the emitter refuses to append to, and
-    # every non-excluded one must really be one it accepts. `_emit_next_call` raises on the
-    # former, which is the executable boundary the sets are graded against.
+    # `_emit_next_call` raises on an excluded name, which is the executable boundary this
+    # arm grades against; the complement direction — every NON-excluded subcommand really
+    # being one the emitter can serve — is `check_emitting_complement` below.
     excluded = set(module._NEXT_CALL_EXCLUDED)  # noqa: SLF001
     if not dispatched <= excluded:
         raise Refusal("read-backs: a multi-line read-back is missing from "
@@ -168,9 +172,87 @@ def check_readbacks(module, registered, report):
                           "the exclusion predicate requires") from None
         raise Refusal(f"read-backs: _emit_next_call accepted the excluded {name!r}; the "
                       "exclusion set and the emitter's own guard disagree")
+    unbacked_exclusions = sorted(excluded - registered)
+    if unbacked_exclusions:
+        raise Refusal(f"read-backs: _NEXT_CALL_EXCLUDED names {unbacked_exclusions}, which "
+                      "the parser does not register")
     report.append(f"read-backs: {len(dispatched)} multi-line read-backs, docstring "
                   "enumeration reconciled against the dispatched set, and every excluded "
                   "subcommand refused by the emitter's own guard")
+
+
+def check_emitting_complement(module, registered, report):
+    """Every NON-excluded subcommand must really be one the emitter can serve.
+
+    The complement direction, and the one whose absence let a reproducible crash ship: the
+    exclusion arm above walks `_NEXT_CALL_EXCLUDED` and confirms the emitter refuses each
+    member, which says nothing about the ~30 subcommands that are supposed to EMIT. The
+    emitter reads namespace fields off `args`, so a subcommand whose parser registers none
+    of them — `query-nonce`, which exists to recover the nonce and therefore takes no
+    `--nonce` — crashed with an `AttributeError` on the recovery path it exists for.
+
+    Driven off `registered_subcommands()` rather than a hand-list, so a subcommand added
+    later without one of those flags fails at the desk instead of in a run. The probe uses
+    an empty namespace: it asserts the emitter tolerates every field being ABSENT, which is
+    the structural property, not that any particular answer is produced.
+    """
+    excluded = set(module._NEXT_CALL_EXCLUDED)  # noqa: SLF001
+    emitting = sorted(registered - excluded)
+    if not emitting:
+        raise Refusal("emitting-complement: no subcommand emits next_call= at all — the "
+                      "exclusion set covers the whole registered vocabulary, which would "
+                      "turn the answer channel off entirely")
+    for name in emitting:
+        args = argparse.Namespace(slug="_probe795")
+        try:
+            # The probe's own `next_call=` line is captured, not printed: this guard's
+            # stdout IS its report (run.sh parses the figures out of it), so 30 probe
+            # lines would corrupt the surface being read.
+            with contextlib.redirect_stdout(io.StringIO()), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                module._emit_next_call(name, args, None)  # noqa: SLF001
+        except Exception as exc:  # noqa: BLE001
+            raise Refusal(
+                f"emitting-complement: _emit_next_call({name!r}) raised "
+                f"{type(exc).__name__}: {exc} on a namespace carrying no optional field. "
+                "The emitter must depend on no parser shape it does not itself check — "
+                "read each field with getattr(), or add the subcommand to "
+                "_NEXT_CALL_EXCLUDED") from None
+    report.append(f"emitting-complement: all {len(emitting)} non-excluded subcommands "
+                  "tolerate an absent namespace field")
+
+
+def check_round_defaulted(module, registered, report):
+    """`_ROUND_DEFAULTED` must match the subcommands whose `--round` is actually optional.
+
+    The constant is declared as THE closed set and reads as authoritative, but nothing
+    consumed it: flipping a `--round` to `required=False` without adding the
+    `_require_named_round` call — the exact slip that would silently operate on the wrong
+    round — passed every gate. Reconcile it against the parser, a machine-consumed
+    contract, exactly as the read-back arm reconciles `_MULTILINE_READBACKS`.
+    """
+    parser = module.build_parser()
+    optional_round = set()
+    for action in parser._actions:  # noqa: SLF001
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            for name, sub in action.choices.items():
+                for a in sub._actions:  # noqa: SLF001
+                    if "--round" in a.option_strings and not a.required:
+                        optional_round.add(name)
+    declared = set(module._ROUND_DEFAULTED)  # noqa: SLF001
+    if declared - registered:
+        raise Refusal(f"round-defaulted: _ROUND_DEFAULTED names "
+                      f"{sorted(declared - registered)}, which the parser does not register")
+    if declared != optional_round:
+        raise Refusal(
+            "round-defaulted: _ROUND_DEFAULTED and the parser disagree about which "
+            f"subcommands have an optional --round. Declared-not-optional: "
+            f"{sorted(declared - optional_round)}; optional-not-declared: "
+            f"{sorted(optional_round - declared)}. A subcommand whose --round became "
+            "optional without a _require_named_round call would silently operate on a "
+            "round the caller never named")
+    report.append(f"round-defaulted: {len(declared)} state-defaulted subcommands, "
+                  "reconciled against the parser's own required-ness")
 
 
 def check_sequence(registered, report):
@@ -205,6 +287,8 @@ def main():
         module = _load_module()
         registered = module.registered_subcommands()
         check_readbacks(module, registered, report)
+        check_emitting_complement(module, registered, report)
+        check_round_defaulted(module, registered, report)
         unconditional = check_sequence(registered, report)
     except Refusal as exc:
         sys.stderr.write(f"check-audit-lifecycle-contracts: {exc}\n")
