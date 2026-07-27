@@ -85,11 +85,16 @@ rm -f .devflow/tmp/new-entries.jsonl
 # patterns match, whereas under zsh an unmatched glob is a fatal `no matches found`
 # that would abort the whole rm (leaving EVERY pattern uncleaned). Step 1 runs before
 # any fetch, so it never touches the current run's own freshly-written files.
-# `overrides-prefiling.json` is cleaned here for a distinct reason: Step 9 reads it
-# to decide the won't-fix re-raise section, and a surviving copy from an earlier run
-# is READABLE — so the missing/unreadable warning never fires and the report renders
-# confidently from the previous run's overrides state.
-find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' \) -delete 2>/dev/null
+# Every file a later step reads back BY PATH is named here, for a distinct reason
+# from the per-PR scratch above: those readers guard their input by readability
+# alone, so a surviving copy from an earlier run is READABLE — the missing/unreadable
+# warning never fires and the report renders confidently from the previous run's
+# state. That covers the overrides snapshot Step 9 reads for the won't-fix re-raise
+# section, and the pattern files plus the liveness capture Step 8c and Step 9 read.
+# Relying instead on Step 6's truncating redirects to overwrite them makes the
+# guarantee a property of one call site rather than of this cleanup, so a moved or
+# short-circuited write silently reintroduces stale state.
+find .devflow/tmp -maxdepth 1 -type f \( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' -o -name 'patterns.json' -o -name 'patterns-full.json' -o -name 'patterns.stderr' \) -delete 2>/dev/null
 ```
 
 ---
@@ -570,6 +575,26 @@ best-effort label failed still counts:
 MAX_PER_RUN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_issues_per_run' 3)"
 MAX_OPEN="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
 MAX_PER_CAT="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_per_category' 2)"
+# Validate the caps HERE, once, before any pattern is judged. config-get.sh coerces
+# whatever JSON the key holds into a string — an object arrives as `[object Object]`,
+# `false` as `false` — so a single config typo makes devflow_filing_cap_verdict return
+# `invalid-operand` for EVERY pattern, and the disposition prose records that as
+# `{tag, cap: "invalid-operand"}` in `withheld`, which the report renders under
+# "Patterns withheld by a filing cap" — indistinguishable from legitimate
+# back-pressure. Aborting and naming the offending key is preferable to a broken
+# config reading as a deliberately throttled week.
+case "$MAX_PER_RUN" in
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_issues_per_run is not a count (got '$MAX_PER_RUN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+     exit 1 ;;
+esac
+case "$MAX_OPEN" in
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_open_issues is not a count (got '$MAX_OPEN') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+     exit 1 ;;
+esac
+case "$MAX_PER_CAT" in
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: .devflow_retrospective.max_open_per_category is not a count (got '$MAX_PER_CAT') — aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+     exit 1 ;;
+esac
 # Both cap comparands come from `lib/filing-decisions.sh`, which the suite drives
 # over its arms — never from inline jq here. It is sourced at top level so its
 # functions persist in this shell, which is safe because the helper deliberately

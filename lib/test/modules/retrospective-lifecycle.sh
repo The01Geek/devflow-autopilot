@@ -448,9 +448,18 @@ bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full --bogus >/dev
 assert_eq "#788 args: a trailing junk argument after --full is rejected too" "2" "$RL_ARG4B_RC"
 # Positive control on the same fixture: the accepted arities still succeed, so the
 # two rejections above pin the arity guard and not a broken fixture.
-bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full >/dev/null 2>&1; RL_ARG3_RC=$?
+#
+# These two MUST stub gh. The accepted arities run past the arg guard into the
+# open-issue cooldown lookup, which exits 1 on a gh failure — so on a host with no
+# authenticated gh (every CI runner) an unstubbed control fails for a reason that
+# has nothing to do with arity, while passing at a desk where gh happens to be
+# logged in. The rejected arities above exit at the guard, before any gh call, so
+# they need no stub.
+printf '#!/usr/bin/env bash\nprintf "[]"\n' > "$RL_TMP/gh-noissues.sh"
+chmod +x "$RL_TMP/gh-noissues.sh"
+DEVFLOW_GH="$RL_TMP/gh-noissues.sh" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full >/dev/null 2>&1; RL_ARG3_RC=$?
 assert_eq "#788 args: the 3-arg --full form still succeeds (control)" "0" "$RL_ARG3_RC"
-bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" >/dev/null 2>&1; RL_ARG2_RC=$?
+DEVFLOW_GH="$RL_TMP/gh-noissues.sh" bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" >/dev/null 2>&1; RL_ARG2_RC=$?
 assert_eq "#788 args: the 2-arg default form still succeeds (control)" "0" "$RL_ARG2_RC"
 
 # ── caps: open-count derivation + report rendering ───────────────────────────
