@@ -551,10 +551,19 @@ devflow_module_pin_unique "#768: the redirect truncates the target before the ge
   'The redirect truncates the target before the generator runs' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
 devflow_module_pin_unique "#768: the landed check is exit-zero plus a non-empty file" \
   'The write has landed when the generator exits zero and the file at the instruction path is non-empty' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
-devflow_module_pin_unique "#768: the pointer is extracted with python3, never grep/sed/awk" \
-  'never `grep`, `sed`, or `awk`' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the non-preflight-PATH-tool rule is the CLAUDE.md guarantee
-devflow_module_pin_unique "#768: the extraction returns the pointer line byte-identically" \
-  'byte-identically to the line inside the written file' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose
+# issue #795: the two #768 pins that stood over the standalone read-back extraction are
+# DELETED, not re-worded. That extraction is gone — the generator now emits the
+# `dispatch-pointer:` line on its own stderr — so their literals describe a fence the skill
+# no longer ships, and a re-worded prose pin would be a wording-only pin over prose the
+# change authored. Their guarantee did NOT go with them: it is now a real executable
+# property, and `lib/test/run.sh`'s #795 block asserts it directly: the stderr line is
+# byte-identical to the `dispatch-pointer:` line inside the stdout the same invocation
+# wrote, that line is non-empty (the positive control against a vacuous empty-vs-empty
+# compare), exactly one such line reaches stderr, and stdout still opens with the mode's
+# own marker. That is a stronger anchor than either pin was: the old ones could not have
+# caught a fold that emitted a re-derived or truncated line. (It does NOT assert that
+# stdout is byte-unchanged, and an earlier draft of this comment claimed it did — the
+# load-bearing half of a pin-deletion justification must describe assertions that exist.)
 devflow_module_pin_unique "#768: record-dispatch output names dispatch_regeneration" \
   'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
 devflow_module_pin_unique "#768: a diverged regeneration is surfaced in the same turn, before dispatch" \
@@ -878,8 +887,27 @@ assert_eq "#603: the convergence definition no longer claims a budget clause" \
 # re-introduce. #704 widened the class from one query to three; #708 added `query-coverage` as
 # the fourth, so the literal moved again; the guarded property (the class is stated, not left
 # implicit) is unchanged.
-devflow_module_pin_unique "#603/AC14 (+#704, +#708): the multi-line read-back query class is named" \
-  "**The read-back queries \`query-findings\`, \`query-claim-baselines\`, \`query-finding-evidence\`, \`query-coverage\`, and \`query-adjudication-records\` are the multi-line ones**" "$CI_BUNDLE"  # structural-pin-ok: presence only — a documentation contract, no code regression to mutate
+# issue #795: that pin is DELETED, not extended to name `query-boundary`. Its own marker
+# rationale said it plainly — "presence only … no code regression to mutate" — which is the
+# wording-only signature this repo now prohibits: the literal could change without changing
+# any executable behavior or machine-consumed contract, and adding a sixth multi-line query
+# while leaving the five-name clause untouched would have kept it GREEN over a sentence the
+# addition had just falsified. The enumeration's real guarantee — that the closed query class
+# the helper DISPATCHES matches the class the prose names — is asserted behaviorally by
+# `lib/test/check-audit-lifecycle-contracts.py`, driven from `lib/test/run.sh`, which compares
+# the docstring enumeration against `_MULTILINE_READBACKS`, checking that set's membership
+# against the choices `build_parser()` registers. That guard fails RED on exactly the drift this pin
+# could not see.
+# SCOPE of that re-anchor, stated exactly (issue #795 shadow review — the paragraph above read
+# as a fuller replacement than it is): `check_readbacks` reconciles the MODULE DOCSTRING's
+# enumeration against the dispatched set. The pin deleted here sat over `step-3-6-audit.md`'s
+# own enumeration, and the skill-prose↔code axis is NOT what that guard grades. What makes the
+# deletion sound is therefore not "the guard covers it" but the prohibition itself: a
+# skill-prose enumeration is agent-read prompt text whose only reader is the runtime agent, so
+# per the recorded decision under CLAUDE.md's guard-executable-behavior convention it carries no
+# automated regression coverage BY DESIGN, and its compensating control is the review pass that
+# re-reads the shipped prose each run. Do not read this block as a claim that both enumerations
+# are machine-guarded — one is, one is deliberately not.
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \
