@@ -22,7 +22,8 @@
 #   devflow_open_filed_total    — the max_open_issues comparand
 #   devflow_open_filed_in_category — the max_open_per_category comparand
 #
-# Pure: no gh calls, no writes outside caller-supplied stdout.
+# Pure: no gh calls, no file writes, no tree side effects. stdout carries the
+# result; stderr carries breadcrumbs only (see the jq-stderr note below).
 #
 # This file is SOURCED into a caller's shell and therefore deliberately sets no
 # shell options: a `set -euo pipefail` here would leak into the orchestrator that
@@ -244,7 +245,9 @@ devflow_open_filed_total() {
         return 0
     fi
     "$DEVFLOW_JQ" -r '
-        [ (.patterns // {})[] | (.meta_issues // [])[] | select(.state == "filed") ] | length
+        [ (.patterns // {} | objects | .[]) | objects
+        | (.meta_issues // [] | arrays | .[]) | objects
+        | select(.state == "filed") ] | length
       ' "$ov" || {
         echo "::error::filing-decisions: could not derive the open-filed total from ${ov} — the max_open_issues comparand is UNESTABLISHED, so every pattern will be withheld as invalid-operand this run" >&2
         return 0
@@ -259,7 +262,8 @@ devflow_open_filed_in_category() {
         return 0
     fi
     "$DEVFLOW_JQ" -r --arg s "$slug" '
-        [ ((.patterns // {})[$s].meta_issues // [])[] | select(.state == "filed") ] | length
+        [ ((.patterns // {} | objects | .[$s]) | objects | .meta_issues // [] | arrays | .[]) | objects
+        | select(.state == "filed") ] | length
       ' "$ov" || {
         echo "::error::filing-decisions: could not derive the per-category open-filed count for '${slug}' from ${ov} — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
         return 0

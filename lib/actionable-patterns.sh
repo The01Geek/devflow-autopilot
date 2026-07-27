@@ -23,7 +23,8 @@
 #       "tag":              <string>,          # category slug (== slug)
 #       "slug":             <string>,          # URL-safe issue-filing slug (== tag)
 #       "occurrence_count": <int>,
-#       "status":           "open"|"regressed",
+#       "status":           "open"|"regressed" (any of the six lifecycle
+#                           values under --full),
 #       "first_seen":       <iso8601|null>,
 #       "last_seen":        <iso8601|null>,
 #       "occurrences":      [...],
@@ -68,12 +69,20 @@ OVERRIDES_FILE="$2"
 # orchestrator can carry the whole picture into the run report (issue #788); the
 # default emits only the actionable subset (open/regressed above threshold).
 FULL=0
-# Reject an unrecognized third argument LOUDLY. A near-miss (`--ful`, `-full`,
-# `--full=1`, or the flag landing in $4 after a future arg is added) would
-# otherwise silently yield the FILTERED view, which the caller then writes to
-# patterns-full.json and the report renders under a heading promising the
-# unfiltered picture — well-formed, non-empty, and wrong, with every
-# downstream guard passing. Mirrors pattern-state.sh's strict arg handling.
+# Reject an unrecognized argument LOUDLY. A near-miss (`--ful`, `-full`,
+# `--full=1`) or a --full that lands PAST $3 would otherwise silently yield the
+# FILTERED view, which the caller then writes to patterns-full.json and the
+# report renders under a heading promising the unfiltered picture — well-formed,
+# non-empty, and wrong, with every downstream guard passing. Mirrors
+# pattern-state.sh's strict arg handling.
+#
+# The arity check is what makes that claim true for $4 and beyond: a `case` on
+# $3 alone structurally cannot see a later argument, so without this the flag
+# landing in $4 is accepted in silence — exactly the failure named above.
+if [ "$#" -gt 3 ]; then
+    echo "actionable-patterns: unexpected argument '$4' (expected at most <retrospectives> <overrides> [--full])" >&2
+    exit 2
+fi
 case "${3:-}" in
     '') : ;;
     --full) FULL=1 ;;
@@ -186,8 +195,11 @@ fi
 COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.timezone.utc)-d.timedelta(days=${COOLDOWN})).timestamp()))")"
 
 # ── Build output array ───────────────────────────────────────────────────────
-# For each tag in the pattern view where status is "open" or "regressed"
-# and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
+# Default mode: each tag in the pattern view whose status is "open" or
+# "regressed", where a `regressed` tag bypasses the MIN occurrence threshold
+# outright (issue #788). --full mode drops BOTH filters and emits every tag.
+# Either way the entry carries cooldown_active resolved. The two `select` lines
+# below are the authoritative statement of this; keep them in step.
 
 # Route the corpus-sized operands (the --slurpfile flags below) through files
 # rather than --argjson argv slots: they grow monotonically with the corpus and, at

@@ -105,10 +105,14 @@ def fixes_for($entries; $slug):
 # non-canonical stored key cannot surface as a zero-occurrence phantom pattern.
 # Both maps are hand-corruptible: dismissed{} is human-owned by design, and a
 # maintainer can edit overrides.json directly. Guard the SHAPE at the boundary --
-# `objects` drops a non-object map, `strings` drops a non-string key (an array
-# would otherwise yield a numeric key that aborts slugify's ascii_downcase), and
-# the per-record `objects` below stops a non-object record from aborting the
-# whole derivation on `.fixed_at`. A wrong-shaped record is skipped, not fatal.
+# `objects` drops a non-object map (the array/scalar shapes), and the per-record
+# `objects` below stops a non-object record from aborting the whole derivation on
+# `.fixed_at`. A wrong-shaped record is skipped, not fatal.
+# `strings` on the key is belt-and-braces rather than load-bearing: `objects`
+# has already excluded every shape `to_entries` could draw a non-string key
+# from, and JSON object keys are strings by construction. It documents the
+# invariant that a key reaching slugify's `ascii_downcase` is a string; do not
+# read it as the guard that establishes that.
 | ((($ov.dismissed | objects) // {}) | to_entries | map(select(.key | strings)) | map({key:(.key|slugify), value:.value}) | from_entries) as $dismissed
 | ((($ov.patterns  | objects) // {}) | to_entries | map(select(.key | strings)) | map({key:(.key|slugify), value:.value}) | from_entries) as $lifecycle
 | ([

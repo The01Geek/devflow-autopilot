@@ -434,6 +434,25 @@ assert_eq "#788 --full: the liveness diagnostic is suppressed" "false" \
 assert_eq "#788 --full: the same fixture emits the diagnostic without --full" "true" \
   "$(grep -q '::warning::actionable-patterns: no pattern is eligible' "$RL_TMP/live.err" && echo true || echo false)"
 
+# The arg guard must reject EVERY unrecognized trailing argument, not only $3.
+# The failure this closes is the one the guard's own comment names: a --full that
+# lands past $3 leaves FULL=0, so the caller writes the FILTERED subset to
+# patterns-full.json and the report renders it under a heading promising the
+# unfiltered picture — well-formed, non-empty and wrong, with every downstream
+# guard passing. `case "${3:-}"` alone cannot see it.
+bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" '' --full >/dev/null 2>"$RL_TMP/arg4.err"; RL_ARG4_RC=$?
+assert_eq "#788 args: --full landing in \$4 is rejected, not silently ignored" "2" "$RL_ARG4_RC"
+assert_eq "#788 args: the \$4 rejection names the offending argument" "true" \
+  "$(grep -q "unexpected argument" "$RL_TMP/arg4.err" && echo true || echo false)"
+bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full --bogus >/dev/null 2>"$RL_TMP/arg4b.err"; RL_ARG4B_RC=$?
+assert_eq "#788 args: a trailing junk argument after --full is rejected too" "2" "$RL_ARG4B_RC"
+# Positive control on the same fixture: the accepted arities still succeed, so the
+# two rejections above pin the arity guard and not a broken fixture.
+bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" --full >/dev/null 2>&1; RL_ARG3_RC=$?
+assert_eq "#788 args: the 3-arg --full form still succeeds (control)" "0" "$RL_ARG3_RC"
+bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/live-ov.json" >/dev/null 2>&1; RL_ARG2_RC=$?
+assert_eq "#788 args: the 2-arg default form still succeeds (control)" "0" "$RL_ARG2_RC"
+
 # ── caps: open-count derivation + report rendering ───────────────────────────
 # The cap counts are derived from `filed` lifecycle entries across records, never
 # from a label query. A record with two `filed` entries and one `fixed` entry
@@ -1367,6 +1386,30 @@ assert_eq "#788 prefetch: the only key is the one the record already held" "pref
 assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture page (control)" "true" \
   "$("$RL_TMP/gh-prefetch.sh" issue list | jq 'any(.[]; .number==602)')"
 
+# ── the cap comparands survive ONE malformed lifecycle record ────────────────
+# overrides.json is hand-editable, and compute-patterns.jq/_migrate were both
+# explicitly hardened against a non-object record. These two readers of the SAME
+# file were not: `(.patterns // {})[] | (.meta_issues // [])[]` aborts jq on a
+# scalar record ("Cannot index string with meta_issues"), the helper prints
+# nothing, and devflow_filing_cap_verdict then returns invalid-operand for EVERY
+# pattern — a run that files nothing, which is the #788 failure mode.
+(
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"junk":"not-an-object","good":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"fixed"}]}}}' \
+    > "$RL_TMP/caps-bad.json"
+  RL_TOT="$(devflow_open_filed_total "$RL_TMP/caps-bad.json" 2>/dev/null)"
+  assert_eq "#788 caps: a non-object record does not unestablish the total" "1" "$RL_TOT"
+  RL_CAT="$(devflow_open_filed_in_category "$RL_TMP/caps-bad.json" good 2>/dev/null)"
+  assert_eq "#788 caps: a non-object sibling does not unestablish the per-category count" "1" "$RL_CAT"
+  # Control on the same fixture shape: with the junk record removed the counts are
+  # identical, so the two assertions above pin the skip-the-bad-record behaviour
+  # and not a fixture that happens to count zero either way.
+  printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"good":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"fixed"}]}}}' \
+    > "$RL_TMP/caps-ok.json"
+  assert_eq "#788 caps: the same fixture without the junk record counts the same (control)" "1" \
+    "$(devflow_open_filed_total "$RL_TMP/caps-ok.json" 2>/dev/null)"
+)
+
 # ── render-report tolerates a malformed optional count key ───────────────────
 # `// []` does not replace a truthy non-array value, so `length` aborts jq on a
 # hand-corrupted `withheld_patterns`/`declined_refiled`. Under `set -e` an
@@ -1381,6 +1424,51 @@ assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture pag
     "$(case "$RL_BAD" in *"withheld by a filing cap"*) echo true ;; *) echo false ;; esac)"
   assert_eq "#788 render: a malformed declined_refiled omits its section too" "false" \
     "$(case "$RL_BAD" in *"Won't-fix patterns re-raised"*) echo true ;; *) echo false ;; esac)"
+)
+
+# ── the malformed-count guard covers every non-array shape, not just booleans ──
+# `length` only ERRORS on a boolean: a string, a number and an object all return
+# a count (`"oops"|length` -> 4, `{"a":1}|length` -> 1). So a count guard written
+# as `length` + a numeric case passes those three shapes straight through as a
+# positive count, and the section's own element read — `.tag`, `.cap`,
+# `sort_by` — is what aborts, AFTER the heading is already on stdout. Under this
+# file's `set -euo pipefail` that kills the render mid-report and takes every
+# LATER section (Blockers included) with it. Drive the three shapes the boolean
+# case never reached, on the two keys whose absence must stay non-silent.
+for RL_SHAPE in '"oops"' '5' '{"a":1}'; do
+  (
+    . "$REPO_ROOT/lib/render-report.sh"
+    RL_NB="$(devflow_render_report "{\"prs_scanned\":7,\"patterns\":$RL_SHAPE,\"blockers\":[\"b1\"]}" 2>/dev/null)"
+    assert_eq "#788 render: a non-array patterns ($RL_SHAPE) still renders the LATER blockers section" "true" \
+      "$(case "$RL_NB" in *"b1"*) echo true ;; *) echo false ;; esac)"
+    assert_eq "#788 render: a non-array patterns ($RL_SHAPE) omits the pattern section entirely" "false" \
+      "$(case "$RL_NB" in *"Patterns this run"*) echo true ;; *) echo false ;; esac)"
+  )
+  (
+    . "$REPO_ROOT/lib/render-report.sh"
+    RL_NW="$(devflow_render_report "{\"prs_scanned\":7,\"patterns\":[],\"withheld_patterns\":$RL_SHAPE,\"blockers\":[\"b2\"]}" 2>/dev/null)"
+    assert_eq "#788 render: a non-array withheld_patterns ($RL_SHAPE) still renders blockers" "true" \
+      "$(case "$RL_NW" in *"b2"*) echo true ;; *) echo false ;; esac)"
+  )
+done
+# The non-silent keys must still BREADCRUMB on these shapes — the warning arm was
+# unreachable for them while `length` returned a count.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_STR_ERR="$(devflow_render_report '{"prs_scanned":7,"patterns":"oops","blockers":"nope"}' 2>&1 >/dev/null)"
+  assert_eq "#788 render: a STRING patterns breadcrumbs like a boolean one does" "true" \
+    "$(case "$RL_STR_ERR" in *"\`patterns\` key is malformed"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a STRING blockers breadcrumbs too" "true" \
+    "$(case "$RL_STR_ERR" in *"\`blockers\` key is malformed"*) echo true ;; *) echo false ;; esac)"
+)
+# A well-formed array carrying ONE malformed element must not abort the element
+# read either: `.tag` on a string element raises "Cannot index string with tag",
+# which under `set -e` truncates the report after the heading it already printed.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_ELEM="$(devflow_render_report '{"prs_scanned":7,"patterns":["junk"],"withheld_patterns":["junk"],"declined_refiled":[{"o":1}],"blockers":["b3"]}' 2>/dev/null)"
+  assert_eq "#788 render: a malformed ELEMENT does not truncate the report" "true" \
+    "$(case "$RL_ELEM" in *"b3"*) echo true ;; *) echo false ;; esac)"
 )
 
 # ── _migrate's two failure arms ──────────────────────────────────────────────

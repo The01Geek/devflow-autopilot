@@ -345,7 +345,8 @@ _reconcile() {  # $1 = overrides path, $2 = limit
                   "::warning::pattern-state: pattern " + $slug + " meta-issue #" + ($n|tostring) + " is closed with an unrecognized stateReason " + ($r.stateReason|tostring) + " — no transition applied"
                 end
             )
-          end' 1>&2 || true
+          end' 1>&2 \
+      || echo "::warning::pattern-state: the per-slug reconcile diagnostics could not be emitted (jq exited non-zero) — the ABSENCE of per-slug warnings below is NOT evidence that every meta-issue resolved" >&2
 
     local tmp
     tmp="$(mktemp "$(_dir_of "$ov")/.overrides-rec.XXXXXX")" \

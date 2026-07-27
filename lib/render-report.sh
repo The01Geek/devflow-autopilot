@@ -44,31 +44,39 @@ devflow_render_report() {
     # ever silent: the mechanical no-provenance pre-dispatch skip, the Stage A
     # Cancelled skip, and the Stage A interim skip. Omitted when nothing was skipped.
     local skips_n
-    # `|| true` + numeric guard, mirroring open-state-pr.sh's identical jq-count
-    # fallback. `length` aborts jq on a boolean `.skips` (a hand-corrupted summary),
-    # and under `set -e` a bare failing substitution would kill the whole report —
-    # losing every other section over one malformed optional key. Tolerate the abort,
-    # then degrade a non-numeric result to 0 so the section is merely omitted.
-    skips_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // []) | length' 2>/dev/null || true)"
+    # Count ONLY an actual array; every other shape emits nothing, which the
+    # numeric case below degrades to 0 so the section is merely omitted.
+    #
+    # Why the type test and not a bare `length`: jq's `length` errors on a
+    # BOOLEAN only. A string, a number and an object all return a count
+    # (`"oops"|length` -> 4, `{"a":1}|length` -> 1, `5|length` -> 5), so a
+    # `length`-plus-numeric-case guard waves those three shapes through as a
+    # positive count. The section heading is then printed and the ELEMENT read
+    # below is what aborts — truncating the report mid-render, after the heading,
+    # and taking every later section with it under this file's `set -e`. The
+    # element reads are separately made total (`map(select(type == "object"))`)
+    # and non-aborting (`|| true`) for the same reason.
+    skips_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.skips // [] | type) == "array" then (.skips // [] | length) else empty end' 2>/dev/null || true)"
     case "$skips_n" in ''|*[!0-9]*) skips_n=0 ;; esac
     if [ "$skips_n" -gt 0 ]; then
         printf '\n### Skipped PRs (mechanical no-provenance / Cancelled / interim)\n\n'
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // [])[] | "- " + (. | gsub("\n";" "))'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.skips // [])[] | "- " + (. | tostring | gsub("\n";" "))' 2>/dev/null || true
     fi
 
     # Analyzed PRs — one line each (omitted when the caller did not pass `analyzed`)
     local analyzed_n
-    # Guarded for the reason `skips_n` documents above: `// []` does not replace
-    # a truthy non-array key, so an unguarded `length` would abort jq and, under
-    # `set -e`, take the WHOLE report down over one malformed key.
-    analyzed_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.analyzed // []) | length' 2>/dev/null || true)"
+    # Type-tested for the reason `skips_n` documents above: `// []` does not
+    # replace a truthy non-array key, and `length` counts a string/number/object
+    # rather than erroring, so only an array is counted here and the element read
+    # below is made total and non-aborting.
+    analyzed_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.analyzed // [] | type) == "array" then (.analyzed // [] | length) else empty end' 2>/dev/null || true)"
     case "$analyzed_n" in ''|*[!0-9]*) analyzed_n=0 ;; esac
     if [ "$analyzed_n" -gt 0 ]; then
         printf '\n### Analyzed PRs\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
-            (.analyzed // [])[]
+            (.analyzed // [] | map(select(type == "object")))[]
             | "- #\(.pr) — \(.verdict): " +
-              ((.summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)'
+              ((.summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)' 2>/dev/null || true
     fi
 
     # Patterns — the UNFILTERED view (issue #788): the orchestrator passes the whole
@@ -77,19 +85,20 @@ devflow_render_report() {
     # run and, where it was withheld, the cap that withheld it. Omitted when the
     # caller did not pass `patterns`.
     local patterns_n
-    # Guarded for the reason `skips_n` documents above: `// []` does not replace
-    # a truthy non-array key, so an unguarded `length` would abort jq and, under
-    # `set -e`, take the WHOLE report down over one malformed key.
-    patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.patterns // []) | length' 2>/dev/null || true)"
+    # Type-tested for the reason `skips_n` documents above: `// []` does not
+    # replace a truthy non-array key, and `length` counts a string/number/object
+    # rather than erroring, so only an array is counted here and the element read
+    # below is made total and non-aborting.
+    patterns_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.patterns // [] | type) == "array" then (.patterns // [] | length) else empty end' 2>/dev/null || true)"
     # Unlike the optional sections, degrading THIS key to 0 must not be silent.
     # `.patterns` is the report's substance, and the upstream producer
     # (`devflow_annotate_patterns`) fails loud precisely so a producer failure
     # cannot render as a quiet week — but its protection is the caller's
     # `: "${PATTERNS_JSON:?…}"`, which tests for the EMPTY STRING and therefore
     # cannot see a non-empty malformed value that reaches this renderer. Without
-    # a breadcrumb here, a truthy non-array `.patterns` produces a complete,
-    # plausible report with the pattern section simply absent — indistinguishable
-    # from a week with no patterns. Say so.
+    # a breadcrumb here, a truthy non-array `.patterns` yields a report whose
+    # pattern section is simply absent — indistinguishable from a week with no
+    # patterns. Say so.
     case "$patterns_n" in
         ''|*[!0-9]*)
             echo "::warning::render-report: the summary's \`patterns\` key is malformed (not an array) — the 'Patterns this run' section is OMITTED, which is NOT evidence that there were no patterns" >&2
@@ -98,12 +107,12 @@ devflow_render_report() {
     if [ "$patterns_n" -gt 0 ]; then
         printf '\n## Patterns this run\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
-            (.patterns // [])
+            (.patterns // [] | map(select(type == "object")))
             | sort_by(-(.occurrence_count // 0))[]
             | "- `\(.tag // .slug)` — \(.occurrence_count // 0)× (status: \(.status // "open"))"
               + (if (.filing_outcome // "") != "" then " — \(.filing_outcome)" else "" end)
               + (if (.withheld_by // "") != "" then " — withheld by `\(.withheld_by)`" else "" end)
-              + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
+              + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)' 2>/dev/null || true
     fi
 
     # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line
@@ -120,15 +129,15 @@ devflow_render_report() {
     # Withheld by a filing cap (issue #788) — every pattern the back-pressure caps
     # held back this run, named with the cap that withheld it.
     local withheld_n
-    # Same `|| true` + numeric-degrade guard `skips_n` documents above: `// []`
-    # does not replace a truthy non-array key, so a hand-corrupted
-    # `withheld_patterns` would abort `length` and, under `set -e`, kill the whole
-    # report over one malformed optional key.
-    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // []) | length' 2>/dev/null || true)"
+    # Same type-test + numeric-degrade guard `skips_n` documents above. The
+    # element read is `map(select(type == "object"))`-filtered and `|| true`-ed
+    # too: a well-formed array carrying ONE malformed element would otherwise
+    # abort `.tag`/`.cap` after the heading was already printed.
+    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.withheld_patterns // [] | type) == "array" then (.withheld_patterns // [] | length) else empty end' 2>/dev/null || true)"
     case "$withheld_n" in ''|*[!0-9]*) withheld_n=0 ;; esac
     if [ "$withheld_n" -gt 0 ]; then
         printf '\n## Patterns withheld by a filing cap\n\n'
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // [])[] | "- `\(.tag // .slug)` — withheld by `\(.cap)`"'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // [] | map(select(type == "object")))[] | "- `\(.tag // .slug)` — withheld by `\(.cap // "(unknown cap)")`"' 2>/dev/null || true
     fi
 
     # Won't-fix re-raised (issue #788) — patterns re-filed this run whose meta-issue
@@ -136,13 +145,13 @@ devflow_render_report() {
     # recurring won't-fix; name each one and the one durable off-switch (a human
     # `dismissed{}` entry) so the maintainer's decision is re-raised visibly.
     local declined_refiled_n
-    # Guarded for the reason `skips_n`/`withheld_n` document above.
-    declined_refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // []) | length' 2>/dev/null || true)"
+    # Type-tested for the reason `skips_n`/`withheld_n` document above.
+    declined_refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.declined_refiled // [] | type) == "array" then (.declined_refiled // [] | length) else empty end' 2>/dev/null || true)"
     case "$declined_refiled_n" in ''|*[!0-9]*) declined_refiled_n=0 ;; esac
     if [ "$declined_refiled_n" -gt 0 ]; then
         printf '\n## Won'"'"'t-fix patterns re-raised this run\n\n'
         printf 'These recurred after being closed not-planned. To stop one permanently, add a human `dismissed{}` entry to `.devflow/learnings/overrides.json`.\n\n'
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // [])[] | "- `\(.)`"'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // [])[] | "- `\(.)`"' 2>/dev/null || true
     fi
 
     # Recurring intervention targets (issue #520) — report-only: the files/areas
@@ -152,10 +161,11 @@ devflow_render_report() {
     # when no target reaches >= 2 distinct PRs (the helper emits [] then), mirroring
     # the optional-section idiom above.
     local recurring_n
-    # Guarded for the reason `skips_n` documents above: `// []` does not replace
-    # a truthy non-array key, so an unguarded `length` would abort jq and, under
-    # `set -e`, take the WHOLE report down over one malformed key.
-    recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.recurring_targets // []) | length' 2>/dev/null || true)"
+    # Type-tested for the reason `skips_n` documents above: `// []` does not
+    # replace a truthy non-array key, and `length` counts a string/number/object
+    # rather than erroring, so only an array is counted here and the element read
+    # below is made total and non-aborting.
+    recurring_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.recurring_targets // [] | type) == "array" then (.recurring_targets // [] | length) else empty end' 2>/dev/null || true)"
     case "$recurring_n" in ''|*[!0-9]*) recurring_n=0 ;; esac
     if [ "$recurring_n" -gt 0 ]; then
         printf '\n## Recurring intervention targets\n\n'
@@ -163,36 +173,36 @@ devflow_render_report() {
         # canonical key so render-report stays self-contained (like the patterns
         # section) and never depends on the caller pre-sorting the array.
         echo "$summary_json" | "$DEVFLOW_JQ" -r '
-            (.recurring_targets // [])
+            (.recurring_targets // [] | map(select(type == "object")))
             | sort_by([-(.pr_count // 0), .target])[]
             | "- `\(.target)` — \(.pr_count // 0) PRs (\((.prs // []) | map("#\(.)") | join(", "))): "
-              + ((.representative_summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)'
+              + ((.representative_summary // "") | gsub("\n";" ") | if length > 220 then .[0:217] + "…" else . end)' 2>/dev/null || true
     fi
 
     # Issues filed — one per actionable pattern (the loop proposes, not disposes:
     # each pattern becomes a GitHub issue for the normal implement -> review pipeline)
     printf '\n## Issues filed\n\n'
     local issues_count
-    issues_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.intervention_issues // []) | length' 2>/dev/null || true)"
+    issues_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.intervention_issues // [] | type) == "array" then (.intervention_issues // [] | length) else empty end' 2>/dev/null || true)"
     case "$issues_count" in ''|*[!0-9]*) issues_count=0 ;; esac
     if [ "$issues_count" -eq 0 ]; then
         printf '_None filed._\n'
     else
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.intervention_issues // [])[] | "- `\(.tag)` — \(.url)"'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.intervention_issues // [] | map(select(type == "object")))[] | "- `\(.tag)` — \(.url)"' 2>/dev/null || true
     fi
 
     # Cooldown-skipped patterns (omit section if empty)
     local cooldown_count
-    cooldown_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // []) | length' 2>/dev/null || true)"
+    cooldown_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.cooldown_skipped // [] | type) == "array" then (.cooldown_skipped // [] | length) else empty end' 2>/dev/null || true)"
     case "$cooldown_count" in ''|*[!0-9]*) cooldown_count=0 ;; esac
     if [ "$cooldown_count" -gt 0 ]; then
         printf '\n## Cooldown-skipped patterns\n\n'
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // [])[] | "- `\(.)`"'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.cooldown_skipped // [])[] | "- `\(.)`"' 2>/dev/null || true
     fi
 
     # Blockers (omit section if empty)
     local blocker_count
-    blocker_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // []) | length' 2>/dev/null || true)"
+    blocker_count="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.blockers // [] | type) == "array" then (.blockers // [] | length) else empty end' 2>/dev/null || true)"
     # Like `patterns` above, this one must not degrade silently: `.blockers` is the
     # section that REPORTS failures, and failures being suppressed by a failure is
     # the worst possible pairing.
@@ -203,6 +213,6 @@ devflow_render_report() {
     esac
     if [ "$blocker_count" -gt 0 ]; then
         printf '\n## Blockers\n\n'
-        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // [])[] | "- \(.)"'
+        echo "$summary_json" | "$DEVFLOW_JQ" -r '(.blockers // [])[] | "- \(.)"' 2>/dev/null || true
     fi
 }
