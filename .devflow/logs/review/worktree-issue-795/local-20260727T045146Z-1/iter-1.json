@@ -2,14 +2,20 @@
   "iter": 1,
   "started_at": "2026-07-27T04:52:00Z",
   "current_step": "loop-control",
-  "current_substep": "phase-1-checklist-generation",
+  "current_substep": "phase-2-verification-batch-10",
   "pending_dispatch": {
-    "kind": "checklist_generator_batches",
+    "kind": "checklist_verifier_batch",
     "roster": [
-      "devflow:checklist-generator/batch-1",
-      "devflow:checklist-generator/batch-2"
+      "VC-73",
+      "VC-74",
+      "VC-75",
+      "VC-76",
+      "VC-77",
+      "VC-78",
+      "VC-79",
+      "VC-80"
     ],
-    "dispatched_at": "2026-07-27T04:56:00Z"
+    "dispatched_at": "2026-07-27T06:40:00Z"
   },
   "loop_role": "fix",
   "diff_profile": {
@@ -27,7 +33,25 @@
       "resolved": "low",
       "application_point": "session-fallback",
       "effective": null,
-      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+      "fallback_reason": "per-agent effort resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:checklist-deduper",
+      "phase": "1.5",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "model override claude-sonnet-5 applied; effort not applicable per-agent"
+    },
+    {
+      "agent": "devflow:checklist-verifier",
+      "phase": "2",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort resolved but not applied: no in-session per-agent effort seam"
     }
   ],
   "stale_prose": {
@@ -37,5 +61,35 @@
     "unresolvable_rows": 12,
     "note": "informational only; UNRESOLVABLE never gates the verdict"
   },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "checklist_counts": {
+    "raw": 105,
+    "batches": 2,
+    "deduped": 94,
+    "lite_promoted_to_agent": 2,
+    "note": "both lite items lacked a lite_probe field, so promoted to the agent path per Phase 2.1a"
+  },
+  "phase2_progress": {
+    "verified_so_far": 72,
+    "total": 94,
+    "raw_fails": [
+      "VC-44",
+      "VC-50",
+      "VC-61"
+    ],
+    "channel_defects": [
+      "VC-37 wrote no nonce file; recoverable via response_text fallback"
+    ]
+  },
+  "notes_for_phase3": [
+    "VC-46/VC-76: the two prose readers refuse on the three named arms but a degenerate-but-nonzero extraction (one repeated backticked name, or an anchor inside a code block) does not refuse - a possible vacuous-pass residual.",
+    "VC-56: the private-argparse walk would silently double-count if any subparser ever registered aliases=; none does today.",
+    "VC-69: _PROTOCOL_TOKENS ordering break is real but cosmetic - sole consumer is a membership test.",
+    "VC-68: the mutation-routing-worktree gate could not complete locally (adjudication branch not based on current origin/main); library-level authorization check substituted.",
+    "VC-66: checklist item cited a stale source_line (642) for an operand actually at run.sh:41405."
+  ],
   "telemetry": "unavailable"
 }
