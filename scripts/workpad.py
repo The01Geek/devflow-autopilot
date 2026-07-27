@@ -508,6 +508,12 @@ _ACS_SOURCE_WORKPAD_UNMIRRORED = 'workpad-unmirrored'
 _ACS_SOURCE_WORKPAD_READ_FAILED = 'workpad-read-failed'
 _ACS_SOURCE_PR_IDENTITY_MISMATCH = 'pr-identity-mismatch'
 _ACS_SOURCE_NONE = 'none'
+# Routed when the `issue` argument is empty or non-numeric (issue #857). The §0.4
+# fence's S1 numeric guard moved INTO this subcommand so the fence is a bare
+# single-statement call; a non-numeric argument means no surface can be examined at
+# all, exactly what `resolver-unavailable` names — so it reuses that existing token
+# rather than widening the `acceptance_criteria_source` vocabulary Phase 4 renders.
+_ACS_SOURCE_RESOLVER_UNAVAILABLE = 'resolver-unavailable'
 
 _ACS_SECTION = 'Acceptance Criteria'
 
@@ -547,7 +553,7 @@ def _acs_workpad_state(section_lines: list[str], items: list[dict]) -> str:
     return _ACS_SOURCE_ISSUE_BODY
 
 
-def _acs_read_workpad(cmd: str, issue: int):
+def _acs_read_workpad(cmd: str, issue: str):
     """Locate the workpad and parse its `## Acceptance Criteria` section.
 
     Returns `(comment_body, section_lines, items)`. Exits 2 (empty stdout AND
@@ -718,7 +724,7 @@ def _acs_pr_identity_ok(issue_items: list[dict], workpad_items: list[dict],
     return True
 
 
-def _acs_fetch_issue_body(issue: int) -> str:
+def _acs_fetch_issue_body(issue: str) -> str:
     try:
         r = _run([GH, 'issue', 'view', str(issue), '--json', 'body', '-q', '.body'])
     except (subprocess.CalledProcessError, OSError) as e:
@@ -758,7 +764,40 @@ def cmd_acs_resolve(args):
     measurement of a surface this run never read, and collapsing
     `workpad-unmirrored` onto it would report a silently-failed mirroring as an
     ordinary criteria-less PR.
+
+    A non-numeric (or empty) issue argument is ROUTED, not aborted (issue #857):
+    the §0.4 fence's S1 numeric guard moved here so that fence is a bare
+    single-statement call the cloud matcher permits. Such an argument means no
+    surface can be examined at all, so this prints the `resolver-unavailable`
+    source token with exit 0 rather than letting argparse abort with exit 2 —
+    preserving the always-exit-0-on-a-resolvable-state contract. (An unreadable
+    workpad COMMENT remains routed as `workpad-read-failed`, as before.) The
+    `issue` argument for this subcommand is therefore accepted as a string and
+    validated here, not by argparse `type=int`.
     """
+    # `issue` is a required positional accepted as a string (see the argparse note),
+    # so `args.issue` is always present; the ASCII-only digit test is deliberate — it
+    # rejects the non-ASCII digits `str.isdigit()`/`isdecimal()` would accept, matching
+    # the seed helper's `*[!0-9]*` shell guard.
+    issue_arg = args.issue
+    if not issue_arg or not all(c in '0123456789' for c in issue_arg):
+        # Breadcrumb on stderr so a CALLER bug (a malformed issue argument) is
+        # distinguishable from an infrastructure denial: both route to the same
+        # `resolver-unavailable` token on stdout, and without this line the two are
+        # indistinguishable to whoever reads the run. The old Phase 0.4 fence emitted
+        # a `::warning::` naming this cause; folding the guard into the helper must not
+        # lose that diagnostic. stdout stays byte-identical (it is the routed contract).
+        print(
+            f"workpad.py acs-resolve: issue argument {issue_arg!r} is not numeric — "
+            f"no surface can be examined; routing as "
+            f"{_ACS_SOURCE_RESOLVER_UNAVAILABLE}",
+            file=sys.stderr,
+        )
+        print(f'source: {_ACS_SOURCE_RESOLVER_UNAVAILABLE}')
+        print('criteria:')
+        print('divergence:')
+        print('not-applicable')
+        return
     _require_section_parse('acs-resolve')
     issue_body = _acs_fetch_issue_body(args.issue)
     issue_items = parse_checkboxes(extract_section(issue_body, _ACS_SECTION))
@@ -3360,7 +3399,10 @@ def main():
              'and the issue body, name the source, and report normalized '
              'divergence. Used by the review engine Phase 0.4.',
     )
-    s.add_argument('issue', type=int)
+    # NOT type=int (issue #857): the numeric guard is applied INSIDE cmd_acs_resolve
+    # so a non-numeric argument is a routed `resolver-unavailable` outcome with exit 0,
+    # not an argparse exit 2. This lets the §0.4 fence be a bare single-statement call.
+    s.add_argument('issue', type=str)
     s.add_argument('--pr', type=int, default=None,
                    help='The PR under review. Scope-decision records must carry '
                         'this number to count; a record left at pr=pending, or '
