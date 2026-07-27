@@ -39580,7 +39580,7 @@ assert_eq "#711 the growth artifact exists" "yes" \
 # ────────────────────────────────────────────────────────────────────────────
 echo "#834 subagent extension-handoff lint"
 E834_LINT="$LIB/test/lint-subagent-extension-handoff.py"
-E834_REG_REAL="$LIB/../lib/subagent-dispatch-sites.json"
+E834_REG_REAL="$LIB/subagent-dispatch-sites.json"
 
 # Real-tree run: clean now, plus a POSITIVE record tally so a collapsed audit can't read clean.
 E834_OUT="$(python3 "$E834_LINT" --root "$LIB/.." 2>&1)"; E834_RC=$?
@@ -39662,6 +39662,10 @@ e834_write "$E834_FX" skills/d/split.md \
   "# Token section" "Use the Agent tool." "# Ref section" "invoke the \`devflow:childskill\` skill"
 e834_write "$E834_FX" skills/d/fenced.md \
   "## Fenced" "Example below:" '```' "# Agent tool: invoke the \`devflow:childskill\` skill" '```' "Nothing outside the fence."
+# An UNTERMINATED fence must NOT hide a real dispatch after it — the scan fails CLOSED
+# (matching the sibling git-ls-files lints), so the region stays scannable.
+e834_write "$E834_FX" skills/d/unterminated.md \
+  "## After an unterminated fence" '```' "an example fence that is never closed" "Use the Agent tool to invoke the \`devflow:childskill\` skill."
 # A file whose one section dispatches TWO children — the second-dispatch-in-a-registered-file case.
 e834_write "$E834_FX" skills/d/twochild.md \
   "## Two children" "Use the Agent tool to invoke the \`devflow:childskill\` skill and also invoke the \`devflow:otherskill\` skill."
@@ -39713,6 +39717,11 @@ assert_eq "#834 lint: the complement (agents/, superpowers, token-only, ref-only
   "rc=0" \
   "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md)" in
        "rc=0|"*) echo "rc=0" ;; *) e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/agentref.md skills/d/superref.md skills/d/tokenonly.md skills/d/refonly.md skills/d/split.md skills/d/fenced.md ;; esac)"
+
+# Fail-closed: a dispatch after an UNTERMINATED fence is still flagged (not hidden).
+assert_eq "#834 lint: a dispatch after an unterminated fence is not hidden (fails closed)" "yes" \
+  "$(case "$(e834_run "$E834_FX" "$E834_REG_EMPTY" skills/d/unterminated.md)" in
+       *"unregistered dispatch"*"skills/d/unterminated.md"*"childskill"*) echo yes ;; *) echo no ;; esac)"
 
 # Stale declared_non_dispatch (names a section the scan no longer flags) → red.
 E834_REG_STALE="$(probe_tmp '#834 reg stale')"

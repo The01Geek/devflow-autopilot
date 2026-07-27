@@ -110,6 +110,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import functools
 import importlib.util
 import json
 import os
@@ -192,8 +193,14 @@ def is_audited(path: str) -> bool:
     return bool(re.fullmatch(r"\.devflow/prompt-extensions/[^/]+\.md", normalized))
 
 
+@functools.cache
 def resolve_slug(root: Path, slug: str) -> str:
-    """Resolve a reference slug to `skills`, `agents`, or `unknown` against the tree."""
+    """Resolve a reference slug to `skills`, `agents`, or `unknown` against the tree.
+
+    Memoized: the distinct-slug set is tiny and closed, while a slug can be referenced
+    across many (nested) section spans, so caching collapses repeated `is_dir`/`exists`
+    stat pairs to one per (root, slug).
+    """
     if (root / "skills" / slug).is_dir():
         return "skills"
     if (root / "agents" / f"{slug}.md").exists():
@@ -209,23 +216,34 @@ def split_sections(text: str) -> list[tuple[str, int, list[str]]]:
     before the first heading) is returned as an empty-title level-0 section.
     """
     lines = text.split("\n")
-    in_fence = False
-    fence_marker = ""
-    # First pass: classify each line as heading / fenced / plain, so a `#` inside a
-    # fence is never mistaken for a heading and fenced content contributes no match.
-    classified: list[tuple[str, str, int]] = []  # (kind, text, level)
-    for raw in lines:
+    # First determine which lines lie inside a **closed** fence. Only a matched
+    # opener/closer pair marks its interior (and its two marker lines) inert; an
+    # **unterminated** fence opener is treated as ordinary text so the region after
+    # it stays scannable — failing **closed**, matching the sibling `git ls-files`
+    # lints (`pin-corpus-lint.py`, `lint-gh-api-repo-path.py`), rather than letting
+    # a dispatch paragraph after a malformed fence vanish from the scan.
+    fenced = [False] * len(lines)
+    open_index: int | None = None
+    open_marker = ""
+    for index, raw in enumerate(lines):
         fence = _FENCE.match(raw)
-        if fence is not None:
-            marker = fence.group(2)[0]
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker
-            elif marker == fence_marker:
-                in_fence = False
-            classified.append(("fence", raw, 0))
+        if fence is None:
             continue
-        if in_fence:
+        marker = fence.group(2)[0]
+        if open_index is None:
+            open_index, open_marker = index, marker
+        elif marker == open_marker:
+            for i in range(open_index, index + 1):
+                fenced[i] = True
+            open_index = None
+    # open_index still set → the last fence was never closed: leave those lines
+    # non-fenced (fail closed). Nothing to do — `fenced` stays False for them.
+
+    # Second pass: classify each non-fenced line as heading / plain, so a `#` inside
+    # a closed fence is never mistaken for a heading and fenced content matches nothing.
+    classified: list[tuple[str, str, int]] = []  # (kind, text, level)
+    for index, raw in enumerate(lines):
+        if fenced[index]:
             classified.append(("fenced", raw, 0))
             continue
         heading = _HEADING.match(raw)
@@ -290,6 +308,7 @@ def scan_file(root: Path, relative: str, text: str) -> list[tuple[str, set[str]]
     # ref in a subsection still co-occur; then keep only the innermost qualifying one.
     n = len(raw_sections)
     span_content: list[str] = []
+    span_end: list[int] = []  # exclusive end index of each section's "not deeper" span
     for i, (_title, level, _content) in enumerate(raw_sections):
         acc: list[str] = list(raw_sections[i][2])
         j = i + 1
@@ -297,6 +316,7 @@ def scan_file(root: Path, relative: str, text: str) -> list[tuple[str, set[str]]
             acc.extend(raw_sections[j][2])
             j += 1
         span_content.append("\n".join(acc))
+        span_end.append(j)
 
     qualifies = [False] * n
     refs_per: list[set[str]] = [set() for _ in range(n)]
@@ -311,15 +331,13 @@ def scan_file(root: Path, relative: str, text: str) -> list[tuple[str, set[str]]
         refs_per[i] = refs
 
     flagged: list[tuple[str, set[str]]] = []
-    for i, (title, level, _content) in enumerate(raw_sections):
+    for i, (title, _level, _content) in enumerate(raw_sections):
         if not qualifies[i]:
             continue
         # Innermost only: suppress this section if a deeper nested section (within its
-        # span) also qualifies — that child carries the actual co-location.
-        end = i + 1
-        while end < n and raw_sections[end][1] > level:
-            end += 1
-        if any(qualifies[k] for k in range(i + 1, end)):
+        # span, computed once above) also qualifies — that child carries the actual
+        # co-location.
+        if any(qualifies[k] for k in range(i + 1, span_end[i])):
             continue
         flagged.append((title, refs_per[i]))
     return flagged
