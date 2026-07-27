@@ -608,10 +608,30 @@ class PinCorpusLint810Tests(unittest.TestCase):
                 "assert_eq \"count\" \"1\" \"$(grep -cF x \"$DOC\")\"",
                 "assert_eq \"absence\" \"no\" \"$(grep -qF x \"$DOC\" && echo yes || echo no)\"",
                 "assert_eq \"temp\" \"yes\" \"$(grep -qF x \"$TMP_FILE\" && echo yes || echo no)\"",
+                # A scratch DIR plus a relative capture name is the ordinary way to
+                # write a runtime haystack; it is the same carve-out as the bare var.
+                "assert_eq \"temp dir\" \"yes\" \"$(grep -qF x \"$TMP_MI/edit-args\" && echo yes || echo no)\"",
+                "assert_eq \"temp braced\" \"yes\" \"$(grep -qF x \"${TEMP_D}/args\" && echo yes || echo no)\"",
             ]
         )
         sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
         self.assertEqual([], [site for site in sites if site.family == "raw-presence"])
+
+    def test_a_temp_named_var_that_resolves_into_the_repo_stays_in_scope(self):
+        # The carve-out is for UNRESOLVABLE runtime scratch only. A `TMP_`-named var
+        # that actually resolves to repository source is a source-presence pin and
+        # must not be exempted by its name.
+        source = "\n".join(
+            [
+                'TMP_DOC="$LIB/../docs/x.md"',
+                "assert_eq \"named temp\" \"yes\" \"$(grep -qF x \"$TMP_DOC\" && echo yes || echo no)\"",
+                "assert_eq \"inline temp\" \"yes\" \"$(grep -qF x \"$TMP_DOC/y\" && echo yes || echo no)\"",
+            ]
+        )
+        sites = self.mod.extract_guard_sites(source, "lib/test/a.sh", repo_root="/repo")
+        self.assertEqual(
+            2, len([site for site in sites if site.family == "raw-presence"])
+        )
 
     def test_moves_are_reclassified_under_the_current_site_policy(self):
         marker = "# structural-pin-ok: helper-contract -- the helper name is invoked"
@@ -2754,6 +2774,50 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def _audited_source_added_after_base(self, root, relative):
+        """Rewind ``origin/main`` past ``relative`` so HEAD adds it, as a branch would."""
+        (root / relative).unlink()
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "base without module"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+            cwd=root,
+            check=True,
+        )
+        # Commit the registration on a BRANCH, not on main: the gate requires local
+        # main to be an ancestor of origin/main, which is the real branch shape.
+        subprocess.run(["git", "checkout", "-q", "-b", "feature"], cwd=root, check=True)
+        shutil.copy2(REPO_ROOT / relative, root / relative)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "register module"], cwd=root, check=True)
+
+    def test_audited_source_registered_after_the_merge_base_passes(self):
+        # A branch that registers a new focused module adds the module file and its
+        # AUDITED_PIN_SOURCES entry in the same change, so the path is absent from the
+        # base tree by construction. Requiring it there failed the gate closed on the
+        # one shape the census exists to admit.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            self._audited_source_added_after_base(
+                root, "lib/test/modules/experiment-records.sh"
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_audited_source_absent_from_head_is_an_infrastructure_failure(self):
+        # The HEAD arm still fails closed: an audited path the committed tree does not
+        # carry leaves its pins unscanned, which is what the census exists to prevent.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature"], cwd=root, check=True)
+            (root / "lib/test/modules/experiment-records.sh").unlink()
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "drop module"], cwd=root, check=True)
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(2, rc, stderr)
+        self.assertIn("lib/test/modules/experiment-records.sh", stdout + stderr)
 
     def test_retired_helper_remains_a_public_worktree_policy_failure(self):
         with tempfile.TemporaryDirectory() as td:

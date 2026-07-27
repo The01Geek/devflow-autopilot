@@ -6,11 +6,17 @@
 # cooldown_days config.
 #
 # Usage:
-#   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json>
+#   bash lib/actionable-patterns.sh <retrospectives.jsonl> <overrides.json> [--full]
 #
 # Args:
 #   $1  path to retrospectives.jsonl
 #   $2  path to overrides.json
+#   $3  optional: --full, emitting the UNFILTERED whole-pattern view the run
+#       report renders (every lifecycle status, below-threshold and suppressed
+#       included) instead of the actionable subset. An unset or empty $3 selects
+#       the default (filtered) view; any other value, and any argument beyond $3,
+#       is rejected with rc 2. Note the emitted `status` is one of the six
+#       lifecycle values under --full, not just open/regressed.
 #
 # Output (stdout):
 #   Compact JSON array of actionable pattern objects, each shaped as:
@@ -18,7 +24,8 @@
 #       "tag":              <string>,          # category slug (== slug)
 #       "slug":             <string>,          # URL-safe issue-filing slug (== tag)
 #       "occurrence_count": <int>,
-#       "status":           "open"|"regressed",
+#       "status":           "open"|"regressed" (any of the six lifecycle
+#                           values under --full),
 #       "first_seen":       <iso8601|null>,
 #       "last_seen":        <iso8601|null>,
 #       "occurrences":      [...],
@@ -59,6 +66,29 @@ trap 'rm -rf "$_JQ_TMP"' EXIT
 
 RETRO_FILE="$1"
 OVERRIDES_FILE="$2"
+# --full emits the UNFILTERED pattern view (every pattern, every status) so the
+# orchestrator can carry the whole picture into the run report (issue #788); the
+# default emits only the actionable subset (open/regressed above threshold).
+FULL=0
+# Reject an unrecognized argument LOUDLY. A near-miss (`--ful`, `-full`,
+# `--full=1`) or a --full that lands PAST $3 would otherwise silently yield the
+# FILTERED view, which the caller then writes to patterns-full.json and the
+# report renders under a heading promising the unfiltered picture — well-formed,
+# non-empty, and wrong, with every downstream guard passing. Mirrors
+# pattern-state.sh's strict arg handling.
+#
+# The arity check is what makes that claim true for $4 and beyond: a `case` on
+# $3 alone structurally cannot see a later argument, so without this the flag
+# landing in $4 is accepted in silence — exactly the failure named above.
+if [ "$#" -gt 3 ]; then
+    echo "actionable-patterns: unexpected argument '$4' (expected at most <retrospectives> <overrides> [--full])" >&2
+    exit 2
+fi
+case "${3:-}" in
+    '') : ;;
+    --full) FULL=1 ;;
+    *) echo "actionable-patterns: unknown argument '$3' (expected --full)" >&2; exit 2 ;;
+esac
 
 MIN="$(devflow_conf '.devflow_retrospective.min_occurrences' 2)"
 COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
@@ -72,7 +102,7 @@ COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"
 if [ ! -f "$OVERRIDES_FILE" ] || [ ! -s "$OVERRIDES_FILE" ]; then
-    printf '{"schema_version":1,"dismissed":{}}' > "$_JQ_TMP/overrides.json"
+    printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$_JQ_TMP/overrides.json"
     _OVERRIDES_ACTUAL="$_JQ_TMP/overrides.json"
 fi
 
@@ -96,9 +126,11 @@ fi
 # Each pattern the loop files becomes an open issue titled
 # "[devflow-retrospective] meta: <slug> — <title>" (see lib/meta-issue.sh). A
 # pattern with such an issue still open and created within cooldown_days is in
-# cooldown — don't re-file it this run. (The permanent overrides.json dismissal
-# meta-issue.sh writes is the cross-run guard; this is the within-window one,
-# meaningful when a maintainer has cleared the dismissal to allow re-filing.)
+# cooldown — don't re-file it this run. (The cross-run guard is now the
+# issue-closure lifecycle in overrides.patterns[] that lib/pattern-state.sh
+# reconciles — a pattern with a `filed` meta-issue derives status `filed` and is
+# not actionable; this cooldown is the within-window guard against re-filing the
+# same open issue twice inside one window.)
 # Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
 # non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
 # fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque
@@ -164,8 +196,11 @@ fi
 COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.timezone.utc)-d.timedelta(days=${COOLDOWN})).timestamp()))")"
 
 # ── Build output array ───────────────────────────────────────────────────────
-# For each tag in the pattern view where status is "open" or "regressed"
-# and occurrence_count >= MIN, emit an entry with cooldown_active resolved.
+# Default mode: each tag in the pattern view whose status is "open" or
+# "regressed", where a `regressed` tag bypasses the MIN occurrence threshold
+# outright (issue #788). --full mode drops BOTH filters and emits every tag.
+# Either way the entry carries cooldown_active resolved. The two `select` lines
+# below are the authoritative statement of this; keep them in step.
 
 # Route the corpus-sized operands (the --slurpfile flags below) through files
 # rather than --argjson argv slots: they grow monotonically with the corpus and, at
@@ -175,17 +210,22 @@ COOLDOWN_EPOCH="$(python3 -c "import datetime as d; print(int((d.datetime.now(d.
 printf '%s' "$PATTERN_VIEW"   > "$_JQ_TMP/pattern_view.json"
 printf '%s' "$OPEN_ISSUE_MAP" > "$_JQ_TMP/open_issue_map.json"
 OUTPUT="$(
-  # argjson-ok: min, cooldown_epoch -- bounded scalars (a small int and an epoch
-  # int) — safe as argv; the corpus-sized operands above use --slurpfile.
+  # argjson-ok: min, full, cooldown_epoch -- bounded scalars (small ints / a 0|1
+  # flag / an epoch int) — safe as argv; the corpus-sized operands use --slurpfile.
   "$DEVFLOW_JQ" -n --slurpfile pattern_view    "$_JQ_TMP/pattern_view.json" \
         --slurpfile open_issue_map  "$_JQ_TMP/open_issue_map.json" \
         --argjson min             "$MIN" \
+        --argjson full            "$FULL" \
         --argjson cooldown_epoch  "$COOLDOWN_EPOCH" '
     [
       $pattern_view[0]
       | to_entries[]
-      | select(.value.status == "open" or .value.status == "regressed")
-      | select(.value.occurrence_count >= $min)
+      # Default (actionable) mode: only open/regressed patterns above the
+      # occurrence threshold — but a `regressed` pattern ALWAYS bypasses the
+      # threshold (issue #788: the schema documents this bypass; the code now
+      # honours it). --full mode drops both filters and emits every pattern.
+      | select($full == 1 or .value.status == "open" or .value.status == "regressed")
+      | select($full == 1 or .value.status == "regressed" or .value.occurrence_count >= $min)
       | .key as $tag
       | .value as $v
       # keys from compute-patterns.jq are already canonical slugs
@@ -213,5 +253,69 @@ OUTPUT="$(
     ]
   '
 )" || { echo "::error::actionable-patterns: failed to build the actionable-pattern output (jq exited non-zero — e.g. a malformed pattern view; the former oversized-operand arg-limit overflow is now mitigated via --slurpfile)" >&2; exit 1; }
+
+# ── Liveness warning (issue #788) ─────────────────────────────────────────────
+# When the actionable (eligible) set is EMPTY while at least one pattern is
+# suppressed at/above the threshold — occurrence_count >= min AND status in
+# {dismissed, declined, fixed} — the loop is silently producing nothing on inputs
+# that should raise something. Emit a loud ::warning:: naming the count and the
+# highest-occurrence suppressed slug, and print a `liveness:` line to stdout's
+# sibling stderr so the orchestrator can surface it in the report. `filed` is
+# deliberately EXCLUDED: an open meta-issue is the loop working correctly.
+#
+# The condition is deliberately NOT phrased as a recurrence. `occurrence_count`
+# is cumulative history, so a `fixed` pattern whose occurrences all predate its
+# `fixed_at` satisfies `occurrence_count >= min` indefinitely — and a `fixed`
+# pattern that DID recur would have derived `regressed` (an eligible status),
+# which empties this branch's precondition. Including `fixed` is what the issue
+# asks for (a lifecycle-state audit prompt on a run that filed nothing), but
+# calling that state "recurring" would over-state it, so the emitted text says
+# "occurred at/above min_occurrences and are currently suppressed" instead.
+# In --full mode this diagnostic is suppressed (the caller wants the raw view).
+if [ "$FULL" -eq 0 ]; then
+    # Fail CLOSED on an unestablished count: an empty $OUTPUT (an upstream
+    # producer that failed) makes `jq length` print nothing and exit 0, and
+    # `${_ELIGIBLE_N:-0}` would launder that unknown into a genuine "0 eligible"
+    # — firing a spurious liveness warning about a run whose eligible set was
+    # never measured. Unknown is not zero (CLAUDE.md): a non-numeric count skips
+    # the diagnostic and says so, rather than diagnosing on unmeasured input.
+    _ELIGIBLE_N="$(printf '%s' "$OUTPUT" | "$DEVFLOW_JQ" 'length' 2>/dev/null || true)"
+    case "$_ELIGIBLE_N" in
+        ''|*[!0-9]*)
+            echo "actionable-patterns: eligible-set size could not be established (empty or non-numeric jq result) — liveness diagnostic skipped" >&2
+            _ELIGIBLE_N=-1 ;;
+    esac
+    if [ "$_ELIGIBLE_N" -eq 0 ]; then
+        printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
+        # One jq pass emits the count and the highest-occurrence slug as a single
+        # "N slug" line (empty when nothing is suppressed at/above the threshold).
+        _LIVE="$(
+          # argjson-ok: min -- a bounded small int (the occurrence threshold);
+          # the corpus-sized pattern view uses --slurpfile.
+          "$DEVFLOW_JQ" -r -n --slurpfile pv "$_JQ_TMP/pv_live.json" --argjson min "$MIN" '
+            [ $pv[0] | to_entries[]
+              | select(.value.occurrence_count >= $min)
+              | select(.value.status == "dismissed" or .value.status == "declined" or .value.status == "fixed")
+              | {slug: .key, occ: .value.occurrence_count} ]
+            | sort_by(-.occ)
+            | if length > 0 then "\(length) \(.[0].slug)" else "" end'
+        )" || {
+            # Never collapse a FAILED probe onto "nothing is suppressed". This is
+            # the one mechanism that says "the loop produced nothing on inputs that
+            # should have raised something", and it only matters on runs where the
+            # eligible set is already empty — i.e. exactly the runs it was written
+            # for. The _ELIGIBLE_N block above refuses to launder an unestablished
+            # count; this one must not undo that discipline one derivation later.
+            echo "actionable-patterns: the liveness diagnostic could not be derived (jq exited non-zero) — the report's liveness section will be omitted, which is NOT evidence that nothing is suppressed" >&2
+            _LIVE=""
+        }
+        if [ -n "$_LIVE" ]; then
+            _SUP_N="${_LIVE%% *}"
+            _TOP="${_LIVE#* }"
+            echo "::warning::actionable-patterns: no pattern is eligible to file, yet ${_SUP_N} pattern(s) have occurred at/above min_occurrences and are currently suppressed (dismissed/declined/fixed) — highest: ${_TOP}. Nothing will be filed; investigate the lifecycle state." >&2
+            echo "liveness: ${_SUP_N} suppressed pattern(s) at/above min_occurrences, highest ${_TOP}" >&2
+        fi
+    fi
+fi
 
 printf '%s\n' "$OUTPUT"

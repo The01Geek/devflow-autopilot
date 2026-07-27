@@ -27,7 +27,7 @@ HELPERS = (
     "_ra_conflict_red_under",
 )
 RETAINED_BOUNDARY_IDENTITIES = frozenset()
-EXPECTED_SOURCE_COUNT = 12
+EXPECTED_SOURCE_COUNT = 13
 NON_UTF8_SHELL_FIXTURES = frozenset(
     {"lib/test/fixtures/ghapi-repo-path/adversarial-nonutf8.sh"}
 )
