@@ -511,6 +511,7 @@
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
     "lib/review-profile.tokens",
+    "lib/subagent-dispatch-sites.json",
     "scripts/devflow-cloud-writer-contract.json",
     "scripts/workflow-flight-recorder-registry.json"
   ],
@@ -1660,6 +1661,10 @@
       "owner": "unmodularized"
     },
     "818": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "834": {
       "note": "",
       "owner": "unmodularized"
     },
