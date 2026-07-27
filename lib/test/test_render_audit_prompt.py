@@ -1475,5 +1475,48 @@ class DeclaredDimensionKeys(unittest.TestCase):
         self.assertIn("(no consumer audit dimensions)", i.stdout)
 
 
+class AbsPathSeparatorClosure(unittest.TestCase):
+    """`_abs_path`'s single-line claim must be total over `splitlines()`.
+
+    The guard exists so `{DRAFT_PATH}` cannot carry a second line into the rendered
+    block. It tested `"\\n" in value or "\\r" in value`, but every downstream consumer
+    splits with `str.splitlines()`, which breaks on a strictly larger set — so a path
+    carrying one of the others passed the guard and still became two lines.
+    """
+
+    def _mod(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("rap_abs_path", RENDERER)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_every_splitlines_separator_is_refused(self):
+        import argparse
+        mod = self._mod()
+        # The full set `str.splitlines()` treats as a line boundary.
+        separators = [
+            "\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e",
+            "\x85", " ", " ",
+        ]
+        for sep in separators:
+            for candidate in (f"/a{sep}b.md", f"/a/b.md{sep}"):
+                with self.subTest(sep=repr(sep), candidate=repr(candidate)):
+                    with self.assertRaises(argparse.ArgumentTypeError):
+                        mod._abs_path(candidate)
+                    # The property the guard is FOR, stated directly.
+                    self.assertNotEqual(candidate.splitlines(), [candidate])
+
+    def test_legitimate_paths_still_accepted(self):
+        # The comment justifies the open vocabulary by pointing at real checkout paths
+        # with spaces and punctuation; a tightening that rejected those would be a
+        # regression in the opposite direction.
+        mod = self._mod()
+        for good in ("/a/b.md", "/Users/some one/repos/my-repo/draft.md",
+                     "/a b/c (1)/d.md", "/tmp/x.md"):
+            with self.subTest(good=good):
+                self.assertEqual(mod._abs_path(good), good)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1199,10 +1199,17 @@ def _abs_path(value: str) -> str:
     # ({CONSUMER_DIMENSIONS}, {SENTINEL_OPEN}, ...). Without it the
     # substituted-last invariant in render_dispatch would hold only by argument
     # provenance; with it, it holds unconditionally.
+    #
+    # Single-line-ness is tested with `splitlines()` itself, not an `"\n"`/`"\r"`
+    # membership pair, because `splitlines()` is what every downstream consumer of the
+    # rendered text uses and it breaks on a strictly LARGER set: \v, \f, \x1c, \x1d,
+    # \x1e, \x85,  ,  . A path carrying one of those passed the old pair and
+    # still split into two lines downstream — the exact shape this check exists to
+    # refuse. `value.splitlines() != [value]` is total over that set and also catches a
+    # TRAILING separator, which an `in` test on the split result would miss.
     if (
         not value.startswith("/")
-        or "\n" in value
-        or "\r" in value
+        or value.splitlines() != [value]
         or "{" in value
     ):
         raise argparse.ArgumentTypeError(

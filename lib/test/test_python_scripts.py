@@ -17966,6 +17966,12 @@ def _row795_nonce_recovery(r):
               f'nonce={r.nonce}', decided(proc.stdout))
     assert_eq("#795 query-nonce: ... with no AttributeError on stderr",
               False, 'AttributeError' in proc.stderr)
+    # The recovery read supplies no nonce, so the trailing line must not diagnose a
+    # MISMATCH — that told the caller their nonce was foreign directly beneath the line
+    # handing them the correct one.
+    assert_eq("#795 query-nonce: the trailing line names the absent nonce, not a mismatch",
+              'next_call=unestablished reason=nonce-unsupplied',
+              proc.stdout.strip().splitlines()[-1])
 
 
 _with795(_row795_nonce_recovery)
@@ -18084,6 +18090,62 @@ assert_eq("#795 needs=: --round is rendered BARE on record-dispatch (caller inte
           None, _ias795._render_operand('record-dispatch', '--round', 7))
 assert_eq("#795 needs=: ... but filled on a state-determined subcommand",
           '7', _ias795._render_operand('record-return', '--round', 7))
+
+# The shipped procedure documents `dispatch-retry-same-arm` as answering `unestablished
+# reason=dispatch-arm-unestablished`. While that token was merely ABSENT from both routing
+# tables the arm fell through to the generic tail and emitted `next-action-unestablished`,
+# so the documented token was never the emitted one.
+assert_eq("#795 next_call: dispatch-retry-same-arm answers the DOCUMENTED reason token",
+          'next_call=unestablished reason=dispatch-arm-unestablished',
+          _ias795._resolve_next_call('query-next-action', {'nonce': 'n0'}, 'slug', 'n0',
+                                     action='dispatch-retry-same-arm'))
+
+# --- #795 reconciliation: every rendered `next_call=` invocation is RUNNABLE ------------
+# The operand lists in `_next_call_body` are hand-authored, while the required-flag set of
+# each target subcommand lives in `build_parser()`. Nothing reconciled the two, so a
+# required flag added to a subparser silently produced a suggestion that argparse refuses
+# the moment a caller copies it -- reproducing the accidental-failure class this channel
+# exists to reduce. Drive every arm and diff the two sets.
+_ias795_subparsers = [a for a in _ias795.build_parser()._actions
+                      if getattr(a, 'choices', None)
+                      and all(hasattr(v, '_actions') for v in a.choices.values())][0].choices
+
+
+def _ias795_required_flags(subcommand):
+    sub = _ias795_subparsers.get(subcommand)
+    if sub is None:
+        return None
+    return {a.option_strings[0] for a in sub._actions
+            if a.required and a.option_strings and a.dest != 'help'}
+
+
+_ias795_state = {'nonce': 'n0', 'round': 2}
+_ias795_ctx = {'arm': 'embed', 'marker': 'file-unreadable',
+               'action': 'dispatch-embed-retry', 'bound': False,
+               'round': 2, 'draft_file': '/tmp/d.md'}
+_ias795_reconciled = 0
+for _cmd in sorted(_ias795_subparsers):
+    _resolved = _ias795._resolve_next_call(_cmd, _ias795_state, 'slug', 'n0',
+                                           **_ias795_ctx)
+    if not _resolved.startswith(f'next_call={_ias795._STATE_OWNER_PLACEHOLDER} '):
+        continue  # `none` / `unestablished` arms render no invocation to reconcile
+    _tokens = _resolved.split(' ')
+    _target = _tokens[1]
+    _rendered_flags = {t for t in _tokens[2:] if t.startswith('--')}
+    _required = _ias795_required_flags(_target)
+    assert_eq(f"#795 reconcile: {_cmd} renders a KNOWN target subcommand ({_target})",
+              True, _required is not None)
+    if _required is None:
+        continue
+    _ias795_reconciled += 1
+    assert_eq(f"#795 reconcile: {_cmd}'s suggested `{_target}` call carries every "
+              f"required flag (missing: {sorted(_required - _rendered_flags)})",
+              set(), _required - _rendered_flags)
+
+# A zero here would make every assertion above vacuous -- the failure mode where the ctx
+# stops reaching the invocation-rendering arms and the loop silently reconciles nothing.
+assert_eq("#795 reconcile: the sweep actually reached the invocation-rendering arms",
+          True, _ias795_reconciled >= 10)
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

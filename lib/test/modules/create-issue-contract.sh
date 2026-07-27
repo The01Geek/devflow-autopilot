@@ -556,10 +556,14 @@ devflow_module_pin_unique "#768: the landed check is exit-zero plus a non-empty 
 # `dispatch-pointer:` line on its own stderr — so their literals describe a fence the skill
 # no longer ships, and a re-worded prose pin would be a wording-only pin over prose the
 # change authored. Their guarantee did NOT go with them: it is now a real executable
-# property, and `lib/test/run.sh`'s #795 block asserts it directly — the stderr line is
+# property, and `lib/test/run.sh`'s #795 block asserts it directly: the stderr line is
 # byte-identical to the `dispatch-pointer:` line inside the stdout the same invocation
-# wrote, and stdout is byte-unchanged. That is a stronger anchor than either pin was: the
-# old ones could not have caught a fold that emitted a re-derived or truncated line.
+# wrote, that line is non-empty (the positive control against a vacuous empty-vs-empty
+# compare), exactly one such line reaches stderr, and stdout still opens with the mode's
+# own marker. That is a stronger anchor than either pin was: the old ones could not have
+# caught a fold that emitted a re-derived or truncated line. (It does NOT assert that
+# stdout is byte-unchanged, and an earlier draft of this comment claimed it did — the
+# load-bearing half of a pin-deletion justification must describe assertions that exist.)
 devflow_module_pin_unique "#768: record-dispatch output names dispatch_regeneration" \
   'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
 devflow_module_pin_unique "#768: a diverged regeneration is surfaced in the same turn, before dispatch" \

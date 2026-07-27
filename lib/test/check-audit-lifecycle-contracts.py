@@ -57,7 +57,13 @@ _DOCSTRING_ANCHOR = "TWO-CLASS CLI CONTRACT"
 
 # Calls the prose marks conditional on the run's shape; excluded from the unconditional
 # figure by name, and the prose is required to still mark them so (checked below).
-_CONDITIONAL = ("record-offer", "query-adjudication-records")
+# `record-adjudication-render` belongs here for a reason worth stating: it is not merely
+# skippable on a clean run, it is REFUSED there — the state owner fails it `no-records`
+# when the round graded no advisory or invalid finding, and `resolve_calibration` answers
+# `render=none` with no trigger for exactly that shape. Listing it in the unconditional
+# ordered sequence therefore prescribed a call that cannot succeed on the clean path.
+_CONDITIONAL = ("record-offer", "query-adjudication-records",
+                "record-adjudication-render")
 
 
 class Refusal(Exception):

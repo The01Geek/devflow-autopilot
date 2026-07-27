@@ -3735,15 +3735,19 @@ _DISPATCH_ROUTE = {
     'dispatch-inline-degraded': ('inline', None),
 }
 
-# `dispatch-retry-same-arm` is DELIBERATELY absent: the arm to retry is whichever the round
-# already ran, which this table cannot name, so the resolver answers `unestablished
-# reason=dispatch-arm-unestablished` there rather than rendering a call with a guessed arm.
-# It is not one of the routing answers that name `--round` bare — those are `query-arm`'s
-# fresh-round answer plus the members of the table above.
+# `dispatch-retry-same-arm` is DELIBERATELY absent from THIS table: the arm to retry is
+# whichever the round already ran, which the table cannot name, so it is routed through
+# `_ACTION_NOT_A_CALL` below to `unestablished reason=dispatch-arm-unestablished` rather
+# than rendering a call with a guessed arm. It is not one of the routing answers that name
+# `--round` bare — those are `query-arm`'s fresh-round answer plus this table's members.
+# (Routing it explicitly is load-bearing: while it was merely absent it fell through to the
+# generic `next-action-unestablished` tail, so the token the shipped procedure documents was
+# never the token emitted.)
 
 # Answer tokens whose mandated next step is NOT a tool call — a user interaction or a
 # required verification — and the reason each answers with.
 _ACTION_NOT_A_CALL = {
+    'dispatch-retry-same-arm': 'dispatch-arm-unestablished',
     'proceed': 'boundary-offer',
     'revise-and-reaudit': 'verify-then-revise',
     'revise-then-evaluate-offer': 'verify-then-revise',
@@ -3780,6 +3784,13 @@ def _resolve_next_call(cmd_name, state, slug, nonce, **ctx):
 def _next_call_body(cmd_name, state, slug, nonce, **ctx):
     if state is None:
         return _unestablished('state-unestablished')
+    if nonce is None:
+        # NOT `foreign-nonce`: nothing foreign was supplied. `query-nonce` registers no
+        # `--nonce` (it exists to recover one after a compaction), so it reached here with
+        # None and published a mismatch diagnosis directly beneath its own correct answer —
+        # telling a caller their nonce was wrong at the exact moment it handed them the
+        # right one. Separate the two so each reason names what actually happened.
+        return _unestablished('nonce-unsupplied')
     if state.get('nonce') != nonce:
         return _unestablished('foreign-nonce')
 
@@ -3812,11 +3823,13 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
             return _unestablished('round-unestablished')
         return _next_call_invocation(cmd_name, f'record-adjudication {slug}', [
             ('--nonce', nonce), ('--round', rnd), ('--verdict', None),
-            ('--must-revise', None), ('--advisory', None), ('--invalid', None)])
+            ('--must-revise', None), ('--advisory', None), ('--invalid', None),
+            ('--unresolved-must-revise', None)])
     if cmd_name == 'record-adjudication':
         rnd = ctx.get('round')
         return _next_call_invocation(cmd_name, f'record-coverage {slug}', [
-            ('--nonce', nonce), ('--round', rnd), ('--render', None)])
+            ('--nonce', nonce), ('--round', rnd), ('--render', None),
+            ('--expected-keys', None), ('--coverage-stdin', None)])
     if cmd_name == 'record-coverage':
         rnd = ctx.get('round')
         return _next_call_invocation(cmd_name, f'query-next-action {slug}', [
@@ -3856,7 +3869,8 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
         return _unestablished('draft-write')
     if cmd_name == 'record-revision':
         return _next_call_invocation(cmd_name, f'record-resolution {slug}', [
-            ('--nonce', nonce), ('--round', None), ('--resolved-ids', None)])
+            ('--nonce', nonce), ('--round', None), ('--revision-ordinal', None),
+            ('--resolved-ids', None)])
     if cmd_name == 'record-resolution':
         return _next_call_invocation(cmd_name, f'query-eligibility {slug}', [
             ('--nonce', nonce), ('--mode', 'iterate'),
@@ -7851,6 +7865,14 @@ def main():
             # an illegal transition or an unpersistable state, so it would retry or degrade
             # over work that actually landed. `next_call=` is a generated suggestion; its
             # failure is named on stderr and the decided answer stands.
+            # Emit the `unestablished` shape rather than NOTHING. The contract this
+            # channel publishes is that every non-excluded subcommand's FINAL stdout line
+            # is one of exactly three shapes; printing no line at all left a caller
+            # parsing that final line reading whatever the command's own last decided line
+            # happened to be, which is not a `next_call=` answer and carries no reason. A
+            # render failure is precisely an unestablished next call, so say so on the
+            # channel the caller reads, and keep the diagnosis on stderr.
+            print('next_call=unestablished reason=render-failed')
             sys.stderr.write(
                 f'issue-audit-state.py {args.cmd}: the next_call= suggestion could not be '
                 f'rendered ({type(exc).__name__}: {exc}); the decided answer above stands '
