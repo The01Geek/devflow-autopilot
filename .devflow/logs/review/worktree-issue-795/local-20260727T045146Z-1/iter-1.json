@@ -1,0 +1,41 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-27T04:52:00Z",
+  "current_step": "loop-control",
+  "current_substep": "phase-1-checklist-generation",
+  "pending_dispatch": {
+    "kind": "checklist_generator_batches",
+    "roster": [
+      "devflow:checklist-generator/batch-1",
+      "devflow:checklist-generator/batch-2"
+    ],
+    "dispatched_at": "2026-07-27T04:56:00Z"
+  },
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "dispatched_effort": [
+    {
+      "agent": "devflow:checklist-generator",
+      "phase": "1",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "stale_prose": {
+    "ran": true,
+    "exit_code": 0,
+    "stale_rows": 0,
+    "unresolvable_rows": 12,
+    "note": "informational only; UNRESOLVABLE never gates the verdict"
+  },
+  "telemetry": "unavailable"
+}
