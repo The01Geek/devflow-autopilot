@@ -42917,7 +42917,11 @@ if [ -d "$NA_SB" ]; then
         --draft-file d.md > /dev/null
       python3 "$IAS" record-return nb --nonce "$NB" --round "$R" --verdict REVISE \
         --findings-count 1 --carriage-object-id "$OID" > /dev/null
-      python3 "$IAS" query-next-action nb --nonce "$NB" --round "$R" >> .na-budget
+      # Accumulate the DECIDED line only: this file is a per-round sequence, and every
+      # emitting subcommand now trails a `next_call=` line (issue #795) that would
+      # interleave with the actions the assertion below reads.
+      python3 "$IAS" query-next-action nb --nonce "$NB" --round "$R" \
+        | sed -n 1p >> .na-budget
     done
 
     # The NO-PARSEABLE-VERDICT retry precedence: the FIRST such completion retries on the
