@@ -122,6 +122,11 @@ def _sole_paragraph(text: str, anchor: str, where: str) -> str:
     return body
 
 
+# The shape a state-owner subcommand name takes. Used to tell "a token that is TRYING to
+# be a subcommand and is misspelled" (refuse) from "ordinary backticked prose" (skip).
+_SUBCOMMAND_SHAPED = re.compile(r"\A(?:query|record|init|emit|check)-[a-z0-9-]+\Z")
+
+
 def _backticked(text: str) -> list[str]:
     """Every backtick-quoted token in `text`, in document order."""
     return re.findall(r"`([^`]+)`", text)
@@ -136,8 +141,22 @@ def _invocations(text: str, registered: frozenset[str], where: str) -> list[str]
     found = []
     for token in _backticked(text):
         parts = token.split()
-        if parts and parts[0] in registered:
+        if not parts:
+            continue
+        if parts[0] in registered:
             found.append(parts[0])
+        elif _SUBCOMMAND_SHAPED.match(parts[0]):
+            # REFUSE, do not skip. Selecting only registered names would make the
+            # "the prose can never name a call the tool would not accept" guarantee
+            # vacuous: a typo (`record-covrage`) would be filtered out silently, the
+            # derived figure would drop by one, and the success line would still read
+            # "every one a registered subcommand" over prose prescribing a call argparse
+            # rejects. Only a token SHAPED like a state-owner subcommand trips this, so
+            # ordinary backticked prose (`--round`, `next_call=none`) is unaffected.
+            raise Refusal(
+                f"{where}: {parts[0]!r} is shaped like a state-owner subcommand but is "
+                "not registered by build_parser() — the prose names a call the tool "
+                "would refuse (a typo, a rename, or a removed subcommand)")
     if not found:
         raise Refusal(f"{where}: zero state-owner invocations extracted. A clean zero here "
                       "would freeze the derived figure and let the reconciliation pass "
@@ -269,14 +288,51 @@ def check_round_defaulted(module, registered, report):
                   "reconciled against the parser's own required-ness")
 
 
+def check_next_action_routing_totality(module, report):
+    """Every `_NEXT_ACTIONS` member is routed by one of the two `next_call=` tables.
+
+    This is the reconciliation whose ABSENCE shipped the `dispatch-retry-same-arm` defect:
+    that token was in neither `_DISPATCH_ROUTE` nor `_ACTION_NOT_A_CALL`, so it fell through
+    to the resolver's generic tail and emitted `next-action-unestablished` while two shipped
+    sites documented `dispatch-arm-unestablished`. Both lines parsed and the suite stayed
+    green. A closed set whose totality is enforced only by comment is not enforced.
+    """
+    actions = getattr(module, "_NEXT_ACTIONS", None)
+    if not actions:
+        raise Refusal("next-action-routing: scripts/issue-audit-state.py exposes no "
+                      "non-empty _NEXT_ACTIONS to reconcile against")
+    routed = set(getattr(module, "_DISPATCH_ROUTE", {})) | \
+        set(getattr(module, "_ACTION_NOT_A_CALL", {}))
+    if not routed:
+        raise Refusal("next-action-routing: neither _DISPATCH_ROUTE nor _ACTION_NOT_A_CALL "
+                      "could be read, so totality cannot be established")
+    unrouted = sorted(set(actions) - routed)
+    if unrouted:
+        raise Refusal(
+            f"next-action-routing: {unrouted} are _NEXT_ACTIONS members routed by neither "
+            "_DISPATCH_ROUTE nor _ACTION_NOT_A_CALL, so query-next-action answers them with "
+            "the generic next-action-unestablished tail instead of a decided next call")
+    stale = sorted(routed - set(actions))
+    if stale:
+        raise Refusal(
+            f"next-action-routing: {stale} are routed but are not _NEXT_ACTIONS members — "
+            "a renamed or removed answer token left a dead routing entry behind")
+    report.append(f"next-action-routing: all {len(actions)} _NEXT_ACTIONS members routed, "
+                  "with no dead routing entry")
+
+
 def check_sequence(registered, report):
     """The ordered call sequence vs. the invocations the helper accepts. Returns the
     unconditional joint count."""
     seq_text = _read(STEP36)
     paragraph = _sole_paragraph(seq_text, _SEQUENCE_ANCHOR, "sequence")
-    # `_invocations` appends a head only when it is already in `registered`, so the "names
-    # a call the tool would not accept" guarantee is enforced at extraction — a second
-    # `set(named) - registered` check here could never fire.
+    # `_invocations` REFUSES on a subcommand-shaped token that is not registered, so the
+    # "the prose can never name a call the tool would not accept" guarantee is genuinely
+    # enforced at extraction and a second `set(named) - registered` check here could never
+    # fire. (An earlier form merely SKIPPED such a token, which made the same sentence
+    # vacuous — a typo dropped the name, lowered the derived figure by one, and left the
+    # success line claiming "every one a registered subcommand" over prose prescribing a
+    # call argparse rejects. Skipping is selection, not validation.)
     named = _invocations(paragraph, registered, "sequence")
     for cond in _CONDITIONAL:
         if cond in named:
@@ -303,6 +359,7 @@ def main():
         check_readbacks(module, registered, report)
         check_emitting_complement(module, registered, report)
         check_round_defaulted(module, registered, report)
+        check_next_action_routing_totality(module, report)
         unconditional = check_sequence(registered, report)
     except Refusal as exc:
         sys.stderr.write(f"check-audit-lifecycle-contracts: {exc}\n")

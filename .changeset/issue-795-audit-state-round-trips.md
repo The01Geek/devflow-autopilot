@@ -81,3 +81,31 @@ bump: minor
   test that samples one invocation; and `resolve-main-root.sh`'s builtin parse loop diverges
   from the retired `head -n 1` on input git does not emit
   ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The `next_call=` caller-intent classification now keys on the subcommand being
+  **rendered**, not the one doing the rendering. Keyed on the emitter the guard could never
+  fire: `query-arm` rendering a `record-dispatch` call filled `--round` from state and
+  omitted it from `needs=`, handing the caller a pre-decided branch discriminator — the
+  fail-open that class exists to prevent. It was inert only because every call site passes
+  `None` for that operand ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- `record-dispatch`'s file-arm suggestion now renders `--draft-file`. The requirement is
+  arm-conditional and enforced in the command body, so a reconciliation reading argparse
+  `required=True` could not see it, and the most common lifecycle path published a
+  suggestion that refuses when copied. The reconciliation now also runs the tool's own
+  printed suggestion and requires it not to refuse
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The lifecycle guard now **refuses** a subcommand-shaped token in the ordered sequence that
+  the parser does not register, instead of silently dropping it. Skipping is selection, not
+  validation: a typo lowered the derived figure by one while the success line still claimed
+  "every one a registered subcommand"
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- New reconciliation arm: every `_NEXT_ACTIONS` member must be routed by one of the two
+  `next_call=` tables, with no dead routing entry. This is the check whose absence let the
+  `dispatch-retry-same-arm` token mismatch ship
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- `init --nonce` discriminates absence from unreadability on the load failure's own
+  `__cause__` rather than a follow-up `Path.exists()`, which swallows every `OSError` — so a
+  file behind a permission-denied parent read as absent and was routed to the cold start the
+  arm exists to prevent ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The derived per-round unconditional call count is now **pinned** at 18 rather than only
+  shape-checked and printed, so an added unconditional call turns the suite RED as the
+  criterion requires ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).

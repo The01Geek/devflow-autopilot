@@ -3658,8 +3658,17 @@ def _shape_check(flag, value):
     return value
 
 
-def _render_operand(cmd_name, flag, state_value):
+def _render_operand(target, flag, state_value):
     """Render one operand, or answer None meaning "bare, and named in `needs=`".
+
+    `target` is the subcommand being RENDERED, never the one doing the rendering. The
+    distinction is load-bearing and was got wrong: `_ROUND_IS_CALLER_INTENT` names the
+    subcommands whose own `--round` is a branch discriminator (`record-dispatch`,
+    `record-creation-epoch`), so keying it on the emitting command meant the guard could
+    never fire — `query-arm` rendering a `record-dispatch` call filled `--round` from
+    state and left it out of `needs=`, handing the caller a pre-decided branch, which is
+    exactly the fail-open this class exists to prevent. It was inert only because every
+    call site passes `None` for that operand today.
 
     Three outcomes, and the complement is decided rather than residual:
       * a member of `_CALLER_SUPPLIED_FLAGS` (or `--round` on a subcommand where it is
@@ -3670,7 +3679,7 @@ def _render_operand(cmd_name, flag, state_value):
     """
     if flag in _CALLER_SUPPLIED_FLAGS:
         return None
-    if flag == '--round' and cmd_name in _ROUND_IS_CALLER_INTENT:
+    if flag == '--round' and target in _ROUND_IS_CALLER_INTENT:
         return None
     if state_value is None:
         return None
@@ -3704,8 +3713,11 @@ def _next_call_invocation(cmd_name, subcommand, operands):
     caller would run it.
     """
     parts, needs = [], []
+    # The head of the subcommand being rendered — `_render_operand` classifies operands by
+    # the TARGET, not by whoever is emitting the suggestion (see its docstring).
+    target = subcommand.split(' ', 1)[0]
     for flag, state_value in operands:
-        rendered = _render_operand(cmd_name, flag, state_value)
+        rendered = _render_operand(target, flag, state_value)
         if rendered is None:
             parts.append(flag)
             needs.append(flag)
@@ -3765,6 +3777,14 @@ def _dispatch_next_call(cmd_name, slug, nonce, action, arm=None, marker=None):
     operands = [('--nonce', nonce), ('--arm', arm)]
     if marker is not None:
         operands.append(('--marker', marker))
+    if arm == 'file':
+        # `record-dispatch` requires `--draft-file` on the file arm, but the requirement is
+        # ARM-CONDITIONAL and enforced in `cmd_record_dispatch`, not by argparse — so it is
+        # invisible to any reconciliation that reads `required=True` off the subparser.
+        # Without this the file arm, the most common lifecycle path, published a suggestion
+        # that refuses the moment it is copied. The path is the caller's to supply, so it
+        # renders bare and lands in `needs=` like every other caller-supplied operand.
+        operands.append(('--draft-file', None))
     operands.append(('--round', None))
     return _next_call_invocation(cmd_name, f'record-dispatch {slug}', operands)
 
@@ -4240,11 +4260,17 @@ def _new_doc(slug, nonce):
 
 def cmd_init(args):
     load_error = None
+    load_exc = None
     try:
         existing = load_state(args.slug)
     except StateError as exc:
         existing = None
         load_error = str(exc)
+        # `load_state` chains the underlying OSError with `raise ... from exc`, so the
+        # absence-vs-unreadable distinction survives on `__cause__`. Reading it here keeps
+        # the discriminator on the failure that actually occurred rather than on a second,
+        # error-swallowing filesystem probe.
+        load_exc = exc.__cause__
     if args.nonce:
         if existing is None:
             # Carry the load failure's own detail: "no readable state file" alone would
@@ -4258,7 +4284,13 @@ def cmd_init(args):
             # discards recorded state, and the condition is squarely the routing prose's
             # Route C (a load-time state error). Discriminate on the file's existence,
             # which is the only operand that separates the two.
-            if state_path(args.slug).exists():
+            # Discriminate on the load failure's own shape, NOT on a follow-up
+            # `Path.exists()`: `exists()` swallows every OSError and returns False, so a
+            # file present behind a permission-denied parent read as ABSENT and got routed
+            # to the cold start this arm exists to prevent — a breadcrumb asserting the
+            # absence of a file it names in the same sentence as unreadable. Only a genuine
+            # FileNotFoundError is absence; every other load failure is present-but-unreadable.
+            if load_error is not None and not isinstance(load_exc, FileNotFoundError):
                 _fail('init', 'a nonce was supplied and a state file exists for slug '
                               f'{args.slug!r} but could not be read{detail}; this is a '
                               'state-owner-unavailable condition — do NOT cold-start over '

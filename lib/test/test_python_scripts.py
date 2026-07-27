@@ -18009,6 +18009,71 @@ def _row795_init_nonce_load_split(r):
 _with795(_row795_init_nonce_load_split)
 
 
+# --- The argparse-metadata sweep below is a MECHANISM check: it reads `required=True` off
+# --- each subparser. That cannot see an ARM-CONDITIONAL requirement enforced inside the
+# --- command body (`cmd_record_dispatch` refuses a file-arm call lacking --draft-file),
+# --- and the file arm shipped an unrunnable suggestion straight through it. So assert the
+# --- OUTCOME too: take the suggestion the tool actually printed, fill only what `needs=`
+# --- says is the caller's, run it, and require it not to refuse for a missing operand.
+def _row795_suggestion_is_runnable(r):
+    out = r('query-arm', r.slug, '--write-landed', 'yes', '--draft-file', 'd.md',
+            nonce=True)
+    line = out.stdout.strip().splitlines()[-1]
+    assert_eq("#795 runnable: query-arm renders a record-dispatch invocation", True,
+              line.startswith('next_call=<state-owner> record-dispatch '))
+    tokens = line.split(' ')[1:]                      # drop the next_call= placeholder
+    needs = [t for t in tokens if t.startswith('needs=')][0][len('needs='):]
+    needs = [] if needs == 'none' else needs.split(',')
+    # Fill each caller-supplied flag with a value the caller plainly has in hand.
+    supplied = {'--round': '1', '--draft-file': 'd.md'}
+    argv, i = [], 0
+    tokens = [t for t in tokens if not t.startswith('needs=')]
+    while i < len(tokens):
+        argv.append(tokens[i])
+        if tokens[i] in needs and tokens[i] in supplied:
+            argv.append(supplied[tokens[i]])
+        i += 1
+    assert_eq("#795 runnable: every bare needs= flag was fillable from caller-held values",
+              [], [n for n in needs if n not in supplied])
+    proc = r(*argv)
+    assert_eq(f"#795 runnable: the printed file-arm suggestion RUNS ({' '.join(argv)!r} "
+              f"-> {proc.stderr.strip()!r})", True,
+              'is required' not in proc.stderr and 'the following arguments' not in proc.stderr)
+
+
+_with795(_row795_suggestion_is_runnable)
+
+
+# --- `_resolve_named_round` returns rounds[-1]. Every existing row builds exactly ONE
+# --- round, where rounds[0] and rounds[-1] are the same object, so the selection rule is
+# --- asserted vacuously: a refactor to rounds[0] or a first-open scan would ship green and
+# --- then, on a real multi-round revision run, write a verdict against an already-
+# --- adjudicated earlier round. Drive it with two rounds so the two differ.
+
+
+# --- The AC demands per-subcommand refusal coverage on the defaulted path, but three of
+# --- the five defaulted subcommands were never invoked without --round anywhere. The
+# --- implementation is uniform today (_require_named_round sits above the first guard at
+# --- every site); nothing asserted that placement, so moving one below a write would break
+# --- the "writes no state" half of the contract for that subcommand alone, suite green.
+def _row795_defaulted_refusal_per_subcommand(r):
+    before = r.state_bytes()
+    for cmd, extra in (('record-return', ['--findings-count', '0', '--verdict', 'FILE']),
+                       ('record-adjudication', ['--verdict', 'FILE', '--must-revise', '0',
+                                                '--advisory', '0', '--invalid', '0',
+                                                '--unresolved-must-revise', '0']),
+                       ('record-adjudication-render', ['--landed', 'yes'])):
+        proc = r(cmd, r.slug, *extra, nonce=True)
+        assert_eq(f"#795 defaulted refusal: {cmd} with no round recorded exits non-zero",
+                  True, proc.returncode != 0)
+        assert_eq(f"#795 defaulted refusal: {cmd} names the ambiguity, not a round 'None'",
+                  True, 'no-round-recorded' in proc.stderr and 'None' not in proc.stderr)
+        assert_eq(f"#795 defaulted refusal: {cmd} writes NO state", before, r.state_bytes())
+
+
+_with795(_row795_defaulted_refusal_per_subcommand)
+
+
 # --- AC: an omitted --round on a state-determined subcommand produces the SAME answer and
 # --- exit code as the identical call with the correct --round passed.
 def _row795_defaulted_round(r):
@@ -18122,6 +18187,15 @@ assert_eq("#795 needs=: --round is rendered BARE on record-dispatch (caller inte
           None, _ias795._render_operand('record-dispatch', '--round', 7))
 assert_eq("#795 needs=: ... but filled on a state-determined subcommand",
           '7', _ias795._render_operand('record-return', '--round', 7))
+# The classification keys on the RENDERED subcommand, not the emitting one. Keyed on the
+# emitter the guard could never fire, and a state-held --round reached a record-dispatch
+# suggestion filled and absent from needs= — handing the caller a pre-decided branch.
+assert_eq("#795 needs=: --round is bare because of the TARGET, whoever emits the line",
+          'next_call=<state-owner> record-dispatch slug --nonce abc --arm embed --round '
+          'needs=--round',
+          _ias795._next_call_invocation('query-arm', 'record-dispatch slug',
+                                        [('--nonce', 'abc'), ('--arm', 'embed'),
+                                         ('--round', 7)]))
 
 # The shipped procedure documents `dispatch-retry-same-arm` as answering `unestablished
 # reason=dispatch-arm-unestablished`. While that token was merely ABSENT from both routing
@@ -18131,6 +18205,21 @@ assert_eq("#795 next_call: dispatch-retry-same-arm answers the DOCUMENTED reason
           'next_call=unestablished reason=dispatch-arm-unestablished',
           _ias795._resolve_next_call('query-next-action', {'nonce': 'n0'}, 'slug', 'n0',
                                      action='dispatch-retry-same-arm'))
+
+# `_resolve_named_round` returns rounds[-1]. Every CLI-driven row builds exactly one round,
+# where rounds[0] and rounds[-1] are the same object, so the selection rule was asserted
+# vacuously: a refactor to rounds[0] or a first-open scan would ship green and then, on a
+# real multi-round revision run, write a verdict against an already-adjudicated round.
+assert_eq("#795 multi-round: an omitted --round resolves to the LAST round, not the first",
+          (3, None),
+          _ias795._resolve_named_round({'rounds': [{'round': 1}, {'round': 2},
+                                                   {'round': 3}]}, None))
+assert_eq("#795 multi-round: ... and a non-contiguous ordinal chain still takes the last",
+          (7, None),
+          _ias795._resolve_named_round({'rounds': [{'round': 2}, {'round': 7}]}, None))
+assert_eq("#795 multi-round: an EXPLICIT --round is honoured verbatim over the last round",
+          (1, None),
+          _ias795._resolve_named_round({'rounds': [{'round': 1}, {'round': 2}]}, 1))
 
 # --- #795 reconciliation: every rendered `next_call=` invocation is RUNNABLE ------------
 # The operand lists in `_next_call_body` are hand-authored, while the required-flag set of
