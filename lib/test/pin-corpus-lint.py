@@ -2490,6 +2490,7 @@ def _raw_options_are_fixed_quiet(options):
 def _shell_syntax_is_active_at(text, offset):
     """Return whether shell syntax at ``offset`` is unescaped and not single-quoted."""
     quote = None
+    at_word_start = True
     index = 0
     while index < offset:
         char = text[index]
@@ -2501,6 +2502,7 @@ def _shell_syntax_is_active_at(text, offset):
         if char == "\\" and index + 1 < len(text):
             if index + 1 == offset:
                 return False
+            at_word_start = False
             index += 2
             continue
         if quote == '"':
@@ -2508,10 +2510,17 @@ def _shell_syntax_is_active_at(text, offset):
                 quote = None
             index += 1
             continue
+        if char in " \t\n;&|()":
+            at_word_start = True
+            index += 1
+            continue
+        if char == "#" and at_word_start:
+            return False
         if char == "'":
             quote = "'"
         elif char == '"':
             quote = '"'
+        at_word_start = False
         index += 1
     return quote != "'"
 
@@ -2803,6 +2812,77 @@ def extract_python_guard_sites(text, source_path, repo_root):
     return sites
 
 
+def _raw_guard_site(
+    match,
+    *,
+    path_vars,
+    literal_vars,
+    lib,
+    repo_root,
+    source_path,
+    lineno,
+    line_end,
+    lines,
+):
+    """Resolve one syntactically executable raw presence match."""
+    target_token = match.group("target")
+    if (
+        len(target_token) >= 2
+        and target_token[0] == target_token[-1]
+        and target_token[0] in {"'", '"'}
+    ):
+        target_token = target_token[1:-1]
+    var_match = _VARREF.match(target_token)
+    var_name = var_match.group(1) if var_match else ""
+    target = path_vars.get(var_name) if var_name else None
+    if target is None:
+        target = _resolve_inline_var_path(target_token, lib, path_vars)
+    if target is None and "$" not in target_token:
+        target = (
+            target_token
+            if os.path.isabs(target_token)
+            else os.path.join(repo_root, target_token)
+        )
+    if (
+        target is None
+        and var_name
+        and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
+    ):
+        return None
+    target_abs = os.path.abspath(target) if target is not None else None
+    if target_abs is not None:
+        try:
+            inside_repo = (
+                os.path.commonpath((repo_root, target_abs)) == repo_root
+            )
+        except ValueError:
+            inside_repo = False
+        if not inside_repo:
+            return None
+    declaration, error = parse_structural_declaration(lines)
+    literal_tokens = tokenize(match.group("literal_token"))
+    raw_literal = None
+    if literal_tokens:
+        raw_literal = resolve_arg(
+            literal_tokens[0],
+            literal_vars,
+            path_vars,
+            want_path=False,
+            lib=lib,
+        )
+    return GuardSite(
+        source_path,
+        lineno,
+        line_end,
+        "raw-presence",
+        None,
+        raw_literal,
+        target_abs,
+        declaration,
+        error,
+    )
+
+
 def extract_guard_sites(text, source_path, repo_root):
     """Extract complete helper and narrow raw repository-presence guard sites."""
     if source_path.endswith(".py"):
@@ -2930,72 +3010,24 @@ def extract_guard_sites(text, source_path, repo_root):
                     continue
             raw_matches.append(candidate)
 
-        if len(raw_matches) > 1:
-            raise InfrastructureError(
-                "multiple raw presence commands occur on one logical line"
-            )
-        match = raw_matches[0] if raw_matches else None
         cat_match = _RAW_CAT_PRESENCE_RE.search(logical_line)
-        if match is None and cat_match is None:
+        matches = raw_matches or ([cat_match] if cat_match is not None else [])
+        if not matches:
             continue
-        if match is None:
-            match = cat_match
-        target_token = match.group("target")
-        if (
-            len(target_token) >= 2
-            and target_token[0] == target_token[-1]
-            and target_token[0] in {"'", '"'}
-        ):
-            target_token = target_token[1:-1]
-        var_match = _VARREF.match(target_token)
-        var_name = var_match.group(1) if var_match else ""
-        target = path_vars.get(var_name) if var_name else None
-        if target is None:
-            target = _resolve_inline_var_path(target_token, lib, path_vars)
-        if target is None and "$" not in target_token:
-            target = (
-                target_token
-                if os.path.isabs(target_token)
-                else os.path.join(repo_root, target_token)
-            )
-        if (
-            target is None
-            and var_name
-            and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
-        ):
-            continue
-        target_abs = os.path.abspath(target) if target is not None else None
-        if target_abs is not None:
-            try:
-                inside_repo = os.path.commonpath((repo_root, target_abs)) == repo_root
-            except ValueError:
-                inside_repo = False
-            if not inside_repo:
-                continue
-        declaration, error = parse_structural_declaration(lines)
-        literal_tokens = tokenize(match.group("literal_token"))
-        raw_literal = None
-        if literal_tokens:
-            raw_literal = resolve_arg(
-                literal_tokens[0],
-                literal_vars,
-                path_vars,
-                want_path=False,
+        for match in matches:
+            site = _raw_guard_site(
+                match,
+                path_vars=path_vars,
+                literal_vars=literal_vars,
                 lib=lib,
+                repo_root=repo_root,
+                source_path=source_path,
+                lineno=lineno,
+                line_end=_line_end(lineno, logical_line),
+                lines=lines,
             )
-        sites.append(
-            GuardSite(
-                source_path,
-                lineno,
-                _line_end(lineno, logical_line),
-                "raw-presence",
-                None,
-                raw_literal,
-                target_abs,
-                declaration,
-                error,
-            )
-        )
+            if site is not None:
+                sites.append(site)
     return sites
 
 
@@ -3059,6 +3091,22 @@ def scan_changed_sources(
             new_sites = extract_guard_sites(
                 current_sources[patch.new_path], patch.new_path, repo_root
             )
+            raw_sites_by_span = {}
+            for site in new_sites:
+                if site.family == "raw-presence":
+                    raw_sites_by_span.setdefault(
+                        (site.line_start, site.line_end), []
+                    ).append(site)
+            if any(
+                len(group) > 1
+                and any(
+                    start <= line <= end for line in patch.added_lines
+                )
+                for (start, end), group in raw_sites_by_span.items()
+            ):
+                raise InfrastructureError(
+                    "multiple raw presence commands occur on one logical line"
+                )
             new_candidates.extend(
                 site for site in new_sites if _site_changed(site, patch.added_lines)
             )
@@ -3080,11 +3128,18 @@ def scan_changed_sources(
             ).get_matching_blocks():
                 for offset in range(block.size):
                     line_map[block.a + offset + 1] = block.b + offset + 1
-            new_by_line = {site.line_start: site for site in new_sites}
+            new_by_line = {}
+            for site in new_sites:
+                new_by_line.setdefault(site.line_start, []).append(site)
+            old_occurrences = {}
             for old_site in old_sites:
-                new_site = new_by_line.get(line_map.get(old_site.line_start))
-                if new_site is None:
+                old_line = old_site.line_start
+                occurrence = old_occurrences.get(old_line, 0)
+                old_occurrences[old_line] = occurrence + 1
+                new_group = new_by_line.get(line_map.get(old_line), ())
+                if occurrence >= len(new_group):
                     continue
+                new_site = new_group[occurrence]
                 old_effective = (
                     old_site.family,
                     old_site.helper,
@@ -3103,7 +3158,7 @@ def scan_changed_sources(
                 )
                 if old_effective == new_effective:
                     continue
-                if new_site not in new_candidates:
+                if not _site_changed(new_site, patch.added_lines):
                     new_candidates.append(new_site)
 
     normalized_revivals = {}

@@ -498,33 +498,72 @@ class PinCorpusLint810Tests(unittest.TestCase):
         }
         for label, separator in separators.items():
             with self.subTest(label=label):
-                source = (
+                old = (
                     "DOC=\"$LIB/../docs/x.md\"\n"
                     "grep -qF -- 'one' \"$DOC\""
-                    f"{separator}"
-                    "grep -qF -- 'two' \"$DOC\""
+                )
+                source = (
+                    old
+                    + separator
+                    + "grep -qF -- 'two' \"$DOC\""
                 )
                 with self.assertRaisesRegex(
                     self.mod.InfrastructureError,
                     "multiple raw presence commands",
                 ):
-                    self.mod.extract_guard_sites(
-                        source, "lib/test/a.sh", repo_root="/repo"
+                    self.mod.scan_changed_sources(
+                        {"lib/test/a.sh": source},
+                        {"lib/test/a.sh": old},
+                        one_file_diff("lib/test/a.sh", old, source),
+                        repo_root="/repo",
                     )
 
     def test_declaration_cannot_hide_a_second_raw_presence_command(self):
-        source = (
+        old = (
             "DOC=\"$LIB/../docs/x.md\"\n"
-            "grep -qF -- 'one' \"$DOC\"; grep -qF -- 'two' \"$DOC\"  "
+            "grep -qF -- 'one' \"$DOC\""
+        )
+        source = (
+            old
+            + "; grep -qF -- 'two' \"$DOC\"  "
             "# structural-pin-ok: helper-contract -- first grep is executable"
         )
         with self.assertRaisesRegex(
             self.mod.InfrastructureError,
             "multiple raw presence commands",
         ):
-            self.mod.extract_guard_sites(
-                source, "lib/test/a.sh", repo_root="/repo"
+            self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": old},
+                one_file_diff("lib/test/a.sh", old, source),
+                repo_root="/repo",
             )
+
+    def test_assignment_change_preserves_identical_raw_occurrences(self):
+        calls = (
+            "grep -qF -- 'literal' \"$DOC\"; "
+            "grep -qF -- 'literal' \"$DOC\""
+        )
+        old = "DOC=\"$LIB/../docs/old.md\"\n" + calls
+        source = "DOC=\"$LIB/../docs/new.md\"\n" + calls
+        diff = (
+            "diff --git a/lib/test/a.sh b/lib/test/a.sh\n"
+            "--- a/lib/test/a.sh\n"
+            "+++ b/lib/test/a.sh\n"
+            "@@ -1 +1 @@\n"
+            "-DOC=\"$LIB/../docs/old.md\"\n"
+            "+DOC=\"$LIB/../docs/new.md\"\n"
+        )
+        findings = self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": old},
+            diff,
+            repo_root="/repo",
+        )
+        self.assertEqual(2, len(findings))
+        self.assertTrue(
+            all("missing structural declaration" in item for item in findings)
+        )
 
     def test_quoted_escaped_and_argument_grep_words_are_not_executable(self):
         source = (
@@ -538,6 +577,27 @@ class PinCorpusLint810Tests(unittest.TestCase):
             [],
             self.mod.extract_guard_sites(
                 source, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
+
+    def test_command_substitution_looking_grep_in_comment_is_inert(self):
+        source = (
+            "DOC=\"$LIB/../docs/x.md\"\n"
+            "printf x # $(grep -qF -- 'fake' \"$DOC\")"
+        )
+        self.assertEqual(
+            [],
+            self.mod.extract_guard_sites(
+                source, "lib/test/a.sh", repo_root="/repo"
+            ),
+        )
+        self.assertEqual(
+            [],
+            self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root="/repo",
             ),
         )
 
