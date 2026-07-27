@@ -2,28 +2,22 @@
   "iter": 1,
   "started_at": "2026-07-27T03:58:16Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "step_1_phase_1_3_fanout",
-  "pending_dispatch": {
-    "kind": "phase1_generators_plus_phase3_roster",
-    "roster": [
-      "devflow:checklist-generator(batch1)",
-      "devflow:checklist-generator(batch2)",
-      "devflow:checklist-generator(batch3)",
-      "devflow:code-reviewer",
-      "devflow:silent-failure-hunter",
-      "devflow:comment-analyzer",
-      "devflow:pr-test-analyzer",
-      "devflow:requesting-code-review"
-    ],
-    "dispatched_at": "2026-07-27T04:05:00Z"
-  },
-  "phase3_dispatched": [
-    "devflow:code-reviewer",
-    "devflow:silent-failure-hunter",
-    "devflow:comment-analyzer",
-    "devflow:pr-test-analyzer",
-    "devflow:requesting-code-review"
+  "current_step": "3",
+  "current_substep": "post_fix_full_suite",
+  "pending_dispatch": null,
+  "fix_commit_sha": "d5969c1d",
+  "fix_files": [
+    "lib/render-report.sh",
+    "lib/actionable-patterns.sh",
+    "lib/filing-decisions.sh",
+    "lib/compute-patterns.jq",
+    "lib/pattern-state.sh",
+    "lib/test/modules/retrospective-lifecycle.sh",
+    "lib/test/run.sh",
+    "scripts/workflow-flight-recorder-registry.json",
+    "skills/retrospective-weekly/SKILL.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    ".changeset/issue-788-retrospective-lifecycle.md"
   ],
   "diff_profile": {
     "small_diff": false,
@@ -40,6 +34,66 @@
     "push_each_iteration": true
   },
   "acceptance_criteria_source": "pr-identity-mismatch",
-  "git_snap_before_oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Critical", "description": "render-report.sh length guards only catch booleans; a string/number/object passes and the element read aborts mid-render, truncating the report and swallowing later sections", "defect_signature": {"file": "lib/render-report.sh", "line_range": [83, 107], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Critical", "description": "the four diff-added comments justifying those guards assert jq `length` aborts on truthy non-arrays; false (\"oops\"|length -> 5)", "defect_signature": {"file": "lib/render-report.sh", "line_range": [80, 97], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Critical", "description": "DEVFLOW_SYSTEM_OVERVIEW.md:669 'the one machine path that touches that map at all' falsified by meta-issue.sh's own .dismissed write", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [669, 669], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "actionable-patterns.sh arg guard's comment claims it catches a --full landing in $4; case on $3 structurally cannot", "defect_signature": {"file": "lib/actionable-patterns.sh", "line_range": [71, 81], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "filing-decisions.sh cap comparands abort on a non-object lifecycle record, unestablishing the count and withholding every pattern", "defect_signature": {"file": "lib/filing-decisions.sh", "line_range": [246, 267], "kind": "unhandled_exception"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "SKILL.md Step 7 'written in a previous run' false at HEAD; Step 6's reconcile rewrites unconditionally", "defect_signature": {"file": "skills/retrospective-weekly/SKILL.md", "line_range": [456, 461], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "PER_CAT bound in prose only while the consuming fence reads it; empty operand withholds every pattern", "defect_signature": {"file": "skills/retrospective-weekly/SKILL.md", "line_range": [572, 613], "kind": "api_misuse"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Step 6 pre-filing snapshot is an unguarded cp with an existence-only downstream guard; a stale readable snapshot fails open", "defect_signature": {"file": "skills/retrospective-weekly/SKILL.md", "line_range": [330, 338], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "pattern-state.sh per-slug diagnostics pass ends `|| true`; a jq failure erases every per-slug warning silently", "defect_signature": {"file": "lib/pattern-state.sh", "line_range": [328, 348], "kind": "unhandled_exception"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the three cap keys have no adversarial-shape sweep; an array-typed value is laundered into a valid cap", "defect_signature": {"file": "lib/test/modules/retrospective-lifecycle.sh", "line_range": [948, 1012], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "actionable-patterns.sh build-output comment wrong on both limbs after the regressed bypass and --full", "defect_signature": {"file": "lib/actionable-patterns.sh", "line_range": [188, 190], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "compute-patterns.jq `strings` key-guard rationale describes an unreachable path", "defect_signature": {"file": "lib/compute-patterns.jq", "line_range": [105, 111], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "assertion floor 190 against ~289 executed; tolerated losing a third of the module", "defect_signature": {"file": "scripts/workflow-flight-recorder-registry.json", "line_range": [4, 8], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "changeset deviates from the documented bullet/type convention", "defect_signature": {"file": ".changeset/issue-788-retrospective-lifecycle.md", "line_range": [1, 31], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "module temp-root uses trap RETURN (does not fire on exit) and TMP_MI has no trap; claimed to deviate from all seven siblings", "defect_signature": {"file": "lib/test/modules/retrospective-lifecycle.sh", "line_range": [16, 17], "kind": "leak"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "pushed_back"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-11", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-12", "decision": "applied", "commit": "6355c324"},
+    {"finding_id": "F-13", "decision": "applied", "commit": "d5969c1d"},
+    {"finding_id": "F-14", "decision": "applied", "commit": "d5969c1d"},
+    {
+      "finding_id": "F-15",
+      "decision": "pushed_back",
+      "source_file": "lib/test/modules/retrospective-lifecycle.sh",
+      "claim_text": "The module's temp-root lifecycle deviates from all seven sibling modules, which use trap EXIT with an explicit mktemp template and a || record_fail arm",
+      "skip_category": "claim-quality",
+      "evidence": "The stated premise is false: of the 11 sibling modules, experiment-records.sh, prompt-extension-reader.sh, review-stall-backstop.sh and review-trigger-helpers.sh all use bare `mktemp -d` with ZERO traps. The module's RETURN trap is deliberate and self-documented (line 932 explains the nested-source coupling; line 1718 clears it); converting it to an EXIT trap in a SOURCED module is the hazard that clearing exists to avoid.",
+      "parking_evidence": {
+        "basis": "the finding's load-bearing premise — that all seven siblings use a trap EXIT + template + record_fail pattern — is refuted by the sibling files themselves",
+        "failing_input": "the claimed sibling convention, measured across lib/test/modules/*.sh",
+        "source": "lib/test/modules/{experiment-records,prompt-extension-reader,review-stall-backstop,review-trigger-helpers}.sh — bare `mktemp -d`, no trap",
+        "finding_ref": {"iter": 1, "index": 14}
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 14,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 2, "by_category": {"cross_batch_dedup_not_run": 2}},
+  "sweep_evidence": {"status": "run", "batched_regeneration": "run — all artifacts reconciled, exit 0"},
   "telemetry": "unavailable"
 }
