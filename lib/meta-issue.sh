@@ -2,13 +2,19 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # meta-issue.sh — the retrospective loop's issue filer: file (or update) one
-# GitHub issue for a devflow pattern and record a permanent cross-run exclusion
-# in overrides.json (a `dismissed` entry that holds until a human clears it —
-# distinct from the within-window open-issue cooldown in actionable-patterns.sh;
-# the overrides write is skipped entirely on --dry-run, which observes only).
-# The body is authored by Stage B (retrospective-audit) to create-issue quality
-# and is filed verbatim, so the issue can later be executed through the normal
-# /devflow:implement -> review pipeline.
+# GitHub issue for a devflow pattern and record a `filed` meta-issue entry on that
+# pattern's lifecycle record in overrides.json (issue #788). The entry carries the
+# issue number and URL and is keyed by number: a filing whose number is already
+# present updates that entry in place rather than appending a duplicate, so the
+# open-issue de-dupe re-recording an existing issue every week does not exhaust the
+# per-category cap against one real issue. This helper writes NO `dismissed` entry
+# — `dismissed{}` is human-owned and written by no filing path; suppression now
+# lasts exactly as long as the issue-closure lifecycle `lib/pattern-state.sh`
+# reconciles, not permanently. The overrides write is skipped entirely on
+# --dry-run, which observes only. The body is authored by Stage B
+# (retrospective-audit) to create-issue quality and is filed verbatim, so the
+# issue can later be executed through the normal /devflow:implement -> review
+# pipeline.
 #
 # Usage:
 #   meta-issue.sh --tag <theme-tag> --slug <sanitized-tag> \
@@ -60,6 +66,15 @@ done
 case "$TAG" in
     *[!A-Za-z0-9_-]*|'')
         echo "meta-issue: invalid --tag '${TAG}' (expected [A-Za-z0-9_-]+)" >&2
+        exit 1 ;;
+esac
+
+# Validate SLUG against the same grammar: it is the overrides.patterns[] key the
+# lifecycle write injects, so a SLUG carrying a path/qualifier/space could produce
+# a non-canonical key that compute-patterns.jq would surface as a phantom pattern.
+case "$SLUG" in
+    *[!A-Za-z0-9_-]*|'')
+        echo "meta-issue: invalid --slug '${SLUG}' (expected [A-Za-z0-9_-]+)" >&2
         exit 1 ;;
 esac
 
@@ -123,7 +138,7 @@ if [[ -n "$EXISTING" ]]; then
     # Fail CLOSED on a de-dup hit that yielded no usable url/number (a gh --json
     # contract drift would make jq -r emit the literal "null"). Mirrors the
     # create-path URL guard below — without it a "null" url/number would flow into
-    # the recurrence comment, the labels, and the overrides cooldown.
+    # the recurrence comment, the labels, and the overrides lifecycle record.
     case "$URL" in https://*/issues/[0-9]*) : ;; *) echo "::error::meta-issue: de-dupe hit returned no usable issue URL for tag '${TAG}' (got: '${URL}')" >&2; exit 1 ;; esac
     case "$NUMBER" in ''|*[!0-9]*) echo "::error::meta-issue: de-dupe hit returned no numeric issue number for tag '${TAG}' (got: '${NUMBER}')" >&2; exit 1 ;; esac
     if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -149,12 +164,18 @@ else
         URL="$("$DEVFLOW_GH" issue create \
             --title "[devflow-retrospective] meta: ${TAG} — ${TITLE}" \
             --body-file "$BODY_FILE")"
-        URL="$(printf '%s' "$URL" | tr -d '[:space:]')"
+        # Strip whitespace with a BUILTIN, never `tr`: preflight guarantees only
+        # git/gh/jq/python3, and this value decides an EMITTED result. A missing
+        # `tr` would empty $URL, the shape guard below would fire, and the script
+        # would exit 1 AFTER the issue was created — making the orchestrator record
+        # a genuinely-filed issue as blocked, the exact misstatement the recovery
+        # branch below exists to prevent, while blaming gh for a missing binary.
+        URL="${URL//[$' \t\r\n']/}"
         # Fail CLOSED on a non-issue-URL: `gh issue create` can exit 0 yet emit
         # empty/garbage stdout (URL printed to stderr, an auth/upgrade warning on
         # stdout, a swallowed transient error). Without this guard an empty/garbage
         # URL would flow on as a "success" — the orchestrator would record the
-        # pattern as FILED and write a permanent overrides.json cooldown for an
+        # pattern as FILED and write an overrides.json lifecycle record for an
         # issue that does not exist (the exact "never report unfiled as filed"
         # invariant this loop must hold). Exit non-zero so the orchestrator's
         # `if ISSUE_URL=$(...meta-issue.sh...)` catches it and records a blocker.
@@ -164,53 +185,149 @@ else
         esac
     fi
     # Derive the issue number from the created URL (trailing path segment) so the
-    # labels land on the issue we just filed. The URL-shape guard above guarantees
-    # a numeric tail on the create path; the _apply_labels numeric guard is the
-    # belt-and-suspenders for the existing-issue path's parsed number.
+    # labels land on the issue we just filed. The URL-shape guard above does NOT
+    # guarantee a numeric tail — its `[0-9]*` is a glob ("a digit followed by
+    # anything"), so `.../issues/12ab` passes it — which is exactly why
+    # `_apply_labels` re-validates the token strictly against `''|*[!0-9]*` on
+    # BOTH paths rather than trusting the URL shape, and why the lifecycle write
+    # below validates its own re-derivation of the same token.
     _apply_labels "${URL##*/}"
     echo "meta-issue: created ${URL}" >&2
 fi
 
 # ── Step 2: update overrides.json ────────────────────────────────────────────
 # Skip the real mutation on a dry run — a dry run must observe, never alter the
-# cross-run state. Otherwise it would record a `dismissed` entry pointing at the
+# cross-run state. Otherwise it would record a lifecycle entry pointing at the
 # DRYRUN sentinel and a later live run would treat the slug as already filed and
 # skip the real filing.
 if [[ "$DRY_RUN" -eq 0 ]]; then
+    # Both of these run AFTER `gh issue create` has already succeeded, so neither
+    # may abort under `set -euo pipefail`: a failed redirect (read-only fs, absent
+    # parent dir, full disk) or a failed `date` would kill the script before
+    # Step 3 prints the URL, making the orchestrator record a genuinely-filed
+    # issue as NOT filed. That is the exact misstatement the mktemp and mv guards
+    # below were written to prevent; the same abort class must not survive here.
+    # Both route into the same "issue WAS filed, record failed" recovery.
+    RECORD_WRITTEN=0
+    NOW=""
     if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
-        printf '{"schema_version":1,"dismissed":{}}' > "$OVERRIDES"
+        printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$OVERRIDES" || {
+            echo "::error::meta-issue: issue WAS filed (${URL}) but the overrides file ${OVERRIDES} could not be initialized — de-dupe will prevent a duplicate next run" >&2
+            printf '%s\n' "$URL"
+            exit 0
+        }
     fi
 
-    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    OVERRIDES_TMP="$(mktemp)"
-    # PRESERVE the original dismissed_at on a recurrence: this entry records WHEN
-    # the pattern was first dismissed (a permanent cross-run exclusion an auditor
-    # reads to see how long it has been parked). The Step-1 de-dupe re-runs this
-    # write on every recurrence, so writing $now unconditionally would drift the
-    # timestamp perpetually forward and mislead that audit. Only a brand-new entry
-    # (no prior dismissed_at) gets $now; an existing one keeps its first stamp.
-    if "$DEVFLOW_JQ" \
-        --arg tag "$SLUG" \
+    # Refuse to record into a file this helper is not the migrator for. The jq
+    # below sets `.schema_version = 2` and performs NO v1 conversion, so stamping
+    # an unmigrated v1 file would claim a migration that never happened — and
+    # pattern-state.sh's `_migrate` gates on `schema_version == 1`, so it would
+    # then never run. Every loop-written v1 `dismissed{}` entry would be frozen as
+    # a human-owned PERMANENT suppression: the unclearable-dismissal failure this
+    # whole issue exists to end, arriving through the loop's own writer. Decline
+    # the record instead and route to the issue-WAS-filed recovery below, so the
+    # filing is still reported and de-dupe still prevents a duplicate next run.
+    # (`// 1` mirrors _migrate's own read, so an absent key reads as v1 there too.)
+    _MI_SCHEMA="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$OVERRIDES" 2>/dev/null)" || _MI_SCHEMA=""
+    if [ "$_MI_SCHEMA" != "2" ]; then
+        echo "::error::meta-issue: issue WAS filed (${URL}) but ${OVERRIDES} reports schema_version '${_MI_SCHEMA:-unreadable}', not 2 — refusing to stamp a v2 lifecycle record onto a file this helper does not migrate (run 'pattern-state.sh migrate ${OVERRIDES}' first); de-dupe will prevent a duplicate next run" >&2
+        printf '%s\n' "$URL"
+        exit 0
+    fi
+
+    NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || {
+        echo "::error::meta-issue: issue WAS filed (${URL}) but the timestamp for its lifecycle record could not be derived — de-dupe will prevent a duplicate next run" >&2
+        printf '%s\n' "$URL"
+        exit 0
+    }
+    ISSUE_NUM="${URL##*/}"
+    # Validate the derived key STRICTLY. The URL guards above use the glob
+    # `https://*/issues/[0-9]*`, and `[0-9]*` is a GLOB — "a digit followed by
+    # anything" — not a numeric assertion: `https://host/issues/12ab` passes it
+    # and yields ISSUE_NUM="12ab", and `.../issues/12/` yields the empty string.
+    # Either would make the `--argjson num` below exit non-zero and land in the
+    # record-write recovery branch, which would then blame a WRITE failure for
+    # what is actually a malformed URL. Fail here instead, where the breadcrumb
+    # can name the real cause. (The de-dupe path's $NUMBER is already validated
+    # against this same grammar; this covers the create path's re-derivation.)
+    case "$ISSUE_NUM" in
+        ''|*[!0-9]*)
+            echo "::error::meta-issue: issue URL '${URL}' does not end in a bare issue number (derived '${ISSUE_NUM}') — cannot key the lifecycle entry for tag '${TAG}'" >&2
+            exit 1 ;;
+    esac
+    # Staged BESIDE the destination, never under $TMPDIR, for the same reason
+    # lib/pattern-state.sh's _atomic_write is: `mv` is an atomic rename only
+    # within one filesystem, so a $TMPDIR staging file on a runner whose /tmp is
+    # a separate filesystem turns this into a copy-then-unlink that can leave
+    # overrides.json truncated. The directory is derived with a bash builtin,
+    # never `dirname` — a non-preflight PATH tool that silently yielded empty
+    # would relocate the staging file to the filesystem root. Coupled pair with
+    # pattern-state.sh's `_dir_of`: that script is a standalone executable, so
+    # sourcing its helper here would run its arg parsing. Change both or neither.
+    OVERRIDES_DIR="${OVERRIDES%/*}"
+    [ "$OVERRIDES_DIR" = "$OVERRIDES" ] && OVERRIDES_DIR="."
+    # A mktemp failure must NOT abort under `set -e`: the issue itself was
+    # already created, and aborting here would report it as "not filed" — the
+    # exact misstatement the else-branch below exists to avoid. An empty
+    # OVERRIDES_TMP makes the guarded write below fail into that branch.
+    OVERRIDES_TMP="$(mktemp "$OVERRIDES_DIR/.overrides.XXXXXX" 2>/dev/null || true)"
+    # Append (or update in place) a `filed` meta-issue entry on the slug's
+    # lifecycle record, KEYED BY ISSUE NUMBER (issue #788): the Step-1 de-dupe
+    # re-runs this write on every recurrence with the SAME open issue, so an
+    # unkeyed append would write a duplicate entry for one real issue every week
+    # and exhaust max_open_per_category against a single open issue. An entry whose
+    # number is already present is updated in place; a new number is appended. The
+    # record's provenance is stamped once (first filing) and preserved on
+    # recurrence. This writes NO `dismissed` entry — that map is human-owned.
+    # The in-place update clears the entry's closure fields (`closedAt`,
+    # `fixed_at`, `state_reason`) alongside `state:"filed"`, byte-for-byte the
+    # field set lib/pattern-state.sh's OPEN transition writes: re-filing against a
+    # still-open issue is the same assertion "this entry is open", so leaving a
+    # prior closure timestamp on a `filed` entry would be an internally
+    # inconsistent shape until the next reconcile happened to clear it.
+    if [ -n "$OVERRIDES_TMP" ] && "$DEVFLOW_JQ" \
+        --arg slug "$SLUG" \
         --arg now "$NOW" \
         --arg url "$URL" \
-        '.dismissed[$tag] = {
-            dismissed_at: (.dismissed[$tag].dismissed_at // $now),
-            dismissed_by: "retrospective-weekly",
-            reason: "meta-plugin-issue",
-            meta_issue: $url
-        }' \
+        --argjson num "$ISSUE_NUM" \
+        '.schema_version = 2
+         | .patterns = (.patterns // {})
+         | .dismissed = (.dismissed // {})
+         | .patterns[$slug] = (
+             (.patterns[$slug] // {state:"filed", fixed_at:null, provenance:$now, meta_issues:[]})
+             | .provenance = (.provenance // $now)
+             | .meta_issues = (
+                 (.meta_issues // []) as $e
+                 | if ($e | any(.number == $num))
+                   then ($e | map(if .number == $num then (. + {url:$url, state:"filed", closedAt:null, fixed_at:null, state_reason:null}) else . end))
+                   else ($e + [{number:$num, url:$url, state:"filed", closedAt:null}])
+                   end
+               )
+             | .state = "filed"
+             | .fixed_at = null
+           )' \
         "$OVERRIDES" > "$OVERRIDES_TMP"; then
-        mv "$OVERRIDES_TMP" "$OVERRIDES"
-    else
-        # The issue WAS filed (URL is on stdout below); only the cooldown record
+        # The rename is GUARDED for the same reason the mktemp above is: a bare
+        # `mv` failing under `set -euo pipefail` would abort this script before
+        # Step 3 prints the URL, so an issue that WAS filed would be reported to
+        # the orchestrator as not filed — the precise misstatement the recovery
+        # branch below exists to prevent. Route a failed rename into that branch
+        # instead of aborting. (Staging beside the destination keeps this a
+        # same-filesystem rename, so a failure here is rare, not impossible.)
+        if mv "$OVERRIDES_TMP" "$OVERRIDES"; then
+            RECORD_WRITTEN=1
+        fi
+    fi
+    if [ "$RECORD_WRITTEN" -eq 0 ]; then
+        # The issue WAS filed (URL is on stdout below); only the lifecycle record
         # failed. Do NOT report this as "not filed" — that would misstate the
         # state and lose the real issue. Exit 0 with the URL so the orchestrator
         # records the filing; on the next run the open-issue de-dupe (Step 1) is
         # the best-effort, single-layered recovery — it finds the still-open issue
-        # and comments instead of re-filing, recovering the missing cooldown only
+        # and comments instead of re-filing, recovering the missing record only
         # if that lookup itself succeeds (not a guarantee).
         rm -f "$OVERRIDES_TMP"
-        echo "::error::meta-issue: issue WAS filed (${URL}) but its cooldown could not be recorded in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
+        echo "::error::meta-issue: issue WAS filed (${URL}) but its lifecycle record could not be written in ${OVERRIDES} — de-dupe will prevent a duplicate next run" >&2
     fi
 fi
 

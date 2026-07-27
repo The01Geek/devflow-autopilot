@@ -1,6 +1,11 @@
 {
   "schema_version": 1,
   "test_modules": {
+    "retrospective-lifecycle": {
+      "path": "lib/test/modules/retrospective-lifecycle.sh",
+      "minimum_assertions": 300,
+      "description": "Focused #788 retrospective issue-closure lifecycle: overrides v1->v2 migration, pattern-state.sh reconcile transitions and record derivation, compute-patterns.jq status arms with fix-timestamp precedence and canonicalization, meta-issue.sh number-keyed lifecycle write and --slug grammar, actionable-patterns.sh regressed occurrence-threshold bypass and liveness warning, filing-decisions.sh cap arms and report-field producers, and the end-to-end render of every report section"
+    },
     "workflow-flight-recorder": {
       "path": "lib/test/modules/workflow-flight-recorder.sh",
       "minimum_assertions": 68,

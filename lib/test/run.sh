@@ -556,83 +556,13 @@ assert_eq "#152 classify: audit branch with watched=false and no label/closes is
   "$(classify "devflow/audit-foo-2026-05-01-abc1234" "false" "claude/" '[]' '[]')"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "compute-patterns.jq"
+echo "tracked-surface prose guards (removed-slug lockstep #129 / config.json tracking #412)"
 # ────────────────────────────────────────────────────────────────────────────
-
-cp_run() {
-  local entries="$1" overrides="$2"
-  printf '%s\n' "$entries" \
-  | jq -s --slurpfile overrides <(printf '%s' "$overrides") \
-      -f "$LIB/compute-patterns.jq"
-}
-
-# Two open occurrences (schema-v2 `categories`) → status "open", count 2,
-# and the descriptors of both occurrences are unioned into the pattern view.
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit"],"descriptors":["orphaned fetch in handleEvent"]}
-{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit","doc-accuracy"],"descriptors":["stale count not propagated"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "two open occurrences → status=open" \
-  "open" \
-  "$(echo "$RESULT" | jq -r '.["incomplete-edit"].status')"
-assert_eq "two open occurrences → count=2" \
-  "2" \
-  "$(echo "$RESULT" | jq -r '.["incomplete-edit"].occurrence_count')"
-assert_eq "descriptors unioned across occurrences" \
-  "orphaned fetch in handleEvent|stale count not propagated" \
-  "$(echo "$RESULT" | jq -r '.["incomplete-edit"].descriptors | sort | join("|")')"
-assert_eq "a second category from the same PR forms its own pattern" \
-  "1" \
-  "$(echo "$RESULT" | jq -r '.["doc-accuracy"].occurrence_count')"
-
-# Legacy schema-v1 `theme_tags` entries still count (the `// .theme_tags`
-# fallback in compute-patterns.jq) and slugify the same way as v2 categories,
-# so a mixed file (pre- and post-migration entries) Just Works.
-RESULT=$(cp_run \
-  '{"schema_version":1,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","theme_tags":["doc-accuracy"]}
-{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "v1 theme_tags + v2 categories grouped together (count=2)" \
-  "2" \
-  "$(echo "$RESULT" | jq -r '.["doc-accuracy"].occurrence_count')"
-
-# One occ + later audit fix → status "fixed"
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
-{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["lenient-verdict"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "occ then fix → status=fixed" \
-  "fixed" \
-  "$(echo "$RESULT" | jq -r '.["lenient-verdict"].status')"
-
-# Successor-slug split (#129): each of the three slugs that replaced the removed
-# coarse review/gate slug aggregates as its own pattern, and the removed slug
-# never appears.
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["outstanding-reject"]}
-{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-05-02T00:00:00Z","verdict":"imperfect","categories":["lenient-verdict"]}
-{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-05-03T00:00:00Z","verdict":"imperfect","categories":["deferred-verification"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "split slug outstanding-reject aggregates (count=1)" \
-  "1" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
-assert_eq "split slug lenient-verdict aggregates (count=1)" \
-  "1" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
-assert_eq "split slug deferred-verification aggregates (count=1)" \
-  "1" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
-assert_eq "removed split slug never aggregates" \
-  "null" "$(echo "$RESULT" | jq -r '.["review-gate" + "-bypass"].occurrence_count')"
-
-# Boundary case: a gate-absent / human-authored PR (no review-related slug) maps to
-# NONE of the three successor slugs.
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":9,"merged_at":"2026-05-09T00:00:00Z","verdict":"imperfect","categories":["other"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "gate-absent PR → no outstanding-reject pattern" \
-  "null" "$(echo "$RESULT" | jq -r '.["outstanding-reject"].occurrence_count')"
-assert_eq "gate-absent PR → no lenient-verdict pattern" \
-  "null" "$(echo "$RESULT" | jq -r '.["lenient-verdict"].occurrence_count')"
-assert_eq "gate-absent PR → no deferred-verification pattern" \
-  "null" "$(echo "$RESULT" | jq -r '.["deferred-verification"].occurrence_count')"
+# The compute-patterns.jq assertions that used to head this section now live in
+# lib/test/modules/retrospective-lifecycle.sh (issue #788 AC). The repo-wide
+# tracked-surface guards below are NOT compute-patterns.jq coverage — they scan
+# every tracked file for a removed slug and for a false config.json claim — so
+# they stay in the monolith rather than moving into that module.
 
 # Lockstep guard (#129): NO tracked surface may reference the removed slug, except
 # CHANGELOG.md (append-only release history that records it by its then-name). A
@@ -839,56 +769,6 @@ else
   [ -d "${CJT_E2E:-}" ] && assert_eq "#412 cjt_scan e2e setup (git init)" "ok" "setup failed — git init errored"
   [ -d "${CJT_E2E:-}" ] && rm -rf "$CJT_E2E"
 fi
-
-# Fix then later occ → status "regressed"
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"audit","pr":1,"merged_at":"2026-04-01T00:00:00Z","fixes_patterns":["convention-violation"]}
-{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-15T00:00:00Z","verdict":"imperfect","categories":["convention-violation"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "fix then occ → status=regressed" \
-  "regressed" \
-  "$(echo "$RESULT" | jq -r '.["convention-violation"].status')"
-
-# Override → status "dismissed"
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}' \
-  '{"schema_version":1,"dismissed":{"tooling-gap":{"reason":"meta-plugin-issue"}}}')
-assert_eq "override → status=dismissed" \
-  "dismissed" \
-  "$(echo "$RESULT" | jq -r '.["tooling-gap"].status')"
-
-# verdict:"blocked" entries also count as occurrences (alongside "imperfect").
-# A simplification of the filter to drop "blocked" would silently make the
-# whole "Blocked" workpad-status branch invisible to the audit.
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"blocked","categories":["unmet-acceptance-criteria"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "blocked verdict counts as occurrence" \
-  "1" \
-  "$(echo "$RESULT" | jq -r '.["unmet-acceptance-criteria"].occurrence_count')"
-
-# Slug normalization is still applied defensively: a legacy mixed-case
-# theme_tag slugifies to lowercase and matches a lowercase fixes_pattern.
-RESULT=$(cp_run \
-  '{"schema_version":1,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","theme_tags":["Foo-Bar-IN-Clause"]}
-{"schema_version":2,"kind":"audit","pr":2,"merged_at":"2026-04-15T00:00:00Z","fixes_patterns":["foo-bar-in-clause"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "slug normalization: mixed-case theme_tag matched by lowercase fixes_pattern → fixed" \
-  "fixed" \
-  "$(echo "$RESULT" | jq -r '.["foo-bar-in-clause"].status')"
-
-# Missing merged_at MUST NOT contaminate first_seen/last_seen.
-# An entry with no merged_at should be excluded from occurrences.
-RESULT=$(cp_run \
-  '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-15T00:00:00Z","verdict":"imperfect","categories":["other"]}
-{"schema_version":2,"kind":"implementation","pr":2,"verdict":"imperfect","categories":["other"]}' \
-  '{"schema_version":1,"dismissed":{}}')
-assert_eq "missing merged_at filtered out (count=1)" \
-  "1" \
-  "$(echo "$RESULT" | jq -r '.["other"].occurrence_count')"
-assert_eq "missing merged_at does not poison first_seen" \
-  "2026-04-15T00:00:00Z" \
-  "$(echo "$RESULT" | jq -r '.["other"].first_seen')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "config-get.sh (resolver, direct)"
@@ -14434,7 +14314,7 @@ printf '%s\n' \
   '{"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["incomplete-edit"],"descriptors":["stale count not propagated"]}' \
   '{"schema_version":2,"kind":"implementation","pr":3,"merged_at":"2026-04-11T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' \
   > "$AP_TMP/r.jsonl"
-echo '{"schema_version":1,"dismissed":{}}' > "$AP_TMP/o.json"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$AP_TMP/o.json"
 cat > "$AP_TMP/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in *"pr list"*) echo '[]' ;; *) echo '[]' ;; esac
@@ -14612,259 +14492,6 @@ assert_eq "materialize #672: malformed new-entries leaves the store untouched" \
 rm -rf "$MR_TMP"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "meta-issue.sh"
-# ────────────────────────────────────────────────────────────────────────────
-MI_TMP="$(mktemp -d)"
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov.json"
-# #152: the body is the Stage-B-authored issue spec, filed VERBATIM. Use a body
-# with backticks, $, and newlines to prove it round-trips unmangled (written to a
-# file, never inlined into shell) and is NOT wrapped in any prepend/append.
-printf '## Problem Statement\nStrengthen `cheap-gate.jq` so $VAR shapes do not slip.\n\nMulti-line.\n' > "$MI_TMP/body.md"
-# Stub writes its capture files into its own dir ($MI_TMP) so a quoted heredoc can
-# stay free of run.sh shell-var interpolation. Handles label create / issue edit
-# (the best-effort label stamping) in addition to list/create/comment.
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-D="$(dirname "$0")"
-case "$*" in
-  *"issue list"*) echo '' ;;                                # no existing issue
-  *"issue create"*)
-     printf '%s' "$*" > "$D/create-args"
-     prev=""
-     for a in "$@"; do
-       [ "$prev" = "--body-file" ] && cat "$a" > "$D/created-body.md"
-       prev="$a"
-     done
-     echo 'https://github.com/acme/example-repo/issues/4242' ;;
-  *"issue comment"*) echo 'commented' ;;
-  *"issues/"*"/labels"*) printf '%s' "$*" > "$D/edit-args" ;;   # REST label apply (apply-labels.sh)
-  *"--method POST"*"/labels"*) echo '{}' ;;                       # REST label create (ensure-label.sh)
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --title "audit(devflow): x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
-assert_eq "meta-issue returns the new URL" "https://github.com/acme/example-repo/issues/4242" "$URL"
-# Created title must keep the de-dup key prefix (Step-1 search matches it) AND
-# carry the caller's --title (regression: --title was previously discarded).
-assert_eq "create title keeps the de-dup key" "true" \
-  "$(grep -qF -- '--title [devflow-retrospective] meta: review-reject-bypassed' "$MI_TMP/create-args" && echo true || echo false)"
-assert_eq "create title carries the caller --title" "true" \
-  "$(grep -qF -- 'audit(devflow): x' "$MI_TMP/create-args" && echo true || echo false)"
-# #152: the filed body equals the input verbatim — no `## Pattern:` prepend, no
-# "can't be an auto-opened PR" boilerplate, backticks/$/newlines intact.
-assert_eq "meta-issue files the body verbatim" "true" \
-  "$(diff -q "$MI_TMP/body.md" "$MI_TMP/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
-# #152: both the DevFlow provenance label and the Retrospective marker are stamped
-# (best-effort) on the freshly filed issue (#4242, derived from the created URL).
-assert_eq "meta-issue stamps DevFlow label (REST labels[] field)" "true" \
-  "$(grep -qF -- 'labels[]=DevFlow' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "meta-issue stamps Retrospective label (REST labels[] field)" "true" \
-  "$(grep -qF -- 'labels[]=Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "meta-issue applies via REST issues/4242/labels (not gh issue edit)" "true" \
-  "$(grep -qF -- 'issues/4242/labels' "$MI_TMP/edit-args" && echo true || echo false)"
-assert_eq "override recorded with url"     "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.dismissed["review-reject-bypassed"].meta_issue' "$MI_TMP/ov.json")"
-assert_eq "override reason"                "meta-plugin-issue" "$(jq -r '.dismissed["review-reject-bypassed"].reason' "$MI_TMP/ov.json")"
-assert_eq "override dismissed_by"          "retrospective-weekly"    "$(jq -r '.dismissed["review-reject-bypassed"].dismissed_by' "$MI_TMP/ov.json")"
-# existing-issue path (de-dup): comments instead of re-filing, still stamps labels
-rm -f "$MI_TMP/edit-args"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-D="$(dirname "$0")"
-case "$*" in
-  *"issue list"*) echo '[{"number":99,"url":"https://github.com/acme/example-repo/issues/99","title":"[devflow-retrospective] meta: t-existing — x"}]' ;;
-  *"issue comment"*) echo 'commented' ;;
-  *"issues/"*"/labels"*) printf '%s' "$*" > "$D/edit-args" ;;   # REST label apply (apply-labels.sh)
-  *"--method POST"*"/labels"*) echo '{}' ;;                       # REST label create (ensure-label.sh)
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-URL2="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
-assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
-assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/labels)" "true" \
-  "$(grep -qF -- 'issues/99/labels' "$MI_TMP/edit-args" && echo true || echo false)"
-# #152: fail CLOSED on a create that returns no usable issue URL. `gh issue create`
-# can exit 0 with empty/garbage stdout; without the URL-shape guard meta-issue.sh
-# would report a phantom filing AND write a permanent overrides.json cooldown for
-# an issue that never existed (the "never report unfiled as filed" invariant). The
-# guard must exit non-zero so the orchestrator records a blocker, and must NOT have
-# written a dismissal for the slug.
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov2.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '' ;;            # no existing issue → create path
-  *"issue create"*) echo '' ;;          # exit 0 but NO url
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
-assert_eq "meta-issue fails closed on empty create URL (non-zero exit)" "true" \
-  "$([ "$EMPTY_RC" -ne 0 ] && echo true || echo false)"
-assert_eq "meta-issue wrote NO cooldown on empty create URL" "false" \
-  "$(jq -e '.dismissed | has("empty-url")' "$MI_TMP/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
-# garbage (non-URL) stdout → same fail-closed
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '' ;;
-  *"issue create"*) echo 'could not create issue: HTTP 403' ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
-assert_eq "meta-issue fails closed on garbage create stdout (non-zero exit)" "true" \
-  "$([ "$GARBAGE_RC" -ne 0 ] && echo true || echo false)"
-# de-dup lookup failure (gh issue list non-zero) → exit 1 (orchestrator blocker trigger)
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) exit 1 ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
-assert_eq "meta-issue fails closed on de-dup lookup error (non-zero exit)" "true" \
-  "$([ "$LOOKUP_RC" -ne 0 ] && echo true || echo false)"
-# #152: de-dup lookup that exits 0 with a NON-JSON body (auth/upgrade warning on
-# stdout, HTML error page) must fail CLOSED at the jq parse, not flow on as "no
-# existing issue" and re-file a duplicate. Mirrors actionable-patterns.sh's
-# non-JSON cooldown guard (the sibling consumer of the same gh contract).
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo 'gh: not authenticated' ;;   # exit 0 but non-JSON
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
-assert_eq "meta-issue fails closed on a non-JSON de-dup body (non-zero exit)" "true" \
-  "$([ "$NONJSON_RC" -ne 0 ] && echo true || echo false)"
-# --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov3.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-D="$(dirname "$0")"
-case "$*" in
-  *"issue list"*) echo '' ;;
-  *"issue create"*) echo "CREATE_CALLED" >> "$D/calls" ; echo '' ;;
-  *"issue edit"*) echo "EDIT_CALLED" >> "$D/calls" ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-rm -f "$MI_TMP/calls"
-DRY_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov3.json" 2>/dev/null)"
-assert_eq "meta-issue --dry-run prints the DRYRUN sentinel" "https://example.invalid/issues/DRYRUN" "$DRY_URL"
-assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
-  "$([ ! -f "$MI_TMP/calls" ] && echo true || echo false)"
-# #152: de-dup HIT path also fails closed on a garbage url/number (gh --json drift
-# emitting a null number/url) — mirrors the create-path guard.
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '[{"number":null,"url":null,"title":"[devflow-retrospective] meta: dedup-null — x"}]' ;;   # contract drift: nulls
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
-assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
-  "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
-# #152: the tokenized GitHub --search can surface an issue whose title does NOT
-# literally carry `meta: ${TAG}` (a loose token hit). meta-issue.sh must STRICTLY
-# re-parse the slug and reject the loose match — filing a NEW issue (create path)
-# rather than commenting on / pinning the cooldown to the wrong issue. Here the
-# only open issue's slug is `widget-foobar`; the requested tag is `widget` →
-# no exact match → create path (returns the freshly created URL, not #88).
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-loose.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '[{"number":88,"url":"https://github.com/acme/example-repo/issues/88","title":"[devflow-retrospective] meta: widget-foobar — loose"}]' ;;
-  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/4343' ;;
-  *"issue edit"*) : ;;
-  *"label create"*) echo 'created' ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-LOOSE_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-loose.json" 2>/dev/null)"
-assert_eq "meta-issue strict-rejects a loose --search slug match (files new, not #88)" "https://github.com/acme/example-repo/issues/4343" "$LOOSE_URL"
-# #152: overrides-write failure AFTER a successful create reports FILED, not
-# blocked — a corrupt overrides file makes the jq cooldown write fail, but the
-# issue genuinely exists, so meta-issue.sh must exit 0 with the URL on stdout
-# (the orchestrator records the filing) and leave a loud ::error:: breadcrumb;
-# the open-issue de-dupe self-heals the missing cooldown next run. Reporting
-# "not filed" here would lose a real issue.
-printf 'not json{' > "$MI_TMP/ov-corrupt.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '' ;;
-  *"issue create"*) echo 'https://github.com/acme/example-repo/issues/7777' ;;
-  *"issue edit"*) : ;;
-  *"label create"*) echo 'created' ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-OVFAIL_OUT="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-corrupt.json" 2>"$MI_TMP/ov-fail.err")"; OVFAIL_RC=$?
-assert_eq "meta-issue reports FILED on a cooldown-write failure (exit 0)" "true" \
-  "$([ "$OVFAIL_RC" -eq 0 ] && echo true || echo false)"
-assert_eq "meta-issue still prints the filed URL on a cooldown-write failure" "https://github.com/acme/example-repo/issues/7777" "$OVFAIL_OUT"
-assert_eq "meta-issue leaves a 'WAS filed' breadcrumb on a cooldown-write failure" "true" \
-  "$(grep -q 'issue WAS filed' "$MI_TMP/ov-fail.err" && echo true || echo false)"
-
-# #152: --dry-run must NOT mutate the real overrides.json — a dry run that records
-# the DRYRUN sentinel as a dismissal would make a later live run skip the real
-# filing. The dismissed map must stay empty after a dry run.
-echo '{"schema_version":1,"dismissed":{}}' > "$MI_TMP/ov-dry.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '' ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1
-assert_eq "meta-issue --dry-run writes NO cooldown to overrides" "false" \
-  "$(jq -e '.dismissed | has("dry-ov")' "$MI_TMP/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
-
-# #152: TAG carrying a GitHub search qualifier / whitespace is rejected at
-# arg-parse (before it reaches the de-dupe --search), so a drift fails loud
-# instead of mis-routing the lookup and re-filing a duplicate.
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
-assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
-  "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
-# #152: the overrides `dismissed_at` records WHEN the pattern was first dismissed
-# (a permanent cross-run exclusion an auditor reads). The Step-1 de-dupe re-runs
-# the Step-2 write on every recurrence, so the ORIGINAL stamp must be PRESERVED,
-# never bumped to "now" — otherwise the dismissal age drifts perpetually forward.
-echo '{"schema_version":1,"dismissed":{"recur":{"dismissed_at":"2020-01-01T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/acme/example-repo/issues/55"}}}' > "$MI_TMP/ov-recur.json"
-cat > "$MI_TMP/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$*" in
-  *"issue list"*) echo '[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","title":"[devflow-retrospective] meta: recur — x"}]' ;;  # de-dup HIT
-  *"issue comment"*) echo 'commented' ;;
-  *"issue edit"*) : ;;
-  *"label create"*) echo 'created' ;;
-  *) echo '' ;;
-esac
-STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-recur.json" >/dev/null 2>&1
-assert_eq "meta-issue preserves the original dismissed_at on a recurrence" "2020-01-01T00:00:00Z" \
-  "$(jq -r '.dismissed["recur"].dismissed_at' "$MI_TMP/ov-recur.json")"
-rm -rf "$MI_TMP"
-
-# ────────────────────────────────────────────────────────────────────────────
 echo "render-report.sh / open-state-pr.sh / post-status.sh"
 # ────────────────────────────────────────────────────────────────────────────
 ( . "$LIB/render-report.sh"
@@ -14948,7 +14575,7 @@ STUB
 
 # ── #519: retrospective-weekly Step-1 stale-scratch cleanup literal (coupled) ──
 assert_eq "#519 pin: retrospective-weekly Step 1 removes prior-run per-PR scratch" "yes" \
-  "$(grep -qF -- "find .devflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)
+  "$(grep -qF -- "find .devflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' -o -name 'patterns.json' -o -name 'patterns-full.json' -o -name 'patterns.stderr' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)  # structural-pin-ok: cross-file-phase-contract -- the pinned literal is an EXECUTABLE fence the retrospective orchestrator runs, not prose: it names exactly which per-run scratch files Step 0 deletes, and lib/filing-decisions.sh's devflow_declined_refiled guards its input by readability alone, so a name dropped from this set leaves a READABLE stale snapshot that the guard accepts and the report renders from the previous run's state
 PSR="$(echo '<!-- devflow:audit-report -->' > /tmp/devflow-test-report.md; bash "$LIB/post-status.sh" --pr 900 --report-file /tmp/devflow-test-report.md --dry-run 2>/dev/null; rm -f /tmp/devflow-test-report.md)"
 assert_eq "post-status dry-run echoes DRYRUN" "true" "$(echo "$PSR" | grep -q 'DRYRUN' && echo true || echo false)"
 
@@ -41319,6 +40946,15 @@ fi
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
   "capability-profiles" 61; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
+  exit 1
+fi
+
+# retrospective issue-closure lifecycle coverage (issue #788). The registry and this
+# full-suite call share the same lower-bound contract; test_module_runner.py parses
+# this operand and rejects any coupling drift.
+if ! devflow_run_full_suite_module "$LIB/test/modules/retrospective-lifecycle.sh" \
+  "retrospective-lifecycle" 300; then
+  printf 'ERROR: retrospective-lifecycle boundary could not record its result\n'
   exit 1
 fi
 

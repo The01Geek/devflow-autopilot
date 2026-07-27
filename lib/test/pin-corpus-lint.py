@@ -1101,6 +1101,7 @@ AUDITED_PIN_SOURCES = frozenset(
         "lib/test/modules/prompt-extension-reader.sh",
         "lib/test/modules/review-trigger-helpers.sh",
         "lib/test/modules/review-stall-backstop.sh",
+        "lib/test/modules/retrospective-lifecycle.sh",
         "lib/test/modules/experiment-records.sh",
     }
 )
@@ -2796,6 +2797,18 @@ def _raw_guard_site(
             if os.path.isabs(target_token)
             else os.path.join(repo_root, target_token)
         )
+    # A runtime scratch haystack is out of scope: it holds what THIS run produced
+    # (captured argv, a stub's stderr), not repository source, so a grep over it is
+    # an executable assertion rather than a source-presence pin. The `TMP_`/`TEMP_`
+    # name is the declaration. Recognize the inline `"$TMP_DIR/capture"` shape as
+    # well as a bare `"$TMP_FILE"` — a scratch dir plus a relative capture name is
+    # the ordinary way to write one, and exempting only the bare form was an
+    # artifact of `_VARREF` being whole-token-anchored, not a narrower policy. The
+    # carve-out still fires ONLY when the path is otherwise unresolvable, so it can
+    # never mask a target that does resolve into the repository.
+    if target is None and not var_name:
+        inline_var = _INLINE_VAR.match(target_token)
+        var_name = inline_var.group(1) if inline_var else ""
     if (
         target is None
         and var_name
@@ -4005,13 +4018,20 @@ def scan_static_pin_changes(
         scan_sources,
         git_runner,
     )
-    missing_base_audited = set(AUDITED_PIN_SOURCES) - set(base_entries)
+    # Only HEAD is required to carry every audited source. The merge base is NOT:
+    # a branch that registers a new focused module adds both the module file and
+    # its ``AUDITED_PIN_SOURCES`` entry in the same change, so the path is absent
+    # from the base tree by construction. Requiring it there failed closed on the
+    # one shape the census exists to admit. The base tree stays optional for
+    # everything downstream — ``base_sources`` is built from ``base_entries``
+    # (whatever the base actually carries), and ``git diff <merge_base>`` already
+    # emits a full add-hunk for a tracked path the base lacks — so an audited
+    # source missing at base is scanned in its entirety rather than skipped.
     missing_head_audited = set(AUDITED_PIN_SOURCES) - set(head_entries)
-    if missing_base_audited or missing_head_audited:
-        missing = sorted(missing_base_audited or missing_head_audited)[0]
-        snapshot = merge_base if missing_base_audited else "HEAD"
+    if missing_head_audited:
         raise InfrastructureError(
-            f"audited pin source absent from committed snapshot {snapshot}: {missing}"
+            "audited pin source absent from committed snapshot HEAD: "
+            f"{sorted(missing_head_audited)[0]}"
         )
     registry = load_registry(
         repo_root / "scripts/workflow-flight-recorder-registry.json"
