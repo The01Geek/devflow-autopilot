@@ -1,0 +1,45 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-27T03:58:16Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "step_1_phase_1_3_fanout",
+  "pending_dispatch": {
+    "kind": "phase1_generators_plus_phase3_roster",
+    "roster": [
+      "devflow:checklist-generator(batch1)",
+      "devflow:checklist-generator(batch2)",
+      "devflow:checklist-generator(batch3)",
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-27T04:05:00Z"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "verdict_severity_threshold": "critical",
+    "push_each_iteration": true
+  },
+  "acceptance_criteria_source": "pr-identity-mismatch",
+  "git_snap_before_oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+  "telemetry": "unavailable"
+}
