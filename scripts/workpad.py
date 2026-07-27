@@ -775,7 +775,11 @@ def cmd_acs_resolve(args):
     `issue` argument for this subcommand is therefore accepted as a string and
     validated here, not by argparse `type=int`.
     """
-    issue_arg = '' if args.issue is None else str(args.issue)
+    # `issue` is a required positional accepted as a string (see the argparse note),
+    # so `args.issue` is always present; the ASCII-only digit test is deliberate — it
+    # rejects the non-ASCII digits `str.isdigit()`/`isdecimal()` would accept, matching
+    # the seed helper's `*[!0-9]*` shell guard.
+    issue_arg = args.issue
     if not issue_arg or not all(c in '0123456789' for c in issue_arg):
         print(f'source: {_ACS_SOURCE_RESOLVER_UNAVAILABLE}')
         print('criteria:')
