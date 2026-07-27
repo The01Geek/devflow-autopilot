@@ -377,7 +377,7 @@ assert_eq "#788 actionable: regressed pattern below min is still actionable (byp
   "$(printf '%s' "$RL_APOUT" | jq 'any(.[]; .tag=="tooling-gap" and .status=="regressed")')"
 # Liveness: eligible set empty while a fixed pattern recurs above min → warning.
 # Build a view where the only pattern is `fixed` with occ>=2 (min): no eligible,
-# but suppressed-but-recurring → liveness warning on stderr.
+# but suppressed at/above the threshold → liveness warning on stderr.
 printf '%s\n' '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}
 {"schema_version":2,"kind":"implementation","pr":2,"merged_at":"2026-01-02T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' > "$RL_TMP/live-r.jsonl"
 printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"fixed","fixed_at":"2027-01-01T00:00:00Z","provenance":"x","meta_issues":[{"number":9,"url":"https://o/r/issues/9","state":"fixed","closedAt":"2027-01-01T00:00:00Z"}]}},"dismissed":{}}' > "$RL_TMP/live-ov.json"
@@ -1016,9 +1016,9 @@ assert_eq "#788 filing-decisions: a benign non-zero after sourcing does not abor
 
 # Liveness capture: the `liveness:` line actionable-patterns.sh writes to stderr
 # is what the report's liveness line renders from.
-printf 'noise\n::warning::actionable-patterns: something\nliveness: 3 suppressed-but-recurring pattern(s), highest foo\n' > "$RL_TMP/live.err"
+printf 'noise\n::warning::actionable-patterns: something\nliveness: 3 suppressed pattern(s) at/above min_occurrences, highest foo\n' > "$RL_TMP/live.err"
 assert_eq "#788 liveness: the stderr line is extracted for the report" \
-  "3 suppressed-but-recurring pattern(s), highest foo" \
+  "3 suppressed pattern(s) at/above min_occurrences, highest foo" \
   "$(devflow_liveness_warning "$RL_TMP/live.err")"
 printf 'noise only\n::warning::unrelated\n' > "$RL_TMP/noliveness.err"
 assert_eq "#788 liveness: a run that emitted none yields empty (section omitted)" "" \

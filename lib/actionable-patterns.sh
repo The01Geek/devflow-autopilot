@@ -260,7 +260,7 @@ if [ "$FULL" -eq 0 ]; then
     if [ "$_ELIGIBLE_N" -eq 0 ]; then
         printf '%s' "$PATTERN_VIEW" > "$_JQ_TMP/pv_live.json"
         # One jq pass emits the count and the highest-occurrence slug as a single
-        # "N slug" line (empty when nothing is suppressed-but-recurring).
+        # "N slug" line (empty when nothing is suppressed at/above the threshold).
         _LIVE="$(
           # argjson-ok: min -- a bounded small int (the occurrence threshold);
           # the corpus-sized pattern view uses --slurpfile.
