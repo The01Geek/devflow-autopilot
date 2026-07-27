@@ -1273,7 +1273,7 @@ echo "review live-comment seeding: scripts/seed-review-progress.sh token-line co
 # one token line + its exit code against a stubbed workpad.py, so a screen regression — a
 # non-numeric argument reaching `id`, an unreadable-script exit-2 misread as a clean absence,
 # an rc-2-with-stderr taking the create arm (the #384 duplicate-comment defect) — turns RED.
-SRP857="$(probe_tmp '#857 seed-review-progress driver')"
+SRP857="$(git_sandbox '#857 seed-review-progress driver')"
 mkdir -p "$SRP857/scripts"
 cp "$LIB/../scripts/seed-review-progress.sh" "$SRP857/scripts/seed-review-progress.sh"
 chmod +x "$SRP857/scripts/seed-review-progress.sh"
