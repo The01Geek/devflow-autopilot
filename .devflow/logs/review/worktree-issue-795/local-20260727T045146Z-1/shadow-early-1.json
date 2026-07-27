@@ -1,0 +1,65 @@
+{
+  "shadow": {
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "ran_at": "2026-07-27T00:00:00Z",
+    "reviewed_sha": "ce5c6e74c60b71959f07e95131ab107e42442753",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "prompt_addenda": "none",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "roster_note": "absent-comparand trip: iter-1.json carries no phase3_dispatched field, so the too-narrow-classification tripwire ran without a comparand. Per the fail-closed rule both gated analyzers were dispatched and expected_reviewers widened to the full gated roster, rather than letting the shadow's own Phase 0.5 narrow both sides in lockstep.",
+    "reason": null,
+    "checklist_skipped": null,
+    "comparison": {
+      "shadow_total": 15,
+      "overlap_with_iter_1": 0,
+      "new": 15,
+      "new_critical": 1,
+      "new_important": 6
+    },
+    "promoted_to_iter_next": true,
+    "findings_disposition": {
+      "applied": [
+        "undefined_name_at_module_scope (Critical) - _ias795 referenced before binding; NameError truncated ~200 lines of assertions; 3x ruff F821",
+        "guard_keyed_on_wrong_operand (Important) - _render_operand keyed caller-intent --round on the emitting subcommand, not the target",
+        "unrunnable_suggested_invocation (Important) - record-dispatch file arm omitted --draft-file (arm-conditional, body-enforced)",
+        "documented_falsehood (Important) - _invocations silently dropped unregistered subcommand-shaped tokens",
+        "unenforced_closed_set_totality (Important) - no reconciliation of _NEXT_ACTIONS over the two routing tables",
+        "fail_open_discriminator_on_swallowing_predicate (Suggestion) - init used Path.exists(), which swallows OSError",
+        "measurement_figure_not_pinned (Important) - derived call count printed, not pinned",
+        "defaulted_path_guard_coverage_gap (Important) - 3 of 5 defaulted subcommands had no defaulted-path row",
+        "multi_round_default_resolution_untested (Important) - rounds[-1] selection vacuous at len(rounds)==1"
+      ],
+      "refuted_by_direct_test": [
+        "The final-pass reviewer's secondary claim that the pool harness masked the NameError behind a green tally. Reproduced the exact shape (self-tally suite records PASS then raises NameError) against _devflow_pool_run_one: result PASS=1 FAIL=1, i.e. it fails closed as designed. Most likely the reviewer's ~18-minute full-suite run predated the broken edit and it joined that green tally to a crash found later. The primary claim (NameError, F821, CI red) was real and is fixed; no harness change is warranted."
+      ],
+      "outstanding": [
+        "ac_deviation_breadcrumb_altered (Suggestion) - AC36 says no _fail breadcrumb is altered; the init breadcrumb was, deliberately, to fix VC-89. Needs a recorded AC deviation, a human decision.",
+        "unsatisfied_acceptance_criterion (AC50) - the post-merge corpus template. Independently reached the same conclusion as the prior round; needs a human decision between accepting the deviation and rewriting the AC.",
+        "incomplete_pin_reanchor (Suggestion) - check_readbacks guards the module docstring, not step-3-6-audit.md's own enumeration; the deletion comment reads as a fuller re-anchor than it is.",
+        "suppressed_diagnostic_on_unjustified_dedupe (Suggestion) - _emit_next_call's quiet=True re-read suppresses the only diagnosis for the ~20 mutation subcommands.",
+        "assertion_guard_demoted_by_broad_catch (Suggestion) - _checked_next_call's AssertionError is demoted to a stderr line by main()'s broad catch.",
+        "open_reason_token_vocabulary (Suggestion) - next_call reason tokens come from four unreconciled sources; render-failed is not in _NEXT_CALL_REFUSALS.",
+        "unreconciled_flag_vocabulary (Suggestion) - _CALLER_SUPPLIED_FLAGS / _NEXT_CALL_PATH_FLAGS never reconciled against the parser's option strings.",
+        "guard_overclaims_coverage / guard_weaker_than_its_claim (Suggestion, 2 sources) - check_round_defaulted does not link _ROUND_DEFAULTED membership to an actual _require_named_round call site.",
+        "refusal_arm_untested (Suggestion) - the guard's own fail-closed refusal arms are never driven.",
+        "render_refusal_wiring_untested (Suggestion) - the _RenderRefusal -> reason=render-* path is never exercised end to end."
+      ]
+    }
+  }
+}
