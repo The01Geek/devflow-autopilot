@@ -1315,6 +1315,28 @@ mv "$SRP857/scripts/workpad.py" "$SRP857/scripts/workpad.py.hidden"
 assert_eq "#857 seed helper (S2): missing workpad.py -> SKIP workpad-unreadable" "SKIP workpad-unreadable" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper (S2): SKIP workpad-unreadable exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 mv "$SRP857/scripts/workpad.py.hidden" "$SRP857/scripts/workpad.py"
+# S2's OTHER arm: PRESENT-but-unreadable is [Errno 13], a distinct breadcrumb from the
+# missing-file [Errno 2] above. Attribute the rejection by its own breadcrumb, not just
+# the shared token, so this arm cannot pass on the sibling arm's rejection.
+chmod 000 "$SRP857/scripts/workpad.py"
+assert_eq "#857 seed helper (S2): the unreadable fixture is genuinely unreadable (positive control against a vacuous pass)" \
+  "unreadable" "$([ -r "$SRP857/scripts/workpad.py" ] && echo readable || echo unreadable)"
+assert_eq "#857 seed helper (S2): present-but-unreadable workpad.py -> SKIP workpad-unreadable" \
+  "SKIP workpad-unreadable" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S2): present-but-unreadable names [Errno 13], not the missing-file [Errno 2]" \
+  "yes" "$("$SRP857_SH" 7 m "$SRP857/body.md" 2>&1 >/dev/null | grep -q 'present but unreadable (\[Errno 13\])' && echo yes || echo no)"
+chmod 755 "$SRP857/scripts/workpad.py"
+# Positive control on the SAME fixture: with the mode restored, the very same call
+# RESUMEs — so the two arms above are the unreadability rejection, not a fixture that
+# was broken for some unrelated reason.
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
+  "RESUME 999" "$(srp857_run 7 m)"
+# NOT driven, deliberately: the mktemp-failure arm (`ERRF` empty -> SKIP api-error).
+# Forcing mktemp to fail is not portable -- BSD/macOS mktemp ignores TMPDIR (verified),
+# so the only levers are root-dependent or GNU-only, both barred by this repo's
+# portability convention. The arm fails CLOSED onto the already-driven SKIP api-error
+# token+exit contract, so what is undriven is the breadcrumb wording alone.
 # S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
 srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
 assert_eq "#857 seed helper (S3): rc-2 with stderr -> SKIP api-error (never CREATED)" "SKIP api-error" "$(srp857_run 7 m)"

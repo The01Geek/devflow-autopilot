@@ -249,14 +249,17 @@ When `$ISSUE_NUM` resolved, call it:
 # (issue #857): a non-numeric $ISSUE_NUM is a routed `resolver-unavailable` outcome with
 # exit 0, and an absent/unreadable workpad COMMENT is `workpad-read-failed` — so this is a
 # single bare statement, no `case` and no `if` compound the cloud matcher would refuse.
-# In PR mode pass `--pr "$PR_NUMBER"`; in current-branch mode OMIT the flag entirely
-# (emit the second form) rather than passing an empty value (`--pr` is type=int):
+# EMIT EXACTLY ONE of the two forms below — they assign the SAME variable, so running
+# both makes the second CLOBBER the first and silently discards the PR-mode result.
+# In PR mode emit ONLY the first form (`--pr "$PR_NUMBER"`); in current-branch mode emit
+# ONLY the second, which OMITS the flag entirely rather than passing an empty value
+# (`--pr` is type=int, so an empty value is an argparse exit 2):
 # Resolve the skill-dir anchor INLINE at each call site (never captured into a shell
 # variable a later statement reads — issue #275); it resolves to the granted
 # `.devflow/vendor/devflow/scripts/workpad.py` literal in cloud and to the real repo-root
 # `scripts/` copy on every non-vendored runner.
 ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" --pr "$PR_NUMBER" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
-# current-branch mode (no PR to bind to):
+# ── OR (never both) ── current-branch mode (no PR to bind to):
 ACS_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py acs-resolve "$ISSUE_NUM" 2>.devflow/tmp/review/<slug>/<run-id>/acs.err)
 ```
 
@@ -270,7 +273,7 @@ Store the helper's three output blocks under exactly these run-scoped names, whi
 
 **On the local/interactive tier the permission classifier denies a helper invoked by path, so a desk run reaches a `resolver-unavailable` refusal arm above rather than any surface at all — and the degradation stays visible rather than silent because Phase 4 reports that unestablished state in its own wording, never as a surface that was read.**
 
-If **no issue number resolved at all**, set `issue_context` and `acceptance_criteria` to empty, set `acceptance_criteria_source` to `none`, and note: "No related issue found — skipping issue compliance check." If an issue **did** resolve and the helper ran but returned no criteria (`acceptance_criteria_source` is `none` from the helper), keep `issue_context` and note instead: "Issue #$ISSUE_NUM resolved but no acceptance criteria were found on either surface — issue compliance is reported as a gap, not skipped." **If instead the call was refused above (`resolver-unavailable`), keep `issue_context` and note: "Issue #$ISSUE_NUM resolved but the acceptance-criteria resolver could not be invoked (quote the refusal arm's own warning text here — no shell variable carries it) — neither surface was examined, so nothing is known about whether criteria exist." That note never claims either surface was checked: an unestablished measurement is never collapsed onto the real value `none`.** **These two states are distinct and the second one never claims the compliance check was skipped, because criteria-less is a reportable gap while issue-less is an absent subject** — Phase 4's `## Issue Compliance` arms are the coupled mirror of this distinction and are edited with it.
+If **no issue number resolved at all**, set `issue_context` and `acceptance_criteria` to empty, set `acceptance_criteria_source` to `none`, and note: "No related issue found — skipping issue compliance check." If an issue **did** resolve and the helper ran but returned no criteria (`acceptance_criteria_source` is `none` from the helper), keep `issue_context` and note instead: "Issue #$ISSUE_NUM resolved but no acceptance criteria were found on either surface — issue compliance is reported as a gap, not skipped." **If instead the call was refused above (`resolver-unavailable`), keep `issue_context` and note: "Issue #$ISSUE_NUM resolved but the acceptance-criteria resolver could not be invoked (state here which case applied — the helper's own `source:` token where one was produced, else the observed failure: a denied or non-executable invocation, an rc 126/127, or the helper's rc 3; no shell variable carries this) — neither surface was examined, so nothing is known about whether criteria exist." That note never claims either surface was checked: an unestablished measurement is never collapsed onto the real value `none`.** **These two states are distinct and the second one never claims the compliance check was skipped, because criteria-less is a reportable gap while issue-less is an absent subject** — Phase 4's `## Issue Compliance` arms are the coupled mirror of this distinction and are edited with it.
 
 ### 0.5 Classify the diff and decide the engine profile
 

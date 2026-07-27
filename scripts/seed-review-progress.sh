@@ -26,7 +26,10 @@
 #   CREATED <comment-id>       0     clean absence confirmed; comment created
 #   SKIP not-numeric          3     S1 refused a non-numeric PR number
 #   SKIP workpad-unreadable   3     S2 found workpad.py missing or unreadable
-#   SKIP api-error            3     S3 rejected the create arm, or `id` reported a real failure
+#   SKIP api-error            3     the catch-all failure token: S3 rejected the create arm
+#                                   (exit 2 WITH stderr), `id` reported a real failure, the
+#                                   scratch-file `mktemp` failed, or `create` failed after a
+#                                   confirmed clean absence
 #
 # This mirrors the token-line-plus-exit-code contract the implement tier's early
 # workpad gate uses, but with its OWN codes: 0 for both success tokens and 3 for every

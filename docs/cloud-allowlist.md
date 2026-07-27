@@ -117,8 +117,8 @@ calls) and on-disk side-effect files. **The model's own text output is never the
 measurement.**
 
 The abstract review-tier rule set is R1–R5 (leading-assignment / leading-`cd` /
-`/tmp`-redirect / heredoc-write families, plus **R5**, an `if`/`elif`
-command-substitution *condition* — issue #857), enforced by
+`/tmp`-redirect / heredoc-write / interpreter-head families, plus **R5**, an
+`if`/`elif` command-substitution *condition* — issue #857), enforced by
 `extract-command-shapes.py`. R5 is a **discipline-only** rule, not probe-backed
 when it lands (the same posture as the implement-tier IR3): the review engine's
 old live-progress-comment seed branched on `elif WP=$(workpad.py id …); then`
