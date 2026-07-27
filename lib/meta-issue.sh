@@ -138,7 +138,7 @@ if [[ -n "$EXISTING" ]]; then
     # Fail CLOSED on a de-dup hit that yielded no usable url/number (a gh --json
     # contract drift would make jq -r emit the literal "null"). Mirrors the
     # create-path URL guard below — without it a "null" url/number would flow into
-    # the recurrence comment, the labels, and the overrides cooldown.
+    # the recurrence comment, the labels, and the overrides lifecycle record.
     case "$URL" in https://*/issues/[0-9]*) : ;; *) echo "::error::meta-issue: de-dupe hit returned no usable issue URL for tag '${TAG}' (got: '${URL}')" >&2; exit 1 ;; esac
     case "$NUMBER" in ''|*[!0-9]*) echo "::error::meta-issue: de-dupe hit returned no numeric issue number for tag '${TAG}' (got: '${NUMBER}')" >&2; exit 1 ;; esac
     if [[ "$DRY_RUN" -eq 0 ]]; then
@@ -169,7 +169,7 @@ else
         # empty/garbage stdout (URL printed to stderr, an auth/upgrade warning on
         # stdout, a swallowed transient error). Without this guard an empty/garbage
         # URL would flow on as a "success" — the orchestrator would record the
-        # pattern as FILED and write a permanent overrides.json cooldown for an
+        # pattern as FILED and write an overrides.json lifecycle record for an
         # issue that does not exist (the exact "never report unfiled as filed"
         # invariant this loop must hold). Exit non-zero so the orchestrator's
         # `if ISSUE_URL=$(...meta-issue.sh...)` catches it and records a blocker.
@@ -222,6 +222,13 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # number is already present is updated in place; a new number is appended. The
     # record's provenance is stamped once (first filing) and preserved on
     # recurrence. This writes NO `dismissed` entry — that map is human-owned.
+    # The in-place update clears the entry's closure fields (`closedAt`,
+    # `fixed_at`, `state_reason`) alongside `state:"filed"`, byte-for-byte the
+    # field set lib/pattern-state.sh's OPEN transition writes: re-filing against a
+    # still-open issue is the same assertion "this entry is open", so leaving a
+    # prior closure timestamp on a `filed` entry would be an internally
+    # inconsistent shape until the next reconcile happened to clear it.
+    RECORD_WRITTEN=0
     if [ -n "$OVERRIDES_TMP" ] && "$DEVFLOW_JQ" \
         --arg slug "$SLUG" \
         --arg now "$NOW" \
@@ -236,7 +243,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
              | .meta_issues = (
                  (.meta_issues // []) as $e
                  | if ($e | any(.number == $num))
-                   then ($e | map(if .number == $num then (. + {url:$url, state:"filed"}) else . end))
+                   then ($e | map(if .number == $num then (. + {url:$url, state:"filed", closedAt:null, fixed_at:null, state_reason:null}) else . end))
                    else ($e + [{number:$num, url:$url, state:"filed", closedAt:null}])
                    end
                )
@@ -244,8 +251,18 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
              | .fixed_at = null
            )' \
         "$OVERRIDES" > "$OVERRIDES_TMP"; then
-        mv "$OVERRIDES_TMP" "$OVERRIDES"
-    else
+        # The rename is GUARDED for the same reason the mktemp above is: a bare
+        # `mv` failing under `set -euo pipefail` would abort this script before
+        # Step 3 prints the URL, so an issue that WAS filed would be reported to
+        # the orchestrator as not filed — the precise misstatement the recovery
+        # branch below exists to prevent. Route a failed rename into that branch
+        # instead of aborting. (Staging beside the destination keeps this a
+        # same-filesystem rename, so a failure here is rare, not impossible.)
+        if mv "$OVERRIDES_TMP" "$OVERRIDES"; then
+            RECORD_WRITTEN=1
+        fi
+    fi
+    if [ "$RECORD_WRITTEN" -eq 0 ]; then
         # The issue WAS filed (URL is on stdout below); only the lifecycle record
         # failed. Do NOT report this as "not filed" — that would misstate the
         # state and lose the real issue. Exit 0 with the URL so the orchestrator

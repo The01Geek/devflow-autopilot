@@ -1149,6 +1149,191 @@ assert_eq "#788 prefetch miss + unavailable fallback → no transition (control)
 # passing assertion that proves nothing. If a future edit makes `$OUTPUT`
 # reachable while empty, that edit owns the test.
 
+# ── First-run v2 stub, both writers (absent + empty overrides) ───────────────
+# Two independent writers stub an absent/empty overrides file, and both must stub
+# the v2 shape: a regression to the v1 literal (`{"schema_version":1,...}`, no
+# `patterns` map) would leave the first run of a fresh consumer writing lifecycle
+# entries into a file the migrator would later re-migrate.
+rm -f "$RL_TMP/stub-absent.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stub-absent.json" >/dev/null 2>&1
+assert_eq "#788 first-run stub: meta-issue stubs an ABSENT overrides file at v2" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/stub-absent.json")"
+assert_eq "#788 first-run stub: the meta-issue stub carries a patterns map (not the v1 shape)" "object" \
+  "$(jq -r '.patterns | type' "$RL_TMP/stub-absent.json")"
+: > "$RL_TMP/stub-empty.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stub-empty.json" >/dev/null 2>&1
+assert_eq "#788 first-run stub: meta-issue stubs an EMPTY overrides file at v2" "2" \
+  "$(jq -r '.schema_version' "$RL_TMP/stub-empty.json")"
+assert_eq "#788 first-run stub: the empty-file stub carries a dismissed map" "object" \
+  "$(jq -r '.dismissed | type' "$RL_TMP/stub-empty.json")"
+# actionable-patterns.sh stubs into its OWN temp rather than the caller's path, so
+# its stub is pinned behaviorally: whatever it writes must be indistinguishable
+# from the canonical v2 empty file on the same input. (This discriminates any stub
+# whose SHAPE changes the derivation; a differently-versioned stub that computes
+# identically is outside what a behavioral pin can see, and is stated here rather
+# than implied.)
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/stub-canon.json"
+RL_STUB_CANON="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/stub-canon.json" --full 2>/dev/null)"
+rm -f "$RL_TMP/stub-none.json"
+RL_STUB_ABSENT="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/stub-none.json" --full 2>/dev/null)"
+: > "$RL_TMP/stub-zero.json"
+RL_STUB_ZERO="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" \
+  bash "$RL_AP" "$RL_TMP/live-r.jsonl" "$RL_TMP/stub-zero.json" --full 2>/dev/null)"
+assert_eq "#788 first-run stub: actionable-patterns on an ABSENT overrides file matches the canonical v2 empty file" \
+  "$RL_STUB_CANON" "$RL_STUB_ABSENT"
+assert_eq "#788 first-run stub: actionable-patterns on an EMPTY overrides file matches the canonical v2 empty file" \
+  "$RL_STUB_CANON" "$RL_STUB_ZERO"
+# Positive control: that canonical output is non-empty, so the two equality
+# assertions above compare real derivations rather than two empty strings.
+assert_eq "#788 first-run stub: the compared canonical output is non-empty (control)" "true" \
+  "$([ -n "$RL_STUB_CANON" ] && echo true || echo false)"
+
+# ── OPEN arm wins over a contradictory stateReason ───────────────────────────
+# GitHub can return a REOPENED issue that still carries the previous closure's
+# `stateReason`/`closedAt`. The arm order (state == OPEN checked BEFORE any
+# stateReason arm) is what makes such a row reopen rather than stay closed; a
+# reordering would derive `declined` from the stale reason and suppress the
+# pattern forever.
+cat > "$RL_TMP/gh-contradict.sh" <<'STUB'
+#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "list" ]; then echo '[]'; exit 0; fi
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  echo '{"number":'"$3"',"state":"OPEN","stateReason":"NOT_PLANNED","closedAt":"2026-06-09T00:00:00Z"}'
+  exit 0
+fi
+exit 1
+STUB
+chmod +x "$RL_TMP/gh-contradict.sh"
+printf '%s' "$(rl_record contradictory 610)" > "$RL_TMP/contradict.json"
+DEVFLOW_GH="$RL_TMP/gh-contradict.sh" bash "$RL_PS" reconcile "$RL_TMP/contradict.json" >/dev/null 2>&1
+assert_eq "#788 arm order: state OPEN wins over a stale NOT_PLANNED stateReason" "filed" \
+  "$(jq -r '.patterns["contradictory"].meta_issues[0].state' "$RL_TMP/contradict.json")"
+assert_eq "#788 arm order: the OPEN arm clears the contradictory closedAt" "null" \
+  "$(jq -r '.patterns["contradictory"].meta_issues[0].closedAt' "$RL_TMP/contradict.json")"
+assert_eq "#788 arm order: the record derives filed, not declined" "filed" \
+  "$(jq -r '.patterns["contradictory"].state' "$RL_TMP/contradict.json")"
+
+# ── _atomic_write's write-failure arm names the destination ──────────────────
+# Fault-injected via a PATH-shimmed `mv` that always fails: the staging file is
+# created and filled, so this reaches the rename arm specifically (the mktemp arm
+# would abort earlier and emit its own distinct message). The guarantee under
+# test is the pair the AC states — a SPECIFIC ::error:: naming the path, and the
+# previous file left byte-unchanged.
+mkdir -p "$RL_TMP/shim"
+printf '#!/usr/bin/env bash\nexit 1\n' > "$RL_TMP/shim/mv"
+chmod +x "$RL_TMP/shim/mv"
+printf '%s' "$(rl_record failwrite 501)" > "$RL_TMP/failwrite.json"
+cp "$RL_TMP/failwrite.json" "$RL_TMP/failwrite-before.json"
+PATH="$RL_TMP/shim:$PATH" DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile \
+  "$RL_TMP/failwrite.json" >/dev/null 2>"$RL_TMP/failwrite.err"; RL_FW_RC=$?
+assert_eq "#788 atomic write: a failed rename exits non-zero" "true" \
+  "$([ "$RL_FW_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#788 atomic write: the ::error:: NAMES the destination path" "true" \
+  "$(grep -q "failed to write ${RL_TMP}/failwrite.json" "$RL_TMP/failwrite.err" && echo true || echo false)"
+assert_eq "#788 atomic write: the previous file is left byte-unchanged" "true" \
+  "$(diff -q "$RL_TMP/failwrite-before.json" "$RL_TMP/failwrite.json" >/dev/null 2>&1 && echo true || echo false)"
+# Control on the same fixture WITHOUT the shim: the reconcile does write, so the
+# byte-unchanged assertion above pins the failure path and not an inert fixture.
+DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/failwrite.json" >/dev/null 2>&1
+assert_eq "#788 atomic write: the same fixture DOES change without the failing mv (control)" "false" \
+  "$(diff -q "$RL_TMP/failwrite-before.json" "$RL_TMP/failwrite.json" >/dev/null 2>&1 && echo true || echo false)"
+
+# ── meta-issue: a failed rename still reports the issue as filed ─────────────
+# Same shim, the other writer. The issue WAS created; aborting under `set -e`
+# before Step 3 would report a real issue as unfiled — the one misstatement this
+# loop must never make — so the rename is guarded and routes into the recovery
+# branch, which exits 0 with the URL and an ::error:: naming the overrides file.
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mv-fail.json"
+RL_MVOUT="$(PATH="$RL_TMP/shim:$PATH" DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" \
+  --tag mvfail --slug mvfail --title T --body-file "$RL_TMP/mi-body.md" \
+  --overrides "$RL_TMP/mv-fail.json" 2>"$RL_TMP/mv-fail.err")"; RL_MV_RC=$?
+assert_eq "#788 meta-issue: a failed record rename still exits 0" "0" "$RL_MV_RC"
+assert_eq "#788 meta-issue: a failed record rename still prints the filed issue URL" "https://github.com/o/r/issues/777" "$RL_MVOUT"
+assert_eq "#788 meta-issue: the failed record write reports 'issue WAS filed'" "true" \
+  "$(grep -q 'issue WAS filed' "$RL_TMP/mv-fail.err" && echo true || echo false)"
+
+# ── meta-issue: the in-place update clears stale closure fields ──────────────
+# Re-filing against a still-open issue re-asserts "this entry is open", so the
+# entry's closure fields must be cleared alongside `state:"filed"` — the same
+# field set pattern-state.sh's OPEN transition writes. Left behind, a `filed`
+# entry would carry a closure timestamp until a later reconcile happened to
+# clear it, and any reader keying off those fields would see a closed entry.
+printf '%s' '{"schema_version":2,"patterns":{"stale-close":{"state":"fixed","fixed_at":"2026-06-01T00:00:00Z","provenance":"p","meta_issues":[{"number":777,"url":"https://github.com/o/r/issues/777","state":"fixed","closedAt":"2026-06-01T00:00:00Z","fixed_at":"2026-06-01T00:00:00Z","state_reason":"COMPLETED"}]}},"dismissed":{}}' > "$RL_TMP/stale.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stale-close --slug stale-close --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stale.json" >/dev/null 2>&1
+assert_eq "#788 meta-issue in-place: the re-filed entry is marked filed" "filed" \
+  "$(jq -r '.patterns["stale-close"].meta_issues[0].state' "$RL_TMP/stale.json")"
+assert_eq "#788 meta-issue in-place: the stale closedAt is cleared" "null" \
+  "$(jq -r '.patterns["stale-close"].meta_issues[0].closedAt' "$RL_TMP/stale.json")"
+assert_eq "#788 meta-issue in-place: the stale entry fixed_at is cleared" "null" \
+  "$(jq -r '.patterns["stale-close"].meta_issues[0].fixed_at' "$RL_TMP/stale.json")"
+assert_eq "#788 meta-issue in-place: the stale state_reason is cleared" "null" \
+  "$(jq -r '.patterns["stale-close"].meta_issues[0].state_reason' "$RL_TMP/stale.json")"
+assert_eq "#788 meta-issue in-place: the update did not append a duplicate entry" "1" \
+  "$(jq -r '.patterns["stale-close"].meta_issues | length' "$RL_TMP/stale.json")"
+
+# ── A failed label apply still consumes cap budget ───────────────────────────
+# Label stamping is best-effort and must never abort a filing — but the converse
+# matters just as much for the caps: the issue exists, so the lifecycle entry
+# that the cap counts must still be written. A filing that silently wrote no
+# record would leave the cap under-counting and the loop over-filing.
+cat > "$RL_TMP/gh-nolabel.sh" <<'STUB'
+#!/usr/bin/env bash
+case "$*" in
+  *"issue list"*) echo '[]' ;;
+  *"issue create"*) echo 'https://github.com/o/r/issues/778' ;;
+  *"issue comment"*) echo ok ;;
+  *"/labels"*) echo 'label apply failed' >&2; exit 1 ;;
+  *) echo '' ;;
+esac
+STUB
+chmod +x "$RL_TMP/gh-nolabel.sh"
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/nolabel.json"
+DEVFLOW_GH="$RL_TMP/gh-nolabel.sh" bash "$RL_MI" --tag nolabel --slug nolabel --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/nolabel.json" >/dev/null 2>&1; RL_NL_RC=$?
+assert_eq "#788 label failure: the filing still exits 0" "0" "$RL_NL_RC"
+assert_eq "#788 label failure: the lifecycle entry the caps count is still written" "1" \
+  "$(jq -r '.patterns["nolabel"].meta_issues | length' "$RL_TMP/nolabel.json")"
+assert_eq "#788 label failure: that entry counts as filed against the caps" "filed" \
+  "$(jq -r '.patterns["nolabel"].meta_issues[0].state' "$RL_TMP/nolabel.json")"
+
+# ── A prefetch row no record references creates no phantom pattern ───────────
+# The prefetch is a `--label Retrospective` page, so it returns rows for issues
+# this file has no record of (another slug's issue, a hand-filed one). The
+# reconciler must consume it as a LOOKUP TABLE keyed by the records it already
+# holds — an implementation that iterated the prefetch instead would mint a
+# patterns{} key per row, and compute-patterns.jq would surface each as a pattern.
+printf '%s' "$(rl_record prefetch-closed 601)" > "$RL_TMP/phantom.json"
+DEVFLOW_GH="$RL_TMP/gh-prefetch.sh" bash "$RL_PS" reconcile "$RL_TMP/phantom.json" >/dev/null 2>&1
+assert_eq "#788 prefetch: an unreferenced row mints no patterns{} key" "1" \
+  "$(jq -r '.patterns | length' "$RL_TMP/phantom.json")"
+assert_eq "#788 prefetch: the only key is the one the record already held" "prefetch-closed" \
+  "$(jq -r '.patterns | keys[0]' "$RL_TMP/phantom.json")"
+# Control: row 602 IS in the prefetch page this run consumed, so its absence
+# above is the reconciler declining to mint it, not a page that never named it.
+assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture page (control)" "true" \
+  "$("$RL_TMP/gh-prefetch.sh" issue list | jq 'any(.[]; .number==602)')"
+
+# ── render-report tolerates a malformed optional count key ───────────────────
+# `// []` does not replace a truthy non-array value, so `length` aborts jq on a
+# hand-corrupted `withheld_patterns`/`declined_refiled`. Under `set -e` an
+# unguarded count would take the WHOLE report down over one malformed optional
+# key; the guard degrades to omitting that one section.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_BAD="$(devflow_render_report '{"prs_scanned":7,"patterns":[],"withheld_patterns":true,"declined_refiled":true}' 2>/dev/null)"
+  assert_eq "#788 render: a malformed withheld_patterns does not kill the report" "true" \
+    "$(case "$RL_BAD" in *"scanned: 7"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: the malformed optional section is omitted, not half-rendered" "false" \
+    "$(case "$RL_BAD" in *"withheld by a filing cap"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a malformed declined_refiled omits its section too" "false" \
+    "$(case "$RL_BAD" in *"Won't-fix patterns re-raised"*) echo true ;; *) echo false ;; esac)"
+)
+
 # ── AC 76 evidence: run.sh is shorter than at this change's merge-base ───────
 # Reported, not checked in: a hard-coded figure would rot as run.sh moves under
 # other work, so the reduction is evidenced by this green run instead.

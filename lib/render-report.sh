@@ -99,7 +99,12 @@ devflow_render_report() {
     # Withheld by a filing cap (issue #788) — every pattern the back-pressure caps
     # held back this run, named with the cap that withheld it.
     local withheld_n
-    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // []) | length')"
+    # Same `|| true` + numeric-degrade guard `skips_n` documents above: `// []`
+    # does not replace a truthy non-array key, so a hand-corrupted
+    # `withheld_patterns` would abort `length` and, under `set -e`, kill the whole
+    # report over one malformed optional key.
+    withheld_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // []) | length' 2>/dev/null || true)"
+    case "$withheld_n" in ''|*[!0-9]*) withheld_n=0 ;; esac
     if [ "$withheld_n" -gt 0 ]; then
         printf '\n## Patterns withheld by a filing cap\n\n'
         echo "$summary_json" | "$DEVFLOW_JQ" -r '(.withheld_patterns // [])[] | "- `\(.tag // .slug)` — withheld by `\(.cap)`"'
@@ -110,7 +115,9 @@ devflow_render_report() {
     # recurring won't-fix; name each one and the one durable off-switch (a human
     # `dismissed{}` entry) so the maintainer's decision is re-raised visibly.
     local declined_refiled_n
-    declined_refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // []) | length')"
+    # Guarded for the reason `skips_n`/`withheld_n` document above.
+    declined_refiled_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '(.declined_refiled // []) | length' 2>/dev/null || true)"
+    case "$declined_refiled_n" in ''|*[!0-9]*) declined_refiled_n=0 ;; esac
     if [ "$declined_refiled_n" -gt 0 ]; then
         printf '\n## Won'"'"'t-fix patterns re-raised this run\n\n'
         printf 'These recurred after being closed not-planned. To stop one permanently, add a human `dismissed{}` entry to `.devflow/learnings/overrides.json`.\n\n'

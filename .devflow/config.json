@@ -169,9 +169,9 @@
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
     "cooldown_days": 3,
-    "max_issues_per_run": 3,
+    "max_issues_per_run": 10,
     "max_open_issues": 10,
-    "max_open_per_category": 2,
+    "max_open_per_category": 10,
     "max_prs_per_run": 500,
     "diff_byte_cap": 204800
   },
