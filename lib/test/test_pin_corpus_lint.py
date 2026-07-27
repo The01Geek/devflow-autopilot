@@ -2785,6 +2785,50 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
 
+    def _audited_source_added_after_base(self, root, relative):
+        """Rewind ``origin/main`` past ``relative`` so HEAD adds it, as a branch would."""
+        (root / relative).unlink()
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "base without module"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "update-ref", "refs/remotes/origin/main", "HEAD"],
+            cwd=root,
+            check=True,
+        )
+        # Commit the registration on a BRANCH, not on main: the gate requires local
+        # main to be an ancestor of origin/main, which is the real branch shape.
+        subprocess.run(["git", "checkout", "-q", "-b", "feature"], cwd=root, check=True)
+        shutil.copy2(REPO_ROOT / relative, root / relative)
+        subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+        subprocess.run(["git", "commit", "-qm", "register module"], cwd=root, check=True)
+
+    def test_audited_source_registered_after_the_merge_base_passes(self):
+        # A branch that registers a new focused module adds the module file and its
+        # AUDITED_PIN_SOURCES entry in the same change, so the path is absent from the
+        # base tree by construction. Requiring it there failed the gate closed on the
+        # one shape the census exists to admit.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            self._audited_source_added_after_base(
+                root, "lib/test/modules/experiment-records.sh"
+            )
+            self.assertEqual((0, "", ""), self._public_rc(root))
+
+    def test_audited_source_absent_from_head_is_an_infrastructure_failure(self):
+        # The HEAD arm still fails closed: an audited path the committed tree does not
+        # carry leaves its pins unscanned, which is what the census exists to prevent.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "checkout", "-q", "-b", "feature"], cwd=root, check=True)
+            (root / "lib/test/modules/experiment-records.sh").unlink()
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(["git", "commit", "-qm", "drop module"], cwd=root, check=True)
+            rc, stdout, stderr = self._public_rc(root)
+        self.assertEqual(2, rc, stderr)
+        self.assertIn("lib/test/modules/experiment-records.sh", stdout + stderr)
+
     def test_retired_helper_remains_a_public_worktree_policy_failure(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

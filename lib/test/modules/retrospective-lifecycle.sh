@@ -629,16 +629,24 @@ assert_eq "missing merged_at does not poison first_seen" \
 # meta-issue.sh — relocated from lib/test/run.sh (issue #788 AC).
 # ────────────────────────────────────────────────────────────────────────────
 
-MI_TMP="$(mktemp -d)"
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov.json"
+# The `TMP_`/`TEMP_` prefix is load-bearing, not stylistic: the #810 mutation-routing
+# gate scopes its raw-presence pin policy to haystacks that resolve INSIDE the repo, and
+# recognizes a `TMP_`/`TEMP_`-named variable as runtime scratch that is out of scope
+# entirely (`lib/test/pin-corpus-lint.py`'s `_raw_guard_site`, covered by
+# `test_runtime_pipe_count_absence_and_temp_greps_are_not_raw_presence_pins`). The
+# `grep -qF` assertions below read argv this run's `gh` stub captured — an executable
+# surface, not repo source — so renaming this variable to a non-prefixed form would put
+# them in scope and fail the gate with no source-presence pin actually present.
+TMP_MI="$(mktemp -d)"
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov.json"
 # #152: the body is the Stage-B-authored issue spec, filed VERBATIM. Use a body
 # with backticks, $, and newlines to prove it round-trips unmangled (written to a
 # file, never inlined into shell) and is NOT wrapped in any prepend/append.
-printf '## Problem Statement\nStrengthen `cheap-gate.jq` so $VAR shapes do not slip.\n\nMulti-line.\n' > "$MI_TMP/body.md"
-# Stub writes its capture files into its own dir ($MI_TMP) so a quoted heredoc can
+printf '## Problem Statement\nStrengthen `cheap-gate.jq` so $VAR shapes do not slip.\n\nMulti-line.\n' > "$TMP_MI/body.md"
+# Stub writes its capture files into its own dir ($TMP_MI) so a quoted heredoc can
 # stay free of run.sh shell-var interpolation. Handles label create / issue edit
 # (the best-effort label stamping) in addition to list/create/comment.
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$*" in
@@ -657,36 +665,36 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --title "audit(devflow): x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
+chmod +x "$TMP_MI/gh"
+URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --title "audit(devflow): x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
 assert_eq "meta-issue returns the new URL" "https://github.com/acme/example-repo/issues/4242" "$URL"
 # Created title must keep the de-dup key prefix (Step-1 search matches it) AND
 # carry the caller's --title (regression: --title was previously discarded).
 assert_eq "create title keeps the de-dup key" "true" \
-  "$(grep -qF -- '--title [devflow-retrospective] meta: review-reject-bypassed' "$MI_TMP/create-args" && echo true || echo false)"
+  "$(grep -qF -- '--title [devflow-retrospective] meta: review-reject-bypassed' "$TMP_MI/create-args" && echo true || echo false)"
 assert_eq "create title carries the caller --title" "true" \
-  "$(grep -qF -- 'audit(devflow): x' "$MI_TMP/create-args" && echo true || echo false)"
+  "$(grep -qF -- 'audit(devflow): x' "$TMP_MI/create-args" && echo true || echo false)"
 # #152: the filed body equals the input verbatim — no `## Pattern:` prepend, no
 # "can't be an auto-opened PR" boilerplate, backticks/$/newlines intact.
 assert_eq "meta-issue files the body verbatim" "true" \
-  "$(diff -q "$MI_TMP/body.md" "$MI_TMP/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
+  "$(diff -q "$TMP_MI/body.md" "$TMP_MI/created-body.md" >/dev/null 2>&1 && echo true || echo false)"
 # #152: both the DevFlow provenance label and the Retrospective marker are stamped
 # (best-effort) on the freshly filed issue (#4242, derived from the created URL).
 assert_eq "meta-issue stamps DevFlow label (REST labels[] field)" "true" \
-  "$(grep -qF -- 'labels[]=DevFlow' "$MI_TMP/edit-args" && echo true || echo false)"
+  "$(grep -qF -- 'labels[]=DevFlow' "$TMP_MI/edit-args" && echo true || echo false)"
 assert_eq "meta-issue stamps Retrospective label (REST labels[] field)" "true" \
-  "$(grep -qF -- 'labels[]=Retrospective' "$MI_TMP/edit-args" && echo true || echo false)"
+  "$(grep -qF -- 'labels[]=Retrospective' "$TMP_MI/edit-args" && echo true || echo false)"
 assert_eq "meta-issue applies via REST issues/4242/labels (not gh issue edit)" "true" \
-  "$(grep -qF -- 'issues/4242/labels' "$MI_TMP/edit-args" && echo true || echo false)"
+  "$(grep -qF -- 'issues/4242/labels' "$TMP_MI/edit-args" && echo true || echo false)"
 # #788: the filing records a `filed` lifecycle entry (number-keyed) on the slug's
 # patterns[] record — NOT a `.dismissed` entry (that map is human-owned now).
-assert_eq "lifecycle entry recorded with url" "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].url' "$MI_TMP/ov.json")"
-assert_eq "lifecycle entry keyed by number"   "4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].number' "$MI_TMP/ov.json")"
-assert_eq "lifecycle record state is filed"   "filed" "$(jq -r '.patterns["review-reject-bypassed"].state' "$MI_TMP/ov.json")"
-assert_eq "filing writes NO dismissed entry"  "false" "$(jq -e '.dismissed | has("review-reject-bypassed")' "$MI_TMP/ov.json" >/dev/null 2>&1 && echo true || echo false)"
+assert_eq "lifecycle entry recorded with url" "https://github.com/acme/example-repo/issues/4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].url' "$TMP_MI/ov.json")"
+assert_eq "lifecycle entry keyed by number"   "4242" "$(jq -r '.patterns["review-reject-bypassed"].meta_issues[0].number' "$TMP_MI/ov.json")"
+assert_eq "lifecycle record state is filed"   "filed" "$(jq -r '.patterns["review-reject-bypassed"].state' "$TMP_MI/ov.json")"
+assert_eq "filing writes NO dismissed entry"  "false" "$(jq -e '.dismissed | has("review-reject-bypassed")' "$TMP_MI/ov.json" >/dev/null 2>&1 && echo true || echo false)"
 # existing-issue path (de-dup): comments instead of re-filing, still stamps labels
-rm -f "$MI_TMP/edit-args"
-cat > "$MI_TMP/gh" <<'STUB'
+rm -f "$TMP_MI/edit-args"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$*" in
@@ -697,19 +705,19 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-URL2="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov.json" 2>/dev/null)"
+chmod +x "$TMP_MI/gh"
+URL2="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
 assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
 assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/labels)" "true" \
-  "$(grep -qF -- 'issues/99/labels' "$MI_TMP/edit-args" && echo true || echo false)"
+  "$(grep -qF -- 'issues/99/labels' "$TMP_MI/edit-args" && echo true || echo false)"
 # #152: fail CLOSED on a create that returns no usable issue URL. `gh issue create`
 # can exit 0 with empty/garbage stdout; without the URL-shape guard meta-issue.sh
 # would report a phantom filing AND write a permanent overrides.json cooldown for
 # an issue that never existed (the "never report unfiled as filed" invariant). The
 # guard must exit non-zero so the orchestrator records a blocker, and must NOT have
 # written a dismissal for the slug.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov2.json"
-cat > "$MI_TMP/gh" <<'STUB'
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov2.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '' ;;            # no existing issue → create path
@@ -717,14 +725,14 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
 assert_eq "meta-issue fails closed on empty create URL (non-zero exit)" "true" \
   "$([ "$EMPTY_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "meta-issue wrote NO lifecycle record on empty create URL" "false" \
-  "$(jq -e '.patterns | has("empty-url")' "$MI_TMP/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
+  "$(jq -e '.patterns | has("empty-url")' "$TMP_MI/ov2.json" >/dev/null 2>&1 && echo true || echo false)"
 # garbage (non-URL) stdout → same fail-closed
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '' ;;
@@ -732,40 +740,40 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
 assert_eq "meta-issue fails closed on garbage create stdout (non-zero exit)" "true" \
   "$([ "$GARBAGE_RC" -ne 0 ] && echo true || echo false)"
 # de-dup lookup failure (gh issue list non-zero) → exit 1 (orchestrator blocker trigger)
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) exit 1 ;;
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
 assert_eq "meta-issue fails closed on de-dup lookup error (non-zero exit)" "true" \
   "$([ "$LOOKUP_RC" -ne 0 ] && echo true || echo false)"
 # #152: de-dup lookup that exits 0 with a NON-JSON body (auth/upgrade warning on
 # stdout, HTML error page) must fail CLOSED at the jq parse, not flow on as "no
 # existing issue" and re-file a duplicate. Mirrors actionable-patterns.sh's
 # non-JSON cooldown guard (the sibling consumer of the same gh contract).
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo 'gh: not authenticated' ;;   # exit 0 but non-JSON
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
 assert_eq "meta-issue fails closed on a non-JSON de-dup body (non-zero exit)" "true" \
   "$([ "$NONJSON_RC" -ne 0 ] && echo true || echo false)"
 # --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov3.json"
-cat > "$MI_TMP/gh" <<'STUB'
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov3.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
 case "$*" in
@@ -775,23 +783,23 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-rm -f "$MI_TMP/calls"
-DRY_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov3.json" 2>/dev/null)"
+chmod +x "$TMP_MI/gh"
+rm -f "$TMP_MI/calls"
+DRY_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov3.json" 2>/dev/null)"
 assert_eq "meta-issue --dry-run prints the DRYRUN sentinel" "https://example.invalid/issues/DRYRUN" "$DRY_URL"
 assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
-  "$([ ! -f "$MI_TMP/calls" ] && echo true || echo false)"
+  "$([ ! -f "$TMP_MI/calls" ] && echo true || echo false)"
 # #152: de-dup HIT path also fails closed on a garbage url/number (gh --json drift
 # emitting a null number/url) — mirrors the create-path guard.
-cat > "$MI_TMP/gh" <<'STUB'
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '[{"number":null,"url":null,"title":"[devflow-retrospective] meta: dedup-null — x"}]' ;;   # contract drift: nulls
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
 assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
   "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
 # #152: the tokenized GitHub --search can surface an issue whose title does NOT
@@ -800,8 +808,8 @@ assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" 
 # rather than commenting on / pinning the cooldown to the wrong issue. Here the
 # only open issue's slug is `widget-foobar`; the requested tag is `widget` →
 # no exact match → create path (returns the freshly created URL, not #88).
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-loose.json"
-cat > "$MI_TMP/gh" <<'STUB'
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-loose.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '[{"number":88,"url":"https://github.com/acme/example-repo/issues/88","title":"[devflow-retrospective] meta: widget-foobar — loose"}]' ;;
@@ -811,8 +819,8 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-LOOSE_URL="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-loose.json" 2>/dev/null)"
+chmod +x "$TMP_MI/gh"
+LOOSE_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-loose.json" 2>/dev/null)"
 assert_eq "meta-issue strict-rejects a loose --search slug match (files new, not #88)" "https://github.com/acme/example-repo/issues/4343" "$LOOSE_URL"
 # #152: overrides-write failure AFTER a successful create reports FILED, not
 # blocked — a corrupt overrides file makes the jq cooldown write fail, but the
@@ -820,8 +828,8 @@ assert_eq "meta-issue strict-rejects a loose --search slug match (files new, not
 # (the orchestrator records the filing) and leave a loud ::error:: breadcrumb;
 # the open-issue de-dupe self-heals the missing cooldown next run. Reporting
 # "not filed" here would lose a real issue.
-printf 'not json{' > "$MI_TMP/ov-corrupt.json"
-cat > "$MI_TMP/gh" <<'STUB'
+printf 'not json{' > "$TMP_MI/ov-corrupt.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '' ;;
@@ -831,34 +839,34 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-OVFAIL_OUT="$(DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-corrupt.json" 2>"$MI_TMP/ov-fail.err")"; OVFAIL_RC=$?
+chmod +x "$TMP_MI/gh"
+OVFAIL_OUT="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-corrupt.json" 2>"$TMP_MI/ov-fail.err")"; OVFAIL_RC=$?
 assert_eq "meta-issue reports FILED on a cooldown-write failure (exit 0)" "true" \
   "$([ "$OVFAIL_RC" -eq 0 ] && echo true || echo false)"
 assert_eq "meta-issue still prints the filed URL on a cooldown-write failure" "https://github.com/acme/example-repo/issues/7777" "$OVFAIL_OUT"
 assert_eq "meta-issue leaves a 'WAS filed' breadcrumb on a cooldown-write failure" "true" \
-  "$(grep -q 'issue WAS filed' "$MI_TMP/ov-fail.err" && echo true || echo false)"
+  "$(grep -q 'issue WAS filed' "$TMP_MI/ov-fail.err" && echo true || echo false)"
 
 # #152/#788: --dry-run must NOT mutate the real overrides.json — a dry run that
 # records the DRYRUN sentinel as a lifecycle entry would make a later live run skip
 # the real filing. The patterns map must stay empty after a dry run.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-dry.json"
-cat > "$MI_TMP/gh" <<'STUB'
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-dry.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '' ;;
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1
 assert_eq "meta-issue --dry-run writes NO lifecycle record to overrides" "false" \
-  "$(jq -e '.patterns | has("dry-ov")' "$MI_TMP/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
+  "$(jq -e '.patterns | has("dry-ov")' "$TMP_MI/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
 
 # #152: TAG carrying a GitHub search qualifier / whitespace is rejected at
 # arg-parse (before it reaches the de-dupe --search), so a drift fails loud
 # instead of mis-routing the lookup and re-filing a duplicate.
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
 assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
   "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
 # #788: on a recurrence the Step-1 de-dupe hits the SAME open issue and re-runs the
@@ -866,8 +874,8 @@ assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
 # still hold exactly ONE meta-issue entry (no duplicate append that would exhaust
 # max_open_per_category against one issue), and the record's `provenance` (first
 # filing) must be PRESERVED rather than bumped forward.
-printf '%s' '{"schema_version":2,"patterns":{"recur":{"state":"filed","fixed_at":null,"provenance":"2020-01-01T00:00:00Z","meta_issues":[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$MI_TMP/ov-recur.json"
-cat > "$MI_TMP/gh" <<'STUB'
+printf '%s' '{"schema_version":2,"patterns":{"recur":{"state":"filed","fixed_at":null,"provenance":"2020-01-01T00:00:00Z","meta_issues":[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_MI/ov-recur.json"
+cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","title":"[devflow-retrospective] meta: recur — x"}]' ;;  # de-dup HIT
@@ -877,12 +885,12 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh"
-DEVFLOW_GH="$MI_TMP/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-recur.json" >/dev/null 2>&1
+chmod +x "$TMP_MI/gh"
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-recur.json" >/dev/null 2>&1
 assert_eq "meta-issue recurrence keeps exactly one number-keyed entry" "1" \
-  "$(jq -r '.patterns["recur"].meta_issues | length' "$MI_TMP/ov-recur.json")"
+  "$(jq -r '.patterns["recur"].meta_issues | length' "$TMP_MI/ov-recur.json")"
 assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-01-01T00:00:00Z" \
-  "$(jq -r '.patterns["recur"].provenance' "$MI_TMP/ov-recur.json")"
+  "$(jq -r '.patterns["recur"].provenance' "$TMP_MI/ov-recur.json")"
 # The lifecycle write stages BESIDE the overrides file, never under $TMPDIR:
 # `mv` is an atomic rename only within one filesystem, so a $TMPDIR staging file
 # on a runner whose /tmp is a separate filesystem is a copy-then-unlink that can
@@ -895,10 +903,10 @@ assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-0
 # own per-user temp dir and ignores it. So on CI this assertion goes RED against
 # a $TMPDIR-staged write; at a macOS desk it holds the write's success as an
 # ordinary regression guard on this path.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$MI_TMP/ov-tmpdir.json"
-# Its own create-path stub: the shared $MI_TMP/gh above is rewritten by each
+echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-tmpdir.json"
+# Its own create-path stub: the shared $TMP_MI/gh above is rewritten by each
 # preceding case, and the one left in effect is not the create path.
-cat > "$MI_TMP/gh-create" <<'STUB'
+cat > "$TMP_MI/gh-create" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"issue list"*) echo '' ;;
@@ -906,15 +914,15 @@ case "$*" in
   *) echo '' ;;
 esac
 STUB
-chmod +x "$MI_TMP/gh-create"
-TMPDIR="$MI_TMP/no-such-tmpdir" DEVFLOW_GH="$MI_TMP/gh-create" bash "$LIB/meta-issue.sh" \
+chmod +x "$TMP_MI/gh-create"
+TMPDIR="$TMP_MI/no-such-tmpdir" DEVFLOW_GH="$TMP_MI/gh-create" bash "$LIB/meta-issue.sh" \
   --tag tmpdir-free --slug tmpdir-free --title "audit(devflow): x" \
-  --body-file "$MI_TMP/body.md" --overrides "$MI_TMP/ov-tmpdir.json" >/dev/null 2>&1
+  --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-tmpdir.json" >/dev/null 2>&1
 assert_eq "#788 meta-issue: the lifecycle record is written with an unusable \$TMPDIR" "filed" \
-  "$(jq -r '.patterns["tmpdir-free"].state' "$MI_TMP/ov-tmpdir.json")"
+  "$(jq -r '.patterns["tmpdir-free"].state' "$TMP_MI/ov-tmpdir.json")"
 assert_eq "#788 meta-issue: no staging file is left beside the overrides file" "0" \
-  "$(set -- "$MI_TMP"/.overrides*; [ -e "$1" ] && echo 1 || echo 0)"
-rm -rf "$MI_TMP"
+  "$(set -- "$TMP_MI"/.overrides*; [ -e "$1" ] && echo 1 || echo 0)"
+rm -rf "$TMP_MI"
 
 # ────────────────────────────────────────────────────────────────────────────
 # filing-decisions.sh — the executable owner of the Step 8c cap decision and of

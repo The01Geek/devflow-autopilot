@@ -4083,13 +4083,20 @@ def scan_static_pin_changes(
         scan_sources,
         git_runner,
     )
-    missing_base_audited = set(AUDITED_PIN_SOURCES) - set(base_entries)
+    # Only HEAD is required to carry every audited source. The merge base is NOT:
+    # a branch that registers a new focused module adds both the module file and
+    # its ``AUDITED_PIN_SOURCES`` entry in the same change, so the path is absent
+    # from the base tree by construction. Requiring it there failed closed on the
+    # one shape the census exists to admit. The base tree stays optional for
+    # everything downstream — ``base_sources`` is built from ``base_entries``
+    # (whatever the base actually carries), and ``git diff <merge_base>`` already
+    # emits a full add-hunk for a tracked path the base lacks — so an audited
+    # source missing at base is scanned in its entirety rather than skipped.
     missing_head_audited = set(AUDITED_PIN_SOURCES) - set(head_entries)
-    if missing_base_audited or missing_head_audited:
-        missing = sorted(missing_base_audited or missing_head_audited)[0]
-        snapshot = merge_base if missing_base_audited else "HEAD"
+    if missing_head_audited:
         raise InfrastructureError(
-            f"audited pin source absent from committed snapshot {snapshot}: {missing}"
+            "audited pin source absent from committed snapshot HEAD: "
+            f"{sorted(missing_head_audited)[0]}"
         )
     registry = load_registry(
         repo_root / "scripts/workflow-flight-recorder-registry.json"
