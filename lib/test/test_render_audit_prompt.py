@@ -1497,7 +1497,7 @@ class AbsPathSeparatorClosure(unittest.TestCase):
         # The full set `str.splitlines()` treats as a line boundary.
         separators = [
             "\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e",
-            "\x85", " ", " ",
+            "\x85", "\u2028", "\u2029",
         ]
         for sep in separators:
             for candidate in (f"/a{sep}b.md", f"/a/b.md{sep}"):
