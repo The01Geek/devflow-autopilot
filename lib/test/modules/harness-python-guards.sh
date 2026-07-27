@@ -311,7 +311,9 @@ echo "#810 pin-corpus wording-only authoring gate"
 # ────────────────────────────────────────────────────────────────────────────
 # These focused tests drive the same path-aware parser, registry-closed source
 # population, classification-preserving move logic, and fail-closed worktree setup
-# that the production pin-corpus-lint.py whole-tree scan in run.sh consumes.
+# that run.sh's blocking `pin-corpus-lint.py mutation-routing-worktree` gate
+# consumes. run.sh carries several production pin-corpus-lint.py subcommands, so
+# the gate is named by subcommand rather than by position or by breadth.
 _HPG_PIN_LINT_OUT="$(mktemp "$_hpg_tmp_root/pin-lint-unit.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint unit-test capture\n' >&2
   return 1
@@ -321,9 +323,17 @@ devflow_run_focused_python_test \
   "$LIB/test/test_pin_corpus_lint.py" \
   "$_HPG_PIN_LINT_OUT"
 # The focused unit suite is module-driven only: a direct run.sh invocation of it
-# would re-add a second serial execution of an identical population (issue #865).
-# The basename is the match literal because the removed invocation spelled its
-# argument through $LIB, which a fully-literal path would not have caught.
+# would re-execute an identical population serially, on top of the module-driven
+# run above (issue #865). The basename is the match literal because the removed
+# invocation spelled its argument through $LIB, which a fully-literal path would
+# not have caught; the price is that this trips on ANY mention of the basename in
+# run.sh, a bare comment reference included, not only on an invocation. `grep`
+# writes its diagnostics to stderr and nothing to stdout, so an absent or
+# unreadable run.sh yields an EMPTY comparand that fails this assertion — do not
+# add -s, a second file operand, or a glob, each of which breaks that fail-closed
+# path. Search domain is run.sh alone: a reintroduced invocation in another
+# lib/test/modules/*.sh, or in lib/test/module-harness.sh, is an accepted residual
+# this assertion does not detect.
 assert_eq "#810 pin-corpus lint tests remain module-driven (no run.sh invocation)" \
   "0" "$(grep -cF 'test_pin_corpus_lint.py' "$LIB/test/run.sh" || true)"
 rm -f "$_HPG_PIN_LINT_OUT"
