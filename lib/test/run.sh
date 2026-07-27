@@ -559,7 +559,7 @@ assert_eq "#152 classify: audit branch with watched=false and no label/closes is
 echo "tracked-surface prose guards (removed-slug lockstep #129 / config.json tracking #412)"
 # ────────────────────────────────────────────────────────────────────────────
 # The compute-patterns.jq assertions that used to head this section now live in
-# lib/test/modules/retrospective-lifecycle.sh (issue #788 AC). The two repo-wide
+# lib/test/modules/retrospective-lifecycle.sh (issue #788 AC). The repo-wide
 # tracked-surface guards below are NOT compute-patterns.jq coverage — they scan
 # every tracked file for a removed slug and for a false config.json claim — so
 # they stay in the monolith rather than moving into that module.

@@ -13,9 +13,10 @@
 #   $2  path to overrides.json
 #   $3  optional: --full, emitting the UNFILTERED whole-pattern view the run
 #       report renders (every lifecycle status, below-threshold and suppressed
-#       included) instead of the actionable subset. Any other value is rejected
-#       with rc 2. Note the emitted `status` is one of the six lifecycle values
-#       under --full, not just open/regressed.
+#       included) instead of the actionable subset. An unset or empty $3 selects
+#       the default (filtered) view; any other value, and any argument beyond $3,
+#       is rejected with rc 2. Note the emitted `status` is one of the six
+#       lifecycle values under --full, not just open/regressed.
 #
 # Output (stdout):
 #   Compact JSON array of actionable pattern objects, each shaped as:

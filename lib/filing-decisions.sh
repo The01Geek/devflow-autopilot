@@ -59,7 +59,8 @@
 devflow_filing_cap_verdict() {
     # Every `invalid-operand` return withholds the pattern, and when the unusable
     # operand is a CONFIG cap it withholds every pattern for the whole run. The
-    # two count helpers above breadcrumb their own unestablished counts; a cap
+    # two count helpers in this file (`devflow_open_filed_total` and
+    # `devflow_open_filed_in_category`) breadcrumb their own unestablished counts; a cap
     # that arrives unusable from config had no such voice, so the run filed
     # nothing with no named cause — the reading ambiguity issue #788 exists to
     # remove. Name the operand on every arm.
@@ -261,10 +262,21 @@ devflow_open_filed_total() {
         echo "::error::filing-decisions: overrides file '${ov}' is missing or unreadable — the max_open_issues comparand is UNESTABLISHED, so every pattern will be withheld as invalid-operand this run" >&2
         return 0
     fi
+    # Every malformed SHAPE must reach the fail-closed arm below, not be filtered
+    # away. `objects`/`arrays` DISCARD a wrong-typed value and let `length` return
+    # a real 0 — and 0 is a usable count that satisfies the caller's numeric guard,
+    # reports an empty backlog, and files right past BOTH caps. That is the
+    # unknown-laundered-as-zero failure this helper exists to prevent, so a
+    # wrong-typed map, record or entry list is an `error` (jq exits non-zero, the
+    # helper prints nothing) rather than a skip.
     "$DEVFLOW_JQ" -r '
-        [ (.patterns // {} | objects | .[]) | objects
-        | (.meta_issues // [] | arrays | .[]) | objects
-        | select(.state == "filed") ] | length
+        if (.patterns // {} | type) != "object" then error("patterns is not an object") else . end
+        | [ (.patterns // {}) | to_entries[]
+            | (if (.value | type) != "object" then error("record \(.key) is not an object") else .value end)
+            | (if (.meta_issues // [] | type) != "array" then error("meta_issues is not an array") else (.meta_issues // []) end)
+            | .[]
+            | (if type != "object" then error("a meta_issues entry is not an object") else . end)
+            | select(.state == "filed") ] | length
       ' "$ov" || {
         echo "::error::filing-decisions: could not derive the open-filed total from ${ov} — the max_open_issues comparand is UNESTABLISHED, so every pattern will be withheld as invalid-operand this run" >&2
         return 0
@@ -278,9 +290,19 @@ devflow_open_filed_in_category() {
         echo "::error::filing-decisions: cannot derive the per-category open-filed count (overrides='${ov}', slug='${slug}') — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
         return 0
     fi
+    # Same total-FAIL (not total-filter) discipline as devflow_open_filed_total.
+    # A missing record is a legitimate 0 (this category has filed nothing); a
+    # PRESENT but wrong-shaped one is unknown and must fail closed.
     "$DEVFLOW_JQ" -r --arg s "$slug" '
-        [ ((.patterns // {} | objects | .[$s]) | objects | .meta_issues // [] | arrays | .[]) | objects
-        | select(.state == "filed") ] | length
+        if (.patterns // {} | type) != "object" then error("patterns is not an object") else . end
+        | ((.patterns // {})[$s]) as $rec
+        | if $rec == null then 0
+          else
+            (if ($rec | type) != "object" then error("record \($s) is not an object") else . end)
+            | (if ($rec.meta_issues // [] | type) != "array" then error("meta_issues of \($s) is not an array") else ($rec.meta_issues // []) end)
+            | [ .[] | (if type != "object" then error("a meta_issues entry is not an object") else . end)
+                | select(.state == "filed") ] | length
+          end
       ' "$ov" || {
         echo "::error::filing-decisions: could not derive the per-category open-filed count for '${slug}' from ${ov} — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
         return 0

@@ -1442,21 +1442,59 @@ assert_eq "#788 prefetch: the unreferenced row 602 is present in the fixture pag
 # scalar record ("Cannot index string with meta_issues"), the helper prints
 # nothing, and devflow_filing_cap_verdict then returns invalid-operand for EVERY
 # pattern — a run that files nothing, which is the #788 failure mode.
+# A malformed shape must reach the fail-CLOSED arm (print nothing), never be
+# filtered away into a real `0`. 0 is a USABLE count: it satisfies the caller's
+# numeric guard, reports an empty backlog, and files right past BOTH caps — the
+# unknown-laundered-as-zero failure the helper's own docstring forbids. Every row
+# below asserts empty output AND the composed invalid-operand verdict, because
+# the token is what the run actually acts on.
 (
   . "$REPO_ROOT/lib/filing-decisions.sh"
-  printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"junk":"not-an-object","good":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"fixed"}]}}}' \
-    > "$RL_TMP/caps-bad.json"
-  RL_TOT="$(devflow_open_filed_total "$RL_TMP/caps-bad.json" 2>/dev/null)"
-  assert_eq "#788 caps: a non-object record does not unestablish the total" "1" "$RL_TOT"
-  RL_CAT="$(devflow_open_filed_in_category "$RL_TMP/caps-bad.json" good 2>/dev/null)"
-  assert_eq "#788 caps: a non-object sibling does not unestablish the per-category count" "1" "$RL_CAT"
-  # Control on the same fixture shape: with the junk record removed the counts are
-  # identical, so the two assertions above pin the skip-the-bad-record behaviour
-  # and not a fixture that happens to count zero either way.
   printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"good":{"state":"filed","meta_issues":[{"number":1,"state":"filed"},{"number":2,"state":"fixed"}]}}}' \
     > "$RL_TMP/caps-ok.json"
-  assert_eq "#788 caps: the same fixture without the junk record counts the same (control)" "1" \
+  # Positive control FIRST, on the well-formed fixture every row below corrupts:
+  # a real count is derived and the verdict files, so each rejection that follows
+  # pins the shape guard rather than an inert fixture.
+  assert_eq "#788 caps: the well-formed fixture derives a real total (control)" "1" \
     "$(devflow_open_filed_total "$RL_TMP/caps-ok.json" 2>/dev/null)"
+  assert_eq "#788 caps: the well-formed fixture derives a real per-category count (control)" "1" \
+    "$(devflow_open_filed_in_category "$RL_TMP/caps-ok.json" good 2>/dev/null)"
+  assert_eq "#788 caps: the control fixture's verdict is 'file', not a withhold" "file" \
+    "$(devflow_filing_cap_verdict open 0 3 "$(devflow_open_filed_in_category "$RL_TMP/caps-ok.json" good 2>/dev/null)" 9 "$(devflow_open_filed_total "$RL_TMP/caps-ok.json" 2>/dev/null)" 9 2>/dev/null)"
+  # rl_caps_closed <label> <patterns-json-value> — every malformed map/record/entry
+  # shape must yield EMPTY from both helpers and invalid-operand from the verdict.
+  rl_caps_closed() {
+    printf '{"schema_version":2,"dismissed":{},"patterns":%s}' "$2" > "$RL_TMP/caps-bad.json"
+    assert_eq "#788 caps: $1 unestablishes the total (empty, never 0)" "" \
+      "$(devflow_open_filed_total "$RL_TMP/caps-bad.json" 2>/dev/null)"
+    assert_eq "#788 caps: $1 composes to invalid-operand, so nothing files" "invalid-operand" \
+      "$(devflow_filing_cap_verdict open 0 3 0 9 "$(devflow_open_filed_total "$RL_TMP/caps-bad.json" 2>/dev/null)" 9 2>/dev/null)"
+  }
+  # The map itself: the two rows CLAUDE.md's six-shape matrix requires and the
+  # shadow pass found missing (a truthy non-object is NOT replaced by `// {}`).
+  rl_caps_closed "an ARRAY patterns map" '[{"a":1}]'
+  rl_caps_closed "a STRING patterns map" '"oops"'
+  # A record, and a record's entry list, at the queried depth.
+  rl_caps_closed "a non-object record" '{"good":"not-an-object"}'
+  rl_caps_closed "a non-array meta_issues" '{"good":{"meta_issues":"nope"}}'
+  rl_caps_closed "a non-object meta_issues entry" '{"good":{"meta_issues":["nope"]}}'
+  # The per-category reader indexes ONE slug, so it must be corrupted AT that slug
+  # to be exercised at all — a malformed SIBLING is never visited and would make
+  # the assertion a tautology (the shadow pass proved that mutant survives).
+  printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"good":"not-an-object","other":{"meta_issues":[]}}}' > "$RL_TMP/caps-cat.json"
+  assert_eq "#788 caps: a malformed record AT THE QUERIED SLUG unestablishes the per-category count" "" \
+    "$(devflow_open_filed_in_category "$RL_TMP/caps-cat.json" good 2>/dev/null)"
+  printf '%s' '{"schema_version":2,"dismissed":{},"patterns":{"good":{"meta_issues":"nope"}}}' > "$RL_TMP/caps-cat2.json"
+  assert_eq "#788 caps: a non-array meta_issues at the queried slug unestablishes it too" "" \
+    "$(devflow_open_filed_in_category "$RL_TMP/caps-cat2.json" good 2>/dev/null)"
+  # An ABSENT record is a legitimate 0 (this category has filed nothing) — the one
+  # shape that must NOT fail closed, or every first filing in a category withholds.
+  assert_eq "#788 caps: an absent record is a real 0, not unestablished" "0" \
+    "$(devflow_open_filed_in_category "$RL_TMP/caps-ok.json" never-filed 2>/dev/null)"
+  # The unestablished count must NAME itself.
+  RL_CAPS_ERR="$(devflow_open_filed_total "$RL_TMP/caps-bad.json" 2>&1 >/dev/null)"
+  assert_eq "#788 caps: the unestablished total breadcrumbs its cause" "true" \
+    "$(case "$RL_CAPS_ERR" in *"UNESTABLISHED"*) echo true ;; *) echo false ;; esac)"
 )
 
 # ── render-report tolerates a malformed optional count key ───────────────────
@@ -1498,8 +1536,25 @@ for RL_SHAPE in '"oops"' '5' '{"a":1}'; do
     RL_NW="$(devflow_render_report "{\"prs_scanned\":7,\"patterns\":[],\"withheld_patterns\":$RL_SHAPE,\"blockers\":[\"b2\"]}" 2>/dev/null)"
     assert_eq "#788 render: a non-array withheld_patterns ($RL_SHAPE) still renders blockers" "true" \
       "$(case "$RL_NW" in *"b2"*) echo true ;; *) echo false ;; esac)"
+    # The load-bearing half: the HEADING must not print either. Without this the
+    # assertion above passes against a bare-`length` mutant that emits an empty
+    # "## Patterns withheld by a filing cap" heading — a section that falsely
+    # attests to having been rendered. (The shadow pass proved that mutant survived.)
+    assert_eq "#788 render: a non-array withheld_patterns ($RL_SHAPE) omits its heading entirely" "false" \
+      "$(case "$RL_NW" in *"withheld by a filing cap"*) echo true ;; *) echo false ;; esac)"
   )
 done
+# Positive control for the loop above: a WELL-FORMED withheld_patterns does render
+# the heading and its row, so the three omission assertions pin the type guard and
+# not a renderer that never emits the section at all.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_WOK="$(devflow_render_report '{"prs_scanned":7,"patterns":[],"withheld_patterns":[{"tag":"t1","cap":"max_open_issues"}]}' 2>/dev/null)"
+  assert_eq "#788 render: a well-formed withheld_patterns renders its heading (control)" "true" \
+    "$(case "$RL_WOK" in *"withheld by a filing cap"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a well-formed withheld_patterns renders its row (control)" "true" \
+    "$(case "$RL_WOK" in *'`t1`'*"max_open_issues"*) echo true ;; *) echo false ;; esac)"
+)
 # The non-silent keys must still BREADCRUMB on these shapes — the warning arm was
 # unreachable for them while `length` returned a count.
 (
@@ -1510,14 +1565,45 @@ done
   assert_eq "#788 render: a STRING blockers breadcrumbs too" "true" \
     "$(case "$RL_STR_ERR" in *"\`blockers\` key is malformed"*) echo true ;; *) echo false ;; esac)"
 )
-# A well-formed array carrying ONE malformed element must not abort the element
-# read either: `.tag` on a string element raises "Cannot index string with tag",
-# which under `set -e` truncates the report after the heading it already printed.
+# A well-formed array carrying ONE malformed element must degrade that element,
+# not the section. Assert the RENDERED ENTRIES, not merely that a later section
+# survives: the survives-only form is a tautology that passes with the element
+# filter removed, with the failure suppression removed, and with both removed
+# (the shadow pass measured all three mutants surviving).
 (
   . "$REPO_ROOT/lib/render-report.sh"
-  RL_ELEM="$(devflow_render_report '{"prs_scanned":7,"patterns":["junk"],"withheld_patterns":["junk"],"declined_refiled":[{"o":1}],"blockers":["b3"]}' 2>/dev/null)"
-  assert_eq "#788 render: a malformed ELEMENT does not truncate the report" "true" \
+  RL_ELEM="$(devflow_render_report '{"prs_scanned":7,"patterns":[{"tag":"good","occurrence_count":2},"junk"],"withheld_patterns":[{"tag":"w1","cap":"max_issues_per_run"},"junk"],"blockers":["b3"]}' 2>/dev/null)"
+  assert_eq "#788 render: the well-formed sibling of a malformed element still renders" "true" \
+    "$(case "$RL_ELEM" in *'`good`'*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: the malformed element is dropped, not rendered raw" "false" \
+    "$(case "$RL_ELEM" in *"junk"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: the withheld section's well-formed element survives too" "true" \
+    "$(case "$RL_ELEM" in *'`w1`'*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a malformed element does not truncate the report" "true" \
     "$(case "$RL_ELEM" in *"b3"*) echo true ;; *) echo false ;; esac)"
+  # An abort INSIDE a well-formed object element (a string occurrence_count that
+  # aborts sort_by) must be NAMED, never rendered as an empty section: the
+  # key-level warning cannot fire for it, because the key genuinely IS an array.
+  RL_FIELD_ERR="$(devflow_render_report '{"prs_scanned":7,"patterns":[{"tag":"a","occurrence_count":"3"}]}' 2>&1 >/dev/null)"
+  RL_FIELD_OUT="$(devflow_render_report '{"prs_scanned":7,"patterns":[{"tag":"a","occurrence_count":"3"}]}' 2>/dev/null)"
+  assert_eq "#788 render: a string occurrence_count still renders its row (total field read)" "true" \
+    "$(case "$RL_FIELD_OUT" in *'`a`'*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: a string occurrence_count does not silently empty the section" "false" \
+    "$(case "$RL_FIELD_ERR$RL_FIELD_OUT" in *"Patterns this run"*'`a`'*) echo false ;; *) echo true ;; esac)"
+)
+# `_None filed._` is a positive claim of fact and must never be printed off an
+# unestablished count — that would have the report deny filings that did happen.
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  RL_NF_OUT="$(devflow_render_report '{"prs_scanned":7,"patterns":[],"intervention_issues":"boom"}' 2>/dev/null)"
+  RL_NF_ERR="$(devflow_render_report '{"prs_scanned":7,"patterns":[],"intervention_issues":"boom"}' 2>&1 >/dev/null)"
+  assert_eq "#788 render: a malformed intervention_issues does NOT claim '_None filed._'" "false" \
+    "$(case "$RL_NF_OUT" in *"_None filed._"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#788 render: it breadcrumbs the refusal instead" "true" \
+    "$(case "$RL_NF_ERR" in *"refusing to print"*) echo true ;; *) echo false ;; esac)"
+  # Control: a genuinely empty array still gets the honest '_None filed._'.
+  assert_eq "#788 render: an empty intervention_issues still says '_None filed._' (control)" "true" \
+    "$(case "$(devflow_render_report '{"prs_scanned":7,"patterns":[],"intervention_issues":[]}' 2>/dev/null)" in *"_None filed._"*) echo true ;; *) echo false ;; esac)"
 )
 
 # ── _migrate's two failure arms ──────────────────────────────────────────────
