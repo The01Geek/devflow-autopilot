@@ -6,8 +6,10 @@
 # lib/test/module-harness.sh first (this module calls that harness's focused
 # Python-test helper). The module owns all other fixtures and removes its
 # temporary workspace. Modules may not self-skip: skip() is not part of this
-# contract (the full-suite boundary withholds SKIPS_FILE and the focused runner
-# defines no skip helper) — keep skippable gates in the full suite.
+# contract (the full-suite boundary binds the module a PRIVATE skip tally it folds
+# back itself, and the focused runner overrides skip() to a fatal) — keep skippable
+# gates in the full suite. A host that genuinely cannot express a condition declares
+# it through module_host_capability_skip (issue #838), never through skip().
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "workflow flight recorder: native inventory, explicit import, and constrained analysis"
