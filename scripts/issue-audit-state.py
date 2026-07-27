@@ -3981,7 +3981,7 @@ def _emit_next_call(cmd_name, args, ctx):
     # `next_call=` answers against what it just wrote. A read failure is not a crash —
     # `_query_state` is the read-only, never-raising accessor the queries already use, and
     # a `None` state resolves to `next_call=unestablished reason=state-unestablished`.
-    state = _query_state(args.slug, quiet=True)
+    state = _query_state(args.slug)
     # A command that MINTS or rewrites the run's nonce hands the value back through the
     # same context channel (`init` does — its `--nonce` is optional and drives cold-start
     # vs re-init, so the caller-supplied value is absent on the cold path and comparing it
@@ -7069,19 +7069,38 @@ def cmd_emit_body(args):
     sys.stdout.buffer.write(body)
 
 
-def _query_state(slug, quiet=False):
+# Diagnostics already written to stderr this process, keyed by the exact (slug, message)
+# pair. Deduping on the identity of the emitted line is what lets the duplicate-suppression
+# be safe: see `_query_state`.
+_STATE_BREADCRUMB_EMITTED = set()
+
+
+def _query_state(slug):
     """Read the run's state, or None with a breadcrumb naming why (never a raise).
 
-    `quiet` suppresses the breadcrumb for a SECOND read of the same file in one process —
-    the `next_call=` emitter's post-mutation re-read (issue #795 review). The command
-    itself has already emitted the identical line for the identical path, and two
-    consecutive copies of one diagnostic on a surface the state-owner-unavailable fallback
-    routes on reads as two separate failures.
+    A repeated read of the same file in one process emits its breadcrumb ONCE — the
+    `next_call=` emitter's post-mutation re-read would otherwise put two consecutive
+    copies of one diagnostic on a surface the state-owner-unavailable fallback routes on,
+    which reads as two separate failures.
+
+    The suppression is keyed on the **identity of the diagnostic actually emitted**, never
+    on a caller-supplied flag (issue #795 shadow review). The previous `quiet=True`
+    parameter suppressed the breadcrumb unconditionally at the emitter's call site, on the
+    assumption that the command had already emitted the identical line. That holds for the
+    QUERY class, whose handlers reach state through this function — but every MUTATION
+    subcommand reaches state through `load_state`/`_fail` and never calls this at all, so
+    for those ~20 subcommands the emitter's re-read was the FIRST read here and its
+    suppression left `next_call=unestablished reason=state-unestablished` standing with no
+    diagnosis of why. Keying on the emitted line closes that gap without reintroducing the
+    doubled diagnostic: a genuine second read of an already-reported failure stays quiet,
+    while a first-and-only read always speaks.
     """
     try:
         return load_state(slug)
     except StateError as exc:
-        if not quiet:
+        key = (slug, str(exc))
+        if key not in _STATE_BREADCRUMB_EMITTED:
+            _STATE_BREADCRUMB_EMITTED.add(key)
             sys.stderr.write(f'issue-audit-state.py query: state unestablished — {exc}\n')
         return None
 
@@ -7939,10 +7958,28 @@ def main():
             # render failure is precisely an unestablished next call, so say so on the
             # channel the caller reads, and keep the diagnosis on stderr.
             print('next_call=unestablished reason=render-failed')
-            sys.stderr.write(
-                f'issue-audit-state.py {args.cmd}: the next_call= suggestion could not be '
-                f'rendered ({type(exc).__name__}: {exc}); the decided answer above stands '
-                'and this call succeeded\n')
+            # Two DIFFERENT conditions reach this handler, and collapsing them onto one
+            # message hid the worse one (issue #795 shadow review). An ordinary exception
+            # is a data/environment problem: the state held something unrenderable. An
+            # `AssertionError` here comes from this module's own self-checks —
+            # `_checked_next_call`'s three-shape contract and `_unestablished`'s closed
+            # reason vocabulary — and means the TOOL is wrong, not the input. Both must
+            # still exit 0 for the reason above, so the only channel left to distinguish
+            # them is the message; give the contract violation a distinctive, greppable
+            # marker so it is visible in a transcript and assertable by the suite, rather
+            # than reading as one more environment hiccup.
+            if isinstance(exc, AssertionError):
+                sys.stderr.write(
+                    f'issue-audit-state.py {args.cmd}: CONTRACT VIOLATION in the next_call= '
+                    f'channel — {exc}. This is a defect in issue-audit-state.py itself, not '
+                    'a problem with your state or arguments; the decided answer above stands '
+                    'and this call succeeded, but the suggestion channel is unsound and '
+                    'should be reported.\n')
+            else:
+                sys.stderr.write(
+                    f'issue-audit-state.py {args.cmd}: the next_call= suggestion could not be '
+                    f'rendered ({type(exc).__name__}: {exc}); the decided answer above stands '
+                    'and this call succeeded\n')
 
 
 if __name__ == '__main__':

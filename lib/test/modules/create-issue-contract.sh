@@ -898,6 +898,16 @@ assert_eq "#603: the convergence definition no longer claims a budget clause" \
 # the docstring enumeration against `_MULTILINE_READBACKS`, checking that set's membership
 # against the choices `build_parser()` registers. That guard fails RED on exactly the drift this pin
 # could not see.
+# SCOPE of that re-anchor, stated exactly (issue #795 shadow review — the paragraph above read
+# as a fuller replacement than it is): `check_readbacks` reconciles the MODULE DOCSTRING's
+# enumeration against the dispatched set. The pin deleted here sat over `step-3-6-audit.md`'s
+# own enumeration, and the skill-prose↔code axis is NOT what that guard grades. What makes the
+# deletion sound is therefore not "the guard covers it" but the prohibition itself: a
+# skill-prose enumeration is agent-read prompt text whose only reader is the runtime agent, so
+# per the recorded decision under CLAUDE.md's guard-executable-behavior convention it carries no
+# automated regression coverage BY DESIGN, and its compensating control is the review pass that
+# re-reads the shipped prose each run. Do not read this block as a claim that both enumerations
+# are machine-guarded — one is, one is deliberately not.
 devflow_module_pin_unique "#603/AC1: the ledger fence uses a QUOTED heredoc delimiter" \
   "<<'LEDGER-EOF'" "$CI_BUNDLE"
 devflow_module_pin_unique "#603/AC1: the quoted delimiter is never to be simplified away" \

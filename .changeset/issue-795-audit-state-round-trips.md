@@ -122,3 +122,35 @@ bump: minor
   `args.round is None` into round-keyed guards — the slip the guard advertised as closed. A
   second half walks each member's handler and requires the resolver call
   ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The `next_call=` emitter's post-mutation state re-read no longer suppresses the only
+  diagnosis it will ever emit. The suppression was a blanket `quiet=True` at the call site,
+  justified by the command having already emitted the identical breadcrumb — true for the
+  query class, whose handlers read state through `_query_state`, but false for every
+  mutation subcommand, which reaches state through `load_state`/`_fail` and never calls it.
+  For those the emitter's re-read was the first read, so a post-write read failure published
+  `next_call=unestablished reason=state-unestablished` with no diagnosis of why. Suppression
+  is now keyed on the identity of the diagnostic actually emitted, so a first-and-only read
+  always speaks while a genuine repeat stays quiet
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- A contract violation in the `next_call=` channel is now distinguishable from an
+  environment problem. `main()`'s deliberately broad catch must not turn a succeeded call
+  non-zero, so both conditions still exit 0 — but an `AssertionError`, which comes from this
+  module's own self-checks and means the tool is wrong rather than the input, now carries a
+  distinctive `CONTRACT VIOLATION` marker instead of reading as one more render hiccup
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The `next_call=` flag vocabularies are reconciled against the parser. A member of
+  `_CALLER_SUPPLIED_FLAGS` or `_NEXT_CALL_PATH_FLAGS` naming no registered option matched
+  nothing and silently stopped applying, which fails open in the direction that matters: a
+  stale entry after a flag rename stops suppressing a value, and the renderer begins filling
+  an operand whose whole point is that the caller decides it
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The contract checker's own fail-closed arms are now driven. Every prior run of
+  `check-audit-lifecycle-contracts.py` was over a clean tree, so it was only ever observed
+  passing; five planted-defect rows require each Refusal, and a sixth requires the unmutated
+  checker to still pass, so the rows grade a live guard rather than a permanently-red one
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).
+- The `_RenderRefusal` wiring is driven end to end. Each refusal token is now required to
+  reach the published `next_call=unestablished reason=render-*` line a caller actually
+  reads, not merely to be raised by the shape check; the path-flag branch's quote-rather-
+  than-refuse behavior is pinned alongside it
+  ([#795](https://github.com/The01Geek/devflow-autopilot/pull/859)).

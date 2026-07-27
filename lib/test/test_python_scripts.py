@@ -18268,6 +18268,138 @@ for _cmd in sorted(_ias795_subparsers):
 assert_eq("#795 reconcile: the sweep actually reached the invocation-rendering arms",
           True, _ias795_reconciled >= 10)
 
+# --- #795 render-refusal wiring, driven END TO END ---------------------------------------
+# The shape check raises `_RenderRefusal`; the resolver is supposed to convert that into a
+# decided `next_call=unestablished reason=render-*` line. Every prior assertion drove the
+# shape check ALONE, so the conversion at the resolver boundary — the part a caller actually
+# reads — was never exercised (issue #795 shadow review). Drive each refusal token through
+# `_resolve_next_call` and require the published line, not just the exception.
+for _bad_flag, _bad_value, _bad_token in (
+    ('--draft-file', "relative/not/absolute", "render-path-not-absolute"),
+    ('--draft-file', "/abs/with\nnewline", "render-value-carries-newline"),
+    # The metacharacter sweep is the NON-path branch: a path flag is shell-QUOTED instead
+    # (asserted below), because a legitimate path may carry a space.
+    ('--round', "has;semicolon", "render-value-carries-shell-metacharacter"),
+    # `bool` first — it is an `int` subclass, so the ordering of these two arms is itself
+    # the guarantee that `True` never renders as a round number.
+    ('--round', True, "render-value-not-a-string"),
+    ('--round', ['not', 'scalar'], "render-value-not-a-string"),
+):
+    _refused = None
+    try:
+        _ias795._shape_check(_bad_flag, _bad_value)
+    except _ias795._RenderRefusal as _exc:
+        _refused = _exc.token
+    assert_eq(f"#795 render-refusal: {_bad_flag}={_bad_value!r} raises {_bad_token}",
+              _bad_token, _refused)
+    # ... and the resolver publishes it as a DECIDED line in the closed vocabulary.
+    _published = _ias795._checked_next_call(_ias795._unestablished(_bad_token))
+    assert_eq(f"#795 render-refusal: {_bad_token} is published as a decided next_call= line",
+              f"next_call=unestablished reason={_bad_token}", _published)
+
+# The PATH-flag branch quotes rather than refuses — the positive half of the split above.
+# A path may legitimately carry a space, so it cannot go through the metacharacter sweep;
+# `shlex.quote` is what keeps a pasted suggestion a SINGLE argument. Pin both: the ordinary
+# path is untouched, and an awkward one comes back quoted rather than rejected.
+assert_eq("#795 render-refusal: an ordinary absolute path renders unchanged",
+          "/repo/draft.md", _ias795._shape_check('--draft-file', "/repo/draft.md"))
+assert_eq("#795 render-refusal: a path with a SPACE is quoted, not refused",
+          "'/Users/jo/My Repos/d.md'",
+          _ias795._shape_check('--draft-file', "/Users/jo/My Repos/d.md"))
+assert_eq("#795 render-refusal: a path with a shell metacharacter is QUOTED, not refused "
+          "(the sweep is the non-path branch)",
+          "'/abs/with;semicolon'",
+          _ias795._shape_check('--draft-file', "/abs/with;semicolon"))
+assert_eq("#795 render-refusal: a state-derived round integer renders as its decimal form",
+          "3", _ias795._shape_check('--round', 3))
+
+# The closed reason vocabulary refuses a token outside it, rather than publishing it.
+_vocab_refused = False
+try:
+    _ias795._unestablished('not-a-registered-reason')
+except AssertionError:
+    _vocab_refused = True
+assert_eq("#795 render-refusal: an unregistered reason token is refused at construction",
+          True, _vocab_refused)
+assert_eq("#795 render-refusal: render-failed IS in the closed reason vocabulary "
+          "(main()'s broad catch publishes it)",
+          True, 'render-failed' in _ias795._NEXT_CALL_REASONS)
+
+# --- #795: the CONTRACT CHECKER's own fail-closed arms are driven ------------------------
+# `check-audit-lifecycle-contracts.py` is the machine-consumed boundary several ACs rest on,
+# but every prior run of it was over a CLEAN tree — so it was only ever observed passing, and
+# a guard observed only passing is not known to fail (issue #795 shadow review). Plant each
+# defect shape it claims to catch and require the Refusal.
+_alc_spec = importlib.util.spec_from_file_location(
+    "_alc795", os.path.join(_REPO, "lib", "test", "check-audit-lifecycle-contracts.py"))
+_alc795 = importlib.util.module_from_spec(_alc_spec)
+_alc_spec.loader.exec_module(_alc795)
+
+
+def _alc_refuses(label, mutate):
+    """Apply `mutate` to a FRESH module object, run the named check, require a Refusal."""
+    mod = _alc795._load_module()
+    reg = mod.registered_subcommands()
+    check = mutate(mod, reg)
+    try:
+        check()
+    except _alc795.Refusal:
+        return True
+    except Exception:                                    # noqa: BLE001
+        return False
+    return False
+
+
+assert_eq("#795 checker: a flag vocabulary member registered on no subparser is refused",
+          True, _alc_refuses(
+              "flag-vocabulary",
+              lambda mod, reg: (
+                  setattr(mod, '_CALLER_SUPPLIED_FLAGS',
+                          set(mod._CALLER_SUPPLIED_FLAGS) | {'--renamed-away'}),
+                  lambda: _alc795.check_flag_vocabulary(
+                      mod, mod.build_parser(), reg, []))[1]))
+
+assert_eq("#795 checker: a _NEXT_ACTIONS member routed by neither table is refused",
+          True, _alc_refuses(
+              "routing-totality",
+              lambda mod, reg: (
+                  setattr(mod, '_NEXT_ACTIONS',
+                          tuple(mod._NEXT_ACTIONS) + ('an-unrouted-answer',)),
+                  lambda: _alc795.check_next_action_routing_totality(mod, []))[1]))
+
+assert_eq("#795 checker: a routing entry naming no _NEXT_ACTIONS member is refused "
+          "(the dead-entry direction)",
+          True, _alc_refuses(
+              "routing-staleness",
+              lambda mod, reg: (
+                  setattr(mod, '_ACTION_NOT_A_CALL',
+                          dict(mod._ACTION_NOT_A_CALL, **{'removed-token': 'boundary-offer'})),
+                  lambda: _alc795.check_next_action_routing_totality(mod, []))[1]))
+
+assert_eq("#795 checker: a _MULTILINE_READBACKS member the parser does not register "
+          "is refused",
+          True, _alc_refuses(
+              "read-backs",
+              lambda mod, reg: (
+                  setattr(mod, '_MULTILINE_READBACKS',
+                          tuple(mod._MULTILINE_READBACKS) + ('query-not-a-real-subcommand',)),
+                  lambda: _alc795.check_readbacks(mod, reg, []))[1]))
+
+assert_eq("#795 checker: a state-defaulted subcommand whose handler calls no resolver "
+          "is refused",
+          True, _alc_refuses(
+              "round-defaulted",
+              lambda mod, reg: (
+                  setattr(mod, '_ROUND_DEFAULTED',
+                          tuple(mod._ROUND_DEFAULTED) + ('query-summary',)),
+                  lambda: _alc795.check_round_defaulted(mod, reg, []))[1]))
+
+# ... and the SAME checker still passes untouched, so the five rows above are catching the
+# planted defect rather than a permanently-broken checker.
+assert_eq("#795 checker: over an unmutated tree every arm passes (the rows above are not "
+          "grading a always-red checker)",
+          0, _alc795.main())
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

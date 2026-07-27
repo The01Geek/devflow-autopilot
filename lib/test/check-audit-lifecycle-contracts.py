@@ -360,6 +360,45 @@ def check_next_action_routing_totality(module, report):
                   "with no dead routing entry")
 
 
+def check_flag_vocabulary(module, parser, registered, report):
+    """Every member of the `next_call=` flag vocabularies is a REAL registered option.
+
+    `_CALLER_SUPPLIED_FLAGS` and `_NEXT_CALL_PATH_FLAGS` are matched by literal flag string
+    against operands the renderer is about to emit. A member that names no registered
+    option is not an error anything notices — it simply never matches, so the protection it
+    encodes is silently absent. That fails OPEN in the direction that matters: a
+    `_CALLER_SUPPLIED_FLAGS` entry stale after a flag rename stops suppressing the value,
+    and the renderer starts filling in an operand whose whole point was that the caller —
+    not the state — decides it. Reconciling against the parser is what turns a rename into
+    a red check instead of a quiet behavior change (issue #795 shadow review).
+    """
+    option_strings = set()
+    for name in sorted(registered):
+        sub = _subparser_of(parser, name)
+        if sub is None:
+            continue
+        for action in sub._actions:  # noqa: SLF001 - argparse exposes no public accessor
+            option_strings.update(action.option_strings)
+    if not option_strings:
+        raise Refusal("flag-vocabulary: no option strings could be read off any subparser, "
+                      "so the vocabularies cannot be reconciled")
+    checked = 0
+    for vocab_name in ("_CALLER_SUPPLIED_FLAGS", "_NEXT_CALL_PATH_FLAGS"):
+        vocab = getattr(module, vocab_name, None)
+        if not vocab:
+            raise Refusal(f"flag-vocabulary: {vocab_name} is absent or empty, so it cannot "
+                          "be reconciled against the parser")
+        unknown = sorted(f for f in vocab if f not in option_strings)
+        if unknown:
+            raise Refusal(
+                f"flag-vocabulary: {unknown} appear in {vocab_name} but are registered on no "
+                "subparser — the entry matches nothing, so the rendering rule it encodes is "
+                "silently not in force")
+        checked += len(vocab)
+    report.append(f"flag-vocabulary: all {checked} members of _CALLER_SUPPLIED_FLAGS and "
+                  f"_NEXT_CALL_PATH_FLAGS are registered options")
+
+
 def check_sequence(registered, report):
     """The ordered call sequence vs. the invocations the helper accepts. Returns the
     unconditional joint count."""
@@ -399,6 +438,7 @@ def main():
         check_emitting_complement(module, registered, report)
         check_round_defaulted(module, registered, report)
         check_next_action_routing_totality(module, report)
+        check_flag_vocabulary(module, module.build_parser(), registered, report)
         unconditional = check_sequence(registered, report)
     except Refusal as exc:
         sys.stderr.write(f"check-audit-lifecycle-contracts: {exc}\n")
