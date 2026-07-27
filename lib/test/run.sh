@@ -2220,13 +2220,10 @@ echo "behavior-inert prose cap (shape 2 refinement, Phase 4.1.5) (#291, widened 
 # Retained #291 boundaries cover the deterministic cap, its review-and-fix consumer,
 # and the no-refork guard. #797 widened the cap's keying from an in-code-comment
 # sub-case to behavior-inertness; the three guarded contracts are unchanged, and the
-# AC4 literal below is renamed to track the widened cap. The AC1 assertion NAME still
-# says "in-code-comment cap": that name is part of a frozen pin identity in
-# .devflow/logs/residual-prose-retirement-manifest.tsv, so renaming it here would fail
-# test_residual_prose_retirement_manifest.py. It is stale by force, not by oversight,
-# and is corrected by the next manifest identity refresh.
+# AC4 literal below is renamed to track the widened cap. The AC1 assertion NAME is a frozen
+# pin identity, so renaming it needs a same-commit row in lib/test/pin-identity-refreshes.tsv.
 # AC1 — the cap operative sentence in review 4.1.5 (≤ Suggestion/Minor, Phase 4.2 no REJECT).
-assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic in-code-comment cap" \
+assert_pin_unique "291(AC1): review 4.1.5 carries the deterministic behavior-inert prose cap" \
   'deterministically — Phase 4.2 does not REJECT on it' "$OG_REVIEW_SKILL"
 # AC4/AC5 — review-and-fix Step 2.6 honors the cap by recording a DETERMINISTIC severity-calibrated
 # evaluation, CONSUMING the review-4.1.5 definition (no forked shape copy); so a behavior-inert
@@ -38668,6 +38665,39 @@ assert_eq "#456 summary: the name-empty line trips NO reconciliation breadcrumb 
 assert_eq "#456 summary: positive control — the named sibling in the same log still renders normally" "1" \
   "$(devflow_render_test_summary 1 0 2 "$S456_ADV" | grep -cxF '  SKIP  named sibling [host-capability] — reason')"
 rm -f "$S456_ADV" "$S456_ADV_RES" "$S456_ADV_RES.names"
+#
+# ── issue #838: module_host_capability_skip, the sole module-reachable skip surface ──
+# The wrapper (module-harness.sh) is what the chmod-000 arms in
+# lib/test/modules/review-stall-backstop.sh call instead of a bare `echo`. It must emit
+# through skip() — not a second NOTE producer of its own — and record the arm's declared
+# assertion credit for the boundary's floor reconciliation. Driven here with the same
+# env-override pattern the #456 probes above use; the boundary-side fold, credit
+# validation, and floor arithmetic are driven end-to-end in lib/test/test_module_runner.py.
+S838_SK="$(probe_tmp '#838 module skip fixture')"; : > "$S838_SK"
+S838_RES="$(probe_tmp '#838 module skip results fixture')"; : > "$S838_RES"
+S838_CR="$(probe_tmp '#838 module skip credit fixture')"; : > "$S838_CR"
+S838_NOTE_OUT="$(SKIPS_FILE="$S838_SK" RESULTS_FILE="$S838_RES" MODULE_SKIP_CREDIT_FILE="$S838_CR" \
+  module_host_capability_skip "#838 probe arm" "host cannot deny reads" 2)"
+assert_eq "#838 module_host_capability_skip emits through skip() (the sole NOTE producer), unchanged format" \
+  '  NOTE  #838 probe arm skipped [host-capability] — host cannot deny reads' "$S838_NOTE_OUT"
+assert_eq "#838 module_host_capability_skip stores the skip with the host-capability kind (the only kind the boundary folds)" \
+  "1" "$(grep -cxF "$(printf 'host-capability\t#838 probe arm\thost cannot deny reads')" "$S838_SK")"
+assert_eq "#838 module_host_capability_skip records the declared assertion credit" "2" "$(cat "$S838_CR")"
+assert_eq "#838 module_host_capability_skip records NO PASS/FAIL (a skip is neither)" "0" "$(grep -c . "$S838_RES")"
+# An omitted credit is zero, never an unbound-variable abort under the modules' `set -u`.
+: > "$S838_CR"
+SKIPS_FILE="$S838_SK" RESULTS_FILE="$S838_RES" MODULE_SKIP_CREDIT_FILE="$S838_CR" \
+  module_host_capability_skip "#838 creditless arm" "host cannot deny reads" >/dev/null
+assert_eq "#838 module_host_capability_skip with no credit argument records 0, not an abort" "0" "$(cat "$S838_CR")"
+# An empty MODULE_SKIP_CREDIT_FILE must still emit the skip rather than fail on the
+# unbound path — the binding the full-suite boundary supplies is what the credit half
+# depends on, and the emit half may not depend on it.
+: > "$S838_SK"
+S838_UNBOUND_OUT="$(SKIPS_FILE="$S838_SK" RESULTS_FILE="$S838_RES" MODULE_SKIP_CREDIT_FILE="" \
+  module_host_capability_skip "#838 unbound-credit arm" "host cannot deny reads" 2)"
+assert_eq "#838 module_host_capability_skip with no credit file bound still emits its skip" \
+  '  NOTE  #838 unbound-credit arm skipped [host-capability] — host cannot deny reads' "$S838_UNBOUND_OUT"
+rm -f "$S838_SK" "$S838_RES" "$S838_RES.names" "$S838_CR"
 #
 # NOTE-emit meta-assertion. The SOLE `printf '  NOTE ` emit lives inside skip(), delimited by
 # the split-built markers below (split so these definition lines add no second occurrence).

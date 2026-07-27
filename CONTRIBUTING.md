@@ -179,6 +179,31 @@ generated artifact separately. The source/retirement commit is intentionally
 non-green while the artifact is absent, so never leave that intermediate commit as
 the PR head.
 
+**Refreshing a frozen pin identity (issue #843).** Renaming a retained pin is a different
+operation from retiring one, and it uses a different mechanism. The residual prose-pin
+manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
+helper, assertion name, literal, target — against the base revision's committed pin-corpus
+inventory, so a manifest row is **never** edited: an edit there breaks the historical partition
+permanently. When a retained pin's guarded rule is legitimately renamed, declare the rename in
+`lib/test/pin-identity-refreshes.tsv` — live hand-maintained maintainer intent, so it sits
+beside its sibling `lib/test/pin-corpus-adjudications.tsv` rather than under `.devflow/logs/`,
+which holds frozen audit artifacts — in the **same commit** as the source
+rename. `lib/test/test_residual_prose_retirement_manifest.py` applies the declared mapping when
+it realizes retained identities against the current tree, and admits a row only when the old
+identity names a `RETAIN_BOUNDARY` identity in the frozen manifest, the old name is gone from
+the tree, and the new one is present — so the rename and its re-freeze cannot come apart, and a
+refresh cannot outlive the rename it recorded. This is not the two-commit inventory protocol
+above: `.devflow/logs/pin-corpus-inventory.tsv` is a frozen census refreshed by its own
+maintenance commits and owes no same-change update for a rename.
+
+Two scope limits. The ledger covers renames of identities frozen in the **residual prose-pin**
+manifest only — the sibling `.devflow/logs/residual-required-copy-retirement-manifest.tsv` makes
+the same retained-vs-tree assertion with no mapping applied, so renaming a pin frozen *there* has
+no refresh path yet and adding a row for it fails with `old identity is not a RETAIN_BOUNDARY row`.
+And the ledger refreshes an assertion **name** only: changing a retained pin's literal or resolved
+target changes the identity itself, which the ledger cannot express — that is a retirement, handled
+by the manifest protocol, not by editing a refresh row.
+
 **Declaring a repository-tree walk (issue #711).** `# tree-walk-ok: <reason>` is the third
 member of the same declaration-marker family, in the same one-line-reason framing as
 `# structural-pin-ok:` and `# raw-guard-ok:`. A tracked `.py` or `.sh` file under `lib/test/`
@@ -308,7 +333,9 @@ selectable module, complete all of the following in the same PR:
    cleanup, caller-provided `LIB`/`RESULTS_FILE`/`assert_eq`, no self-skip, no
    monolith helper). Comply **by reference** to that header — do not restate its
    cleanup/trap terms here, so this checklist cannot go stale as the contract
-   evolves.
+   evolves. "No self-skip" bars the raw `skip` helper, not a host that genuinely
+   cannot express a condition: declare that through `module_host_capability_skip`
+   (issue #838), whose contract the same header documents.
 8. **Focused-runner smoke test** — add a `runs_green_through_the_real_runner` test
    for the module to `lib/test/test_module_runner.py`, matching the shape the
    existing module tests use: invoke `lib/test/run-module.sh <module-id>`, read the

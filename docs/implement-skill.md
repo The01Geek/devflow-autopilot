@@ -306,6 +306,14 @@ module extraction moves out of `run.sh` stay covered (issue #591). Behavioral
 regressions use ordinary executable tests instead of mutation-taking source-presence
 helpers.
 
+**Renaming a retained pin (issue #843).** A retained pin's assertion name is part of a
+frozen identity, so renaming it in `lib/test/run.sh` without a declaration turns
+`lib/test/test_residual_prose_retirement_manifest.py` RED. Declare the old-to-new
+assertion-name mapping in `lib/test/pin-identity-refreshes.tsv` in the **same commit** as
+the rename; the frozen manifest row itself is never edited. The ledger maps an assertion
+name only, and only for identities frozen in the residual prose-pin manifest — the full
+protocol, its scope limits, and how it differs from pin retirement are in `CONTRIBUTING.md`.
+
 ### Protected-asset taxonomy for existence-only pins
 
 The maintainer-run classifier in `lib/test/pin-corpus-classifier.py` evaluates every
