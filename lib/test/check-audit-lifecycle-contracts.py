@@ -63,6 +63,12 @@ class Refusal(Exception):
 
 def _load_module():
     spec = importlib.util.spec_from_file_location("_ias795", IAS)
+    if spec is None or spec.loader is None:
+        # Without this, a moved or renamed state owner surfaces as an
+        # `AttributeError: 'NoneType'` traceback — the one shape this file's own
+        # "FAIL CLOSED, NEVER CLEAN-ZERO" contract promises never to produce.
+        raise Refusal(f"could not load {IAS.relative_to(REPO)} as a module "
+                      "(missing file or unloadable spec)")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -77,7 +83,8 @@ def _read(path: Path) -> str:
 
 def _sole_paragraph(text: str, anchor: str, where: str) -> str:
     """The single paragraph following `anchor`, or a refusal naming why not."""
-    hits = [i for i, line in enumerate(text.splitlines()) if anchor in line]
+    lines = text.splitlines()
+    hits = [i for i, line in enumerate(lines) if anchor in line]
     if not hits:
         raise Refusal(f"{where}: no line carries the anchor {anchor!r} — the section was "
                       "renamed, rewrapped, or removed; refusing rather than reporting an "
@@ -86,7 +93,6 @@ def _sole_paragraph(text: str, anchor: str, where: str) -> str:
         raise Refusal(f"{where}: {len(hits)} lines carry the anchor {anchor!r}; exactly one "
                       "candidate is required, so a duplicated heading cannot make this "
                       "check pass against the wrong paragraph")
-    lines = text.splitlines()
     start = hits[0] + 1
     while start < len(lines) and not lines[start].strip():
         start += 1
@@ -112,9 +118,9 @@ def _invocations(text: str, registered: frozenset[str], where: str) -> list[str]
     """
     found = []
     for token in _backticked(text):
-        head = token.split()[0] if token.split() else ""
-        if head in registered:
-            found.append(head)
+        parts = token.split()
+        if parts and parts[0] in registered:
+            found.append(parts[0])
     if not found:
         raise Refusal(f"{where}: zero state-owner invocations extracted. A clean zero here "
                       "would freeze the derived figure and let the reconciliation pass "
@@ -142,8 +148,29 @@ def check_readbacks(module, registered, report):
         raise Refusal("read-backs: the TWO-CLASS CLI CONTRACT docstring does not name "
                       f"{missing}, which _MULTILINE_READBACKS dispatches as multi-line. "
                       "The prose enumeration and the dispatched set must agree")
-    report.append(f"read-backs: {len(dispatched)} multi-line read-backs, "
-                  "docstring enumeration reconciled against the dispatched set")
+    # The docstring↔dispatched comparison above is a prose reconciliation. Anchor the same
+    # guarantee on BEHAVIOR too, so the arm does not rest on documentation presence alone:
+    # every excluded subcommand must really be one the emitter refuses to append to, and
+    # every non-excluded one must really be one it accepts. `_emit_next_call` raises on the
+    # former, which is the executable boundary the sets are graded against.
+    excluded = set(module._NEXT_CALL_EXCLUDED)  # noqa: SLF001
+    if not dispatched <= excluded:
+        raise Refusal("read-backs: a multi-line read-back is missing from "
+                      f"_NEXT_CALL_EXCLUDED ({sorted(dispatched - excluded)}) — a "
+                      "multi-line answer would gain a trailing next_call= line")
+    for name in sorted(excluded):
+        try:
+            module._emit_next_call(name, None, None)  # noqa: SLF001
+        except AssertionError:
+            continue
+        except Exception:  # noqa: BLE001
+            raise Refusal(f"read-backs: _emit_next_call({name!r}) did not refuse the way "
+                          "the exclusion predicate requires") from None
+        raise Refusal(f"read-backs: _emit_next_call accepted the excluded {name!r}; the "
+                      "exclusion set and the emitter's own guard disagree")
+    report.append(f"read-backs: {len(dispatched)} multi-line read-backs, docstring "
+                  "enumeration reconciled against the dispatched set, and every excluded "
+                  "subcommand refused by the emitter's own guard")
 
 
 def check_sequence(registered, report):
@@ -151,11 +178,10 @@ def check_sequence(registered, report):
     unconditional joint count."""
     seq_text = _read(STEP36)
     paragraph = _sole_paragraph(seq_text, _SEQUENCE_ANCHOR, "sequence")
+    # `_invocations` appends a head only when it is already in `registered`, so the "names
+    # a call the tool would not accept" guarantee is enforced at extraction — a second
+    # `set(named) - registered` check here could never fire.
     named = _invocations(paragraph, registered, "sequence")
-    unknown = sorted(set(named) - registered)
-    if unknown:
-        raise Refusal(f"sequence: the ordered sequence names {unknown}, which the parser "
-                      "does not register")
     for cond in _CONDITIONAL:
         if cond in named:
             raise Refusal(f"sequence: {cond!r} is conditional on the run's shape and must "
@@ -173,7 +199,7 @@ def check_sequence(registered, report):
     return len(named)
 
 
-def main(argv):
+def main():
     report: list[str] = []
     try:
         module = _load_module()
@@ -189,10 +215,8 @@ def main(argv):
     report.append(f"registered_subcommand_count={len(registered)}")
     for line in report:
         print(line)
-    if "--count" in argv:
-        print(unconditional)
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(sys.argv[1:]))
+    raise SystemExit(main())

@@ -14036,8 +14036,8 @@ if [ -d "$RAP_SB" ]; then
   # consumer-extension path unconditionally and can emit its own breadcrumb first.
   RAP_ERR_PTR="$(grep -m1 'dispatch-pointer:' "$RAP_SB/err.txt" 2>/dev/null)"
   RAP_OUT_PTR="$(grep -m1 'dispatch-pointer: Audit' "$RAP_SB/out.txt" 2>/dev/null)"
-  assert_eq "#795: the generator emits a dispatch-pointer: line on stderr" "1" \
-    "$(printf '%s' "$RAP_ERR_PTR" | grep -c 'dispatch-pointer:')"
+  # (Non-emptiness of the stderr pointer is not asserted separately here: the
+  # exactly-one-line assertion below is strictly stronger and subsumes it.)
   assert_eq "#795: the stderr pointer is byte-identical to the line inside the stdout it wrote" \
     "$RAP_OUT_PTR" "$RAP_ERR_PTR"
   # Positive control: an empty extraction on BOTH sides would pass the compare vacuously.
