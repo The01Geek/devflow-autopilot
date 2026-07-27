@@ -16,6 +16,7 @@ import tarfile
 import tempfile
 import unittest
 from collections import Counter
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 
@@ -24,6 +25,14 @@ REPO_ROOT = HERE.parent.parent
 BASE_REVISION = "1d4d306bcacd4970df170faeab94e602724943b8"
 MANIFEST_DECISION_REVISION = "b430c9b8b2ff83069bfe24a2ec4aa9424e56e200"
 MANIFEST = REPO_ROOT / ".devflow/logs/residual-prose-retirement-manifest.tsv"
+# The manifest's own identity set is frozen against BASE_REVISION's committed
+# inventory, so a row there can never be edited to track a rename.  A rename is
+# declared here instead, and only the current-tree realization consumes it.  This
+# is live hand-maintained maintainer intent, so it lives beside its sibling
+# pin-corpus-adjudications.tsv rather than under .devflow/logs/, which holds
+# frozen audit artifacts.
+IDENTITY_REFRESHES = HERE / "pin-identity-refreshes.tsv"
+ADJUDICATIONS = REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
 CLASSIFIER = HERE / "pin-corpus-classifier.py"
 
 IDENTITY_COLUMNS = (
@@ -35,6 +44,7 @@ IDENTITY_COLUMNS = (
     "target_defaulted",
 )
 MANIFEST_COLUMNS = IDENTITY_COLUMNS + ("surface", "disposition", "rationale")
+REFRESH_COLUMNS = IDENTITY_COLUMNS + ("new_assertion_name", "rationale")
 MAPPING_CANONICAL_HEADER = "\t".join(MANIFEST_COLUMNS) + "\n"
 RAW_SELECTOR_INDICES = (0, 2, 1, 5, 6, 7)
 PROSE_BUCKETS = {"prose-sole-copy", "prose-multi-copy"}
@@ -63,19 +73,25 @@ def decode_cell(value: str) -> object:
     return json.loads(value)
 
 
-def decode_manifest_row(row: dict[str, str]) -> dict[str, object]:
-    decoded: dict[str, object] = {
+def decode_identity_row(row: dict[str, str]) -> dict[str, object]:
+    """Decode the six identity cells shared by the manifest and the refresh ledger."""
+    return {
         "source_file": decode_cell(row["source_file"]),
         "helper": row["helper"],
         "assertion_name": decode_cell(row["assertion_name"]),
         "literal": decode_cell(row["literal"]),
         "resolved_target": decode_cell(row["resolved_target"]),
         "target_defaulted": row["target_defaulted"] == "true",
+    }
+
+
+def decode_manifest_row(row: dict[str, str]) -> dict[str, object]:
+    return {
+        **decode_identity_row(row),
         "surface": row["surface"],
         "disposition": row["disposition"],
         "rationale": row["rationale"],
     }
-    return decoded
 
 
 def identity(row: dict[str, object]) -> tuple[object, ...]:
@@ -105,6 +121,197 @@ def canonical_mapping(row: dict[str, object]) -> str:
             str(row["rationale"]),
         )
     )
+
+
+class RefreshLedgerError(ValueError):
+    """A structurally malformed refresh-ledger row, named by row and cause.
+
+    Raised while parsing, and by `refresh_mapping_of` on a duplicated old
+    identity.  An admissible-but-wrong declaration is a different failure:
+    `refresh_admission_error` RETURNS its reason as a string and never raises --
+    it screens duplicates before the mapping build, so nothing in the admission
+    path produces this exception.
+    """
+
+
+def parse_identity_refreshes(raw: str) -> list[dict[str, object]]:
+    """Parse the refresh ledger, naming the offending row rather than raising raw.
+
+    The ledger is hand-maintained, so the decode-level shapes a maintainer can
+    produce -- a short row, a surplus cell, an unquoted cell, a `target_defaulted`
+    that is neither "true" nor "false" -- are named rather than surfacing as a
+    bare TypeError or JSONDecodeError from deep inside the decode.  Each is
+    reported with the offending row, and with the column where one is
+    identifiable: a surplus cell belongs to no column, and a header mismatch is
+    reported against the header, which has no row number.  A wrapped `#`
+    continuation line is NOT malformed -- it is dropped as a comment (see below),
+    so it parses cleanly.
+    """
+    # Drop every "#" line, not only "# " ones, so a bare "#" spacer between
+    # header blocks cannot parse as a data row.  The current ledger's wrapped
+    # continuation lines all carry "# " and would be dropped either way -- the
+    # widening is for the bare-"#" shape alone.
+    table = [line for line in raw.splitlines() if not line.startswith("#")]
+    reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
+    fieldnames = tuple(reader.fieldnames or ())
+    if fieldnames != REFRESH_COLUMNS:
+        raise RefreshLedgerError(
+            f"refresh ledger header is {fieldnames!r}, expected {REFRESH_COLUMNS!r}"
+        )
+    rows = []
+    for number, row in enumerate(reader, start=1):
+        if row.get(None) is not None:
+            raise RefreshLedgerError(f"row {number} carries more cells than columns")
+        decoded: dict[str, object] = {}
+        for column in REFRESH_COLUMNS:
+            cell = row[column]
+            # csv.DictReader pads a short row with None. Reject that explicitly:
+            # str(None) is the truthy "None", so a non-empty check downstream
+            # would read an ABSENT cell as a supplied one.
+            if cell is None:
+                raise RefreshLedgerError(f"row {number} is missing the {column!r} cell")
+            if column in ("rationale", "helper"):
+                decoded[column] = cell
+            elif column == "target_defaulted":
+                # Never `cell == "true"`: that coerces "True"/"TRUE"/"flase" to
+                # False, silently changing the row's IDENTITY.  The failure then
+                # surfaces as "old identity is not a RETAIN_BOUNDARY row", which
+                # sends the maintainer to re-check the manifest disposition when
+                # the real fault is one unrecognized boolean literal.
+                if cell not in ("true", "false"):
+                    raise RefreshLedgerError(
+                        f"row {number} cell 'target_defaulted' is {cell!r}, "
+                        "expected 'true' or 'false'"
+                    )
+                decoded[column] = cell == "true"
+            else:
+                try:
+                    value = decode_cell(cell)
+                except json.JSONDecodeError as exc:
+                    raise RefreshLedgerError(
+                        f"row {number} cell {column!r} is not a JSON-encoded cell: {exc}"
+                    ) from exc
+                # A JSON `null`/number/list decodes to a non-str whose str() is
+                # truthy ("None", "0"), so a downstream `str(...).strip()` check
+                # would read an absent name or rationale as a supplied one.
+                if not isinstance(value, str):
+                    raise RefreshLedgerError(
+                        f"row {number} cell {column!r} decodes to {type(value).__name__}, "
+                        "expected a JSON string"
+                    )
+                decoded[column] = value
+        rows.append(decoded)
+    return rows
+
+
+def duplicate_old_identity(rows: list[dict[str, object]]) -> dict[str, object] | None:
+    """Return the first row whose old identity a preceding row already declared."""
+    seen = set()
+    for row in rows:
+        old = identity(row)
+        if old in seen:
+            return row
+        seen.add(old)
+    return None
+
+
+def refresh_mapping_of(rows: list[dict[str, object]]) -> dict[tuple[object, ...], tuple[object, ...]]:
+    """Project each declared old identity onto the identity the tree now carries.
+
+    Raises on a duplicated old identity rather than letting the dict silently keep
+    the last row's new name: `refresh_mapping()` hands this mapping straight to
+    the current-tree realization, where a collapsed row would surface as a missing
+    identity blamed on the TREE instead of on the ledger.  The admission rule
+    screens duplicates before it ever reaches this call, so the raise is the
+    direct-caller's guard, not that arm's.
+    """
+    mapping = {}
+    for row in rows:
+        refreshed = dict(row)
+        refreshed["assertion_name"] = row["new_assertion_name"]
+        old = identity(row)
+        if old in mapping:
+            raise RefreshLedgerError(
+                f"refresh ledger declares {row['assertion_name']!r} twice; "
+                "a duplicated old identity would silently collapse two rows"
+            )
+        mapping[old] = identity(refreshed)
+    return mapping
+
+
+def refresh_admission_error(
+    rows: list[dict[str, object]],
+    retained: AbstractSet[tuple[object, ...]],
+    current: AbstractSet[tuple[object, ...]],
+) -> str | None:
+    """Return why these refresh rows are inadmissible, or None when they are clean.
+
+    This is the single implementation of the admission rule: the live guard calls
+    it over the shipped ledger, and the negative table drives every arm over
+    synthetic rows.  A mirrored second copy would let an inverted arm here stay
+    green there, which is the coupled-mirror hazard the split exists to avoid.
+    """
+    # One row per declared old identity: a duplicate would make mapping[old]
+    # resolve to the last row's new name, so an earlier row's missing target
+    # would slip past the per-row liveness arm below. Screened by scanning rather
+    # than by a length comparison, so the reason can NAME the colliding row the
+    # way every per-row reason below does -- and so it runs BEFORE the mapping
+    # build, whose own duplicate raise would otherwise pre-empt this arm.
+    collided = duplicate_old_identity(rows)
+    if collided is not None:
+        return (
+            f"duplicate old identity (declared twice: "
+            f"{collided['assertion_name']!r})"
+        )
+    mapping = refresh_mapping_of(rows)
+    # No injectivity arm: `refreshed` rewrites only assertion_name, so two rows
+    # could collide on one new identity only by agreeing on all five other
+    # identity cells -- and the frozen manifest carries no two RETAIN_BOUNDARY
+    # rows sharing those five.  It is digest-pinned and can never grow, so that
+    # collision is decidable now and absent, exactly like the chaining case
+    # below.  Asserting either would be a dead arm.
+    for number, row in enumerate(rows, start=1):
+        old = identity(row)
+        # Name the offending row in every reason, matching the parser's own
+        # discipline: with more than one declared rename a bare cause tells the
+        # maintainer WHAT is wrong but not WHICH row produced it, and the loop
+        # short-circuits, so a second bad row stays invisible until the first is
+        # fixed.  Callers match the cause with `assertIn`, not equality.
+        def named(cause: str) -> str:
+            return (
+                f"{cause} (row {number}: {row['assertion_name']!r} "
+                f"-> {row['new_assertion_name']!r})"
+            )
+
+        if old not in retained:
+            # Renaming an already-refreshed pin UPDATES that row's
+            # new_assertion_name in place; it never adds a second row, because
+            # `old` would then name an intermediate the frozen manifest lacks.
+            return named("old identity is not a RETAIN_BOUNDARY row")
+        # No `str(...)` wrapper on either emptiness arm: str(None) is the truthy
+        # "None", so coercing would launder a null cell straight past both checks
+        # and misattribute the row to the tree-absence arm below -- the same
+        # bypass the parser's isinstance check closes for parsed rows. A caller
+        # that hand-builds a row (the negative table does) gets a TypeError
+        # naming the cell instead of a silent pass.
+        if not row["new_assertion_name"].strip():
+            return named("empty new_assertion_name")
+        if row["assertion_name"] == row["new_assertion_name"]:
+            return named("self-mapping row")
+        if not row["rationale"].strip():
+            return named("empty rationale")
+        # A refresh is only ever a live rename: the old name must be gone from
+        # the tree and the new one present.  A refresh whose old identity still
+        # resolves is stale and would silently outlive the rename it recorded.
+        if old in current:
+            return named("stale refresh: the old identity is still live")
+        if mapping[old] not in current:
+            return named("refreshed identity is absent from the tree")
+    # Chaining needs no arm of its own: the two liveness checks above make it
+    # unreachable, because a chained hop's middle identity would have to be both
+    # present in the tree (as one row's new name) and absent from it (as the
+    # next row's old name).  So the mapping is always a single hop.
+    return None
 
 
 def site_identity(site: object) -> tuple[object, ...]:
@@ -262,6 +469,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.classifier = load_classifier()
+        cls._current_identities = None
 
     def load_manifest(self) -> tuple[dict[str, str], list[dict[str, object]]]:
         raw = MANIFEST.read_text(encoding="utf-8")
@@ -276,6 +484,14 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         reader = csv.DictReader(io.StringIO("\n".join(table)), delimiter="\t")
         self.assertEqual(MANIFEST_COLUMNS, tuple(reader.fieldnames or ()))
         return metadata, [decode_manifest_row(row) for row in reader]
+
+    def load_identity_refreshes(self) -> list[dict[str, object]]:
+        """Return the declared same-change renames of frozen retained identities."""
+        return parse_identity_refreshes(IDENTITY_REFRESHES.read_text(encoding="utf-8"))
+
+    def refresh_mapping(self) -> dict[tuple[object, ...], tuple[object, ...]]:
+        """Project each declared old identity onto the identity the tree now carries."""
+        return refresh_mapping_of(self.load_identity_refreshes())
 
     def selected_base_inventory(self) -> set[tuple[object, ...]]:
         result = subprocess.run(
@@ -293,16 +509,10 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         for row in reader:
             if row["bucket_final"] not in PROSE_BUCKETS:
                 continue
-            selected.add(
-                (
-                    decode_cell(row["source_file"]),
-                    row["helper"],
-                    decode_cell(row["assertion_name"]),
-                    decode_cell(row["literal"]),
-                    decode_cell(row["resolved_target"]),
-                    row["target_defaulted"] == "true",
-                )
-            )
+            # Decode through the shared identity contract rather than transcribing
+            # the six cells positionally, so a change to IDENTITY_COLUMNS cannot
+            # desync this projection from identity()'s ordering.
+            selected.add(identity(decode_identity_row(row)))
         return selected
 
     def selected_base_raw_canonical(self) -> bytes:
@@ -333,7 +543,18 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         # Sorting encoded records is deliberately bytewise, matching LC_ALL=C.
         return b"\n".join(sorted(lines)) + b"\n"
 
-    def current_source_identities(self) -> set[tuple[object, ...]]:
+    def current_source_identities(self) -> frozenset[tuple[object, ...]]:
+        # Re-extracting the sites is the expensive step here — the classifier
+        # walks all of run.sh — and several tests in this class need the same
+        # answer, so memoize it on the class (the sentinel is initialized in
+        # setUpClass; the fill happens at the end of this method). The cache is
+        # valid only while this class reads one fixed SOURCE_FILES set: the
+        # sibling class's current_source_identities takes a per-call source set
+        # and must not reuse this method. Hand out a frozenset so a caller
+        # cannot mutate the shared answer.
+        cached = getattr(type(self), "_current_identities", None)
+        if cached is not None:
+            return cached
         source_texts = {
             source_file: (REPO_ROOT / source_file).read_text(encoding="utf-8")
             for source_file in SOURCE_FILES
@@ -341,13 +562,15 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         overrides = {}
         for text in source_texts.values():
             overrides.update(self.classifier.recover_override_names(text))
-        return {
+        identities = frozenset(
             site_identity(site)
             for source_file, text in source_texts.items()
             for site in self.classifier.extract_existence_sites(
                 text, source_file, str(REPO_ROOT / "lib"), overrides
             )
-        }
+        )
+        type(self)._current_identities = identities
+        return identities
 
     def test_manifest_exactly_partitions_the_frozen_prose_selector(self):
         # Break caught: an audited site is silently omitted, duplicated, or reassigned.
@@ -412,6 +635,193 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
             bucket, rationale = adjudications[key]
             self.assertEqual("boundary", bucket, literal)
             self.assertFalse(rationale.startswith("mechanical:"), literal)
+
+    def test_identity_refreshes_are_declared_and_live(self):
+        # Break caught: a refresh launders a vanished pin, or outlives its rename.
+        _, rows = self.load_manifest()
+        retained = {
+            identity(row) for row in rows if row["disposition"] == "RETAIN_BOUNDARY"
+        }
+        current = self.current_source_identities()
+        self.assertIsNone(
+            refresh_admission_error(self.load_identity_refreshes(), retained, current),
+            "the shipped refresh ledger is inadmissible",
+        )
+
+    def test_refresh_admission_rejects_every_malformed_declaration(self):
+        # Break caught: an admission arm is inverted, dropped, or made vacuous.
+        # The fixture is FULLY SYNTHETIC — base row, `retained`, and `current` are
+        # all fabricated here rather than read from the shipped ledger or derived
+        # from the live tree. `refresh_admission_error` takes `retained`/`current`
+        # as parameters precisely so it can be driven over synthetic sets, and
+        # binding them to real data would make the arm coverage depend on a rename
+        # currently existing: the ledger's documented lifetime makes ZERO rows a
+        # supported steady state (renaming a pin back to its frozen name DELETES
+        # its row), and in that state a tree-derived fixture finds no candidate and
+        # the whole negative table stops running. The shipped ledger's own
+        # admissibility is the sibling test's job, and only its job.
+        base = {
+            "source_file": "lib/test/run.sh",
+            "helper": "assert_pin_unique",
+            "assertion_name": "a frozen assertion name",
+            "literal": "a guarded literal",
+            "resolved_target": "/__pin_corpus_runtime__/SOME_BUNDLE",
+            "target_defaulted": False,
+            "new_assertion_name": "the renamed assertion name",
+            "rationale": "negative-table probe",
+        }
+        retained = {identity(base)}
+        current = {identity({**base, "assertion_name": base["new_assertion_name"]})}
+        # Positive control (guard-class shape 3): the unmutated base row is
+        # ADMISSIBLE against these sets, so each rejection below is attributable to
+        # the one property that case mutates rather than to a defect in the fixture.
+        self.assertIsNone(
+            refresh_admission_error([dict(base)], retained, current),
+            "the synthetic base row must itself be admissible",
+        )
+
+        def mutated(**overrides):
+            row = dict(base)
+            row.update(overrides)
+            return [row]
+
+        unretained = dict(base)
+        unretained["literal"] = "a literal no retained identity carries"
+        cases = {
+            "duplicate old identity": [dict(base), dict(base)],
+            "old identity is not a RETAIN_BOUNDARY row": [unretained],
+            "empty new_assertion_name": mutated(new_assertion_name="   "),
+            "self-mapping row": mutated(new_assertion_name=base["assertion_name"]),
+            "empty rationale": mutated(rationale=""),
+            "refreshed identity is absent from the tree": mutated(
+                new_assertion_name="a name the tree does not carry"
+            ),
+        }
+        for expected, rows in cases.items():
+            with self.subTest(case=expected):
+                # assertIn, not assertEqual: each reason now names the offending
+                # row and its old/new names after the cause.
+                self.assertIn(
+                    expected, refresh_admission_error(rows, retained, current) or ""
+                )
+        # The stale arm needs an old identity that is BOTH retained and still live,
+        # which no mutation of `base` can produce (its old identity is retained but
+        # deliberately absent from `current`). Widen the synthetic `current` for
+        # this one case instead of reaching into the tree.
+        stale_current = set(current) | {identity(base)}
+        self.assertIn(
+            "stale refresh: the old identity is still live",
+            refresh_admission_error([dict(base)], retained, stale_current) or "",
+        )
+
+    def test_refresh_mapping_refuses_a_duplicated_old_identity(self):
+        # Break caught: refresh_mapping_of's duplicate raise is dropped. Its
+        # direct caller refresh_mapping() has NO admission screen in front of it,
+        # so a collapsed row would surface through
+        # test_current_tree_realizes_the_retirement_manifest as a MISSING retained
+        # boundary -- blaming the tree for a ledger fault. The admission path
+        # screens duplicates first, so only this test drives the raise.
+        row = {
+            "source_file": "lib/test/run.sh",
+            "helper": "assert_pin_unique",
+            "assertion_name": "a frozen assertion name",
+            "literal": "a guarded literal",
+            "resolved_target": "/__pin_corpus_runtime__/SOME_BUNDLE",
+            "target_defaulted": False,
+            "new_assertion_name": "the renamed assertion name",
+            "rationale": "duplicate probe",
+        }
+        self.assertEqual(1, len(refresh_mapping_of([dict(row)])))
+        with self.assertRaises(RefreshLedgerError) as caught:
+            refresh_mapping_of([dict(row), dict(row)])
+        self.assertIn("declares", str(caught.exception))
+        self.assertIn(row["assertion_name"], str(caught.exception))
+
+    def test_an_empty_refresh_ledger_parses_and_admits(self):
+        # Break caught: the ledger's documented zero-row steady state (a pin renamed
+        # back to its frozen name DELETES its row) stops parsing or stops admitting,
+        # which no other test would notice until the day a maintainer empties it.
+        header = "\t".join(REFRESH_COLUMNS)
+        self.assertEqual([], parse_identity_refreshes(f"# a comment\n#\n{header}\n"))
+        self.assertIsNone(refresh_admission_error([], set(), set()))
+
+    def test_no_two_retained_rows_share_the_five_non_name_identity_cells(self):
+        # Break caught: the premise refresh_admission_error cites for omitting an
+        # injectivity arm stops holding.  The harmed consumer is NOT
+        # refresh_mapping_of (it keys on the OLD identity, so colliding VALUES
+        # drop nothing) -- it is test_current_tree_realizes_the_retirement_manifest,
+        # whose `retained` SET comprehension would collapse two distinct frozen
+        # identities into one and let a genuinely vanished boundary pass.
+        # The manifest is digest-pinned, so this is decidable — assert it rather
+        # than leaving a load-bearing premise living only in a comment.
+        _, manifest = self.load_manifest()
+        name_index = IDENTITY_COLUMNS.index("assertion_name")
+        seen: dict[tuple[object, ...], object] = {}
+        for row in manifest:
+            if row["disposition"] != "RETAIN_BOUNDARY":
+                continue
+            old = identity(row)
+            rest = old[:name_index] + old[name_index + 1 :]
+            self.assertNotIn(
+                rest,
+                seen,
+                f"two RETAIN_BOUNDARY rows share the five non-assertion_name identity "
+                f"cells ({row['assertion_name']!r} and {seen.get(rest)!r}), so the "
+                f"omitted injectivity arm is no longer dead",
+            )
+            seen[rest] = row["assertion_name"]
+
+    def test_refresh_ledger_parser_names_its_malformed_rows(self):
+        # Break caught: a hand-edit fails with a raw decode error naming no row.
+        def tsv(cells):
+            # Render through csv so the JSON cells carry the same quoting the
+            # real ledger has; a hand-joined row would decode differently.
+            buf = io.StringIO()
+            csv.writer(buf, delimiter="\t", lineterminator="").writerow(cells)
+            return buf.getvalue()
+
+        header = tsv(REFRESH_COLUMNS)
+        good = tsv(
+            (
+                compact_json("lib/test/run.sh"),
+                "assert_pin_unique",
+                compact_json("old name"),
+                compact_json("a literal"),
+                compact_json("a target"),
+                "false",
+                compact_json("new name"),
+                "why",
+            )
+        )
+        self.assertEqual(1, len(parse_identity_refreshes(f"# c\n{header}\n{good}\n")))
+        # A wrapped header continuation is a comment, not a data row -- and so is
+        # a BARE "#" spacer, which is what the widened prefix is actually for: a
+        # "# "-only filter would leave it to parse as a short data row.
+        self.assertEqual(
+            1, len(parse_identity_refreshes(f"# c\n#   more\n#\n{header}\n{good}\n"))
+        )
+        cases = {
+            "header": f"# c\n{tsv(IDENTITY_COLUMNS)}\n",
+            "missing the 'rationale' cell": f"# c\n{header}\n{good.rsplit(chr(9), 1)[0]}\n",
+            "more cells than columns": f"# c\n{header}\n{good}\textra\n",
+            "not a JSON-encoded cell": f"# c\n{header}\n{good.replace(tsv([compact_json('a literal')]), 'a literal', 1)}\n",
+            # A near-miss boolean silently changes the row's IDENTITY under a
+            # bare `cell == "true"`, so it is rejected by name rather than
+            # resurfacing as a misdirected "not a RETAIN_BOUNDARY row".
+            "'target_defaulted' is 'True', expected 'true' or 'false'": (
+                f"# c\n{header}\n{good.replace(chr(9) + 'false' + chr(9), chr(9) + 'True' + chr(9), 1)}\n"
+            ),
+            # A JSON null decodes to None, whose str() is the truthy "None" — the
+            # emptiness arms downstream would read it as a supplied value.
+            "decodes to NoneType, expected a JSON string": (
+                f"# c\n{header}\n{good.replace(tsv([compact_json('new name')]), 'null', 1)}\n"
+            ),
+        }
+        for expected, text in cases.items():
+            with self.subTest(case=expected):
+                with self.assertRaises(RefreshLedgerError) as caught:
+                    parse_identity_refreshes(text)
+                self.assertIn(expected, str(caught.exception))
 
     def test_current_tree_realizes_the_retirement_manifest(self):
         # Break caught: a retired wording pin remains in the current tree.
