@@ -13955,6 +13955,106 @@ assert_eq "#332 AC3: resolver from a main-tree subdirectory prints the main root
 assert_eq "#332 AC3: resolver from a subdirectory does NOT print the subdirectory (cwd) path" "yes" \
   "$([ -n "$RMR_FROM_SUBDIR" ] && [ "$RMR_FROM_SUBDIR" != "$RMR_MAIN/sub/dir" ] && echo yes || echo no)"
 
+# issue #795 — the resolver's porcelain parse under a PATH holding ONLY git and bash.
+#
+# WHY A NEW FIXTURE, and why it could not be an assertion added to
+# `cli_roundtrip_restricted_path`: that fixture `cd`s into the sandbox it then `git init`s,
+# so its cwd IS the main root and a resolver that had silently regressed to its `pwd`
+# fallback would print the identical answer. The assertion would pass vacuously. This
+# fixture reuses the LINKED WORKTREE built above, where the two answers differ by
+# construction — `pwd` is the worktree, the correct answer is the main root — so the
+# restricted-PATH run is only green if the parse actually ran.
+#
+# `bash` is in the restricted bin because the helper's shebang needs it. The pre-change
+# `head`/`sed`/`grep` pipeline emitted `command not found` here and fell through to `pwd`;
+# a value that decides the bound draft root must not be derived through a tool
+# `lib/preflight.sh` does not guarantee.
+RMR_RB="$RMR_MAIN/restricted-bin"
+mkdir -p "$RMR_RB"
+ln -sf "$(command -v git)" "$RMR_RB/git"
+ln -sf "$(command -v bash)" "$RMR_RB/bash"
+# Guard: both symlinks must resolve, else a PATH that resolves NOTHING would make the run
+# below fail for the wrong reason and the assertions would grade a broken fixture.
+assert_eq "#795 setup: the git+bash-only bin holds both runnable symlinks" "yes" \
+  "$([ -x "$RMR_RB/git" ] && [ -x "$RMR_RB/bash" ] && echo yes || echo no)"
+RMR_WT_RESTRICTED="$(cd "$RMR_WT" && PATH="$RMR_RB" bash "$RMR" 2>/dev/null)"
+assert_eq "#795 AC: under a git+bash-only PATH the resolver still prints the MAIN root from a linked worktree" \
+  "$RMR_FROM_MAIN" "$RMR_WT_RESTRICTED"
+# The discriminating half: the pre-change pipeline printed the WORKTREE path here.
+assert_eq "#795 AC: ... and it is not the worktree path the pwd fallback would have printed" "yes" \
+  "$([ -n "$RMR_WT_RESTRICTED" ] && [ "$RMR_WT_RESTRICTED" != "$RMR_WT" ] && echo yes || echo no)"
+# Behaviour-preservation under the SAME restricted PATH, over the fallback arms exercised
+# below: the breadcrumb is byte-identical and the exit stays 0, so the hardening changed the
+# derivation and nothing else.
+RMR_NG_R="$(git_sandbox "#795 resolver non-git sandbox, restricted PATH")"
+RMR_NG_R_ERR="$(cd "$RMR_NG_R" && PATH="$RMR_RB" bash "$RMR" 2>&1 >/dev/null)"
+assert_eq "#795 AC: the non-git fallback breadcrumb is unchanged under a git+bash-only PATH" "1" \
+  "$(printf '%s' "$RMR_NG_R_ERR" | grep -cF 'devflow: resolve-main-root: could not determine the main working-tree root')"
+RMR_WT_RC=0
+( cd "$RMR_WT" && PATH="$RMR_RB" bash "$RMR" >/dev/null 2>&1 ) || RMR_WT_RC=$?
+assert_eq "#795 AC: the resolver still exits 0 under a git+bash-only PATH" "0" "$RMR_WT_RC"
+
+# issue #795 — the two lifecycle-contract reconciliations and the derived measurement
+# figure. NEITHER is a grep for a sentence: the helper compares the docstring's read-back
+# enumeration against the set the module's emission machinery actually dispatches on (whose
+# membership it checks against the parser's registered choices), and compares the ordered
+# call sequence against the invocations the helper accepts. Both refuse — RED with a named
+# breadcrumb — on no candidate section, more than one candidate, or zero invocations
+# extracted, so a rewrap or a duplicated heading can never make them pass vacuously and
+# freeze the figure below.
+ALC_795="$(python3 "$LIB/test/check-audit-lifecycle-contracts.py" 2>&1)"
+ALC_795_RC=$?
+assert_eq "#795: the audit-lifecycle contract reconciliations hold" "0" "$ALC_795_RC"
+if [ "$ALC_795_RC" -ne 0 ]; then
+  printf '  %s\n' "$ALC_795"
+fi
+# The measurement figure is DERIVED from the shipped prose by the helper above, never
+# hand-transcribed here, and BOTH counts are printed on the SUCCESS path so a passing run
+# carries the evidence rather than only a failure message. The assertion is that the figure
+# was established at all — a later addition of an unconditional call MOVES it, which is
+# visible in this printed line rather than silently drifting from a frozen literal.
+ALC_795_CALLS="$(printf '%s\n' "$ALC_795" | sed -n 's/^unconditional_call_count=//p')"
+ALC_795_SUBS="$(printf '%s\n' "$ALC_795" | sed -n 's/^registered_subcommand_count=//p')"
+assert_eq "#795: the per-round unconditional state-owner call count was established" "1" \
+  "$(printf '%s' "$ALC_795_CALLS" | grep -c '^[0-9][0-9]*$')"
+assert_eq "#795: the registered subcommand count was established" "1" \
+  "$(printf '%s' "$ALC_795_SUBS" | grep -c '^[0-9][0-9]*$')"
+printf '  MEASURE  #795 create-issue Step 3.6: unconditional_call_count=%s registered_subcommand_count=%s\n' \
+  "$ALC_795_CALLS" "$ALC_795_SUBS"
+
+# issue #795 — the dispatch-pointer fold, asserted at the generator's executable boundary.
+# This is the behavioral re-anchor for the two retired #768 prose pins: they asserted that
+# the pointer was extracted with python3 and returned byte-identically to the line inside
+# the written file, over a read-back fence this change removed. The property they stood for
+# is now the generator's own contract, and it is exercised here rather than described.
+RAP_SB="$(git_sandbox '#795 dispatch-pointer stderr fold')"
+if [ -d "$RAP_SB" ]; then
+  printf '# Draft title\n\nBody.\n' > "$RAP_SB/d.md"
+  python3 "$LIB/../scripts/render-audit-prompt.py" dispatch-instructions --slug fold \
+    --draft-path "$RAP_SB/d.md" --instructions-path "$RAP_SB/i.md" \
+    > "$RAP_SB/out.txt" 2> "$RAP_SB/err.txt"
+  RAP_RC=$?
+  assert_eq "#795: dispatch-instructions still exits 0 with the pointer fold in place" "0" "$RAP_RC"
+  # The pointer is selected by PREFIX, never positionally: the renderer resolves the
+  # consumer-extension path unconditionally and can emit its own breadcrumb first.
+  RAP_ERR_PTR="$(grep -m1 'dispatch-pointer:' "$RAP_SB/err.txt" 2>/dev/null)"
+  RAP_OUT_PTR="$(grep -m1 'dispatch-pointer: Audit' "$RAP_SB/out.txt" 2>/dev/null)"
+  assert_eq "#795: the generator emits a dispatch-pointer: line on stderr" "1" \
+    "$(printf '%s' "$RAP_ERR_PTR" | grep -c 'dispatch-pointer:')"
+  assert_eq "#795: the stderr pointer is byte-identical to the line inside the stdout it wrote" \
+    "$RAP_OUT_PTR" "$RAP_ERR_PTR"
+  # Positive control: an empty extraction on BOTH sides would pass the compare vacuously.
+  assert_eq "#795: ... and that pointer line is non-empty" "1" \
+    "$(printf '%s' "$RAP_OUT_PTR" | grep -c .)"
+  # Purity: exactly one pointer line on stderr, and the mode still reads no consumer
+  # extension — its stdout carries the dispatch-instructions marker pair, not render-status:.
+  assert_eq "#795: exactly one dispatch-pointer line reaches stderr" "1" \
+    "$(grep -c 'dispatch-pointer:' "$RAP_SB/err.txt" 2>/dev/null)"
+  assert_eq "#795: dispatch-instructions stdout keeps its own marker pair (no consumer-extension read)" "1" \
+    "$(sed -n 1p "$RAP_SB/out.txt" 2>/dev/null | grep -c '^dispatch-instructions:')"
+  rm -rf "$RAP_SB"
+fi
+
 # AC (always exit 0 / pwd fallback / breadcrumb): a non-git directory.
 RMR_NG="$(git_sandbox "#332 resolver non-git sandbox")"
 RMR_NG_OUT="$(cd "$RMR_NG" && bash "$RMR" 2>/dev/null)"
@@ -41271,7 +41371,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 248; then
+  "create-issue-contract" 245; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -42108,7 +42208,14 @@ ias_instructions() {  # <sandbox-root> <slug> <draft-path> [PATH-override]
 # fail the match on exactly the newer interpreters this repo supports.
 IAS_HELP_546="$(NO_COLOR=1 PYTHON_COLORS=0 python3 "$IAS" --help 2>&1 | tr -s '[:space:]' ' ')"
 assert_eq "#546 help_surface_pin: --help states the query exit-0 contract (rendered)" \
-  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 once the arguments parse and print a decided token' | grep -c .)"
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'Queries always exit 0 once the arguments parse and print a decided answer line' | grep -c .)"
+# issue #795: the trailing `next_call=` line falsified the old rendered description, which
+# promised a single decided token. Re-anchored onto the AMENDED rendered text above, and
+# extended below to cover the second line the same rendered surface now describes — this
+# is the surface 18 of 57 measured runs consulted mid-run, so a description that under-
+# states what the tool prints is the failure this pin exists to catch.
+assert_eq "#795 help_surface_pin: --help states the next_call= second line and its reviewed-suggestion status (rendered)" \
+  "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'print a second and final next_call= line naming the next legal invocation; it is a generated suggestion the caller reviews, never an instruction, and the decided answer line stays first' | grep -c .)"
 assert_eq "#546 help_surface_pin: --help states the mutation breadcrumb contract (rendered)" \
   "1" "$(printf '%s' "$IAS_HELP_546" | grep -oF -- 'mutations exit non-zero with a named breadcrumb' | grep -c .)"
 # The subcommand roster renders in the PARENT help (a subparser's own --help does not
@@ -42140,7 +42247,11 @@ if [ -d "$IAS_SB" ]; then
     ln -sf "$(command -v python3)" restricted-bin/python3
     RESTRICTED="$IAS_SB/restricted-bin"
 
-    NONCE="$(PATH="$RESTRICTED" python3 "$IAS" init rt | sed 's/nonce=//')"
+    # issue #795: `init` now prints a trailing `next_call=` line after its decided
+    # `nonce=` line, so the mint reads the FIRST line only. `sed -n '1s///p'` prints just
+    # that line, substituted; without the line address the second line would ride into
+    # $NONCE and every later --nonce would be a foreign-nonce mismatch.
+    NONCE="$(PATH="$RESTRICTED" python3 "$IAS" init rt | sed -n '1s/nonce=//p')"
     printf 'nonce=%s\n' "$NONCE" > .rt-nonce
 
     PATH="$RESTRICTED" python3 "$IAS" query-arm rt --nonce "$NONCE" \
@@ -42243,45 +42354,45 @@ LEDGER-EOF
   )
 
   assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
-    "arm=file marker=none" "$(cat "$IAS_SB/.rt-arm" 2>/dev/null)"
+    "arm=file marker=none" "$(sed -n 1p "$IAS_SB/.rt-arm" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: a REVISE return classifies accept-revise" \
     "classification=accept-revise outcome=REVISE steering=established steering_reason=canonical-match" \
-    "$(cat "$IAS_SB/.rt-return" 2>/dev/null)"
+    "$(sed -n 1p "$IAS_SB/.rt-return" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the automatic re-audit is the next action" \
-    "action=revise-and-reaudit" "$(cat "$IAS_SB/.rt-next" 2>/dev/null)"
+    "action=revise-and-reaudit" "$(sed -n 1p "$IAS_SB/.rt-next" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: T1 holds after a REVISE round is ADJUDICATED (not on the raw token)" \
     "1" "$(grep -c 't1=hold' "$IAS_SB/.rt-trig" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an un-adjudicated REVISE round is not converged" \
-    "converged=no reason=unadjudicated basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
+    "converged=no reason=unadjudicated basis=none unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-preadj" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: an adjudicated REVISE with unresolved must-revise is not converged" \
-    "converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
+    "converged=no reason=unresolved-must-revise-remain basis=none unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-revise" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: adjudicated FILE with 0 unresolved converges" \
-    "converged=yes reason= basis=adjudicated unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-file" 2>/dev/null)"
+    "converged=yes reason= basis=adjudicated unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-file" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-convergence fails closed on a foreign nonce (never reads a converged verdict off another run)" \
-    "converged=no reason=foreign-nonce basis=none unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
+    "converged=no reason=foreign-nonce basis=none unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-fn" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: query-summary RENDERS the latest round's adjudicated tokens at the CLI (round 2: FILE, 0 unresolved)" \
     "1" "$(grep -c 'adjudicated_verdict=FILE must_revise=0 advisory=1 invalid=0 unresolved_must_revise=0' "$IAS_SB/.rt-summary" 2>/dev/null)"
   assert_eq "#548 cli_roundtrip_restricted_path: record-adjudication echoes the adjudicated payload" \
-    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(cat "$IAS_SB/.rt-adj" 2>/dev/null)"
+    "adjudicated=REVISE unresolved=2 must_revise=2 advisory=0 invalid=0 superseded=0" "$(sed -n 1p "$IAS_SB/.rt-adj" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: query-adjudication-records reads back the round-2 advisory record" \
     "1" "$(grep -c 'record_class=advisory round=2 id=1 impact_class=clearly-optional impact_bearing=no evidence_state=recorded' "$IAS_SB/.rt-adjrec" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: an evidenced clearly-optional advisory is calibration-clear, but the unreported render holds the disclosure trigger" \
     "1" "$(grep -c 'calibration_backing=clear adjudication_render=unreported calibration_trigger=yes' "$IAS_SB/.rt-calib" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: record-adjudication-render reports the rendering" \
-    "adjudication_render=reported round=2" "$(cat "$IAS_SB/.rt-render" 2>/dev/null)"
+    "adjudication_render=reported round=2" "$(sed -n 1p "$IAS_SB/.rt-render" 2>/dev/null)"
   assert_eq "#743 cli_roundtrip_restricted_path: after a reported render on an all-clear round the calibration trigger clears" \
     "1" "$(grep -c 'calibration_trigger=no' "$IAS_SB/.rt-calib2" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: query-findings re-emits an auditor summary byte-verbatim (the quoted-delimiter heredoc performed no expansion)" \
     "round=1 id=2 status=unresolved summary=second finding \$(not expanded) \`nor this\`" \
     "$(sed -n 2p "$IAS_SB/.rt-findings" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: record-resolution derives the run-wide remaining count (no caller-supplied tally)" \
-    "round=1 revision_ordinal=1 frozen=2 remaining=0" "$(cat "$IAS_SB/.rt-resolution" 2>/dev/null)"
+    "round=1 revision_ordinal=1 frozen=2 remaining=0" "$(sed -n 1p "$IAS_SB/.rt-resolution" 2>/dev/null)"
   assert_eq "#603 cli_roundtrip_restricted_path: a REVISE-latest run cleared by resolution converges on the resolution basis" \
-    "converged=yes reason= basis=resolution unledgered_revise=none" "$(cat "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
+    "converged=yes reason= basis=resolution unledgered_revise=none" "$(sed -n 1p "$IAS_SB/.rt-conv-resolved" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: approve mode refuses just-revised, not-yet-re-audited bytes" \
-    "eligible=no reason=unaudited-revision" "$(cat "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
+    "eligible=no reason=unaudited-revision" "$(sed -n 1p "$IAS_SB/.rt-elig-bad" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: iterate mode answers ok for the same bytes" \
-    "iterate=ok ordinal=1" "$(cat "$IAS_SB/.rt-elig-iter" 2>/dev/null)"
+    "iterate=ok ordinal=1" "$(sed -n 1p "$IAS_SB/.rt-elig-iter" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: a clean round on the revised bytes grounds eligible" \
     "1" "$(grep -c 'eligible=yes ground=file-identity' "$IAS_SB/.rt-elig-ok" 2>/dev/null)"
   assert_eq "#546 cli_roundtrip_restricted_path: the summary carries the same token the eligibility answer issued" \

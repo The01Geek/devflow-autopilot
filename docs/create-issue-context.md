@@ -204,6 +204,61 @@ a modeled reduction.
 > - before: run `<id>`, captured `<date>`, peak `<N>`, re-emissions `<M>`
 > - after:  run `<id>`, captured `<date>`, peak `<N'>`, re-emissions `<M'>`  (must be strictly lower)
 
+### Step 3.6 state-owner round-trips (issue #795)
+
+A separate axis from the peak-context measurement above, on the same corpus: how many times
+a run *talks to* the Step 3.6 state owner, and how often it gets the call wrong on the first
+try. Both halves are recorded here because the lifecycle reaches consumer repos by the
+`devflow_version` vendor fetch, so a per-round reduction reaches them too.
+
+**Before — the stamped baseline.** Measured over the 57 create-issue runs recorded on the
+maintainer's machine between 2026-07-19 and 2026-07-24, selected from 6,033 transcripts. A
+past-time snapshot: it is not re-derived, and it is never machine-rendered, because
+overwriting it would falsify the record it exists to be.
+
+| metric | before |
+| --- | --- |
+| median `issue-audit-state.py` shell calls per run | 27 |
+| share of a run's median 125 Bash calls | 18.6% |
+| state-owner shell calls per audit round | 6.2 |
+| state-owner invocations per audit round | 13.0 |
+| runs hitting ≥1 accidental caller-contract failure | 38 of 57 (67%) |
+| runs calling `--help` mid-run to rediscover the contract | 18 of 57 (32%) |
+| accidental failures immediately followed by the same subcommand succeeding | 42 of 63 (67%) |
+| missing-`--round` share of all accidental failures | 24 of 63 (38%) |
+
+**After — the structural change, and what is measurable today.** The per-round *mandated*
+call list is the figure this change moves, and it is **derived live, not transcribed**:
+`lib/test/check-audit-lifecycle-contracts.py` extracts it from the shipped prose and
+`lib/test/run.sh` prints it on every green run as
+`MEASURE  #795 create-issue Step 3.6: unconditional_call_count=… registered_subcommand_count=…`.
+Read the current figure there rather than from a number copied into this page. Three
+reductions compose into it:
+
+- The four back-to-back boundary reads (`query-triggers`, `query-convergence`,
+  `query-coverage`, `query-calibration`) collapse to one `query-boundary` call plus the
+  `query-coverage` call that is still needed for its per-dimension rows — **four Bash
+  round-trips become two**.
+- The standalone `python3 -c` `dispatch-pointer:` extraction is gone: the generator emits
+  the line on its own stderr — **one process spawn and one Bash round-trip removed per
+  round**.
+- A forgotten `--round` on any of the five state-determined subcommands no longer costs a
+  corrective round-trip at all, and the three dispatch-routing answers now name the flag in
+  `needs=` on the arms where the measured trap bit — the 24-of-63 missing-`--round` class.
+
+**The real-corpus "after" figure is a post-merge measurement, and is deliberately not
+filled in here.** Re-running the same transcript analysis today would re-read the same
+corpus — every one of those 57 runs executed the *pre*-change lifecycle, so the analysis
+would reproduce the "before" column exactly and report a change of zero. The honest
+"after" requires create-issue runs made *with* this change, which cannot exist before it
+merges. Fill the row below from a re-run of the same analysis over a post-merge window of
+comparable size:
+
+> Maintainer post-merge record (fill from a post-merge corpus window):
+> - after: window `<start>`→`<end>`, runs `<n>`, median state-owner shell calls per run `<N>`,
+>   per-round shell calls `<R>`, runs hitting ≥1 accidental failure `<F>` of `<n>`,
+>   missing-`--round` failures `<M>`  (each must be strictly lower than the before column)
+
 ## Explicitly out of scope / deferred (follow-ups)
 
 - **The mechanical "escaped-information" number is not required and not delivered.** The

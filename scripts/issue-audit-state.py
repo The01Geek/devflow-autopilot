@@ -7245,7 +7245,16 @@ def cmd_query_nonce(args):
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
-def main():
+def build_parser():
+    """Build and return the fully-registered argument parser.
+
+    Hoisted out of `main()` (issue #795) so the registered subcommand set — a
+    MACHINE-CONSUMED contract, not prose — is readable without running the CLI. The
+    docstring/prose reconciliation guards compare their enumerations against
+    `build_parser()._subparsers`-derived choices rather than grepping for a sentence,
+    which is what makes those guards assertions about the contract rather than about
+    wording.
+    """
     p = argparse.ArgumentParser(
         prog='issue-audit-state.py',
         description='State owner for the /devflow:create-issue fresh-context audit '
@@ -7753,7 +7762,20 @@ def main():
     s.add_argument('slug')
     s.set_defaults(func=cmd_query_nonce)
 
-    args = p.parse_args()
+    return p
+
+
+def registered_subcommands():
+    """The subcommand names the parser actually exposes (issue #795)."""
+    parser = build_parser()
+    for action in parser._actions:  # noqa: SLF001 - argparse exposes no public accessor
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return frozenset(action.choices)
+    raise AssertionError('issue-audit-state: build_parser() registered no subparsers')
+
+
+def main():
+    args = build_parser().parse_args()
     args.func(args)
     # issue #795 — the SINGLE `next_call=` emission site. It runs after the command's own
     # function returned, so every existing decided line stays byte-identical and first, and
