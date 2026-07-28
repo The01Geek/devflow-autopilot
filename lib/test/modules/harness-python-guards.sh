@@ -322,9 +322,14 @@ echo "#810 pin-corpus wording-only authoring gate"
 # tests' mutual independence — no shared filesystem state; every filesystem-touching
 # test allocates its own temp dir and passes an explicit cwd — a property
 # test_pin_corpus_lint.py's own docstring states as a requirement. The modules those
-# tests drive do hold process-global parse memos, which that docstring covers in the
-# same place: they are keyed on source name and text alone, so a shard's ordering
-# cannot change an outcome. Keep the two statements together.
+# tests drive do hold process-global memos, which that docstring covers in the same
+# place, and it takes two limbs rather than one. The per-source parse memos are keyed
+# on the presented bytes — the census memos additionally on the source's name, the
+# linter memos on the text alone — and on no repo_root or filesystem state, so a hit
+# answers for exactly the source the caller presented. _load_mutation_census_module is
+# the second limb: it takes no arguments at all, so its safety rests not on its key but
+# on the module it returns holding nothing mutable beyond those same key-pure memos.
+# Either way a shard's ordering cannot change an outcome. Keep the statements together.
 _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1

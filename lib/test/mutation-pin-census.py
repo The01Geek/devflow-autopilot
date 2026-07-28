@@ -192,8 +192,11 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # measured wrong: at a bound of 15 the audited 13 still "fit" and 12 of the 13
 # repeat parses did not hit.
 #
-# So the bound clears the tracked shell sources one sweep visits, with margin.
-# A tree that outgrows it does not break — it silently stops getting the hits,
+# So the bound clears the tracked shell sources one sweep visits. The headroom
+# over that population is only a few files, and this repo adds one whenever a
+# durable test module is extracted — so expect to raise this bound rather than
+# treating it as sized for years of growth. Outgrowing it costs no correctness:
+# an evicted entry is recomputed, never answered wrongly. It costs the reuse,
 # which is why test_census_reuses_every_audited_source_within_one_build pins the
 # hit count against the audited set and names raising this bound as the remedy.
 #
@@ -206,8 +209,8 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 #
 # Measured 2026-07-28 on an arm64 laptop against this file's heaviest single
 # worker: this bound costs roughly 90MB of peak RSS over one sized to the
-# audited set alone, for the same 13 within-census hits on the current tree and
-# a margin that keeps them as the tree grows. Past-time snapshot of that run.
+# audited set alone, for the same 13 within-census hits on the tree as it stood
+# at that run. Past-time snapshot of that run.
 _SOURCE_PARSE_CACHE_SIZE = 48
 
 
