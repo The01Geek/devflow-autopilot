@@ -34392,19 +34392,19 @@ _rgbh() { HEAD_SHA="${1-}" CI_SUMMARY="${2-}" ALLOWED_TOOLS="${3-}" HARDENED_PAT
 assert_eq "#504 renderer rc 0 with HARDENED_PATHS unset (always-exit-0)" "0" \
   "$(_rgbh deadbeef 'lint: success' 'Read' >/dev/null 2>&1; echo $?)"
 assert_eq "#504 AC4 HARDENED_PATHS unset -> no displaced section" "0" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' | grep -c 'Stop-hook-floor displacement')"
+  "$(_rgbh deadbeef 'lint: success' 'Read' | grep -c 'Trusted-source displacement')"
 assert_eq "#504 AC4 HARDENED_PATHS empty -> no displaced section" "0" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' '' | grep -c 'Stop-hook-floor displacement')"
+  "$(_rgbh deadbeef 'lint: success' 'Read' '' | grep -c 'Trusted-source displacement')"
 assert_eq "#504 AC4 HARDENED_PATHS whitespace-only -> no displaced section" "0" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' '   ' | grep -c 'Stop-hook-floor displacement')"
+  "$(_rgbh deadbeef 'lint: success' 'Read' '   ' | grep -c 'Trusted-source displacement')"
 assert_eq "#504 AC3 one path -> displaced section present" "yes" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+  "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'Trusted-source displacement' && echo yes || echo no)"
 assert_eq "#504 AC3 one path -> the path is listed" "yes" \
   "$(_rgbh deadbeef 'lint: success' 'Read' 'lib/efficiency-trace.sh' | grep -qF 'lib/efficiency-trace.sh' && echo yes || echo no)"
 assert_eq "#504 AC3 several paths with a blank interior line -> section present" "yes" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'lib/efficiency-trace.sh\n\nlib/resolve-jq.sh' | grep -qF 'Trusted-source displacement' && echo yes || echo no)"
 assert_eq "#504 AC3 backtick-bearing path -> section present (backticks stripped)" "yes" \
-  "$(_rgbh deadbeef 'lint: success' 'Read' $'`lib/efficiency-trace.sh`' | grep -qF 'Stop-hook-floor displacement' && echo yes || echo no)"
+  "$(_rgbh deadbeef 'lint: success' 'Read' $'`lib/efficiency-trace.sh`' | grep -qF 'Trusted-source displacement' && echo yes || echo no)"
 # AC4: unset renders byte-identical to empty (cmp).
 assert_eq "#504 AC4 unset renders byte-identical to empty" "" \
   "$(diff <(_rgbh deadbeef 'lint: success' 'Read') <(_rgbh deadbeef 'lint: success' 'Read' ''))"
