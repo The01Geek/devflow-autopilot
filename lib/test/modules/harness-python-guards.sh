@@ -336,10 +336,20 @@ _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
 }
+# This is the module's heaviest unit by a wide margin, and it used to execute TWICE per CI
+# run: once as the `modules-pin` shard, and once inside the `monolith` shard, because
+# lib/test/test_module_runner.py is a pooled suite and its CONTRIBUTING-step-8 real-runner
+# meta-test drives this whole module end-to-end through lib/test/run-module.sh. That second
+# execution was the critical path of the required check (issue #890). The population is
+# therefore chosen by whichever runner sourced this module — see
+# devflow_run_sharded_python_test for what each mode means — and only the meta-test's
+# `run-module.sh --heavy-units smoke` selects the bounded one. An unset value forwards as
+# empty, which the driver defaults to `full`, so a runner that sets nothing runs everything.
 devflow_run_sharded_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
-  "$_HPG_PIN_LINT_SHARDS"
+  "$_HPG_PIN_LINT_SHARDS" \
+  "${MODULE_HEAVY_UNIT_MODE-}"
 # The module-driven-only invariant for this suite — no run.sh invocation, exactly
 # one driving module file — is now asserted generically for every
 # MODULE_DRIVEN_SUITES member by scan_routing_violations in

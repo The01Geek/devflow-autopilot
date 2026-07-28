@@ -12,6 +12,18 @@ REPO_ROOT="$(cd "$TEST_DIR/../.." && pwd -P)"
 REGISTRY="$REPO_ROOT/scripts/workflow-flight-recorder-registry.json"
 LOG_DIR="$REPO_ROOT/.devflow/tmp/test-module-logs"
 MODULE_ID=""
+# Assigned unconditionally (issue #890), never defaulted with `:-` off the environment:
+# this is what makes an inherited MODULE_HEAVY_UNIT_MODE structurally unable to shrink
+# what a run executes. Only --heavy-units below changes it.
+#
+# `export -n` for the same reason lib/test/run.sh applies it to DEVFLOW_SKIP_SUITE_MODULES:
+# bash PRESERVES the export attribute of a variable inherited from the environment, so
+# without this an already-exported MODULE_HEAVY_UNIT_MODE would carry whatever this runner
+# assigns — including a `--heavy-units smoke` — into every process launched underneath it.
+# The module body is sourced in a subshell of this shell, so it still reads the value.
+MODULE_HEAVY_UNIT_MODE=full
+export -n MODULE_HEAVY_UNIT_MODE 2>/dev/null || true
+HEAVY_UNITS_SEEN=
 
 # Fail closed on BOTH the source and its outcome: a failed top-level `.` does
 # not stop bash (no set -e here), and the floor is only an incidental backstop —
@@ -29,7 +41,7 @@ type devflow_run_focused_python_test >/dev/null 2>&1 || {
 }
 
 usage() {
-  printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] MODULE\n' >&2
+  printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] [--heavy-units full|smoke] MODULE\n' >&2
 }
 
 selector_error() {
@@ -47,6 +59,36 @@ while [ "$#" -gt 0 ]; do
     --log-dir)
       [ "$#" -ge 2 ] || { usage; selector_error "--log-dir requires a path"; }
       LOG_DIR="$2"
+      shift 2
+      ;;
+    --heavy-units)
+      # How much of a module's heaviest unit to run (issue #890) — see
+      # devflow_run_sharded_python_test in lib/test/module-harness.sh for what each mode
+      # means. `full` is the default, and no module shard passes this flag — asserted by
+      # the #890 argv probe in lib/test/run.sh, which drives the shard dispatcher; the
+      # complete suite never invokes this script at all, reaching modules through
+      # devflow_run_full_suite_module, which assigns `full` unconditionally. Where the flag
+      # is passed to make a module actually bound something, that is the meta-test in
+      # lib/test/test_module_runner.py, which passes
+      # `smoke` because it drives a module end-to-end purely to prove the runner drives it,
+      # and must not pay that module's whole population a second time in the same CI run;
+      # the flag's own behavior tests in that same file drive it against a fixture module.
+      # A decision this consequential is a FLAG rather than an inherited environment read,
+      # so it is visible at the call site that chose it rather than acquired from an
+      # ambient variable.
+      [ "$#" -ge 2 ] || { usage; selector_error "--heavy-units requires full or smoke"; }
+      # Refuse a repeat rather than silently taking the last one. The flag's premise is
+      # that the population is visible at the call site that chose it; a caller that
+      # believes it pinned `full` and is overridden later in its own argv gets no signal,
+      # which is the same silence the misspelled-value arm below already refuses.
+      [ -z "$HEAVY_UNITS_SEEN" ] || { usage; selector_error "--heavy-units given more than once"; }
+      HEAVY_UNITS_SEEN=1
+      # Consumed by the dynamically selected module sourced in the worker, and read again
+      # by this script itself for the unrequested-bound check and the bounded-run notice.
+      case "$2" in
+        full|smoke) MODULE_HEAVY_UNIT_MODE="$2" ;;
+        *) usage; selector_error "--heavy-units takes full or smoke, not '$2'" ;;
+      esac
       shift 2
       ;;
     --help|-h)
@@ -395,7 +437,31 @@ while IFS= read -r verdict || [ -n "$verdict" ]; do
   esac
 done < "$RESULTS_FILE"
 
+# An UNREQUESTED bound is a failure (issue #890). Everything else in the guard chain
+# establishes what this runner was ASKED for — its own unconditional `full`, the
+# --heavy-units flag, the #890 argv probe over the shard dispatcher. None of them can see
+# the last link: a module that forwards a literal `smoke`, or defaults to one, bounds its
+# heaviest unit while every tally stays green, the summary is unchanged, and the notice
+# below does not fire (it reads this runner's mode, not the module's behavior). That would
+# remove the bounded unit's full population from CI silently, which is exactly the
+# reduction this flag exists to make deliberate. So when `full` was requested, the module's
+# own log must carry no bound: the driver states one in its tally line, and finding that
+# clause here is a contradiction between what was asked and what ran.
+#
+# The scan is a bash `case` over the log's lines, never `grep`: this value decides an
+# emitted result (the failure tally), and a non-preflight PATH tool would let a missing or
+# erroring `grep` yield "no bound found" — a vacuous pass in the reducing direction.
+UNREQUESTED_BOUND=0
+if [ "$MODULE_HEAVY_UNIT_MODE" = full ] && [ -r "$LOG_FILE" ]; then
+  while IFS= read -r _hu_line || [ -n "$_hu_line" ]; do
+    case "$_hu_line" in
+      *"BOUNDED smoke subset"*) UNREQUESTED_BOUND=1; break ;;
+    esac
+  done < "$LOG_FILE"
+fi
+
 EXTRA_FAIL_COUNT=0
+[ "$UNREQUESTED_BOUND" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$INVALID_RESULT_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_RC" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_CLEANUP_FAILED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
@@ -409,11 +475,33 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
 
 {
   printf '\nModule %s: %s passed, %s failed\n' "$MODULE_ID" "$PASS_COUNT" "$FAIL_COUNT"
+  # A bounded run is a coverage reduction, and the summary line above cannot express one:
+  # its shape is a machine-consumed contract (lib/test/shard-tally.py anchors a regex on it
+  # end to end, and step-8 real-runner meta-tests assert it as an exact splitlines()
+  # member), so the notice is its own line rather than a suffix. What it buys is a HUMAN
+  # signal in the shard's uploaded log — the recombined gate summary cannot express a bound
+  # at all, since shard-tally.py parses only the anchored summary line; the unrequested-
+  # bound failure above is what makes a reduction gate-visible. Absent this notice a reader
+  # of the raw log would see a bounded run's tally and a full run's as byte-identical, the
+  # same "a reduced run is never a clean pass" rule issue #456 established for skips.
+  #
+  # It reports what was REQUESTED, and says so, because that is all this scope can
+  # establish: only a module that reads the mode bounds anything, so requesting `smoke` for
+  # a module that ignores it yields a full run. Whether a unit actually bounded its
+  # population is the driver's own tally line, above this one in the same log.
+  if [ "$MODULE_HEAVY_UNIT_MODE" != full ]; then
+    printf 'Module %s: heavy units REQUESTED bounded (--heavy-units %s) — a module that reads this mode did NOT execute its full population; see the driver tally above\n' \
+      "$MODULE_ID" "$MODULE_HEAVY_UNIT_MODE"
+  fi
   if [ "$FAIL_COUNT" -gt 0 ]; then
     printf 'Failure recap:\n'
     while IFS=$'\t' read -r name expected actual || [ -n "$name$expected$actual" ]; do
       printf '  - %s\n    expected: %s\n    actual:   %s\n' "$name" "$expected" "$actual"
     done < "$DETAILS_FILE"
+    if [ "$UNREQUESTED_BOUND" -ne 0 ]; then
+      printf '  - module bounded a heavy unit that was not requested (--heavy-units %s was in effect)\n' \
+        "$MODULE_HEAVY_UNIT_MODE"
+    fi
     if [ "$INVALID_RESULT_COUNT" -ne 0 ]; then
       printf '  - assertion tally contained %s invalid record(s)\n' "$INVALID_RESULT_COUNT"
     fi

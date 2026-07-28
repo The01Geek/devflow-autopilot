@@ -418,7 +418,10 @@ selectable module, complete all of the following in the same PR:
    the registry, never a second hard-coded copy). This drives the module through its
    *own* runner — the assertion issue #695 exists to make — so the convention that
    the existing modules already follow stops being convention by accident (issue
-   #719).
+   #719). When a module's heaviest unit is already run in full by a module shard,
+   this test may pass `--heavy-units smoke` so the shard's execution is not paid a
+   second time here (issue #890); the three requirements above are unchanged by it,
+   and the run still asserts the emitted tally equals the registry floor.
 9. **Routing classification** — when the extraction moves a `lib/test/test_*.py`
    suite from a `lib/test/run.sh` invocation to a module driver, move its name in
    `lib/test/test_module_runner.py` from `SERIAL_BY_EXCLUSION_SUITES` to
