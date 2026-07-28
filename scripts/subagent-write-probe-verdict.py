@@ -53,8 +53,10 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
   PERMITTED       a subagent Write tool_use targeting the tier's side-effect path was
                   recorded, its parent chains to a dispatch recorded in this file, AND the
                   on-disk side-effect file is present. The verdict cites the parent chain.
-  DENIED          a permission_denials entry for the subagent's Write was recorded. This
-                  wins over a present side-effect file (an earlier run's leftover): the
+  DENIED          a permission_denials entry for the subagent's Write was recorded, AND no
+                  DISPATCH refusal was recorded (a dispatch refusal is checked first — see
+                  below — because its entry echoes the subagent prompt naming the write path).
+                  DENIED wins over a present side-effect file (an earlier run's leftover): the
                   denial signal is authoritative. Attribution rests on the job's prompt
                   containing NO orchestrator write (the permission_denials per-entry shape
                   is not yet recorded, so a Write denial has exactly one possible author);
@@ -304,6 +306,20 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         verdict, reason = "unestablished", (
             "the execution file could not be read cleanly: " + note_top
         )
+    elif dispatch_denied:
+        # A refused DISPATCH is logically prior to any write question and is checked BEFORE
+        # write_denied: the refusal records the subagent prompt verbatim (which names the
+        # side-effect path and SUBWRITE_PAYLOAD), so a write-first order would collapse a
+        # dispatch refusal onto a false DENIED — the exact "permission finding about a run
+        # that never attempted the permission" the probe forbids. dispatch_denied fires only
+        # when a DENIAL entry names dispatch machinery (subagent_type/general-purpose/a
+        # dispatch tool), which a genuine Write denial never does, so this cannot mask a real
+        # DENIED; and it fires regardless of whether the denial entry carries a tool_name,
+        # closing the absent-tool_name echo hole the write_denial_text exclusion alone left.
+        verdict, reason = "unestablished", (
+            "the dispatch was refused by the matcher (%s) — no write permission was even "
+            "attempted" % ("unknown subagent type" if unknown_type else "dispatch head not granted")
+        )
     elif write_denied:
         verdict, reason = "DENIED", (
             "a permission_denials entry for the subagent's Write into %s was recorded; "
@@ -314,11 +330,6 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         verdict, reason = "PERMITTED", (
             "a subagent Write tool_use targeting %s was recorded, its parent chains to a "
             "dispatch recorded in this file, and the on-disk side-effect file is present" % side_path
-        )
-    elif dispatch_denied:
-        verdict, reason = "unestablished", (
-            "the dispatch was refused by the matcher (%s) — no write permission was even "
-            "attempted" % ("unknown subagent type" if unknown_type else "dispatch head not granted")
         )
     elif not dispatch_recorded and not recorded_at_all:
         verdict, reason = "unestablished", (

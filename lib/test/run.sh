@@ -24468,6 +24468,18 @@ scenarios = {
         {"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose",
          "prompt": ("use the Write tool to create the file "
                     ".devflow/tmp/subwrite-review.txt with content SUBWRITE_PAYLOAD")}}]}],
+    # Same echo but the denial entry carries NO tool_name (the per-entry denial shape is
+    # unrecorded, so a refusal may omit it). The tool_name exclusion alone would let this
+    # through; dispatch_denied (keyed on the subagent_type/general-purpose fingerprint in the
+    # entry text) is checked BEFORE write_denied so it still routes to unestablished.
+    "dispatch_denied_echo_no_toolname": [{"permission_denials": [
+        {"tool_input": {"subagent_type": "general-purpose",
+         "prompt": ("use the Write tool to create the file "
+                    ".devflow/tmp/subwrite-review.txt with content SUBWRITE_PAYLOAD")}}]}],
+    # Only the BEFORE control recorded (chain-attributable), no write: exercises the two
+    # control-fact fields differing, so the "reported independently, never conjoined"
+    # invariant is testable at the value level.
+    "control_before_only": [D, CB],
     # attribution
     "orch_null_parent": [D, write(parent=None)],       # a Write with no parent → not permitted
     "other_dispatch": [D, CB, write(parent="OTHER"), CA],  # Write chains to a foreign dispatch
@@ -24582,6 +24594,14 @@ assert_eq "#858 subagent-write: a dispatch denial echoing the subagent prompt �
   "unestablished" "$(swv_verdict "$SWV_ECHO")"
 assert_eq "#858 subagent-write: the prompt-echoing dispatch denial is NOT collapsed onto a false DENIED" \
   "no" "$(printf '%s' "$SWV_ECHO" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
+# Same echo, but the denial entry carries NO tool_name (the unrecorded per-entry shape):
+# must STILL route to unestablished, not a false DENIED — the dispatch-refused arm is
+# checked before write_denied.
+SWV_ECHO_NT="$(devflow_swv dispatch_denied_echo_no_toolname)"
+assert_eq "#858 subagent-write: a tool_name-less dispatch denial echoing the prompt → unestablished" \
+  "unestablished" "$(swv_verdict "$SWV_ECHO_NT")"
+assert_eq "#858 subagent-write: the tool_name-less prompt-echoing denial is NOT a false DENIED" \
+  "no" "$(printf '%s' "$SWV_ECHO_NT" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
 # Partial corruption: a valid PERMITTED-shaped set plus one unparseable JSONL line must
 # force unestablished (the dropped-line note), never a confident PERMITTED of a file that
 # was not fully parsed.
@@ -24633,10 +24653,23 @@ PY_CONF
 # Separate fields, not conjoined: the emitted table reports dispatch, both control facts,
 # and write as distinct rows so a reader tells a denied write from an absent dispatch.
 SWV_TABLE="$(devflow_swv permitted)"
-for _field in 'dispatch_outcome' 'recorded_at_all' 'chain_attributable' 'write_outcome' 'control_before' 'control_after'; do
+for _field in 'dispatch_outcome' 'recorded_at_all' 'chain_attributable' 'write_outcome' 'control_before' 'control_after' 'write_chain_ok' 'side_effect_present'; do
   assert_eq "#858 subagent-write: the emitted table carries the '$_field' field" "yes" \
     "$(printf '%s' "$SWV_TABLE" | grep -qF "| $_field |" && echo yes || echo no)"
 done
+# The PERMITTED run's boolean field VALUES are all yes (a render mutation that hardcoded a
+# constant, or conjoined the two controls, would otherwise pass a presence-only check).
+for _pair in 'recorded_at_all | yes' 'chain_attributable | yes' 'control_before | yes' 'control_after | yes' 'write_chain_ok | yes' 'side_effect_present | yes'; do
+  assert_eq "#858 subagent-write: PERMITTED run reports '$_pair'" "yes" \
+    "$(printf '%s' "$SWV_TABLE" | grep -qF "| $_pair |" && echo yes || echo no)"
+done
+# The two control facts are reported INDEPENDENTLY, never conjoined: a before-only run must
+# print control_before=yes AND control_after=no (a conjoining regression would print both no).
+SWV_CB="$(devflow_swv control_before_only)"
+assert_eq "#858 subagent-write: a before-only run reports control_before=yes (independent facts)" "yes" \
+  "$(printf '%s' "$SWV_CB" | grep -qF '| control_before | yes |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: a before-only run reports control_after=no (not conjoined with control_before)" "yes" \
+  "$(printf '%s' "$SWV_CB" | grep -qF '| control_after | no |' && echo yes || echo no)"
 # The field VALUES (not just their labels) are correct — a mislabel that always printed
 # 'absent' would pass a presence-only check. PERMITTED run: both outcomes 'recorded'.
 assert_eq "#858 subagent-write: PERMITTED run reports write_outcome=recorded" "yes" \
