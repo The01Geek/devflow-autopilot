@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import hashlib
 import json
 import re
@@ -179,7 +180,44 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
     return tuple(sorted(entries))
 
 
+# Bound on the per-source parse memos below.
+#
+# The reuse this buys is a WITHIN-census repeat: the definition sweep parses
+# every tracked shell source under lib/test, and the row extraction afterwards
+# parses the audited subset again. What has to fit for that second parse to hit
+# is NOT the audited set — the sweep is ordered and never revisits an entry, so
+# an audited source whose parse happened early is evicted by the non-audited
+# ones sorting after it, long before the extraction asks for it again. What has
+# to fit is the whole set the sweep visits. Sizing this against the audited count instead was
+# measured wrong: at a bound of 15 the audited 13 still "fit" and 12 of the 13
+# repeat parses did not hit.
+#
+# So the bound clears the tracked shell sources one sweep visits, with margin.
+# A tree that outgrows it does not break — it silently stops getting the hits,
+# which is why test_census_reuses_every_audited_source_within_one_build pins the
+# hit count against the audited set and names raising this bound as the remedy.
+#
+# Reuse ACROSS censuses is a smaller, secondary win, and deliberately not what
+# this bound is sized for: the suite driver launches one process per test
+# (issue #870), so nothing here survives into another test. It pays only where a
+# single test scans repeatedly — the subTest-looping tests in
+# test_pin_corpus_lint.py do, which is most of that file's scans — and it costs
+# nothing to collect where it does not.
+#
+# Measured 2026-07-28 on an arm64 laptop against this file's heaviest single
+# worker: this bound costs roughly 90MB of peak RSS over one sized to the
+# audited set alone, for the same 13 within-census hits on the current tree and
+# a margin that keeps them as the tree grows. Past-time snapshot of that run.
+_SOURCE_PARSE_CACHE_SIZE = 48
+
+
+@functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
 def _logical_lines(text: str, path: str) -> tuple[_LogicalLine, ...]:
+    """Decompose ``text`` into continuation-joined logical lines.
+
+    The result is a tuple of frozen records, so the memo can share one
+    immutable object instead of returning a defensive copy.
+    """
     physical = text.splitlines()
     output: list[_LogicalLine] = []
     index = 0
@@ -389,26 +427,11 @@ def _definition_counts(
             ) from exc
         except OSError as exc:
             raise CensusError(f"cannot read test shell source: {path}: {exc}") from exc
+        path_counts, path_lexical_count = _definition_scan(relative, text)
         path_definition_count = 0
-        for helper, pattern in _DEFINITION_TEXT_RE.items():
-            matches = tuple(pattern.finditer(text))
-            counts[helper] += len(matches)
-            path_definition_count += len(matches)
-        path_lexical_count = 0
-        for logical in _logical_lines(text, relative):
-            for segment in _shell_segments(logical.physical):
-                lexical = _lexical_helper_count(segment)
-                path_lexical_count += lexical
-                definitions = [
-                    helper
-                    for helper, pattern in _DEFINITION_RE.items()
-                    if pattern.match(segment)
-                ]
-                if definitions and lexical != len(definitions):
-                    raise CensusError(
-                        "supported helper token shares a definition segment: "
-                        f"{relative}:{logical.line_start}"
-                    )
+        for helper, count in path_counts:
+            counts[helper] += count
+            path_definition_count += count
         if (
             relative not in audited_sources
             and path_lexical_count != path_definition_count
@@ -421,9 +444,55 @@ def _definition_counts(
     return counts
 
 
+@functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
+def _definition_scan(
+    relative: str, text: str
+) -> tuple[tuple[tuple[str, int], ...], int]:
+    """Count this source's helper definitions and lexical helper tokens.
+
+    Returns ``(per-helper definition counts, lexical token total)``; the
+    definition total the caller compares against is the sum of the counts, so
+    it is derived there rather than returned twice. Split out of
+    :func:`_definition_counts` so the derivation is a
+    pure function of the source's own name and text, and therefore memoizable
+    across the repeated censuses a single process builds. Only the name and the
+    text reach the key; the caller keeps the accumulation and the
+    audited-source reconciliation, which depend on the whole run.
+    """
+    path_counts: list[tuple[str, int]] = []
+    for helper, pattern in _DEFINITION_TEXT_RE.items():
+        path_counts.append((helper, sum(1 for _ in pattern.finditer(text))))
+    path_lexical_count = 0
+    for logical in _logical_lines(text, relative):
+        for segment in _shell_segments(logical.physical):
+            lexical = _lexical_helper_count(segment)
+            path_lexical_count += lexical
+            definitions = [
+                helper
+                for helper, pattern in _DEFINITION_RE.items()
+                if pattern.match(segment)
+            ]
+            if definitions and lexical != len(definitions):
+                raise CensusError(
+                    "supported helper token shares a definition segment: "
+                    f"{relative}:{logical.line_start}"
+                )
+    return tuple(path_counts), path_lexical_count
+
+
 def _extract_source(repo_root: Path, source: str) -> tuple[CensusRow, ...]:
-    path = repo_root / source
-    text = _read_utf8(path, "audited source")
+    return _extract_rows(source, _read_utf8(repo_root / source, "audited source"))
+
+
+@functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
+def _extract_rows(source: str, text: str) -> tuple[CensusRow, ...]:
+    """Extract this source's census rows from its own name and text.
+
+    Split out of :func:`_extract_source` for the same reason as
+    :func:`_definition_scan`: the row derivation reads nothing but the name and
+    the text, so it is memoizable across censuses, while the file read that
+    supplies the text stays with the caller that knows the repository root.
+    """
     rows: list[CensusRow] = []
     for logical in _logical_lines(text, source):
         lexical = 0
