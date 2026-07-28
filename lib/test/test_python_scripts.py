@@ -19035,21 +19035,36 @@ with tempfile.TemporaryDirectory() as _cvp_td:
         'The gate exited 2 with exactly that message.\n', encoding='utf-8')
     _cvp_locked = _cvp_root / 'docs/locked.md'
     _cvp_locked.write_text('irrelevant\n', encoding='utf-8')
-    _cvp_locked.chmod(0o000)
     (_cvp_root / 'b.md').write_text(
         '**Verified:** `docs/notes.md` and `docs/locked.md` — '
         '*"a sentence nobody ever wrote"*\n', encoding='utf-8')
+    # The denial is monkeypatched rather than a chmod(0o000): a chmod does not
+    # deny ROOT, so under a root-uid runner the read would succeed and this arm
+    # — the one asserting that an unread citation is unestablished rather than
+    # refuted — would silently assert nothing. Raising OSError from the read
+    # itself covers the branch on every uid. Scoped to the one cited file so the
+    # body read and the co-cited file still exercise the real code path.
+    _cvp_orig_read_text = Path.read_text
+
+    def _cvp_denying_read_text(self, *a, **kw):
+        if self.name == 'locked.md':
+            raise OSError(13, 'Permission denied')
+        return _cvp_orig_read_text(self, *a, **kw)
+
     _cvp_buf = io.StringIO()
-    with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
-        _cvp_rc = check_verified_premises.main(
-            ['--body-file', str(_cvp_root / 'b.md'), '--repo-root', str(_cvp_root)])
-    _cvp_locked.chmod(0o644)
-    # Running as root defeats the permission denial entirely, so the arm is only
-    # meaningful when the read actually failed; assert on that condition.
-    if 'unreadable' in _cvp_buf.getvalue():
-        assert_eq("#868 helper: a quotation that misses is NOT refuted while a co-cited "
-                  "path could not be opened — an unread citation is unestablished",
-                  True, _cvp_rc == 0 and 'state=unestablished' in _cvp_buf.getvalue())
+    Path.read_text = _cvp_denying_read_text
+    try:
+        with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+            _cvp_rc = check_verified_premises.main(
+                ['--body-file', str(_cvp_root / 'b.md'), '--repo-root', str(_cvp_root)])
+    finally:
+        Path.read_text = _cvp_orig_read_text
+    assert_eq("#868 helper: the cited file that could not be opened is reported as "
+              "unreadable rather than silently skipped",
+              True, 'unreadable' in _cvp_buf.getvalue())
+    assert_eq("#868 helper: a quotation that misses is NOT refuted while a co-cited "
+              "path could not be opened — an unread citation is unestablished",
+              True, _cvp_rc == 0 and 'state=unestablished' in _cvp_buf.getvalue())
 
 # A co-cited DIRECTORY stays benign (a quotation cannot live in one), but the
 # refutation must disclose that the citation set was only partly adjudicated.
