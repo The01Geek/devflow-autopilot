@@ -274,6 +274,7 @@ literal:4aafe4e0fcf53909b3fe36e7db1f4d27b293a53b68e5b820fa8851ff7d431c38	boundar
 literal:4af9a730ab72166aa5d016f23e0532d1bdaec966ed470bb913ca11b1cc0656c4	boundary	maintainer adjudication: review-and-fix COMPLETION_EVIDENCE: Defines Loop Exit's persistence-backstop action.
 literal:4b193cb86bae5ad205d65e8baa25b8f4fb7c2154492632d61d1fa130f5b6534d	boundary	maintainer adjudication: runtime execution-boundary: Prompt contract describes the harness's deny behavior and prevents unsafe command planning.
 literal:4b35ac14074122f7f95d49e42da81c652d82bf1a859fc069243c38cb489006a2	boundary	maintainer adjudication: review DT: dirty-tree safety boundary: #484 backstop: deleting the external digest handoff contract turns its pin RED
+literal:4b605af16379dd92726605468dbaf29935cc390251a9ed21fd5dae57485fede1	boundary	maintainer adjudication: declared security or interface boundary
 literal:4bdfee13e32399402bf4d90f0ae2d6b1206a2ee0d4fa8a597534186daf8ebc51	boundary	maintainer adjudication: review-and-fix FIX_ROUTING: Defines the REJECT-driver routing set.
 literal:4c0860509fc8f79be7e338f2dbbfebfa20369bff51d186d5c51cf67da5d0ca6a	boundary	Checklist output category enum.
 literal:4ddeeac90dc856929d94d1a1271bbcc3f8ab46ffaeb91056f9e304eb5d73acc7	boundary	maintainer adjudication: declared security or interface boundary
@@ -580,6 +581,7 @@ literal:b084ea2fc7ebab535eb929ff0e2792cc2a5ece12a155f853aab13639c750a3ab	boundar
 literal:b099500497570027b20dff78d38cef5652730bda3618be8d0189db752f600886	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: the instructions are conditioned on the block's PRESENCE
 literal:b0edb0897baab48bfc246f19d760606bd9f55fbcc3d3716fca446c7580ecd5b3	boundary	maintainer adjudication: review-and-fix GATE_SCOPE: Includes disclosure foreclosures in the sweep population.
 literal:b142b045251fa89827256509fe31164ceac3173d5cc162db91f7a467d998732e	boundary	Retain operational boundary: #754 A8: receiving gates reuse on the current code shape protects the named executable or safety condition, not prose presentation.
+literal:b1e0d0d7c20a42b1352df809f7d8be9d32ac7bc43e5aabe47fce3b1322868d4b	boundary	maintainer adjudication: declared security or interface boundary
 literal:b1f37f454c163685022493ea62818fd76aa984b005ba4db2a4a2e9ca613596a9	boundary	Retain completion-evidence boundary: step8: CI-fallback clause requires waiting for green before claiming completion defines evidence required before a completion claim.
 literal:b220db2615aff9223fa9e3b5143cf7d2dd09f1678120e9a4eee7317ed68a3f91	boundary	maintainer adjudication: review-and-fix STATE_TRANSITION: Requires pending-dispatch state before dispatch.
 literal:b224455a6f20b57a04ceaa69dcb47b4ad05f0fdb93a45a210c455facd5a0d1b7	boundary	maintainer adjudication: prompt-extensions XP: merge commit prefix is consumed by release-notes reconciliation
