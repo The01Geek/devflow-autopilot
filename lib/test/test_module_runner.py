@@ -21,6 +21,8 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SOURCE = ROOT / "lib/test/run-module.sh"
 HARNESS_SOURCE = ROOT / "lib/test/module-harness.sh"
+RUN_SH_SOURCE = ROOT / "lib/test/run.sh"
+MODULES_DIR = ROOT / "lib/test/modules"
 WORKFLOW_MODULE_SOURCE = ROOT / "lib/test/modules/workflow-flight-recorder.sh"
 CREATE_ISSUE_MODULE_SOURCE = ROOT / "lib/test/modules/create-issue-contract.sh"
 CAPABILITY_PROFILES_MODULE_SOURCE = ROOT / "lib/test/modules/capability-profiles.sh"
@@ -1955,6 +1957,89 @@ def classify_test_suites(
     return violations
 
 
+def invocation_shape(name):
+    """Return the literal a driver spells to invoke the suite (issue #867).
+
+    Drivers anchor the path on $LIB and quote it; prose does not. Matching that
+    shape rather than the bare basename is what keeps a comment mentioning
+    lib/test/<name> from either satisfying or violating a routing claim — a
+    distinction with live consequences, since lib/test/modules/create-issue-contract.sh
+    mentions test_render_audit_prompt.py in comments while driving it nowhere.
+    """
+    return f'"$LIB/test/{name}"'
+
+
+def scan_routing_violations(
+    run_sh_path=RUN_SH_SOURCE,
+    modules_dir=MODULES_DIR,
+    module_harness_path=HARNESS_SOURCE,
+    serial=SERIAL_BY_EXCLUSION_SUITES,
+    module_driven=MODULE_DRIVEN_SUITES,
+    invocation_shape=invocation_shape,
+):
+    """Cross-check the routing tuples against where the tree actually drives them.
+
+    Returns a list of human-readable violations, each naming the offending suite
+    (empty when every claim holds):
+
+    - every module_driven name is invoked zero times from run.sh;
+    - every module_driven name is invoked from exactly one distinct module file —
+      counting FILES, never occurrences, because a module legitimately carries
+      more than one occurrence for a suite it drives;
+    - every serial name is invoked at least once from run.sh.
+
+    POOLED_SUITES is deliberately absent: run.sh's real devflow_pool_open triples
+    already pin it by set equality (see
+    PoolMembershipCompletenessTests.test_pooled_suites_constant_matches_the_run_sh_pool_invocation),
+    which is a stronger guarantee than a name scan.
+
+    The three paths this scan reads — run_sh_path, modules_dir and
+    module_harness_path — are parameters defaulting to the real tree, mirroring
+    discover_test_suites/classify_test_suites, so a planted-violation fixture can
+    point the scan at a scratch copy. The module domain is a single-level glob
+    over modules_dir plus the standalone module_harness_path — never a
+    repository-root-anchored recursive walk.
+    """
+    violations = []
+    try:
+        run_text = Path(run_sh_path).read_text(encoding="utf-8")
+    except OSError as exc:
+        return [f"{run_sh_path}: could not be read for the routing scan ({exc})"]
+    module_files = sorted(Path(modules_dir).glob("*.sh"))
+    if Path(module_harness_path).exists():
+        module_files.append(Path(module_harness_path))
+    module_texts = {}
+    for path in module_files:
+        try:
+            module_texts[path] = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            violations.append(
+                f"{path}: could not be read for the routing scan ({exc})"
+            )
+    for name in module_driven:
+        shape = invocation_shape(name)
+        if shape in run_text:
+            violations.append(
+                f"{name}: classified MODULE_DRIVEN_SUITES but invoked from "
+                f"{run_sh_path} — it would execute twice"
+            )
+        owners = sorted(
+            path.name for path, text in module_texts.items() if shape in text
+        )
+        if len(owners) != 1:
+            violations.append(
+                f"{name}: classified MODULE_DRIVEN_SUITES but driven by "
+                f"{len(owners)} module file(s) {owners}, expected exactly one"
+            )
+    for name in serial:
+        if invocation_shape(name) not in run_text:
+            violations.append(
+                f"{name}: classified SERIAL_BY_EXCLUSION_SUITES but never invoked "
+                f"from {run_sh_path} — its coverage is silently gone"
+            )
+    return violations
+
+
 class HostCapabilitySkipChannelTests(unittest.TestCase):
     """Issue #838: the module-reachable host-capability skip channel.
 
@@ -2434,6 +2519,163 @@ class PoolMembershipCompletenessTests(unittest.TestCase):
             "POOLED_SUITES does not match run.sh's real devflow_pool_open invocation "
             f"(run.sh pools {sorted(pooled_in_run_sh)}, constant declares "
             f"{sorted(POOLED_SUITES)})",
+        )
+
+
+class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
+    """issue #867: the three tuples are executable claims about routing.
+
+    The issue-#720 cross-check above proves the classification is total and
+    pairwise disjoint — a claim about the tuples and the filesystem, never about
+    where a suite is actually driven from. `scan_routing_violations` closes that
+    gap for the two tuples run.sh does not already pin (POOLED_SUITES is pinned
+    by test_pooled_suites_constant_matches_the_run_sh_pool_invocation above,
+    against the parsed devflow_pool_open triples — a stronger, invocation-shaped
+    guarantee than a name scan, which is why no POOLED_SUITES assertion is added
+    here).
+    """
+
+    @staticmethod
+    def _scratch_tree(scratch, run_sh_text, module_texts, harness_text=""):
+        """Materialize a scratch run.sh + modules dir + module-harness.sh.
+
+        Returns the (run_sh, modules_dir, module_harness) triple to pass through
+        to scan_routing_violations, so a planted violation never lands in the
+        real lib/test/ tree.
+        """
+        root = Path(scratch)
+        run_sh = root / "run.sh"
+        run_sh.write_text(run_sh_text, encoding="utf-8")
+        modules_dir = root / "modules"
+        modules_dir.mkdir()
+        for name, text in module_texts.items():
+            (modules_dir / name).write_text(text, encoding="utf-8")
+        module_harness = root / "module-harness.sh"
+        module_harness.write_text(harness_text, encoding="utf-8")
+        return run_sh, modules_dir, module_harness
+
+    @classmethod
+    def _clean_tree(cls, scratch):
+        """Build a scratch tree the routing scan reports clean.
+
+        The construction below is what makes it clean: it writes one module file
+        per MODULE_DRIVEN_SUITES entry carrying that entry's invocation and
+        nothing else, and one run.sh line per SERIAL_BY_EXCLUSION_SUITES entry.
+        The planted-violation tests each mutate one of those from this baseline.
+        """
+        run_sh_text = "".join(
+            f'  python3 "$LIB/test/{name}"\n' for name in SERIAL_BY_EXCLUSION_SUITES
+        )
+        module_texts = {
+            f"owner-{index}.sh": f'  python3 "$LIB/test/{name}"\n'
+            for index, name in enumerate(MODULE_DRIVEN_SUITES)
+        }
+        return cls._scratch_tree(scratch, run_sh_text, module_texts)
+
+    def test_the_live_tree_satisfies_every_routing_claim(self) -> None:
+        violations = scan_routing_violations()
+        self.assertEqual(violations, [], violations)
+
+    def test_a_module_driven_suite_carrying_several_occurrences_in_one_owner_is_clean(
+        self,
+    ) -> None:
+        # The module-side claim counts distinct FILES, never occurrences: a module
+        # legitimately drives a suite once and references it again (a heredoc
+        # `python3 - "$LIB/test/<name>"` use, for instance). An occurrence-count
+        # assertion would be RED against a correct tree.
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            owner = modules_dir / "owner-0.sh"
+            owner.write_text(
+                owner.read_text(encoding="utf-8") * 3, encoding="utf-8"
+            )
+            self.assertEqual(
+                scan_routing_violations(run_sh, modules_dir, harness), []
+            )
+
+    def test_a_planted_module_driven_invocation_in_run_sh_is_caught(self) -> None:
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8")
+                + f'  python3 "$LIB/test/{offender}"\n',
+                encoding="utf-8",
+            )
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(any(offender in v for v in violations), violations)
+
+    def test_a_planted_second_owning_module_is_caught(self) -> None:
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            (modules_dir / "interloper.sh").write_text(
+                f'  python3 "$LIB/test/{offender}"\n', encoding="utf-8"
+            )
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(any(offender in v for v in violations), violations)
+
+    def test_a_module_driven_suite_no_module_drives_is_caught(self) -> None:
+        # The other half of the exactly-one claim: a suite routed to no module at
+        # all is as broken as one routed to two.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            (modules_dir / "owner-0.sh").unlink()
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(any(offender in v for v in violations), violations)
+
+    def test_a_removed_serial_invocation_is_caught(self) -> None:
+        offender = SERIAL_BY_EXCLUSION_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8").replace(
+                    f'  python3 "$LIB/test/{offender}"\n', ""
+                ),
+                encoding="utf-8",
+            )
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(any(offender in v for v in violations), violations)
+
+    def test_planted_bare_path_comments_leave_every_assertion_green(self) -> None:
+        # The positive control for the matcher's shape. `create-issue-contract.sh`
+        # mentions test_render_audit_prompt.py five times in comments while driving
+        # it zero times, so a basename matcher is RED against a correct tree — and
+        # it would also let a comment satisfy the at-least-once direction, hiding a
+        # deleted invocation. Comments naming a bare lib/test/<name> path must
+        # neither satisfy nor violate any claim.
+        module_driven = MODULE_DRIVEN_SUITES[0]
+        serial = SERIAL_BY_EXCLUSION_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8")
+                + f"# see lib/test/{module_driven} for the module-driven case\n",
+                encoding="utf-8",
+            )
+            (modules_dir / "commentary.sh").write_text(
+                f"# lib/test/{module_driven} is driven elsewhere\n"
+                f"# lib/test/{serial} runs serially from run.sh\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                scan_routing_violations(run_sh, modules_dir, harness), []
+            )
+
+    def test_a_bare_basename_matcher_would_be_red_against_the_live_tree(self) -> None:
+        # Mutation control for the matcher choice itself: swapping the invocation
+        # shape for a bare basename must turn the live-tree scan RED, proving the
+        # shape is load-bearing rather than incidental. Nothing in the real tree is
+        # mutated — only the matcher passed to the scan.
+        violations = scan_routing_violations(
+            invocation_shape=lambda name: name,
+        )
+        self.assertNotEqual(
+            violations,
+            [],
+            "a bare-basename matcher scans the live tree clean, so the "
+            "invocation-shape matcher is not actually being exercised",
         )
 
 
