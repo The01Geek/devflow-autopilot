@@ -599,10 +599,12 @@ actually receives, after excluding any that failed to fetch), and *total*
 (`occurrence_count`):
 
 ```bash
-# TOTAL is occurrence_count; SELECTED_PRS are the most-recent AUDIT_BUNDLE_CAP
-# occurrence PRs in DESCENDING ts order (the helper reverses the ascending
-# occurrences[] tail — the emitted order is fact the dispatch prompt states).
-TOTAL="$($LIB/../scripts/run-jq.sh -r '(.occurrences // []) | length' <<< "$pattern")"
+# TOTAL is occurrence_count (compute-patterns.jq sets it to the occurrences[]
+# length; read it directly, falling back to the array length if the field is
+# absent). SELECTED_PRS are the most-recent AUDIT_BUNDLE_CAP occurrence PRs in
+# DESCENDING ts order (the helper reverses the ascending occurrences[] tail — the
+# emitted order is fact the dispatch prompt states).
+TOTAL="$($LIB/../scripts/run-jq.sh -r '(.occurrence_count // (.occurrences // [] | length)) // 0' <<< "$pattern")"
 SELECTED_PRS="$(devflow_select_audit_bundles "$AUDIT_BUNDLE_CAP" "$pattern")"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 selected=0; delivered=0; bundle_paths=()
