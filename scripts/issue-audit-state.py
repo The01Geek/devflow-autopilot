@@ -126,6 +126,34 @@ _EVENTS = (
 # that did NOT come through _validate (e.g. a new CLI flag read straight into classify_return),
 # or (b) a transposition ever survives to a wrong ANSWER rather than the closed retry token.
 _ARMS = ('file', 'embed', 'inline')
+# issue #793: the SECOND tool-owned per-round dispatch dimension, beside the arm. A round
+# is either a cold whole-draft derivation (`discovery`) or a claim-scoped re-check of what
+# a revision was supposed to fix (`targeted`). The set is closed and complete by
+# construction: there are exactly two things a round can be for, and `_checked_kind` below
+# refuses anything else rather than letting an unknown kind take a permissive path.
+#
+# The ORCHESTRATOR never chooses the kind. `select_round_kind` derives it from recorded
+# facts and `record-dispatch` cross-checks the caller's `--kind` against that derivation,
+# the same query-then-obey-then-cross-check shape the arm already uses — because the
+# context that would let an orchestrator choose is exactly the anchored context a scoped
+# audit exists to remove.
+_ROUND_KINDS = ('discovery', 'targeted')
+# The closed reason vocabulary `select_round_kind` answers alongside the kind. Every
+# `targeted` condition that fails names ITSELF here, so a run that paid for a cold round
+# can always say which condition sent it there rather than reporting a bare `discovery`.
+_ROUND_KIND_REASONS = (
+    # the one selecting reason for `targeted`
+    'targeted-eligible',
+    # the five `targeted` conditions, each as its own failing-condition token, plus the
+    # two delta arms and the no-round precondition.
+    'no-completed-round',
+    'no-revision-after-round',
+    'not-file-arm',
+    'dispatch-bytes-unrecoverable',
+    'empty-claim-set',
+    'empty-delta',
+    'delta-error',
+)
 _VERDICTS = ('FILE', 'REVISE', 'DRAFT-UNREADABLE')
 _ROUND_OUTCOMES = ('FILE', 'REVISE', 'no-verdict')
 # The subset of `_ROUND_OUTCOMES` that carries an auditor verdict about the bytes
@@ -3542,6 +3570,219 @@ def _checked_action(token):
             f'issue-audit-state: next_action produced {token!r}, which is not in '
             f'_NEXT_ACTIONS — the skill obeys this answer against a closed set')
     return token
+
+
+def _checked_kind(token):
+    """Fail closed on a round kind outside the canonical set (issue #793).
+
+    The exact sibling of `_checked_action` above, and for the same reason: `_ROUND_KINDS`
+    is a closed vocabulary every consuming function branches on, so a kind outside it is
+    one no consumer has a route for. Raising here keeps the tuple load-bearing rather than
+    decorative — without it an unrecognized kind would fall through every `== 'targeted'`
+    test and be treated as a whole-draft `discovery` round, which is the PERMISSIVE
+    direction: it would ground the clean scan, back the coverage axis and render as
+    whole-draft evidence on the strength of a round nobody can classify.
+    """
+    if token not in _ROUND_KINDS:
+        raise AssertionError(
+            f'issue-audit-state: round kind {token!r} is not in _ROUND_KINDS — every '
+            f'consumer branches on this answer against a closed set')
+    return token
+
+
+def _checked_kind_reason(token):
+    """Fail closed on a selection reason outside the canonical set (issue #793).
+
+    `_no`'s sibling for the kind selector: the skill and the renderer route on these
+    tokens, so an unlisted one is a reason neither can act on.
+    """
+    if token not in _ROUND_KIND_REASONS:
+        raise AssertionError(
+            f'issue-audit-state: round-kind selection answered reason {token!r}, which is '
+            f'not in _ROUND_KIND_REASONS')
+    return token
+
+
+def _staged_artifacts(state):
+    """The run's recorded byte history as `(digest, path)` pairs, newest last (issue #793).
+
+    The history is what a `targeted` round's delta is computed against, and it exists only
+    because `stage` now keys its artifact on the staged bytes' own digest AND records the
+    resolved path durably. A malformed record is SKIPPED rather than raising: this is a
+    best-effort read over a file a human can hand-edit, and a missing operand must degrade
+    the selection to `discovery` (the expensive kind), never abort the run.
+    """
+    out = []
+    for rec in (state.get('staged_paths') or []):
+        if not isinstance(rec, dict):
+            continue
+        dig, path = rec.get('digest'), rec.get('path')
+        if isinstance(dig, str) and dig and isinstance(path, str) and path:
+            out.append((dig, path))
+    return out
+
+
+def _reconstruct_dispatch_bytes(state, digest):
+    """The bytes a round dispatched, recovered from the byte history (issue #793).
+
+    Returns the bytes, or `None` when they cannot be recovered. The lookup is by DIGEST —
+    the artifact whose recorded digest equals the round's recorded dispatch digest — and
+    the recovered bytes are RE-HASHED and compared to that same digest before they are
+    returned. Trusting the recorded digest alone would accept an artifact whose bytes
+    changed on disk after it was recorded, which is precisely the operand a delta must not
+    be computed from: a wrong "before" side produces a wrong changed-section set and
+    points the auditor at regions the revision never touched.
+
+    A missing artifact is a MISSING OPERAND (`None` → the caller selects `discovery`),
+    never a silently-wrong one.
+    """
+    if not isinstance(digest, str) or not digest:
+        return None
+    for dig, path in _staged_artifacts(state):
+        if dig != digest:
+            continue
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            continue
+        try:
+            if hash_bytes(data) == digest:
+                return data
+        except _DigestError:
+            continue
+    return None
+
+
+def _sections(text):
+    """The draft's `## ` sections as an ordered `{heading: body}` mapping (issue #793).
+
+    Content before the first `## ` heading is collected under the sentinel key
+    `(preamble)`, so an edit to the title or the opening lines is a changed section rather
+    than an invisible one — an edit the delta cannot see is an edit the scoped auditor is
+    never pointed at.
+    """
+    out = {}
+    heading = '(preamble)'
+    buf = []
+    for line in text.splitlines():
+        if line.startswith('## '):
+            out[heading] = '\n'.join(buf)
+            heading, buf = line.strip(), []
+        else:
+            buf.append(line)
+    out[heading] = '\n'.join(buf)
+    return out
+
+
+def _changed_sections(before, after):
+    """The headings whose content differs between two draft states (issue #793).
+
+    Raises `_DigestError` on undecodable input so the caller takes its `delta-error` arm:
+    a delta that cannot be computed is UNESTABLISHED, and reading it as an empty set would
+    say "nothing changed" about bytes nobody compared — the unknown-is-not-zero rule this
+    repository applies everywhere else.
+
+    A heading present on exactly one side counts as changed, so a section the revision
+    ADDED or DELETED is in scope rather than silently absent from it.
+    """
+    try:
+        a = _sections(before.decode('utf-8'))
+        b = _sections(after.decode('utf-8'))
+    except UnicodeDecodeError as exc:
+        raise _DigestError(f'could not decode the draft bytes to compute the '
+                           f'changed-section set: {exc}') from exc
+    changed = [h for h in b if a.get(h) != b[h]]
+    changed += [h for h in a if h not in b]
+    return sorted(set(changed))
+
+
+def _enumerated_claims(state):
+    """The run's live already-raised findings, as `(claim_id, summary)` pairs (issue #793).
+
+    A claim id is `<round>.<entry id>`: entry ids are per-round positional (1..K, enforced
+    by `_validate_ledger`), so a bare id would collide across rounds and let a return's
+    verdict update the wrong ledger entry.
+
+    Only entries whose status is still `unresolved` are enumerated. A `resolved`,
+    `invalidated` or `superseded` entry is not a live claim, so re-checking it would spend
+    the round's whole point on findings nobody is waiting on — and would let a stale
+    verdict reopen something the drafter already settled.
+
+    The summary alone travels; no status, severity, disposition, prior verdict, rationale
+    or evidence is read here, which is what keeps the caller physically unable to leak one.
+    """
+    out = []
+    for rnd, entry in _all_entries(state):
+        if entry.get('status') != 'unresolved':
+            continue
+        out.append((f'{rnd["round"]}.{entry["id"]}', entry.get('summary') or ''))
+    return out
+
+
+def select_round_kind(state, canonical_path):
+    """Derive the kind the NEXT round must take, from recorded facts alone (issue #793).
+
+    Returns a dict carrying the kind, the reason token that selected it, the delta state
+    and the enumerated claim ids — the read-only answer `query-round-kind` prints and
+    `record-dispatch` cross-checks a caller's `--kind` against.
+
+    **The selection fails toward the EXPENSIVE kind, never away from it.** `targeted` is
+    selected only when all five conditions hold; every other input — including every
+    unestablished one — selects `discovery` and names the failing condition. That
+    direction is deliberate and is the whole safety argument for the mechanism: a
+    wrongly-cold round costs tokens, while a wrongly-scoped round points the auditor at
+    the wrong regions and returns a clean verdict over a draft nobody re-read.
+
+    The five conditions, complete by construction:
+      1. a recorded revision postdates the last completed round;
+      2. that round's latest attempt was on the `file` arm (only there does a canonical
+         file exist whose bytes the delta can be computed against);
+      3. the round's dispatch bytes are recoverable from the byte history AND their
+         recomputed digest equals the recorded dispatch digest;
+      4. the enumerated claim set is non-empty (an empty set would make the round
+         vacuously clean — the refusal `render-audit-prompt.py` also enforces);
+      5. the computed changed-section set is non-empty and its computation did not error.
+
+    Condition 5's basis — the digest of the canonical bytes the set was computed FROM — is
+    answered as `basis_digest` and recorded on the scope file, because the skill re-runs
+    the Step 3 gate between selection and dispatch: a byte edit landing in that window
+    would point the auditor at superseded regions while carriage, regeneration and
+    steering all still pass. `record-dispatch` refuses that dispatch by comparing its
+    `--draft-file` digest against this basis.
+    """
+    def _answer(kind, reason, *, claims=None, sections=None, basis=None):
+        return {'kind': _checked_kind(kind), 'reason': _checked_kind_reason(reason),
+                'claim_ids': [c for c, _ in (claims or [])],
+                'claims': list(claims or []),
+                'sections': list(sections or []),
+                'basis_digest': basis}
+
+    last = last_completed(state) if state is not None else None
+    if last is None:
+        return _answer('discovery', 'no-completed-round')
+    if not _revision_postdates(state, last):
+        return _answer('discovery', 'no-revision-after-round')
+    attempts = last.get('attempts') or []
+    if not attempts or attempts[-1].get('arm') != 'file':
+        return _answer('discovery', 'not-file-arm')
+    before = _reconstruct_dispatch_bytes(state, attempts[-1].get('digest'))
+    if before is None:
+        return _answer('discovery', 'dispatch-bytes-unrecoverable')
+    claims = _enumerated_claims(state)
+    if not claims:
+        return _answer('discovery', 'empty-claim-set')
+    try:
+        after = Path(canonical_path).read_bytes()
+        basis = hash_bytes(after)
+        sections = _changed_sections(before, after)
+    except (OSError, _DigestError):
+        # An unreadable canonical file and an undecodable one are the SAME decided arm: the
+        # delta could not be computed, so it is unestablished. Never an empty set.
+        return _answer('discovery', 'delta-error', claims=claims)
+    if not sections:
+        return _answer('discovery', 'empty-delta', claims=claims, basis=basis)
+    return _answer('targeted', 'targeted-eligible', claims=claims, sections=sections,
+                   basis=basis)
 
 
 def _find_round(state, round_no):

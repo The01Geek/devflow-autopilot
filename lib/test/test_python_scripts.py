@@ -18471,5 +18471,162 @@ assert_eq("#795 checker: over an unmutated tree every arm passes (the rows above
           0, _alc795.main())
 
 print()
+print("issue-audit-state: tool-owned round kinds (issue #793)")
+
+_m793 = issue_audit_state
+
+
+def _793_state(**over):
+    """A minimal in-memory state document for round-kind selection rows.
+
+    Built by hand rather than driven through the CLI so a row can express exactly one
+    failing selection condition; the CLI round-trips live in the shell module.
+    """
+    doc = {'schema_version': _m793.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n',
+           'rounds': [], 'revisions': [], 'overrides': []}
+    doc.update(over)
+    return doc
+
+
+def _793_round(num=1, *, outcome='REVISE', arm='file', digest='d' * 40, findings=None,
+               kind='discovery'):
+    rnd = {'round': num, 'attempts': [{'arm': arm, 'digest': digest}],
+           'outcome': outcome, 'kind': kind}
+    if findings is not None:
+        rnd['findings'] = findings
+        rnd['adjudicated_verdict'] = 'REVISE'
+        rnd['must_revise_count'] = len(findings)
+        rnd['unresolved_must_revise'] = len(findings)
+    return rnd
+
+
+def _793_entry(i, summary='a defect', status='unresolved'):
+    return {'id': i, 'summary': summary, 'status': status,
+            'ingested_status': 'unresolved'}
+
+
+assert_eq("#793: the round-kind vocabulary is exactly the two closed members",
+          ('discovery', 'targeted'), tuple(_m793._ROUND_KINDS))
+
+assert_raises("#793: an off-vocabulary kind raises rather than taking a permissive path",
+              AssertionError, lambda: _m793._checked_kind('whole-draft'))
+
+assert_eq("#793: each vocabulary member survives the guard unchanged",
+          ['discovery', 'targeted'],
+          [_m793._checked_kind(k) for k in _m793._ROUND_KINDS])
+
+assert_eq("#793: every reason token the selector can answer is in the closed reason set",
+          True,
+          'targeted-eligible' in _m793._ROUND_KIND_REASONS)
+
+
+def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\n',
+                stage=True):
+    """Run the selector with a real byte history on disk."""
+    import tempfile as _tf
+    d = Path(_tf.mkdtemp())
+    canonical = d / 'draft.md'
+    canonical.write_bytes(after)
+    if stage:
+        dig = _m793.hash_bytes(before)
+        art = d / f'issue-draft-s.n.{dig}.staged.md'
+        art.write_bytes(before)
+        doc.setdefault('staged_paths', []).append({'path': str(art), 'digest': dig})
+        if doc['rounds']:
+            doc['rounds'][-1]['attempts'][-1]['digest'] = dig
+    return _m793.select_round_kind(doc, str(canonical))
+
+
+# --- the five `targeted` conditions, each driven to failure in isolation --------------
+
+assert_eq("#793: no completed round selects discovery, naming the condition",
+          ('discovery', 'no-completed-round'),
+          (lambda a: (a['kind'], a['reason']))(_793_select(_793_state(), stage=False)))
+
+assert_eq("#793: condition 1 — no revision postdating the round selects discovery",
+          ('discovery', 'no-revision-after-round'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])]))))
+
+assert_eq("#793: condition 2 — a non-file-arm round selects discovery",
+          ('discovery', 'not-file-arm'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(
+                  rounds=[_793_round(arm='embed', findings=[_793_entry(1)])],
+                  revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+assert_eq("#793: condition 3 — dispatch bytes absent from the byte history select "
+          "discovery",
+          ('discovery', 'dispatch-bytes-unrecoverable'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]),
+                          stage=False)))
+
+assert_eq("#793: condition 4 — an empty enumerated claim set selects discovery",
+          ('discovery', 'empty-claim-set'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(rounds=[_793_round(findings=[])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+assert_eq("#793: an empty computed changed-section set selects discovery — never read "
+          "as 'nothing changed'",
+          ('discovery', 'empty-delta'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]),
+                          before=b'# T\n\n## A\n\nsame\n', after=b'# T\n\n## A\n\nsame\n')))
+
+def _793_delta_error():
+    """Every earlier condition satisfied; only the delta computation fails.
+
+    Isolating the arm matters: pointing at a missing staged artifact would fail condition
+    3 first and the row would grade a different arm than it names.
+    """
+    import tempfile as _tf
+    d = Path(_tf.mkdtemp())
+    before = b'# T\n\n## A\n\nold\n'
+    dig = _m793.hash_bytes(before)
+    art = d / f'issue-draft-s.n.{dig}.staged.md'
+    art.write_bytes(before)
+    doc = _793_state(rounds=[_793_round(digest=dig, findings=[_793_entry(1)])],
+                     revisions=[{'ordinal': 1, 'after_round': 1}],
+                     staged_paths=[{'path': str(art), 'digest': dig}])
+    # The canonical file does not exist, so the "after" side cannot be read at all.
+    return _m793.select_round_kind(doc, str(d / 'absent-canonical.md'))
+
+
+assert_eq("#793: a changed-section computation that errors selects discovery",
+          ('discovery', 'delta-error'),
+          (lambda a: (a['kind'], a['reason']))(_793_delta_error()))
+
+# --- the satisfied path ---------------------------------------------------------------
+
+_793_ok = _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1),
+                                                              _793_entry(2)])],
+                                 revisions=[{'ordinal': 1, 'after_round': 1}]))
+
+assert_eq("#793: every condition satisfied selects targeted with its eligible reason",
+          ('targeted', 'targeted-eligible'), (_793_ok['kind'], _793_ok['reason']))
+
+assert_eq("#793: the selector answers the enumerated claim ids alongside the kind",
+          ['1.1', '1.2'], _793_ok['claim_ids'])
+
+assert_eq("#793: the selector answers the computed changed-section set as the delta state",
+          ['## A'], _793_ok['sections'])
+
+assert_eq("#793: the selector answers the basis digest of the canonical bytes the "
+          "changed-section set was computed from",
+          True,
+          isinstance(_793_ok.get('basis_digest'), str) and len(_793_ok['basis_digest']) == 40)
+
+assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
+          ('discovery', 'empty-claim-set'),
+          (lambda a: (a['kind'], a['reason']))(
+              _793_select(_793_state(
+                  rounds=[_793_round(findings=[_793_entry(1, status='resolved')])],
+                  revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)
