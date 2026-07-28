@@ -4,6 +4,17 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.10] — 2026-07-28
+
+### Changed
+### Changed
+
+- Default Claude model moves from Claude Opus 4.8 to Claude Opus 5 (`claude-opus-5`).
+  Updates `claude_model` in the shipped `.devflow/config.example.json` and its
+  `config.schema.json` default, this repo's tracked `.devflow/config.json`
+  (`claude_model`, the `devflow:code-reviewer` agent override, and the
+  retrospective/audit models), and the coupled docs mirrors.
+
 ## [2.23.9] — 2026-07-28
 
 ### Fixed
