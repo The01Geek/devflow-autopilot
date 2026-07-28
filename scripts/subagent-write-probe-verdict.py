@@ -7,9 +7,12 @@ file, per tier (issue #858).
 
 Why a helper rather than inline Python in matcher-probe.yml: this verdict is a
 branch-selecting core (a three-outcome PERMITTED / DENIED / unestablished selection,
-where every state outside the measurable pair must route to `unestablished` and NEVER
-to DENIED — a permission finding must never be published about a run that never
-attempted the permission). Inline-in-YAML it cannot be unit-tested, so a regressed arm
+where a state outside the measurable pair routes to `unestablished` rather than to
+DENIED — a permission finding must never be published about a run that never attempted
+the permission). The one disclosed residual is stated with the DENIED bullet below: a
+denial entry recording no `tool_name` at all and naming the side-effect filename is read
+as the write denial, because the per-entry denial shape is not yet recorded and no
+narrower attribution channel exists for it. Inline-in-YAML it cannot be unit-tested, so a regressed arm
 would silently misfire while the workflow still "runs" — the same rationale as
 scripts/background-tasks-probe-verdict.py (#812), scripts/env-propagation-probe-verdict.py
 (#874), scripts/agents-seam-probe-verdict.py (#610), and scripts/describe-denial-count.sh
@@ -65,7 +68,13 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   on-disk side-effect file is present. The verdict cites that chain by its
                   `tool_use` id and `parent_tool_use_id`, so a reader can re-verify it.
   DENIED          a permission_denials entry attributable to the subagent's Write was
-                  recorded. DENIED wins over a present side-effect file (an earlier run's
+                  recorded, AND a dispatch is recorded in this file (with no dispatchee to
+                  attribute it to the denial is not the subagent's), AND — where this file
+                  records parent chains at all — no parent-less, orchestrator-issued Write
+                  names the same file (such a Write falsifies the single-author premise the
+                  attribution rests on). All three conjuncts are required; each missing one
+                  routes to its own named `unestablished` reason below, never to DENIED.
+                  DENIED wins over a present side-effect file (an earlier run's
                   leftover): the denial signal is authoritative. Attribution rests on the
                   job's prompt containing NO orchestrator write, so a Write denial has
                   exactly one possible author; the run's observed denial-entry shape is
@@ -89,11 +98,23 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   yet recorded, so no narrower attribution is available for it.
   unestablished   EVERY other state, each with its own named reason (never DENIED):
                   upstream tier job did not complete (consumed allowlist empty/absent),
-                  execution file absent/unparseable/engine-errored, a `permission_denials`
+                  execution file absent/unreadable/unparseable, an execution file that
+                  parsed cleanly but holds NO records at all (an empty container — the
+                  session recorded nothing, which is what an engine failure before the
+                  first record looks like; this helper reads no engine-error field, so it
+                  reports the emptiness it can observe and never the cause it cannot),
+                  a `permission_denials`
                   key present in a shape that is not a list (the denials could not be
                   enumerated, so their absence is unknown rather than zero), a `--tier`
                   outside the closed set (the tier-derived write marker then names no real
-                  side-effect file, so nothing measurable is being looked for), dispatch refused
+                  side-effect file, so nothing measurable is being looked for), a Write
+                  denial recorded with NO dispatch recorded in this file (no dispatchee to
+                  attribute it to), a Write denial recorded beside a parent-less
+                  orchestrator-issued Write naming the same file (the single-author premise
+                  is falsified), a `Write` denial naming only the PAYLOAD and not the tier's
+                  side-effect filename (a denied write to some OTHER path — reporting it as
+                  the probe's write denial would be a false statement about the run),
+                  dispatch refused
                   (cause NOT named — the entry shape does not establish it), no dispatch
                   recorded,
                   no subagent-issued call recorded at all, subagent calls recorded but not
@@ -313,11 +334,12 @@ def collect(parsed):
 
 
 def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empty,
-            tier_note=""):
+            tier_note="", records_note=""):
     """Return a dict of every field the table reports plus the final verdict/reason.
 
     All marker matches are case-insensitive so a decorated recording still reads present.
-    `side_path` is the tier's side-effect filename stem used as the write marker."""
+    `side_path` is the tier's side-effect FILENAME (`subwrite-<tier>.txt`, extension
+    included) used as the write marker — the substring match depends on the suffix."""
     write_marker = side_path.lower()
 
     # ── Denial classification, ONE ENTRY AT A TIME.
@@ -342,29 +364,50 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         t = d["text"].lower()
         return '"subagent_type"' in t or "general-purpose" in t
 
-    # A write denial: an entry whose own tool_name is Write and which names the side-effect
-    # path or the payload. An entry naming any OTHER tool is NOT the write denial, however
-    # its text quotes the markers. Residual, disclosed: an entry recording no tool_name at
+    # A write denial: an entry whose own tool_name is Write and which names the tier's
+    # side-effect FILENAME. The filename is required and the PAYLOAD marker alone is not
+    # enough — this is the exact twin of the guard the permit side already carries: a Write
+    # of that payload to some OTHER path is a write the probe never asked about, so
+    # reporting its denial as "a permission_denials entry for the subagent's Write into
+    # subwrite-<tier>.txt" would be a positively-stated permission finding about a
+    # permission that was never attempted for that target — the one outcome the
+    # three-outcome contract forbids. On the review tier the shape is live: `Write` is
+    # granted only as `Write(.devflow/tmp/**)`, so any subagent deviation produces exactly
+    # such an entry. It is not silently dropped either — `_is_foreign_write_denial` below
+    # routes it to its OWN named `unestablished` arm, so the run does not instead assert
+    # "the subagent ran but did not attempt the write" about a write it demonstrably tried.
+    # An entry naming any OTHER tool is NOT the write denial, however its text quotes the
+    # markers. Residual, disclosed: an entry recording no tool_name at
     # all is attributed by the side-effect path alone, because no narrower channel exists.
     def _is_write_denial(d):
         t = d["text"].lower()
         if d["tool_name"] == "write":
-            return write_marker in t or _PAYLOAD_L in t
+            return write_marker in t
         if d["tool_name"]:
             return False
         return write_marker in t
+
+    # A denied `Write` carrying the probe's payload but NOT the tier's side-effect filename:
+    # a real write attempt, refused, to a path the probe never asked about. Its own arm
+    # rather than the "neither" bucket, so the emitted reason describes what the file shows.
+    def _is_foreign_write_denial(d):
+        return d["tool_name"] == "write" and _PAYLOAD_L in d["text"].lower()
 
     # One pass, one bucket per entry — never an identity/equality lookup back into a list,
     # which would misroute the second of two byte-identical entries.
     dispatch_denials = []
     write_denials = []
+    foreign_write_denials = []
     for _d in denials:
         if _is_dispatch_denial(_d):
             dispatch_denials.append(_d)
         elif _is_write_denial(_d):
             write_denials.append(_d)
+        elif _is_foreign_write_denial(_d):
+            foreign_write_denials.append(_d)
     dispatch_denied = bool(dispatch_denials)
     write_denied = bool(write_denials)
+    foreign_write_denied = bool(foreign_write_denials)
     # NOTE — no cause discriminator. An earlier revision split the refusal reason into
     # "unknown subagent type" vs "dispatch head not granted" by scanning the denial text for
     # `"subagent_type"` / `general-purpose`. That cannot separate the two causes: a refusal of
@@ -474,6 +517,18 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         verdict, reason = "unestablished", (
             "the execution file could not be read cleanly: " + note_top
         )
+    elif records_note:
+        # Its OWN arm, and ahead of every signal-bearing arm below. A file that parses
+        # cleanly into an EMPTY container (`[]` / `{}`) carries no records at all, and both
+        # probe jobs run this verdict step under `if: always()` — so a claude-code-action
+        # step failing mid-session is exactly the path that produces one. Without this arm
+        # it fell through to "no dispatch was recorded and no subagent-issued call appeared
+        # — the dispatch never occurred", a positively-stated claim about a dispatch, from a
+        # file that is not evidence about the dispatch at all (the reason-misattribution
+        # class describe-denial-count.sh was extracted to prevent). The reason states the
+        # observable — the file holds no records — and NOT a cause: this helper reads no
+        # engine-error field, so naming an engine failure would be an unmeasured claim.
+        verdict, reason = "unestablished", records_note
     elif write_denied and not dispatch_recorded:
         # DENIED's attribution rests entirely on "the dispatched subagent is the only
         # possible author of a Write". With NO dispatch recorded in this file there is no
@@ -503,11 +558,24 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         # write itself. Ordering it first is what lets a multi-entry list holding both a
         # dispatch refusal and a real Write denial resolve DENIED instead of reporting
         # `unestablished` with a positively-stated claim that no write was attempted.
+        # The orchestrator-write clause is stated ONLY where this file records parent chains
+        # at all. Without chains `orchestrator_write_recorded` is False for a reason of
+        # IGNORANCE — a parent-less Write cannot be told from a subagent's — so asserting
+        # "no orchestrator-issued Write names that file" would publish an unknown as a
+        # measured zero, the very collapse the surrounding arms exist to prevent.
         verdict, reason = "DENIED", (
             "a permission_denials entry for the subagent's Write into %s was recorded, a "
-            "dispatch is recorded in this file, and no orchestrator-issued Write names that "
-            "file; attribution rests on this job's prompt containing no orchestrator write, "
-            "so the denial has exactly one possible author" % side_path
+            "dispatch is recorded in this file, and %s; attribution rests on this job's "
+            "prompt containing no orchestrator write, so the denial has exactly one "
+            "possible author"
+            % (
+                side_path,
+                "no orchestrator-issued Write names that file"
+                if chains_are_recorded
+                else "this file records no parent_tool_use_id at all, so whether an "
+                     "orchestrator-issued Write names that file is unestablished rather "
+                     "than ruled out",
+            )
         )
     elif dispatch_denied and not dispatch_recorded:
         # Gated on `not dispatch_recorded`: a refusal co-recorded with a dispatch that DID
@@ -559,6 +627,18 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         verdict, reason = "unestablished", (
             "a Write was recorded but its parent chain does not tie it to this job's "
             "dispatch, so it cannot be attributed to the dispatched subagent"
+        )
+    elif foreign_write_denied:
+        # Placed exactly where the arm below would otherwise assert "the write was neither
+        # recorded nor denied — the subagent ran but did not attempt the write", which is
+        # false about this run: a Write WAS attempted and refused, just to a path the probe
+        # never asked about. The verdict stays `unestablished` (nothing is established about
+        # the write into side_path), but the reason describes what the file actually shows.
+        verdict, reason = "unestablished", (
+            "a permission_denials entry for a `Write` carrying the probe's payload was "
+            "recorded, but it does not name %s — the refused write targeted some OTHER "
+            "path, so it establishes nothing about the write this probe measures and is "
+            "not reported as its denial" % side_path
         )
     elif not write_recorded:
         verdict, reason = "unestablished", (
@@ -629,6 +709,18 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     parsed, parse_note = parse_execution_file(exec_file)
     if parse_note:
         notes.append(parse_note)
+    # A cleanly-parsed but EMPTY container is not a read failure (nothing to append to
+    # `notes`, whose arm blames the file's readability) and not evidence about the dispatch
+    # either — it gets its own reason in compute(). Only meaningful when the parse itself
+    # succeeded: on a failure path parse_execution_file already returns [] with a note.
+    records_note = ""
+    if not parse_note and isinstance(parsed, (list, dict)) and len(parsed) == 0:
+        records_note = (
+            "the execution file parsed cleanly but holds no records at all (an empty %s) — "
+            "the session recorded nothing, so neither the dispatch nor the write is "
+            "established; this helper reads no engine-error field, so the cause is not "
+            "named" % ("array" if isinstance(parsed, list) else "object")
+        )
     try:
         denials, tool_uses, shape_notes = collect(parsed)
     except RecursionError:
@@ -640,7 +732,8 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     note_top = "; ".join(notes)
 
     r = compute(
-        denials, tool_uses, note_top, side_path, side_present, upstream_empty, tier_note
+        denials, tool_uses, note_top, side_path, side_present, upstream_empty, tier_note,
+        records_note,
     )
 
     out = []

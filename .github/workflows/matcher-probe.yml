@@ -1449,9 +1449,14 @@ jobs:
   # unestablished (a grant proven for the dispatcher is not inherited; CLAUDE.md: "Unknown
   # is not zero"). Each tier gets its OWN dedicated job — NOT a shape row inside the
   # existing probe/implement-probe jobs, whose sessions already write into `.devflow/tmp/`
-  # and would leave a Write record with two possible authors. This job's prompt performs NO
-  # orchestrator write, so a Write record in its execution file has exactly one possible
-  # author (the subagent).
+  # and would leave a Write record with two possible authors. This job's prompt instructs NO
+  # orchestrator write, so a Write record in its execution file has exactly one EXPECTED
+  # author (the subagent). That is a PROMPT-level guarantee, not a technical restriction —
+  # the composed allowlist grants Write(.devflow/tmp/**) to the whole session, so the
+  # orchestrator keeps the capability and is simply not asked to use it. The verdict helper
+  # does not rest on the prompt alone: wherever the execution file records parent chains, a
+  # parent-less (orchestrator-issued) Write naming the same file falsifies the premise and
+  # routes the run to `unestablished` instead of a DENIED that record would contradict.
   #
   # The allowlist is CONSUMED from the tier job's resolved-tools step via `needs:` (the
   # generated baseline joined with that job's standing extras — the review tier's include a

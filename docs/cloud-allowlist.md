@@ -234,8 +234,15 @@ record reproduces the resolved literal verbatim rather than describing it. `Writ
 the **orchestrator** (the `Write(.devflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
 for the dispatcher is `unestablished` for the **dispatchee** — CLAUDE.md's "Unknown is
 not zero". The job is **dedicated** (not a shape row in the `probe` job, whose session
-already writes to `.devflow/tmp/probe-09.txt`): its prompt performs **no orchestrator
-write at all**, so a `Write` record in its execution file has exactly one possible author.
+already writes to `.devflow/tmp/probe-09.txt`): its prompt instructs **no orchestrator
+write at all**, so a `Write` record in its execution file has exactly one *expected*
+author. That single-authorship is a **prompt-level** guarantee, not a technical
+restriction — the composed allowlist grants `Write(.devflow/tmp/**)` to the whole
+session, so the orchestrator retains the capability and simply is not asked to use it.
+The helper does not rest on the guarantee alone: where the execution file records parent
+chains at all, a parent-less (orchestrator-issued) `Write` naming the same file is
+detected and routes the run to `unestablished` rather than to a `DENIED` whose
+attribution that record would falsify.
 
 The job **consumes** the resolved review literal from the `probe` job via `needs:`
 (never a second `REVIEW=` assignment) and appends **`Task,Agent`** in its own
@@ -249,7 +256,10 @@ subagent makes a granted-head control call **before** the write and one **after*
 recorded `tool_use` inputs, and each call's `parent_tool_use_id`, corroborated by the
 on-disk side-effect file. It reports the two control facts **independently** —
 *recorded-at-all* and *chain-attributable* — never conjoined; the model's prose is never
-read. Every state outside the measurable pair reports `unestablished`, never `DENIED`.
+read. A state outside the measurable pair reports `unestablished` rather than `DENIED`,
+with one disclosed residual: a denial entry recording no `tool_name` at all and naming
+the side-effect filename is read as the write denial, because the per-entry denial shape
+is not yet recorded and no narrower attribution channel exists for it.
 
 Both signals are attributed **per recorded entry**, never over the concatenation of the
 run's entries: the write is the `Write` tool's own call naming the tier's side-effect
@@ -257,8 +267,14 @@ filename — the payload marker alone is not enough, since a write of that paylo
 path is not the write the probe asked about (a
 different tool merely *naming* that path is not the write, and a different tool's refusal
 quoting it is not the write's denial), and a parent-less marker call is the orchestrator's
-wherever the execution file records parent chains at all. A multi-entry denial list holding
-both a dispatch refusal and a genuine `Write` denial therefore still reports `DENIED`.
+wherever the execution file records parent chains at all. The **denial** side carries the
+same filename requirement as its twin: a refused `Write` carrying only the payload and not
+the tier's side-effect filename was a write to some *other* path, so it routes to its own
+named `unestablished` reason rather than publishing a `DENIED` about a target whose
+permission was never attempted. A multi-entry denial list holding both a dispatch refusal
+and a genuine `Write` denial still reports `DENIED` **provided a dispatch is also recorded
+in the file** — that conjunct is what the verdict requires, and with no recorded dispatch
+there is no dispatchee to attribute the denial to, so such a list reports `unestablished`.
 
 **This measurement is PENDING.** The implementing run added the job and this entry and
 deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo

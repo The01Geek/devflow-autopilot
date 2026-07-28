@@ -24598,6 +24598,24 @@ scenarios = {
     # The clean denial: dispatch recorded, no orchestrator Write — the one shape that IS DENIED.
     "envelope_denial_clean": [envelope(None, [D_BLK]), envelope("d1", [CB_BLK]),
                               {"permission_denials": [WDEN_ENTRY]}],
+    # ── The DENIAL twin of "envelope_payload_other_path". A refused `Write` whose recorded
+    # input carries SUBWRITE_PAYLOAD but names some OTHER path is a denial of a write the
+    # probe never asked about. Classifying it as the probe's write denial would publish
+    # DENIED with a reason positively naming subwrite-review.txt — a permission finding
+    # about a permission never attempted for that target. On the review tier the shape is
+    # LIVE: Write is granted only as Write(.devflow/tmp/**), so any subagent deviation
+    # produces exactly this entry. It must route to its OWN named unestablished reason,
+    # never to DENIED and never to the "did not attempt the write" claim (a write WAS
+    # attempted). Dispatch + controls are recorded so the fixture is otherwise
+    # DENIED-eligible — only the filename requirement can produce the unestablished.
+    "write_denial_payload_other_path": [D, CB, {"permission_denials": [
+        {"tool_name": "Write", "tool_input": {"file_path": "/tmp/elsewhere.txt",
+                                              "content": "SUBWRITE_PAYLOAD"}}]}, CA],
+    # A Write denial in a file that records NO parent chain anywhere. Still DENIED (dispatch
+    # recorded, no orchestrator Write detectable), but the emitted reason must NOT assert
+    # "no orchestrator-issued Write names that file" — that flag is False here for a reason
+    # of IGNORANCE, not evidence, and asserting it publishes an unknown as a measured zero.
+    "denial_no_chains": [D, bash("printf SUBWRITE_CONTROL_BEFORE", None, "c1"), WDEN],
     # A Write carrying the payload to some OTHER path: not the write the probe asked about.
     "envelope_payload_other_path": [
         envelope(None, [D_BLK]),
@@ -24607,10 +24625,17 @@ scenarios = {
                                    "content": "SUBWRITE_PAYLOAD"}},
                         CA_BLK])],
 }
-recs = scenarios[scen]
+recs = scenarios.get(scen)
 with open(path, "w", encoding="utf-8") as fh:
     if scen == "not_object":
         fh.write('"just a string, not an object or array"\n')
+    elif scen == "empty_array":
+        # Parses cleanly, passes the container check, holds NO records. Both probe jobs run
+        # the verdict step under `if: always()`, so a claude-code-action step failing
+        # mid-session is exactly the path that produces this file.
+        fh.write("[]\n")
+    elif scen == "empty_object":
+        fh.write("{}\n")
     else:
         for r in recs:
             fh.write(json.dumps(r) + "\n")
@@ -24737,6 +24762,69 @@ assert_eq "#858 subagent-write: a Write denial beside an unrelated third-tool de
   "DENIED" "$(swv_verdict "$(devflow_swv multi_write_then_read)")"
 assert_eq "#858 subagent-write: a scalar denial entry naming the side-effect path → DENIED (disclosed no-tool_name residual)" \
   "DENIED" "$(swv_verdict "$(devflow_swv pd_scalar_entry)")"
+
+# ── The DENIAL twin of the permit side's filename requirement. A refused `Write` carrying
+# the payload but naming some OTHER path must NOT publish DENIED: the emitted reason
+# positively names subwrite-review.txt, so doing so would be a permission finding about a
+# permission never attempted for that target. On the review tier the shape is live (`Write`
+# is granted only as `Write(.devflow/tmp/**)`), and the fixture is otherwise DENIED-eligible
+# — dispatch and both controls are recorded — so ONLY the filename requirement can produce
+# the unestablished, and the assertion cannot pass by an unrelated precondition.
+SWV_FOREIGN_DEN="$(devflow_swv write_denial_payload_other_path)"
+assert_eq "#858 subagent-write: a Write denial naming only the PAYLOAD and another path → unestablished" \
+  "unestablished" "$(swv_verdict "$SWV_FOREIGN_DEN")"
+assert_eq "#858 subagent-write: that payload-only Write denial is NOT a false DENIED" "no" \
+  "$(printf '%s' "$SWV_FOREIGN_DEN" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
+# The reason must not misdescribe it either: the subagent DID attempt a write, so the
+# generic "ran but did not attempt the write" arm would be a positively-stated falsehood.
+assert_eq "#858 subagent-write: the payload-only denial names the OTHER-path refusal specifically" "yes" \
+  "$(printf '%s' "$SWV_FOREIGN_DEN" | grep -qF 'the refused write targeted some OTHER path' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the payload-only denial does NOT claim the write was never attempted" "no" \
+  "$(printf '%s' "$SWV_FOREIGN_DEN" | grep -qF 'did not attempt the write' && echo yes || echo no)"
+# Positive control on the same shape: move the denial onto the tier's side-effect FILENAME
+# and the identical fixture family IS DENIED, so the arm above is discriminating on the
+# filename and not on some unrelated property of the fixture.
+assert_eq "#858 subagent-write: positive control — the same denial naming the side-effect file IS DENIED" \
+  "DENIED" "$(swv_verdict "$(devflow_swv denied)")"
+
+# ── The DENIED reason's orchestrator clause is conditioned on chains being recorded at all.
+# With no parent_tool_use_id anywhere, `orchestrator_write_recorded` is False for a reason of
+# IGNORANCE — a parent-less Write cannot be told from a subagent's — so asserting "no
+# orchestrator-issued Write names that file" would publish an unknown as a measured zero.
+SWV_DEN_NOCHAIN="$(devflow_swv denial_no_chains)"
+assert_eq "#858 subagent-write: a Write denial with no chains recorded is still DENIED" \
+  "DENIED" "$(swv_verdict "$SWV_DEN_NOCHAIN")"
+assert_eq "#858 subagent-write: that DENIED does NOT assert the orchestrator-write ruling-out" "no" \
+  "$(printf '%s' "$SWV_DEN_NOCHAIN" | grep -qF 'no orchestrator-issued Write names that file' && echo yes || echo no)"
+assert_eq "#858 subagent-write: it names the orchestrator question as unestablished instead" "yes" \
+  "$(printf '%s' "$SWV_DEN_NOCHAIN" | grep -qF 'records no parent_tool_use_id at all' && echo yes || echo no)"
+# Positive control: WITH chains recorded, the clause IS asserted — so the pair above pins a
+# conditional and not the mere absence of a string the helper never emits.
+assert_eq "#858 subagent-write: with chains recorded, the DENIED reason does rule the orchestrator write out" "yes" \
+  "$(printf '%s' "$(devflow_swv envelope_denial_clean)" | grep -qF 'no orchestrator-issued Write names that file' && echo yes || echo no)"
+
+# ── An execution file that parses cleanly but holds NO records. Both probe jobs run the
+# verdict step under `if: always()`, so a claude-code-action step failing mid-session is
+# exactly the path that yields one. It must NOT read as "the dispatch never occurred" — that
+# is a positively-stated claim about a dispatch, from a file that is no evidence about the
+# dispatch at all (the reason-misattribution class). The helper reads no engine-error field,
+# so the reason must state the observable emptiness and NOT name a cause.
+for _empty in empty_array empty_object; do
+  _eout="$(devflow_swv "$_empty")"
+  assert_eq "#858 subagent-write: '$_empty' execution file → unestablished" \
+    "unestablished" "$(swv_verdict "$_eout")"
+  assert_eq "#858 subagent-write: '$_empty' names the no-records observable specifically" "yes" \
+    "$(printf '%s' "$_eout" | grep -qF 'holds no records at all' && echo yes || echo no)"
+  assert_eq "#858 subagent-write: '$_empty' does NOT misattribute it to a dispatch that never occurred" "no" \
+    "$(printf '%s' "$_eout" | grep -qF 'the dispatch never occurred' && echo yes || echo no)"
+  # It must not blame the file's READABILITY either — the file read and parsed cleanly.
+  assert_eq "#858 subagent-write: '$_empty' does not blame the execution file's readability" "no" \
+    "$(printf '%s' "$_eout" | grep -qF 'could not be read cleanly' && echo yes || echo no)"
+done
+# Negative control for the pair above: a file that DOES record a dispatch-less session still
+# gets the dispatch-never-occurred reason, so the assertions are not vacuous.
+assert_eq "#858 subagent-write: a non-empty dispatch-less file still names the dispatch never occurring" "yes" \
+  "$(printf '%s' "$(devflow_swv no_dispatch)" | grep -qF 'the dispatch never occurred' && echo yes || echo no)"
 
 # ── WRONG-TYPE permission_denials: the shape matrix's wrong-type row. The verdict is pinned
 # by the loop above; here the SPECIFIC breadcrumb is pinned, because a generic one would not
@@ -24916,7 +25004,8 @@ census = {}
 with open(census_path, encoding="utf-8") as fh:
     for line in fh:
         line = line.rstrip("\n")
-        if line.startswith("#") or ":" not in line or line.startswith("##"):
+        # `##` headings need no separate clause — they already satisfy startswith("#").
+        if line.startswith("#") or ":" not in line:
             continue
         k, _, t = line.partition(":")
         census.setdefault(k.strip(), set()).add(t.strip())
@@ -24980,6 +25069,26 @@ assert_eq "#858 subagent-write: dispatch-refused run reports dispatch_outcome=de
 # The machine-consumed tier field travels with the verdict.
 assert_eq "#858 subagent-write: the outcome record carries the tier as a machine field" "yes" \
   "$(printf '%s' "$SWV_TABLE" | grep -qE '\| tier \| `review` \|' && echo yes || echo no)"
+# ── The DOCUMENTED env-var input path. The usage block states the execution file may be
+# supplied via EXECUTION_FILE when the positional is omitted, but every other assertion here
+# and both workflow call sites pass a positional — so without this the documented fallback
+# ships unexercised and could rot silently. Asserted against a PERMITTED-shaped fixture so
+# the env path is shown to reach the same verdict, not merely to exit 0.
+devflow_swv_build permitted
+assert_eq "#858 subagent-write: the documented EXECUTION_FILE env-var input reaches the same verdict" \
+  "PERMITTED" "$(swv_verdict "$(EXECUTION_FILE="$SWV_TMP/exec.jsonl" python3 "$SWV" \
+    --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+# Negative control: with the env var EMPTY and no positional, the run must degrade to the
+# absent-file `unestablished` rather than silently reading some other file — so the
+# assertion above cannot be passing on an unrelated default.
+assert_eq "#858 subagent-write: an empty EXECUTION_FILE with no positional → unestablished" \
+  "unestablished" "$(swv_verdict "$(EXECUTION_FILE="" python3 "$SWV" \
+    --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+# A POSITIONAL must win over the env var (the usage says the env var applies "if omitted").
+assert_eq "#858 subagent-write: a positional execution file overrides the env var" \
+  "PERMITTED" "$(swv_verdict "$(EXECUTION_FILE="$SWV_TMP/no-such-file.jsonl" python3 "$SWV" \
+    "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+
 # Always exits 0, even on an absent execution file (the maintainer-dispatched job must
 # never turn into a red step with no verdict on the degraded run it exists to characterize).
 python3 "$SWV" "$SWV_TMP/no-such-file.jsonl" --tier review >/dev/null 2>&1
@@ -25012,6 +25121,71 @@ assert_eq "#858 matcher-probe: no second IMPLEMENT= assignment was introduced" "
 # no generated region / manifest).
 assert_eq "#858 matcher-probe: the two dispatch heads are appended in the new jobs' composed allowlists" "2" \
   "$(grep -cF 'TOOLS="${UPSTREAM_TOOLS},Task,Agent"' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+# Both new jobs carry `always()` in their `if`. A BARE `needs:` SKIPS the dependent when the
+# workflow's cancel-in-progress cancels the upstream tier job — a fourth, silent outcome
+# outside the closed three-outcome vocabulary, and the one the --upstream-tools-empty arm
+# exists to convert into a named `unestablished`. The needs:/outputs wiring above does not
+# pin it, so dropping always() would leave that arm unreachable with the suite fully green.
+assert_eq "#858 matcher-probe: both subagent-write jobs guard on always() so a cancelled upstream still yields a verdict" "yes" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" <<'PY_ALWAYS'
+import sys, yaml
+j = yaml.safe_load(open(sys.argv[1]))["jobs"]
+names = ("subagent-write-review-probe", "subagent-write-implement-probe")
+print("yes" if all("always()" in str(j.get(n, {}).get("if", "")) for n in names) else "no")
+PY_ALWAYS
+)"
+# Negative control for the check above: the SIBLING probe jobs, which carry a bare
+# same-repo-or-dispatch guard with no always(), read "no" through the identical predicate —
+# so a mutation making the predicate answer "yes" unconditionally is caught here.
+assert_eq "#858 matcher-probe: the always() predicate is discriminating (a sibling job without it reads no)" "no" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" <<'PY_ALWAYS_NEG'
+import sys, yaml
+j = yaml.safe_load(open(sys.argv[1]))["jobs"]
+print("yes" if "always()" in str(j.get("probe", {}).get("if", "")) else "no")
+PY_ALWAYS_NEG
+)"
+
+# ── The marker+path COUPLED INVARIANT, asserted rather than merely declared. The helper's
+# docstring says the markers are "kept in lockstep with matcher-probe.yml's subagent-write
+# probe prompts" and the workflow comment says "one contract, edited together" — but the two
+# sides spell the strings out INDEPENDENTLY: the helper hardcodes CONTROL_BEFORE /
+# CONTROL_AFTER / PAYLOAD and DERIVES side_path as "subwrite-<tier>.txt", while the workflow
+# writes the same tokens into each job's prompt and passes the filename through
+# --side-effect-file. Rename either side alone and every subsequent PAID probe run silently
+# resolves `unestablished` ("the subagent ran but did not attempt the write") — the
+# confident-looking negative this helper exists to prevent — with the suite fully green.
+# The values are read from the two sources rather than restated here, so this asserts the
+# COUPLING and cannot itself become a third copy that drifts.
+assert_eq "#858 matcher-probe: the probe markers and side-effect filenames are coupled to the helper's constants" "coupled" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../scripts/subagent-write-probe-verdict.py" <<'PY_COUPLED'
+import re, sys, yaml
+wf_path, helper_path = sys.argv[1], sys.argv[2]
+src = open(helper_path, encoding="utf-8").read()
+def const(name):
+    m = re.search(r'^%s = "([^"]+)"' % name, src, re.M)
+    return m.group(1) if m else None
+markers = [const(n) for n in ("CONTROL_BEFORE", "CONTROL_AFTER", "PAYLOAD")]
+if not all(markers):
+    print("helper constants not readable: %r" % (markers,)); sys.exit(0)
+# The helper's own derivation of the side-effect filename, read from its source.
+m = re.search(r'side_path = "([^"]+)" % tier', src)
+if not m:
+    print("helper side_path derivation not readable"); sys.exit(0)
+tmpl = m.group(1)
+jobs = yaml.safe_load(open(wf_path, encoding="utf-8"))["jobs"]
+for job, tier in (("subagent-write-review-probe", "review"),
+                  ("subagent-write-implement-probe", "implement")):
+    steps = jobs.get(job, {}).get("steps") or []
+    blob = yaml.safe_dump(steps)
+    for marker in markers:
+        if marker not in blob:
+            print("%s: prompt does not carry %s" % (job, marker)); sys.exit(0)
+    want = tmpl % tier
+    if not re.search(r'--side-effect-file\s+\S*' + re.escape(want) + r'\b', blob):
+        print("%s: --side-effect-file does not name %s" % (job, want)); sys.exit(0)
+print("coupled")
+PY_COUPLED
+)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"

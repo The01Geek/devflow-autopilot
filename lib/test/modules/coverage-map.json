@@ -1718,7 +1718,7 @@
       "owner": "unmodularized"
     },
     "858": {
-      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. Not every code path is driven \u2014 the parse OSError arm, the RecursionError arm and the GITHUB_STEP_SUMMARY append are uncovered.",
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. Not every code path is driven \u2014 uncovered paths include the parse OSError arm, the RecursionError arm, the GITHUB_STEP_SUMMARY append, main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback.",
       "owner": "unmodularized"
     },
     "869": {
