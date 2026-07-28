@@ -23618,12 +23618,18 @@ devflow_mte_seed() {  # $1=base-repo dir; remaining args: files to author as "<n
   git -C "$_d" add -A >/dev/null 2>&1
   git -C "$_d" -c user.email=t@example.invalid -c user.name=t commit -q -m base >/dev/null 2>&1
 }
-devflow_mte_workspace() {  # $1=workspace dir; $2=base-repo dir ('' = no fetch, so FETCH_HEAD never resolves)
+devflow_mte_workspace() {  # $1=workspace dir; $2=base-repo dir ('' = no fetch, so FETCH_HEAD never resolves); $3=bare 'none' to author NO PR-head copies
   git init -q "$1"
-  # The PR-head copies the suppression must beat: present and non-empty.
+  # The PR-head copies the suppression must beat: present and non-empty. The optional
+  # third argument selects the OPPOSITE asymmetry — a workspace carrying none of them —
+  # which is the only way to exercise the base-present/head-absent acceptance criterion
+  # (with both copies always authored, that criterion is only ever covered as two
+  # separate half-facts rather than as the composition it states).
   mkdir -p "$1/.devflow/prompt-extensions"
-  printf 'PR-HEAD HOSTILE BYTES\n' > "$1/.devflow/prompt-extensions/review.md"
-  printf 'PR-HEAD HOSTILE BYTES\n' > "$1/.devflow/prompt-extensions/requesting-code-review.md"
+  if [ "${3:-}" != none ]; then
+    printf 'PR-HEAD HOSTILE BYTES\n' > "$1/.devflow/prompt-extensions/review.md"
+    printf 'PR-HEAD HOSTILE BYTES\n' > "$1/.devflow/prompt-extensions/requesting-code-review.md"
+  fi
   [ -n "$2" ] && git -C "$1" fetch -q "$2" HEAD >/dev/null 2>&1
   return 0
 }
@@ -23813,6 +23819,24 @@ assert_eq "#874 attack: the benign base-ref bytes are what the reviewer receives
 : > "$MTE_TMP/atkws/.devflow/prompt-extensions/review.md"
 MTE_NOVAR_OUT="$( cd "$MTE_TMP/atkws" && bash "$LIB/../scripts/load-prompt-extension.sh" review 2>/dev/null )"
 assert_eq "#874 attack: with the variable absent, the truncated workspace yields nothing (old-loader and unpropagated cases alike)" "" "$MTE_NOVAR_OUT"
+
+# ── The OPPOSITE asymmetry, end to end: an extension present on the BASE REF and absent
+# from the PR head must be materialized AND reach the reviewing agent. Every other arm
+# authors both PR-head copies, so without this one that acceptance criterion is only ever
+# covered as two separate half-facts ("materialized" here, "reaches the prompt" there) —
+# never as the composition it actually states. `none` suppresses the PR-head copies, so
+# the workspace genuinely lacks what the closure supplies.
+devflow_mte_seed "$MTE_TMP/a10base" 'review:BASE-ONLY REVIEW BYTES\n'
+devflow_mte_workspace "$MTE_TMP/a10ws" "$MTE_TMP/a10base" none
+mkdir -p "$MTE_TMP/a10closure"
+assert_eq "#874 asymmetry: the PR head genuinely carries no copy of the protected name" "no" \
+  "$([ -e "$MTE_TMP/a10ws/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
+MTE_A10_OUT="$( cd "$MTE_TMP/a10ws" && bash "$MTE" --base-ref main --target "$MTE_TMP/a10closure" review )"
+assert_eq "#874 asymmetry: materializing a base-only extension emits no warning" "" "$MTE_A10_OUT"
+assert_eq "#874 asymmetry: a base-present/head-absent extension is materialized into the closure" "BASE-ONLY REVIEW BYTES" \
+  "$(cat "$MTE_TMP/a10closure/review.md" 2>/dev/null)"
+assert_eq "#874 asymmetry: ...and it REACHES the reviewing agent through the loader" "BASE-ONLY REVIEW BYTES" \
+  "$( cd "$MTE_TMP/a10ws" && DEVFLOW_PROMPT_EXTENSION_ROOT="$MTE_TMP/a10closure" bash "$LIB/../scripts/load-prompt-extension.sh" review 2>/dev/null )"
 rm -rf "$MTE_TMP"
 unset -f devflow_mte_seed devflow_mte_workspace
 
@@ -24215,6 +24239,27 @@ assert_eq "#874 env-probe verdict: an unparseable execution file → INCONCLUSIV
   "$(devflow_epv_verdict "$(devflow_epv RAW 'not json at all')")"
 assert_eq "#874 env-probe verdict: no tool_use entries → INCONCLUSIVE" "INCONCLUSIVE" \
   "$(devflow_epv_verdict "$(devflow_epv RAW '{"type":"text","text":"hello"}')")"
+# PARTIAL corruption — the one degraded arm whose regression fails OPEN. Every arm above
+# is a TOTAL failure (absent, wholly unparseable, no tool_use), which cannot distinguish
+# `return parsed, note` from `return parsed, ""`. Here SOME JSONL lines parse and one
+# does not: a full complement of markers is recorded, so without the dropped-line note
+# the run would read as a clean, confident measurement of a file that was never fully
+# read. The fixture therefore carries a COMPLETE, propagating measurement plus one
+# garbage line — if the note were dropped this would say BOTH_HOPS.
+assert_eq "#874 env-probe verdict: a PARTIALLY corrupt execution file → INCONCLUSIVE, never a confident verdict" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$(devflow_epv RAW '{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_CONTROL_BEFORE"}}
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_HOP1 DEVFLOW_ENVPROBE_SENTINEL_874"}}
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_HOP2 DEVFLOW_ENVPROBE_SENTINEL_874"}}
+{ this line is not valid json
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_CONTROL_AFTER"}}')")"
+# Positive control for the arm above: the SAME records with the garbage line removed are
+# a clean BOTH_HOPS, so the INCONCLUSIVE above is attributable to the dropped line and
+# not to the fixture simply failing to carry a measurement.
+assert_eq "#874 env-probe verdict: the same records WITHOUT the corrupt line measure cleanly" "BOTH_HOPS" \
+  "$(devflow_epv_verdict "$(devflow_epv RAW '{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_CONTROL_BEFORE"}}
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_HOP1 DEVFLOW_ENVPROBE_SENTINEL_874"}}
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_HOP2 DEVFLOW_ENVPROBE_SENTINEL_874"}}
+{"type":"tool_use","name":"Bash","input":{"command":"printf ENVPROBE_CONTROL_AFTER"}}')")"
 # A missing positive control means the session may never have reached the measured
 # actions — the arm that stops "it did not propagate" from being asserted about a run
 # that never looked.
