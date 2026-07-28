@@ -349,7 +349,13 @@ devflow_open_filed_for_category() {
             | .key as $k | .value as $rec
             | (if ($rec.meta_issues // [] | type) != "array" then error("meta_issues of \($k) is not an array") else (.value.meta_issues // []) end)
             | [ .[] | (if type != "object" then error("a meta_issues entry is not an object") else . end) ] as $entries
-            | select(($rec.category // null) == $cat)
+            # The stored `category` must be a STRING on EVERY record, not merely on
+            # the ones that match. An absent or non-string category would otherwise
+            # slip past the select below and silently LOWER the sum — an under-count
+            # that files straight past the cap, the exact fail-open this helper
+            # widens its blast radius to prevent (issue #891 review).
+            | (if ($rec.category | type) != "string" then error("category of \($k) is not a string") else . end)
+            | select($rec.category == $cat)
             | $entries[]
             | select(.state == "filed") ] | length
       ' "$ov" || {

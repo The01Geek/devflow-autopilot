@@ -15,7 +15,9 @@ include "slugify";
 #          obtained by passing -s (slurp) so JSONL becomes a single array.
 #   $overrides: array containing one parsed overrides.json document.
 #
-# Output: an object keyed by each lifecycle record's OWN (opaque) filing key and
+# Output: an object keyed by each lifecycle record's OWN (opaque) filing key
+# canonicalized through slugify — a no-op for a compose-produced or already-canonical
+# key — and
 # by each corpus category no record claims, each entry shaped as:
 #   {
 #     "first_seen": <iso8601 | null>,

@@ -2254,6 +2254,65 @@ assert_eq "#891 migrate: the v3 stub has empty patterns{} and dismissed{}" "true
     "$(devflow_open_filed_for_category "$RL_TMP/percat-broken.json" tooling-gap 2>/dev/null)"
   assert_eq "#891 for_category: a missing overrides file prints nothing (fail closed)" "" \
     "$(devflow_open_filed_for_category "$RL_TMP/no-such.json" tooling-gap 2>/dev/null)"
+
+  # ── malformed-shape matrix (issue #891 review, finding 3) ──────────────────
+  # This helper is a best-effort parser over a config JSON a human can hand-corrupt
+  # and it DECIDES an emitted result (the max_open_per_category comparand), so the
+  # CLAUDE.md convention requires the whole shape matrix be swept, not just the one
+  # record-non-object arm above. Every row asserts the SAME fail-closed contract as
+  # the arms above: empty stdout (UNESTABLISHED), never a laundered `0` and never an
+  # under-count. Each fixture that can carry a legitimately-matching record does so,
+  # so a defect that merely skipped the bad record would emit `1` and be caught.
+  #
+  # meta_issues is not an array.
+  printf '%s' '{"schema_version":3,"patterns":{"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":"nope"}},"dismissed":{}}' > "$RL_TMP/percat-mi-nonarray.json"
+  assert_eq "#891 for_category: a non-array meta_issues unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-mi-nonarray.json" tooling-gap 2>/dev/null)"
+  # A meta_issues ENTRY is not an object.
+  printf '%s' '{"schema_version":3,"patterns":{"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":["not-an-object"]}},"dismissed":{}}' > "$RL_TMP/percat-entry-nonobj.json"
+  assert_eq "#891 for_category: a non-object meta_issues entry unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-entry-nonobj.json" tooling-gap 2>/dev/null)"
+  # patterns{} is not an object.
+  printf '%s' '{"schema_version":3,"patterns":[1,2],"dismissed":{}}' > "$RL_TMP/percat-patterns-nonobj.json"
+  assert_eq "#891 for_category: a non-object patterns{} unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-patterns-nonobj.json" tooling-gap 2>/dev/null)"
+  # The whole document is not an object (array form, and scalar form).
+  printf '%s' '[1,2,3]' > "$RL_TMP/percat-top-array.json"
+  assert_eq "#891 for_category: a top-level array unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-top-array.json" tooling-gap 2>/dev/null)"
+  printf '%s' '"hello"' > "$RL_TMP/percat-top-scalar.json"
+  assert_eq "#891 for_category: a top-level scalar unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-top-scalar.json" tooling-gap 2>/dev/null)"
+  # An empty (truncated) file.
+  : > "$RL_TMP/percat-empty.json"
+  assert_eq "#891 for_category: an empty overrides file unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-empty.json" tooling-gap 2>/dev/null)"
+  # Unparseable (not JSON at all).
+  printf '%s' '{not json' > "$RL_TMP/percat-nonjson.json"
+  assert_eq "#891 for_category: an unparseable overrides file unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-nonjson.json" tooling-gap 2>/dev/null)"
+  # A NON-STRING `category` on a structurally-valid record. Before the guard this
+  # record passed every shape check and was then silently dropped by the select,
+  # LOWERING the sum to 1 (an under-count files straight past the cap) instead of
+  # unestablishing it. The fixture pairs the corrupt record with a legitimately
+  # matching one precisely so the under-count is observable: without the guard this
+  # arm reads `1`, with it, empty.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"category":42,"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-number.json"
+  assert_eq "#891 for_category: a numeric category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-number.json" tooling-gap 2>/dev/null)"
+  # A null `category` takes the same arm.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"category":null,"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-null.json"
+  assert_eq "#891 for_category: a null category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-null.json" tooling-gap 2>/dev/null)"
+  # An ABSENT `category` (a half-migrated v2 record) takes the same arm.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-absent.json"
+  assert_eq "#891 for_category: an absent category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-absent.json" tooling-gap 2>/dev/null)"
+  # The guard must not fire on the HAPPY path: an all-string-category document still
+  # counts (otherwise the arms above would pass vacuously against a helper that
+  # unestablishes everything).
+  assert_eq "#891 for_category: the category-is-string guard does not fire on a well-formed document" "2" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat.json" tooling-gap 2>/dev/null)"
 )
 
 # ── actionable-patterns emits the attribution category ───────────────────────
