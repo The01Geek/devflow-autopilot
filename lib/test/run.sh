@@ -24420,6 +24420,222 @@ assert_eq "#874 matcher-probe: the env-propagation job is declared" "yes" \
 assert_eq "#874 matcher-probe: the env-propagation job sets the sentinel as a step-level env: entry" "1" \
   "$(grep -c 'DEVFLOW_PROMPT_EXTENSION_ROOT: DEVFLOW_ENVPROBE_SENTINEL_874' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
 
+# ── #858 dispatched-subagent Write probe verdict helper. The probe rows themselves are a
+# maintainer-dispatched cloud measurement (no automated boundary), but the VERDICT is a
+# branch-selecting core with a three-outcome contract (PERMITTED / DENIED / unestablished)
+# where EVERY state outside the measurable pair must route to unestablished and NEVER to
+# DENIED — so a regressed arm would publish a permission finding about a run that never
+# attempted the permission. Every arm is driven here. The degraded/unestablished arms come
+# first in the helper deliberately (unknown-is-not-zero).
+SWV="$LIB/../scripts/subagent-write-probe-verdict.py"
+SWV_TMP="$(mktemp -d)"
+: > "$SWV_TMP/side-review.txt"   # a PRESENT side-effect file (PERMITTED corroboration)
+# Fixtures are built by python3 (not shell JSON concatenation): the records carry
+# parent_tool_use_id chains and denial shapes a shell heredoc would mangle, and command
+# substitution strips trailing newlines. Each scenario is a production-realistic execution
+# file whose keys/types conform to the committed census (asserted below).
+devflow_swv_build() {  # $1 = scenario name; writes $SWV_TMP/exec.jsonl
+  python3 - "$SWV_TMP/exec.jsonl" "$1" <<'PY_SWV'
+import json, sys
+path, scen = sys.argv[1], sys.argv[2]
+SIDE = ".devflow/tmp/subwrite-review.txt"
+D = {"type": "tool_use", "name": "Task", "id": "d1",
+     "input": {"subagent_type": "general-purpose", "prompt": "emit SUBWRITE markers"}}
+def bash(cmd, parent="d1", tid="b"):
+    return {"type": "tool_use", "name": "Bash", "id": tid,
+            "parent_tool_use_id": parent, "input": {"command": cmd}}
+def write(parent="d1", tid="w1"):
+    return {"type": "tool_use", "name": "Write", "id": tid, "parent_tool_use_id": parent,
+            "input": {"file_path": SIDE, "content": "SUBWRITE_PAYLOAD"}}
+CB = bash("printf SUBWRITE_CONTROL_BEFORE", "d1", "c1")
+CA = bash("printf SUBWRITE_CONTROL_AFTER", "d1", "c2")
+WDEN = {"permission_denials": [{"tool_name": "Write", "tool_input": {"file_path": SIDE}}]}
+scenarios = {
+    # happy path
+    "permitted": [D, CB, write(), CA],
+    "denied": [D, CB, WDEN],
+    "denied_with_leftover": [D, CB, WDEN],  # side-file present but denial wins
+    # attribution
+    "orch_null_parent": [D, write(parent=None)],       # a Write with no parent → not permitted
+    "other_dispatch": [D, CB, write(parent="OTHER"), CA],  # Write chains to a foreign dispatch
+    "positive_control_absent": [D],  # neither control nor write appears
+    # the closed unestablished complement
+    "dispatch_denied_unknown": [{"permission_denials": [
+        {"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose"}}]}],
+    "dispatch_denied_head": [{"permission_denials": [{"tool_name": "Agent", "tool_input": {}}]}],
+    "no_dispatch": [bash("echo hi", parent=None, tid="x")],
+    "no_subagent_call": [D],  # dispatch recorded, no subagent-issued call
+    "no_parent_chain": [D, bash("printf SUBWRITE_CONTROL_BEFORE", None, "c1"),
+                        bash("printf SUBWRITE_CONTROL_AFTER", None, "c2")],
+    "controls_no_write": [D, CB, CA],  # both controls chain-attributable, no write attempted
+    # adversarial / malformed input (execution file is an external format — CLAUDE.md matrix)
+    "not_object": None,                # written as a bare JSON string below
+    "pd_not_list": [write(), {"permission_denials": "oops-not-a-list"}],
+    "tooluse_missing_name": [D, {"type": "tool_use", "id": "c1", "parent_tool_use_id": "d1",
+                                 "input": {"command": "printf SUBWRITE_CONTROL_BEFORE"}}],
+    "valid_falsy": [D, CB, write(), CA, {"permission_denials": []}],  # empty list not coerced truthy
+    "wrong_type_parent": [D, {"type": "tool_use", "name": "Write", "id": "w1",
+                              "parent_tool_use_id": 123,
+                              "input": {"file_path": SIDE, "content": "SUBWRITE_PAYLOAD"}}],
+}
+recs = scenarios[scen]
+with open(path, "w", encoding="utf-8") as fh:
+    if scen == "not_object":
+        fh.write('"just a string, not an object or array"\n')
+    else:
+        for r in recs:
+            fh.write(json.dumps(r) + "\n")
+PY_SWV
+}
+devflow_swv() {  # $1 scenario; remaining args passed through; review tier, present side-file
+  devflow_swv_build "$1"; shift
+  python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" "$@" 2>/dev/null
+}
+swv_verdict() {  # pure parameter expansion (CLAUDE.md guard-class 2: no tr/sed/cut)
+  case "$1" in
+    *'**Verdict: `'*) local _v="${1#*'**Verdict: `'}"; printf '%s' "${_v%%'`**'*}" ;;
+    *) printf 'NO_VERDICT' ;;
+  esac
+}
+
+# Happy path.
+assert_eq "#858 subagent-write: recorded chain-attributable Write + present side-file → PERMITTED" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv permitted)")"
+assert_eq "#858 subagent-write: a recorded Write permission_denials → DENIED" \
+  "DENIED" "$(swv_verdict "$(devflow_swv denied)")"
+# The denial signal is authoritative even when an earlier run's side-file is present.
+assert_eq "#858 subagent-write: DENIED wins over a leftover side-effect file" \
+  "DENIED" "$(swv_verdict "$(devflow_swv denied_with_leftover)")"
+
+# Attribution — a green suite must not pass on the very signal the top-level rows already measure.
+assert_eq "#858 subagent-write: an orchestrator Write (null parent) → unestablished, NOT PERMITTED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv orch_null_parent)")"
+assert_eq "#858 subagent-write: a Write chaining to a foreign dispatch → unestablished (chain checked, not merely present)" \
+  "unestablished" "$(swv_verdict "$(devflow_swv other_dispatch)")"
+assert_eq "#858 subagent-write: neither control nor write recorded → unestablished, never DENIED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv positive_control_absent)")"
+
+# The closed unestablished complement — one arm per member, each asserting unestablished AND not DENIED.
+for _scen in dispatch_denied_unknown dispatch_denied_head no_dispatch no_subagent_call \
+             no_parent_chain controls_no_write wrong_type_parent \
+             not_object pd_not_list tooluse_missing_name; do
+  _out="$(devflow_swv "$_scen")"
+  assert_eq "#858 subagent-write: scenario '$_scen' → unestablished" "unestablished" "$(swv_verdict "$_out")"
+  assert_eq "#858 subagent-write: scenario '$_scen' is NOT DENIED (no permission finding about an unattempted permission)" \
+    "no" "$(printf '%s' "$_out" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
+done
+
+# Upstream tier job did not complete (empty consumed allowlist) → unestablished, never a silent skip.
+assert_eq "#858 subagent-write: --upstream-tools-empty → unestablished" \
+  "unestablished" "$(swv_verdict "$(devflow_swv permitted --upstream-tools-empty)")"
+# Execution file absent / unparseable / engine-errored → unestablished.
+assert_eq "#858 subagent-write: an absent execution file → unestablished" \
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/no-such-file.jsonl" --tier review 2>/dev/null)")"
+printf 'not json at all\n' > "$SWV_TMP/bad.jsonl"
+assert_eq "#858 subagent-write: an unparseable execution file → unestablished" \
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/bad.jsonl" --tier review 2>/dev/null)")"
+# A chain-attributable Write with NO on-disk corroboration → unestablished (not a false PERMITTED).
+devflow_swv_build permitted
+assert_eq "#858 subagent-write: recorded chain-attributable Write but side-file ABSENT → unestablished" \
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/no-side.txt" 2>/dev/null)")"
+
+# Purity — two invocations over one input yield identical output.
+devflow_swv_build permitted
+SWV_P1="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)"
+SWV_P2="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)"
+assert_eq "#858 subagent-write: the helper is pure over repeated invocation" "yes" \
+  "$([ "$SWV_P1" = "$SWV_P2" ] && echo yes || echo no)"
+
+# The valid-falsy row must not be coerced: an empty permission_denials list is a real
+# measurement (still PERMITTED here), never silently a denial.
+assert_eq "#858 subagent-write: an empty permission_denials list is not coerced to a denial" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv valid_falsy)")"
+
+# The fixture conforms to the committed execution-file shape census: no fixture key
+# contradicts a census-recorded type. Keys absent from the census (e.g. file_path — the
+# census run performed no Write) are allowed; the census is a dated, incomplete observation.
+devflow_swv_build permitted
+assert_eq "#858 subagent-write: the production-realistic fixture conforms to the committed execution-shape census" "conforms" \
+  "$(python3 - "$SWV_TMP/exec.jsonl" "$LIB/../docs/execution-file-shape.observed.txt" <<'PY_CONF'
+import json, sys
+fixture, census_path = sys.argv[1], sys.argv[2]
+census = {}
+with open(census_path, encoding="utf-8") as fh:
+    for line in fh:
+        line = line.rstrip("\n")
+        if line.startswith("#") or ":" not in line or line.startswith("##"):
+            continue
+        k, _, t = line.partition(":")
+        census.setdefault(k.strip(), set()).add(t.strip())
+def jtype(v):
+    if v is None: return "null"
+    if isinstance(v, bool): return "boolean"
+    if isinstance(v, (int, float)): return "number"
+    if isinstance(v, str): return "string"
+    if isinstance(v, list): return "array"
+    if isinstance(v, dict): return "object"
+    return "?"
+def walk(o):
+    if isinstance(o, dict):
+        for k, v in o.items():
+            allowed = census.get(k)
+            if allowed and "present" not in allowed and jtype(v) not in allowed:
+                print("contradiction: %s is %s, census says %s" % (k, jtype(v), sorted(allowed)))
+                sys.exit(0)
+            walk(v)
+    elif isinstance(o, list):
+        for it in o: walk(it)
+with open(fixture, encoding="utf-8") as fh:
+    for line in fh:
+        line = line.strip()
+        if line: walk(json.loads(line))
+print("conforms")
+PY_CONF
+)"
+
+# Separate fields, not conjoined: the emitted table reports dispatch, both control facts,
+# and write as distinct rows so a reader tells a denied write from an absent dispatch.
+SWV_TABLE="$(devflow_swv permitted)"
+for _field in 'dispatch_outcome' 'recorded_at_all' 'chain_attributable' 'write_outcome'; do
+  assert_eq "#858 subagent-write: the emitted table carries the '$_field' field" "yes" \
+    "$(printf '%s' "$SWV_TABLE" | grep -qF "| $_field |" && echo yes || echo no)"
+done
+# The machine-consumed tier field travels with the verdict.
+assert_eq "#858 subagent-write: the outcome record carries the tier as a machine field" "yes" \
+  "$(printf '%s' "$SWV_TABLE" | grep -qE '\| tier \| `review` \|' && echo yes || echo no)"
+# Always exits 0, even on an absent execution file (the maintainer-dispatched job must
+# never turn into a red step with no verdict on the degraded run it exists to characterize).
+python3 "$SWV" "$SWV_TMP/no-such-file.jsonl" --tier review >/dev/null 2>&1
+assert_eq "#858 subagent-write: exits 0 even on an absent execution file" "0" "$?"
+rm -rf "$SWV_TMP"
+unset -f devflow_swv devflow_swv_build swv_verdict
+
+# The two probe jobs exist in matcher-probe.yml and are maintainer-dispatched — the
+# implementing run adds them and does not run them. They consume the tier baseline via
+# needs: (no second REVIEW=/IMPLEMENT= assignment) and grant the two dispatch heads.
+assert_eq "#858 matcher-probe: both subagent-write jobs are declared and wired to their tier via needs:" "yes" \
+  "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" <<'PY_JOBS'
+import sys, yaml
+j = yaml.safe_load(open(sys.argv[1]))["jobs"]
+ok = (
+    j.get("subagent-write-review-probe", {}).get("needs") == "probe"
+    and j.get("subagent-write-implement-probe", {}).get("needs") == "implement-probe"
+    and j.get("probe", {}).get("outputs", {}).get("tools")
+    and j.get("implement-probe", {}).get("outputs", {}).get("tools")
+)
+print("yes" if ok else "no")
+PY_JOBS
+)"
+# Exactly ONE REVIEW=/IMPLEMENT= assignment survives — the new jobs consume, never re-compose.
+assert_eq "#858 matcher-probe: no second REVIEW= assignment was introduced" "1" \
+  "$(grep -cE "^ +REVIEW='" "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+assert_eq "#858 matcher-probe: no second IMPLEMENT= assignment was introduced" "1" \
+  "$(grep -cE "^ +IMPLEMENT='" "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+# Both new jobs grant Task,Agent only in their own hand-written --allowed-tools (Task is in
+# no generated region / manifest).
+assert_eq "#858 matcher-probe: the two dispatch heads are appended in the new jobs' composed allowlists" "2" \
+  "$(grep -cF 'TOOLS="${UPSTREAM_TOOLS},Task,Agent"' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
 # ────────────────────────────────────────────────────────────────────────────
