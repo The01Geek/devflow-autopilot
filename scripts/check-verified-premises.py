@@ -104,10 +104,15 @@ from pathlib import Path
 #                    `Verified` — covers `**Verified baseline**` and the
 #                    backtick-inside-bold `**`Verified:` …**` form
 #
-# DISCLOSED RESIDUAL: arm C cannot distinguish a label from a bolded *sentence*
-# that opens a list item with the word Verified, so such a line still mints a
-# bullet. The recognised set is a floor, not a closed set, in both directions —
-# an unrecognised spelling is invisible, and arm C may over-recognise.
+# DISCLOSED RESIDUAL, on both over-recognising arms: arm C cannot distinguish a
+# label from a bolded *sentence* that opens a list item with the word Verified,
+# and arm B matches any line opening `Verified:` — including one inside a fenced
+# code block or a table cell. Either can mint a bullet that is not one. The
+# recognised set is a floor, not a closed set, in BOTH directions — an
+# unrecognised spelling is invisible, and arms B and C may over-recognise. The
+# damage from an over-recognition is bounded by the rest of the module: a
+# phantom reaches `refuted` only by citing a strong path genuinely absent from
+# the tree.
 _MARKER = re.compile(
     r'\*\*[ \t]*Verified[ \t]*:?[ \t]*\*\*[ \t]*:?'
     r'|(?m:^[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\*\*[ \t]*)?`?Verified`?[ \t]*:)'
@@ -385,7 +390,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             'cited path present but the bullet carries no quotation to '
             're-derive the premise from: ' + ','.join(p for _, p, _ in paths))
 
-    readable, skipped = {}, []
+    readable, skipped, unread = {}, [], []
     for _, rel, _suffix in paths:
         target = root / rel
         if target.is_dir():
@@ -399,7 +404,20 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             readable[rel] = normalize(target.read_text(
                 encoding='utf-8', errors='replace'))
         except OSError as exc:
-            skipped.append(f'{rel} (unreadable: {exc})')
+            unread.append(f'{rel} (unreadable: {exc})')
+
+    if unread:
+        # A cited file the helper could not OPEN is an unestablished
+        # measurement, not evidence the premise drifted. Refuting here would
+        # assert the one verdict that makes the run discard the premise and
+        # file issue-accuracy feedback, over a citation never adjudicated —
+        # the same guess-becomes-refutation class the weak-path and elision
+        # arms exist to prevent. (A co-cited DIRECTORY is different and stays
+        # benign: a quotation cannot live in one, so it is disclosed rather
+        # than fatal.)
+        return 'unestablished', (
+            'a cited path could not be read, so the citation set was not fully '
+            'adjudicated: ' + ','.join(unread))
 
     if not readable:
         return 'unestablished', (
@@ -472,9 +490,14 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     # in a STRONG path is a refutation, but in a weak one it is only evidence
     # that the guess was wrong about which file was meant.
     if any(s == 'strong' for s, _, _ in paths):
-        return 'refuted', ('quoted sentence no longer occurs in '
-                           + ','.join(readable) + ': '
-                           + ' | '.join(unresolved))
+        detail = ('quoted sentence no longer occurs in ' + ','.join(readable)
+                  + ': ' + ' | '.join(unresolved))
+        if skipped:
+            # Symmetric with the `holds` arm: a verdict reached over only part
+            # of the citation set says so, rather than reading as a complete
+            # adjudication of everything the bullet cited.
+            detail += '; not adjudicated: ' + ','.join(skipped)
+        return 'refuted', detail
     return 'unestablished', (
         'quoted sentence does not occur in the filename-shaped span cited, '
         'which names no directory: ' + ','.join(readable))

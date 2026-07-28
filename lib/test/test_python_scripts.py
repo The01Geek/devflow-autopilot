@@ -18849,6 +18849,42 @@ assert_eq("#868 helper: a holds built from a subset of the cited paths discloses
           "were not adjudicated rather than reading as complete",
           True, 'state=holds' in _cvp_out and 'not adjudicated' in _cvp_out)
 
+# --- a REFUTATION is never asserted over an unread cited path ---------------
+# The `holds` arm already disclosed a partial adjudication; the `refuted` arm —
+# the one that makes the run discard the premise and file issue-accuracy
+# feedback — asserted a complete one. A cited file that cannot be OPENED is an
+# unestablished measurement, not evidence the premise drifted.
+with tempfile.TemporaryDirectory() as _cvp_td:
+    _cvp_root = Path(_cvp_td).resolve()
+    (_cvp_root / 'docs').mkdir()
+    (_cvp_root / 'docs/notes.md').write_text(
+        'The gate exited 2 with exactly that message.\n', encoding='utf-8')
+    _cvp_locked = _cvp_root / 'docs/locked.md'
+    _cvp_locked.write_text('irrelevant\n', encoding='utf-8')
+    _cvp_locked.chmod(0o000)
+    (_cvp_root / 'b.md').write_text(
+        '**Verified:** `docs/notes.md` and `docs/locked.md` — '
+        '*"a sentence nobody ever wrote"*\n', encoding='utf-8')
+    _cvp_buf = io.StringIO()
+    with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+        _cvp_rc = check_verified_premises.main(
+            ['--body-file', str(_cvp_root / 'b.md'), '--repo-root', str(_cvp_root)])
+    _cvp_locked.chmod(0o644)
+    # Running as root defeats the permission denial entirely, so the arm is only
+    # meaningful when the read actually failed; assert on that condition.
+    if 'unreadable' in _cvp_buf.getvalue():
+        assert_eq("#868 helper: a quotation that misses is NOT refuted while a co-cited "
+                  "path could not be opened — an unread citation is unestablished",
+                  True, _cvp_rc == 0 and 'state=unestablished' in _cvp_buf.getvalue())
+
+# A co-cited DIRECTORY stays benign (a quotation cannot live in one), but the
+# refutation must disclose that the citation set was only partly adjudicated.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` and `docs/notes.md` — *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a refutation reached over only part of the citation set "
+          "discloses what went unadjudicated, symmetric with the holds arm",
+          True, _cvp_rc == 2 and 'not adjudicated' in _cvp_out)
+
 # --- an UNESTABLISHED default root never adjudicates ------------------------
 # Falling back to an arbitrary cwd made every cited path miss and rendered the
 # whole body as a mass refutation — the same defect the explicit --repo-root
