@@ -330,10 +330,18 @@ devflow_run_sharded_python_test \
 # The module-driven-only invariant for this suite — no run.sh invocation, exactly
 # one driving module file — is now asserted generically for every
 # MODULE_DRIVEN_SUITES member by scan_routing_violations in
-# lib/test/test_module_runner.py (issue #867), driven from the tuple itself and
-# matching the $LIB-anchored invocation shape rather than a bare basename. The
-# per-file assertion that used to sit here is retired with its guarantee moved,
-# not dropped.
+# lib/test/test_module_runner.py (issue #867), driven from the tuple itself.
+#
+# The per-file assertion that used to sit here is retired for a TRADE, not a pure
+# superset. Broader: the claim now covers every module-driven suite instead of
+# this one, adds the exactly-one-owning-module direction, and extends the search
+# domain to lib/test/modules/*.sh and lib/test/module-harness.sh — the residual
+# the retired assertion named as its own. Narrower: it matches the $LIB-anchored
+# quoted invocation shape, so a run.sh line spelling the path some other way
+# (unquoted, via ${LIB}, or repo-relative) is a NEW accepted residual the retired
+# basename grep would have caught. That narrowing is what buys immunity to a bare
+# comment mention, which the basename grep could not distinguish from a driver.
+# Neither guard reaches a driver invoked from lib/test/run-module.sh.
 rm -rf "$_HPG_PIN_LINT_SHARDS"
 
 # ────────────────────────────────────────────────────────────────────────────

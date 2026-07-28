@@ -1960,13 +1960,39 @@ def classify_test_suites(
 def invocation_shape(name):
     """Return the literal a driver spells to invoke the suite (issue #867).
 
-    Drivers anchor the path on $LIB and quote it; prose does not. Matching that
-    shape rather than the bare basename is what keeps a comment mentioning
-    lib/test/<name> from either satisfying or violating a routing claim — a
-    distinction with live consequences, since lib/test/modules/create-issue-contract.sh
-    mentions test_render_audit_prompt.py in comments while driving it nowhere.
+    Every driver in this tree anchors the path on $LIB and quotes it; prose does
+    not. Matching that shape rather than the bare basename is what keeps a
+    comment mentioning lib/test/<name> from either satisfying or violating a
+    routing claim — a distinction with live consequences, since
+    lib/test/modules/create-issue-contract.sh mentions test_render_audit_prompt.py
+    in comments while driving it nowhere.
+
+    Accepted residual: an invocation spelled some other way — unquoted, via
+    ${LIB}, or repo-relative `lib/test/<name>` — is not matched, so it would
+    neither trip the run.sh claim nor count as an owner. Nothing enforces the
+    spelling; the shape is a convention this scan reads rather than a contract it
+    guarantees. `scan_routing_violations` states what that costs.
     """
     return f'"$LIB/test/{name}"'
+
+
+def strip_shell_comments(text):
+    """Drop whole-line shell comments so a mention in prose is never a match.
+
+    `invocation_shape` makes a *bare* path in prose inert, but the quoted
+    $LIB-anchored form can appear in a comment too — most damagingly a
+    commented-out driver, which is the usual way an invocation gets disabled.
+    Without this, such a line would satisfy the serial at-least-once claim
+    (masking coverage that is in fact gone) and count as a module owner.
+
+    Whole-line only: a trailing comment on a real invocation line must not
+    strip the invocation itself, and a `#` inside a quoted string is not a
+    comment. Both are handled by taking the line as code whenever its first
+    non-whitespace character is anything but `#`.
+    """
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
 
 
 def scan_routing_violations(
@@ -1975,49 +2001,73 @@ def scan_routing_violations(
     module_harness_path=HARNESS_SOURCE,
     serial=SERIAL_BY_EXCLUSION_SUITES,
     module_driven=MODULE_DRIVEN_SUITES,
-    invocation_shape=invocation_shape,
+    shape_for=invocation_shape,
 ):
     """Cross-check the routing tuples against where the tree actually drives them.
 
     Returns a list of human-readable violations, each naming the offending suite
     (empty when every claim holds):
 
-    - every module_driven name is invoked zero times from run.sh;
-    - every module_driven name is invoked from exactly one distinct module file —
-      counting FILES, never occurrences, because a module legitimately carries
-      more than one occurrence for a suite it drives;
-    - every serial name is invoked at least once from run.sh.
+    - no module_driven name's invocation shape is present in run.sh;
+    - every module_driven name's invocation shape is present in exactly one
+      distinct module file — counting FILES, never occurrences, so a module that
+      names the same suite on more than one line still counts once;
+    - every serial name's invocation shape is present in run.sh.
+
+    The two reads below route through strip_shell_comments, so neither a bare
+    path in prose nor a commented-out driver can satisfy or violate a claim.
+
+    What this does NOT catch: an invocation spelled outside `shape_for`'s literal
+    (unquoted, ${LIB}, or repo-relative). That is narrower than a bare-basename
+    grep, which is the deliberate trade — a basename match cannot tell a driver
+    from a comment. The scan is also blind to a driver reached from anywhere
+    outside the paths its parameters name, notably lib/test/run-module.sh.
 
     POOLED_SUITES is deliberately absent: run.sh's real devflow_pool_open triples
     already pin it by set equality (see
     PoolMembershipCompletenessTests.test_pooled_suites_constant_matches_the_run_sh_pool_invocation),
     which is a stronger guarantee than a name scan.
 
-    The three paths this scan reads — run_sh_path, modules_dir and
-    module_harness_path — are parameters defaulting to the real tree, mirroring
+    The paths this scan reads are run_sh_path, modules_dir and
+    module_harness_path, each a parameter defaulting to the real tree, mirroring
     discover_test_suites/classify_test_suites, so a planted-violation fixture can
     point the scan at a scratch copy. The module domain is a single-level glob
     over modules_dir plus the standalone module_harness_path — never a
     repository-root-anchored recursive walk.
+
+    Every read failure — run.sh, a module file, or the standalone harness alike —
+    returns the read-failure violations ALONE. A truncated domain cannot support
+    an ownership claim, so reporting one beside the read failure would accuse a
+    correct routing tuple of the file's I/O error.
     """
-    violations = []
-    try:
-        run_text = Path(run_sh_path).read_text(encoding="utf-8")
-    except OSError as exc:
-        return [f"{run_sh_path}: could not be read for the routing scan ({exc})"]
-    module_files = sorted(Path(modules_dir).glob("*.sh"))
-    if Path(module_harness_path).exists():
-        module_files.append(Path(module_harness_path))
+    read_failures = []
     module_texts = {}
-    for path in module_files:
+    run_text = ""
+    try:
+        run_text = strip_shell_comments(
+            Path(run_sh_path).read_text(encoding="utf-8")
+        )
+    except OSError as exc:
+        read_failures.append(
+            f"{run_sh_path}: could not be read for the routing scan ({exc})"
+        )
+    # The harness is read through the same try/except as the module files rather
+    # than pre-tested with .exists(): a renamed, unreadable, or unstattable path
+    # must be a reported read failure, never a silently truncated scan domain.
+    for path in (*sorted(Path(modules_dir).glob("*.sh")), Path(module_harness_path)):
         try:
-            module_texts[path] = path.read_text(encoding="utf-8")
+            module_texts[path] = strip_shell_comments(
+                path.read_text(encoding="utf-8")
+            )
         except OSError as exc:
-            violations.append(
+            read_failures.append(
                 f"{path}: could not be read for the routing scan ({exc})"
             )
+    if read_failures:
+        return read_failures
+    violations = []
     for name in module_driven:
-        shape = invocation_shape(name)
+        shape = shape_for(name)
         if shape in run_text:
             violations.append(
                 f"{name}: classified MODULE_DRIVEN_SUITES but invoked from "
@@ -2032,7 +2082,7 @@ def scan_routing_violations(
                 f"{len(owners)} module file(s) {owners}, expected exactly one"
             )
     for name in serial:
-        if invocation_shape(name) not in run_text:
+        if shape_for(name) not in run_text:
             violations.append(
                 f"{name}: classified SERIAL_BY_EXCLUSION_SUITES but never invoked "
                 f"from {run_sh_path} — its coverage is silently gone"
@@ -2554,6 +2604,14 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
         module_harness.write_text(harness_text, encoding="utf-8")
         return run_sh, modules_dir, module_harness
 
+    def setUp(self) -> None:
+        # Every fixture below indexes [0] of both tuples; an emptied tuple would
+        # otherwise surface as a bare IndexError with no diagnosis.
+        self.assertTrue(MODULE_DRIVEN_SUITES, "MODULE_DRIVEN_SUITES is empty")
+        self.assertTrue(
+            SERIAL_BY_EXCLUSION_SUITES, "SERIAL_BY_EXCLUSION_SUITES is empty"
+        )
+
     @classmethod
     def _clean_tree(cls, scratch):
         """Build a scratch tree the routing scan reports clean.
@@ -2580,9 +2638,9 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
         self,
     ) -> None:
         # The module-side claim counts distinct FILES, never occurrences: a module
-        # legitimately drives a suite once and references it again (a heredoc
-        # `python3 - "$LIB/test/<name>"` use, for instance). An occurrence-count
-        # assertion would be RED against a correct tree.
+        # may name the suite it drives on more than one line — the driver call plus,
+        # say, a derived shard or capture path built from the same literal. An
+        # occurrence-count assertion would be RED against a correct tree.
         with tempfile.TemporaryDirectory() as scratch:
             run_sh, modules_dir, harness = self._clean_tree(scratch)
             owner = modules_dir / "owner-0.sh"
@@ -2640,9 +2698,9 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
 
     def test_planted_bare_path_comments_leave_every_assertion_green(self) -> None:
         # The positive control for the matcher's shape. `create-issue-contract.sh`
-        # mentions test_render_audit_prompt.py five times in comments while driving
-        # it zero times, so a basename matcher is RED against a correct tree — and
-        # it would also let a comment satisfy the at-least-once direction, hiding a
+        # mentions test_render_audit_prompt.py in comments while driving it
+        # nowhere, so a basename matcher is RED against a correct tree — and it
+        # would also let a comment satisfy the at-least-once direction, hiding a
         # deleted invocation. Comments naming a bare lib/test/<name> path must
         # neither satisfy nor violate any claim.
         module_driven = MODULE_DRIVEN_SUITES[0]
@@ -2663,20 +2721,106 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 scan_routing_violations(run_sh, modules_dir, harness), []
             )
 
-    def test_a_bare_basename_matcher_would_be_red_against_the_live_tree(self) -> None:
-        # Mutation control for the matcher choice itself: swapping the invocation
-        # shape for a bare basename must turn the live-tree scan RED, proving the
-        # shape is load-bearing rather than incidental. Nothing in the real tree is
-        # mutated — only the matcher passed to the scan.
-        violations = scan_routing_violations(
-            invocation_shape=lambda name: name,
-        )
-        self.assertNotEqual(
-            violations,
-            [],
-            "a bare-basename matcher scans the live tree clean, so the "
-            "invocation-shape matcher is not actually being exercised",
-        )
+    def test_a_commented_out_driver_does_not_satisfy_any_claim(self) -> None:
+        # Comment-blindness is the direction where a raw substring match fails
+        # OPEN: a commented-out driver is the usual way an invocation gets
+        # disabled, and if the comment still matched, the serial arm would report
+        # coverage that is in fact gone, and a non-owning module would count as an
+        # owner. Both halves are planted here in one tree.
+        module_driven = MODULE_DRIVEN_SUITES[0]
+        serial = SERIAL_BY_EXCLUSION_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            # Comment out the serial suite's only real invocation.
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8").replace(
+                    f'  python3 "$LIB/test/{serial}"\n',
+                    f'  # python3 "$LIB/test/{serial}"\n',
+                ),
+                encoding="utf-8",
+            )
+            # And add a commented-out driver for a module-driven suite elsewhere.
+            (modules_dir / "commented.sh").write_text(
+                f'  # python3 "$LIB/test/{module_driven}"\n', encoding="utf-8"
+            )
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(any(serial in v for v in violations), violations)
+            self.assertFalse(any(module_driven in v for v in violations), violations)
+
+    def test_a_bare_basename_matcher_is_red_where_the_shape_matcher_is_green(
+        self,
+    ) -> None:
+        # Mutation control for the matcher choice itself, run over a scratch tree
+        # rather than the live one. A live-tree control would rest on comment
+        # prose in an unrelated module surviving unedited, so an ordinary cleanup
+        # there would fail this test with a message pointing at the wrong file.
+        # Here the witness is planted: a non-owning module names the suite as a
+        # bare path in prose, which the shape matcher ignores and a bare-basename
+        # matcher counts as a second owner.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            (modules_dir / "commentary.sh").write_text(
+                f"  echo 'see lib/test/{offender} for the module-driven case'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                scan_routing_violations(run_sh, modules_dir, harness), []
+            )
+            bare = scan_routing_violations(
+                run_sh, modules_dir, harness, shape_for=lambda name: name
+            )
+            self.assertTrue(any(offender in v for v in bare), bare)
+
+    def test_an_unreadable_run_sh_is_reported_and_no_claim_is_derived(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            _run_sh, modules_dir, harness = self._clean_tree(scratch)
+            missing = Path(scratch) / "absent-run.sh"
+            violations = scan_routing_violations(missing, modules_dir, harness)
+            self.assertEqual(len(violations), 1, violations)
+            self.assertIn("could not be read", violations[0])
+            self.assertIn(str(missing), violations[0])
+
+    def test_an_unreadable_module_file_is_reported_without_a_routing_accusation(
+        self,
+    ) -> None:
+        # A truncated domain cannot support an ownership claim: the read failure
+        # must be reported alone, never beside a "driven by 0 module file(s)"
+        # accusation that would send the reader to edit a correct routing tuple.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            owner = modules_dir / "owner-0.sh"
+            owner.chmod(0o000)
+            try:
+                violations = scan_routing_violations(run_sh, modules_dir, harness)
+            finally:
+                # Restore inside the `with`, not via addCleanup: the scratch dir is
+                # torn down at the end of this block, so a cleanup registered on the
+                # test case would fire after the file is already gone.
+                owner.chmod(0o600)
+            if not violations:  # a privileged runner can read a 0o000 file
+                self.skipTest("this host can read a mode-000 file; arm not drivable")
+            self.assertTrue(
+                all("could not be read" in v for v in violations), violations
+            )
+            self.assertFalse(
+                any("expected exactly one" in v for v in violations), violations
+            )
+            self.assertTrue(any(str(owner) in v for v in violations), violations)
+            self.assertFalse(any(offender in v for v in violations), violations)
+
+    def test_a_missing_module_harness_is_reported_not_silently_dropped(self) -> None:
+        # The harness goes through the same try/except as a module file rather
+        # than a .exists() pre-test, so a renamed or unstattable path is a
+        # reported read failure instead of a silently truncated scan domain.
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            harness.unlink()
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertEqual(len(violations), 1, violations)
+            self.assertIn("could not be read", violations[0])
+            self.assertIn(str(harness), violations[0])
 
 
 if __name__ == "__main__":
