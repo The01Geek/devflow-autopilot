@@ -1345,7 +1345,7 @@ only `/devflow:implement`, leaving review/command on Claude):
 
 ```json
 {
-  "claude_model": "claude-opus-4-8",
+  "claude_model": "claude-opus-5",
   "providers": {
     "openrouter": {
       "base_url": "https://openrouter.ai/api",

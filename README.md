@@ -193,3 +193,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Run the test suite with `bash lib/test/r
 ## License
 
 [MIT](LICENSE) © 2026 Daniel Radman.
+
+**Third-party components.** DevFlow redistributes several agents and skills authored by others,
+which remain under their own upstream licenses (Apache-2.0 from Anthropic's `feature-dev` and
+`pr-review-toolkit` plugins; MIT from Jesse Vincent's `superpowers`) and have been modified by
+DevFlow. [`LICENSES/README.md`](LICENSES/README.md) maps each vendored file to its upstream
+project, license, and copyright holder; the full license texts are in [`LICENSES/`](LICENSES).

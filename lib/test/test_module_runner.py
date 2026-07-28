@@ -1116,7 +1116,9 @@ class ModuleRunnerTests(unittest.TestCase):
                 time.sleep(0.02)
             self.assertTrue(ready.exists(), "blocking module did not start")
             entries = list(controlled_tmp.iterdir())
-            self.assertEqual(len(entries), 3)
+            # results + details + skips + credits + scratch (issue #887 added the skip
+            # tally and skip-credit record; the selector diagnostic is already removed).
+            self.assertEqual(len(entries), 5)
             self.assertFalse(
                 any(path.name.startswith("devflow-module-selector.") for path in entries)
             )
@@ -2438,6 +2440,59 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         self.assertIn("1 passed, 0 failed, 1 skipped", rendered.stdout)
         self.assertIn("synthetic arm", rendered.stdout)
 
+    def test_two_module_skips_are_folded_and_rendered_in_the_plural(self) -> None:
+        """K > 1 skips: both fold, both itemize, and the clause reads "2 skipped".
+
+        Every other fold test declares exactly one skip, so the loop's second iteration,
+        the plural clause, and the multi-line itemization were unexercised.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "synthetic ran" "x" "x"\n'
+            'module_host_capability_skip "first arm" "reads not denied here" 2\n'
+            'module_host_capability_skip "second arm" "no fifo support here" 3\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(
+            observed["skips"],
+            "host-capability\tfirst arm\treads not denied here\n"
+            "host-capability\tsecond arm\tno fifo support here\n",
+        )
+        render = self.root / "render2.sh"
+        render.write_text(
+            "#!/usr/bin/env bash\n"
+            f'. "{ROOT / "lib/test/summary.sh"}"\n'
+            f'devflow_render_test_summary 1 0 2 "{self.root / "skips"}"\n',
+            encoding="utf-8",
+        )
+        rendered = subprocess.run(
+            ["bash", str(render)], text=True, capture_output=True, check=False
+        )
+        self.assertIn("1 passed, 0 failed, 2 skipped", rendered.stdout)
+        self.assertIn("first arm", rendered.stdout)
+        self.assertIn("second arm", rendered.stdout)
+
+    def test_an_overlong_credit_is_rejected_by_the_length_guard(self) -> None:
+        """The digit-length arm of the credit validator, not just the non-digit arm.
+
+        Malformed-credit coverage used only a non-numeric token, so the `????????*`
+        bound — which exists so the summing arithmetic cannot overflow — was never
+        driven. An 8-digit credit is digits-only and must still be rejected, and the
+        rejection must not quietly grant the floor relief it declared.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 12345678\n',
+            3,
+        )
+        self.assertIn("malformed skip-assertion credit", observed["failures"])
+        self.assertIn(
+            "malformed skip-assertion credit: 12345678", observed["completed"].stderr
+        )
+        # The rejected credit buys nothing: the floor of 3 still trips on 1 assertion.
+        self.assertIn("minimum is", observed["completed"].stderr)
+
     def test_declared_credit_prevents_a_spurious_floor_trip(self) -> None:
         """A host that cannot express the condition reports a skip, not a floor trip."""
         observed = self._drive_boundary(
@@ -2576,6 +2631,39 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         # And the forfeited credit never buys floor relief.
         self.assertIn("minimum is", observed["completed"].stderr)
 
+    def test_a_failed_credit_write_is_fatal_not_silently_dropped(self) -> None:
+        """A credit line that cannot be written must abort, not vanish (issue #899).
+
+        The boundary's reject arm zeroes the credit only when the total REACHES the
+        floor, so a partial loss is not conservative: it can carry a run from the
+        rejected state (strict floor) into the accepted state (lowered floor). An
+        unguarded append would drop the line and let the module clear a relaxed floor,
+        which is fail-open in a fail-closed path — so the wrapper guards the write and
+        terminates the worker, and the boundary reports that as an attributable module
+        failure.
+
+        The trigger is a DIRECTORY as the credit target, which raises EISDIR on the
+        append for every uid — unlike `chmod 000`, which root ignores and which would
+        make this test self-skip on such a host.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'MODULE_SKIP_CREDIT_FILE="$(mktemp -d "${TMPDIR:-/tmp}/dfcredit.XXXXXX")"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            # Never reached: the wrapper exits the worker on the failed write.
+            'assert_eq "after the failed write" "x" "y"\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertIn(
+            "FATAL: could not record host-capability skip credit", completed.stderr
+        )
+        # Attributable at the boundary, not a silent continue.
+        self.assertIn("exited with status 1", observed["failures"])
+        # And the worker really stopped there: the post-write assertion never ran, so
+        # no FAIL verdict from it reached the tally.
+        self.assertEqual(observed["results"], "PASS\n")
+
     def test_a_leading_zero_credit_is_summed_as_decimal(self) -> None:
         """A digit-only credit the validator accepts must sum in base 10.
 
@@ -2625,27 +2713,35 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
             folded[0], "host-capability\tname\twith extra reason ", repr(folded[0])
         )
 
-    def test_focused_runner_stays_fatal_for_a_module_that_self_skips(self) -> None:
-        """`run-module.sh` keeps the module contract: a focused run may not self-skip."""
-        scripts_dir = self.root / "scripts"
+    # ── Focused-tier skip channel (issue #887) ───────────────────────────────────
+    # The full-suite boundary above already folds a host-capability skip. Since #877
+    # routes every modules-* shard through lib/test/run-module.sh, the FOCUSED runner is a
+    # merge gate too, so it must fold a sanctioned host-capability declaration into a
+    # visible skip (with its assertion credit) instead of aborting — while a RAW self-skip
+    # stays a fatal contract violation. These tests drive the real run-module.sh.
+
+    def _run_focused(
+        self,
+        module_body: str,
+        *,
+        minimum_assertions: int = 1,
+        module_name: str = "synthetic",
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         modules_dir = self.root / "lib/test/modules"
-        modules_dir.mkdir(parents=True)
-        scripts_dir.mkdir(parents=True)
-        (modules_dir / "selfskip.sh").write_text(
-            'assert_eq "one" "x" "x"\n'
-            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
-            'assert_eq "unreached" "x" "x"\n',
-            encoding="utf-8",
-        )
+        scripts_dir = self.root / "scripts"
+        modules_dir.mkdir(parents=True, exist_ok=True)
+        scripts_dir.mkdir(parents=True, exist_ok=True)
+        (modules_dir / f"{module_name}.sh").write_text(module_body, encoding="utf-8")
         (scripts_dir / "workflow-flight-recorder-registry.json").write_text(
             json.dumps(
                 {
                     "schema_version": 1,
                     "workflows": {"placeholder": {}},
                     "test_modules": {
-                        "selfskip": {
-                            "path": "lib/test/modules/selfskip.sh",
-                            "minimum_assertions": 1,
+                        module_name: {
+                            "path": f"lib/test/modules/{module_name}.sh",
+                            "minimum_assertions": minimum_assertions,
                         }
                     },
                 }
@@ -2654,22 +2750,324 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         )
         shutil.copy2(RUNNER_SOURCE, self.root / "lib/test/run-module.sh")
         shutil.copy2(HARNESS_SOURCE, self.root / "lib/test/module-harness.sh")
-        completed = subprocess.run(
+        environment = os.environ.copy()
+        environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        if extra_env:
+            environment.update(extra_env)
+        return subprocess.run(
             [
                 "bash",
                 str(self.root / "lib/test/run-module.sh"),
                 "--log-dir",
                 str(self.root / "logs"),
-                "selfskip",
+                module_name,
             ],
             cwd=self.root,
-            env=os.environ.copy(),
+            env=environment,
             text=True,
             capture_output=True,
             check=False,
         )
+
+    def test_focused_runner_folds_a_host_capability_skip_with_its_credit(self) -> None:
+        """AC1: a module_host_capability_skip is reported as a skip, not an abort, and its
+        declared credit reconciles the floor so the module still satisfies it."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n',
+            minimum_assertions=3,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn(
+            "Module synthetic: 1 passed, 0 failed, 1 skipped",
+            completed.stdout.splitlines(),
+        )
+        self.assertIn(
+            "  SKIP  gated arm [host-capability] — host cannot deny reads",
+            completed.stdout,
+        )
+        # The credit (2) reconciles the floor (3) against the 1 executed assertion — no
+        # floor trip.
+        self.assertNotIn("minimum is", completed.stdout)
+
+    def test_focused_runner_stays_fatal_for_a_raw_self_skip(self) -> None:
+        """AC2: a RAW `skip` a module invokes directly (not through the sanctioned
+        wrapper) still fails fatally with the durable contract-violation message. This is
+        the executed test that distinguishes the two paths from the folded one above."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\nskip "gated arm" host-capability "reason"\n',
+        )
         self.assertNotEqual(completed.returncode, 0)
-        self.assertIn("modules may not self-skip", completed.stdout + completed.stderr)
+        self.assertIn(
+            "modules may not self-skip", completed.stdout + completed.stderr
+        )
+
+    def test_focused_unreadable_skip_tally_forfeits_credit_and_fails(self) -> None:
+        """An unreadable skip tally must not read as "nothing was recorded" on the
+        focused tier either (issue #899 review).
+
+        This is the fail-OPEN shape the focused fold's `-s`/`!-r` arms close, and it is
+        asymmetric on purpose: only the SKIPS_FILE is denied, so the credit record stays
+        readable. Without the arms the skips vanish from the summary (SKIP_COUNT stays 0,
+        no `, K skipped` clause, no itemized SKIP line) while the still-readable credit
+        keeps lowering EFFECTIVE_MIN — one executed assertion clears a floor of 3 relaxed
+        to 1 and the module reports a byte-clean pass on a merge gate. The module chmods
+        its own record after writing it, the only way to reach this state from inside the
+        child.
+        """
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$SKIPS_FILE"\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - private skip tally is unreadable; every skip credit was forfeited",
+            completed.stdout,
+        )
+        # The credit is forfeited with the skip it belonged to, so the RAW floor stands
+        # (no `effective` clause) and the shortfall is reported rather than credited away.
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+        # And the vanished skip never renders as a clean pass.
+        self.assertNotIn("1 skipped", completed.stdout)
+
+    def test_focused_unreadable_credit_record_is_reported_not_silently_empty(self) -> None:
+        """The credit record gets the same treatment as the skip tally: unreadable is a
+        reported failure, never a silent zero-credit read."""
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$MODULE_SKIP_CREDIT_FILE"\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - private skip-credit record is unreadable", completed.stdout
+        )
+
+    # The three credit guards below (malformed credit, credit at the floor, credit past
+    # the floor) exist a SECOND time in lib/test/run-module.sh — the full-suite boundary's
+    # copies in module-harness.sh are driven by the `_drive_boundary` tests above, which
+    # never execute this file's code. Since #877 made the focused runner a merge gate,
+    # these drive the focused copies directly: without them a drift confined to
+    # run-module.sh (e.g. its `-ge "$MIN_ASSERTIONS"` reject relaxing to `-gt`) would
+    # waive the floor on a credit exactly equal to it while the suite stayed green.
+
+    def test_focused_malformed_credit_is_rejected_and_grants_nothing(self) -> None:
+        """A non-integer credit fails closed on the focused tier: an attributable
+        failure, zero credit granted, and the floor still trips."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" two\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-credit record contained 1 malformed declaration(s)",
+            completed.stdout,
+        )
+        # Zero credit granted, so the RAW floor still trips (no `effective` clause).
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_credit_exactly_at_the_floor_is_rejected(self) -> None:
+        """The `-ge` boundary: a credit EQUAL to the floor leaves nothing for the floor
+        to assert, so it is rejected and the raw minimum stands. A relaxation to `-gt`
+        would accept it, drop the effective floor to zero and waive the gate."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 3\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-assertion credit met or exceeded the assertion floor 3 and was rejected",
+            completed.stdout,
+        )
+        # The raw floor stands: the credit bought no relief at all.
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_credit_past_the_floor_is_rejected(self) -> None:
+        """The other side of the same comparison: a credit strictly greater than the
+        floor is rejected too, so an over-declaration cannot buy a free pass."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 9\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-assertion credit met or exceeded the assertion floor 3 and was rejected",
+            completed.stdout,
+        )
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_non_host_capability_skip_record_is_rejected(self) -> None:
+        """The focused tier's own `SKIP_MALFORMED_COUNT` arm (Suggestion finding on
+        PR #899). The `skip` override never writes a non-host-capability line itself, so
+        the only way to reach this guard is a module appending to the inherited private
+        tally directly — which is exactly the laundering vector the guard exists to close:
+        the record is counted as a failure and never folded into the visible skip tally."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            "printf 'blocking-gate\\tsmuggled gate\\ta module may not do this\\n' "
+            '>> "$SKIPS_FILE"\n',
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip tally contained 1 non-host-capability record(s) "
+            "(a module may not self-skip)",
+            completed.stdout,
+        )
+        # Never laundered into a visible skip.
+        self.assertNotIn("smuggled gate", completed.stdout)
+        self.assertNotIn("skipped", completed.stdout)
+
+    def test_focused_no_skip_summary_is_byte_identical(self) -> None:
+        """AC4: with no skip the summary line is byte-identical to the pre-#887 shape."""
+        completed = self._run_focused('assert_eq "one" "x" "x"\n')
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn(
+            "Module synthetic: 1 passed, 0 failed", completed.stdout.splitlines()
+        )
+        # No trailing skip clause is added when nothing was skipped.
+        self.assertNotIn("skipped", completed.stdout)
+
+    def test_focused_skip_reason_cannot_trip_the_unrequested_bound_guard(self) -> None:
+        """Injection guard (design decision, from #890): a module-authored skip reason
+        containing the literal `BOUNDED smoke subset` must not reach the log the
+        unrequested-bound guard scans, so it cannot forge an unrequested-bound failure."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" '
+            '"reads not denied; BOUNDED smoke subset appears in this reason" 2\n',
+            minimum_assertions=3,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertIn(
+            "Module synthetic: 1 passed, 0 failed, 1 skipped",
+            completed.stdout.splitlines(),
+        )
+        self.assertNotIn("bounded a heavy unit", completed.stdout)
+
+    def test_focused_skip_flows_through_the_shard_tally_as_a_skip(self) -> None:
+        """AC3/AC6: driving the declaration boundary through the shard path, the combined
+        aggregate reports a skip rather than a failure."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n',
+            minimum_assertions=3,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        log_path = None
+        for line in completed.stdout.splitlines():
+            if line.startswith("Log: "):
+                log_path = line.removeprefix("Log: ")
+        self.assertIsNotNone(log_path, completed.stdout)
+        out_dir = self.root / "tally"
+        extract = subprocess.run(
+            [
+                "python3",
+                str(ROOT / "lib/test/shard-tally.py"),
+                "extract",
+                "--log",
+                str(log_path),
+                "--shard",
+                "modules-x",
+                "--rc",
+                "0",
+                "--tier",
+                "modules",
+                "--out",
+                str(out_dir),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(extract.returncode, 0, extract.stdout + extract.stderr)
+        summary = {
+            key: value
+            for key, _, value in (
+                line.partition("\t")
+                for line in (out_dir / "summary")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if "\t" in line
+            )
+        }
+        self.assertEqual(summary.get("skipped"), "1")
+        self.assertEqual(
+            (out_dir / "skips").read_text(encoding="utf-8").strip(),
+            "gated arm [host-capability] — host cannot deny reads",
+        )
+        combine = subprocess.run(
+            [
+                "python3",
+                str(ROOT / "lib/test/shard-tally.py"),
+                "combine",
+                "--expect",
+                "1",
+                str(out_dir),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(combine.returncode, 0, combine.stdout + combine.stderr)
+        self.assertIn("1 passed, 0 failed, 1 skipped", combine.stdout)
+        self.assertIn("  SKIP  gated arm [host-capability]", combine.stdout)
+
+    def test_the_three_declaring_modules_run_green_through_the_focused_shard_path(
+        self,
+    ) -> None:
+        """AC6: the three modules that declare a host-capability skip are each driven
+        through the real focused runner (the #877 modules-* shard path) and run green.
+        This proves they are shard-compatible under the new skip channel; the channel's
+        FOLD behavior when an arm fires is driven end-to-end at the declaration boundary by
+        `test_focused_skip_flows_through_the_shard_tally_as_a_skip` above. Forcing each
+        module's own probe would mean reproducing the host condition (root / a
+        mode-ignoring filesystem), which the AC forbids — so the boundary, not the host
+        condition, is what the fold test exercises. A command-position raw `skip` in any
+        module is separately barred tree-wide by `MODULE_SKIP_CALL_RE` (see the module
+        self-skip scan)."""
+        for module in (
+            "regenerate-artifacts",
+            "review-stall-backstop",
+            "workflow-flight-recorder",
+        ):
+            environment = os.environ.copy()
+            environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+            with tempfile.TemporaryDirectory() as log_dir:
+                result = subprocess.run(
+                    ["bash", str(RUNNER_SOURCE), "--log-dir", log_dir, module],
+                    cwd=ROOT,
+                    env=environment,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                self.assertEqual(
+                    result.returncode,
+                    0,
+                    f"{module}:\n" + result.stdout[-4000:] + result.stderr[-4000:],
+                )
+                self.assertRegex(
+                    result.stdout,
+                    rf"Module {re.escape(module)}: [0-9]+ passed, 0 failed",
+                )
 
 
 class PoolMembershipCompletenessTests(unittest.TestCase):

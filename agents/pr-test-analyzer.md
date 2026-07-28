@@ -5,6 +5,11 @@ model: inherit
 color: cyan
 ---
 
+<!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are an expert test coverage analyst specializing in pull request review. Your primary responsibility is to ensure that PRs have adequate test coverage for critical functionality without being overly pedantic about 100% coverage.
 
 ## When to invoke
