@@ -2716,6 +2716,89 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
             "modules may not self-skip", completed.stdout + completed.stderr
         )
 
+    # The three credit guards below (malformed credit, credit at the floor, credit past
+    # the floor) exist a SECOND time in lib/test/run-module.sh — the full-suite boundary's
+    # copies in module-harness.sh are driven by the `_drive_boundary` tests above, which
+    # never execute this file's code. Since #877 made the focused runner a merge gate,
+    # these drive the focused copies directly: without them a drift confined to
+    # run-module.sh (e.g. its `-ge "$MIN_ASSERTIONS"` reject relaxing to `-gt`) would
+    # waive the floor on a credit exactly equal to it while the suite stayed green.
+
+    def test_focused_malformed_credit_is_rejected_and_grants_nothing(self) -> None:
+        """A non-integer credit fails closed on the focused tier: an attributable
+        failure, zero credit granted, and the floor still trips."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" two\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-credit record contained 1 malformed declaration(s)",
+            completed.stdout,
+        )
+        # Zero credit granted, so the RAW floor still trips (no `effective` clause).
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_credit_exactly_at_the_floor_is_rejected(self) -> None:
+        """The `-ge` boundary: a credit EQUAL to the floor leaves nothing for the floor
+        to assert, so it is rejected and the raw minimum stands. A relaxation to `-gt`
+        would accept it, drop the effective floor to zero and waive the gate."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 3\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-assertion credit met or exceeded the assertion floor 3 and was rejected",
+            completed.stdout,
+        )
+        # The raw floor stands: the credit bought no relief at all.
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_credit_past_the_floor_is_rejected(self) -> None:
+        """The other side of the same comparison: a credit strictly greater than the
+        floor is rejected too, so an over-declaration cannot buy a free pass."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 9\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip-assertion credit met or exceeded the assertion floor 3 and was rejected",
+            completed.stdout,
+        )
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+
+    def test_focused_non_host_capability_skip_record_is_rejected(self) -> None:
+        """The focused tier's own `SKIP_MALFORMED_COUNT` arm (Suggestion finding on
+        PR #899). The `skip` override never writes a non-host-capability line itself, so
+        the only way to reach this guard is a module appending to the inherited private
+        tally directly — which is exactly the laundering vector the guard exists to close:
+        the record is counted as a failure and never folded into the visible skip tally."""
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            "printf 'blocking-gate\\tsmuggled gate\\ta module may not do this\\n' "
+            '>> "$SKIPS_FILE"\n',
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - skip tally contained 1 non-host-capability record(s) "
+            "(a module may not self-skip)",
+            completed.stdout,
+        )
+        # Never laundered into a visible skip.
+        self.assertNotIn("smuggled gate", completed.stdout)
+        self.assertNotIn("skipped", completed.stdout)
+
     def test_focused_no_skip_summary_is_byte_identical(self) -> None:
         """AC4: with no skip the summary line is byte-identical to the pre-#887 shape."""
         completed = self._run_focused('assert_eq "one" "x" "x"\n')
