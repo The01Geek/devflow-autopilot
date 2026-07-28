@@ -1,0 +1,54 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T06:03:45Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_3_dispatch",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": [
+      "devflow:checklist-generator",
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review",
+      "phase-3.1.5-completeness-critic"
+    ],
+    "dispatched_at": "2026-07-28T06:12:00Z"
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "verdict_severity_threshold": "critical"
+  },
+  "acceptance_criteria_source": "workpad",
+  "stale_prose_lint": {
+    "exit_code": 0,
+    "stale_rows": 0,
+    "unresolvable_rows": 1,
+    "note": "UNRESOLVABLE\tCU\tlib/test/test_pin_corpus_lint.py\t21 — informational only, never gates the verdict"
+  },
+  "checklist": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {}
+}
