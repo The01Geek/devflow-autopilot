@@ -136,6 +136,73 @@ devflow_render_report() {
               + (if ($p.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
     fi
 
+    # Regressed patterns (issue #894) — every pattern whose derived status is
+    # `regressed`, derived from the SAME `.patterns` summary key the section above
+    # reads (no new summary key, no new producer). `regressed` is a CUMULATIVE
+    # state (a standing `newest occurrence > last fix` comparison over the whole
+    # history), NOT a this-run event, so the heading deliberately carries no
+    # "this run" time claim — unlike the run-scoped won't-fix re-raise section. An
+    # old-shaped summary whose pre-existing `.patterns` carries a regressed entry
+    # therefore renders this section too (the one stated exception to byte-identity).
+    # Omitted when no pattern is regressed.
+    local regressed_n
+    # Same type-test + numeric-degrade guard the sections above use; the element
+    # read is `map(select(...))`-filtered and `|| true`-ed so one malformed element
+    # cannot abort after the heading printed.
+    regressed_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.patterns // [] | type) == "array" then (.patterns // [] | map(select(type == "object" and ((.status | strings) // "") == "regressed")) | length) else empty end' 2>/dev/null || true)"
+    case "$regressed_n" in ''|*[!0-9]*) regressed_n=0 ;; esac
+    if [ "$regressed_n" -gt 0 ]; then
+        printf '\n## Regressed patterns\n\n'
+        printf 'These recurred after their last fix. `regressed` is a **cumulative** state — a standing `newest occurrence > last fix` comparison over the whole history, not a this-run event — so a pattern that regressed long ago and has not recurred since still appears here.\n\n'
+        # The `.category` field is guarded through `(($p.category | strings) // "")`
+        # exactly as the pattern-row emitter above does, and the `(category: …)`
+        # clause appears only when the entry's category differs from its key, so
+        # two same-category regressed records render distinguishably (issue #891).
+        _rr_emit regressed '
+            (.patterns // [] | map(select(type == "object" and ((.status | strings) // "") == "regressed")))[]
+            | . as $p
+            | ((($p.tag // $p.slug // "") | strings) // "") as $key
+            | (($p.category | strings) // "") as $cat
+            | "- `\($p.tag // $p.slug // "(unnamed)")` — \(($p.occurrence_count | numbers) // 0)×"
+              + (if $cat != "" and $cat != $key then " (category: `\($cat)`)" else "" end)'
+    fi
+
+    # Filing queue (issue #894) — an aggregate `filing queue: N/M open` line where N
+    # is the count of open filed meta-issue entries (from devflow_open_filed_total,
+    # computed in Step 9 and passed in — never recomputed here) and M is the
+    # resolved max_open_issues. Both arrive as `--arg` STRINGS so an unestablished
+    # value is representable as the empty string (rendered `unavailable`, never `0`).
+    # The line reports STATE, not blame: it deliberately does not say "blocked" and
+    # does not read the `cap` token (devflow_filing_cap_verdict is first-match, so a
+    # token-keyed line would go silent in the compound case). It renders whenever the
+    # summary carries AT LEAST ONE of the two operand keys — which every run of the
+    # changed orchestrator does — and is omitted ONLY when it carries NEITHER (the
+    # pre-change summary shape), so byte-identity holds on an old summary. It is
+    # unconditional on any current run: not gated on withheld_patterns, not on N>=M.
+    local has_queue
+    has_queue="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (has("filing_queue_open") or has("filing_queue_max")) then "yes" else "no" end')"
+    if [ "$has_queue" = yes ]; then
+        local q_open q_max n_disp m_disp cap_suffix
+        # `// ""` maps an absent key (the exactly-one-present case) to the empty
+        # string, which renders `unavailable` — the same rendering an established-
+        # but-empty (unestablished) value gets.
+        q_open="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_open // ""')"
+        q_max="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_max // ""')"
+        # An established count is a run of digits; anything else (the empty string)
+        # is unestablished and renders `unavailable`. An established 0 renders `0`.
+        # The comparison uses bash builtins only (guard-class 2) — no tr/sed/wc.
+        case "$q_open" in ''|*[!0-9]*) n_disp=unavailable ;; *) n_disp="$q_open" ;; esac
+        case "$q_max"  in ''|*[!0-9]*) m_disp=unavailable ;; *) m_disp="$q_max"  ;; esac
+        cap_suffix=""
+        # The ` — at capacity` suffix fires when, and only when, BOTH operands are
+        # established and N >= M. An unestablished operand yields no suffix.
+        if [ "$n_disp" != unavailable ] && [ "$m_disp" != unavailable ] && [ "$q_open" -ge "$q_max" ]; then
+            cap_suffix=" — at capacity"
+        fi
+        printf '\n## Filing queue\n\n'
+        printf -- '- filing queue: %s/%s open%s\n' "$n_disp" "$m_disp" "$cap_suffix"
+    fi
+
     # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line
     # (no pattern eligible while a suppressed pattern has occurred at/above threshold), the
     # orchestrator carries it into the summary so the report surfaces the silent
@@ -159,6 +226,29 @@ devflow_render_report() {
     if [ "$withheld_n" -gt 0 ]; then
         printf '\n## Patterns withheld by a filing cap\n\n'
         _rr_emit withheld_patterns '(.withheld_patterns // [] | map(select(type == "object")))[] | "- `\(.tag // .slug // "(unnamed)")` — withheld by `\((.cap | strings) // "(unknown cap)")`"'
+    fi
+
+    # Truncated Stage B evidence (issue #894) — every pattern where Stage B was
+    # delivered fewer occurrence bundles than the pattern has occurrences, because
+    # `audit_bundle_cap` dropped older ones (and/or a fetch failed). Each entry
+    # carries the pattern tag, `delivered`, and `total`; when `delivered < selected`
+    # the gap is named separately, because that gap is evidence lost to a FETCH
+    # FAILURE rather than to the cap, and collapsing the two would restate the
+    # evidence overstatement this issue exists to remove. Omitted when no pattern
+    # was truncated. Same type-test + element-filter guards as the sections above.
+    local truncated_n
+    truncated_n="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (.truncations // [] | type) == "array" then (.truncations // [] | map(select(type == "object")) | length) else empty end' 2>/dev/null || true)"
+    case "$truncated_n" in ''|*[!0-9]*) truncated_n=0 ;; esac
+    if [ "$truncated_n" -gt 0 ]; then
+        printf '\n## Stage B evidence truncated by the audit bundle cap\n\n'
+        printf 'For these patterns Stage B read fewer occurrence bundles than the pattern has occurrences. The subagent'"'"'s bundle set is a most-recent-first subset; the pattern metadata'"'"'s `occurrences[]` remains the authoritative full list.\n\n'
+        _rr_emit truncations '
+            (.truncations // [] | map(select(type == "object")))[]
+            | ((.delivered | numbers) // 0) as $delivered
+            | ((.total | numbers) // 0) as $total
+            | ((.selected | numbers) // 0) as $selected
+            | "- `\(.tag // "(unnamed)")` — Stage B received \($delivered) of \($total) occurrence bundles"
+              + (if $delivered < $selected then " (\($selected - $delivered) selected bundle(s) failed to fetch)" else "" end)'
     fi
 
     # Won't-fix re-raised (issue #788) — patterns re-filed this run whose meta-issue

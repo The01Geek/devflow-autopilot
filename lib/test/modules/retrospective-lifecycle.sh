@@ -1497,9 +1497,9 @@ DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok-slug --slug ok-slug --categ
 assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (control)" "filed" \
   "$(jq -r '.patterns["ok-slug"].state // "MISSING"' "$RL_TMP/mi-v3.json")"
 
-# ── the three cap keys, swept over the adversarial config-shape matrix ───────
+# ── the filing-volume cap keys, swept over the adversarial config-shape matrix ─
 # CLAUDE.md's best-effort-parser rule governs every config value that turns into
-# a decision, and these three turn into the filing budget. The boundary that
+# a decision, and these turn into the filing budget. The boundary that
 # matters is COMPOSED — config-get.sh's coercion feeding devflow_filing_cap_verdict
 # — so drive both together and assert the verdict token each shape produces.
 # Two arms are silent-laundering RESIDUALS of config-get.sh's repo-wide coercion,
@@ -1544,6 +1544,133 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   RL_CAP_ERR="$(devflow_filing_cap_verdict open 0 '[object Object]' 0 99 0 99 2>&1 >/dev/null)"
   assert_eq "#788 cap-shape: the unusable cap breadcrumb names the operand" "true" \
     "$(case "$RL_CAP_ERR" in *"'max_issues_per_run' operand is not a non-negative integer"*) echo true ;; *) echo false ;; esac)"
+)
+
+# ── #894 audit_bundle_cap: validation, composed config boundary, selection ────
+# The Stage B fetch bound. Validation and selection live in
+# lib/audit-bundle-selection.sh (the skill fence resolves the cap via config-get.sh
+# and passes it in). Drive the validator over every JSON shape the key can hold —
+# both directly and COMPOSED with config-get.sh, since that is the boundary the
+# skill fence actually exercises — and drive the selector for order and cardinality.
+(
+  # shellcheck source=../../audit-bundle-selection.sh
+  . "$REPO_ROOT/lib/audit-bundle-selection.sh"
+  mkdir -p "$RL_TMP/abc/.devflow"
+  # rl_abc_raw <config-value> -> the config-get.sh-coerced string the fence passes
+  rl_abc_raw() {
+    printf '{"devflow_retrospective":{"audit_bundle_cap":%s}}' "$1" > "$RL_TMP/abc/.devflow/config.json"
+    (cd "$RL_TMP/abc" && CONFIG_FILE=.devflow/config.json \
+       "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)
+  }
+  # rl_abc_token <config-value> -> "cap:<n>" when validated, "REJECT" when the
+  # validator fails closed. Composes config-get.sh -> devflow_validate_audit_bundle_cap.
+  rl_abc_token() {
+    local raw v
+    raw="$(rl_abc_raw "$1")"
+    if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
+  }
+  # positive integer -> used as the cap
+  assert_eq "#894 cap: a positive integer is the cap" "cap:5" "$(rl_abc_token 5)"
+  # 0 / negative -> REJECT (deliberately unlike the filing caps where 0 is an off-switch)
+  assert_eq "#894 cap: 0 is rejected (would starve Stage B), not an off-switch" "REJECT" "$(rl_abc_token 0)"
+  assert_eq "#894 cap: a negative value is rejected" "REJECT" "$(rl_abc_token -3)"
+  # boolean false/true, object, multi-array, non-numeric string, 3.5 -> REJECT
+  assert_eq "#894 cap: a false cap is rejected" "REJECT" "$(rl_abc_token false)"
+  assert_eq "#894 cap: a true cap is rejected (coerces to the string 'true')" "REJECT" "$(rl_abc_token true)"
+  assert_eq "#894 cap: an object cap is rejected" "REJECT" "$(rl_abc_token '{}')"
+  assert_eq "#894 cap: a multi-element array cap is rejected" "REJECT" "$(rl_abc_token '[3,4]')"
+  assert_eq "#894 cap: a non-numeric string cap is rejected" "REJECT" "$(rl_abc_token '"abc"')"
+  assert_eq "#894 cap: a non-integer number cap is rejected" "REJECT" "$(rl_abc_token 3.5)"
+  # missing / null / empty-string / empty-array -> config-get resolves to the default 10
+  rl_abc_missing() {
+    printf '{"devflow_retrospective":{}}' > "$RL_TMP/abc/.devflow/config.json"
+    local raw v
+    raw="$(cd "$RL_TMP/abc" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)"
+    if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
+  }
+  assert_eq "#894 cap: a missing key falls back to the default 10" "cap:10" "$(rl_abc_missing)"
+  assert_eq "#894 cap: a null cap falls back to the default 10" "cap:10" "$(rl_abc_token null)"
+  assert_eq "#894 cap: an explicit empty string falls back to the default 10" "cap:10" "$(rl_abc_token '""')"
+  assert_eq "#894 cap: an empty array falls back to the default 10" "cap:10" "$(rl_abc_token '[]')"
+  # RESIDUAL (pinned, not fixed — config-get.sh coercion is repo-wide): a
+  # single-element array is laundered into that scalar cap, exactly like the filing caps.
+  assert_eq "#894 cap RESIDUAL: a single-element array is laundered into that cap" "cap:3" "$(rl_abc_token '[3]')"
+  # An EMPTY resolver output (a read failure) is rejected, naming both causes.
+  assert_eq "#894 cap: an empty resolver output is a read failure, rejected" "REJECT" \
+    "$(if devflow_validate_audit_bundle_cap "" >/dev/null 2>&1; then echo "cap"; else echo REJECT; fi)"
+  RL_ABC_ERR="$(devflow_validate_audit_bundle_cap "" 2>&1 >/dev/null)"
+  assert_eq "#894 cap: the empty-read breadcrumb names both malformed-config and resolver-failure" "true" \
+    "$(case "$RL_ABC_ERR" in *"malformed .devflow/config.json"*"resolver failure"*) echo true ;; *) echo false ;; esac)"
+  RL_ABC_ZERO_ERR="$(devflow_validate_audit_bundle_cap 0 2>&1 >/dev/null)"
+  assert_eq "#894 cap: the zero-cap breadcrumb names the key and the starvation reason" "true" \
+    "$(case "$RL_ABC_ZERO_ERR" in *".devflow_retrospective.audit_bundle_cap"*"starve Stage B"*) echo true ;; *) echo false ;; esac)"
+
+  # Selection: most-recent-first (occurrences[] arrives ascending by ts), and the
+  # emitted ORDER is asserted, not just the set.
+  RL_ABC_PAT='{"occurrences":[{"pr":10,"ts":"2020-01-01"},{"pr":20,"ts":"2020-02-01"},{"pr":30,"ts":"2020-03-01"},{"pr":40,"ts":"2020-04-01"}]}'
+  assert_eq "#894 select: the most-recent CAP prs, descending ts" "40 30" \
+    "$(devflow_select_audit_bundles 2 "$RL_ABC_PAT" | tr '\n' ' ' | sed 's/ $//')"
+  assert_eq "#894 select: cap >= occurrences returns all, still descending ts" "40 30 20 10" \
+    "$(devflow_select_audit_bundles 10 "$RL_ABC_PAT" | tr '\n' ' ' | sed 's/ $//')"
+  assert_eq "#894 select: an empty occurrences array selects nothing" "" \
+    "$(devflow_select_audit_bundles 3 '{"occurrences":[]}')"
+  assert_eq "#894 select: an absent occurrences key selects nothing" "" \
+    "$(devflow_select_audit_bundles 3 '{}')"
+)
+
+# ── #894 render-report: Regressed patterns, Filing queue, truncation sections ─
+(
+  . "$REPO_ROOT/lib/render-report.sh"
+  # Regressed patterns — derived from .patterns where status==regressed, with the
+  # cumulative-state body and the omit-when-none idiom.
+  RL_REG="$(devflow_render_report '{"prs_scanned":1,"patterns":[{"tag":"reg-a","occurrence_count":4,"status":"regressed","category":"tooling-gap"},{"tag":"open-b","occurrence_count":1,"status":"open"}]}')"
+  assert_eq "#894 regressed: the section lists a regressed pattern" "true" \
+    "$(case "$RL_REG" in *"## Regressed patterns"*'`reg-a`'*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 regressed: the body states the state is cumulative" "true" \
+    "$(case "$RL_REG" in *"## Regressed patterns"*"cumulative"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 regressed: a non-regressed pattern is not listed under it" "false" \
+    "$(case "$RL_REG" in *"## Regressed patterns"*'`open-b`'*) echo true ;; *) echo false ;; esac)"
+  RL_NOREG="$(devflow_render_report '{"prs_scanned":1,"patterns":[{"tag":"open-b","occurrence_count":1,"status":"open"}]}')"
+  assert_eq "#894 regressed: the section is omitted when nothing is regressed" "false" \
+    "$(case "$RL_NOREG" in *"## Regressed patterns"*) echo true ;; *) echo false ;; esac)"
+
+  # Filing queue — N/M, at-capacity, unavailable, one-key, neither-key.
+  RL_FQ="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"12","filing_queue_max":"10"}')"
+  assert_eq "#894 queue: renders N/M with the at-capacity suffix when N>=M" "true" \
+    "$(case "$RL_FQ" in *"## Filing queue"*"filing queue: 12/10 open — at capacity"*) echo true ;; *) echo false ;; esac)"
+  RL_FQ2="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"3","filing_queue_max":"10"}')"
+  assert_eq "#894 queue: no capacity suffix when N<M" "true" \
+    "$(case "$RL_FQ2" in *"filing queue: 3/10 open"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 queue: N<M carries no ' — at capacity'" "false" \
+    "$(case "$RL_FQ2" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+  RL_FQZ="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"0","filing_queue_max":"10"}')"
+  assert_eq "#894 queue: an established 0 renders 0, not unavailable" "true" \
+    "$(case "$RL_FQZ" in *"filing queue: 0/10 open"*) echo true ;; *) echo false ;; esac)"
+  RL_FQU="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"","filing_queue_max":"10"}')"
+  assert_eq "#894 queue: an unestablished N renders 'unavailable', never 0" "true" \
+    "$(case "$RL_FQU" in *"filing queue: unavailable/10 open"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 queue: an unestablished operand yields no capacity suffix" "false" \
+    "$(case "$RL_FQU" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+  RL_FQ1="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"5"}')"
+  assert_eq "#894 queue: exactly one operand key present still renders the line" "true" \
+    "$(case "$RL_FQ1" in *"## Filing queue"*"filing queue: 5/unavailable open"*) echo true ;; *) echo false ;; esac)"
+  RL_FQ0="$(devflow_render_report '{"prs_scanned":1,"patterns":[]}')"
+  assert_eq "#894 queue: omitted only when NEITHER operand key is present (old summary)" "false" \
+    "$(case "$RL_FQ0" in *"## Filing queue"*) echo true ;; *) echo false ;; esac)"
+
+  # Truncation section — delivered/total, the fetch-failure gap named separately,
+  # and the omit-when-none idiom.
+  RL_TR="$(devflow_render_report '{"prs_scanned":1,"truncations":[{"tag":"tg-x","delivered":8,"total":40,"selected":10}]}')"
+  assert_eq "#894 truncation: the section names delivered-of-total" "true" \
+    "$(case "$RL_TR" in *"Stage B evidence truncated"*'`tg-x`'*"received 8 of 40"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 truncation: names the fetch-failure gap when delivered<selected" "true" \
+    "$(case "$RL_TR" in *"2 selected bundle(s) failed to fetch"*) echo true ;; *) echo false ;; esac)"
+  RL_TR2="$(devflow_render_report '{"prs_scanned":1,"truncations":[{"tag":"tg-y","delivered":10,"total":40,"selected":10}]}')"
+  assert_eq "#894 truncation: no fetch-failure clause when delivered==selected" "false" \
+    "$(case "$RL_TR2" in *"failed to fetch"*) echo true ;; *) echo false ;; esac)"
+  RL_TR0="$(devflow_render_report '{"prs_scanned":1,"patterns":[]}')"
+  assert_eq "#894 truncation: the section is omitted when nothing was truncated" "false" \
+    "$(case "$RL_TR0" in *"Stage B evidence truncated"*) echo true ;; *) echo false ;; esac)"
 )
 
 # ── the cap comparands survive ONE malformed lifecycle record ────────────────

@@ -1,0 +1,6 @@
+---
+bump: minor
+type: Added
+---
+
+- **Bound the retrospective loop's Stage B occurrence-bundle fetch, and surface regressions and the filing-queue state in the run report.** A new `.devflow_retrospective.audit_bundle_cap` config key (default `10`) caps the number of occurrence bundles Stage B fetches per pattern, most-recent-first by occurrence timestamp — replacing an unbounded fetch that scaled with each pattern's cumulative occurrence history. The new sourced helper `lib/audit-bundle-selection.sh` owns the cap validation and the most-recent-N selection. When the cap (or a fetch failure) leaves Stage B with fewer bundles than a pattern has occurrences, the run records a truncation entry that the report surfaces under a dedicated section, and a pattern whose every selected bundle fails to fetch is no longer dispatched (no evidence-free issue is filed). The weekly report now also renders a `Regressed patterns` section (every pattern whose cumulative status is `regressed`) and an aggregate `filing queue: N/M open` line (` — at capacity` when the open filed-issue count has reached `max_open_issues`), so a full filing queue on a quiet week is no longer indistinguishable from nothing to do. (#894)

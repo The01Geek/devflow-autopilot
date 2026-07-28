@@ -7,6 +7,10 @@
       "note": "issue #788 retrospective issue-closure lifecycle",
       "owner": "retrospective-lifecycle"
     },
+    "lib/audit-bundle-selection.sh": {
+      "note": "issue #894 Stage B occurrence-bundle cap validation + most-recent-N selection",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/cheap-gate.jq": {
       "note": "",
       "owner": "unmodularized"
@@ -1734,6 +1738,10 @@
       "owner": "unmodularized"
     },
     "891": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
+    },
+    "894": {
       "note": "",
       "owner": "retrospective-lifecycle"
     },

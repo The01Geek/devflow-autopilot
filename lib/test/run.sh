@@ -14782,6 +14782,29 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   assert_eq "Patterns section present"        "true" "$(echo "$REPORT2" | grep -q '## Patterns this run' && echo true || echo false)"
   assert_eq "Patterns sorted by count desc"   "true" "$(echo "$REPORT2" | grep -A2 '## Patterns this run' | grep -q 'old-pattern.*3×' && echo true || echo false)"
   assert_eq "cooldown pattern annotated"      "true" "$(echo "$REPORT2" | grep -q 'old-pattern.*cooldown, skipped this run' && echo true || echo false)"
+
+  # ── #894 byte-identity + the one stated exception ──────────────────────────
+  # An old-shaped summary (NONE of the new #894 keys) renders its pre-existing
+  # sections unchanged AND is deliberately given a `status: regressed` pattern, so
+  # the one stated exception to byte-identity — a regressed entry in an old summary
+  # now also surfacing the Regressed-patterns section — is EXERCISED rather than
+  # dodged. The pre-existing fixtures use `status: open` throughout, which would
+  # make this exception pass vacuously. Because the summary carries neither
+  # `filing_queue_open`/`filing_queue_max` nor `truncations`, the Filing-queue line
+  # and the truncation section must both be OMITTED (the old-orchestrator shape).
+  # (Assertion names intentionally carry no `#894` token: label 894 is owned wholly
+  # by the retrospective-lifecycle module's coverage, and coverage_map_guard.py
+  # attributes a label by where its assertions live.)
+  SUM894='{"prs_scanned":2,"clean_count":0,"analyzed_count":1,"patterns":[{"tag":"reg-old","slug":"reg-old","occurrence_count":4,"status":"regressed","cooldown_active":false},{"tag":"open-old","slug":"open-old","occurrence_count":2,"status":"open","cooldown_active":false}],"intervention_issues":[],"blockers":[],"state_pr":810}'
+  REPORT894="$(devflow_render_report "$SUM894")"
+  assert_eq "audit-cap byte-identity: an old summary still renders Patterns this run" "true" \
+    "$(echo "$REPORT894" | grep -q '## Patterns this run' && echo true || echo false)"
+  assert_eq "audit-cap byte-identity: a regressed entry in an old summary surfaces Regressed patterns (the one exception)" "true" \
+    "$(echo "$REPORT894" | grep -q '## Regressed patterns' && echo true || echo false)"
+  assert_eq "audit-cap byte-identity: no new operand key → the Filing queue line is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q '## Filing queue' && echo true || echo false)"
+  assert_eq "audit-cap byte-identity: no truncations key → the truncation section is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q 'Stage B evidence truncated' && echo true || echo false)"
 )
 OSPR="$(bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --dry-run 2>/dev/null)"
 assert_eq "open-state-pr dry-run echoes DRYRUN" "true" "$(echo "$OSPR" | grep -q 'DRYRUN' && echo true || echo false)"

@@ -107,7 +107,8 @@
     "max_open_issues": 10,
     "max_open_per_category": 2,
     "max_prs_per_run": 500,
-    "diff_byte_cap": 204800
+    "diff_byte_cap": 204800,
+    "audit_bundle_cap": 10
   },
   "workflows": {
     "devflow": true,

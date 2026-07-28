@@ -892,6 +892,11 @@
           "description": "Soft cap on PRs processed per scheduled retrospective run.",
           "default": 500
         },
+        "audit_bundle_cap": {
+          "type": "integer",
+          "description": "Bounds the Stage B occurrence-bundle fetch (issue #894): for each actionable pattern, Step 8a fetches context bundles for at most this many occurrence PRs, most-recent-first by occurrence timestamp. This bounds the fetch, NOT the filing volume (that is max_issues_per_run / max_open_issues / max_open_per_category). When the cap drops older occurrences the run records a truncation entry naming the pattern, how many bundles Stage B was delivered, and how many occurrences the pattern has, rendered under a dedicated report section. A value of 0 or negative is rejected (a bundle cap of zero would starve Stage B of all evidence).",
+          "default": 10
+        },
         "diff_byte_cap": {
           "type": "integer",
           "description": "Per-PR diff size ceiling (bytes) for the retrospective context bundle (lib/fetch-pr-context.sh). A PR whose embedded diff exceeds this \u2014 or whose diff can't be fetched \u2014 gets diff: null / diff_truncated: true and the analyst works from changed_files, reviews, and the issue instead. Generated/vendored file bodies (lockfiles, bundles, node_modules/vendor/dist/build) are elided before the cap is applied.",
