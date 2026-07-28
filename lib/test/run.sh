@@ -44701,7 +44701,7 @@ E877SH
   assert_eq "#877 selector: DEVFLOW_SKIP_SUITE_MODULES=1 makes the module runner a no-op" "rc=0 fails=0" \
     "$(DEVFLOW_SKIP_SUITE_MODULES=1 bash "$E877_GATE_PROBE" "$E877_HARNESS" 2>/dev/null)"
   assert_eq "#877 selector positive control: without the env a missing module records a failure" "rc=0 fails=1" \
-    "$(DEVFLOW_SKIP_SUITE_MODULES= bash "$E877_GATE_PROBE" "$E877_HARNESS" 2>/dev/null)"
+    "$(DEVFLOW_SKIP_SUITE_MODULES='' bash "$E877_GATE_PROBE" "$E877_HARNESS" 2>/dev/null)"
   rm -f "$E877_GATE_PROBE"
 fi
 
