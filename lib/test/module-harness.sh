@@ -1129,6 +1129,21 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
   local module_launching=0 module_pending_signal="" tally_valid=1
   local saved_hup saved_int saved_term monitor_was_on=0
 
+  # Module-tier selector for the concurrent CI job matrix (issue #877). When
+  # DEVFLOW_SKIP_SUITE_MODULES=1 the full-suite runner delegates the whole module
+  # tier to separate shard jobs (each invoking `run-module.sh <id>` for its group),
+  # so the monolith shard runs run.sh's inline assertions WITHOUT the modules and
+  # nothing is double-counted across shards. The dedup is what turns the split into
+  # a wall-clock win; without it the monolith shard would re-run every module.
+  # An early return records nothing (no result, no boundary failure, no skip credit),
+  # so the tail's grep -c derivations and devflow_fold_module_failures stay clean —
+  # the module's assertions and its minimum_assertions floor are enforced instead in
+  # its own shard by run-module.sh. Unset/any-other value is byte-identical to before
+  # (the full suite runs every module), so a plain `bash lib/test/run.sh` is unchanged.
+  if [ "${DEVFLOW_SKIP_SUITE_MODULES:-}" = 1 ]; then
+    return 0
+  fi
+
   case "$minimum_assertions" in
     ''|*[!0-9]*|????????*)
       _devflow_record_module_failure "test module $module_name — invalid minimum assertion count" || return 1
