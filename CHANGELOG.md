@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.11] — 2026-07-28
+
+### Fixed
+- **`/devflow:init` now relays `python3 -m pip install PyYAML` instead of `pip install -r requirements.txt`.** The `-r` path resolves against the user's own working directory, not the plugin cache, so in a Python project the relayed remedy would have installed *their* dependency set rather than DevFlow's single requirement. The same change corrects a false parenthetical in `README.md`, `docs/install.md`, and `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, which each claimed a plugin-cache install "has no `requirements.txt` to point `pip` at" — the file is tracked and does ship in the cache; the real reason to name the package is the cwd-relative path. (#912)
+
 ## [2.23.10] — 2026-07-28
 
 ### Changed
