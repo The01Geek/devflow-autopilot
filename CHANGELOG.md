@@ -4,6 +4,33 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.2] — 2026-07-28
+
+### Removed
+- **Removed the unattended/bypass-permissions recipe from the retrospective-weekly skill.**
+  `skills/retrospective-weekly/SKILL.md` no longer ships the `## § Cron / headless variant`
+  section, which recommended adding `--dangerously-skip-permissions` for a fully unattended
+  run — the only place in the retrospective-weekly skill that recommended disabling Claude
+  Code's permission system, contrary to DevFlow's consent-gated posture and Anthropic Software
+  Directory Policy section 1.B. The `docs/DEVFLOW_SYSTEM_OVERVIEW.md` command-catalog cell for
+  the loop is narrowed from `interactively / headless` to
+  `interactively (no documented unattended recipe)`. The loop remains fully usable
+  interactively; no behavior changes. (#875)
+
+## [2.23.1] — 2026-07-28
+
+### Removed
+- **Retired desk-lint rule `R5`** (the review-tier `if`/`elif` command-substitution
+  *condition* guard, issue #857) from `lib/test/extract-command-shapes.py`. The
+  matcher-probe review row **Shape 18** (`if VAR=$(granted-helper …)`) recorded
+  **PERMITTED** (run 30310938175, 2026-07-27), so the shape the discipline-only rule
+  guarded against is cloud-permitted and the stop-gap is no longer needed. The finder,
+  its `REVIEW_RULES` membership, its planted control, and its `run.sh` assertions were
+  removed together, and the retirement trigger prose was corrected across
+  `docs/cloud-allowlist.md`, `docs/DEVFLOW_SYSTEM_OVERVIEW.md`, and the probe row. The
+  retirement does not re-permit the shape in `skills/review/**` — the review-seed is
+  already helper-extracted. (#869)
+
 ## [2.23.0] — 2026-07-27
 
 ### Changed

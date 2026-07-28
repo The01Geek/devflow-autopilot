@@ -985,16 +985,6 @@ after reviewing.
 
 ---
 
-## § Cron / headless variant
-
-`claude -p "/devflow:retrospective-weekly" --permission-mode acceptEdits` handles steps
-1–9 unattended. Stage B makes **no** working-tree edits (it only drafts issue
-specs) and the orchestrator only files issues and writes `.devflow/learnings/`,
-so the loop is well-suited to an unattended run. For a fully unattended run, add
-`--dangerously-skip-permissions`.
-
----
-
 ## § Notes
 
 - **Clean working tree required.** The loop modifies `.devflow/learnings/`

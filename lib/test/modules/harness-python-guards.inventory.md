@@ -87,7 +87,9 @@ The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The module uses the helpers its
 sourcing contract provides — `assert_eq` from the **caller** (both `lib/test/run.sh` and
-`lib/test/run-module.sh` define it), plus `devflow_run_focused_python_test` and
-`devflow_module_allocate_owned_directory` from `lib/test/module-harness.sh` — and
+`lib/test/run-module.sh` define it), plus the harness helpers
+`lib/test/module-harness.sh` defines — `devflow_run_focused_python_test`,
+`devflow_run_sharded_python_test` (the issue-#870 concurrent driver behind the `#810`
+pin-corpus suite), and `devflow_module_allocate_owned_directory` — and
 references no helper that lives **only** in `lib/test/run.sh`. Its coverage-map ownership (the extracted subjects' `files` entries — `coverage_map_guard.py` excepted, being under the `lib/test/` exempt subtree, so it has none) is
 recorded in `lib/test/modules/coverage-map.json`.
