@@ -53,18 +53,22 @@ record_fail() {  # name
 # kind is not `host-capability`, and it cannot tell a record written through this wrapper
 # from one a module produced by calling `skip` directly or by appending a hand-crafted
 # line. Keeping the RAW helper out of a module's reach is instead the job of two other
-# mechanisms: lib/test/run-module.sh overrides `skip` to a fatal on the focused tier, and
+# mechanisms: lib/test/run-module.sh overrides `skip` so that only THIS wrapper's
+# sanction-marked, host-capability-kinded delegation folds into a visible skip while a raw
+# `skip` a module invokes directly stays a fatal contract violation (issue #887), and
 # lib/test/test_module_runner.py scans every shipped module for a command-position `skip`
 # line. A module that defeats all three is out of scope — this is a test harness, not a
 # sandbox.
 #
-# It emits nothing itself. It delegates to `skip`, which stays the sole `#456`
-# producer of the reserved `  NOTE ` line, and bash resolves that name at CALL time —
-# so one definition is correct on both tiers with no divergent second message to keep
-# in sync. Under the full-suite boundary `skip` is run.sh's real helper writing to the
-# private per-module tally that boundary binds and folds back; under
-# lib/test/run-module.sh `skip` is that runner's FATAL override, so a focused run dies
-# here on the delegation line, before any credit is recorded.
+# It emits nothing itself. It delegates to `skip`, and bash resolves that name at CALL
+# time — so one definition drives both tiers with no divergent second message to keep in
+# sync. Under the full-suite boundary `skip` is run.sh's real helper (the sole `#456`
+# producer of the reserved `  NOTE ` line) writing to the private per-module tally that
+# boundary binds and folds back; under lib/test/run-module.sh `skip` is that runner's
+# override, which — because this wrapper delegates with the sanction marker set and a
+# `host-capability` kind — records the declaration to the focused runner's private skip
+# tally (issue #887) rather than aborting, and the runner folds it and applies the credit
+# below after `wait`. The credit line runs on both tiers.
 #
 # <assertions-covered> is the number of assertions the guarded arm does not run on this
 # host. The boundary credits it against the module's assertion floor so a host taking
@@ -73,15 +77,46 @@ record_fail() {  # name
 # validates it and fails closed on every shape it cannot use.
 module_host_capability_skip() {  # name reason assertions-covered
   local _hcs_name="$1" _hcs_reason="$2" _hcs_credit="${3:-0}"
-  skip "$_hcs_name" host-capability "$_hcs_reason"
+  # The command-scoped assignment marks THIS delegating call as the sanctioned
+  # host-capability path for lib/test/run-module.sh's focused `skip` override (issue
+  # #887): a raw `skip` a module invokes directly never carries the marker, so the
+  # focused tier folds a host-capability declaration into a visible skip while a raw
+  # self-skip stays a fatal contract violation. The assignment is temporary to the call
+  # and restored after it, so nothing leaks past this line. run.sh's real `skip` (the
+  # full-suite tier) does not read the marker, so full-suite behavior is unchanged.
+  _DEVFLOW_SANCTIONED_HOST_CAPABILITY_SKIP=1 skip "$_hcs_name" host-capability "$_hcs_reason"
   # Recorded as ONE line — the boundary is the validator, so a malformed declaration is
   # rejected there with an attributable failure rather than repaired here. The only
   # transform is load-bearing and must stay: collapsing TAB/NL/CR to spaces keeps a
   # multi-line declaration ("2\n3") from splitting into two separately-valid credit
   # lines at the validator, which would launder it into 5 credits. The collapsed
   # result is not digits-only, so the validator still rejects it, attributably.
+  #
+  # The write is GUARDED, and the guard terminates rather than returning (issue #899
+  # review). A dropped credit line is not a safe loss: the boundary's reject arm zeroes
+  # the credit only when the total reaches MIN_ASSERTIONS, so losing SOME of several
+  # credit lines can move a run from the rejected state (strict floor) into the accepted
+  # state (lowered floor) — e.g. two arms crediting 2 and 5 against MIN=6 pass the reject
+  # arm at 5 if the `2` write is lost, and the module then clears a floor of 1. That is
+  # fail-OPEN in the one path whose entire purpose is to fail closed, so the write may
+  # not be best-effort.
+  #
+  # Why `exit 1` and not this file's overwhelmingly more common `return 1`: every
+  # `return 1` here lives in a function whose CALLER inspects the status (`|| return 1`,
+  # `|| :`, an `if` head). This wrapper is invoked as a bare statement from a module arm,
+  # and neither runner sets `-e` (both are `set -u` only — see the mktemp-guard note
+  # above), so a nonzero return from here is discarded by every real call site and would
+  # reproduce the very fail-open being closed. Termination is contained: on BOTH tiers
+  # the module body runs inside the backgrounded worker subshell _devflow_supervise_module
+  # launches, so this exits that worker alone — the full-suite boundary reports
+  # "exited with status 1" as an attributable module FAIL and the focused runner fails the
+  # module the same way. The blast radius is one module, never the suite. This file's other
+  # `exit 1` sites (_devflow_module_supervisor_signal and _devflow_full_suite_signal)
+  # terminate on the same basis, and the sibling SKIPS_FILE write in
+  # lib/test/run-module.sh's focused `skip` override guards identically.
   if [ -n "${MODULE_SKIP_CREDIT_FILE:-}" ]; then
-    printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE"
+    printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE" || {
+      printf 'FATAL: could not record host-capability skip credit\n' >&2; exit 1; }
   fi
 }
 
