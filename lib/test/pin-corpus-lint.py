@@ -2922,18 +2922,26 @@ def extract_guard_sites(text, source_path, repo_root):
     # wrapper-invocation pass below and the site pass after it: both tokenize
     # the same left-stripped text under the same options, so on a source of this
     # size the second pass was a measurable duplicate of the first.
-    logical_lines = [
-        (lineno, logical_line, logical_line.lstrip())
-        for lineno, logical_line in join_logical_lines(text)
-    ]
-    tokens_by_index = [
-        tokenize(stripped, split_shell_operators=True)
-        for _, _, stripped in logical_lines
-    ]
+    logical_lines = []
+    tokens_by_index = []
+    for lineno, logical_line in join_logical_lines(text):
+        stripped = logical_line.lstrip()
+        logical_lines.append((lineno, logical_line, stripped))
+        # A blank or comment-led logical line tokenizes to nothing — tokenize
+        # stops at a token-leading '#' — so neither pass below can resolve a
+        # helper on it. Storing None keeps the retained tokens proportional to
+        # the lines that can carry a site rather than to the whole file.
+        tokens_by_index.append(
+            tokenize(stripped, split_shell_operators=True)
+            if stripped and not stripped.startswith("#")
+            else None
+        )
     invoked_wrappers = set()
     for (invocation_line, _, _), invocation_tokens in zip(
         logical_lines, tokens_by_index
     ):
+        if invocation_tokens is None:
+            continue
         _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
         if (
             invocation_helper in definitions
