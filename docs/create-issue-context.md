@@ -241,8 +241,8 @@ obligation reads.
 **The instrument that produces these figures is not yet built.** Acceptance criteria 48–59 of
 issue #793 — sidechain attribution, round-boundary derivation from the transcript's own
 `record-dispatch` records, the best-effort state-file reader, the before/after operands, the
-per-kind medians and the three escaped-defect proxies — were deferred to a follow-up, because each
-of them reads a round kind the mechanism had to record first. Until that follow-up lands, this row
+per-kind medians and the three escaped-defect proxies — were deferred to **issue #889**, because
+each of them reads a round kind the mechanism had to record first. Until that follow-up lands, this row
 cannot be filled by any existing tooling, and saying so here is what keeps the gap inspectable
 rather than silent.
 

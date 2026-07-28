@@ -20104,6 +20104,108 @@ assert_eq("#793: last_completed stays kind-blind — it answers the newest compl
               {'rounds': [{'round': 2, 'outcome': 'FILE', 'kind': 'discovery'},
                           {'round': 3, 'outcome': 'FILE', 'kind': 'targeted'}]})['round'])
 
+
+# --- AC 38: summary_fields renders the verdict and class counts from the latest
+# WHOLE-DRAFT round, and names the scoped round separately -------------------------
+#
+# The Step 4 audit summary is what a human reads to decide whether the draft is filable.
+# A `targeted` round audits an enumerated claim set over a changed-section span, so
+# rendering ITS verdict and class counts as the run's summary would report a scoped
+# re-check as if a whole draft had been re-read. `last_completed` stays kind-blind (the
+# row above), so this reader needs its own whole-draft selector — and the scoped round
+# must still be VISIBLE, not merely suppressed, hence the separate field.
+#
+# Distinct from `_last_discovery_round`: that selector also excludes a final-byte pass,
+# which for THIS reader is whole-draft evidence whose verdict #792 deliberately renders.
+# Reusing it would silently revert that.
+
+def _793_sum_state(rounds):
+    """A completed-round-only state document `summary_fields` can be driven over."""
+    return {'schema_version': _m793.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n',
+            'rounds': rounds, 'revisions': [], 'overrides': []}
+
+
+def _793_sum_round(num, kind, outcome, *, mr, adv, inv, umr, final_byte=False):
+    return {'round': num, 'kind': kind, 'outcome': outcome,
+            'attempts': [{'arm': 'file', 'digest': 'd' * 40}],
+            'adjudicated_verdict': outcome, 'must_revise_count': mr,
+            'advisory_count': adv, 'invalid_count': inv,
+            'unresolved_must_revise': umr, 'final_byte_pass': final_byte}
+
+
+# A discovery round found 3 must-revise findings; a later targeted round re-checked them
+# and came back clean. The summary must still report the DISCOVERY round's verdict and
+# counts — the scoped round re-read no whole draft.
+_793_sum_mixed = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: the summary verdict and every class count come from the latest "
+          "WHOLE-DRAFT round, not the newer targeted one",
+          ('REVISE', 'REVISE', 3, 1, 0, 3),
+          (_793_sum_mixed['verdict'], _793_sum_mixed['adjudicated_verdict'],
+           _793_sum_mixed['must_revise'], _793_sum_mixed['advisory'],
+           _793_sum_mixed['invalid'], _793_sum_mixed['unresolved_must_revise']))
+
+assert_eq("#793/AC38: the targeted round is NAMED separately rather than suppressed — "
+          "a reader sees the scoped round ran",
+          2, _793_sum_mixed['scoped_round'])
+
+# A run with no targeted round answers the identical fields it does today, and reports no
+# scoped round — the negative control that keeps the widening from changing kind-blind runs.
+_793_sum_plain = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+]))
+assert_eq("#793/AC38: a run with no targeted round is unchanged, and names no scoped round",
+          ('REVISE', 3, 3, None),
+          (_793_sum_plain['verdict'], _793_sum_plain['must_revise'],
+           _793_sum_plain['unresolved_must_revise'], _793_sum_plain['scoped_round']))
+
+# A final-byte pass is whole-draft evidence (#792) — the new selector must NOT exclude it
+# the way `_last_discovery_round` does, or this widening silently reverts #792's summary.
+_793_sum_fb = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'discovery', 'FILE', mr=0, adv=0, inv=0, umr=0, final_byte=True),
+]))
+assert_eq("#793/AC38: a final-byte pass still grounds the summary — the whole-draft "
+          "selector excludes ONLY a targeted round",
+          ('FILE', 0, None),
+          (_793_sum_fb['verdict'], _793_sum_fb['must_revise'],
+           _793_sum_fb['scoped_round']))
+
+# Every targeted round is skipped, not merely the newest one.
+_793_sum_two = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+    _793_sum_round(3, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: consecutive targeted rounds are all skipped, and the NEWEST is the "
+          "one named",
+          ('REVISE', 3, 3),
+          (_793_sum_two['verdict'], _793_sum_two['must_revise'],
+           _793_sum_two['scoped_round']))
+
+# A run whose ONLY completed round is targeted has no whole-draft evidence at all: the
+# verdict and counts must read unestablished (None), never the scoped round's clean FILE.
+# This is the fail-open the widening exists to close — reporting `verdict=FILE` here would
+# tell a reader a whole draft passed when none was ever audited.
+_793_sum_only = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: a run whose only completed round is targeted reports NO whole-draft "
+          "verdict or counts, and names the scoped round",
+          (None, None, None, 1),
+          (_793_sum_only['verdict'], _793_sum_only['must_revise'],
+           _793_sum_only['unresolved_must_revise'], _793_sum_only['scoped_round']))
+
+assert_eq("#793/AC38: the unestablished branch carries the new field too, so the field "
+          "set is total on both of summary_fields' answers",
+          None, _m793.summary_fields(None)['scoped_round'])
+
+assert_eq("#793/AC38: scoped_round joins the closed protocol-token vocabulary, so an "
+          "auditor-derived summary cannot forge the tool's own printed field",
+          'scoped_round', _m793._forged_protocol_token('scoped_round=2'))
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

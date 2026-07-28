@@ -82,6 +82,6 @@ Acceptance criteria 48–59 — the `scripts/create-issue-context-eval.py` measu
 (sidechain attribution, round-boundary derivation from the transcript's own `record-dispatch`
 records, the best-effort state-file reader, the before/after operands, the per-kind medians, the
 three escaped-defect proxies, and the ledger's quoted-draft-line field with its fixture pair) —
-are deferred to a follow-up. The seam is a genuine prerequisite one: every deferred criterion
+are deferred to the follow-up **issue #889**. The seam is a genuine prerequisite one: every deferred criterion
 reads a round kind that this change had to record first, so the instrument could not have been
 written before the mechanism landed.

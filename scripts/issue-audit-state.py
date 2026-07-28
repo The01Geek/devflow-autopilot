@@ -542,7 +542,8 @@ _PROTOCOL_TOKENS = (
     'must_revise', 'non_bound_root', 'nonce', 'observed', 'ordinal', 'outcome', 'reason',
     'reinit_forced', 'remaining', 'reopened', 'revision', 'revision_ordinal',
     'revisions_applied',
-    'round', 'rounds_run', 'sentinel_close', 'sentinel_open', 'state', 'status',
+    'round', 'rounds_run', 'scoped_round', 'sentinel_close', 'sentinel_open', 'state',
+    'status',
     'stdin_digest', 'steering', 'steering_reason',
     'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
@@ -3199,6 +3200,45 @@ def _last_discovery_round(state):
     return None
 
 
+def _last_whole_draft_round(state):
+    """The newest completed round that audited the WHOLE draft — the audit summary's ground.
+
+    issue #793 — DECIDED treatment for `summary_fields`. A `targeted` round audits an
+    enumerated claim set over a changed-section span, so its verdict and class counts
+    describe a scoped re-check, not a draft anybody re-read end to end. Rendering them as
+    the Step 4 audit summary would tell a reader a whole draft came back clean when none
+    was audited — which is why the summary reads this selector and the scoped round is
+    reported beside it under its own field rather than silently dropped.
+
+    Deliberately NOT `_last_discovery_round`: that selector also excludes a final-byte
+    exact-byte pass, because the coverage and calibration axes it feeds would be retired
+    by one. For THIS reader a final-byte pass IS whole-draft evidence whose verdict issue
+    #792 renders on purpose, so reusing that selector here would silently revert it. The
+    two selectors therefore differ by exactly the final-byte clause, and each states why.
+    """
+    if state is None:
+        return None
+    for rnd in reversed(completed_rounds(state)):
+        if _round_kind(rnd) == 'targeted':
+            continue
+        return rnd
+    return None
+
+
+def _last_scoped_round(state):
+    """The newest completed `targeted` round, else None — the summary's separate name.
+
+    The companion of `_last_whole_draft_round`: what that selector skips, this one names,
+    so a scoped round the summary does not ground on is still visible to the reader.
+    """
+    if state is None:
+        return None
+    for rnd in reversed(completed_rounds(state)):
+        if _round_kind(rnd) == 'targeted':
+            return rnd
+    return None
+
+
 def _calibration_round(state):
     """The round the calibration axis derives from: the latest completed adjudicated round.
 
@@ -4631,6 +4671,12 @@ _SUMMARY_FIELDS = (
     # adjudicated verdict, the per-class counts, and the unresolved-must-revise count.
     'adjudicated_verdict', 'must_revise', 'advisory', 'invalid',
     'unresolved_must_revise',
+    # issue #793: the round number of the newest completed `targeted` round, or None. The
+    # verdict and class-count fields above are read from the latest WHOLE-DRAFT round, so
+    # a scoped round would otherwise be invisible on this line — reported here rather than
+    # dropped. Renders as a space-free token BEFORE `attestation`, which stays the
+    # contractually-trailing field the #546 CLI pins anchor on.
+    'scoped_round',
     # issue #562: the bound draft root + its tier token, so the display renders the
     # `draft bound to worktree root` marker from the tool-emitted token rather than
     # from the orchestrator's recall.
@@ -4693,6 +4739,7 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         markers=[], token=None, stale_token=False, reinit_forced=False,
                         attestation=None, adjudicated_verdict=None, must_revise=None,
                         advisory=None, invalid=None, unresolved_must_revise=None,
+                        scoped_round=None,
                         bound_root=None, bound_tier=None,
                         effective_unresolved=None, convergence_basis='none',
                         coverage_backing='unestablished', coverage_render='none',
@@ -4712,6 +4759,12 @@ def summary_fields(state, current_digest=None, digest_failed=False):
             if mk not in markers:
                 markers.append(mk)
     last = last_completed(state)
+    # issue #793: the audit-summary verdict and class counts ground on the latest
+    # WHOLE-DRAFT round, and the scoped round is named beside them. Both are resolved
+    # ONCE here, for the same single-source reason the axes below cite: two independent
+    # call sites could render a verdict and a scoped-round name describing different runs.
+    whole = _last_whole_draft_round(state)
+    _scoped = _last_scoped_round(state)
     # ONE convergence evaluation feeds both summary fields (issue #603): derived from two
     # independent call sites they could render two fields describing different states.
     _convergence = evaluate_convergence(state)
@@ -4784,7 +4837,10 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         state='ok',
         findings_count=sum(counts) if counts else None,
         revisions_applied=revision_ordinal(state),
-        verdict=last.get('outcome') if last else None,
+        # issue #793: the verdict and the class counts below read the latest WHOLE-DRAFT
+        # round, never `last` — a `targeted` round's scoped result is not the run's
+        # audit-summary verdict. `_scoped` names it separately so it stays visible.
+        verdict=whole.get('outcome') if whole else None,
         rounds_run=len(state['rounds']),
         consumer_dimensions_appended=any(
             r.get('consumer_dimensions_appended') for r in state['rounds']),
@@ -4802,11 +4858,14 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # Post-adjudication actionability of the LATEST completed round (issue #548). Read
         # from that round only — the observables the reader checks against the artifact are
         # the final round's, not a cumulative sum. `None` on every field until adjudicated.
-        adjudicated_verdict=(last.get('adjudicated_verdict') if last else None),
-        must_revise=(last.get('must_revise_count') if last else None),
-        advisory=(last.get('advisory_count') if last else None),
-        invalid=(last.get('invalid_count') if last else None),
-        unresolved_must_revise=(last.get('unresolved_must_revise') if last else None),
+        adjudicated_verdict=(whole.get('adjudicated_verdict') if whole else None),
+        must_revise=(whole.get('must_revise_count') if whole else None),
+        advisory=(whole.get('advisory_count') if whole else None),
+        invalid=(whole.get('invalid_count') if whole else None),
+        unresolved_must_revise=(whole.get('unresolved_must_revise') if whole else None),
+        # issue #793: the scoped round the fields above deliberately skip — named, not
+        # dropped, so a reader sees that a targeted re-check ran.
+        scoped_round=(_scoped.get('round') if _scoped else None),
         # issue #562: the bound root + tier token (None on an unbound run — an
         # embed/inline epoch that never bound a canonical file).
         bound_root=(_binding(state) or {}).get('path'),
@@ -8381,7 +8440,12 @@ def cmd_query_summary(args):
           # both precede `attestation` so that field stays the trailing token the #546 CLI
           # pins anchor on (`attestation=…$`).
           f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
-          f'unresolved_must_revise={umr} effective_unresolved={eff} '
+          f'unresolved_must_revise={umr} '
+          # issue #793: the scoped round the five fields above deliberately skip. A
+          # space-free token before `attestation`, which stays the trailing anchored
+          # field. `none` when no targeted round completed — the common case.
+          f'scoped_round={f["scoped_round"] if f["scoped_round"] is not None else "none"} '
+          f'effective_unresolved={eff} '
           f'convergence_basis={f["convergence_basis"]} '
           # issue #708: the coverage-backing and render tokens — space-free, before
           # bound_root, so attestation stays the trailing anchored field.
