@@ -34259,8 +34259,8 @@ assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, re
 # the hop it travels through moved, so the pin follows it to the join's input rather than
 # being deleted. The join's own behavior (including the arm where harden publishes empty)
 # is driven executably by the #874 block above.
-assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from the displaced-path join" 'HARDENED_PATHS: ${{ steps.displaced_join.outputs.hardened_paths }}' "$RUNNER_YML"
-assert_pin_unique "#504 AC5 the displaced-path join reads harden's displaced_paths" 'HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from the displaced-path join" 'HARDENED_PATHS: ${{ steps.displaced_join.outputs.hardened_paths }}' "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- the compose step CONSUMES this exact producer binding; a rename on either side is a silent producer/consumer break between two workflow steps that no runtime signal reports
+assert_pin_unique "#504 AC5 the displaced-path join reads harden's displaced_paths" 'HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- the join step consumes harden_hooks output under this exact name; losing it silently drops the Stop-hook displaced paths from the grounding block while the join still runs
 
 # ── #504 AC6 claim-verification routing boundaries.
 assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$REVIEW_BUNDLE"

@@ -614,10 +614,14 @@ assert_eq "lpe env: trusted root + '/' name → empty stdout (containment holds)
 # variable from a silent feature loss into a diagnosable one, surfaced at the
 # prompt layer through the EXTENSION-STATUS resolved-root field.
 ( cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" review 2>"$LPE_ENV_DIR/err-crumb" >/dev/null )
+# The breadcrumb is matched with `case` over the CAPTURED STDERR rather than with
+# grep: this is a runtime-output assertion, and reading it into a shell variable and
+# matching with a builtin keeps the decisive value off any non-preflight PATH tool.
+LPE_CRUMB="$(cat "$LPE_ENV_DIR/err-crumb")"
 assert_eq "lpe env: override branch → breadcrumb names the resolved directory" "yes" \
-  "$(grep -qF "$LPE_ENV_DIR/trusted" "$LPE_ENV_DIR/err-crumb" && echo yes || echo no)"
+  "$(case "$LPE_CRUMB" in *"$LPE_ENV_DIR/trusted"*) echo yes ;; *) echo no ;; esac)"
 assert_eq "lpe env: override branch → breadcrumb names the selecting branch" "yes" \
-  "$(grep -qF 'DEVFLOW_PROMPT_EXTENSION_ROOT' "$LPE_ENV_DIR/err-crumb" && echo yes || echo no)"
+  "$(case "$LPE_CRUMB" in *DEVFLOW_PROMPT_EXTENSION_ROOT*) echo yes ;; *) echo no ;; esac)"
 # An EMPTY extension under the override branch still yields empty STDOUT even
 # though stderr now carries the breadcrumb. This is the operand the amended
 # EXTENSION-STATUS contract classifies on: a site still keyed on "printed text"
