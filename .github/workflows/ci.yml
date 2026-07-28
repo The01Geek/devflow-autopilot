@@ -116,39 +116,43 @@ jobs:
           # pipefail is load-bearing and NOT redundant here: a step with no `shell:` key
           # runs under `bash -e {0}`, which does not set it (only an explicit
           # `shell: bash` gets `-eo pipefail`), and this workflow has no `defaults:`
-          # block. Without it a failed download feeds bash an empty script that exits 0,
-          # restoring the exact silent self-skip this step removes.
+          # block. Without it a failed download feeds bash an empty script that exits 0
+          # and this step passes green on no install at all. The verify step below then
+          # fails loudly, so the end state is a red check either way — pipefail is what
+          # attributes the failure to the download rather than to a missing binary.
           set -o pipefail
+          # Exponential backoff rather than a flat wait: a transient CDN blip clears in
+          # a second, while a rate-limit or a partial outage needs the longer tail.
+          delay=2
           for attempt in 1 2 3; do
             curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CLI_VERSION" && break
             [ "$attempt" = 3 ] && { echo "::error::claude CLI install failed after 3 attempts"; exit 1; }
-            echo "install attempt $attempt failed; retrying" >&2
-            sleep 5
+            echo "install attempt $attempt failed; retrying in ${delay}s" >&2
+            sleep "$delay"
+            delay=$((delay * 3))
           done
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # Asserts the version rather than merely printing it, so the pin above is
       # self-verifying: the pin's whole mechanism is one positional argument to a
       # third-party installer, and an installer that ignored or renamed it would
-      # otherwise hand us an unpinned CLI while this step still passed. The assertion
-      # is only as good as the variable, so it checks the variable is non-empty first
-      # and compares the version field exactly. Also the
+      # otherwise hand us an unpinned CLI while this step still passed. Also the
       # load-bearing detector that the install landed on PATH at all (GITHUB_PATH only
       # takes effect in LATER steps, so this cannot be folded into the step above).
+      #
+      # The decision logic lives in scripts/assert-cli-version.sh, not inline here, so
+      # lib/test/run.sh can drive each arm (empty pin / exact match / prefix rejection).
+      # Inline, the whole step could be deleted and the suite would stay green.
+      #
+      # An empty CLAUDE_CLI_VERSION does NOT make this step vacuous: the helper exits 2
+      # on an empty pin, so the check fails closed. It would still leave the INSTALL
+      # half unpinned (`bash -s ""` takes the installer's default), which is why the
+      # literal is also pinned in run.sh.
       - name: Verify the claude CLI resolves on PATH at the pinned version
         run: |
-          # Fail closed on an empty pin. These run: blocks set pipefail but not `set -u`,
-          # so a dropped or renamed job-level env: key would expand empty and make BOTH
-          # halves vacuous at once — `bash -s ""` installs whatever the installer
-          # defaults to, and the comparison below would accept any version. That is the
-          # silent-disarm class this whole step exists to close, one level up.
-          [ -n "$CLAUDE_CLI_VERSION" ] || { echo "::error::CLAUDE_CLI_VERSION is unset or empty; the version pin would be vacuous"; exit 1; }
           v="$(claude --version)"
           echo "$v"
-          # Compare the version FIELD exactly, not as a substring: an unanchored
-          # `*"$CLAUDE_CLI_VERSION"*` accepts 2.1.2120 for a 2.1.212 pin.
-          got="${v%% *}"
-          [ "$got" = "$CLAUDE_CLI_VERSION" ] || { echo "::error::expected claude $CLAUDE_CLI_VERSION on PATH, got: $v"; exit 1; }
+          bash scripts/assert-cli-version.sh "$CLAUDE_CLI_VERSION" "$v"
 
       - name: Run shard (${{ matrix.shard }})
         env:

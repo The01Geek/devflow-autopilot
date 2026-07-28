@@ -39523,11 +39523,11 @@ assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
 # install whose PATH export was dropped leaves the gate skipping just as surely. Matching
 # these rather than the step names keeps a renamed step passing.
 assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
-  "$(devflow_ci_shard_has 'claude\.ai/install\.sh')"
+  "$(devflow_ci_shard_has 'claude\\.ai/install\\.sh')"
 # The fuller shape, not a bare `GITHUB_PATH`: that token alone would be satisfied forever
 # by any future unrelated append in this job, so the pin would outlive the thing it guards.
 assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "yes" \
-  "$(devflow_ci_shard_has '\.local/bin.*GITHUB_PATH')"
+  "$(devflow_ci_shard_has '\\.local/bin.*GITHUB_PATH')"
 # Negative controls — mutation-checked, not assumed. Each arm copies ci.yml, comments out
 # every UNCOMMENTED occurrence of one pinned line, and asserts the matcher flips to `no`,
 # so a matcher that silently reverted to a comment-blind substring scan turns this block
@@ -39545,8 +39545,8 @@ CI671_TMP="$(mktemp -d)"
 for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'echo "$HOME/.local/bin"'; do
   case "$ci671_pat" in
     'fetch-depth: 0')  ci671_probe='fetch-depth: 0' ;;
-    *install.sh)       ci671_probe='claude\.ai/install\.sh' ;;
-    *)                 ci671_probe='\.local/bin.*GITHUB_PATH' ;;
+    *install.sh)       ci671_probe='claude\\.ai/install\\.sh' ;;
+    *)                 ci671_probe='\\.local/bin.*GITHUB_PATH' ;;
   esac
   cp "$LIB/../.github/workflows/ci.yml" "$CI671_TMP/ci.yml"
   assert_eq "#671 ci.yml pin control ($ci671_pat): the UNMUTATED copy still yields yes" "yes" \
@@ -39566,7 +39566,7 @@ awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
      /^  test:/{print "    steps:"; print "      - run: echo \"$HOME/.local/bin\" >> \"$GITHUB_PATH\""}' \
   "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
 assert_eq "#671 ci.yml pin is job-scoped: the same line under the test: job does NOT satisfy it" "no" \
-  "$(devflow_ci_shard_has '\.local/bin.*GITHUB_PATH' "$CI671_TMP/ci.yml")"
+  "$(devflow_ci_shard_has '\\.local/bin.*GITHUB_PATH' "$CI671_TMP/ci.yml")"
 # ...and its positive control: the line must still EXIST in that fixture, just outside the
 # shard job. Without this the arm above would also pass if the mutation simply deleted the
 # line, which would prove nothing about job scoping. (The fixture is only ever read
@@ -39581,11 +39581,45 @@ assert_eq "#671 ci.yml matcher fails closed on an empty file (never a bare 'no')
 assert_eq "#671 ci.yml matcher fails closed on an absent file (never a bare 'no')" "unreadable" \
   "$(devflow_ci_shard_has 'GITHUB_PATH' "$CI671_TMP/no-such-file.yml")"
 rm -rf "$CI671_TMP"
-# The pinned CLI version literal: an empty CLAUDE_CLI_VERSION makes both the install and
-# the verify step vacuous at once (`bash -s ""` installs the default; the version `case`
-# degenerates to a match-anything glob), so its removal must be caught here too.
+# The pinned CLI version literal. The VERIFY half fails closed on an empty pin on its own
+# (scripts/assert-cli-version.sh exits 2), but the INSTALL half does not: `bash -s ""`
+# silently takes whatever the installer defaults to. So a dropped or renamed env: key
+# would still leave an unpinned CLI installed, and this pin is what catches its removal.
 assert_eq "#671 ci.yml: the CLI version literal is declared in the shard job" "yes" \
   "$(devflow_ci_shard_has 'CLAUDE_CLI_VERSION:')"
+# ...and ci.yml must actually CALL the extracted assertion. Pinning only the helper's
+# existence would leave a workflow that stopped invoking it entirely still green.
+assert_eq "#671 ci.yml: the verify step calls the extracted version assertion" "yes" \
+  "$(devflow_ci_shard_has 'assert-cli-version\\.sh')"
+#
+# ── scripts/assert-cli-version.sh: every arm of the extracted version check ──
+# The decision this helper makes used to be inline workflow shell, which no assertion
+# could drive: the entire verify step could be deleted with the suite still green.
+# Each arm asserts the EXIT CODE, which is the helper's contract, and the empty-pin arm
+# is distinguished from the mismatch arm so a collapsed `exit 1` cannot pass as either.
+ACV="$LIB/../scripts/assert-cli-version.sh"
+devflow_acv_rc() { bash "$ACV" "$1" "$2" >/dev/null 2>&1; echo $?; }
+assert_eq "#671 assert-cli-version: exact match on the version field exits 0" "0" \
+  "$(devflow_acv_rc '2.1.212' '2.1.212 (Claude Code)')"
+assert_eq "#671 assert-cli-version: a longer version sharing the prefix is REJECTED (2.1.2120 vs 2.1.212)" "1" \
+  "$(devflow_acv_rc '2.1.212' '2.1.2120 (Claude Code)')"
+assert_eq "#671 assert-cli-version: a different version is rejected" "1" \
+  "$(devflow_acv_rc '2.1.212' '2.0.9 (Claude Code)')"
+# The empty pin fails CLOSED with its own distinct code — never 0, and never silently
+# folded into the mismatch arm, because an empty pin is a broken workflow config rather
+# than a wrong CLI, and the two want different remedies.
+assert_eq "#671 assert-cli-version: an EMPTY pin fails closed with its own exit code (2)" "2" \
+  "$(devflow_acv_rc '' '2.1.999 (Claude Code)')"
+assert_eq "#671 assert-cli-version: an empty pin never exits 0, whatever the version string" "2" \
+  "$(devflow_acv_rc '' '')"
+# Empty ACTUAL output (the CLI absent or printing nothing) must not satisfy a real pin.
+assert_eq "#671 assert-cli-version: empty version output does not satisfy a real pin" "1" \
+  "$(devflow_acv_rc '2.1.212' '')"
+assert_eq "#671 assert-cli-version: the empty-pin arm names the unset variable" "yes" \
+  "$(bash "$ACV" '' 'x' 2>&1 | grep -q 'CLAUDE_CLI_VERSION is unset or empty' && echo yes || echo no)"
+assert_eq "#671 assert-cli-version: the mismatch arm names both expected and observed" "yes" \
+  "$(bash "$ACV" '2.1.212' '2.0.9 (Claude Code)' 2>&1 | grep -q 'expected claude 2.1.212 on PATH, got: 2.0.9' && echo yes || echo no)"
+unset -f devflow_acv_rc
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
