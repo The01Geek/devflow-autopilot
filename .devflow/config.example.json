@@ -52,7 +52,7 @@
         "effort": "high"
       },
       "devflow:checklist-deduper": {
-        "model": "claude-sonnet-4-6",
+        "model": "claude-sonnet-5",
         "effort": "medium"
       },
       "devflow:code-reviewer": {
@@ -98,7 +98,7 @@
   },
   "devflow_retrospective": {
     "enabled": true,
-    "retrospective_model": "claude-sonnet-4-6",
+    "retrospective_model": "claude-sonnet-5",
     "audit_model": "claude-opus-5",
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,

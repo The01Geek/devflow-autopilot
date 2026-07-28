@@ -84,7 +84,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
   "devflow_review": {
     "agent_overrides": {
       "default": { "effort": "high" },
-      "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
+      "devflow:checklist-deduper": { "model": "claude-sonnet-5", "effort": "medium" },
       "devflow:code-reviewer": { "model": "claude-opus-5", "effort": "high", "iterations": "first-only" }
     }
   }
@@ -109,7 +109,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 > **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8, Opus 5, Sonnet 4.6, and
 > Sonnet 5; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
 > `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `devflow:checklist-deduper`
-> override pins Claude Sonnet 4.6 (which *does* support `effort`) with effort `medium`, so it is exempt;
+> override pins Claude Sonnet 5 (which *does* support `effort`) with effort `medium`, so it is exempt;
 > the constraint matters if you re-pin a Haiku id there. The schema does not enforce this (it is a model-API fact, not a structural
 > one), so the constraint is documented on the `devflow:checklist-deduper` property in
 > `config.schema.json` and guarded by the shipped-example test in `lib/test/run.sh`.
