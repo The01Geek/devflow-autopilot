@@ -856,9 +856,9 @@ def render_instructions(
         # the pre-#793 string, which is what makes every already-recorded discovery round
         # regenerate byte-identically.
         sections, claims = parse_scope(scope_text)
-        scope_slots = dict(slots)
-        scope_slots.update(_render_scope_slots(sections, claims))
-        inner += "\n\n" + _assemble(blocks, _TARGETED_TOKEN, scope_slots, template_path)
+        inner += "\n\n" + _assemble(
+            blocks, _TARGETED_TOKEN,
+            {**slots, **_render_scope_slots(sections, claims)}, template_path)
     return (
         f"{INSTRUCTIONS_PREFIX} {INSTRUCTIONS_VERSION}\n{inner}\n{END_MARKER}"
     )

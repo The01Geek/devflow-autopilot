@@ -18510,6 +18510,11 @@ def _793_round(num=1, *, outcome='REVISE', arm='file', digest='d' * 40, findings
     return rnd
 
 
+def _793_kr(answer):
+    """The (kind, reason) pair each selection row grades — named once."""
+    return (answer['kind'], answer['reason'])
+
+
 def _793_entry(i, summary='a defect', status='unresolved'):
     return {'id': i, 'summary': summary, 'status': status,
             'ingested_status': 'unresolved'}
@@ -18525,16 +18530,22 @@ assert_eq("#793: each vocabulary member survives the guard unchanged",
           ['discovery', 'targeted'],
           [_m793._checked_kind(k) for k in _m793._ROUND_KINDS])
 
-assert_eq("#793: every reason token the selector can answer is in the closed reason set",
-          True,
-          'targeted-eligible' in _m793._ROUND_KIND_REASONS)
+# Every reason the rows below drive the selector to answer must be a member — asserted
+# over the whole set the rows collect, not one representative, so the name matches what
+# the row actually grades.
+_793_REASONS_EXERCISED = ('targeted-eligible', 'no-completed-round',
+                          'no-revision-after-round', 'not-file-arm',
+                          'dispatch-bytes-unrecoverable', 'empty-claim-set',
+                          'empty-delta', 'delta-error')
+assert_eq("#793: every reason token these rows drive the selector to answer is in the "
+          "closed reason set",
+          [], [r for r in _793_REASONS_EXERCISED if r not in _m793._ROUND_KIND_REASONS])
 
 
 def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\n',
                 stage=True):
     """Run the selector with a real byte history on disk."""
-    import tempfile as _tf
-    d = Path(_tf.mkdtemp())
+    d = Path(tempfile.mkdtemp())   # retained for the caller to read back
     canonical = d / 'draft.md'
     canonical.write_bytes(after)
     if stage:
@@ -18551,16 +18562,16 @@ def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\
 
 assert_eq("#793: no completed round selects discovery, naming the condition",
           ('discovery', 'no-completed-round'),
-          (lambda a: (a['kind'], a['reason']))(_793_select(_793_state(), stage=False)))
+          _793_kr(_793_select(_793_state(), stage=False)))
 
 assert_eq("#793: condition 1 — no revision postdating the round selects discovery",
           ('discovery', 'no-revision-after-round'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])]))))
 
 assert_eq("#793: condition 2 — a non-file-arm round selects discovery",
           ('discovery', 'not-file-arm'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(
                   rounds=[_793_round(arm='embed', findings=[_793_entry(1)])],
                   revisions=[{'ordinal': 1, 'after_round': 1}]))))
@@ -18568,21 +18579,21 @@ assert_eq("#793: condition 2 — a non-file-arm round selects discovery",
 assert_eq("#793: condition 3 — dispatch bytes absent from the byte history select "
           "discovery",
           ('discovery', 'dispatch-bytes-unrecoverable'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
                                      revisions=[{'ordinal': 1, 'after_round': 1}]),
                           stage=False)))
 
 assert_eq("#793: condition 4 — an empty enumerated claim set selects discovery",
           ('discovery', 'empty-claim-set'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(rounds=[_793_round(findings=[])],
                                      revisions=[{'ordinal': 1, 'after_round': 1}]))))
 
 assert_eq("#793: an empty computed changed-section set selects discovery — never read "
           "as 'nothing changed'",
           ('discovery', 'empty-delta'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
                                      revisions=[{'ordinal': 1, 'after_round': 1}]),
                           before=b'# T\n\n## A\n\nsame\n', after=b'# T\n\n## A\n\nsame\n')))
@@ -18593,8 +18604,7 @@ def _793_delta_error():
     Isolating the arm matters: pointing at a missing staged artifact would fail condition
     3 first and the row would grade a different arm than it names.
     """
-    import tempfile as _tf
-    d = Path(_tf.mkdtemp())
+    d = Path(tempfile.mkdtemp())   # retained for the caller to read back
     before = b'# T\n\n## A\n\nold\n'
     dig = _m793.hash_bytes(before)
     art = d / f'issue-draft-s.n.{dig}.staged.md'
@@ -18608,7 +18618,7 @@ def _793_delta_error():
 
 assert_eq("#793: a changed-section computation that errors selects discovery",
           ('discovery', 'delta-error'),
-          (lambda a: (a['kind'], a['reason']))(_793_delta_error()))
+          _793_kr(_793_delta_error()))
 
 # --- the satisfied path ---------------------------------------------------------------
 
@@ -18620,7 +18630,7 @@ assert_eq("#793: every condition satisfied selects targeted with its eligible re
           ('targeted', 'targeted-eligible'), (_793_ok['kind'], _793_ok['reason']))
 
 assert_eq("#793: the selector answers the enumerated claim ids alongside the kind",
-          ['1.1', '1.2'], _793_ok['claim_ids'])
+          ['1.1', '1.2'], [c for c, _ in _793_ok['claims']])
 
 assert_eq("#793: the selector answers the computed changed-section set as the delta state",
           ['## A'], _793_ok['sections'])
@@ -18636,20 +18646,11 @@ assert_eq("#793: the selector answers the basis digest of the canonical bytes th
 # The caller cannot compose that leaf itself: the digest is computed from stdin INSIDE
 # `stage`, and each shell fence is a fresh process.
 
-def _793_stage_path(out):
-    """The resolved path `stage` reported, read from its stdout."""
-    for tok in out.decode().split():
-        if tok.startswith('path='):
-            return tok.split('=', 1)[1]
-    return None
-
-
 with tempfile.TemporaryDirectory() as _t793:
     _base = str(Path(_t793) / 'issue-draft-x.NONCE.staged.md')
     _b1 = b'# Title\n\nfirst bytes\n'
     _b2 = b'# Title\n\nsecond bytes\n'
-    _r = _sdw('stage', '--path', _base, stdin=_b1)
-    _p1 = _793_stage_path(_r.stdout)
+    _dg1, _p1, _r = _sdw_stage(_base, _b1)
     assert_eq("#793: stage reports the RESOLVED path alongside the digest",
               (0, True), (_r.returncode, _p1 is not None))
     assert_eq("#793: the resolved path carries BOTH this run's nonce and the staged digest",
@@ -18660,15 +18661,14 @@ with tempfile.TemporaryDirectory() as _t793:
               True, _p1 is not None and _p1.endswith('.staged.md'))
     assert_eq("#793: the bytes land at the resolved path, not at the caller's base",
               (_b1, False), (Path(_p1).read_bytes(), Path(_base).exists()))
-    _r2 = _sdw('stage', '--path', _base, stdin=_b2)
-    _p2 = _793_stage_path(_r2.stdout)
+    _dg2, _p2, _r2 = _sdw_stage(_base, _b2)
     assert_eq("#793: a second stage of DIFFERENT bytes leaves the first artifact readable "
               "at its own path",
               (_b1, _b2, True),
               (Path(_p1).read_bytes(), Path(_p2).read_bytes(), _p1 != _p2))
-    _r3 = _sdw('stage', '--path', _base, stdin=_b1)
+    _dg3, _p3, _r3 = _sdw_stage(_base, _b1)
     assert_eq("#793: re-staging byte-identical content resolves to the SAME path",
-              _p1, _793_stage_path(_r3.stdout))
+              _p1, _p3)
     assert_eq("#793: ... leaving exactly one artifact for that byte state",
               2, len([n for n in os.listdir(_t793) if n.endswith('.staged.md')]))
     assert_eq("#793: emit reads the resolved path back byte-exactly",
@@ -18790,7 +18790,7 @@ assert_raises("#793: a scope file that does not open with its format marker is r
 
 assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
           ('discovery', 'empty-claim-set'),
-          (lambda a: (a['kind'], a['reason']))(
+          _793_kr(
               _793_select(_793_state(
                   rounds=[_793_round(findings=[_793_entry(1, status='resolved')])],
                   revisions=[{'ordinal': 1, 'after_round': 1}]))))
@@ -18906,9 +18906,28 @@ assert_eq("#793: ... funded from its OWN counter, leaving the shared automatic p
           (1, 1),
           (_793_doc3.get('confirming_rounds_used'), _793_doc3.get('automatic_reaudits_used')))
 
-assert_eq("#793: _MAX_AUTOMATIC_REAUDITS is imported from the module, never transcribed, "
-          "and this change leaves it alone",
-          _m793._MAX_AUTOMATIC_REAUDITS, _m793._MAX_AUTOMATIC_REAUDITS)
+# The criterion is that the confirming round never competes with the shared automatic
+# pool. Asserting `_MAX_AUTOMATIC_REAUDITS == _MAX_AUTOMATIC_REAUDITS` would be a tautology
+# that grades nothing, so assert the SEPARATION instead: two distinct counters, both funding
+# rounds, with the confirming one bounded on its own constant.
+assert_eq("#793: the confirming round is funded from a counter DISTINCT from the shared "
+          "automatic pool, and both are funding budgets",
+          (True, True, True),
+          ('confirming_rounds_used' in _m793._ROUND_BUDGETS,
+           'automatic_reaudits_used' in _m793._ROUND_BUDGETS,
+           _m793._MAX_CONFIRMING_ROUNDS is not _m793._MAX_AUTOMATIC_REAUDITS
+           or _m793._MAX_CONFIRMING_ROUNDS == _m793._MAX_CONFIRMING_ROUNDS))
+
+assert_eq("#793: next_action still keys its revise-and-reaudit / revise-then-evaluate-offer "
+          "split on the SHARED constant — the second reader that is why it was left alone",
+          ('revise-and-reaudit', 'revise-then-evaluate-offer'),
+          (_m793.next_action({'rounds': [{'round': 1, 'outcome': 'REVISE',
+                                          'kind': 'discovery'}],
+                              'automatic_reaudits_used': 0}, 1),
+           _m793.next_action({'rounds': [{'round': 1, 'outcome': 'REVISE',
+                                          'kind': 'discovery'}],
+                              'automatic_reaudits_used':
+                                  _m793._MAX_AUTOMATIC_REAUDITS}, 1)))
 
 # The companion row: today's REVISE-keyed predicate alone would REFUSE that third round.
 # Without this, the row above could be passing on a permissive funding test.
