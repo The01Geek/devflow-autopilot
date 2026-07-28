@@ -3882,7 +3882,7 @@ _shipped_cr = (
     _shipped_cfg["devflow_review"]["agent_overrides"]["devflow:code-reviewer"]
 )
 assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
-          {"model": "claude-opus-5", "effort": "low", "iterations": "first-only"},
+          {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
           _shipped_cr)
 _example_cfg_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
 with open(_example_cfg_path) as _ecf:
