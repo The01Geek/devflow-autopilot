@@ -2802,6 +2802,56 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
             "modules may not self-skip", completed.stdout + completed.stderr
         )
 
+    def test_focused_unreadable_skip_tally_forfeits_credit_and_fails(self) -> None:
+        """An unreadable skip tally must not read as "nothing was recorded" on the
+        focused tier either (issue #899 review).
+
+        This is the fail-OPEN shape the focused fold's `-s`/`!-r` arms close, and it is
+        asymmetric on purpose: only the SKIPS_FILE is denied, so the credit record stays
+        readable. Without the arms the skips vanish from the summary (SKIP_COUNT stays 0,
+        no `, K skipped` clause, no itemized SKIP line) while the still-readable credit
+        keeps lowering EFFECTIVE_MIN — one executed assertion clears a floor of 3 relaxed
+        to 1 and the module reports a byte-clean pass on a merge gate. The module chmods
+        its own record after writing it, the only way to reach this state from inside the
+        child.
+        """
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$SKIPS_FILE"\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - private skip tally is unreadable; every skip credit was forfeited",
+            completed.stdout,
+        )
+        # The credit is forfeited with the skip it belonged to, so the RAW floor stands
+        # (no `effective` clause) and the shortfall is reported rather than credited away.
+        self.assertIn(
+            "  - module executed 1 assertions; minimum is 3", completed.stdout
+        )
+        # And the vanished skip never renders as a clean pass.
+        self.assertNotIn("1 skipped", completed.stdout)
+
+    def test_focused_unreadable_credit_record_is_reported_not_silently_empty(self) -> None:
+        """The credit record gets the same treatment as the skip tally: unreadable is a
+        reported failure, never a silent zero-credit read."""
+        if os.geteuid() == 0:
+            self.skipTest("chmod 000 does not deny reads when running as root")
+        completed = self._run_focused(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            'chmod 000 "$MODULE_SKIP_CREDIT_FILE"\n',
+            minimum_assertions=3,
+        )
+        self.assertNotEqual(completed.returncode, 0, completed.stdout)
+        self.assertIn(
+            "  - private skip-credit record is unreadable", completed.stdout
+        )
+
     # The three credit guards below (malformed credit, credit at the floor, credit past
     # the floor) exist a SECOND time in lib/test/run-module.sh — the full-suite boundary's
     # copies in module-harness.sh are driven by the `_drive_boundary` tests above, which

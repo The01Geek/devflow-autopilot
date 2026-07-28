@@ -510,9 +510,22 @@ fi
 # like a regression. Read with bash builtins, never grep/awk: these values decide an
 # EMITTED result (the failure tally and the skip suffix) and a SELECTION (the floor the
 # assertion count is compared against) — guard-class 2 bars a non-preflight PATH tool.
+#
+# The unreadable-record arms below mirror the full-suite boundary's, for the same reason
+# it states: `-s` distinguishes "nothing was recorded" (the common case, a clean no-op)
+# from a file that exists WITH content, and a non-empty-but-unreadable record is neither —
+# the redirect fails, the loop body never runs, and the records vanish silently. Without
+# the arm that silence is fail-OPEN in the one direction that matters: the skips disappear
+# from the summary while a still-readable credit record keeps lowering EFFECTIVE_MIN, so a
+# module could clear a relaxed floor and report a byte-clean pass. A lost skip record
+# therefore also FORFEITS every credit — crediting the floor while the skips themselves are
+# invisible is exactly the laundering this channel exists to prevent.
 SKIP_COUNT=0
 SKIP_MALFORMED_COUNT=0
-if [ -r "$SKIPS_FILE" ]; then
+SKIP_RECORDS_LOST=0
+if [ -s "$SKIPS_FILE" ] && [ ! -r "$SKIPS_FILE" ]; then
+  SKIP_RECORDS_LOST=1
+elif [ -r "$SKIPS_FILE" ]; then
   while IFS= read -r _sk_line || [ -n "$_sk_line" ]; do
     [ -n "$_sk_line" ] || continue
     case "$_sk_line" in
@@ -523,7 +536,10 @@ if [ -r "$SKIPS_FILE" ]; then
 fi
 SKIP_CREDIT_TOTAL=0
 SKIP_CREDIT_MALFORMED=0
-if [ -r "$CREDIT_FILE" ]; then
+SKIP_CREDIT_UNREADABLE=0
+if [ -s "$CREDIT_FILE" ] && [ ! -r "$CREDIT_FILE" ]; then
+  SKIP_CREDIT_UNREADABLE=1
+elif [ -r "$CREDIT_FILE" ]; then
   while IFS= read -r _cr_line || [ -n "$_cr_line" ]; do
     [ -n "$_cr_line" ] || continue
     case "$_cr_line" in
@@ -537,8 +553,12 @@ if [ -r "$CREDIT_FILE" ]; then
 fi
 # A credit that meets or exceeds the floor would leave nothing for the floor to assert, so
 # it is rejected and the RAW minimum stands — fail closed toward the stricter bound.
+# A lost skip record forfeits every credit first (see the unreadable arm above), so the raw
+# minimum stands and the shortfall is reported rather than credited away.
 SKIP_CREDIT_REJECTED=0
-if [ "$SKIP_CREDIT_TOTAL" -ge "$MIN_ASSERTIONS" ]; then
+if [ "$SKIP_RECORDS_LOST" -ne 0 ]; then
+  SKIP_CREDIT_TOTAL=0
+elif [ "$SKIP_CREDIT_TOTAL" -ge "$MIN_ASSERTIONS" ]; then
   SKIP_CREDIT_REJECTED=1
   SKIP_CREDIT_TOTAL=0
 fi
@@ -552,6 +572,8 @@ EXTRA_FAIL_COUNT=0
 [ "$SKIP_MALFORMED_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$SKIP_CREDIT_MALFORMED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$SKIP_CREDIT_REJECTED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_RECORDS_LOST" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_CREDIT_UNREADABLE" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 ASSERTION_COUNT=$((PASS_COUNT + ASSERT_FAIL_COUNT))
 if [ "$ASSERTION_COUNT" -eq 0 ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
@@ -647,6 +669,12 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     if [ "$SKIP_CREDIT_REJECTED" -ne 0 ]; then
       printf '  - skip-assertion credit met or exceeded the assertion floor %s and was rejected\n' \
         "$MIN_ASSERTIONS"
+    fi
+    if [ "$SKIP_RECORDS_LOST" -ne 0 ]; then
+      printf '  - private skip tally is unreadable; every skip credit was forfeited\n'
+    fi
+    if [ "$SKIP_CREDIT_UNREADABLE" -ne 0 ]; then
+      printf '  - private skip-credit record is unreadable\n'
     fi
     if [ "$ASSERTION_COUNT" -eq 0 ]; then
       printf '  - module executed zero assertions\n'

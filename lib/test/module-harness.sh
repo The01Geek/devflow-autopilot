@@ -110,10 +110,10 @@ module_host_capability_skip() {  # name reason assertions-covered
   # the module body runs inside the backgrounded worker subshell _devflow_supervise_module
   # launches, so this exits that worker alone — the full-suite boundary reports
   # "exited with status 1" as an attributable module FAIL and the focused runner fails the
-  # module the same way. The blast radius is one module, never the suite. The sole other
-  # `exit 1` in this file (_devflow_module_supervisor_signal) terminates on the same
-  # basis, and the sibling SKIPS_FILE write in lib/test/run-module.sh's focused `skip`
-  # override guards identically.
+  # module the same way. The blast radius is one module, never the suite. This file's other
+  # `exit 1` sites (_devflow_module_supervisor_signal and _devflow_full_suite_signal)
+  # terminate on the same basis, and the sibling SKIPS_FILE write in
+  # lib/test/run-module.sh's focused `skip` override guards identically.
   if [ -n "${MODULE_SKIP_CREDIT_FILE:-}" ]; then
     printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE" || {
       printf 'FATAL: could not record host-capability skip credit\n' >&2; exit 1; }
