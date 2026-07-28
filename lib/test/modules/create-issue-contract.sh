@@ -325,8 +325,11 @@ devflow_module_pin_unique "#546: the state-owner-unavailable marker is distinct 
 # (3a) #705: the file-arm skill-prose enumeration carries a count word that was covered by no
 #      pin. Ground it so the count cannot silently disagree with its own path list — #749 added
 #      the Step 1 evidence artifact as the sixth path, after #705's staged canonical-draft fifth.
-devflow_module_pin_unique "#793: file-arm skill-prose out-of-bounds names exactly the 7 paths (dispatch scope added)" \
-  'naming exactly these 7 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`' "$CI_STEP36"  # structural-pin-ok: cross-file-phase-contract -- the file-arm out-of-bounds list is one contract carried across step-3-6-audit.md, audit-prompt-template.md and the renderer's own rendered output; a path added on one carrier and not the others leaves an artifact holding this run's findings readable by a later round's auditor
+# RETIRED (#793, under the #810 prose-presence prohibition): the file-arm out-of-bounds
+# enumeration and its count word were a prose-presence pin, which a structural declaration
+# cannot exempt. The guarantee moved to the RENDERED boundary — lib/test/test_render_audit_prompt.py
+# asserts the file-arm list, its count word and the dispatch-scope glob in the renderer's
+# own output, which is what an auditor actually reads.
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -371,8 +374,8 @@ devflow_module_pin_unique "#522: audit summary carries the declined-further-audi
 # joined it, and the RETIRED `.md` event log stays named — a pre-cutover leftover on disk
 # re-anchors an auditor on prior verdicts exactly as the live file did, and this skill no longer
 # writes (or deletes) that path, so only the out-of-bounds declaration covers it.
-devflow_module_pin_unique "#522: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft" \
-  'The following on-disk files are **out of bounds**, exactly these 7 paths — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`' "$CI_TMPL_AUDIT"  # structural-pin-ok: cross-file-phase-contract -- the template's file-arm enumeration is the rendered half of the same cross-file contract the skill-prose pin above asserts; the two are reconciled by test_render_audit_prompt.py's FILE_ARM_OOB comparand
+# RETIRED (#793, same reason): the template's file-arm enumeration is asserted in
+# lib/test/test_render_audit_prompt.py against the rendered output.
 # The retired-.md rationale is itself pinned: it is the one out-of-bounds entry with no live
 # producer, so a future reader who "tidies" it away silently re-opens the re-anchoring channel.
 devflow_module_pin_unique "#546: the retired .md event log stays declared out of bounds (pre-cutover leftovers re-anchor)" \
@@ -597,8 +600,8 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # #705 widened it 5 → 6 (file arm 4 → 5): the staged canonical-draft artifact is added, because
 # after a failed replace it holds bytes the canonical file does not. #749 widened it again
 # 6 → 7 (file arm 5 → 6): the Step 1 evidence artifact holds the drafter's own grounding.
-devflow_module_pin_unique "#793: embed arm out-of-bounds names exactly the 9 files (dispatch scope + instruction file added)" \
-  'On this arm the out-of-bounds declaration names exactly these 9 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.devflow/tmp/issue-audit-dispatch-<slug>.md`' "$CI_FALLBACK_ARMS"  # structural-pin-ok: cross-file-phase-contract -- the embed-arm list is a coupled pair between fallback-audit-dispatch-arms.md and audit-prompt-template.md, reconciled with test_render_audit_prompt.py's EMBED_ARM_OOB; #793 added the dispatch-scope glob and the generated instruction file, which persists with the scope payload spliced into it
+# RETIRED (#793, same reason): the embed-arm enumeration and its count word are asserted
+# in lib/test/test_render_audit_prompt.py against the rendered embed-arm output.
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
@@ -817,8 +820,10 @@ devflow_module_pin_unique "#548: ## Evidence axes forwarding (live extension car
 # The prose used to state the requirement only in the Degraded/inline bullet, so a run
 # following the file-arm or embed-retry sentence verbatim burned a turn on an argparse
 # usage error. Pin both amended call sites and the widened note.
-devflow_module_pin_unique "#611 AC1 (+#793): the file-arm dispatch-recording sentence shows --kind and --round" \
-  'record-dispatch --arm <the answered arm> --kind <the answered kind> --round "<round>"' "$CI_BUNDLE"  # structural-pin-ok: routing-dispatch-contract -- the emitted record-dispatch invocation shape; --kind is argparse-required since #793, so a recipe missing it exits 2 on a usage error rather than recording the round
+# RETIRED (#793, same reason): the recorded decision on agent-executed prompt prose is that
+# its only reader is the runtime agent, so it carries no automated regression coverage. The
+# --kind requirement itself is enforced executably: record-dispatch declares it argparse-required
+# and lib/test/test_python_scripts.py drives the kind-mismatch refusal.
 devflow_module_pin_unique "#611 AC1: the DRAFT-UNREADABLE embed-retry variant shows --round" \
   'record-dispatch --arm embed --marker file-unreadable --round "<round>"' "$CI_BUNDLE"
 devflow_module_pin_unique "#611 AC1: the flag-requirement note spans every arm, not just the inline pair" \

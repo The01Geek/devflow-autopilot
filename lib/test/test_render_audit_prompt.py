@@ -1518,6 +1518,82 @@ class AbsPathSeparatorClosure(unittest.TestCase):
                 self.assertEqual(mod._abs_path(good), good)
 
 
+class OutOfBoundsEnumerations(unittest.TestCase):
+    """Issue #793: the out-of-bounds enumerations, asserted at the RENDERED boundary.
+
+    These replace the retired prose-presence pins in
+    `lib/test/modules/create-issue-contract.sh`. The #810 policy prohibits a
+    wording-only pin on prose and a structural declaration cannot exempt one — but the
+    guarantee itself is real: the enumeration is what an auditor with repository read
+    access is bound by, and an artifact added to one carrier and not another leaves a
+    file holding this run's findings readable by a later round.
+
+    Asserting it here is strictly stronger than the source grep it replaces, because the
+    auditor reads the RENDERER'S OUTPUT, not the template source — a list that survived in
+    the file but fell out of the rendered block would pass a grep and fail here.
+    """
+
+    SCOPE_GLOB = "`.devflow/tmp/issue-audit-scope-<slug>.*.md`"
+    DISPATCH_FILE = "`.devflow/tmp/issue-audit-dispatch-<slug>.md`"
+
+    def _slug_glob(self, slug="my-slug"):
+        return self.SCOPE_GLOB.replace("<slug>", slug)
+
+    def test_O1_file_arm_names_seven_paths_including_the_scope_glob(self):
+        out = run_renderer(["file", "--slug", "my-slug", "--draft-path", "/a/d.md"]).stdout
+        self.assertIn("exactly these 7 paths", out)
+        self.assertIn(self._slug_glob(), out)
+
+    def test_O2_embed_arm_names_nine_files_including_both_new_artifacts(self):
+        out = run_renderer(["embed", "--slug", "my-slug",
+                            "--sentinel-open", "AUDIT-AA11BB-OPEN",
+                            "--sentinel-close", "AUDIT-AA11BB-CLOSE"]).stdout
+        self.assertIn("exactly these 9 files", out)
+        self.assertIn(self._slug_glob(), out)
+        self.assertIn(self.DISPATCH_FILE.replace("<slug>", "my-slug"), out)
+
+    def test_O3_the_instruction_file_is_named_on_the_embed_arm_ONLY(self):
+        # On the file arm it is the artifact the auditor is told to read and hash, so
+        # naming it out of bounds would order the auditor to void its own return.
+        out = run_renderer(["file", "--slug", "my-slug", "--draft-path", "/a/d.md"]).stdout
+        self.assertNotIn(self.DISPATCH_FILE.replace("<slug>", "my-slug"), out)
+
+    def test_O4_the_dispatch_instructions_block_carries_its_own_count_word(self):
+        # AC 149: this declaration — the one a file-arm auditor actually obeys — is
+        # line-wrapped in the template, so it lives on no single line and a source grep
+        # cannot assert it. The rendered output is where it becomes one string.
+        with tempfile.TemporaryDirectory() as td:
+            draft = Path(td) / "issue-draft-my-slug.md"
+            draft.write_text("# T\n\nbody\n", encoding="utf-8")
+            out = run_renderer([
+                "dispatch-instructions", "--slug", "my-slug",
+                "--draft-path", str(draft),
+                "--instructions-path", str(Path(td) / "i.md")]).stdout
+            flat = " ".join(out.split())
+            self.assertIn("exactly these 7 paths", flat)
+            self.assertIn(self._slug_glob(), flat)
+            self.assertNotIn(self.DISPATCH_FILE.replace("<slug>", "my-slug"), flat)
+
+    def test_O5_the_scope_glob_is_TOTAL_across_rounds(self):
+        # The enumeration must be byte-stable whether or not the round is scoped, which is
+        # what its count-locked comparands require: a round's own scope file is out of
+        # bounds to that round's auditor too.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            draft = root / "issue-draft-my-slug.md"
+            draft.write_text("# T\n\nbody\n", encoding="utf-8")
+            scope = root / "s.md"
+            scope.write_text("<!-- devflow:dispatch-scope v1 -->\nbasis_digest: "
+                             + "a" * 40 + "\nsections:\n- ## A\nclaims:\n- 1.1 — d\n",
+                             encoding="utf-8")
+            base = ["dispatch-instructions", "--slug", "my-slug",
+                    "--draft-path", str(draft), "--instructions-path", str(root / "i.md")]
+            cold = run_renderer(base).stdout
+            scoped = run_renderer(base + ["--scope-file", str(scope)]).stdout
+            oob = lambda t: t.split("## Step 2")[1].split("## Step 3")[0]
+            self.assertEqual(oob(cold), oob(scoped))
+
+
 class TargetedRoundRender(unittest.TestCase):
     """Issue #793: the claim-scoped round's rendered prompt.
 
