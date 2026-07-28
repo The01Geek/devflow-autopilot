@@ -322,17 +322,34 @@ echo "#810 pin-corpus wording-only authoring gate"
 # tests' mutual independence — no shared filesystem state; every filesystem-touching
 # test allocates its own temp dir and passes an explicit cwd — a property
 # test_pin_corpus_lint.py's own docstring states as a requirement. The modules those
-# tests drive do hold process-global parse memos, which that docstring covers in the
-# same place: they are keyed on source name and text alone, so a shard's ordering
-# cannot change an outcome. Keep the two statements together.
+# tests drive do hold process-global memos, which that docstring covers in the same
+# place, and it takes two limbs rather than one. The per-source parse memos are keyed
+# on the presented bytes — the census memos additionally on the source's name, the
+# linter memos on the text alone — and on no repo_root or filesystem state, so a hit
+# answers for exactly the source the caller presented. _load_mutation_census_module is
+# the second limb: it takes no arguments at all, so its safety rests not on its key but
+# on the module it returns mutating nothing after import beyond those same key-pure
+# memos — its other module-level objects, the compiled-regex dicts among them, are
+# built once at import and never written to.
+# Either way a shard's ordering cannot change an outcome. Keep the statements together.
 _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
 }
+# This is the module's heaviest unit by a wide margin, and it used to execute TWICE per CI
+# run: once as the `modules-pin` shard, and once inside the `monolith` shard, because
+# lib/test/test_module_runner.py is a pooled suite and its CONTRIBUTING-step-8 real-runner
+# meta-test drives this whole module end-to-end through lib/test/run-module.sh. That second
+# execution was the critical path of the required check (issue #890). The population is
+# therefore chosen by whichever runner sourced this module — see
+# devflow_run_sharded_python_test for what each mode means — and only the meta-test's
+# `run-module.sh --heavy-units smoke` selects the bounded one. An unset value forwards as
+# empty, which the driver defaults to `full`, so a runner that sets nothing runs everything.
 devflow_run_sharded_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
-  "$_HPG_PIN_LINT_SHARDS"
+  "$_HPG_PIN_LINT_SHARDS" \
+  "${MODULE_HEAVY_UNIT_MODE-}"
 # The module-driven-only invariant for this suite — no run.sh invocation, exactly
 # one driving module file — is now asserted generically for every
 # MODULE_DRIVEN_SUITES member by scan_routing_violations in

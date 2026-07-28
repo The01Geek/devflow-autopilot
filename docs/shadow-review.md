@@ -157,9 +157,15 @@ are explicitly delta-scoped by design, so their delta scope is not an addendum.
 
 Extension provenance is checked without a base-ref read: `git status --porcelain -- <path>` must
 exit successfully with empty output, and the readable run-cached changed-file list must omit the
-extension path. The extension is still loaded when either check fails or either operand cannot be
-established, but the local-status, reviewed-diff, or provenance-not-established failure is named in
-`prompt_addenda`. An error or unreadable input never defaults to provenance-clean.
+extension path. That limitation now defines what the check is *for*. Where the dispatching
+environment materializes prompt extensions from a trusted base ref before the review begins — as the
+cloud review tier does since issue #874 — provenance is enforced structurally and these checks add
+nothing. They remain the sole provenance control for the `/devflow:review-and-fix` tier, which checks
+out the PR head in its Step 0.5 and is knowingly left unprotected, so read them as covering that tier
+only, never as covering the structural boundary. The control stays advisory: the extension is still
+loaded when either check fails or either operand cannot be established, but the local-status,
+reviewed-diff, or provenance-not-established failure is named in `prompt_addenda`. An error or
+unreadable input never defaults to provenance-clean.
 Likewise, the only permitted diff files are Phase 0.2's `diff.patch` and Phase 1's batch slices as the
 shadow engine produced them for the full diff. A regenerated, filtered, or subsetted artifact set is
 topic steering moved to another channel and is recorded as an addendum.

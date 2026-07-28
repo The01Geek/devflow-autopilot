@@ -15,12 +15,16 @@ order-dependent. Keep new tests self-contained.
 The linter and census modules these tests drive do carry process-global
 ``functools.lru_cache`` stores, so tests landing in the same process share them.
 That is compatible with the requirement above for two separate reasons, not one.
-The per-source parse memos are keyed on the source name and text alone — no
-``repo_root``, no filesystem state — so a hit returns a value derived from
+The per-source parse memos are keyed on the presented bytes — the census memos
+additionally on the source's name, the linter memos on the text alone — and on no
+``repo_root`` and no filesystem state, so a hit returns a value derived from
 exactly the bytes the caller presented. ``_load_mutation_census_module`` is
 different: it takes no arguments at all and hands every caller one module
-object; it is safe because that module holds nothing mutable beyond those same
-key-pure memos, not because of its key.
+object; it is safe because nothing in that module is mutated after import beyond
+those same key-pure memos, not because of its key. Its other module-level
+objects — the compiled-regex dicts among them — are built once at import and
+never written to, so a shared instance cannot carry one caller's state to the
+next.
 
 The executable form of the first claim is the three
 ``StaticPinWorktreeCompositionTests.test_leaked_*_would_misclassify_a_sibling*``
@@ -35,6 +39,7 @@ it, and neither of those two would notice a memo that captured repository state.
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import hashlib
 import io
@@ -164,13 +169,14 @@ class Issue687OutputRoutingTests(unittest.TestCase):
 
 
 class MemoizedParseContractTests(unittest.TestCase):
-    """Pin the two contracts that make the per-source parse memos safe.
+    """Pin the contracts that make a memo hit safe to hand out, and the reuse it buys.
 
-    Both are invariants a later reader could plausibly "optimize away" — the
-    defensive copy looks redundant, and the read-only view looks like
-    ceremony — while the resulting corruption is silent and reaches every
-    later cache hit rather than the edit site. Neither was observable from
-    the rest of the suite: removing them left it green.
+    The safety invariants are ones a later reader could plausibly "optimize
+    away" — the defensive copy looks redundant, and the read-only view looks
+    like ceremony — while the resulting corruption is silent and reaches every
+    later cache hit rather than the edit site. None of them was observable from
+    the rest of the suite: removing them left it green. The reuse is likewise
+    invisible to any correctness assertion, which is why it is pinned here too.
     """
 
     @classmethod
@@ -219,20 +225,229 @@ class MemoizedParseContractTests(unittest.TestCase):
         # depends on how many tracked shell sources the definition sweep visits
         # relative to the bound — a quantity no constant in the source encodes.
         census = self.mod._load_mutation_census_module()
+        # Warm every memo first, then clear all three. Both halves are
+        # load-bearing. Clearing all three is required because _definition_scan
+        # and _extract_rows are _logical_lines' CALLERS, memoized on the same
+        # (name, text) pairs: a warm entry in either answers the whole
+        # derivation, _logical_lines is never reached, the hit count reads 0,
+        # and the message below misdirects the reader to the cache bound.
+        # Warming first is what makes that requirement self-enforcing — it puts
+        # this test in the state a co-resident census would leave, so reducing
+        # the clear back to _logical_lines alone turns THIS test RED instead of
+        # arming a failure for whichever unrelated test later shares its
+        # process. That latent ordering dependence is exactly what this file's
+        # module docstring forbids.
+        census.build_census(REPO_ROOT)
         census._logical_lines.cache_clear()
+        census._definition_scan.cache_clear()
+        census._extract_rows.cache_clear()
         census.build_census(REPO_ROOT)
         info = census._logical_lines.cache_info()
-        audited = len(census._audited_sources(REPO_ROOT))
+        audited_sources = census._audited_sources(REPO_ROOT)
+        audited = len(audited_sources)
         self.assertEqual(
             audited,
             info.hits,
             "the census re-parses each audited source for its row extraction "
             "after the definition sweep has visited every tracked shell source, "
             f"so it should take {audited} within-build hits; it took "
-            f"{info.hits} ({info}). If the tracked shell sources have outgrown "
-            "_SOURCE_PARSE_CACHE_SIZE in mutation-pin-census.py, raise that "
-            "bound — the memo is silently buying nothing until you do.",
+            f"{info.hits} ({info}). Two causes produce a shortfall. If the "
+            "tracked shell sources have outgrown _SOURCE_PARSE_CACHE_SIZE in "
+            "mutation-pin-census.py, raise that bound — the memo is silently "
+            "buying nothing until you do. Otherwise an audited source has left "
+            "the swept population (the sweep visits tracked '.sh' paths under "
+            "lib/test that decode as UTF-8), so it is extracted without ever "
+            "having been swept and can take no repeat hit; the audited set was "
+            f"{sorted(audited_sources)}.",
         )
+
+    def test_census_outer_memos_are_reused_across_builds(self):
+        # _logical_lines is the only memo the within-build pin above can see:
+        # the sweep reaches _definition_scan once per source and the extraction
+        # reaches _extract_rows once per audited source, so neither repeats
+        # inside a single build. Their reuse is across builds, and without this
+        # it has no detector — the same silent-degradation gap the bound comment
+        # names for _logical_lines, for the two memos that bound was sized for.
+        census = self.mod._load_mutation_census_module()
+        for memo in (
+            census._logical_lines,
+            census._definition_scan,
+            census._extract_rows,
+        ):
+            memo.cache_clear()
+        census.build_census(REPO_ROOT)
+        first_scan = census._definition_scan.cache_info()
+        first_rows = census._extract_rows.cache_info()
+        census.build_census(REPO_ROOT)
+        for name, before, after in (
+            ("_definition_scan", first_scan, census._definition_scan.cache_info()),
+            ("_extract_rows", first_rows, census._extract_rows.cache_info()),
+        ):
+            with self.subTest(memo=name):
+                self.assertGreater(
+                    after.hits - before.hits,
+                    0,
+                    f"a second census over the same tree should reuse {name}; "
+                    f"it took no new hit ({after}). If the swept population has "
+                    "outgrown _SOURCE_PARSE_CACHE_SIZE in mutation-pin-census.py, "
+                    "raise that bound — the memo is buying nothing until you do.",
+                )
+
+    def test_linter_image_memos_are_reused_within_one_extraction(self):
+        # The census bound has a hit-count pin; the linter's two-image bound had
+        # none, so a key that stopped matching would silently stop hitting with
+        # the whole suite still green. One extraction reaches
+        # _function_definitions_cached twice for the same image: once directly,
+        # and once through _function_bodies inside the helper-spec inference.
+        #
+        # This covers key-match only. It cannot see the bound VALUE: one image
+        # is one live key, which stays resident at any maxsize >= 1. The bound
+        # is guarded by test_linter_image_memo_bound_retains_a_second_image.
+        self.mod._function_definitions_cached.cache_clear()
+        self.mod._helper_specs_for_source_cached.cache_clear()
+        self.mod.extract_guard_sites(
+            self.text, "lib/test/modules/harness-python-guards.sh", str(REPO_ROOT)
+        )
+        info = self.mod._function_definitions_cached.cache_info()
+        self.assertGreaterEqual(
+            info.hits,
+            1,
+            "one extraction presents the same image to _function_definitions "
+            "twice, so the memo should take at least one within-extraction hit; "
+            f"it took {info.hits} ({info}). The memo is keyed on the image text "
+            "alone — if that key stopped matching, the reuse is gone.",
+        )
+
+    def test_linter_image_memo_bound_retains_a_second_image(self):
+        # What _IMAGE_PARSE_CACHE_SIZE = 2 actually buys is CROSS-extraction
+        # reuse: the linter presents more than one image per process, and the
+        # bound is what keeps an earlier one resident while a later one is
+        # parsed. A within-extraction hit count cannot detect a bound lowered to
+        # 1, because a single live key never needs a second slot. Present two
+        # distinct images and then re-present the first: at a bound of 2 it is
+        # still resident and takes no new miss; at 1 the second evicted it and
+        # re-presenting it re-parses.
+        other = "b_helper() {\n  :\n}\n"
+        self.assertNotEqual(self.text, other, "the two images must differ")
+        self.mod._function_definitions_cached.cache_clear()
+        self.mod._helper_specs_for_source_cached.cache_clear()
+        self.mod.extract_guard_sites(
+            self.text, "lib/test/modules/harness-python-guards.sh", str(REPO_ROOT)
+        )
+        self.mod.extract_guard_sites(
+            other, "lib/test/modules/other-guards.sh", str(REPO_ROOT)
+        )
+        settled = self.mod._function_definitions_cached.cache_info().misses
+        self.mod.extract_guard_sites(
+            self.text, "lib/test/modules/harness-python-guards.sh", str(REPO_ROOT)
+        )
+        info = self.mod._function_definitions_cached.cache_info()
+        self.assertEqual(
+            settled,
+            info.misses,
+            "re-presenting the first image after a second one should take no "
+            f"new miss; misses went {settled} -> {info.misses} ({info}). "
+            "_IMAGE_PARSE_CACHE_SIZE in pin-corpus-lint.py no longer retains "
+            "two images, so the linter re-parses an image it already holds "
+            "every time it alternates between sources — raise the bound.",
+        )
+
+    def test_function_definition_line_numbers_match_a_counting_oracle(self):
+        # _function_definitions_cached derives each definition's (start, end)
+        # line numbers from a bisect over one newline index, replacing a
+        # per-definition text.count("\n", 0, pos). An off-by-one here does not
+        # crash: it shifts function_by_line, so a site is attributed to the
+        # wrong enclosing function and the linter reports a subtly wrong
+        # finding. Drive the real derivation and compare against an independent
+        # counting oracle — deliberately NOT by re-running bisect here, which
+        # would restate the implementation instead of testing it.
+        texts = (
+            "f() {\n  :\n}\n",
+            "\n\n\nf() {\n  :\n}",  # leading blank lines, no trailing newline
+            "a() {\n  :\n}\nb() {\n  :\n  :\n}\n",  # consecutive definitions
+            self.text,
+        )
+        # A name or a body can occur more than once in a real source — a call
+        # site preceding its definition, or two helpers with byte-identical
+        # bodies. Anchoring on the FIRST occurrence would then compare against
+        # the wrong span and go RED on a correct derivation. So the oracle
+        # accepts the reported pair if ANY (header, body) occurrence yields it,
+        # pairing each body occurrence with the nearest preceding name. That
+        # still fails an off-by-one, which shifts every candidate at once.
+        for text in texts:
+            with self.subTest(text=text[:24]):
+                definitions = self.mod._function_definitions(text)
+                self.assertNotEqual({}, definitions)
+                for name, (body, start, end) in definitions.items():
+                    candidates = []
+                    body_start = text.find(body)
+                    while body_start >= 0:
+                        header = text.rfind(name, 0, body_start)
+                        if header >= 0:
+                            candidates.append(
+                                (
+                                    text.count("\n", 0, header) + 1,
+                                    text.count("\n", 0, body_start + len(body)) + 1,
+                                )
+                            )
+                        body_start = text.find(body, body_start + 1)
+                    self.assertIn(
+                        (start, end),
+                        candidates,
+                        f"the (start, end) lines reported for {name} match no "
+                        "occurrence of its header and body; the counting oracle "
+                        f"offers {sorted(set(candidates))}",
+                    )
+
+    def test_newline_offsets_are_the_ascending_newline_positions(self):
+        # The index the derivation above bisects. Pinned separately because an
+        # empty or unsorted index is a silent wrong answer rather than a crash.
+        for text in ("", "\n", "a\n\nb", "\n\n\n", "no trailing newline"):
+            with self.subTest(text=text[:24]):
+                offsets = self.mod._newline_offsets(text)
+                self.assertEqual(
+                    [i for i, ch in enumerate(text) if ch == "\n"], offsets
+                )
+
+    def test_census_module_load_failure_leaves_no_half_built_module(self):
+        # The failed-exec arm exists so a half-initialized module is never left
+        # registered for a later importer to find. lru_cache does not memoize
+        # the raise, so the contract is two-part: the name is unregistered, AND
+        # a later call re-execs successfully. Neither half is observable from
+        # the success path, so without this test both could be dropped silently.
+        loader = self.mod._load_mutation_census_module
+        loader.cache_clear()
+        self.addCleanup(loader.cache_clear)
+        boom = RuntimeError("simulated exec failure")
+        registered = []
+
+        real_exec = importlib.util.module_from_spec
+
+        def _record(spec):
+            module = real_exec(spec)
+            registered.append(spec.name)
+            return module
+
+        with mock.patch.object(
+            importlib.util, "module_from_spec", side_effect=_record
+        ):
+            with mock.patch.object(
+                importlib.machinery.SourceFileLoader,
+                "exec_module",
+                side_effect=boom,
+            ):
+                with self.assertRaises(Exception):
+                    loader()
+        self.assertTrue(registered, "the loader never reached module creation")
+        for name in registered:
+            self.assertNotIn(
+                name,
+                sys.modules,
+                "a half-initialized census module stayed registered after a "
+                "failed exec_module",
+            )
+        # lru_cache must not have memoized the raise: the retry re-execs.
+        self.assertIsNotNone(loader())
 
     def test_variable_maps_still_advance_across_an_assignment(self):
         # The snapshot is taken only where an assignment could have changed the

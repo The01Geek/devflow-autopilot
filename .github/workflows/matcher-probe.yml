@@ -140,7 +140,7 @@ jobs:
         id: tools
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=probe-review manifest_version=10 sha256=e86a15e4ebbe6faacf3a1cc13cab2a7af115dacecc63fa50cdf148198af2c363
+          # devflow-capability-manifest: region=probe-review manifest_version=12 sha256=e86a15e4ebbe6faacf3a1cc13cab2a7af115dacecc63fa50cdf148198af2c363
           REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
           CANDIDATES='Bash(cd:*),Write(/tmp/**),Bash(scripts/*.sh:*)'
           TOOLS="$REVIEW,$CANDIDATES"
@@ -519,8 +519,8 @@ jobs:
         id: tools
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=probe-implement manifest_version=10 sha256=9601acaf7872fb1096c71aba2936db702438f0f26a9da75794417f486ecb4b02
-          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*),Bash(.devflow/vendor/devflow/scripts/reception-record.py:*),Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/preflight.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/discover-deferral-manifests.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-existing-pr.sh:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/react-to-trigger.sh:*),Bash(.devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(lib/test/test_python_scripts.py:*),Bash(lib/test/test_module_harness.py:*),Bash(lib/test/test_workflow_flight_recorder.py:*),Bash(lib/test/test_workflow_analyzer.py:*),Bash(lib/test/test_verification_baseline.py:*),Bash(lib/test/test_create_issue_context_eval.py:*),Bash(lib/test/coverage_map_guard.py:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(cmp:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
+          # devflow-capability-manifest: region=probe-implement manifest_version=12 sha256=814ddc5f555915e333f65b67e86d982b0bd1be9e793dea55f572694b0294786f
+          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*),Bash(.devflow/vendor/devflow/scripts/reception-record.py:*),Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/check-verified-premises.py:*),Bash(.devflow/vendor/devflow/scripts/preflight.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/discover-deferral-manifests.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-existing-pr.sh:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/react-to-trigger.sh:*),Bash(.devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(lib/test/test_python_scripts.py:*),Bash(lib/test/test_module_harness.py:*),Bash(lib/test/test_workflow_flight_recorder.py:*),Bash(lib/test/test_workflow_analyzer.py:*),Bash(lib/test/test_verification_baseline.py:*),Bash(lib/test/test_create_issue_context_eval.py:*),Bash(lib/test/coverage_map_guard.py:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(cmp:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
           # Config extras, now mirrored VERBATIM from .devflow/config.json's
           # devflow_implement.allowed_tools (the inert */ globs were removed in #484 —
           # they never matched the vendored leading token; invoked helpers are granted as
@@ -1327,3 +1327,104 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/background-tasks-probe-verdict.py "${EXECUTION_FILE}"
+
+  # ── Step-level `env:` propagation (issue #874) ─────────────────────────────
+  # Issue #874 publishes DEVFLOW_PROMPT_EXTENSION_ROOT to the review job through
+  # $GITHUB_ENV so scripts/load-prompt-extension.sh reads the trusted base-ref closure
+  # instead of the PR-head checkout. Whether a job-scoped environment value is visible
+  # to a command the AGENT runs was never established: every other `env:` entry on the
+  # action step is consumed by the CLI process itself. The two protected loads sit at
+  # different depths — `review` in the orchestrator's own shell, `requesting-code-review`
+  # inside a dispatched general-purpose Task — so this job measures both.
+  #
+  # The design's failure direction is safe at either hop (an unpropagated variable makes
+  # the loader resolve the repo-root path, find the workflow's truncated file, and print
+  # nothing), so this measures a feature, not the boundary. It is maintainer-dispatched:
+  # the implementing run adds the job and does not run it.
+  env-propagation-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (step-level env propagation probe)
+        id: claude
+        env:
+          # The premise under test. A sentinel rather than a plausible path, so a match
+          # in the execution file cannot be an incidental mention of a real directory.
+          DEVFLOW_PROMPT_EXTENSION_ROOT: DEVFLOW_ENVPROBE_SENTINEL_874
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same rationale as the sibling jobs: this diagnostic is same-repo only and
+          # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are an ENVIRONMENT-PROPAGATION PROBE. Do EXACTLY the numbered
+            actions below, ALL of them, in order, each exactly once, and nothing
+            else.
+
+            Your text output is not measured. Only the harness record of your tool
+            calls is measured — so every marker line MUST be produced through a Bash
+            tool call, not merely written in your reply.
+
+            Action 1 (positive control, BEFORE) — run this Bash command once:
+            printf '%s\n' 'ENVPROBE_CONTROL_BEFORE'
+
+            Action 2 (hop one, read) — run this Bash command once, exactly as written,
+            so the shell itself expands the variable and you never transcribe a value
+            by hand:
+            printf 'ENVPROBE_HOP1 %s\n' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"
+
+            Action 3 (hop one, echo back) — take the single line Action 2 printed and
+            echo it back through a Bash command of your own, once. This step is what
+            RECORDS the value: Action 2's own command text carries the variable
+            unexpanded, so without this echo-back the value you read is never captured
+            and hop one cannot be measured at all.
+            printf '%s\n' 'PASTE_THE_ACTION_2_OUTPUT_LINE_HERE'
+            If Action 2 produced nothing usable, run this instead:
+            printf '%s\n' 'ENVPROBE_HOP1 NO_RESULT'
+
+            Action 4 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            subagent_type `general-purpose` and this exact prompt:
+            Run this Bash command once and make its output your ENTIRE final response,
+            one line and nothing else:
+            printf 'ENVPROBE_HOP2 %s\n' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"
+            Dispatch it once. Do not retry it and do not dispatch a second one.
+
+            Action 5 (hop two, echo back) — take the single line the subagent returned
+            and echo it back through a Bash command of your own, once:
+            printf '%s\n' 'PASTE_THE_SUBAGENT_RETURNED_LINE_HERE'
+            If the subagent returned nothing usable, run this instead:
+            printf '%s\n' 'ENVPROBE_HOP2 NO_RESULT'
+
+            In Actions 3 and 5, replace the placeholder token with the observed line
+            itself — keep the surrounding single quotes and do not add any of your own.
+
+            Action 6 (positive control, AFTER — proves you reached and passed Actions 2
+            through 5) — run this Bash command once:
+            printf '%s\n' 'ENVPROBE_CONTROL_AFTER'
+
+            After the last numbered action, STOP and reply with the single word DONE.
+
+          # No plugin_marketplaces/plugins: this probe exercises only Bash printf and the
+          # harness's own dispatch tool. Task and Agent are both granted so the allowlist
+          # can never be the thing that prevents the dispatch — an inconclusive verdict is
+          # then attributable to the harness, not to an allowlist omission.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(printf:*),Task,Agent"
+
+      # Deterministic verdict from the execution file only — same measurement core as the
+      # sibling probes. always() so the verdict is produced even if the engine errored.
+      - name: Compute env-propagation verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 scripts/env-propagation-probe-verdict.py "${EXECUTION_FILE}"

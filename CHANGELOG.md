@@ -4,6 +4,67 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.23.6] — 2026-07-28
+
+### Changed
+### Security
+
+- The cloud review tier now reads its own appended prompt extensions from the **trusted base ref** instead of the pull request's checkout. `.github/workflows/devflow-runner.yml` unconditionally creates a `$RUNNER_TEMP` closure, creates `.devflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`), and exports `DEVFLOW_PROMPT_EXTENSION_ROOT`; it then populates that closure from the base ref inside the existing fetch-success branch alone, through the new suite-driven helper `scripts/materialize-trusted-prompt-extensions.sh`. Because the suppression is unconditional and the population is not, each arm on which population does not happen degrades to an empty closure rather than to the PR-head path. Residuals — the PR-selectable marketplace manifest, the PR-head composite actions under `.github/actions/`, and the diff channel — are recorded rather than claimed closed.
+- `devflow_version` is likewise resolved from the trusted base ref by a new step declared above `vendor`, so a pull request no longer selects which plugin commit — and therefore which loader — reviews it. On the review tier the key is now in-PR-inert via the base-ref trust boundary (the same channel `devflow_runner.allowed_tools` uses, distinct from the trigger-time-resolved default-branch channel): a PR that bumps it does not affect its own review.
+
+### Added
+
+- `scripts/load-prompt-extension.sh` honors `DEVFLOW_PROMPT_EXTENSION_ROOT`, composing `<root>/<skill>.md` directly, at top precedence when set and non-empty and inert both when unset and when empty — the `DEVFLOW_GH` / `DEVFLOW_JQ` / `DEVFLOW_BASH` convention. The branch writes a stderr breadcrumb naming the directory it resolved; the repo-root branch is unchanged, so every caller that leaves the variable unset sees byte-identical stdout and exit codes.
+- `skills/review/phases/phase-3-agents.md`'s `EXTENSION-STATUS:` contract gains a required `resolved-root` field, making a propagation failure inside the dispatched Task observable rather than silent.
+- `.github/workflows/matcher-probe.yml` gains an `env-propagation-probe` job, with `scripts/env-propagation-probe-verdict.py`, measuring whether a step-level `env:` entry reaches both the orchestrator's and a dispatched Task's Bash commands. The measurement is **pending a maintainer-dispatched run**, recorded as such in `docs/cloud-allowlist.md`.
+
+### Changed
+
+- The three extension-classification sites reached inside the review job classify on the command's **stdout** explicitly, so the new stderr breadcrumb cannot make an empty extension report as loaded-with-content.
+- `HARDENED_PATHS` is a two-producer join, so the truncated extension paths reach the engine-ground-truth block even when the Stop-hook relevance gate publishes an empty displaced-path set; `skills/review/phases/phase-0-setup.md`'s Phase 0.1 attribution covers the untracked delta a newly created empty extension file produces.
+- `install.sh` creates `.devflow/prompt-extensions/`.
+
+## [2.23.5] — 2026-07-28
+
+### Changed
+- **The required `lib + python tests` check no longer runs the pin-corpus authoring gate
+  twice per CI run.** The `monolith` shard reached that block through the pooled real-runner
+  meta-test for the `harness-python-guards` module, while the `modules-pin` shard ran the
+  same module in full, putting the suite's heaviest unit on the critical path twice.
+  `lib/test/run-module.sh` gained a `--heavy-units full|smoke` flag (default `full`, refusing
+  anything else), and the meta-test passes `smoke` so that one unit runs a single test per
+  class. The meta-test proves what it proved before — a real `run-module.sh` invocation,
+  exit 0, and an emitted tally equal to the module's registry floor — and the full population
+  still runs exactly once per CI run, in `modules-pin`. A bounded run is never silent: the
+  runner prints a notice naming the requested mode, and it now **fails** a run whose module
+  bounded a heavy unit that `--heavy-units` did not ask for, so a reduction can never land as
+  a green tally. (#896)
+
+## [2.23.4] — 2026-07-28
+
+### Added
+- **`Verified:` premises are re-checked at implement time.** A `Verified:` bullet in an issue
+  is what licenses an implementing run to skip its own investigation, and nothing re-checked one
+  once the issue was filed — so a premise that had since become false silently converted "go and
+  check" into "this was already checked", and the run built on it. `/devflow:implement`'s Phase 1.6
+  issue-claim audit gains a Verified-premise re-check pass that re-derives each recognized bullet
+  in the issue body against the current tree via the new `scripts/check-verified-premises.py`
+  helper, and fails closed to ordinary investigation when a bullet's handle or quotation no longer
+  resolves. Refuting is deliberately the hardest verdict to reach — a cited directory, a glob, a
+  path carrying a `::`/anchor/line locator, a filename-shaped identifier, and an elided quotation
+  all resolve to "could not establish" rather than to a refutation, because a refuted premise is
+  discarded and recorded as issue-accuracy feedback against the issue. (#880)
+- **Drafted issues must give each `Verified:` bullet a re-derivation handle.** `/devflow:create-issue`
+  now requires every `Verified:` bullet to carry the repository path plus the sentence quoted
+  verbatim from it, or the exact command whose output grounded the claim, so re-checking a premise
+  is mechanical rather than a re-investigation; the Step 3.5 self-steelman requires the same helper
+  to run over the assembled draft — executed at the Step 3.6 pre-dispatch canonical write, the
+  first anchor at which that draft file exists — and rewrites any bullet that carries no handle
+  before the user sees it. The
+  helper reads files and nothing else — a command handle is reported for the caller to re-run under
+  its own judgment and is never executed, and a cited path that is absolute or escapes the
+  repository root is refused rather than adjudicated. (#880)
+
 ## [2.23.3] — 2026-07-28
 
 ### Changed

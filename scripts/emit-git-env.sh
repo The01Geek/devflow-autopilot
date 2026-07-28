@@ -67,7 +67,10 @@
 # naming that it was ignored.
 #
 # The GIT_DIR silent-miss warning. Ambient GIT_DIR also breaks the #295 repo-root
-# config contract: config-get.sh, workpad.py, load-prompt-extension.sh,
+# config contract: config-get.sh, workpad.py, load-prompt-extension.sh (on its
+# FALLBACK branch only — issue #874 made it anchor on DEVFLOW_PROMPT_EXTENSION_ROOT
+# whenever that variable is set and non-empty, which is how the cloud review tier
+# reaches its trusted base-ref closure),
 # match-deferrals.py and match-lint-adjudications.py all anchor `.devflow/` via
 # `git rev-parse --show-toplevel`, so under ambient GIT_DIR from a non-root
 # working directory they resolve a `.devflow/` that does not exist. The documented
@@ -204,7 +207,7 @@ if [ -z "$_ws" ] && { [ "$_git_dir_on" -eq 1 ] || [ "$_work_tree_on" -eq 1 ]; };
 fi
 
 if [ "$_git_dir_on" -eq 1 ]; then
-    echo "emit-git-env.sh: WARNING — setup.git_dir_pin is enabled, so ambient GIT_DIR is in force for the Run Claude Code step and every step after it. Any DevFlow helper that runs from a NON-ROOT working directory will resolve a .devflow/ that does not exist (the issue #295 repo-root readers: config-get.sh, workpad.py, load-prompt-extension.sh, match-deferrals.py, match-lint-adjudications.py). That failure is a SILENT MISS, not an error, so this run is not a config-faithful run." >&2
+    echo "emit-git-env.sh: WARNING — setup.git_dir_pin is enabled, so ambient GIT_DIR is in force for the Run Claude Code step and every step after it. Any DevFlow helper that runs from a NON-ROOT working directory will resolve a .devflow/ that does not exist (the issue #295 repo-root readers: config-get.sh, workpad.py, load-prompt-extension.sh — on its fallback branch only, since issue #874 made it anchor on DEVFLOW_PROMPT_EXTENSION_ROOT instead whenever that variable is set and non-empty — match-deferrals.py, match-lint-adjudications.py). That failure is a SILENT MISS, not an error, so this run is not a config-faithful run." >&2
     printf 'GIT_DIR=%s/.git\n' "$_ws"
 fi
 

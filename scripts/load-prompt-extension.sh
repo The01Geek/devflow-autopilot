@@ -55,16 +55,35 @@
 #     agent-executed prompt prose where a sub-heading is part of the section body and
 #     a case-drifted heading must be reported rather than silently accepted.
 #
-# Reads .devflow/prompt-extensions/<SKILL_NAME>.md anchored to the git repo root
-# (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
-# mirroring lib/config-source.sh; issue #295) and writes it byte-for-byte to
-# stdout when it exists. Anchoring to the root means a skill invoked from any
-# subdirectory of the repo still loads the consumer's committed extension, instead
-# of silently missing it. When the file is absent — or present but empty — this
-# prints nothing and exits 0 (the no-op path), so a skill that calls this behaves
-# exactly as before unless the consumer opted in. (Limitation: --show-toplevel
-# returns the NEAREST git root, so a nested submodule/inner repo or a monorepo whose
-# .devflow/ is not at the git root is not covered — consistent with config-source.sh.)
+# Reads <SKILL_NAME>.md from the selected extension directory and writes it
+# byte-for-byte to stdout when it exists. TWO branches select that directory:
+#
+#   * DEVFLOW_PROMPT_EXTENSION_ROOT, when set and non-empty (issue #874) — the
+#     variable names the extension directory outright, so the composed path is
+#     "${DEVFLOW_PROMPT_EXTENSION_ROOT}/<SKILL_NAME>.md" with no
+#     '.devflow/prompt-extensions/' segment appended. Top precedence, and inert both
+#     when unset and when set to the empty string, per the DEVFLOW_GH / DEVFLOW_JQ /
+#     DEVFLOW_BASH convention. This branch writes a stderr breadcrumb naming the
+#     directory it resolved. The repo-root branch adds no stderr of its OWN beyond the
+#     pre-existing could-not-resolve-a-repo-root diagnostic below, unchanged by this
+#     branch's arrival — so a caller that leaves the variable unset observes
+#     byte-identical output. (Scoped to the BRANCH: the present-but-undeliverable and
+#     argument-validation diagnostics further down are shared by both branches and are
+#     likewise unchanged.)
+#   * otherwise, .devflow/prompt-extensions/ anchored to the git repo root
+#     (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
+#     mirroring lib/config-source.sh; issue #295). Anchoring to the root means a
+#     skill invoked from any subdirectory of the repo still loads the consumer's
+#     committed extension, instead of silently missing it. (Limitation:
+#     --show-toplevel returns the NEAREST git root, so a nested submodule/inner repo
+#     or a monorepo whose .devflow/ is not at the git root is not covered —
+#     consistent with config-source.sh.) This is the ONLY branch that anchors on the
+#     repo root, which the issue-#295 repo-root-reader enumerations in
+#     .devflow/config.schema.json and scripts/emit-git-env.sh record.
+#
+# When the file is absent — or present but empty — this prints nothing and exits 0
+# (the no-op path), so a skill that calls this behaves exactly as before unless the
+# consumer opted in.
 #
 # This is DevFlow's single upgrade-safe extension point: a consumer adds
 # repo-specific instructions to any skill by committing one Markdown file in
@@ -73,15 +92,27 @@
 # it and never conflict with it. The skill that calls this treats the printed
 # text as additional instructions appended to the end of its own prompt.
 #
-# SKILL_NAME is validated BEFORE any filesystem access: a value that is empty or
-# contains a '/' character or a '..' sequence is rejected (exit 2). This
-# constrains the *name* — so the model-executed argument can never name a file
-# outside .devflow/prompt-extensions/ — NOT the resolved target: a symlink the
-# repo owner commits inside that directory is still followed by `cat`. That is by
-# design — the directory's contents are consumer-owned trusted prose, and a
-# consumer who symlinks outward is only reaching into their own repo. The argument
-# is the only attacker-influenceable input (a skill could be coaxed to pass an
-# unexpected value); the file's bytes are trusted.
+# SKILL_NAME is validated BEFORE any filesystem access, on BOTH resolution branches:
+# a value that is empty or contains a '/' character or a '..' sequence is rejected
+# (exit 2). This constrains the *name* — so the model-executed argument can never
+# name a file outside the SELECTED extension directory, whichever branch chose it —
+# NOT the resolved target: a symlink committed inside that directory is still
+# followed by `cat`. That is by design — the directory's contents are trusted prose,
+# and a consumer who symlinks outward is only reaching into their own repo.
+#
+# WHOSE bytes those are is a property of the caller's environment, not of this
+# helper, and it differs by tier. On the local, interactive, and /devflow:implement
+# tiers the directory is the consumer's own checked-out repo, so the argument is the
+# only attacker-influenceable input (a skill could be coaxed to pass an unexpected
+# value) and the file's bytes are trusted. On the cloud REVIEW tier that premise does
+# not hold of the checkout: .github/workflows/devflow-runner.yml checks out the PULL
+# REQUEST's head, so a repo-root read there would append PR-author-editable bytes to
+# the merge-gating reviewer's own prompt. That tier therefore materializes the
+# protected extensions from the TRUSTED BASE REF into a $RUNNER_TEMP closure, points
+# this helper at it through DEVFLOW_PROMPT_EXTENSION_ROOT, and truncates the
+# workspace copies unconditionally so the repo-root branch has nothing to find
+# (issue #874). The bytes are trusted because of where that tier sourced them, not
+# because this helper read them.
 #
 # Plain POSIX-portable shell, no GNU-only flags — runs on macOS/BSD without GNU
 # coreutils. `cat` reproduces the file's bytes exactly, adding or stripping no
@@ -238,26 +269,54 @@ case "$skill" in
         ;;
 esac
 
-# Anchor to the repo root (issue #295) so a subdirectory invocation still finds the
-# consumer's extension. Mirror lib/config-source.sh's discovery expression.
-# git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
-# `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with a
-# breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located.
-_devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
-if [ -z "$_devflow_root" ]; then
-    _devflow_root="$(pwd)"
-    # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
-    # dubious-ownership refusal), or be absent from PATH — not only "outside a git
-    # tree". Don't assert "not in a git repo"; report that the root could not be
-    # resolved and surface git's own stderr (re-run on this rare path only; `|| true`
-    # keeps it set -e-safe).
-    if [ ! -d "${_devflow_root}/.devflow" ]; then
-        _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
-        echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+# Select the extension directory. DEVFLOW_PROMPT_EXTENSION_ROOT names that directory
+# OUTRIGHT — the composed path is "${DEVFLOW_PROMPT_EXTENSION_ROOT}/${skill}.md", with
+# no '.devflow/prompt-extensions/' segment appended — so a caller can point this reader
+# at a closure that lives nowhere near a repo (issue #874: the cloud review tier
+# materializes the base ref's extensions into $RUNNER_TEMP, because its own checkout is
+# the pull request's and those bytes become the reviewing agent's appended prompt).
+# Precedence follows the DEVFLOW_GH / DEVFLOW_JQ / DEVFLOW_BASH convention: honored when
+# set and NON-EMPTY, inert when unset, and equally inert when set to the empty string.
+#
+# This branch sits AFTER the SKILL_NAME guard above and BEFORE every filesystem access
+# below, so containment holds relative to whichever directory is selected: the guard
+# already refuses a name carrying '/' or '..', which is what keeps the composed path
+# inside the selected root on both branches.
+if [ -n "${DEVFLOW_PROMPT_EXTENSION_ROOT:-}" ]; then
+    ext_dir="$DEVFLOW_PROMPT_EXTENSION_ROOT"
+    # Scoped to this branch alone. A caller that leaves the variable unset (every
+    # skill load site outside the review tier, and every local or interactive run)
+    # observes byte-identical output, which is why no sibling breadcrumb is written on
+    # the repo-root branch below. Naming both the directory and the branch that chose
+    # it is what makes an unpropagated variable diagnosable rather than a silent
+    # feature loss: the reader sees which root actually supplied the bytes.
+    echo "load-prompt-extension.sh: extension directory selected by DEVFLOW_PROMPT_EXTENSION_ROOT: '${DEVFLOW_PROMPT_EXTENSION_ROOT}'" >&2
+else
+    # Anchor to the repo root (issue #295) so a subdirectory invocation still finds the
+    # consumer's extension. Mirror lib/config-source.sh's discovery expression.
+    # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
+    # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with a
+    # breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located.
+    _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
+    if [ -z "$_devflow_root" ]; then
+        _devflow_root="$(pwd)"
+        # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
+        # dubious-ownership refusal), or be absent from PATH — not only "outside a git
+        # tree". Don't assert "not in a git repo"; report that the root could not be
+        # resolved and surface git's own stderr (re-run on this rare path only; `|| true`
+        # keeps it set -e-safe).
+        if [ ! -d "${_devflow_root}/.devflow" ]; then
+            _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
+            echo "load-prompt-extension.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; no extension loaded" >&2
+        fi
     fi
+
+    ext_dir="${_devflow_root}/.devflow/prompt-extensions"
 fi
 
-ext_file="${_devflow_root}/.devflow/prompt-extensions/${skill}.md"
+# Composed once, after the branch: each arm selects only the DIRECTORY, so the
+# "<skill>.md" filename convention lives in exactly one place.
+ext_file="${ext_dir}/${skill}.md"
 
 # Refuse every "present but undeliverable" shape loudly (exit 2 + a specific
 # breadcrumb) instead of letting it fall through to the silent empty no-op the
