@@ -341,6 +341,18 @@ undecided case first become `unclear`. The committed snapshot, including each si
 mechanical and final bucket plus its retirement entanglements, is
 `.devflow/logs/pin-corpus-inventory.tsv`.
 
+`bucket_final` is not only descriptive: it is a **deciding operand** for whether an
+existence-only pin may be retired (issue #876). A row whose `bucket_final` is one of the
+two prose buckets and whose `counted_occurrences` is below two identifies a pin over
+agent-executed prose no tool reads, which may be removed on its own; every other bucket
+— including `boundary`, the value every shipped row currently carries — keeps the pin
+under the `# structural-pin-ok:` rule above. The ordered, first-match-wins arms, the
+`counted_occurrences`-not-`homes` operand rule, the wrapped-home confirmation step, and
+the fail-closed handling of a pin with no census row are stated once in `CONTRIBUTING.md`
+under **Retiring existence-only pins**; adjudications are read from the inventory but
+changed only in `lib/test/pin-corpus-adjudications.tsv`, never by hand-editing the
+generated inventory.
+
 **Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
 persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
 workpad copy, derived from its per-iteration `iter-*.json`. But Phase 3.3 drives that loop **inline in the
