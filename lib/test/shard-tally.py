@@ -277,8 +277,17 @@ def cmd_combine(args: argparse.Namespace) -> int:
             # rc-carried failure with no counted failure (belt-and-braces; extract
             # already synthesizes one, but a hand-authored/partial tally might not).
             problems.append(f"{values['shard']}: shard exited non-zero (rc={rc})")
-        all_skips.extend((d / "skips").read_text(encoding="utf-8").splitlines())
-        all_names.extend((d / "names").read_text(encoding="utf-8").splitlines())
+        # Inside the guard: `extract` always writes all three files, but a
+        # hand-authored or partially-uploaded tally can carry `summary` without its
+        # siblings. Read them unguarded and that shape raises an uncaught traceback
+        # instead of routing through `problems`. The exit stays non-zero either way,
+        # so this is a diagnostic fix, not a fail-open one — but a `PROBLEM:` line
+        # naming the directory is what tells the reader which shard to look at.
+        try:
+            all_skips.extend((d / "skips").read_text(encoding="utf-8").splitlines())
+            all_names.extend((d / "names").read_text(encoding="utf-8").splitlines())
+        except OSError as error:
+            problems.append(f"{d}: skip/failure detail unreadable ({error})")
 
     # Render the combined summary in the single-job format.
     if total_skip == 0:

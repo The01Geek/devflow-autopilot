@@ -44821,6 +44821,20 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   assert_eq "#877 combine: a tally with a non-integer count fails closed" "rc=nonzero" \
     "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/badint" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
 
+  # A tally carrying `summary` but missing its `skips`/`names` siblings (a partial
+  # upload, or a hand-authored tally) must route through the PROBLEM channel rather
+  # than raising an uncaught traceback. Both arms are asserted because the exit code
+  # alone cannot tell them apart — an uncaught OSError also exits non-zero, so a
+  # rc-only assertion would pass against the very defect this covers.
+  mkdir -p "$E877_TDIR/partial/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'skipped	0' 'rc	0' > "$E877_TDIR/partial/a/summary"
+  assert_eq "#877 combine: a tally missing its skip/name detail files fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 combine: that partial tally is diagnosed as a PROBLEM, not an uncaught traceback" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" 2>&1 >/dev/null | grep -qF 'PROBLEM: ' && echo yes || echo no)"
+  assert_eq "#877 combine: the partial-tally diagnosis names no Python traceback" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" 2>&1 >/dev/null | grep -qF 'Traceback (most recent call last)' && echo no || echo yes)"
+
   rm -rf "$E877_TDIR"
 fi
 
