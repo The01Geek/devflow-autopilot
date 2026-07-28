@@ -75,7 +75,7 @@ fi
 # condition (unreadable/unmigrated overrides, unusable operands).
 devflow_select_findings() {
     local category="" findings_file="" overrides="" status="" \
-          filed_this_run="" max_per_run="" max_per_cat="" max_open=""
+          filed_this_run="" max_per_run="" max_per_cat="" max_open="" withheld_file=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --category)       category="$2";       shift 2 ;;
@@ -86,6 +86,11 @@ devflow_select_findings() {
             --max-per-run)    max_per_run="$2";    shift 2 ;;
             --max-per-cat)    max_per_cat="$2";    shift 2 ;;
             --max-open)       max_open="$2";       shift 2 ;;
+            # Optional: a path this call writes a JSON array of {tag, cap} objects to,
+            # one per finding a cap withheld — so the orchestrator can surface them in
+            # the run report's "withheld by a filing cap" section (issue #788's
+            # disclosure guarantee), not only in this helper's stderr breadcrumbs.
+            --withheld-file)  withheld_file="$2";  shift 2 ;;
             *) echo "::error::select-findings: unknown argument '$1'" >&2; return 2 ;;
         esac
     done
@@ -156,7 +161,7 @@ devflow_select_findings() {
     # asking the cap owner per finding. `_filed_here` is the running count of issues
     # THIS call has decided to file, so the per-run / per-category / open-total
     # comparands grow as findings are accepted (matching what Step 8c will do).
-    local _out="[]" _filed_here=0 i=0
+    local _out="[]" _withheld="[]" _filed_here=0 i=0
     while [ "$i" -lt "$_n_kept" ]; do
         local _f _subslug _title _body _rationale _evidence
         _f="$("$DEVFLOW_JQ" -c ".[$i]" <<<"$_ranked")"
@@ -212,6 +217,10 @@ devflow_select_findings() {
         _verdict="$(devflow_filing_cap_verdict "$status" "$(( filed_this_run + _filed_here ))" "$max_per_run" "$_per_cat_now" "$max_per_cat" "$_open_now" "$max_open")"
         if [ "$_verdict" != "file" ]; then
             echo "select-findings: withheld finding '${_key}' (category '${category}') by cap '${_verdict}'" >&2
+            # Record the withhold so the orchestrator can name it in the report's
+            # "withheld by a filing cap" section — the same {tag, cap} shape the
+            # legacy path appends (issue #788 disclosure guarantee).
+            _withheld="$("$DEVFLOW_JQ" -c --arg tag "$_key" --arg cap "$_verdict" '. + [{tag:$tag,cap:$cap}]' <<<"$_withheld")"
             i=$(( i + 1 )); continue
         fi
 
@@ -223,6 +232,13 @@ devflow_select_findings() {
         _filed_here=$(( _filed_here + 1 ))
         i=$(( i + 1 ))
     done
+
+    # Publish the cap-withheld findings for the report, when asked (best-effort: a
+    # write failure never changes the filing decision already on stdout).
+    if [ -n "$withheld_file" ]; then
+        printf '%s' "$_withheld" > "$withheld_file" 2>/dev/null \
+          || echo "::warning::select-findings: could not write the withheld-findings file '${withheld_file}' — cap-withheld findings for '${category}' will be absent from the report's withheld section (they are still named on stderr)" >&2
+    fi
 
     printf '%s\n' "$_out"
     return 0

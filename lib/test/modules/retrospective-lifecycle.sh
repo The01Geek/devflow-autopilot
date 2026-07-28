@@ -2416,6 +2416,10 @@ assert_eq "#763B select: a zero per-run cap withholds every finding" "0" \
   "$(printf '%s' "$RL_SF_CAP" | jq 'length')"
 assert_eq "#763B select: the cap withhold names devflow_filing_cap_verdict's cap token" "true" \
   "$(grep -qF 'max_issues_per_run' "$RL_TMP/sf-cap.err" && echo true || echo false)"
+# withheld-file discloses each cap-withheld finding as {tag, cap} for the report (#788)
+rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 0 --max-per-cat 99 --max-open 99 --withheld-file "$RL_TMP/sf-wh.json" >/dev/null 2>&1
+assert_eq "#763B select: cap-withheld findings are disclosed to the withheld-file as {tag,cap}" "max_issues_per_run" \
+  "$(jq -r '.[0].cap' "$RL_TMP/sf-wh.json" 2>/dev/null)"
 
 # select: per-category comparand aggregates across a category's records (issue #891)
 # Two filed records of one category, each holding one open issue → per-cat base is 2.

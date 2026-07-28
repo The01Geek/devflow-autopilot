@@ -769,6 +769,9 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
         # nothing and names the cause on its own ::error:: channel.
         $LIB/../scripts/run-jq.sh -c '.findings' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/findings-${SLUG}.json"
         source $LIB/select-findings.sh
+        # --withheld-file: select-findings writes a JSON array of {tag, cap} for every
+        # finding a cap held back, so the report names them (issue #788) — not only its
+        # own stderr breadcrumb. Read it back into `withheld` below.
         if TO_FILE="$(devflow_select_findings \
                 --category "$CATEGORY" \
                 --findings-file ".devflow/tmp/findings-${SLUG}.json" \
@@ -777,7 +780,15 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 --filed-this-run "$filed_this_run" \
                 --max-per-run "$MAX_PER_RUN" \
                 --max-per-cat "$MAX_PER_CAT" \
-                --max-open "$MAX_OPEN")"; then
+                --max-open "$MAX_OPEN" \
+                --withheld-file ".devflow/tmp/withheld-${SLUG}.json")"; then
+            # Fold each cap-withheld finding into `withheld` so Step 9 reports it under
+            # "withheld by a filing cap", exactly as the legacy path does.
+            if [ -s ".devflow/tmp/withheld-${SLUG}.json" ]; then
+                while IFS= read -r _wh; do
+                    [ -n "$_wh" ] && withheld+=("$_wh")
+                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/withheld-${SLUG}.json")
+            fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
             _fi=0
             while [ "$_fi" -lt "$FINDINGS_N" ]; do
