@@ -10845,7 +10845,7 @@ SC_BF_OUT="$(bash "$SC" "$SC_BF" 2>&1)"
 assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
   "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
-  "claude-opus-4-8" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+  "claude-opus-5" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
   "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
@@ -10871,7 +10871,7 @@ assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
   "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
 assert_eq "scaffold-backfill: no-op does NOT emit the backfill log line" "no" \
   "$(printf '%s' "$SC_NOOP_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
-# The shipped example pins Sonnet 4.6 (no Haiku override), so a fresh scaffold of
+# The shipped example pins Sonnet 5 (no Haiku override), so a fresh scaffold of
 # it must never emit the Haiku effort-cleanup log line — locks the clean path so
 # a regression that re-pins Haiku-with-effort in the example is caught.
 assert_eq "scaffold-migration: clean shipped example emits no Haiku cleanup log line" "no" \
@@ -11592,27 +11592,28 @@ assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
 assert_pin_unique "init-memory-nudge: never writes/edits any agent file (advisory)" 'never creates, writes, or edits' "$INIT_SKILL"
 assert_pin_unique "init-memory-nudge: never blocks or fails init" 'never blocks or fails init' "$INIT_SKILL"
 # ────────────────────────────────────────────────────────────────────────────
-echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
+echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
-# The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
-# support `effort`) with effort "medium" — Sonnet 4.6's recommended default, and
-# effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency. A
+# The shipped checklist-deduper override pins Claude Sonnet 5 (which DOES
+# support `effort`) with effort "medium" — a cost-saving step down from the API
+# default of "high"; set it explicitly to avoid unexpected latency. A
 # positive sentinel, not a bare has("effort"): a refactor that drops/renames the
 # entry, swaps the model, or strips the effort each FAIL loudly rather than
 # sailing through green. The entry must positively EXIST, be object-typed, pin
-# claude-sonnet-4-6, AND carry an `effort` key — so a dropped/renamed entry
-# ("missing-entry"), a model no longer Sonnet 4.6 ("not-sonnet"), or a removed
+# claude-sonnet-5, AND carry an `effort` key — so a dropped/renamed entry
+# ("missing-entry"), a model no longer Sonnet 5 ("not-sonnet"), or a removed
 # effort ("no-effort") each FAIL loudly.
-assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 4.6, and carries an effort key" \
+assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 5, and carries an effort key" \
   "ok" \
   "$(jq -r '
       (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
-        elif (($d.model // "") != "claude-sonnet-4-6") then "not-sonnet"
+        elif (($d.model // "") != "claude-sonnet-5") then "not-sonnet"
         elif ($d | has("effort") | not) then "no-effort"
         else "ok" end' "$TPL_DIR/config.example.json")"
-# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8 /
-# Sonnet 4.6). The shipped example no longer pins Haiku anywhere, but this guard
+# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8,
+# Opus 5, Sonnet 4.6, and Sonnet 5). The shipped example no longer pins Haiku
+# anywhere, but this guard
 # keeps the invariant the scaffold-config.sh cleanup protects: should any shipped
 # override ever pin a Haiku model, it must NOT also carry an `effort` key.
 assert_eq "agent_overrides: no shipped Haiku-pinned override carries an effort key" \
