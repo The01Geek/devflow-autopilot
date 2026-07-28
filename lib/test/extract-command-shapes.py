@@ -54,15 +54,12 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
       discipline in favor of the proven `tee` (row 6) / Write-tool (row 9) forms).
   R4  a leading interpreter (`python3`, `python`, `node`) — the read-only
       `review` profile grants no interpreter (run 29105381021 denials).
-  R5  a command-substitution assignment used as an `if`/`elif` CONDITION
-      (`if WP=$(cmd); then`, `elif WP="$(cmd)"; then`, backtick form) — issue #857,
-      the old review-seed fence's branch shape the cloud matcher refused. Scoped to
-      CONDITION position, so it does NOT flag the bare `VAR=$(cmd)` capture the R1
-      carve-out records as proven-permitted (a bare capture carries no `if`/`elif`
-      keyword). R5 is a deliberate DISCIPLINE rule, NOT probe-backed when it lands —
-      the same posture as the implement-tier IR3 rule — and a PERMITTED result from
-      matcher-probe.yml's new `if VAR=$(granted-helper …)` review row RETIRES R5 in a
-      follow-up change.
+
+  (R5 — a command-substitution assignment used as an `if`/`elif` CONDITION,
+  issue #857 — was RETIRED once matcher-probe.yml's review Shape 18
+  (`if VAR=$(granted-helper …)`) recorded PERMITTED (run 30310938175, review
+  `probe` job, 2026-07-27; issue #869). The discipline was probe-answered, so the
+  rule no longer exists.)
 
 NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
   * The guard validates each STATEMENT's LEADING TOKEN (and the redirect/heredoc/
@@ -73,40 +70,13 @@ NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
     review-seed `case`/`if`/`elif` compound was refused despite each inner statement
     being individually granted). Establishing enclosing-construct permission is a probe
     question (matcher-probe.yml's review rows), not a static one this guard can answer.
-  * The STATEMENT SPLITTER (shared with the #363 head extractor) FLATTENS a `case`
-    compound: each arm body is emitted as a bare statement with its `LABEL)` selector
-    stripped, and the `case`/`esac` keywords are emitted as their own statements. So a
-    `VAR=$(cmd)` inside a `case` arm is NOT decomposed into an `if`/`elif` condition and
-    R5 does not reach it.
-  * R5's reach is exactly a statement whose leading keyword is `if`/`elif` AND whose
-    condition BEGINS with the assignment. Two condition spellings are therefore outside
-    it, both deliberately:
-      - the NEGATED form `if ! VAR=$(cmd); then` — this is the repo's own #284-mandated
-        idiom for reading a helper's exit status inline (four live sites in the review
-        bundle alone: phase-0-setup.md's `if ! BASE=$(config-get.sh …)`,
-        phase-0-6-stale-prose-lint.md, phase-4-verdict.md), and it was never the shape
-        #857 measured as refused. Flagging it would turn the bundle RED on the idiom the
-        repo prescribes, so it is EXEMPT by decision, not by oversight. State the cost
-        plainly rather than implying a fallback: NO rule reports it — R1 does not pick it
-        up either, because after control-word stripping the leading token is `!`, not the
-        assignment. So this spelling passes the lint silently, and a reintroduction of the
-        #857 branch written this way would be desk-green. That is the accepted price of
-        not flagging the prescribed idiom; the probe row is what would settle whether the
-        negated spelling is permitted in cloud at all.
-      - a condition with a PRECEDING test, `elif [ -n "$P" ] && VAR=$(cmd); then` — the
-        anchored pattern does not reach past the leading test. This one IS a coverage
-        limit rather than a decision: it is the second spelling #857 removed from
-        phase-0-setup.md §0.4, and R5 would not catch its reintroduction.
-    Both are pinned by negative-control rows in lib/test/run.sh, so a later widening of
-    the pattern is a deliberate edit that turns those rows RED rather than a silent
-    scope change.
 
 CLI:
     extract-command-shapes.py [--profile review|implement] FILE...
         -> one `FILE:LINE  RULE  statement` per denied-shape hit, across every FILE
            (a reviewed surface is a BUNDLE — a skill root plus its phase references,
            issue #529 — and each hit stays attributed to the file it came from);
-           exit 1 if any hit, exit 0 when every file is clean. The `review` profile applies R1-R5
+           exit 1 if any hit, exit 0 when every file is clean. The `review` profile applies R1-R4
            (read-only review allowlist). `--profile implement` applies the implement-
            tier rules (issue #455), keyed to the SEPARATE devflow-implement matcher
            probe (matcher-probe.yml's implement-probe job):
@@ -204,7 +174,7 @@ def _shape_preprocess_lines(block: str) -> list[str]:
     statement — differing from extract-command-heads.py's stripper, which truncates the opener
     at `<<` and so erases the very signal R3's cat-heredoc arm needs.
 
-    BOTH TIERS READ THIS TEXT — the review rules (R1-R5) as well as the implement rules — so a
+    BOTH TIERS READ THIS TEXT — the review rules (R1-R4) as well as the implement rules — so a
     change here moves both. The blank-vs-drop line preservation is behavior-preserving; the two
     heredoc rules below are a strict TIGHTENING (a statement that used to be silently swallowed
     is now scanned), never a loosening.
@@ -263,7 +233,7 @@ def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], li
         cleaned = out[i]
         # BLANK ONLY ON AGREEMENT between the per-line mask and the carry-state mask. Blanking is
         # the one preprocessing act that DELETES code from the scan, so its false-positive
-        # direction is a silent GREEN on every rule downstream (R1-R5, IR1-IR3) — the worst
+        # direction is a silent GREEN on every rule downstream (R1-R4, IR1-IR3) — the worst
         # failure this file can have. The two masks are each blind where the other sees, so for
         # blanking the fail-closed combination is their INTERSECTION, not their union (the loop
         # scan, whose miss only hides a loop keyword, correctly unions instead):
@@ -513,26 +483,11 @@ def _cat_heredoc_violation(statement: str) -> bool:
     return has_redirect and has_heredoc
 
 
-# R5: a command-substitution assignment used as an `if`/`elif` CONDITION (issue
-# #857). The old review-seed fence branched on `elif WP=$(workpad.py id …); then`,
-# and the cloud review matcher refused the enclosing compound outright. This flags a
-# statement whose leading keyword is `if`/`elif` and whose condition is a
-# `VAR=$(…)` / `VAR="$(…)"` / backtick capture — the condition-position spelling —
-# WITHOUT flagging the bare `VAR=$(cmd)` capture the R1 carve-out records as
-# proven-permitted (that statement has no `if`/`elif` keyword, so it never matches).
-# It is a deliberate DISCIPLINE rule, not probe-backed at the time it lands, exactly
-# like the implement-tier IR3 rule: a PERMITTED result from matcher-probe.yml's new
-# review row retires R5 in a follow-up change.
-# The four command-substitution spellings are covered SYMMETRICALLY — bare and
-# double-quoted, for both `$(…)` and backtick — so a quoted backtick
-# (`elif WP="`cmd`"; then`) cannot evade a rule its bare sibling catches.
-_CONDITION_SUBSTITUTION = re.compile(
-    r"^(?:if|elif)\s+[A-Za-z_][A-Za-z0-9_]*=\"?(?:\$\(|`)"
-)
-
-
-def _condition_substitution_violation(statement: str) -> bool:
-    return bool(_CONDITION_SUBSTITUTION.match(statement.strip()))
+# (R5 — a command-substitution assignment used as an `if`/`elif` CONDITION,
+# issue #857 — was RETIRED in issue #869 once matcher-probe.yml's review Shape 18
+# (`if VAR=$(granted-helper …)`) recorded PERMITTED (run 30310938175, review
+# `probe` job, 2026-07-27): the shape the discipline guarded against is
+# cloud-permitted, so the rule and its finder no longer exist.)
 
 
 # The two profiles' rule-id sets, exported so a consumer that must enumerate the
@@ -544,7 +499,7 @@ def _condition_substitution_violation(statement: str) -> bool:
 # the suite RED; its companion `a planted control exists for every rule id`
 # assertion turns the reverse drift RED — a rule added to a finder and to these
 # sets without a control.
-REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4", "R5"})
+REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
 IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
 
 
@@ -560,8 +515,6 @@ def classify(statement: str) -> list[str]:
         hits.append("R3")
     if head and head[0] in _INTERPRETERS:
         hits.append("R4")
-    if _condition_substitution_violation(statement):
-        hits.append("R5")
     return hits
 
 
