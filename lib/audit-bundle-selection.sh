@@ -56,27 +56,61 @@
 #                                            resolver failure) -> abort, naming both
 #                                            reachable causes (they are not
 #                                            distinguishable from the empty value)
-#   - `0` or any negative value           -> abort naming the key (unlike the filing
-#                                            caps where 0 is a real off-switch — a
-#                                            bundle cap of zero would starve Stage B)
-#   - boolean false/object/multi-array/
-#     non-numeric string/boolean true/3.5 -> abort naming the key (the residual arm)
+#   - `0` (or an all-zeros value)         -> abort with the STARVATION message,
+#                                            naming the key (unlike the filing caps
+#                                            where 0 is a real off-switch — a bundle
+#                                            cap of zero would starve Stage B)
+#   - a leading-zero all-digit value
+#     (`08`, `007`)                       -> abort naming the key: it is a legal JSON
+#                                            string but not a canonical integer, and
+#                                            jq's `--argjson` treatment of it is
+#                                            implementation-dependent, so it is
+#                                            refused rather than laundered
+#   - a NEGATIVE value, boolean false/true,
+#     an object, a multi-element array, a
+#     non-numeric string, 3.5             -> abort naming the key with the GENERIC
+#                                            positive-integer message (the residual
+#                                            arm — a negative reaches this arm, not
+#                                            the starvation arm, because `-` is a
+#                                            non-digit character)
+#
+# RESIDUAL (pinned, not fixed — config-get.sh's coercion is repo-wide and the sibling
+# filing caps exhibit it identically): a SINGLE-element array such as `[3]` is
+# comma-joined by config-get.sh to the bare string `3`, so it arrives here
+# indistinguishable from a real scalar `3` and is accepted as that cap.
 devflow_validate_audit_bundle_cap() {
     local cap="${1:-}"
     if [ -z "$cap" ]; then
         echo "::error::audit-bundle-selection: the audit_bundle_cap read produced an empty value — this means either a malformed .devflow/config.json (its embedded python exits non-zero and config-get.sh's file-scope set -euo pipefail aborts the assignment before the default fallback) or a resolver failure (python3 absent, config-get.sh missing or non-executable). Refusing to launder either into a working cap of 10." >&2
         return 1
     fi
-    # Any non-digit character reaches the residual arm: a boolean `false`/`true`, a
-    # coerced object `[object Object]`, a comma-joined multi-element array, a
-    # non-integer number `3.5`, a negative `-1`, or a non-numeric string.
+    # Any value carrying a non-digit character reaches the residual arm: a boolean
+    # `false`/`true`, a coerced object `[object Object]`, a comma-joined
+    # multi-element array, a non-integer number `3.5`, a negative `-1`, or a
+    # non-numeric string. NOT closed over every accepted shape: a single-element
+    # array is comma-joined to a bare all-digit scalar upstream and so never reaches
+    # here as an array (the pinned residual named in the header).
     case "$cap" in
         *[!0-9]*)
             echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer (got '$cap')" >&2
             return 1 ;;
     esac
-    # All-digit now (0, 00, or positive). Reject zero and — via the same guard — a
-    # value that is only zeros.
+    # All-digit now (0, 00, 08, 007, or a canonical positive). Reject a LEADING-ZERO
+    # value that is not all zeros, BEFORE the `-le 0` test: `007` is all-digit and
+    # passes `-le 0` (bash's test builtin reads it as decimal 7), but it is not a
+    # canonical JSON integer literal, so handing it to `--argjson` downstream is
+    # implementation-dependent — jq 1.7 coerces it to 7 while a strict JSON parser
+    # rejects it outright. Refuse it here rather than let a config-shape defect
+    # surface downstream as an empty selection the caller reads as "this pattern has
+    # no occurrences". An ALL-zeros value (`0`, `00`) is excluded from this arm and
+    # falls through to the starvation arm below, which names the real reason.
+    case "$cap" in
+        0*[1-9]*)
+            echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer with no leading zero — '$cap' is not a canonical JSON integer literal, so its numeric meaning downstream is parser-dependent; write the intended count without leading zeros" >&2
+            return 1 ;;
+    esac
+    # Canonical all-digit now (all-zeros, or a leading-zero-free positive). Reject
+    # zero and — via the same guard — a value that is only zeros.
     if [ "$cap" -le 0 ]; then
         echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer, not zero — a bundle cap of zero would starve Stage B of all evidence (got '$cap')" >&2
         return 1
@@ -95,15 +129,53 @@ devflow_validate_audit_bundle_cap() {
 #
 # When the pattern has <= cap occurrences, every occurrence is selected (still
 # reversed to descending ts). An absent/empty occurrences array selects nothing.
-# <cap> is assumed pre-validated (a positive integer) by
-# devflow_validate_audit_bundle_cap; it is passed as a jq number.
+#
+# Failure is SIGNALLED, never conflated with an empty selection. Empty stdout is a
+# legitimate return here (a pattern with no occurrences), so a silent failure would
+# be indistinguishable from it — and the caller converts an empty selection into a
+# blocker blaming `gh`, misdiagnosing a config- or corpus-shape defect as a network
+# failure. So, like devflow_validate_audit_bundle_cap and every sibling in
+# lib/filing-decisions.sh, this function fails CLOSED with a targeted `::error::` and
+# a non-zero return on: an empty <pattern>, a <cap> that is not a canonical positive
+# integer (the caller must pass the VALIDATED cap, not the raw config value), a
+# non-object <pattern>, a present-but-non-array `occurrences`, or any other jq
+# failure. Callers check the exit status; only a zero exit means the printed lines
+# are the whole selection.
+#
+# Occurrence elements that are not objects, or whose `.pr` is not a number, are
+# dropped BEFORE the most-recent-N slice — so a malformed element neither reaches the
+# caller as a phantom `pr-null` path nor consumes a cap slot that would otherwise hold
+# a real fetchable occurrence.
 devflow_select_audit_bundles() {
-    local cap="${1:-}" pattern="${2:-}"
-    printf '%s' "$pattern" | "$DEVFLOW_JQ" -r --argjson cap "$cap" '
-        (.occurrences // []) as $o
+    local cap="${1:-}" pattern="${2:-}" out
+    if [ -z "$pattern" ]; then
+        echo "::error::audit-bundle-selection: devflow_select_audit_bundles received an EMPTY pattern JSON — refusing to return an empty selection the caller would read as 'this pattern has no occurrences'" >&2
+        return 1
+    fi
+    case "$cap" in
+        ''|*[!0-9]*|0*[1-9]*|0)
+            echo "::error::audit-bundle-selection: devflow_select_audit_bundles received a non-canonical cap '$cap' — it must be the positive integer devflow_validate_audit_bundle_cap printed, not the raw config value" >&2
+            return 1 ;;
+    esac
+    if ! out="$(printf '%s' "$pattern" | "$DEVFLOW_JQ" -r --argjson cap "$cap" '
+        (if (type != "object")
+         then error("pattern is not a JSON object (got \(type))")
+         elif (has("occurrences") and (.occurrences != null) and ((.occurrences | type) != "array"))
+         then error("occurrences is not an array (got \(.occurrences | type))")
+         else . end)
+        | (.occurrences // [])
+        | map(select(type == "object" and ((.pr | numbers) != null)))
+        | . as $o
         | ($o | length) as $len
         | (if $cap >= $len then 0 else $len - $cap end) as $start
         | $o[$start:]
         | reverse
-        | .[].pr'
+        | .[].pr' 2>&1)"; then
+        echo "::error::audit-bundle-selection: devflow_select_audit_bundles could not select occurrence PRs — ${out:-jq produced no diagnostic}. Refusing to return an empty selection the caller would read as 'this pattern has no occurrences'" >&2
+        return 1
+    fi
+    # Empty stdout is the legitimate no-occurrences return; print nothing rather than
+    # a blank line, and return 0 explicitly (a bare `[ -n … ] &&` would return 1 here).
+    [ -n "$out" ] && printf '%s\n' "$out"
+    return 0
 }

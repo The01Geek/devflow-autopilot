@@ -1595,6 +1595,39 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   # RESIDUAL (pinned, not fixed — config-get.sh coercion is repo-wide): a
   # single-element array is laundered into that scalar cap, exactly like the filing caps.
   assert_eq "#894 cap RESIDUAL: a single-element array is laundered into that cap" "cap:3" "$(rl_abc_token '[3]')"
+  # NUMERIC-STRING rows. A hand-written JSON *string* is coerced verbatim by
+  # config-get.sh, so an all-digit string reaches the validator indistinguishable
+  # from a real number. A canonical one is a legitimate cap; a LEADING-ZERO one is
+  # not a canonical JSON integer literal (its `--argjson` meaning downstream is
+  # parser-dependent: jq 1.7 coerces `08` to 8 while a strict parser rejects it),
+  # so it fails CLOSED here rather than reaching the selector.
+  assert_eq "#894 cap: a canonical numeric STRING is the cap" "cap:5" "$(rl_abc_token '"5"')"
+  assert_eq "#894 cap: a leading-zero numeric string '08' is rejected" "REJECT" "$(rl_abc_token '"08"')"
+  assert_eq "#894 cap: a leading-zero numeric string '007' is rejected" "REJECT" "$(rl_abc_token '"007"')"
+  assert_eq "#894 cap: an all-zeros '00' is rejected" "REJECT" "$(rl_abc_token '"00"')"
+  # Attribute each rejection to the guard that made it — a bare REJECT cannot tell
+  # the leading-zero arm from the starvation arm ten lines away.
+  RL_ABC_LZ_ERR="$(devflow_validate_audit_bundle_cap 007 2>&1 >/dev/null)"
+  assert_eq "#894 cap: the leading-zero breadcrumb names the key and the canonical-literal reason" "true" \
+    "$(case "$RL_ABC_LZ_ERR" in *".devflow_retrospective.audit_bundle_cap"*"no leading zero"*"canonical JSON integer literal"*) echo true ;; *) echo false ;; esac)"
+  RL_ABC_00_ERR="$(devflow_validate_audit_bundle_cap 00 2>&1 >/dev/null)"
+  assert_eq "#894 cap: an all-zeros value takes the STARVATION arm, not the leading-zero arm" "true" \
+    "$(case "$RL_ABC_00_ERR" in *"starve Stage B"*) echo true ;; *) echo false ;; esac)"
+  RL_ABC_NEG_ERR="$(devflow_validate_audit_bundle_cap "-1" 2>&1 >/dev/null || true)"
+  assert_eq "#894 cap: a NEGATIVE takes the generic residual arm, not the starvation arm" "false" \
+    "$(case "$RL_ABC_NEG_ERR" in *"starve Stage B"*) echo true ;; *) echo false ;; esac)"
+  # ABSENT CONFIG FILE — the second cause the empty-read breadcrumb names, and the
+  # one arm the two composed helpers above never reach (both write a config first).
+  rl_abc_nofile() {
+    local raw v
+    rm -rf "$RL_TMP/abc-nofile"; mkdir -p "$RL_TMP/abc-nofile"
+    raw="$(cd "$RL_TMP/abc-nofile" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)"
+    if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
+  }
+  assert_eq "#894 cap: an ABSENT config file falls back to the default 10" "cap:10" "$(rl_abc_nofile)"
+  # A JSON `[null]` — the array sibling of the null row, which config-get.sh
+  # comma-joins to the empty string and so resolves to the default.
+  assert_eq "#894 cap: a [null] cap falls back to the default 10" "cap:10" "$(rl_abc_token '[null]')"
   # An EMPTY resolver output (a read failure) is rejected, naming both causes.
   assert_eq "#894 cap: an empty resolver output is a read failure, rejected" "REJECT" \
     "$(if devflow_validate_audit_bundle_cap "" >/dev/null 2>&1; then echo "cap"; else echo REJECT; fi)"
@@ -1616,6 +1649,57 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
     "$(devflow_select_audit_bundles 3 '{"occurrences":[]}')"
   assert_eq "#894 select: an absent occurrences key selects nothing" "" \
     "$(devflow_select_audit_bundles 3 '{}')"
+  # A LEGITIMATE empty selection exits 0 — the positive control that makes the
+  # failure rows below meaningful (a helper that always failed would pass them too).
+  devflow_select_audit_bundles 3 '{"occurrences":[]}' >/dev/null 2>&1
+  assert_eq "#894 select: a legitimate empty selection exits 0" "0" "$?"
+
+  # FAILURE ARM (issue #894 fix pass). Empty stdout is a legitimate return, so a
+  # silent failure would be indistinguishable from "this pattern has no
+  # occurrences" — and the caller converts an empty selection into a blocker
+  # blaming `gh`, misdiagnosing a config-/corpus-shape defect as a network failure.
+  # Every bad-operand shape must therefore exit NON-ZERO with a breadcrumb that
+  # ATTRIBUTES the rejection to the guard that made it, not merely fail.
+  rl_abs_fail() {  # <cap> <pattern> -> "rc=<n> stdout=[<out>]"
+    local out rc
+    out="$(devflow_select_audit_bundles "$1" "$2" 2>/dev/null)"; rc=$?
+    echo "rc=$rc stdout=[$out]"
+  }
+  assert_eq "#894 select FAIL: an empty pattern is a failure, not an empty selection" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 3 '')"
+  assert_eq "#894 select FAIL: a present-but-non-array occurrences is a failure" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 3 '{"occurrences":{"a":1}}')"
+  assert_eq "#894 select FAIL: a non-object pattern is a failure" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 3 '5')"
+  assert_eq "#894 select FAIL: malformed JSON is a failure" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 3 '{"occurrences":')"
+  # A non-canonical cap must be refused HERE too — the caller must pass the
+  # validated cap, and `007` would otherwise reach `--argjson` where its meaning is
+  # parser-dependent.
+  assert_eq "#894 select FAIL: a leading-zero cap is refused by the selector too" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 007 "$RL_ABC_PAT")"
+  assert_eq "#894 select FAIL: an empty cap is refused" "rc=1 stdout=[]" \
+    "$(rl_abs_fail '' "$RL_ABC_PAT")"
+  assert_eq "#894 select FAIL: a zero cap is refused" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 0 "$RL_ABC_PAT")"
+  RL_ABS_ERR_EMPTY="$(devflow_select_audit_bundles 3 '' 2>&1 >/dev/null || true)"
+  assert_eq "#894 select FAIL: the empty-pattern breadcrumb names the misreading it prevents" "true" \
+    "$(case "$RL_ABS_ERR_EMPTY" in *"EMPTY pattern JSON"*"no occurrences"*) echo true ;; *) echo false ;; esac)"
+  RL_ABS_ERR_SHAPE="$(devflow_select_audit_bundles 3 '{"occurrences":{"a":1}}' 2>&1 >/dev/null || true)"
+  assert_eq "#894 select FAIL: the shape breadcrumb names the offending operand, not gh" "true" \
+    "$(case "$RL_ABS_ERR_SHAPE" in *"occurrences is not an array"*) echo true ;; *) echo false ;; esac)"
+  RL_ABS_ERR_CAP="$(devflow_select_audit_bundles 007 "$RL_ABC_PAT" 2>&1 >/dev/null || true)"
+  assert_eq "#894 select FAIL: the cap breadcrumb names the validator as the source of a good cap" "true" \
+    "$(case "$RL_ABS_ERR_CAP" in *"non-canonical cap"*"devflow_validate_audit_bundle_cap"*) echo true ;; *) echo false ;; esac)"
+
+  # A malformed occurrence element is dropped BEFORE the most-recent-N slice, so it
+  # neither reaches the caller as a phantom `pr-null` path nor consumes a cap slot
+  # that would otherwise hold a real fetchable occurrence.
+  RL_ABS_NULLPAT='{"occurrences":[{"pr":10,"ts":"2020-01-01"},{"pr":null,"ts":"2020-02-01"},{"ts":"2020-03-01"},{"pr":40,"ts":"2020-04-01"}]}'
+  assert_eq "#894 select: a null/absent .pr never renders as a 'null' PR number" "false" \
+    "$(case "$(devflow_select_audit_bundles 4 "$RL_ABS_NULLPAT")" in *null*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 select: a malformed element does not consume a cap slot" "40 10" \
+    "$(devflow_select_audit_bundles 2 "$RL_ABS_NULLPAT" | tr '\n' ' ' | sed 's/ $//')"
 )
 
 # ── #894 render-report: Regressed patterns, Filing queue, truncation sections ─
@@ -1671,6 +1755,72 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   RL_TR0="$(devflow_render_report '{"prs_scanned":1,"patterns":[]}')"
   assert_eq "#894 truncation: the section is omitted when nothing was truncated" "false" \
     "$(case "$RL_TR0" in *"Stage B evidence truncated"*) echo true ;; *) echo false ;; esac)"
+
+  # The at-capacity BOUNDARY N == M — the definitional case `-ge` exists for.
+  # Without it, mutating `-ge` to `-gt` leaves the suite green while the report
+  # stops warning exactly when the queue fills.
+  RL_FQEQ="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"10","filing_queue_max":"10"}')"
+  assert_eq "#894 queue BOUNDARY: N == M is at capacity" "true" \
+    "$(case "$RL_FQEQ" in *"filing queue: 10/10 open — at capacity"*) echo true ;; *) echo false ;; esac)"
+  RL_FQLT="$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":"9","filing_queue_max":"10"}')"
+  assert_eq "#894 queue BOUNDARY: N == M-1 is NOT at capacity (the negative control)" "false" \
+    "$(case "$RL_FQLT" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+
+  # `delivered == 0` — the shape the new no-dispatch path produces, and the one a
+  # reader most needs to read correctly; plus `delivered == total` and a
+  # `selected`-absent entry, neither of which any row above drives.
+  RL_TRZ="$(devflow_render_report '{"prs_scanned":1,"truncations":[{"tag":"tg-z","delivered":0,"total":40,"selected":10}]}')"
+  assert_eq "#894 truncation: delivered == 0 renders received-0-of-total plus the full fetch-failure gap" "true" \
+    "$(case "$RL_TRZ" in *"received 0 of 40 occurrence bundles (10 selected bundle(s) failed to fetch)"*) echo true ;; *) echo false ;; esac)"
+  RL_TRE="$(devflow_render_report '{"prs_scanned":1,"truncations":[{"tag":"tg-e","delivered":40,"total":40,"selected":40}]}')"
+  assert_eq "#894 truncation: delivered == total still renders its row (the producer gates the entry, not the renderer)" "true" \
+    "$(case "$RL_TRE" in *'`tg-e`'*"received 40 of 40"*) echo true ;; *) echo false ;; esac)"
+  RL_TRNS="$(devflow_render_report '{"prs_scanned":1,"truncations":[{"tag":"tg-n","delivered":3,"total":9}]}')"
+  assert_eq "#894 truncation: an absent 'selected' degrades to 0, so no fetch-failure clause is invented" "false" \
+    "$(case "$RL_TRNS" in *"failed to fetch"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 truncation: an absent 'selected' still renders delivered-of-total" "true" \
+    "$(case "$RL_TRNS" in *'`tg-n`'*"received 3 of 9"*) echo true ;; *) echo false ;; esac)"
+
+  # MALFORMED-CONTAINER / MALFORMED-ELEMENT matrix for the new sections. The
+  # renderer's comments claim these degrade rather than abort; lib/render-report.sh
+  # sets `set -euo pipefail` at FILE SCOPE, so under a caller that inherits it an
+  # unguarded probe aborts the render MID-REPORT, silently dropping every later
+  # section. Each row therefore asserts a LATER section still renders — the
+  # observable a mid-report abort destroys.
+  #
+  # The render MUST run in a fresh bash that sources the file, so the file-scope
+  # `set -e` is live: this module's own shell runs with `set +e`, where an aborting
+  # probe merely yields an empty section and every row would pass vacuously against
+  # a de-guarded renderer. Verified by mutation: removing a probe's
+  # `2>/dev/null || true` turns these rows RED only in the fresh-bash form.
+  rl_rr_survives() {  # <summary-json> -> true when the report reached "Issues filed"
+    local out
+    out="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$REPO_ROOT/lib" "$1" 2>/dev/null || true)"
+    case "$out" in *"## Issues filed"*) echo true ;; *) echo false ;; esac
+  }
+  assert_eq "#894 malformed: a non-array .patterns does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"patterns":"nope"}')"
+  assert_eq "#894 malformed: a scalar element inside .patterns does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"patterns":[7,{"tag":"ok","occurrence_count":1,"status":"regressed"}]}')"
+  assert_eq "#894 malformed: a non-string .status does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"patterns":[{"tag":"ok","occurrence_count":1,"status":{"x":1}}]}')"
+  assert_eq "#894 malformed: a non-array .truncations does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"truncations":"nope"}')"
+  assert_eq "#894 malformed: a scalar element inside .truncations does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"truncations":[7,{"tag":"ok","delivered":1,"total":2,"selected":1}]}')"
+  assert_eq "#894 malformed: non-string filing-queue operands render unavailable, not an abort" "true" \
+    "$(case "$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":{"a":1},"filing_queue_max":[2]}' 2>/dev/null || true)" in *"filing queue: unavailable/unavailable open"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 malformed: an at-capacity comparison is never attempted on a non-numeric operand" "false" \
+    "$(case "$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":{"a":1},"filing_queue_max":[2]}' 2>/dev/null || true)" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+  # NOTE on the ONE malformed shape deliberately NOT driven here: a valid-JSON
+  # NON-OBJECT summary (`[]`), where jq's `has()` is undefined. It is unreachable at
+  # the Filing-queue probe — the PRE-EXISTING `.prs_scanned` probe near the top of
+  # devflow_render_report aborts first on that input (`Cannot index array with
+  # string "prs_scanned"`), so no assertion here can distinguish a guarded
+  # Filing-queue probe from an unguarded one. The type test and the degrade guard on
+  # that probe are kept for consistency with every sibling probe in the function —
+  # not because this input can reach them — and that limit is stated rather than
+  # covered by a row that would pass either way.
 )
 
 # ── the cap comparands survive ONE malformed lifecycle record ────────────────

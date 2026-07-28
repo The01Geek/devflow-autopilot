@@ -155,9 +155,11 @@ devflow_render_report() {
         printf '\n## Regressed patterns\n\n'
         printf 'These recurred after their last fix. `regressed` is a **cumulative** state — a standing `newest occurrence > last fix` comparison over the whole history, not a this-run event — so a pattern that regressed long ago and has not recurred since still appears here.\n\n'
         # The `.category` field is guarded through `(($p.category | strings) // "")`
-        # exactly as the pattern-row emitter above does, and the `(category: …)`
-        # clause appears only when the entry's category differs from its key, so
-        # two same-category regressed records render distinguishably (issue #891).
+        # exactly as the pattern-row emitter above does. Rows are distinguished by
+        # their `tag`/`slug` key, which every row carries; the `(category: …)` clause
+        # is purely additive attribution (issue #891) and is SUPPRESSED when the
+        # entry's category equals its key, so it is not what makes two same-category
+        # records distinguishable.
         _rr_emit regressed '
             (.patterns // [] | map(select(type == "object" and ((.status | strings) // "") == "regressed")))[]
             | . as $p
@@ -174,20 +176,31 @@ devflow_render_report() {
     # value is representable as the empty string (rendered `unavailable`, never `0`).
     # The line reports STATE, not blame: it deliberately does not say "blocked" and
     # does not read the `cap` token (devflow_filing_cap_verdict is first-match, so a
-    # token-keyed line would go silent in the compound case). It renders whenever the
-    # summary carries AT LEAST ONE of the two operand keys — which every run of the
-    # changed orchestrator does — and is omitted ONLY when it carries NEITHER (the
-    # pre-change summary shape), so byte-identity holds on an old summary. It is
-    # unconditional on any current run: not gated on withheld_patterns, not on N>=M.
+    # token-keyed line would go silent in the compound case). For an OBJECT summary it
+    # renders whenever the summary carries AT LEAST ONE of the two operand keys —
+    # which every run of the changed orchestrator does — and is omitted when it
+    # carries NEITHER (the pre-change summary shape), so byte-identity holds on an old
+    # summary. It is unconditional on any current run: not gated on withheld_patterns,
+    # not on N>=M. A valid-JSON NON-object summary (`has()` is undefined there) takes
+    # the same degrade-to-omitted path as any other probe failure below, rather than
+    # aborting the render.
     local has_queue
-    has_queue="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (has("filing_queue_open") or has("filing_queue_max")) then "yes" else "no" end')"
+    # Same `2>/dev/null || true` + closed-set degrade guard every sibling probe in
+    # this function carries. Without it a non-zero jq — a non-object summary, where
+    # `has()` errors — would abort the whole render MID-REPORT under this file's
+    # `set -euo pipefail`, silently dropping every section below this point from an
+    # otherwise well-formed-looking report. The type test keeps `has()` from being
+    # reached on a non-object at all; the guard is the belt to that braces.
+    has_queue="$(echo "$summary_json" | "$DEVFLOW_JQ" -r 'if (type == "object") and (has("filing_queue_open") or has("filing_queue_max")) then "yes" else "no" end' 2>/dev/null || true)"
+    case "$has_queue" in yes) ;; *) has_queue=no ;; esac
     if [ "$has_queue" = yes ]; then
         local q_open q_max n_disp m_disp cap_suffix
         # `// ""` maps an absent key (the exactly-one-present case) to the empty
         # string, which renders `unavailable` — the same rendering an established-
-        # but-empty (unestablished) value gets.
-        q_open="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_open // ""')"
-        q_max="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_max // ""')"
+        # but-empty (unestablished) value gets, and the same rendering the
+        # `2>/dev/null || true` degrade below produces when the probe itself fails.
+        q_open="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_open // ""' 2>/dev/null || true)"
+        q_max="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_max // ""' 2>/dev/null || true)"
         # An established count is a run of digits; anything else (the empty string)
         # is unestablished and renders `unavailable`. An established 0 renders `0`.
         # The comparison uses bash builtins only (guard-class 2) — no tr/sed/wc.
