@@ -368,9 +368,14 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   width="$(_devflow_pool_resolve_width)"
   # `wait -n` (reap any one job) exists from bash 4.3. BASH_VERSINFO is a shell builtin,
   # so this decides the reaping strategy without a non-preflight PATH tool.
+  # DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP forces the pre-4.3 branch on a modern shell so
+  # lib/test/test_module_harness.py can drive its pids[]/reaped bookkeeping — otherwise
+  # that arm, which holds the driver's only index arithmetic, ships unexercised
+  # everywhere the suite runs.
   reap_any=""
-  if [ "${BASH_VERSINFO[0]:-0}" -gt 4 ] ||
-     { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -ge 3 ]; }; then
+  if [ -z "${DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP:-}" ] &&
+     { [ "${BASH_VERSINFO[0]:-0}" -gt 4 ] ||
+       { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -ge 3 ]; }; }; then
     reap_any=1
   fi
   plan_out="$capture_dir/unit-plan.out"
@@ -550,7 +555,10 @@ DEVFLOW_SHARD_ENUM
   # never ran, so the reader can always see how much of the file actually executed.
   printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated)\n' \
     "${script_path##*/}" "$executed" "$width" "${total:-unestablished}"
-  [ -z "$failure" ] || printf '    devflow shard driver: %s\n' "$failure" >&2
+  # On stdout, with the tally line above it and the per-unit captures below: the whole
+  # report stays on one stream, which is the stream discipline _devflow_echo_capture's
+  # header states and the reason a reader never sees a diagnosis detached from evidence.
+  [ -z "$failure" ] || printf '    devflow shard driver: %s\n' "$failure"
   assert_eq "$assertion_name" "" "$failure"
 }
 

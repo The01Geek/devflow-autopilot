@@ -2041,6 +2041,31 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             peak = max(peak, inflight)
         return peak
 
+    def test_the_pre_bash_4_3_serial_reap_path_is_correct(self):
+        # `wait -n` arrived in bash 4.3, so on CI and at the desk the specific-pid
+        # fallback never executes — yet it holds the driver's only index arithmetic
+        # (pids[dispatched] / reaped), where a stale subscript would either desync the
+        # in-flight count or abort under `set -u`. The hook forces that arm on a modern
+        # shell so it is driven rather than hand-proved.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp, source=self._concurrency_suite(8, failing=False)
+            )
+            mark = Path(tmp) / "marks.txt"
+            mark.write_text("", encoding="utf-8")
+            verdict, output = self._drive(
+                suite,
+                width="2",
+                env_extra=(
+                    "export DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP=1\n"
+                    f'export DEVFLOW_870_MARK="{mark}"\n'
+                ),
+            )
+            self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+            self.assertIn("executed 8 test(s)", output)
+            peak = self._peak_inflight(mark)
+            self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
+
     def test_concurrency_never_exceeds_the_resolved_width(self):
         # The work queue's bound is the whole reason it is safe to run inside the suite's
         # already-open pool: no more than $width units may be in flight at once.
