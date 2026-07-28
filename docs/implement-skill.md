@@ -9,6 +9,72 @@ any branch checkout, creation, checkpoint merge, or push. An open or
 unresolvable dependency terminalizes the workpad as Blocked; Phase 1.6 keeps
 the other audit passes without re-running this gate.
 
+## Phase 1.6 Pass 6 — Verified-premise re-check (`scripts/check-verified-premises.py`)
+
+A `Verified:` bullet in an issue body is what licenses an implementing run to **skip its own
+investigation**. Those bullets are true when the issue is drafted, and until this pass existed
+nothing re-checked them at implement time — so a premise that had since become false silently
+converted "go and check" into "this was already checked", and the run built on it. Issue #857 is the
+worked case: three of its premises were false by the time #864 implemented it, and two acceptance
+criteria were unimplementable as prescribed.
+
+Phase 1.6's Pass 6 (`skills/implement/phases/phase-1-setup.md`) closes that gap by re-deriving each
+bullet against the tree the run will build on.
+
+- **Input is the §1.1 issue-body cache, not a re-fetch** (issue #693): the pass invokes the bundled
+  helper with `--body-file` pointing at `.devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md` and
+  `--repo-root` naming the tree to adjudicate against, so the helper never guesses a root from the
+  working directory. On the degraded arm where §1.1 wrote no cache, the fetched body is written to a
+  file and that path is passed instead.
+- **Scope is every bullet the helper's marker recognises**, not only the ones the plan expects to
+  lean on — the run cannot know in advance which premise a later phase will rest on. The recognised
+  set is a **floor, not a closed set**: a bullet written in a spelling the marker does not recognise
+  contributes nothing to the reported total, so the total is read as a floor on the bullets present,
+  never as proof the issue carried no others.
+- **Output.** One `bullet=<n> handle=<path-quote|path|quote|command|none> state=<holds|refuted|unestablished> detail=…`
+  line per bullet, then a `VERIFIED_PREMISES` summary line carrying the totals. The handle classes
+  and states are defined authoritatively in the helper's own module docstring.
+- **Refuting is deliberately the hardest verdict to reach**, because a refutation makes the run
+  discard the premise and file issue-accuracy feedback against the issue. Only a positively
+  adjudicated claim refutes — a strongly-cited repository path absent from the tree, or a quoted
+  sentence that no longer occurs in the file it cites. Everything the helper would have to guess at
+  resolves to `unestablished` instead: a cited directory, a glob, a `::`/anchor/line locator, a
+  filename-shaped identifier that names no directory, an elided quotation whose fragments do not
+  resolve, an unreadable cited file, and a path resolving outside the repository (refused, not
+  refuted). A `path` handle never reports `holds` either — the path's presence is checkable, but
+  presence is not the premise.
+- **Routing (four arms).** Exit **0** with zero bullets records the falsifiable zero-findings
+  `## Progress` note; exit **0** with bullets records the clean confirmation naming the tallies;
+  exit **2** (a refuted premise) records an `issue-accuracy` reflection, **discards** that premise,
+  and investigates the surface directly from Phase 2 onward — it does **not** Block the run, because
+  a stale premise is recoverable by investigation; exit **3**, a refusal, or no output at all records
+  a `dropped-failed` reflection and treats **every** bullet as unverified. An unestablished
+  measurement is never read as a clean pass.
+- **`handle=none` and `state=unestablished` are undecided, not refuted.** They restore exactly the
+  state the run would have been in had the bullet never existed — go and check. That is the
+  fail-closed direction.
+- **Security boundary.** The issue body is third-party text, so the helper performs read-only file
+  reads and nothing else: it imports no `subprocess`, makes no network call, never executes a
+  command drawn from the body (a `command` handle is *reported* for the caller to re-run under its
+  own judgment), and refuses a cited path that is absolute or escapes the repository root.
+- **Freshness.** The pass reads the tree to adjudicate a claim, so it obeys §1.6's *Fresh-tree
+  verification* rules (the read-target and cross-pass-coherence rules documented under
+  *Stale-checkout guard for adopted branches* below) — a bullet must never be reported refuted off a
+  stale checkout, the #322→#325 false-refutation shape.
+- **Cloud grant.** The helper's vendored literal is granted on the `implement` and `command`
+  capability profiles in `lib/capability-profiles.json`; the workflow allowlist literals are
+  regenerated from that manifest and the `review` lock is unchanged (see [`cloud-allowlist.md`](cloud-allowlist.md)).
+
+The drafting side of the same fix is in `/devflow:create-issue`: `skills/create-issue/references/issue-template.md`
+now requires every `Verified:` bullet to carry a self-contained re-derivation handle — the repository
+path in backticks plus the sentence quoted verbatim, or the exact command whose output grounded the
+claim — with a matching drafting-checklist row. `skills/create-issue/references/step-3-5-steelman.md`
+states the obligation, and `skills/create-issue/references/step-3-6-audit.md`'s pre-dispatch canonical
+write is where it executes (the first anchor at which the canonical draft file exists). A
+`handle=none` bullet is rewritten before the user sees the draft; a `state=refuted` bullet is
+re-derived rather than filed. Like every arm of that skill it is best-effort and never blocks issue
+creation.
+
 ## Issue-body cache (issue #693)
 
 A single implement run used to materialize the GitHub issue body many times over — six API
