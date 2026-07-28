@@ -85,7 +85,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
     "agent_overrides": {
       "default": { "effort": "high" },
       "devflow:checklist-deduper": { "model": "claude-sonnet-4-6", "effort": "medium" },
-      "devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "high", "iterations": "first-only" }
+      "devflow:code-reviewer": { "model": "claude-opus-5", "effort": "high", "iterations": "first-only" }
     }
   }
 }
@@ -106,8 +106,8 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
   full roster. An out-of-enum value (or empty string) is dropped with a `::warning::`, mirroring the
   invalid-effort path; the run never aborts.
 
-> **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8 and
-> Sonnet 4.6; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
+> **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8, Opus 5, Sonnet 4.6, and
+> Sonnet 5; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
 > `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `devflow:checklist-deduper`
 > override pins Claude Sonnet 4.6 (which *does* support `effort`) with effort `medium`, so it is exempt;
 > the constraint matters if you re-pin a Haiku id there. The schema does not enforce this (it is a model-API fact, not a structural
@@ -125,7 +125,7 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 ## This repo's `code-reviewer` application — baseline, revert trigger, deferred repricing (issue #425)
 
 DevFlow's own tracked `.devflow/config.json` sets
-`"devflow:code-reviewer": { "model": "claude-opus-4-8", "effort": "low", "iterations": "first-only" }`.
+`"devflow:code-reviewer": { "model": "claude-opus-5", "effort": "low", "iterations": "first-only" }`.
 The `iterations` scoping was added on the evidence of replay study **R2** (2026-07-11): on this repo's
 overwhelmingly `engine_self_modifying` diffs, `devflow:code-reviewer` measured **6.7% unique-effective**
 (9 of 135 dispatches), **2 sole-source applied Importants across 129 dispatches**, and — the positional
@@ -141,13 +141,13 @@ late ones) with no measured loss.
   `agent_overrides` model values apply identically to standalone `/devflow:review`, and the frozen-judge
   guardrail of the 2026-07-11 optimization methodology forbids repricing the outcome judge's roster
   mid-window. After the current experiment window closes, a follow-up PR reprices `model` from
-  `claude-opus-4-8` to `claude-haiku-4-5-20251001` (the exact id, since the resolver forwards model
+  `claude-opus-5` to `claude-haiku-4-5-20251001` (the exact id, since the resolver forwards model
   strings unvalidated) **and drops the entry's `effort: "low"` key** — a Haiku id must not carry
   `effort` (see the Haiku HTTP-400 callout above), so the swap is not literally one line: the entry
   becomes `{ "model": "claude-haiku-4-5-20251001", "iterations": "first-only" }`. That follow-up
   carries its own trigger: any specialty-class escaped
   Important-or-higher finding on a PR reviewed under the repriced config within **4 retrospective weeks**
-  (extended until **30 repriced dispatches**) reverts the model to `claude-opus-4-8`. A deterministic
+  (extended until **30 repriced dispatches**) reverts the model to `claude-opus-5`. A deterministic
   auto-revert mechanism was considered and rejected — no machinery exists to edit tracked config on a
   metric threshold, and building it is out of proportion to a one-line revert.
 

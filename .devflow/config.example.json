@@ -1,7 +1,7 @@
 {
   "$schema": "./config.schema.json",
   "base_branch": "main",
-  "claude_model": "claude-opus-4-8",
+  "claude_model": "claude-opus-5",
   "devflow_version": "",
   "devflow": {
     "allowed_bots": "claude,dependabot",
@@ -56,7 +56,7 @@
         "effort": "medium"
       },
       "devflow:code-reviewer": {
-        "model": "claude-opus-4-8",
+        "model": "claude-opus-5",
         "effort": "high",
         "iterations": "first-only"
       }
@@ -99,7 +99,7 @@
   "devflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-sonnet-4-6",
-    "audit_model": "claude-opus-4-8",
+    "audit_model": "claude-opus-5",
     "implementation_branch_prefix": "claude/",
     "min_occurrences": 2,
     "cooldown_days": 3,
