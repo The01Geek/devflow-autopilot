@@ -1033,7 +1033,12 @@ def _paired_delta(before, after):
     across one state file's rounds), independent of how many runs either corpus holds,
     so it carries no `total_` marker and the population confound the naming rule guards
     against does not apply to it. It has its own guard instead — the state sentinel, via
-    `_findings_delta` below.
+    `_findings_delta` below. **`mean_peak_context_per_run` is the fifth key and is
+    neither:** it is the per-run NORMALIZATION of the context axis (each side's sum
+    divided by its own `run_count`), which is the axis AC7 actually names — the
+    corpus-wide `total_peak_context` beside it carries the population confound this
+    normalized key exists to remove, and both are published so a reader can see the
+    difference rather than being handed one and told to divide.
 
     **An empty or under-counted run population makes every sum-based delta
     `unestablished`** — `_degraded` consults the run list AND every channel of the skip
@@ -1076,10 +1081,23 @@ def _paired_delta(before, after):
             return UNESTABLISHED
         return a - b
 
+    def _mean_peak_context(report):
+        # Population-NORMALIZED: the corpus sum divided by that side's own run count.
+        # `_degraded` already guarantees a non-empty run list here.
+        return _sum(report, "peak_context") / len(report["runs"])
+
     return {
         "total_attributed_auditor_cost": _delta(
             lambda rep: _sum(rep, "attributed_auditor_cost")),
         "total_peak_context": _delta(lambda rep: _sum(rep, "peak_context")),
+        # AC7 names *per-run* context as a paired-delta axis, and the corpus-wide sum
+        # above does not discharge it: a 3-run before corpus against a 1-run after
+        # corpus yields a large negative `total_peak_context` that is pure population
+        # difference. This key divides each side by its OWN `run_count` first, so the
+        # confound cannot enter. It is a float by construction (a mean, not a token
+        # count) — the one non-integer delta, named as an average so a reader is not
+        # invited to read it as a measured total.
+        "mean_peak_context_per_run": _delta(_mean_peak_context),
         "total_round_count": _delta(_rounds),
         "finding_count": _findings_delta(),
     }

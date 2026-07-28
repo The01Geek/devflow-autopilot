@@ -13,8 +13,10 @@ bump: patch
   carrying each round's recorded kind, per-kind auditor-cost medians, and a
   `--before`/`--after` paired-delta mode emitting three corpus-wide sums, each named
   `total_` for that reason (total attributed auditor cost, total peak context, total
-  round count) plus `finding_count`, a state-file axis rather than a corpus sum — never
-  latency. Each sum-based delta reads `unestablished` rather than a measured-looking
+  round count), plus `mean_peak_context_per_run` — the per-run-normalized context axis,
+  each side divided by its own run count so a population difference between the two
+  corpora cannot enter it — and `finding_count`, a state-file axis rather than a corpus
+  sum. Never latency. Each sum-based delta reads `unestablished` rather than a measured-looking
   number when either corpus is empty or under-counted on any loss channel the skip tally
   records. Of the three escaped-defect proxies, the
   `record-reopen` count is measured and the declared post-filing class is reported

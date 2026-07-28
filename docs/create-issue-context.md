@@ -247,9 +247,11 @@ every degraded state-file shape yields `unestablished` figures with a stderr bre
 number and never a crash), reports the per-kind auditor-cost medians and a per-run per-round
 breakdown carrying each round's recorded kind, and accepts a `--before`/`--after` operand pair with
 paired deltas: three corpus-wide sums, each named `total_` for that reason — total attributed
-auditor cost, total peak context, total round count — plus `finding_count`, which is a **state-file**
-axis rather than a corpus sum (it totals one state file's ledger entries, independent of either
-corpus's run count) and so carries no `total_` marker (**never latency**). Each of the three sum-based
+auditor cost, total peak context, total round count — plus `mean_peak_context_per_run`, the
+**per-run-normalized** context axis (each side's sum divided by its own `run_count`, so a
+population difference between the two corpora cannot enter it) and `finding_count`, which is a
+**state-file** axis rather than a corpus sum (it totals one state file's ledger entries, independent
+of either corpus's run count) and so carries no `total_` marker (**never latency**). Each of the three sum-based
 deltas reads `unestablished` when either corpus is empty **or under-counted on any loss channel** —
 an unwalkable directory, an escaped or unreadable session file, a session file carrying only auditor
 sidechain records, or a malformed record inside a counted run — because each of those deflates the

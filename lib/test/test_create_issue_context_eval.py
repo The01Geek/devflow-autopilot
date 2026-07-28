@@ -1105,8 +1105,8 @@ class PairedDeltaTest(unittest.TestCase):
         report = self._paired()
         delta = report["delta"]
         self.assertEqual(set(delta), {
-            "total_attributed_auditor_cost", "total_peak_context", "total_round_count",
-            "finding_count",
+            "total_attributed_auditor_cost", "total_peak_context",
+            "mean_peak_context_per_run", "total_round_count", "finding_count",
         })
         # Latency is deliberately NOT a delta field (wall-clock is unestablished).
         self.assertNotIn("latency", delta)
@@ -1123,6 +1123,49 @@ class PairedDeltaTest(unittest.TestCase):
             delta["finding_count"],
             CICE._finding_count(after_state) - CICE._finding_count(before_state))
         self.assertGreater(delta["finding_count"], 0)
+
+    def test_per_run_context_delta_is_population_normalized(self):
+        """AC7 names *per-run* context; the corpus sum does not discharge it.
+
+        The confound this pins: a multi-run before side against a one-run after side
+        makes `total_peak_context` hugely negative on population difference ALONE, while
+        the per-run mean — each side divided by its own run count — stays at the real
+        per-run difference. Driven by duplicating the before corpus's single session
+        into a three-run side, so the two keys' population sensitivity is directly
+        comparable on fixtures whose per-run figures are identical by construction.
+        """
+        with tempfile.TemporaryDirectory() as multi:
+            src = os.path.join(_FIX, "before-rounds", "session-before-rounds.jsonl")
+            with open(src, "r", encoding="utf-8") as fh:
+                payload = fh.read()
+            for n in range(3):
+                with open(os.path.join(multi, "s{}.jsonl".format(n)),
+                          "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+            inflated = CICE.build_paired_report(
+                multi, os.path.join(_FIX, "after-rounds"),
+                os.path.join(_FIX, "states", "before-state.json"),
+                os.path.join(_FIX, "states", "after-state.json"))
+            honest = self._paired()
+            self.assertEqual(inflated["before"]["summary"]["run_count"], 3)
+            self.assertEqual(honest["before"]["summary"]["run_count"], 1)
+            # The corpus-wide sum moves purely because the population tripled...
+            self.assertLess(inflated["delta"]["total_peak_context"],
+                            honest["delta"]["total_peak_context"])
+            # ...while the per-run normalization is unchanged by that same tripling.
+            self.assertAlmostEqual(inflated["delta"]["mean_peak_context_per_run"],
+                                   honest["delta"]["mean_peak_context_per_run"])
+
+    def test_per_run_context_delta_is_unestablished_on_a_degraded_side(self):
+        with tempfile.TemporaryDirectory() as empty:
+            report = CICE.build_paired_report(
+                empty, os.path.join(_FIX, "after-rounds"), None,
+                os.path.join(_FIX, "states", "after-state.json"))
+            self.assertEqual(report["delta"]["mean_peak_context_per_run"],
+                             "unestablished")
+        # Positive control: with both sides populated the same key is a real number.
+        self.assertIsInstance(self._paired()["delta"]["mean_peak_context_per_run"],
+                              float)
 
     def test_paired_delta_omits_latency_even_in_json(self):
         """Serializes for real: the name has to be absent from the emitted bytes."""
