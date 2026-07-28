@@ -14,10 +14,19 @@ that #793 introduced. That cost is spent by the auditor **subagent**, whose turn
 the harness emits as `isSidechain` records — records the pre-#889 instrument
 dropped with a single line. This module now attributes those sidechain `usage`
 records to rounds, deriving the round boundaries from the transcript's own
-`record-dispatch --round N` tool-use records and reading the round→kind labelling
-(and the per-finding quoted draft line + per-round scope) from the audit state
-file **best-effort**: every degraded state-file shape yields `unestablished`
-per-kind figures, never a number and never a crash.
+`issue-audit-state.py record-dispatch --round N` tool-use records and reading the
+round->kind labelling (and the per-finding quoted draft line + per-round scope) from
+the audit state file **best-effort**: every degraded state-file shape yields
+`unestablished` per-kind figures with a stderr breadcrumb, never a number and never
+a crash.
+
+One of the three escaped-defect proxies is NOT reportable against any state file this
+repository writes today: the scope-escape proxy needs a `scope.draft_lines` span on a
+targeted round, and `scripts/issue-audit-state.py`'s `record-dispatch` records no such
+key (see `_scope_draft_span`). It therefore reports `unestablished` on every real
+state file rather than the `0` that would read as "no defects escaped scope". The
+other two proxies — the `record-reopen` count and the declared post-filing class —
+are unaffected.
 
 A "run" is bounded by `attributionSkill == "devflow:create-issue"` on
 `type == "assistant"` records. A **main-thread** (non-`isSidechain`) attributed
@@ -81,18 +90,38 @@ BUCKET_400K = 400_000
 # supply the operand it needs. It is NEVER a number and NEVER 0 — an unestablished
 # measurement collapsed onto a real value is the bug the whole axis guards against.
 UNESTABLISHED = "unestablished"
-# The closed round-kind vocabulary #793 records on each round. A round whose stored
-# kind is neither of these contributes to no per-kind median (it reads unestablished).
-# Coupled with `_ROUND_KINDS` in scripts/issue-audit-state.py — the closed,
-# complete round-kind vocabulary that module owns (issue #793). This is a deliberate
-# duplicated literal (the eval is a standalone stdlib-only instrument that imports
-# nothing from the state owner); a new kind added there must be mirrored here in the
-# same change, else `read_state` would drop a round carrying it to `unestablished`.
+# The closed round-kind vocabulary #793 records on each round.
+#
+# Coupled with `_ROUND_KINDS` in scripts/issue-audit-state.py — the closed, complete
+# round-kind vocabulary that module owns (issue #793). This is a deliberate duplicated
+# literal (the eval is a standalone stdlib-only instrument that imports nothing from the
+# state owner); a new kind added there must be mirrored here in the same change.
+# `ROUND_KINDS_COUPLING_ASSERTED_BY` names the test that reconciles the two tuples, so
+# the drift this comment warns about goes RED rather than shipping green.
+#
+# The degradation it causes, stated exactly: `read_state` returns None for the WHOLE
+# state file when any round carries a PRESENT-but-unmirrored kind — collapsing both
+# per-kind medians, both scope-escape fields and every other round's labelling, not
+# merely the one round. An ABSENT kind is legal in a persisted round (a pre-#793 record)
+# and is defaulted to `discovery`, exactly as the state owner's own read boundary does.
 ROUND_KINDS = ("discovery", "targeted")
+ROUND_KINDS_COUPLING_ASSERTED_BY = (
+    "lib/test/test_create_issue_context_eval.py::RoundKindCouplingTest")
+# The kind a round record carrying no `kind` field is read as — the same permissive
+# default `scripts/issue-audit-state.py`'s readers apply to a pre-#793 round.
+_ABSENT_KIND_DEFAULT = "discovery"
 # The `record-dispatch --round N` marker the state owner writes on the main thread —
 # the sole round-boundary source (the state file carries no clock to join on).
-_DISPATCH_ROUND_RE = re.compile(r"record-dispatch\b[^\n]*?--round\s+(\d+)")
-_REOPEN_RE = re.compile(r"\brecord-reopen\b")
+#
+# Anchored on the state-owner script name so the marker is a CONTRACT rather than a
+# substring: a `grep record-dispatch`, an `echo`, or a `cat` of this skill reference in
+# a main-thread Bash block no longer opens a spurious round boundary or inflates the
+# reopen tally. The round value is accepted quoted or bare because the skill's rendered
+# fence writes `--round "<round>"` (quoted) while the fixtures write it bare — a regex
+# that required a bare digit derived NO round boundary on a faithful real transcript.
+_DISPATCH_ROUND_RE = re.compile(
+    r"issue-audit-state\.py\s+record-dispatch\b[^\n]*?--round\s+[\"']?(\d+)")
+_REOPEN_RE = re.compile(r"issue-audit-state\.py\s+record-reopen\b")
 
 
 def _digest(text):
@@ -506,14 +535,39 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
 
 # ── State-file reader (issue #889) — best-effort, never a number on a bad shape ──
 
+def _degraded_state(state_path, reason):
+    """Emit the degraded-read breadcrumb and return the None sentinel.
+
+    Every degraded arm routes through here so an operator who supplied a path can tell
+    "I passed nothing" from "the path I passed could not be used" — without it a
+    mistyped `--state-file` is byte-identical in output to omitting the flag, and the
+    honest `unestablished` reads as a disclosure about the data rather than about the
+    operator's own typo. `state_path` is falsy only on the omitted-flag arm, which is
+    not a degradation and emits nothing.
+    """
+    if state_path:
+        sys.stderr.write(
+            "create-issue-context-eval: state file {} not usable ({}); "
+            "every state-derived figure reads {}\n".format(
+                state_path, reason, UNESTABLISHED))
+    return None
+
+
 def read_state(state_path):
     """Read one audit state file's round labelling, best-effort.
 
-    Returns a dict {round_num(int): {"kind": str|None, "scope": dict|None,
+    Returns a dict {round_num(int): {"kind": str, "scope": dict|None,
     "findings": list}} on success, or None when the state file is absent, unreadable,
-    empty, malformed, carries a wrong-typed `rounds` container, or carries a round
-    with no recognized kind. A None return makes every per-kind and scope-escape
-    figure read `unestablished` — never a number and never a crash (AC8).
+    undecodable, empty, malformed, carries a wrong-typed `rounds` container, or carries
+    a round whose PRESENT kind is outside `ROUND_KINDS`. A None return makes every
+    per-kind and scope-escape figure read `unestablished` — never a number and never a
+    crash (AC8); every degraded arm also writes a stderr breadcrumb naming the path and
+    the reason.
+
+    An ABSENT `kind` is NOT a degradation: `scripts/issue-audit-state.py` accepts a
+    round record carrying none (a pre-#793 round) and its readers default it to
+    `discovery`, so this reader applies the same default rather than collapsing a whole
+    otherwise-valid state file over one legacy round.
 
     The state file supplies ONLY what the transcript cannot: the round→kind
     labelling, the per-round scope, and the per-finding quoted draft line. It carries
@@ -525,31 +579,39 @@ def read_state(state_path):
     try:
         with open(state_path, "r", encoding="utf-8") as fh:
             raw = fh.read()
-    except OSError:
-        return None
+    # UnicodeDecodeError is a ValueError, NOT an OSError: a state file carrying any
+    # non-UTF-8 byte is squarely inside AC8's "unreadable" shape and must degrade here,
+    # never propagate out of the instrument as a traceback.
+    except (OSError, ValueError) as exc:
+        return _degraded_state(state_path, "unreadable: {}".format(exc))
     if not raw.strip():
-        return None
+        return _degraded_state(state_path, "empty")
     try:
         doc = json.loads(raw)
-    except (ValueError, TypeError):
-        return None
+    except (ValueError, TypeError) as exc:
+        return _degraded_state(state_path, "not parseable JSON: {}".format(exc))
     if not isinstance(doc, dict):
-        return None
+        return _degraded_state(state_path, "top level is not an object")
     rounds = doc.get("rounds")
     if not isinstance(rounds, list):
-        return None
+        return _degraded_state(state_path, "`rounds` is not a list")
     by_num = {}
     for rnd in rounds:
         if not isinstance(rnd, dict):
-            return None
+            return _degraded_state(state_path, "a round record is not an object")
         num = rnd.get("round")
         if not isinstance(num, int) or isinstance(num, bool):
-            return None
+            return _degraded_state(
+                state_path, "a round carries no integer round number")
         kind = rnd.get("kind")
-        # A round with no recognized kind collapses the whole labelling to
-        # unestablished (AC8) rather than silently reporting a partial per-kind figure.
-        if kind not in ROUND_KINDS:
-            return None
+        if kind is None:
+            kind = _ABSENT_KIND_DEFAULT
+        elif kind not in ROUND_KINDS:
+            # A PRESENT-but-unmirrored kind collapses the whole labelling to
+            # unestablished rather than silently reporting a partial per-kind figure.
+            return _degraded_state(
+                state_path,
+                "round {} names the unrecognized kind {!r}".format(num, kind))
         scope = rnd.get("scope") if isinstance(rnd.get("scope"), dict) else None
         findings = rnd.get("findings") if isinstance(rnd.get("findings"), list) else []
         by_num[num] = {"kind": kind, "scope": scope, "findings": findings}
@@ -562,6 +624,15 @@ def _scope_draft_span(scope):
     Draft-space coordinates (issue #889): the scope-escape proxy compares two
     coordinates in the DRAFT's own space, so the operand is a draft-line span, not a
     repository path:line.
+
+    KNOWN GAP, disclosed rather than papered over: no producer in this repository
+    writes `scope.draft_lines` today. `scripts/issue-audit-state.py`'s `record-dispatch`
+    composes a targeted round's scope as `{basis_digest, sections, claim_ids}`, and
+    `sections` holds heading strings, not line spans. Every caller therefore reaches the
+    `None` return on a real state file — which is exactly why `scope_escape_proxy`
+    reports `unestablished` rather than a confident `0` in that case. Adding the
+    producer is tracked as follow-up work; until it lands the proxy is honest about
+    being unfillable instead of reporting the value that reads as "nothing escaped".
     """
     if not isinstance(scope, dict):
         return None
@@ -574,32 +645,68 @@ def _scope_draft_span(scope):
 
 
 def _finding_draft_line(finding):
-    """The draft line a finding quoted as the line it attacks, or None (unattributable)."""
+    """The draft line a finding quoted as the line it attacks, or None (unattributable).
+
+    Accepts exactly what `scripts/issue-audit-state.py` accepts at BOTH its own
+    boundaries for this field — a non-bool int `>= 1`. A re-derived, wider predicate
+    (any non-bool int, admitting `0` and negatives) would treat a hand-edited `-5` as
+    attributable and silently shrink the honest denominator, the accepted-set-drift the
+    repo's share-the-contract rule exists to stop.
+    """
     if not isinstance(finding, dict):
         return None
     q = finding.get("quoted_draft_line")
-    if isinstance(q, int) and not isinstance(q, bool):
+    if isinstance(q, int) and not isinstance(q, bool) and q >= 1:
         return q
     return None
+
+
+# The ledger status a must-revise finding carries while it is still outstanding. AC9
+# scopes the scope-escape proxy to must-revise findings, and a `resolved`/`invalidated`/
+# `superseded` entry in a later round is a settled one — counting it would report a
+# scope escape that the round itself already disposed of, and would also inflate the
+# unattributable denominator. Mirrors `_LEDGER_STATUSES` in scripts/issue-audit-state.py.
+_UNRESOLVED_STATUS = "unresolved"
+
+
+def _is_outstanding_must_revise(finding):
+    """True for a ledger entry that is still an outstanding must-revise finding."""
+    return (isinstance(finding, dict)
+            and finding.get("status") == _UNRESOLVED_STATUS)
 
 
 def scope_escape_proxy(state):
     """The scope-escape proxy and its own denominator (AC9 proxy 2 + AC11).
 
     Returns {"count": int|UNESTABLISHED, "unattributable": int|UNESTABLISHED} where
-    `count` is the number of later-round findings whose quoted draft line falls inside
-    an earlier `targeted` round's recorded draft-space scope, and `unattributable` is
-    the denominator: later-round findings carrying NO recorded draft line. An
-    unattributable finding is never counted as attributable and never counted as zero.
+    `count` is the number of later-round OUTSTANDING must-revise findings whose quoted
+    draft line falls inside an earlier `targeted` round's recorded draft-space scope,
+    and `unattributable` is the denominator: later-round outstanding must-revise
+    findings carrying NO recorded draft line. An unattributable finding is never counted
+    as attributable and never counted as zero.
+
+    Both figures read `unestablished` — never `0` — whenever the comparand cannot be
+    established: no state at all, or ANY `targeted` round whose scope yields no usable
+    draft-line span. That second arm is the load-bearing one: no producer in this repo
+    writes `scope.draft_lines` yet (see `_scope_draft_span`), so on every real state
+    file the proxy is unfillable, and reporting `0` there would publish the value that
+    reads as "no defects escaped scope" about a comparison that never ran. A state
+    carrying NO targeted round at all is a different case — nothing could escape a scope
+    that was never dispatched — and that is a genuine, established `0`.
     """
     if state is None:
         return {"count": UNESTABLISHED, "unattributable": UNESTABLISHED}
     targeted = []  # (round_num, start, end)
     for num, rnd in state.items():
-        if rnd["kind"] == "targeted":
-            span = _scope_draft_span(rnd["scope"])
-            if span is not None:
-                targeted.append((num, span[0], span[1]))
+        if rnd["kind"] != "targeted":
+            continue
+        span = _scope_draft_span(rnd["scope"])
+        if span is None:
+            # A targeted round whose span is absent, wrong-typed or inverted makes the
+            # whole comparison partial. Fail the WHOLE proxy to unestablished rather
+            # than dropping the round silently and emitting a real-looking integer.
+            return {"count": UNESTABLISHED, "unattributable": UNESTABLISHED}
+        targeted.append((num, span[0], span[1]))
     count = 0
     unattributable = 0
     for num, rnd in state.items():
@@ -607,6 +714,8 @@ def scope_escape_proxy(state):
         if not earlier_targeted:
             continue  # not a "later round" relative to any targeted scope
         for finding in rnd["findings"]:
+            if not _is_outstanding_must_revise(finding):
+                continue
             line = _finding_draft_line(finding)
             if line is None:
                 unattributable += 1
@@ -642,6 +751,7 @@ def aggregate(runs, state=None):
     """
     peaks = [r["peak_context"] for r in runs]
     medians = per_kind_medians(runs, state)
+    escape = scope_escape_proxy(state)
     return {
         "run_count": len(runs),
         # Secondary residency axis.
@@ -651,14 +761,23 @@ def aggregate(runs, state=None):
         "runs_over_400k": sum(1 for p in peaks if p > BUCKET_400K),
         "median_repeated_read_count": _median([r["repeated_read_count"] for r in runs]),
         "median_reemission_count": _median([r["reemission_count"] for r in runs]),
-        # Primary round-attributed auditor-cost axis (issue #889).
-        "median_attributed_auditor_cost": _median(
+        # Primary round-attributed auditor-cost axis (issue #889). An empty run
+        # population reads `unestablished`, never `0` — "the auditor cost nothing" is a
+        # real value this instrument must not publish about a corpus it never measured.
+        "median_attributed_auditor_cost": _median_or_unestablished(
             [r["attributed_auditor_cost"] for r in runs]),
+        # How much of that primary axis is sidechain cost NO round boundary could key.
+        # `attributed_auditor_cost` folds it in, so publishing it beside the median is
+        # what keeps a wholly-unattributed total from reading as a round-attributed one.
+        "total_unrounded_auditor_cost": sum(
+            r["unrounded_auditor_cost"] for r in runs),
         "median_auditor_cost_discovery": medians["discovery"],
         "median_auditor_cost_targeted": medians["targeted"],
-        # Escaped-defect axis proxies.
+        # Escaped-defect axis proxies. Flattened into two scalars so every summary field
+        # renders as a scalar in the text report rather than one raw dict repr.
         "total_record_reopen": sum(r["record_reopen_count"] for r in runs),
-        "scope_escape": scope_escape_proxy(state),
+        "scope_escape_count": escape["count"],
+        "scope_escape_unattributable": escape["unattributable"],
         # A declared post-filing class the instrument reports unestablished, never a
         # number: escaped defects found AFTER the issue is filed are outside any
         # transcript or state file this instrument reads.
@@ -668,10 +787,35 @@ def aggregate(runs, state=None):
     }
 
 
+def _join_round_kinds(runs, state):
+    """Stamp each run's per-round breakdown with the round's RECORDED kind (AC6).
+
+    AC6 asks for a per-run breakdown carrying each round's recorded kind alongside its
+    attributed cost, so the kind must not live only in the aggregate per-kind medians —
+    a reader of one run's report has to be able to tell which of ITS rounds were
+    targeted. With no state (or a degraded one) each entry reads `unestablished`, never
+    a guessed kind.
+
+    KNOWN GAP, disclosed: the state file keys rounds by NUMBER alone, so a corpus of
+    several runs joined against a single state file labels every run's round N with that
+    one state's round N. The join is correct for the one-run-per-state case the paired
+    mode uses; a multi-run corpus needs a per-run state file, which the state owner does
+    not yet emit a run coordinate for.
+    """
+    for run in runs:
+        run["round_kinds"] = {
+            n: (state[n]["kind"] if state is not None and n in state
+                else UNESTABLISHED)
+            for n in run["round_auditor_cost"]
+        }
+    return runs
+
+
 def build_report(corpus_root, state_path=None, large_block_chars=LARGE_BLOCK_MIN_CHARS):
     """One run-set report: runs, the aggregate, and the skip tally."""
     runs, skipped = eval_corpus(corpus_root, large_block_chars)
     state = read_state(state_path)
+    _join_round_kinds(runs, state)
     return {
         "runs": runs,
         "summary": aggregate(runs, state),
@@ -687,7 +831,7 @@ def build_report(corpus_root, state_path=None, large_block_chars=LARGE_BLOCK_MIN
 def _paired_delta(before, after):
     """The after-minus-before paired deltas (AC7).
 
-    Reports the deltas the tier can measure: attributed auditor cost, per-run context
+    Reports the deltas the tier can measure: attributed auditor cost, total peak context
     (secondary), round count, and finding count. Latency is NOT here — the wall-clock
     axis reads `unestablished`, so a paired latency delta would present a number the
     tier never measured.
@@ -698,22 +842,38 @@ def _paired_delta(before, after):
     def _rounds(report):
         return sum(len(r["dispatch_rounds"]) for r in report["runs"])
 
-    def _findings(report):
+    def _findings_delta():
         # Finding count is a state-file axis: the total ledger entries across rounds.
-        return report.get("finding_count", 0)
+        # A side whose state could not be read carries the UNESTABLISHED sentinel, and
+        # subtracting against it would publish a measured-looking delta about a side
+        # that was never read — so the delta itself reads `unestablished`.
+        b, a = before.get("finding_count"), after.get("finding_count")
+        if b == UNESTABLISHED or a == UNESTABLISHED or b is None or a is None:
+            return UNESTABLISHED
+        return a - b
 
     return {
         "attributed_auditor_cost": _sum(after, "attributed_auditor_cost")
         - _sum(before, "attributed_auditor_cost"),
-        "per_run_context": _sum(after, "peak_context") - _sum(before, "peak_context"),
+        # Named for what it is: a CORPUS-WIDE sum of per-run peaks, not a per-run figure.
+        # Under the old `per_run_context` name a 3-run before corpus against a 1-run
+        # after corpus reported a large "context reduction" that was pure population
+        # difference. The run counts are on each side's summary for the reader to divide.
+        "total_peak_context": _sum(after, "peak_context") - _sum(before, "peak_context"),
         "round_count": _rounds(after) - _rounds(before),
-        "finding_count": _findings(after) - _findings(before),
+        "finding_count": _findings_delta(),
     }
 
 
 def _finding_count(state):
+    """Total ledger entries across rounds, or UNESTABLISHED when there is no state.
+
+    NEVER `0` on a degraded/absent state: `0` is a real value meaning "the audit
+    recorded no findings", and publishing it about a state file that was never read is
+    the unknown-collapsed-onto-zero bug the whole axis guards against.
+    """
     if state is None:
-        return 0
+        return UNESTABLISHED
     return sum(len(rnd["findings"]) for rnd in state.values())
 
 
@@ -737,13 +897,17 @@ def _render_run_line(r):
         "auditor_cost={attributed_auditor_cost} reopens={record_reopen_count}".format(**r)
     ]
     if r["round_auditor_cost"]:
-        by_round = " ".join("r{}={}".format(n, c)
-                            for n, c in sorted(r["round_auditor_cost"].items()))
+        # AC6: each per-round entry carries the round's RECORDED kind beside its cost,
+        # so one run's report is readable without the aggregate per-kind medians.
+        kinds = r.get("round_kinds") or {}
+        by_round = " ".join(
+            "r{}={}({})".format(n, c, kinds.get(n, UNESTABLISHED))
+            for n, c in sorted(r["round_auditor_cost"].items()))
         parts.append("\n  - per-round auditor cost: {}".format(by_round))
     return "".join(parts)
 
 
-def render_text(runs, summary, skipped):
+def render_text(runs, summary, skipped, state_established=None):
     lines = []
     lines.append("# create-issue runtime main-thread context eval")
     lines.append("")
@@ -758,6 +922,10 @@ def render_text(runs, summary, skipped):
     # renders every field once with no per-field literal to keep in sync.
     for key, value in summary.items():
         lines.append("- {}: {}".format(key, value))
+    if state_established is not None:
+        # Whether the state file was established at all decides how every
+        # `unestablished` figure above should be read, so it is part of the report.
+        lines.append("- state_established: {}".format(state_established))
     lines.append("")
     total_skipped = sum(skipped.values())
     lines.append("## Skipped records: {}".format(total_skipped))
@@ -772,7 +940,8 @@ def render_paired_text(report):
     for label in ("before", "after"):
         side = report[label]
         lines.append("## {}".format(label.capitalize()))
-        lines.append(render_text(side["runs"], side["summary"], side["skipped"]))
+        lines.append(render_text(side["runs"], side["summary"], side["skipped"],
+                                 side.get("state_established")))
         lines.append("")
     lines.append("## Paired deltas (after - before)")
     for key, value in report["delta"].items():
@@ -809,9 +978,28 @@ def main(argv=None):
         if args.before is None or args.after is None:
             sys.stderr.write("error: paired mode requires both --before and --after\n")
             return 2
+        # A flag the parser accepts and the selected mode then discards is silently
+        # dropped input: the operator reads the resulting `unestablished` as an honest
+        # disclosure when the real cause is their own mismatched flag. Refuse it.
+        if args.state_file is not None:
+            sys.stderr.write("error: --state-file is a single-corpus flag; paired mode "
+                             "takes --before-state/--after-state\n")
+            return 2
+        if args.transcript_dir is not None:
+            sys.stderr.write("error: a positional transcript directory is a "
+                             "single-corpus input; paired mode takes --before/--after\n")
+            return 2
         for label, path in (("--before", args.before), ("--after", args.after)):
             if not os.path.isdir(path):
                 sys.stderr.write("error: {} directory not found: {}\n".format(label, path))
+                return 2
+        # Hold the state operands to the same standard as their sibling directory
+        # operands: an explicitly-supplied path that does not exist is an operator
+        # error, not an occasion to report `unestablished` about it.
+        for label, path in (("--before-state", args.before_state),
+                            ("--after-state", args.after_state)):
+            if path is not None and not os.path.isfile(path):
+                sys.stderr.write("error: {} file not found: {}\n".format(label, path))
                 return 2
         report = build_paired_report(
             args.before, args.after, args.before_state, args.after_state,
@@ -824,7 +1012,22 @@ def main(argv=None):
 
     corpus = args.transcript_dir
     if corpus is None:
-        parser.error("a transcript directory (or --before/--after) is required")
+        # Returned, not `parser.error`'d: every sibling operand failure in this function
+        # returns 2, and a SystemExit here would be the one arm a caller driving main()
+        # in-process has to catch differently.
+        sys.stderr.write(
+            "error: a transcript directory (or --before/--after) is required\n")
+        return 2
+    for label, path in (("--before-state", args.before_state),
+                        ("--after-state", args.after_state)):
+        if path is not None:
+            sys.stderr.write("error: {} is a paired-mode flag; single-corpus mode "
+                             "takes --state-file\n".format(label))
+            return 2
+    if args.state_file is not None and not os.path.isfile(args.state_file):
+        sys.stderr.write(
+            "error: --state-file file not found: {}\n".format(args.state_file))
+        return 2
     if not os.path.isdir(corpus):
         # No corpus present: exit non-zero naming the missing path — never a
         # silently-empty baseline.
@@ -840,13 +1043,16 @@ def main(argv=None):
         # Sort keys for byte-stable, deterministic output.
         sys.stdout.write(
             json.dumps(
-                {"runs": runs, "summary": summary, "skipped": skipped},
+                {"runs": runs, "summary": summary, "skipped": skipped,
+                 "state_established": report["state_established"],
+                 "finding_count": report["finding_count"]},
                 indent=2, sort_keys=True,
             )
             + "\n"
         )
     else:
-        sys.stdout.write(render_text(runs, summary, skipped) + "\n")
+        sys.stdout.write(
+            render_text(runs, summary, skipped, report["state_established"]) + "\n")
     return 0
 
 

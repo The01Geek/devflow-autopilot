@@ -1,0 +1,29 @@
+{
+  "_note": "The scope shape scripts/issue-audit-state.py record-dispatch ACTUALLY writes for a targeted round: {basis_digest, sections, claim_ids} and no draft_lines span. Its sibling after-state.json carries a hand-authored draft_lines span that no producer emits, so it exercises the proxy's arithmetic; THIS fixture is the real producer shape, and the suite asserts the proxy reads `unestablished` against it rather than a confident 0.",
+  "rounds": [
+    {
+      "round": 1,
+      "kind": "discovery",
+      "scope": null,
+      "findings": [
+        {"id": 1, "summary": "acceptance criteria omit the new flag", "status": "unresolved", "ingested_status": "unresolved", "quoted_draft_line": 22}
+      ]
+    },
+    {
+      "round": 2,
+      "kind": "targeted",
+      "scope": {"basis_digest": "0000000000000000000000000000000000000000000000000000000000000000", "sections": ["## Acceptance criteria"], "claim_ids": ["c1", "c2"]},
+      "findings": [
+        {"id": 1, "summary": "the flag is named but its default is still unstated", "status": "unresolved", "ingested_status": "unresolved", "quoted_draft_line": 24}
+      ]
+    },
+    {
+      "round": 3,
+      "kind": "discovery",
+      "scope": null,
+      "findings": [
+        {"id": 1, "summary": "a defect inside the earlier targeted scope slipped through", "status": "unresolved", "ingested_status": "unresolved", "quoted_draft_line": 30}
+      ]
+    }
+  ]
+}

@@ -241,18 +241,32 @@ obligation reads.
 **The instrument that produces these figures is built (issue #889).**
 `scripts/create-issue-context-eval.py` now attributes the auditor's own `isSidechain`
 `usage` records to rounds, derives round boundaries from the transcript's own
-`record-dispatch --round N` records (the state file supplies only the round→kind labelling,
-best-effort — every degraded state-file shape yields `unestablished` per-kind figures, never a
-number), reports the per-kind auditor-cost medians, accepts a `--before`/`--after` operand pair
-with paired deltas (attributed auditor cost, per-run context, round count, finding count — **never
-latency**), and reports the three escaped-defect proxies (`record-reopen` count; the scope-escape
-count with its unattributable denominator; and a declared post-filing class reported
-`unestablished`). Wall-clock is **not** a measured axis on this tier — it is reported
-`unestablished`, citing this document's local-tier row in
-[`docs/efficiency-trace.md`](efficiency-trace.md), rather than asserted as something the
-orchestrator observes; and no cost figure is sourced from a value the orchestrator volunteers (the
-harness emits the same `usage` data deterministically). The main-thread context figures are a
-**secondary** axis and are never the sole basis of the reduction claim.
+`issue-audit-state.py record-dispatch --round N` records (the state file supplies only the
+round→kind labelling, the per-round scope and the per-finding quoted draft line, best-effort —
+every degraded state-file shape yields `unestablished` figures with a stderr breadcrumb, never a
+number and never a crash), reports the per-kind auditor-cost medians and a per-run per-round
+breakdown carrying each round's recorded kind, and accepts a `--before`/`--after` operand pair with
+paired deltas (attributed auditor cost, total peak context, round count, finding count — **never
+latency**). Wall-clock is **not** a measured axis on this tier — it is reported `unestablished`,
+citing the local-tier row in [`docs/efficiency-trace.md`](efficiency-trace.md), rather than
+asserted as something the orchestrator observes; and no cost figure is sourced from a value the
+orchestrator volunteers (the harness emits the same `usage` data deterministically). The
+main-thread context figures are a **secondary** axis and are never the sole basis of the reduction
+claim.
+
+**Two of the three escaped-defect proxies are reportable today; the third is not, and the
+instrument says so rather than reporting a number.** The `record-reopen` count is derived from the
+transcript and is reportable; the post-filing class is a *declared* class the instrument reports
+`unestablished` by construction (an escaped defect found after the issue is filed is outside any
+transcript or state file it reads). The **scope-escape** proxy needs two draft-space coordinates,
+and only one of them has a producer: the per-finding `quoted_draft_line` is ingested from the
+ledger's optional `<status>@<n>: <summary>` line and persisted by `scripts/issue-audit-state.py`,
+but no writer in this repository records a `draft_lines` span on a targeted round's `scope` —
+`record-dispatch` composes `{basis_digest, sections, claim_ids}`, and `sections` holds heading
+strings. So on every real state file the proxy reports `unestablished`, **not** the `0` that would
+read as "no defects escaped scope". Recording the span at dispatch time is tracked follow-up work;
+until it lands this row of the record above is filled with `unestablished`, and that is the honest
+value, not a placeholder.
 
 `lib/test/test_create_issue_context_eval.py` asserts the reduction **live** from the committed
 synthetic before/after fixtures under `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`

@@ -5,8 +5,8 @@
       "kind": "discovery",
       "scope": null,
       "findings": [
-        {"id": 1, "summary": "acceptance criteria omit the new flag", "status": "unresolved"},
-        {"id": 2, "summary": "problem statement contradicts the desired behavior", "status": "unresolved"}
+        {"id": 1, "summary": "acceptance criteria omit the new flag", "status": "unresolved", "ingested_status": "unresolved"},
+        {"id": 2, "summary": "problem statement contradicts the desired behavior", "status": "unresolved", "ingested_status": "unresolved"}
       ]
     },
     {
@@ -14,7 +14,7 @@
       "kind": "discovery",
       "scope": null,
       "findings": [
-        {"id": 1, "summary": "acceptance criteria still omit the new flag", "status": "unresolved"}
+        {"id": 1, "summary": "acceptance criteria still omit the new flag", "status": "unresolved", "ingested_status": "unresolved"}
       ]
     },
     {
@@ -22,7 +22,7 @@
       "kind": "discovery",
       "scope": null,
       "findings": [
-        {"id": 1, "summary": "test plan does not cover the degraded arm", "status": "unresolved"}
+        {"id": 1, "summary": "test plan does not cover the degraded arm", "status": "unresolved", "ingested_status": "unresolved"}
       ]
     }
   ]
