@@ -22139,10 +22139,12 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at three sites: the tools
-# step's deny-floor (#404), the #458 harden-stop-hooks step, and the #505 compose
-# step (same trusted-source rank — the compose helper's rank-2 vendored fallback).
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose)" "3" \
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at four sites: the tools
+# step's deny-floor (#404), the #458 harden-stop-hooks step, the #505 compose step
+# (same trusted-source rank — the compose helper's rank-2 vendored fallback), and the
+# #874 baseprovision step, whose prompt-extension materialization ladder carries the
+# identical fetch-gated rank so a THIN install resolves a trusted helper at all.
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision)" "4" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
