@@ -1,0 +1,26 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T23:02:17Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase_1_checklist_generation",
+  "pending_dispatch": {"kind": "checklist_generator", "roster": ["devflow:checklist-generator"], "dispatched_at": "2026-07-28T23:12:00Z"},
+  "config": {
+    "max_iterations": 5,
+    "fix_severity_threshold": "suggestion",
+    "verdict_severity_threshold": "critical",
+    "push_each_iteration": true
+  },
+  "pr_number": 910,
+  "run_id": "local-20260728T230217Z-1",
+  "head_at_iteration_start": "fcb535fac4e1c8a0ce8fc210ccdfeaea192f0681",
+  "step_0_5_note": "gh pr checkout skipped by deliberate deviation: this is a .claude/worktrees/ checkout (branch wt-pr-910) whose local HEAD already equals the PR headRefOid and whose upstream is wired to origin/issue-858-measure-subagent-write-probe with push.default=upstream. The step's invariant (local HEAD is the PR head; fix commits land on the PR branch) holds; running gh pr checkout would contend with the sibling worktrees listed by git worktree list.",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "dispatched_effort": [],
+  "diff_profile": null,
+  "shadow": null,
+  "telemetry": {}
+}
