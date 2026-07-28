@@ -44751,6 +44751,62 @@ assert_eq "#877 the monolith shard owns no modules (it runs run.sh minus the mod
 assert_eq "#877 an unknown shard name is rejected" "nonzero" \
   "$(bash "$E877_RUNSHARD" --modules-of not-a-shard >/dev/null 2>&1 && echo zero || echo nonzero)"
 
+# ── No shard ever requests a bounded heavy-unit population (issue #890) ──
+# `run-module.sh --heavy-units smoke` reduces what a module executes. The whole
+# "the full population still runs exactly once per CI run, in modules-pin" argument rests
+# on the dispatcher passing no such flag, and the #877 union assertion above cannot see it:
+# it compares which MODULES each shard names, never the ARGUMENTS it invokes them with, so
+# adding `--heavy-units smoke` to a shard arm would erase the full population from CI while
+# every tally above stayed green. Drive the dispatcher in a fixture tree whose run-module.sh
+# is a stub that records its own argv, and assert the recorded argv carries no such flag.
+E890_SDIR="$(git_sandbox '#890 shard argv fixture')"
+mkdir -p "$E890_SDIR/lib/test"
+cp "$E877_RUNSHARD" "$E890_SDIR/lib/test/run-shard.sh"
+# The two helpers a MODULE shard reaches through its own SCRIPT_DIR are stubbed (the third,
+# run.sh, is reached only by the monolith shard, which owns no modules and is skipped
+# below), so the probe spawns nothing but trivial stubs and observes exactly one thing:
+# the argv the dispatcher hands down.
+printf '%s\n' '#!/usr/bin/env bash' 'printf "STUB-ARGV %s\n" "$*"' \
+  > "$E890_SDIR/lib/test/run-module.sh"
+printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' \
+  > "$E890_SDIR/lib/test/shard-tally.py"
+# The shard population is DERIVED from the dispatcher, not hand-listed: a hand-listed
+# triple would silently stop probing a newly added shard, and the assertion below would
+# stay green for it. The monolith sentinel is excluded by its own empty module group, so
+# the exclusion is derived too.
+E890_FLAGGED=""
+E890_UNOBSERVED=""
+for _s in $(bash "$E877_RUNSHARD" --list-shards 2>/dev/null); do
+  E890_EXPECTED=0
+  while IFS= read -r _m || [ -n "$_m" ]; do
+    [ -z "$_m" ] || E890_EXPECTED=$((E890_EXPECTED + 1))
+  done <<< "$(bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null)"
+  [ "$E890_EXPECTED" -gt 0 ] || continue   # the monolith sentinel, excluded by its own empty group
+  # Count and scan with bash builtins only: both values decide an emitted assert_eq operand,
+  # and a non-preflight PATH tool would let a missing or erroring `grep` yield "no flag
+  # found" — a vacuous pass in the coverage-reducing direction (guard-class 2).
+  E890_SEEN=0
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      'STUB-ARGV '*)
+        E890_SEEN=$((E890_SEEN + 1))
+        case "$_line" in *--heavy-units*) E890_FLAGGED="$E890_FLAGGED $_s" ;; esac
+        ;;
+    esac
+  done <<< "$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
+    bash "$E890_SDIR/lib/test/run-shard.sh" "$_s" 2>/dev/null)"
+  # Per-MODULE, not per-shard: a dispatcher that stopped after a group's first module would
+  # leave the rest of that group's invocations unobserved, so the flag scan above would stay
+  # vacuously clean for them while a mere non-emptiness control kept passing.
+  [ "$E890_SEEN" -eq "$E890_EXPECTED" ] || \
+    E890_UNOBSERVED="$E890_UNOBSERVED $_s($E890_SEEN/$E890_EXPECTED)"
+done
+assert_eq "#890 no module shard passes a coverage-reducing --heavy-units flag" "" \
+  "$E890_FLAGGED"
+assert_eq "#890 positive control: every module shard dispatched every module in its group" "" \
+  "$E890_UNOBSERVED"
+rm -rf "$E890_SDIR"
+
 # ── Tally recombination (shard-tally.py) ──
 E877_TDIR="$(mktemp -d 2>/dev/null || true)"
 if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then

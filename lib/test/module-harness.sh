@@ -299,7 +299,7 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
   assert_eq "$assertion_name" "0" "$test_rc"
 }
 
-# devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir>
+# devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir> [full|smoke]
 #
 # The concurrent sibling of devflow_run_focused_python_test (issue #870): it runs ONE
 # python3 unittest file as many bounded-concurrency selector processes and folds every
@@ -370,12 +370,49 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # collection loop trusts every unit-<n>.out{,.err,.rc} it finds there, so a reused
 # directory feeds a prior call's results into this call's count and defeats the
 # executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
-devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
+#
+# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). This is where the mode's
+# meaning is defined; the module call site (lib/test/modules/harness-python-guards.sh)
+# points here rather than restating it.
+#
+# COUPLED SITES for the `bound_note` sentence below: it is not decoration — it is the only
+# signal a caller has that a run took the bounded path, and it is asserted in
+# lib/test/test_module_harness.py (both its presence on a bounded run and its absence on a
+# full one) and in lib/test/test_module_runner.py, whose assertRegex on it is what stops
+# dropped flag plumbing from silently restoring a duplicate execution. Reword it and
+# reconcile those.
+#   full  — the default, applied when the argument is absent OR empty, so a caller that
+#           says nothing (or forwards an unset variable) always gets every test.
+#   smoke — enumerate only the FIRST test of each test CLASS that the loader produced a test
+#           for. The enumerate → dispatch → collect → fold path is exercised in full and one
+#           test of each such class runs; only the per-test repetition drops. It exists for a
+#           caller that drives a file purely to prove the driver drives it. Note what this
+#           does NOT claim: a class the loader yields no test for (no `test_`-prefixed
+#           methods) contributes nothing to enumerate in either mode, so `smoke` does not
+#           reach it — the bound is over the loader's output, not over the file's classes.
+#   anything else — fails CLOSED: nothing is enumerated, nothing runs, and the call records
+#           a FAIL naming the bad value, so a typo can never read as a bounded pass.
+devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [full|smoke]
   local assertion_name="$1" script_path="$2" capture_dir="$3"
+  local mode="${4:-full}"
   local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
   local width total dispatched=0 executed=0 launched=0 reaped=0 reap_any failure=""
-  local plan_out plan_err index unit_rc unit_ran num cap
+  local plan_out plan_err index unit_rc unit_ran num cap bound_note=""
   local -a ids=() pids=()
+
+  case "$mode" in
+    full) ;;
+    smoke) bound_note=", BOUNDED smoke subset — the full population did NOT run" ;;
+    *)
+      # Refuse before enumeration or dispatch, carrying the `devflow shard driver:` prefix
+      # this function's terminal failure report also uses.
+      printf '    devflow shard driver: unrecognized population mode %s (expected full or smoke)\n' \
+        "$mode"
+      assert_eq "$assertion_name" "" \
+        "unrecognized population mode '$mode' (expected full or smoke)"
+      return
+      ;;
+  esac
 
   width="$(_devflow_pool_resolve_width)"
   # `wait -n` (reap any one job) exists from bash 4.3. BASH_VERSINFO is a shell builtin,
@@ -394,10 +431,15 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   plan_err="$capture_dir/unit-plan.err"
 
   # Enumerate the file's test IDs from the loader rather than a frozen list, so a newly
-  # added class is scheduled (and counted) without editing this driver. The printed count
-  # IS "the number an unsharded run would execute" — derived by collection only, never by
-  # a second full serial run, which would cost exactly what this saves.
-  if ! PYTHON_COLORS=0 python3 - "$script_path" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
+  # added class is scheduled (and counted) without editing this driver. In `full` mode the
+  # printed count IS "the number an unsharded run would execute" — derived by collection
+  # only, never by a second full serial run, which would cost exactly what this saves. In
+  # `smoke` mode it is the number of test classes the loader produced at least one test for
+  # (see the mode contract above for why that is not the same as the file's class count),
+  # and the executed-vs-enumerated check
+  # below is unchanged: it compares against whatever this enumeration decided, so a
+  # bounded run still fails closed on dropped work.
+  if ! PYTHON_COLORS=0 python3 - "$script_path" "$mode" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
 import importlib.util
 import pathlib
 import sys
@@ -435,12 +477,23 @@ def flatten(item):
         yield item
 
 
+# Validated by the caller's own `case`, so an unexpected value cannot reach here.
+smoke = sys.argv[2] == "smoke"
+
 selectors = []
+seen_classes = set()
 prefix = spec.name + "."
 for test in flatten(suite):
     if type(test).__name__ == "_FailedTest":
         print("unloadable test entry: %s" % test.id(), file=sys.stderr)
         raise SystemExit(1)
+    # Grouping on the live class object rather than on a substring of the identifier: it
+    # is exact by construction, so a nested or same-named class cannot collapse into a
+    # sibling's group. Enumeration order is preserved, so the bound is deterministic.
+    if smoke:
+        if type(test) in seen_classes:
+            continue
+        seen_classes.add(type(test))
     identifier = test.id()
     if identifier.startswith(prefix):
         identifier = identifier[len(prefix):]
@@ -578,9 +631,12 @@ DEVFLOW_SHARD_ENUM
   fi
 
   # Logged on the clean path too: a silent no-op is indistinguishable from a driver that
-  # never ran, so the reader can always see how much of the file actually executed.
-  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated)\n' \
-    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}"
+  # never ran, so the reader can always see how much of the file actually executed. The
+  # bound clause is part of that same statement rather than a separate line: a bounded run
+  # is a materially different claim from a full one, and a caller (or a human reading a
+  # log) must not be able to see the tally without seeing that it was bounded.
+  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated%s)\n' \
+    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}" "$bound_note"
   # On stdout, with the tally line above it and the per-unit captures below: the whole
   # report stays on one stream, which is the stream discipline _devflow_echo_capture's
   # header states and the reason a reader never sees a diagnosis detached from evidence.
@@ -1260,6 +1316,14 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       # Consumed by module_host_capability_skip in the sourced module.
       # shellcheck disable=SC2034,SC2030
       MODULE_SKIP_CREDIT_FILE="$module_skip_credit_file"
+      # Heavy-unit population (issue #890). When the full suite runs a module at all — it
+      # does not under DEVFLOW_SKIP_SUITE_MODULES=1, the monolith CI shard's selector — it
+      # always runs the full population, and this is an unconditional assignment rather
+      # than an environment-derived default so an inherited MODULE_HEAVY_UNIT_MODE cannot
+      # shrink what the suite executes. The focused runner's --heavy-units flag is the only
+      # thing that ever selects `smoke`.
+      # shellcheck disable=SC2034,SC2030
+      MODULE_HEAVY_UNIT_MODE=full
       unset MODULE_FAILURES_FILE
       # shellcheck source=/dev/null disable=SC1090
       . "$module_path"

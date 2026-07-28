@@ -91,6 +91,27 @@ class ModuleRunnerTests(unittest.TestCase):
             'printf "INVALID\\n" >> "$RESULTS_FILE"\n'
             'assert_eq "valid assertion after invalid record" "expected" "expected"\n',
         )
+        # Issue #890: reports the heavy-unit population the runner handed the module body,
+        # so --heavy-units can be driven without running a real (expensive) module.
+        self._write_module(
+            "heavy-units.sh",
+            'printf "HEAVY-UNITS=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\n'
+            # A real child PROCESS, not another subshell: this is the only shape that
+            # observes the runner's `export -n`, whose whole job is to stop the mode
+            # propagating past the module body it is meant for.
+            'bash -c \'printf "HEAVY-UNITS-CHILD=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\'\n'
+            'assert_eq "heavy-units assertion" "expected" "expected"\n',
+        )
+        # Stands in for a module that bounds a heavy unit nobody asked to bound — a
+        # literal or defaulted `smoke` in its own driver call. It emits the driver's own
+        # bound clause without consulting the mode, which is exactly what such a module
+        # would produce.
+        self._write_module(
+            "unrequested-bound.sh",
+            'printf "  x.py: executed 1 test(s) across 1 concurrent worker(s) '
+            '(1 enumerated, BOUNDED smoke subset — the full population did NOT run)\\n"\n'
+            'assert_eq "unrequested-bound assertion" "expected" "expected"\n',
+        )
         self._write_module(
             "blocking.sh",
             'printf "ready\\n" > "$READY_MARKER"\n'
@@ -107,6 +128,10 @@ class ModuleRunnerTests(unittest.TestCase):
                 "empty": {"path": "lib/test/modules/empty.sh"},
                 "crash": {"path": "lib/test/modules/crash.sh"},
                 "invalid-tally": {"path": "lib/test/modules/invalid-tally.sh"},
+                "heavy-units": {"path": "lib/test/modules/heavy-units.sh"},
+                "unrequested-bound": {
+                    "path": "lib/test/modules/unrequested-bound.sh"
+                },
                 "blocking": {"path": "lib/test/modules/blocking.sh"},
                 "workflow-flight-recorder": {
                     "path": "lib/test/modules/workflow-flight-recorder.sh"
@@ -179,6 +204,142 @@ class ModuleRunnerTests(unittest.TestCase):
             if line.startswith("Log: "):
                 return Path(line.removeprefix("Log: "))
         self.fail(f"runner output did not name its log:\n{result.stdout}")
+
+    def test_heavy_units_defaults_to_full_and_ignores_an_inherited_value(self) -> None:
+        """Issue #890. The bounded heavy-unit population is a real coverage reduction, so
+        the thing that must be impossible is ACQUIRING it — a stale export in a CI
+        environment silently shrinking what a module shard runs while the shard still goes
+        green. The runner therefore assigns the mode unconditionally instead of defaulting
+        off the environment, and both halves are asserted here: the default is `full`, and
+        a hostile inherited value does not survive into the module body."""
+        for extra_env in (None, {"MODULE_HEAVY_UNIT_MODE": "smoke"}):
+            with self.subTest(inherited=extra_env):
+                result = self._run("heavy-units", extra_env=extra_env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("HEAVY-UNITS=full", result.stdout)
+                # A full run must carry no bounded-run notice: the inverted-guard mutant
+                # (which would stamp every CI shard's log as reduced) is caught only here.
+                self.assertNotIn("REQUESTED bounded", result.stdout)
+
+    def test_heavy_units_flag_selects_the_bounded_population(self) -> None:
+        """The one channel that CAN select the bounded population is the explicit flag,
+        which is what makes the choice visible at the call site that made it.
+
+        The further assertions below pin the runner's own reduced-run accounting, both
+        halves of which are otherwise deletion-safe — nothing else in the suite observes
+        either.
+
+        The notice is the only bounded-run signal the RUNNER itself contributes: the
+        summary line above it cannot carry one, because its shape is machine-consumed. (A
+        module that actually bounds a unit reports that separately, in its driver's own
+        tally line in the same log.)
+
+        The child-process probe pins `export -n`, and the exported `MODULE_HEAVY_UNIT_MODE`
+        below is what makes it discriminate: bash preserves the export attribute only for a
+        variable that ARRIVED exported, so without that env the runner's plain assignment
+        is unexported anyway and the probe would read `unset` with or without the line."""
+        result = self._run_args(
+            "--heavy-units",
+            "smoke",
+            "heavy-units",
+            extra_env={"MODULE_HEAVY_UNIT_MODE": "smoke"},
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("HEAVY-UNITS=smoke", result.stdout)
+        self.assertIn(
+            "Module heavy-units: heavy units REQUESTED bounded (--heavy-units smoke)",
+            result.stdout,
+        )
+        self.assertIn("HEAVY-UNITS-CHILD=unset", result.stdout)
+
+    def test_a_bound_nobody_requested_fails_the_module(self) -> None:
+        """Issue #890. Every other guard establishes what the run ASKED for — the runner's
+        unconditional `full`, the flag, the shard-dispatcher argv probe. None of them can
+        see the last link: a module that hard-codes or defaults its own driver call to
+        `smoke` bounds its heaviest unit while the tally, the summary and the notice all
+        stay clean, which would silently remove that unit's full population from CI.
+
+        So a `full` run whose module log carries a bound is a contradiction and fails,
+        named in the recap. The positive control is the same module under an explicitly
+        requested `smoke`, where the identical output is the expected outcome — without it
+        this test could pass because the fixture is broken rather than because the guard
+        fired."""
+        unrequested = self._run("unrequested-bound")
+        self.assertEqual(unrequested.returncode, 1, unrequested.stdout + unrequested.stderr)
+        self.assertIn(
+            "Module unrequested-bound: 1 passed, 1 failed", unrequested.stdout.splitlines()
+        )
+        self.assertIn(
+            "  - module bounded a heavy unit that was not requested "
+            "(--heavy-units full was in effect)",
+            unrequested.stdout.splitlines(),
+        )
+
+        requested = self._run_args("--heavy-units", "smoke", "unrequested-bound")
+        self.assertEqual(requested.returncode, 0, requested.stdout + requested.stderr)
+        self.assertIn(
+            "Module unrequested-bound: 1 passed, 0 failed", requested.stdout.splitlines()
+        )
+
+    def test_heavy_units_full_is_an_accepted_explicit_value(self) -> None:
+        """`full` is documented in the usage string and is the default, but a mutant that
+        narrowed the accepted set to `smoke` alone would make an explicit `--heavy-units
+        full` a selector error that nothing noticed."""
+        result = self._run_args("--heavy-units", "full", "heavy-units")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("HEAVY-UNITS=full", result.stdout)
+        self.assertNotIn("REQUESTED bounded", result.stdout)
+
+    def test_heavy_units_refuses_a_repeated_flag_rather_than_taking_the_last(self) -> None:
+        """Last-wins would let a caller that pinned `full` be overridden later in its own
+        argv with no diagnostic — the silent reduction the flag's whole shape is meant to
+        rule out. The refusal fires whichever order the two values appear in."""
+        for args in (
+            ("--heavy-units", "full", "--heavy-units", "smoke", "heavy-units"),
+            ("--heavy-units", "smoke", "--heavy-units", "full", "heavy-units"),
+        ):
+            with self.subTest(args=args):
+                result = self._run_args(*args)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(
+                    "selector error: --heavy-units given more than once", result.stderr
+                )
+                self.assertNotIn("HEAVY-UNITS=", result.stdout)
+
+    def test_heavy_units_rejects_an_unrecognized_or_missing_value(self) -> None:
+        """A misspelled mode must not fall through to either population: to `full` it
+        would hide the defect behind a green run, and to `smoke` it would drop coverage.
+        The runner refuses at selection time, before any module is sourced.
+
+        The refusing guard's OWN message is pinned per arm, not merely `selector error`:
+        a neighbouring rejection in this runner — an unknown option, a missing module id —
+        also exits 2 carrying that same substring, so a bare exit-code-plus-substring
+        assertion would stay green against a mutant that deleted the guard under test and
+        let one of those do the rejecting."""
+        for args, expected in (
+            (
+                ("--heavy-units", "smoak", "heavy-units"),
+                "--heavy-units takes full or smoke, not 'smoak'",
+            ),
+            (
+                ("--heavy-units", "Smoke", "heavy-units"),
+                "--heavy-units takes full or smoke, not 'Smoke'",
+            ),
+            (("--heavy-units",), "--heavy-units requires full or smoke"),
+        ):
+            with self.subTest(args=args):
+                result = self._run_args(*args)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(f"selector error: {expected}", result.stderr)
+                self.assertNotIn("HEAVY-UNITS=", result.stdout)
+        # Positive control on the same fixture: the module id and the runner are otherwise
+        # valid, so each rejection above is attributable to the flag under test rather than
+        # to a precondition the fixture itself fails.
+        control = self._run_args("--heavy-units", "smoke", "heavy-units")
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.assertIn("HEAVY-UNITS=smoke", control.stdout)
 
     def test_exact_selection_runs_one_module_and_persists_its_log(self) -> None:
         result = self._run("sample")
@@ -1396,7 +1557,30 @@ class ModuleRunnerTests(unittest.TestCase):
         make, which #710 never added. The floor is read from the registry and compared
         for EQUALITY, so the test carries no second copy of the floor value: the registry
         entry, the module's emitted tally, and the run.sh call-site floor are one coupled
-        triple, reconciled together."""
+        triple, reconciled together.
+
+        Issue #890: this test is a member of a POOLED suite, so it runs inside the
+        `monolith` CI shard — while the module it drives is also run, in full, by the
+        `modules-pin` shard. That made the module's heaviest unit (the sharded
+        test_pin_corpus_lint.py block) execute twice per CI run, and the second execution
+        was the critical path of the required check. The run below therefore passes
+        `--heavy-units smoke`, which bounds that one unit to a single test per class.
+
+        What the test proves is unchanged, and that is the point. CONTRIBUTING.md step 8
+        asks for three things: invoke lib/test/run-module.sh against the module id, read
+        the `minimum_assertions` floor from the registry rather than hard-coding a second
+        copy, and assert the emitted summary equals `Module <id>: {floor} passed, 0
+        failed`. Each still holds below (the exit-0 assertion is an additional property
+        this test has always carried, not something step 8 asks for), and none is
+        weakened by the bounded unit, because the bound changes how many Python tests one
+        assertion covers and not how many assertions the module emits. The full population
+        still runs exactly once per CI run, in `modules-pin`, which passes no flag and
+        therefore gets the runner's `full` default.
+
+        The bound is ASSERTED, not assumed: without the last assertion below, a future
+        change that dropped the flag plumbing would silently restore the duplicate
+        execution while this test stayed green, which is exactly the failure this issue
+        exists to remove."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
@@ -1414,6 +1598,8 @@ class ModuleRunnerTests(unittest.TestCase):
                     str(RUNNER_SOURCE),
                     "--log-dir",
                     log_dir,
+                    "--heavy-units",
+                    "smoke",
                     "harness-python-guards",
                 ],
                 cwd=ROOT,
@@ -1436,6 +1622,16 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertIn(
                 f"Module harness-python-guards: {floor} passed, 0 failed",
                 result.stdout.splitlines(),
+            )
+            # The bounded unit actually took the bounded path. The driver states the bound
+            # in the same statement as its tally, so this reads the run's own report
+            # rather than re-deriving the population: a run that silently fell back to the
+            # full population would print that tally without this clause and fail here.
+            self.assertRegex(
+                result.stdout,
+                r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
+                r"— the full population did NOT run",
+                result.stdout[-4000:] + result.stderr[-4000:],
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 
