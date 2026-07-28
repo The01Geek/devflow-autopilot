@@ -2047,25 +2047,28 @@ def scan_routing_violations(
     truncated domain cannot support an ownership claim, so reporting one beside
     the read failure would accuse a correct routing tuple of the I/O error.
     """
-    read_failures = []
-    module_texts = {}
-    run_text = ""
     try:
         run_text = strip_shell_comments(
             Path(run_sh_path).read_text(encoding="utf-8")
         )
     except OSError as exc:
-        read_failures.append(
-            f"{run_sh_path}: could not be read for the routing scan ({exc})"
-        )
-    # Enumerate the module directory with iterdir(), not glob(): glob() swallows
-    # FileNotFoundError / NotADirectoryError / PermissionError on the directory
-    # itself and yields nothing, so a renamed or unreadable modules_dir would
-    # produce an empty domain with no read failure — and every module-driven
-    # suite would then be accused of owning zero files, which is exactly the
-    # misattribution the read-failure-alone rule below exists to prevent.
-    # Single-level and suffix-filtered, so it stays the non-recursive
-    # enumeration the issue-#711 convention requires.
+        # Return here rather than falling through: every later step is discarded
+        # by the read-failure-alone rule anyway, so continuing would read the
+        # whole module domain only to throw it away.
+        return [f"{run_sh_path}: could not be read for the routing scan ({exc})"]
+    read_failures = []
+    module_texts = {}
+    # Deviates from issue #867's prescribed "single-level glob over
+    # lib/test/modules/*.sh": glob() swallows FileNotFoundError /
+    # NotADirectoryError / PermissionError on the directory itself and yields
+    # nothing, so a renamed or unreadable modules_dir would produce an empty
+    # domain with no read failure — and every module-driven suite would then be
+    # accused of owning zero files, exactly the misattribution the
+    # read-failure-alone rule below exists to prevent. iterdir() raises instead.
+    # Still single-level and suffix-filtered, so the criterion's actual
+    # requirement — a non-recursive enumeration needing no `# tree-walk-ok:`
+    # declaration under the issue-#711 convention — is unchanged; see the
+    # workpad AC-rewrite note.
     try:
         module_paths = sorted(
             path for path in Path(modules_dir).iterdir() if path.suffix == ".sh"
@@ -2097,8 +2100,11 @@ def scan_routing_violations(
                 f"{name}: classified MODULE_DRIVEN_SUITES but invoked from "
                 f"{run_sh_path} — it would execute twice"
             )
+        # Render the full path, not path.name: a module named module-harness.sh
+        # would otherwise be indistinguishable from the standalone harness in the
+        # violation message.
         owners = sorted(
-            path.name for path, text in module_texts.items() if shape in text
+            str(path) for path, text in module_texts.items() if shape in text
         )
         if len(owners) != 1:
             violations.append(
