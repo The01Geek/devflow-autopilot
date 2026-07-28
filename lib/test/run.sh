@@ -32125,10 +32125,21 @@ assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)
     'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
 assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, near-miss heads)" "" \
   "$(python3 "$ECS" "$E363/s-ok.md")"
-# ── (R5 retired, issue #869): the `if`/`elif` command-substitution CONDITION shape the
-# ── retired R5 rule flagged (#857) is now cloud-PERMITTED (matcher-probe Shape 18, run
-# ── 30310938175), so it is no longer a denied shape and carries no assertion here. The
-# ── bare/quoted captures the s-ok fixture above exercises remain permitted as before.
+# ── (R5 retired, issue #869): the `if`/`elif` `VAR=$(…)` command-substitution CONDITION
+# ── shape the retired R5 rule flagged (#857) is now cloud-PERMITTED — this is exactly the
+# ── `$( )` spelling matcher-probe Shape 18 measured (`if HP=$(config-get.sh …)`, run
+# ── 30310938175), and the review-seed's own OLD `elif WP=$(workpad.py id …); then`. Its
+# ── permission now rests on the statement splitter (which splits at `;` into a pure
+# ── `elif VAR=$(…)` capture the R1 carve-out exempts), so this POSITIVE regression control
+# ── pins that the review profile reports NO rule on that spelling — a later edit to the
+# ── splitter or R1's control-word stripping that silently re-flagged it (turning the review
+# ── bundle desk-RED on a probe-PERMITTED shape) turns this row RED instead. (The BACKTICK
+# ── condition spellings are NOT asserted here: R1 flags them independently of R5 — its
+# ── capture carve-out only ever exempted `$( )`, not backticks — so they are outside this
+# ── retirement's scope.)
+printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=$(gh pr view 2); then' '```' > "$E363/s-r5-retired.md"
+assert_eq "#869 the retired \$()-condition-substitution shape stays desk-clean (reported by NO review rule now R5 is gone)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5-retired.md" | grep -c '  R[0-9]  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"

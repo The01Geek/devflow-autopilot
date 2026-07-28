@@ -62,8 +62,8 @@ Rule table (each keyed to a probe row / run — see .github/workflows/matcher-pr
   rule no longer exists.)
 
 NON-GOALS (review profile, stated so a limit is never mistaken for coverage):
-  * The guard validates each STATEMENT's LEADING TOKEN (and the redirect/heredoc/
-    condition shapes above); it does NOT establish that the enclosing CONSTRUCT is a
+  * The guard validates each STATEMENT's LEADING TOKEN (and the redirect/heredoc
+    shapes above); it does NOT establish that the enclosing CONSTRUCT is a
     permitted shape. A `case … esac` whose every arm's leading token is granted, or an
     `if … fi` whose condition and body are individually clean, passes this guard even
     though the cloud matcher may refuse the compound as a whole (issue #857 — the
