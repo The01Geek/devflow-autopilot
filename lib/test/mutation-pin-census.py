@@ -196,7 +196,13 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # A tree that outgrows it does not break — it silently stops getting the hits,
 # which is why test_census_reuses_every_audited_source_within_one_build pins the
 # hit count against the audited set and names raising this bound as the remedy.
-# Cross-census reuse rides along wherever the same margin holds.
+#
+# Reuse ACROSS censuses is a smaller, secondary win, and deliberately not what
+# this bound is sized for: the suite driver launches one process per test
+# (issue #870), so nothing here survives into another test. It pays only where a
+# single test scans repeatedly — the subTest-looping tests in
+# test_pin_corpus_lint.py do, which is most of that file's scans — and it costs
+# nothing to collect where it does not.
 #
 # Measured 2026-07-28 on an arm64 laptop against this file's heaviest single
 # worker: this bound costs roughly 90MB of peak RSS over one sized to the
