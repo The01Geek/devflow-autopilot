@@ -1,0 +1,205 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T17:30:00Z",
+  "fix_commit_sha": "b013eae",
+  "fix_files": [
+    "scripts/subagent-write-probe-verdict.py",
+    "lib/test/run.sh",
+    "docs/cloud-allowlist.md"
+  ],
+  "loop_role": "fix",
+  "current_step": "3",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": false
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "denial-side dispatch-echo collapses unestablished onto false DENIED",
+      "defect_signature": {
+        "file": "scripts/subagent-write-probe-verdict.py",
+        "line_range": [
+          272,
+          291
+        ],
+        "kind": "unestablished-collapsed-to-DENIED"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "DENIED-authoritative-over-PERMITTED arm order only vacuously covered",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          24505,
+          24509
+        ],
+        "kind": "vacuous-coverage"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "partial-corruption arm uncovered",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          24535,
+          24537
+        ],
+        "kind": "missing-coverage"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "machine field values asserted only by label-presence",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          24600,
+          24606
+        ],
+        "kind": "weak-assertion"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docstring over-claims 'both controls' for the did-not-attempt arm",
+      "defect_signature": {
+        "file": "scripts/subagent-write-probe-verdict.py",
+        "line_range": [
+          70,
+          70
+        ],
+        "kind": "comment-overclaim"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docs 'row 9 above' dangling cross-reference",
+      "defect_signature": {
+        "file": "docs/cloud-allowlist.md",
+        "line_range": [
+          232,
+          232
+        ],
+        "kind": "dangling-reference"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "severity": "Suggestion",
+      "description": "verdict vocabulary is an unenforced ad-hoc enum",
+      "defect_signature": {
+        "file": "scripts/subagent-write-probe-verdict.py",
+        "line_range": [
+          279,
+          331
+        ],
+        "kind": "unenforced-enum"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied",
+      "commit": "b013eae"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied",
+      "commit": "b013eae"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 7,
+    "fix_diff_lines": 90,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": "Finding-A fix mutation-checked: old whole-denial_text logic yields false DENIED on the dispatch-echo fixture; fixed logic yields unestablished"
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-28T17:50:00Z",
+    "reviewed_sha": "b013eae",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer"
+    ],
+    "comparison": {
+      "shadow_total": 2,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}

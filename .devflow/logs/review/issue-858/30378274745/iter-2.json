@@ -1,0 +1,94 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-28T17:55:00Z",
+  "fix_commit_sha": "b3dde5c",
+  "fix_files": [
+    "scripts/subagent-write-probe-verdict.py",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "3",
+  "phase3_findings": [
+    {
+      "agent": "shadow:devflow:code-reviewer+silent-failure-hunter",
+      "severity": "Important",
+      "description": "iteration-1 denial-echo defense incomplete for a denial with absent tool_name (unrecorded per-entry shape) — could still collapse a dispatch refusal onto false DENIED",
+      "defect_signature": {
+        "file": "scripts/subagent-write-probe-verdict.py",
+        "line_range": [
+          292,
+          322
+        ],
+        "kind": "unestablished-collapsed-to-DENIED"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "shadow:devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "control-fact field values (independence invariant) and write_chain_ok/side_effect_present not asserted at value level",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          24636,
+          24653
+        ],
+        "kind": "weak-assertion"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "b3dde5c"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "b3dde5c"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 55,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": "reorder mutation-checked: write_denied-first yields false DENIED on the tool_name-less echo fixture; dispatch_denied-first yields unestablished"
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-28T18:05:00Z",
+    "reviewed_sha": "b3dde5c",
+    "verdict": "APPROVE WITH ADVISORY NOTES",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter"
+    ],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "advisory_notes": [
+      "denial-side dispatch fingerprint uses the bare substring 'agent' (contained in 'subagent'); latent, fails safe toward unestablished — not a present defect"
+    ],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
