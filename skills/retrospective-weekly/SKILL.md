@@ -554,11 +554,12 @@ For each actionable pattern, a Stage B subagent returns a ranked `findings` arra
 (one to three sub-patterns), and the orchestrator files **one GitHub issue per
 selected finding** via `meta-issue.sh` — under an opaque `<category>-<subslug>`
 filing key composed by the #891 composer. Which findings become filings is decided
-by `lib/select-findings.sh` (issue #893), the sole owner of that decision: it
-composes and legality-checks each key, collapses subslug churn onto an existing
-lifecycle record by a token-set alias, ranks tight clusters ahead of grab-bags
-(descending evidence-PR count) and truncates to the top three, and asks the shipped
-`devflow_filing_cap_verdict` for every cap decision. **No worktrees, no commits, no
+by `lib/select-findings.sh` (issue #893), the owner of that decision **on the
+findings-array path** — the legacy `{title, body}` shape never reaches it and derives
+its own cap verdict in 8c: it composes and legality-checks each key, collapses subslug
+churn onto an existing lifecycle record by a token-set alias, ranks tight clusters
+ahead of grab-bags (descending evidence-PR count) and truncates to the top three, and
+asks the shipped `devflow_filing_cap_verdict` for each of that path's cap decisions. **No worktrees, no commits, no
 PRs** — the loop proposes; a human triages each issue and runs it through the normal
 `/devflow:implement` → review pipeline. Your main checkout stays on `main` and is
 never edited. The drafting subagents (8b) parallelize; the cheap filing (8c) is done
@@ -569,9 +570,10 @@ serially.
 First, write each pattern's object to its own file on disk with the **Write tool**
 (`.devflow/tmp/pattern-${SLUG}.json`) — the enriched pattern object now carries every
 occurrence's `summary`/`descriptors`/`suggested_interventions` (issue #893), and the
-largest category has ~199 occurrences, so it must **not** travel through a herestring
-or an inline prompt interpolation. Derive the occurrence PR list from **that file on
-disk**, not from a herestring over the whole enriched object:
+largest category has ~199 occurrences, so — beyond the single scalar read that names
+its own file (`SLUG`, below) — it must **not** travel through a herestring, and never
+through an inline prompt interpolation. Derive the occurrence PR list from **that file
+on disk**, not from a herestring over the whole enriched object:
 
 ```bash
 for n in $($LIB/../scripts/run-jq.sh -r '.occurrences[].pr' ".devflow/tmp/pattern-${SLUG}.json"); do
@@ -579,13 +581,18 @@ for n in $($LIB/../scripts/run-jq.sh -r '.occurrences[].pr' ".devflow/tmp/patter
 done
 ```
 
-Record, per pattern: `SLUG` (`$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`), `TAG`
-(`$LIB/../scripts/run-jq.sh -r .tag <<< "$pattern"`), `CATEGORY`
-(`$LIB/../scripts/run-jq.sh -r .category <<< "$pattern"` — the attribution category
-the opaque filing key belongs to, issue #891), the JSON array of absolute bundle
-paths, and the **absolute path** `.devflow/tmp/pattern-${SLUG}.json` to the pattern
-object on disk (Step 8b hands this path to the subagent, matching the bundle-path
-handoff).
+Record, per pattern: `SLUG` (`$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"` — the
+**one** sanctioned herestring over the enriched object, and only because it *names* the
+file: the path is `.devflow/tmp/pattern-${SLUG}.json`, so `SLUG` has to be in hand
+before that file exists and cannot be read back out of it), `TAG`
+(`$LIB/../scripts/run-jq.sh -r .tag ".devflow/tmp/pattern-${SLUG}.json"`), `CATEGORY`
+(`$LIB/../scripts/run-jq.sh -r .category ".devflow/tmp/pattern-${SLUG}.json"` — the
+attribution category the opaque filing key belongs to, issue #891), the JSON array of
+absolute bundle paths, and the **absolute path** `.devflow/tmp/pattern-${SLUG}.json` to
+the pattern object on disk (Step 8b hands this path to the subagent, matching the
+bundle-path handoff). Once the file exists, `TAG` and `CATEGORY` come **from it** — a
+second and third herestring over the whole enriched object is exactly what the rule
+above forbids.
 
 #### 8b — Dispatch all Stage B subagents concurrently
 
@@ -721,11 +728,12 @@ contain quotes, backticks, newlines, and `$` — never interpolate it inline int
 shell command). Then:
 
 - A result carrying a `findings` array → the normal path. `lib/select-findings.sh`
-  is the **sole owner** of which findings become filings: it composes and
+  is the **owner of the selection on this path** (the legacy shape below is the other
+  one, and never calls it): it composes and
   legality-checks each `<category>-<subslug>` key through the #891 composer, aliases a
   churned subslug onto an existing lifecycle record of the same category (equal token
   set), ranks by **descending** evidence-PR count and truncates to the top three, and
-  asks `devflow_filing_cap_verdict` for **every** cap decision (passing the running
+  asks `devflow_filing_cap_verdict` for **each finding's** cap decision (passing the running
   `filed_this_run`, so the per-run and open caps grow as issues are filed). You do
   **not** re-derive the per-category or open-total comparands here — the helper owns
   them. An **empty** `findings` array files nothing and records a per-pattern report
@@ -768,11 +776,19 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
         # owner unsourceable, or overrides absent/unreadable/unmigrated) — it prints
         # nothing and names the cause on its own ::error:: channel.
         $LIB/../scripts/run-jq.sh -c '.findings' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/findings-${SLUG}.json"
-        source $LIB/select-findings.sh
+        # GUARD the source. An unsourceable select-findings.sh leaves
+        # devflow_select_findings undefined, and the `else` arm below would then
+        # misattribute that to the helper's own withhold-everything condition — a cause
+        # it is not. Report it as the missing-owner failure it is.
         # --withheld-file: select-findings writes a JSON array of {tag, cap} for every
         # finding a cap held back, so the report names them (issue #788) — not only its
         # own stderr breadcrumb. Read it back into `withheld` below.
-        if TO_FILE="$(devflow_select_findings \
+        # --dropped-file: likewise for the top-three truncation — its notice is
+        # stderr-only and we capture stdout, so without this channel the "N dropped"
+        # count can never reach the run report.
+        if ! source $LIB/select-findings.sh; then
+            blockers+=("Pattern ${SLUG}: could not source lib/select-findings.sh (missing, unreadable, or a syntax error) — nothing filed for this pattern")
+        elif TO_FILE="$(devflow_select_findings \
                 --category "$CATEGORY" \
                 --findings-file ".devflow/tmp/findings-${SLUG}.json" \
                 --overrides .devflow/learnings/overrides.json \
@@ -781,13 +797,23 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 --max-per-run "$MAX_PER_RUN" \
                 --max-per-cat "$MAX_PER_CAT" \
                 --max-open "$MAX_OPEN" \
-                --withheld-file ".devflow/tmp/withheld-${SLUG}.json")"; then
+                --withheld-file ".devflow/tmp/withheld-${SLUG}.json" \
+                --dropped-file ".devflow/tmp/dropped-${SLUG}.json")"; then
             # Fold each cap-withheld finding into `withheld` so Step 9 reports it under
             # "withheld by a filing cap", exactly as the legacy path does.
             if [ -s ".devflow/tmp/withheld-${SLUG}.json" ]; then
                 while IFS= read -r _wh; do
                     [ -n "$_wh" ] && withheld+=("$_wh")
                 done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/withheld-${SLUG}.json")
+            fi
+            # Fold a truncation record into `skip_records` — the same report channel the
+            # empty-findings case uses — so the run names the pattern and the count that
+            # Stage B returned but this selection dropped. The file holds an empty array
+            # when nothing was dropped, so this emits nothing on the ordinary path.
+            if [ -s ".devflow/tmp/dropped-${SLUG}.json" ]; then
+                while IFS= read -r _dr; do
+                    [ -n "$_dr" ] && skip_records+=("Pattern ${SLUG}: Stage B returned $($LIB/../scripts/run-jq.sh -r '.total' <<< "$_dr") findings — kept the top 3 by evidence-PR count, dropped $($LIB/../scripts/run-jq.sh -r '.dropped' <<< "$_dr")")
+                done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/dropped-${SLUG}.json")
             fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
             _fi=0

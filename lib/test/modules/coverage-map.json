@@ -120,7 +120,7 @@
       "owner": "unmodularized"
     },
     "lib/select-findings.sh": {
-      "note": "issue #893 sole owner of which Stage B findings become filings (compose/alias/rank/cap)",
+      "note": "issue #893 owner of which Stage B findings become filings on the findings-array path (compose/alias/rank/cap); the legacy bare title/body path caps itself",
       "owner": "retrospective-lifecycle"
     },
     "lib/slugify.jq": {
