@@ -18596,7 +18596,7 @@ _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `lib/test` — *"a sentence nobody ever wrote"*\n')
 assert_eq("#868 helper: a quotation cited against a DIRECTORY is unestablished (a "
           "directory has no text to search), never refuted",
-          True, 'state=unestablished' in _cvp_out and 'is a directory' in _cvp_out)
+          True, 'state=unestablished' in _cvp_out and '(directory)' in _cvp_out)
 
 # --- a path cited with a locator suffix is not refuted on the suffix --------
 # `path.py::test_name`, `doc.md#anchor` and `file.py:42` are ordinary in filed
@@ -18655,7 +18655,7 @@ assert_eq("#868 helper: an unhandled bullet does NOT force a non-clean exit — 
 for _cvp_spelling in ('**Verified:** `docs/notes.md` claim.',
                       '**Verified** — `docs/notes.md` claim.',
                       '**`Verified:` the file `docs/notes.md` is intact**',
-                      '**Verified baseline** `docs/notes.md` claim.',
+                      '- **Verified baseline** `docs/notes.md` claim.',
                       '- Verified: `docs/notes.md` claim.'):
     _cvp_rc, _cvp_out = _cvp_run(_cvp_spelling + '\n')
     assert_eq(f"#868 helper: the marker spelling {_cvp_spelling[:28]!r} is parsed as a "
@@ -18799,6 +18799,76 @@ _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `docs/notes.md` — *"nobody ever wrote this sentence"*\n')
 assert_eq("#868 helper: a verbatim (non-elided) quotation that misses still REFUTES",
           2, _cvp_rc)
+
+# --- the marker does not mint PHANTOM bullets out of ordinary prose ---------
+# A bolded run beginning with "Verified" occurs in ordinary sentences, and a
+# phantom bullet citing a missing path reaches `refuted` — writing a false
+# accuracy accusation back to the issue for prose that was never a bullet.
+for _cvp_phantom in ('We **Verified that** `x/y.sh` exists.',
+                     '- We **Verified that** `x/y.sh` exists.',
+                     'A paragraph that Verified nothing at all.'):
+    _cvp_rc, _cvp_out = _cvp_run(_cvp_phantom + '\n')
+    assert_eq(f"#868 helper: {_cvp_phantom[:32]!r} mints no phantom bullet",
+              True, 'total=0' in _cvp_out and _cvp_rc == 0)
+
+# --- an ELIDED quotation cannot mint `holds` from short common fragments ----
+# `_QUOTED`'s floor applies to the whole quotation, but an elided one is matched
+# fragment by fragment — so `"the … premise"` would otherwise report `holds` on
+# the evidence that "the" and "premise" each occur somewhere in the file. This
+# is the one arm that can mint `holds`, so weak evidence here is a FALSE CLEAN.
+# Both fragments below DO occur in the fixture, and in order — so without the
+# per-fragment floor this reports `holds` on the evidence that the words "gate"
+# and "message" appear in it. That is what makes this arm a discriminator rather
+# than a restatement of the miss it would take anyway.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"gate … message"*\n')
+assert_eq("#868 helper: an elided quotation whose fragments fall below the per-fragment "
+          "floor cannot report holds, even when those fragments do occur in order",
+          True, 'state=holds' not in _cvp_out and 'state=unestablished' in _cvp_out)
+
+# ...and the surviving fragments must occur IN ORDER, not merely somewhere.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"exactly that message. … The gate exited 2"*\n')
+assert_eq("#868 helper: elided fragments must resolve IN ORDER — a reversed pair is not "
+          "a resolved quotation",
+          True, 'state=holds' not in _cvp_out)
+
+# --- a co-cited directory no longer swallows a real refutation --------------
+# Returning from inside the read loop on the first directory abandoned every
+# co-cited path after it, so the verdict depended on citation ORDER.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` and `docs/notes.md` — *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a directory cited alongside a readable file does not abandon "
+          "that file's adjudication — the surviving refutation still lands",
+          2, _cvp_rc)
+# ...and a `holds` built from only some cited paths discloses what went unread.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` and `docs/notes.md` — '
+    '*"The gate exited 2 with exactly that message."*\n')
+assert_eq("#868 helper: a holds built from a subset of the cited paths discloses which "
+          "were not adjudicated rather than reading as complete",
+          True, 'state=holds' in _cvp_out and 'not adjudicated' in _cvp_out)
+
+# --- an UNESTABLISHED default root never adjudicates ------------------------
+# Falling back to an arbitrary cwd made every cited path miss and rendered the
+# whole body as a mass refutation — the same defect the explicit --repo-root
+# arm refuses, reached through the sibling path.
+with tempfile.TemporaryDirectory() as _cvp_td:
+    _cvp_root = Path(_cvp_td).resolve()
+    (_cvp_root / 'b.md').write_text(
+        '**Verified:** `lib/test/run.sh` — *"anything at all"*\n', encoding='utf-8')
+    _cvp_prev = os.getcwd()
+    _cvp_buf = io.StringIO()
+    try:
+        os.chdir(_cvp_root)
+        with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+            _cvp_rc = check_verified_premises.main(['--body-file', str(_cvp_root / 'b.md')])
+    finally:
+        os.chdir(_cvp_prev)
+    assert_eq("#868 helper: with no --repo-root and no .git above the cwd, the root is "
+              "UNESTABLISHED (exit 3) — never a mass refutation against an arbitrary tree",
+              True, _cvp_rc == 3
+              and 'reason=repo-root-unestablished' in _cvp_buf.getvalue())
 
 # --- unestablished measurements, each named by its own cause ----------------
 _cvp_rc, _cvp_out = _cvp_run('   \n\n  \n')

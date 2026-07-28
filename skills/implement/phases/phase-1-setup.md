@@ -679,12 +679,12 @@ A `Verified:` bullet is the single most load-bearing line in a DevFlow issue: it
 
 ```bash
 DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-verified-premises.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-verified-premises.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md" --repo-root "$DEVFLOW_ROOT"
 ```
 
-On the degraded arm where §1.1 wrote no cache, write the body you fetched in §1.1's degraded fallback to a file and pass that path instead. On a local runner that refuses the direct helper path, use the documented fallback `python3 <resolved helper path> --body-file …`.
+Pass `--repo-root` explicitly, as above: it names the tree to adjudicate against, so the helper never has to guess one from the current working directory. On the degraded arm where §1.1 wrote no cache, write the body you fetched in §1.1's degraded fallback to a file and pass that path instead. On a local runner that refuses the direct helper path, use the documented fallback `python3 <resolved helper path> --body-file … --repo-root "$DEVFLOW_ROOT"`.
 
-The helper prints one `bullet=<n> handle=<path-quote|path|quote|command|none> state=<holds|refuted|unestablished> detail=…` line per bullet, then a `VERIFIED_PREMISES total=… holds=… refuted=… unestablished=…` summary. Exit **0** = nothing refuted (this includes a body with no bullets, and a body whose bullets are merely unestablished); exit **2** = at least one premise REFUTED; exit **3** = the measurement could not be established — the body could not be read, it was empty, or the invocation was bad.
+The helper prints one `bullet=<n> handle=<path-quote|path|quote|command|none> state=<holds|refuted|unestablished> detail=…` line per bullet, then a `VERIFIED_PREMISES total=… holds=… refuted=… unestablished=…` summary. Exit **0** = nothing refuted (this includes a body with no bullets, and a body whose bullets are merely unestablished); exit **2** = at least one premise REFUTED; exit **3** = the measurement could not be established at all, for any of several causes it names in a `reason=` field (an unreadable or empty body, an unusable repository root, and a bad invocation are among them — the helper's own `Exit codes` docstring is the definition of the set, and like the marker set above it is a **floor**, not a closed list you should reconcile arms against).
 
 Route by outcome:
 

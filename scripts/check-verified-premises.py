@@ -85,23 +85,33 @@ from the exit code alone.
 import argparse
 import re
 import sys
+import traceback
 from pathlib import Path
 
 # The `Verified` marker, in the shapes filed DevFlow issues actually carry.
-# Matching only `**Verified:**` finds zero bullets in bodies using any other
-# spelling and reports a vacuous clean pass — the exact fail-open this helper
-# exists to close — so three shapes are matched: an emphasised run whose first
-# word is `Verified` (covering `**Verified:**`, `**Verified** —`, the
-# backtick-inside-bold `**`Verified:` …**`, and `**Verified baseline**`), a
-# backticked `` `Verified:` ``, and a list item opening with `Verified:`.
-# It is deliberately NOT widened to the bare word `Verified` in running prose,
-# which would mint phantom bullets out of ordinary sentences. The recognised set
-# is a floor, not a closed set — an unrecognised spelling is invisible here, and
-# the consumers state that residual rather than claiming exhaustiveness.
+# Matching only `**Verified:**` found zero bullets in bodies using any other
+# spelling and reported a vacuous clean pass. But widening it to any bolded run
+# beginning with the word `Verified` mints PHANTOM bullets out of ordinary
+# prose — "We **Verified that** `x/y.sh` exists" is not a premise bullet, and a
+# phantom that cites a missing path reaches `refuted`, writing a false accuracy
+# accusation back to the issue. So the alternatives are split by position:
+#
+#   A (anywhere)     the pure label `**Verified**` / `**Verified:**` — this is
+#                    the form that legitimately appears mid-sentence
+#   B (line start)   a line or list item OPENING with `Verified:`, bolded,
+#                    backticked or bare
+#   C (item start)   a bolded run opening a list item, whose first word is
+#                    `Verified` — covers `**Verified baseline**` and the
+#                    backtick-inside-bold `**`Verified:` …**` form
+#
+# DISCLOSED RESIDUAL: arm C cannot distinguish a label from a bolded *sentence*
+# that opens a list item with the word Verified, so such a line still mints a
+# bullet. The recognised set is a floor, not a closed set, in both directions —
+# an unrecognised spelling is invisible, and arm C may over-recognise.
 _MARKER = re.compile(
-    r'\*\*[`\s]*Verified\b[^*\n]*\*\*:?'
-    r'|`Verified:?`'
-    r'|(?m:^[-*]\s+Verified\b:?)')
+    r'\*\*[ \t]*Verified[ \t]*:?[ \t]*\*\*[ \t]*:?'
+    r'|(?m:^[ \t]*(?:[-*+]|\d+[.)])?[ \t]*(?:\*\*[ \t]*)?`?Verified`?[ \t]*:)'
+    r'|(?m:^[ \t]*(?:[-*+]|\d+[.)])[ \t]*\*\*[`\s]*Verified\b[^*\n]*\*\*:?)')
 
 # A backticked span. The template mandates backticks for the *path* handle, and
 # a command handle is conventionally backticked too; an unbackticked path
@@ -118,6 +128,12 @@ _BACKTICKED = re.compile(r'`([^`\n]+)`')
 # premises; a bullet whose only quotation is shorter degrades to `handle=path`,
 # which no longer reports `holds`.
 _QUOTED = re.compile(r'["“]([^"“”]{8,})["”]')
+
+# The minimum length of an ELIDED quotation's fragment. `_QUOTED`'s floor
+# applies to the whole quotation; each fragment of an elided one is matched
+# independently, so it needs its own floor or short common words would resolve
+# against any file.
+_MIN_FRAGMENT = 8
 
 # A file extension, used only as the WEAK arm of path detection — see
 # `_path_strength`.
@@ -139,7 +155,9 @@ _NEXT_ITEM = re.compile(r'\n[ \t]*(?:[-*+]|\d+[.)])\s')
 
 # An ellipsis inside a quotation: the author elided text. Such a quotation is
 # not verbatim, so it is adjudicated fragment-by-fragment and a miss on it can
-# never refute — see `recheck`.
+# never refute — see `recheck`. Elision is detected from the RAW quote, not from
+# the fragment count: a leading or trailing ellipsis yields a single fragment,
+# and counting fragments would route that back to the refuting arm.
 _ELISION = re.compile(r'\s*(?:…|\.\.\.)\s*')
 
 # A locator suffix appended to a path: a pytest node id (`::test_name`), a
@@ -367,34 +385,58 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             'cited path present but the bullet carries no quotation to '
             're-derive the premise from: ' + ','.join(p for _, p, _ in paths))
 
-    readable = {}
+    readable, skipped = {}, []
     for _, rel, _suffix in paths:
         target = root / rel
         if target.is_dir():
-            # A directory has no text to search. The citation is intact, but
-            # the quotation cannot be adjudicated against it.
-            return 'unestablished', (
-                f'cited path {rel} is a directory, so the quoted sentence '
-                'cannot be re-derived from it')
+            # A directory has no text to search. Collect it rather than
+            # returning: an early return abandoned every co-cited path after it,
+            # so the verdict silently depended on citation ORDER within the
+            # bullet and a genuine refutation on a later path was lost.
+            skipped.append(f'{rel} (directory)')
+            continue
         try:
             readable[rel] = normalize(target.read_text(
                 encoding='utf-8', errors='replace'))
         except OSError as exc:
-            return 'unestablished', f'cited path {rel} could not be read: {exc}'
+            skipped.append(f'{rel} (unreadable: {exc})')
 
-    # EVERY quotation must resolve, not merely the first. Returning `holds` on
-    # the first match let a multi-clause bullet — exactly #857's shape — launder
-    # a partially-stale premise into a clean one, which is the defect class this
-    # helper exists to prevent.
+    if not readable:
+        return 'unestablished', (
+            'no cited path could be read to re-derive the quotation from: '
+            + ','.join(skipped))
+
     unresolved, elided_unresolved = [], []
     for quote in quotes:
+        elided = _ELISION.search(quote) is not None
         fragments = [f for f in (normalize(part)
                                  for part in _ELISION.split(quote)) if f]
         if not fragments:
             continue
-        resolved = any(
-            all(fragment in haystack for fragment in fragments)
-            for haystack in readable.values())
+        if elided and any(len(f) < _MIN_FRAGMENT for f in fragments):
+            # An elided quotation is adjudicated fragment by fragment, and a
+            # SHORT fragment matches almost any file — `"the … premise"` would
+            # otherwise report `holds` on the evidence that the words "the" and
+            # "premise" each occur somewhere in it. `holds` is the one verdict
+            # this helper can mint, so weak evidence here is a FALSE CLEAN, not
+            # a fail-safe. Below the floor it decides nothing.
+            elided_unresolved.append(quote)
+            continue
+        # Fragments must occur IN ORDER and non-overlapping in one file: an
+        # elision means "this text, then later that text", not "these words
+        # appear somewhere".
+        resolved = False
+        for haystack in readable.values():
+            cursor, ok = 0, True
+            for fragment in fragments:
+                found = haystack.find(fragment, cursor)
+                if found == -1:
+                    ok = False
+                    break
+                cursor = found + len(fragment)
+            if ok:
+                resolved = True
+                break
         if resolved:
             continue
         # An ELIDED quotation is not verbatim — the author cut text out of it
@@ -403,7 +445,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         # path arm exists to prevent. (Both remaining false refutations against
         # issue #857's real body were exactly this: every fragment resolved,
         # only the elided whole did not.)
-        (elided_unresolved if len(fragments) > 1 else unresolved).append(quote)
+        (elided_unresolved if elided else unresolved).append(quote)
 
     if not unresolved and not elided_unresolved:
         if located:
@@ -413,7 +455,12 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             return 'unestablished', (
                 'quoted sentence(s) resolve, but the bullet cites a location '
                 'inside the file that was not adjudicated: ' + ','.join(located))
-        return 'holds', 'every quoted sentence resolves in ' + ','.join(readable)
+        detail = 'every quoted sentence resolves in ' + ','.join(readable)
+        if skipped:
+            # A `holds` built from only some of the cited paths discloses which
+            # ones went unread, rather than reading as a complete adjudication.
+            detail += '; not adjudicated: ' + ','.join(skipped)
+        return 'holds', detail
 
     if not unresolved:
         return 'unestablished', (
@@ -465,6 +512,10 @@ def main(argv=None) -> int:
         # refutation. Without this the traceback would exit 1 — a code neither
         # consumer routes — after an arbitrary number of per-bullet lines had
         # already been printed, which reads as a partial clean pass.
+        # The traceback goes to STDERR so the stdout contract stays
+        # machine-clean while a real defect remains diagnosable — a guard whose
+        # own failures are the quietest thing it emits is not a guard.
+        traceback.print_exc(file=sys.stderr)
         print(f'VERIFIED_PREMISES unavailable reason=internal-error detail={exc!r}')
         return 3
 
@@ -488,6 +539,16 @@ def _run(args) -> int:
         return 3
 
     root = Path(args.repo_root).resolve() if args.repo_root else _default_root()
+    if root is None:
+        # The default root could not be ESTABLISHED (no `.git` above the cwd).
+        # Adjudicating against an arbitrary cwd made every cited path miss and
+        # rendered the whole body as a mass REFUTATION — the same unestablished-
+        # measurement-dressed-as-a-verdict the explicit --repo-root arm below
+        # refuses, reached through the sibling path.
+        print('VERIFIED_PREMISES unavailable reason=repo-root-unestablished '
+              'detail=no .git was found above the current directory and no '
+              '--repo-root was given')
+        return 3
     if not root.is_dir():
         # An unusable root makes every cited path miss, which would render as a
         # whole-body mass REFUTATION — an unestablished measurement dressed as
@@ -509,25 +570,27 @@ def _run(args) -> int:
     return 2 if tally['refuted'] else 0
 
 
-def _default_root() -> Path:
-    """Nearest enclosing git working tree, falling back to the current directory.
+def _default_root():
+    """Nearest enclosing git working tree, or `None` when there is none.
 
     Resolved by walking for a `.git` entry rather than by shelling out to `git
     rev-parse`, so this module keeps its no-subprocess property. `.exists()` is
     deliberate rather than `.is_dir()`: in a linked worktree — this repo's own
     working mode — `.git` is a regular *file* holding a gitdir pointer.
 
-    A tree with no `.git` anywhere above it falls back to the current directory
-    with a stderr breadcrumb, mirroring the repo-root contract's rule that a
-    no-git-root tree says so rather than silently defaulting.
+    Returning `None` rather than falling back to the current directory is the
+    fail-closed direction: an arbitrary cwd is not the repository, and
+    adjudicating against it turns every cited path into a miss and the whole
+    body into a mass refutation. A breadcrumb is a diagnostic, not a verdict.
     """
     here = Path.cwd().resolve()
     for candidate in (here, *here.parents):
         if (candidate / '.git').exists():
             return candidate
     print('check-verified-premises: no .git found above the current directory; '
-          'adjudicating against the current directory instead', file=sys.stderr)
-    return here
+          'pass --repo-root to name the tree to adjudicate against',
+          file=sys.stderr)
+    return None
 
 
 if __name__ == '__main__':
