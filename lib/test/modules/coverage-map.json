@@ -171,6 +171,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/check-verified-premises.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "issue #868 Verified-premise re-check helper",
+      "owner": "unmodularized"
+    },
     "scripts/classify-id-exit.sh": {
       "note": "",
       "owner": "unmodularized"
