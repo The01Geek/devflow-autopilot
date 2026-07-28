@@ -356,6 +356,24 @@ selectable module, complete all of the following in the same PR:
    *own* runner — the assertion issue #695 exists to make — so the convention that
    the existing modules already follow stops being convention by accident (issue
    #719).
+9. **Routing classification** — when the extraction moves a `lib/test/test_*.py`
+   suite from a `lib/test/run.sh` invocation to a module driver, move its name in
+   `lib/test/test_module_runner.py` from `SERIAL_BY_EXCLUSION_SUITES` to
+   `MODULE_DRIVEN_SUITES`, and delete the `run.sh` invocation in the same change.
+   Since issue #867 those tuples are not a hand-maintained taxonomy: the suite
+   asserts each membership claim against the tree, matching the `$LIB`-anchored
+   quoted invocation shape `"$LIB/test/<name>"` (never a bare basename, so a
+   comment mentioning the path neither satisfies nor violates a claim). A
+   `MODULE_DRIVEN_SUITES` member must occur zero times in `lib/test/run.sh` and in
+   exactly one file across `lib/test/modules/*.sh` plus
+   `lib/test/module-harness.sh` — distinct files, not occurrences, since one
+   module legitimately carries several occurrences for a suite it drives. A
+   `SERIAL_BY_EXCLUSION_SUITES` member must occur at least once in
+   `lib/test/run.sh`, which is what catches a deleted driver block.
+   `POOLED_SUITES` carries no such assertion: it is already pinned by set
+   equality against `run.sh`'s parsed `devflow_pool_open` triples, a stronger
+   guarantee. Leaving a stale invocation behind, or reclassifying without moving
+   the driver, turns the suite RED at the desk naming the offending suite.
 
 The suite reports passed, failed, and *skipped* tallies (issue
 #456) — so `0 failed` is never mistaken for "everything ran." A check can
