@@ -45,7 +45,7 @@ a whole population or test the module system itself).
 
 | Guard | Reason it is not extracted |
 | --- | --- |
-| `lib/test/test_module_runner.py` | It tests the focused-module runner itself — module registration, the registry-floor ↔ call-site coupling, and the per-module contracts. A module that ran it would be circular: deleting the module could delete the check that proves modules are selected and executed. |
+| `lib/test/test_module_runner.py` | It tests the focused-module runner itself — module registration, the registry-floor ↔ call-site coupling, the per-module contracts, and (since issue #867) the routing classification of every `lib/test/test_*.py` suite asserted against the tree rather than against its own membership lists — including the module-driven-only invariant this module's `#810` per-file guard used to carry. A module that ran it would be circular: deleting the module could delete the check that proves modules are selected and executed. |
 | `lib/test/test_module_harness.py` | Same circularity: it tests the full-suite boundary a module is executed through — and that circularity alone is decisive, independently of the skip question. Its driver block also owns a legitimate `skip … host-capability` arm for the signal matrix; since issue #838 a module *can* declare such a condition through `module_host_capability_skip`, but that wrapper is folded and credited by the very boundary this block tests, so routing it through one would make the block assert its own subject. |
 | `lib/test/pin-corpus-lint.py` | Its production worktree scan remains a whole-tree meta-guard in `run.sh`. Only its self-contained parser/policy/setup unit tests over synthetic inputs are driven by this module, as recorded above. |
 | `lib/test/pin-corpus-classifier.py` | The production census scans a whole tracked population and stays maintainer-run. Only its self-contained unit tests over synthetic fixtures are driven by this module, as recorded above. |
@@ -87,7 +87,9 @@ The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The module uses the helpers its
 sourcing contract provides — `assert_eq` from the **caller** (both `lib/test/run.sh` and
-`lib/test/run-module.sh` define it), plus `devflow_run_focused_python_test` and
-`devflow_module_allocate_owned_directory` from `lib/test/module-harness.sh` — and
+`lib/test/run-module.sh` define it), plus the harness helpers
+`lib/test/module-harness.sh` defines — `devflow_run_focused_python_test`,
+`devflow_run_sharded_python_test` (the issue-#870 concurrent driver behind the `#810`
+pin-corpus suite), and `devflow_module_allocate_owned_directory` — and
 references no helper that lives **only** in `lib/test/run.sh`. Its coverage-map ownership (the extracted subjects' `files` entries — `coverage_map_guard.py` excepted, being under the `lib/test/` exempt subtree, so it has none) is
 recorded in `lib/test/modules/coverage-map.json`.

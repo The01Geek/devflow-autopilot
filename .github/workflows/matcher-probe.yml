@@ -256,8 +256,10 @@ jobs:
             if [ -f README.md ]; then echo probe17yes; else echo probe17no; fi
 
             Shape 18 — `if VAR=$(granted-helper …)` command-substitution condition
-            (Bash, issue #857). The review-seed's OLD branch shape, now measured. A
-            PERMITTED verdict here retires the desk-lint R5 discipline rule:
+            (Bash, issue #857). The review-seed's OLD branch shape. It recorded
+            PERMITTED (run 30310938175, 2026-07-27), which retired the desk-lint R5
+            discipline rule (issue #869); the row stays as a re-measurable regression
+            check after a claude-code-action / CLI upgrade:
             if HP=$(.devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe18); then echo probe18; fi
 
             Shape 19 — `printf` carrying a double-quoted expansion argument (Bash,

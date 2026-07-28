@@ -262,8 +262,30 @@ _devflow_valid_result_count() {
   printf '%s\n' "$count"
 }
 
+# _devflow_echo_capture <path> — echo a captured test output, indented four spaces.
+#
+# Pure-bash indent: piping through sed (a non-preflight PATH tool) would lose the whole
+# captured traceback when sed is absent — the diagnostics must never fail open even though
+# the verdicts that consume them fail closed. It writes to STDOUT, so a failing check's
+# header and its traceback stay on one stream instead of interleaving; callers that print
+# a header before calling this must print it to stdout too. (`_devflow_pool_reap` keeps
+# its own inline copy — it echoes a pooled suite's output from a different code path and
+# was not part of this change.)
+_devflow_echo_capture() {  # path
+  local _devflow_line
+  if [ ! -r "$1" ]; then
+    # Never silent: an empty diagnostic body would leave the reader unable to tell "the
+    # check printed nothing" from "the capture vanished".
+    printf '    (no captured output: %s is missing or unreadable)\n' "$1"
+    return 0
+  fi
+  while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
+    printf '    %s\n' "$_devflow_line"
+  done < "$1"
+}
+
 devflow_run_focused_python_test() { # assertion-name script-path output-path
-  local assertion_name="$1" script_path="$2" output_path="$3" test_rc _devflow_line
+  local assertion_name="$1" script_path="$2" output_path="$3" test_rc
 
   # PYTHON_COLORS=0 keeps the captured diagnostics deterministic: a host that
   # forces color (FORCE_COLOR) would otherwise interleave ANSI codes into the
@@ -272,14 +294,298 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
     test_rc=0
   else
     test_rc=$?
-    # Pure-bash indent: piping through sed (a non-preflight PATH tool) would
-    # lose the whole captured traceback when sed is absent — the diagnostics
-    # must never fail open even though the verdict below fails closed.
-    while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
-      printf '    %s\n' "$_devflow_line"
-    done < "$output_path"
+    _devflow_echo_capture "$output_path"
   fi
   assert_eq "$assertion_name" "0" "$test_rc"
+}
+
+# devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir>
+#
+# The concurrent sibling of devflow_run_focused_python_test (issue #870): it runs ONE
+# python3 unittest file as many bounded-concurrency selector processes and folds every
+# one of them into a SINGLE assert_eq. The single-assertion shape is a contract, not a
+# style choice — a module's emitted tally is compared for equality against the assertion
+# floor carried in scripts/workflow-flight-recorder-registry.json AND in run.sh's
+# devflow_run_full_suite_module operand, so a per-unit assertion would move the tally
+# with the host's cpu_count and break that triple on every runner of a different width.
+#
+# Scheduling is a DYNAMIC work queue, not a precomputed partition, and that is the
+# design's core: this file's per-test cost spans two orders of magnitude, so any static
+# split — round-robin, contiguous, or by class — floors the wall clock at whichever
+# bucket happens to collect the heaviest tests. A queue needs no cost knowledge and no
+# cost cache, self-corrects on any host, and re-balances for free when a test is added,
+# renamed, or made slower. Its cost is one interpreter start per test instead of one per
+# worker, which is a few seconds of CPU spread across the workers.
+#
+# KNOWN CEILING, so nobody re-derives it from a disappointing measurement: a greedy queue
+# dispatches in enumeration order, which is alphabetical, so a long-running test that
+# sorts late starts late and its duration lands past the point where the other workers
+# have drained. The wall clock therefore floors at roughly (dispatch time of the longest
+# test + its duration), not at total/width. Beating that needs longest-first scheduling,
+# which needs per-test durations — knowledge this driver deliberately does not carry and
+# could not use anyway on the CI runners this exists to speed up, where any duration
+# cache starts cold on every run. Making the individual fixtures cheaper is the lever
+# that moves this ceiling.
+#
+# Concurrency comes from _devflow_pool_resolve_width, the same resolver devflow_pool_open
+# uses, so this file carries one width policy rather than two. In-flight work never
+# exceeds it: a module already runs concurrently with the suite's open pool, so going
+# wider would trade the serial time saved for CPU and IO contention. KNOWN LIMITATION —
+# the two mechanisms share that width POLICY but not one width BUDGET, so peak process
+# count while the suite's pool is open is the pool's in-flight count plus this width. A
+# shared budget is the deeper design; it is not reachable while the pool emits one
+# RESULTS_FILE verdict per member (which would break the tally triple above) and is
+# opened by run.sh, which may not name this module's subject file at all.
+#
+# Every failure mode below fails closed — a unit is never silently green — and each
+# arm carries its own breadcrumb naming which condition fired. The one worth stating
+# outright is the lossy-schedule regression: a scheduler that quietly skips work makes
+# the suite go green having tested less, so the executed total is checked against the
+# enumerated one. That sum decides the emitted verdict, so it is accumulated with bash
+# builtins and never through a non-preflight PATH tool (CLAUDE.md guard-class 2).
+#
+# Workers are launched WITHOUT a new process group (no `set -m`, no setsid) so they stay
+# in the module worker's group and _devflow_terminate_process_group's group-wide signal
+# delivery reaches them. Each unit's exit status is recorded by the unit itself into its
+# own `.rc` file rather than inferred from a bare `wait`, which returns 0 regardless of
+# what its children did and so surfaces no failure at all.
+#
+# Four DEVFLOW_TEST_SHARD_* hooks exist so lib/test/test_module_harness.py can drive arms
+# that are otherwise unreachable from a test; each is read at exactly one site below.
+#   DEVFLOW_TEST_SHARD_PYTHON          substitutes the interpreter used for the UNIT
+#                                      launches only, never the enumeration (spawn-failure
+#                                      and no-parseable-count arms).
+#   DEVFLOW_TEST_SHARD_DROP_ONE        skips DISPATCHING one unit while the collection loop
+#                                      still visits it, so that unit records no `.rc`
+#                                      (missing-status arm).
+#   DEVFLOW_TEST_SHARD_SKIP_ONE        skips one unit in BOTH loops, so every collected unit
+#                                      has a `.rc` and the shortfall surfaces only in the
+#                                      dispatched/executed-vs-enumerated comparison — the
+#                                      arm DROP_ONE cannot reach, because the missing-`.rc`
+#                                      arm populates `failure` first.
+#   DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP  forces the pre-bash-4.3 specific-pid reap branch
+#                                      on a modern shell (the driver's only index
+#                                      arithmetic).
+# PRECONDITION: capture-dir must be a FRESH, exclusively-owned, writable directory. The
+# collection loop trusts every unit-<n>.out{,.err,.rc} it finds there, so a reused
+# directory feeds a prior call's results into this call's count and defeats the
+# executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
+devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
+  local assertion_name="$1" script_path="$2" capture_dir="$3"
+  local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
+  local width total dispatched=0 executed=0 launched=0 reaped=0 reap_any failure=""
+  local plan_out plan_err index unit_rc unit_ran num cap
+  local -a ids=() pids=()
+
+  width="$(_devflow_pool_resolve_width)"
+  # `wait -n` (reap any one job) exists from bash 4.3. BASH_VERSINFO is a shell builtin,
+  # so this decides the reaping strategy without a non-preflight PATH tool.
+  # DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP forces the pre-4.3 branch on a modern shell so
+  # lib/test/test_module_harness.py can drive its pids[]/reaped bookkeeping — otherwise
+  # that arm, which holds the driver's only index arithmetic, ships unexercised
+  # everywhere the suite runs.
+  reap_any=""
+  if [ -z "${DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP:-}" ] &&
+     { [ "${BASH_VERSINFO[0]:-0}" -gt 4 ] ||
+       { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -ge 3 ]; }; }; then
+    reap_any=1
+  fi
+  plan_out="$capture_dir/unit-plan.out"
+  plan_err="$capture_dir/unit-plan.err"
+
+  # Enumerate the file's test IDs from the loader rather than a frozen list, so a newly
+  # added class is scheduled (and counted) without editing this driver. The printed count
+  # IS "the number an unsharded run would execute" — derived by collection only, never by
+  # a second full serial run, which would cost exactly what this saves.
+  if ! PYTHON_COLORS=0 python3 - "$script_path" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
+import importlib.util
+import pathlib
+import sys
+import unittest
+
+path = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("devflow_shard_enum_probe", path)
+if spec is None or spec.loader is None:
+    print("could not load %s as a python module" % path, file=sys.stderr)
+    raise SystemExit(1)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+loader = unittest.TestLoader()
+suite = loader.loadTestsFromModule(module)
+# Both checks are kept deliberately, and NEITHER is dead: on a raising `load_tests`,
+# loadTestsFromModule records an entry here AND substitutes a _FailedTest placeholder into
+# the suite, so the two arms are first and second line of defense over one input. Removing
+# this one is observable — the _FailedTest scan still refuses, but the diagnostic text is
+# lost (mutation-verified against test_a_collection_time_load_error_fails_closed, which
+# pins that text). This value is the total the whole fail-closed contract is measured
+# against, so it is cheaper to refuse twice than to trust a placeholder as a real test.
+if loader.errors:
+    for entry in loader.errors:
+        print(entry, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def flatten(item):
+    if isinstance(item, unittest.TestSuite):
+        for child in item:
+            yield from flatten(child)
+    else:
+        yield item
+
+
+selectors = []
+prefix = spec.name + "."
+for test in flatten(suite):
+    if type(test).__name__ == "_FailedTest":
+        print("unloadable test entry: %s" % test.id(), file=sys.stderr)
+        raise SystemExit(1)
+    identifier = test.id()
+    if identifier.startswith(prefix):
+        identifier = identifier[len(prefix):]
+    selectors.append(identifier)
+
+if not selectors:
+    print("no tests were enumerated in %s" % path, file=sys.stderr)
+    raise SystemExit(1)
+print("\n".join(selectors))
+DEVFLOW_SHARD_ENUM
+  then
+    failure="the unsharded test count could not be established — enumerating $script_path failed"
+    _devflow_echo_capture "$plan_err"
+  fi
+
+  if [ -z "$failure" ]; then
+    while IFS= read -r num || [ -n "$num" ]; do
+      [ -n "$num" ] && ids+=("$num")
+    done < "$plan_out"
+    total="${#ids[@]}"
+    # BACKSTOP, not the primary zero-test guard: the enumerator already exits 1 on an
+    # empty selector list, so a file with no tests reaches the enumeration-failure arm
+    # above and never this one. This arm covers the residual shape that refusal cannot —
+    # an enumerator that exits 0 having written nothing readable (a truncated or
+    # unreadable plan file). It is therefore not driven by the no-tests fixture in
+    # lib/test/test_module_harness.py, which exercises the enumerator's own refusal.
+    [ "$total" -gt 0 ] || \
+      failure="the enumeration of $script_path reported zero tests"
+  fi
+
+  if [ -z "$failure" ]; then
+    # One unit per test, at most $width in flight. Each unit records its OWN exit status
+    # into <capture>.rc from inside the background subshell, so a status is attributed to
+    # its unit by file rather than by racing to match a pid against `wait`'s return.
+    for ((index = 0; index < total; index++)); do
+      if [ -n "${DEVFLOW_TEST_SHARD_DROP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
+      if [ -n "${DEVFLOW_TEST_SHARD_SKIP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
+      # Reap ONE unit per freed slot, ignoring its exit status — a unit's authoritative
+      # status is the one it wrote to its own .rc file, which the collection loop below
+      # reads. Two spellings are deliberately NOT used here. `wait -n || wait` reaps the
+      # whole pool whenever the reaped unit exited non-zero (because `wait -n` returns
+      # that status), which still bounds concurrency but schedules in batched waves
+      # instead of a rolling queue. A bare `wait -n` fails open instead: the builtin
+      # arrived in bash 4.3, and on an older shell it reaps NOTHING, so the gate would
+      # never block and the fan-out would be unbounded. Hence the version check, with a
+      # specific-pid wait as the pre-4.3 fallback — bounded, at the cost of head-of-line
+      # blocking behind a slow unit.
+      while [ "$launched" -ge "$width" ]; do
+        if [ -n "$reap_any" ]; then
+          wait -n 2>/dev/null || true
+        else
+          wait "${pids[reaped]}" 2>/dev/null || true
+          reaped=$((reaped + 1))
+        fi
+        launched=$((launched - 1))
+      done
+      cap="$capture_dir/unit-$index.out"
+      (
+        # stdout and stderr are captured SEPARATELY, and that separation is load-bearing:
+        # the count below is parsed from the stderr capture alone. A unit's stdout is
+        # block-buffered to a file and flushed at interpreter exit — i.e. AFTER unittest's
+        # unbuffered stderr summary — so a merged capture lets a test that prints a line
+        # of the runner's shape land last and win the parse, inflating the executed count
+        # in the one direction the aggregate comparison cannot catch.
+        PYTHON_COLORS=0 "$unit_python" "$script_path" "${ids[index]}" > "$cap" 2> "$cap.err"
+        printf '%s\n' "$?" > "$cap.rc"
+      ) &
+      pids[dispatched]=$!
+      launched=$((launched + 1))
+      dispatched=$((dispatched + 1))
+    done
+    wait
+
+    for ((index = 0; index < total; index++)); do
+      # SKIP_ONE alone elides the unit here too, leaving every VISITED unit with a `.rc`
+      # so `failure` is still empty when the count comparison below runs. DROP_ONE
+      # deliberately does NOT, which is what makes the two hooks reach different arms.
+      if [ -n "${DEVFLOW_TEST_SHARD_SKIP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
+      cap="$capture_dir/unit-$index.out"
+      if [ ! -e "$cap.rc" ]; then
+        # The unit's subshell died before recording its status (OOM, a group signal, a
+        # fork failure, an unwritable capture dir). Skipping it silently would leave the
+        # aggregate count as its only backstop, and that count is a sum — another unit
+        # over-reporting would mask this one entirely. Fail it by name instead.
+        [ -n "$failure" ] || failure="${ids[index]} recorded no exit status"
+        printf '    %s recorded no exit status (its worker died before writing one)\n' \
+          "${ids[index]}"
+        continue
+      fi
+      unit_rc=""
+      IFS= read -r unit_rc < "$cap.rc" || unit_rc=""
+      case "$unit_rc" in
+        ''|*[!0-9]*) unit_rc=1 ;;
+      esac
+      # Parsed from the STDERR capture only (see the launch above for why), taking the
+      # last match: unittest emits this line near the end of its own stderr, followed by
+      # a blank line and OK/FAILED.
+      unit_ran=""
+      if [ -r "$cap.err" ]; then
+        while IFS= read -r num || [ -n "$num" ]; do
+          case "$num" in
+            "Ran "*" test"*)
+              num="${num#Ran }"
+              num="${num%% *}"
+              case "$num" in
+                ''|*[!0-9]*) : ;;
+                *) unit_ran="$num" ;;
+              esac
+              ;;
+          esac
+        done < "$cap.err"
+      fi
+      if [ "$unit_rc" -ne 0 ]; then
+        [ -n "$failure" ] || failure="${ids[index]} exited $unit_rc"
+        printf '    %s exited %s:\n' "${ids[index]}" "$unit_rc"
+        _devflow_echo_capture "$cap.err"
+        _devflow_echo_capture "$cap"
+      fi
+      # Each unit runs exactly ONE selector, so its count is exactly 1 — asserted
+      # per-unit rather than only in the sum. A per-unit equality cannot be compensated
+      # by another unit over-reporting, which is the shape a sum-only check misses.
+      if [ "$unit_ran" != "1" ]; then
+        [ -n "$failure" ] || \
+          failure="${ids[index]} reported '${unit_ran:-no}' executed test(s), expected exactly 1"
+        printf '    %s reported %s executed test(s), expected exactly 1\n' \
+          "${ids[index]}" "${unit_ran:-no parseable count}"
+      else
+        executed=$((executed + unit_ran))
+      fi
+    done
+
+    if [ -z "$failure" ] && { [ "$executed" -ne "$total" ] || [ "$dispatched" -ne "$total" ]; }; then
+      failure="the schedule dropped work — dispatched $dispatched and executed $executed of $total enumerated tests"
+    fi
+  fi
+
+  # Logged on the clean path too: a silent no-op is indistinguishable from a driver that
+  # never ran, so the reader can always see how much of the file actually executed.
+  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated)\n' \
+    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}"
+  # On stdout, with the tally line above it and the per-unit captures below: the whole
+  # report stays on one stream, which is the stream discipline _devflow_echo_capture's
+  # header states and the reason a reader never sees a diagnosis detached from evidence.
+  [ -z "$failure" ] || printf '    devflow shard driver: %s\n' "$failure"
+  assert_eq "$assertion_name" "" "$failure"
 }
 
 _devflow_record_module_failure() {  # [identifier]

@@ -1770,6 +1770,391 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             self.assertIn("tally:0", proc.stdout, proc.stderr)
             self.assertIn("boundary:0", proc.stdout, proc.stderr)
 
+
+# ── Sharded focused-Python driver (issue #870) ────────────────────────────────
+# devflow_run_sharded_python_test partitions ONE python3 unittest file across a bounded
+# pool of concurrent selector processes and folds every shard into a SINGLE assert_eq, so
+# the module's emitted tally is independent of the shard count (the coupled
+# registry/run.sh-operand/tally triple needs no edit). These tests SOURCE the shipped
+# module-harness.sh and drive the real function against synthetic unittest files, exactly
+# as FailureRecapTests drives record_fail — no extraction layer to go stale.
+
+
+class ShardedPythonTestDriverTests(unittest.TestCase):
+    """AC1-AC5: one aggregate verdict whose count is width-independent, and every
+    unit-level failure mode fails CLOSED."""
+
+    @staticmethod
+    def _suite_source(*, alpha: int, beta: int, fail_in: str | None = None) -> str:
+        """A synthetic unittest file with two classes.
+
+        `fail_in` names a test method that raises, so a planted failure can be steered
+        into a specific class.
+        """
+
+        def methods(prefix: str, count: int) -> str:
+            out = []
+            for index in range(count):
+                name = f"{prefix}_{index}"
+                body = (
+                    "        raise AssertionError('planted')\n"
+                    if fail_in == name
+                    else "        pass\n"
+                )
+                out.append(f"    def test_{name}(self):\n{body}")
+            return "".join(out)
+
+        return (
+            "import unittest\n\n\n"
+            "class AlphaTests(unittest.TestCase):\n"
+            f"{methods('alpha', alpha)}\n\n"
+            "class BetaTests(unittest.TestCase):\n"
+            f"{methods('beta', beta)}\n\n"
+            'if __name__ == "__main__":\n'
+            "    unittest.main()\n"
+        )
+
+    def _drive(
+        self, script_path: Path, *, width: str = "3", env_extra: str = ""
+    ) -> "tuple[str, str]":
+        """Run the driver over SCRIPT_PATH, returning (tally line, combined output)."""
+        shell = f"""
+set -u
+RESULTS_FILE="$(mktemp)"
+MODULE_FAILURES_FILE="$(mktemp)"
+SKIPS_FILE="$(mktemp)"
+CAPTURE_DIR="$(mktemp -d)"
+export DEVFLOW_POOL_WIDTH={width}
+{env_extra}
+assert_eq() {{
+  if [ "$2" = "$3" ]; then printf "PASS\\n" >> "$RESULTS_FILE";
+  else printf "FAIL\\n" >> "$RESULTS_FILE"; record_fail "$1"; fi
+}}
+. "{SUMMARY_SH}"
+. "{HARNESS}"
+devflow_run_sharded_python_test "sharded" "{script_path}" "$CAPTURE_DIR"
+printf 'VERDICT pass:%s fail:%s\\n' \
+  "$(grep -c '^PASS$' "$RESULTS_FILE" || true)" \
+  "$(grep -c '^FAIL$' "$RESULTS_FILE" || true)"
+rm -rf "$CAPTURE_DIR"
+rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE"
+"""
+        proc = subprocess.run(
+            ["bash", "-c", shell], capture_output=True, text=True, cwd=str(ROOT)
+        )
+        output = proc.stdout + proc.stderr
+        self.assertIn("VERDICT ", proc.stdout, output)
+        line = [ln for ln in proc.stdout.splitlines() if ln.startswith("VERDICT ")][-1]
+        return line, output
+
+    def _write_suite(self, tmp: str, *, source: "str | None" = None, **kwargs) -> Path:
+        path = Path(tmp) / "synthetic_suite.py"
+        path.write_text(
+            source if source is not None else self._suite_source(**kwargs),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_a_green_file_yields_exactly_one_pass_regardless_of_width(self):
+        # AC1 (green half) + AC5: the tally must not scale with the concurrency width, or
+        # the module's assertion floor moves and the coupled triple breaks. The executed
+        # count is asserted here too, so the count check has an observed passing arm and
+        # is not RED-only.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            for width in ("1", "3", "9"):
+                with self.subTest(width=width):
+                    verdict, output = self._drive(suite, width=width)
+                    self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+                    self.assertIn("executed 9 test(s)", output)
+
+    def test_a_single_failing_test_turns_the_aggregate_red_and_echoes_its_capture(self):
+        # AC1 (red half) + AC2: a nonzero unit exit is not swallowed by the aggregation,
+        # and the failing unit's captured traceback reaches the reader the way
+        # devflow_run_focused_python_test's own indented echo does.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4, fail_in="beta_2")
+            verdict, output = self._drive(suite)
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("planted", output)
+
+    def test_an_unstartable_unit_is_a_failure_not_a_passing_unit(self):
+        # AC4: a unit process that cannot start must fail CLOSED. Only the UNIT
+        # interpreter is steered to a name that does not exist — the enumeration still
+        # runs under the real python3, so this arm proves the spawn failure itself is
+        # caught rather than being masked by an unestablished test count.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=3, beta=3)
+            verdict, output = self._drive(
+                suite,
+                env_extra=(
+                    "export DEVFLOW_TEST_SHARD_PYTHON="
+                    "/nonexistent/devflow-870-no-such-interpreter\n"
+                ),
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+
+    def test_a_killed_unit_is_a_failure(self):
+        # AC4: a unit killed mid-flight exits 128+signal with no `Ran N tests` line; it
+        # must not be read as a unit that simply had nothing to run.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import os\nimport signal\nimport unittest\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_suicide(self):\n"
+                    "        os.kill(os.getpid(), signal.SIGKILL)\n\n"
+                    "    def test_ok(self):\n        pass\n\n"
+                    'if __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            verdict, output = self._drive(suite, width="1")
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+
+    def test_an_unestablished_test_count_fails_closed(self):
+        # AC3 (fail-closed half): a file the enumerator cannot load yields no trustworthy
+        # total, so the driver must report FAIL rather than a vacuous green.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp, source="import nonexistent_module_for_870\n"
+            )
+            verdict, output = self._drive(suite)
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+
+    def test_a_file_with_no_tests_fails_closed(self):
+        # A zero-test enumeration is indistinguishable from a schedule that dropped
+        # everything, so it is never a green pass. Which arm catches it is asserted by
+        # breadcrumb rather than left to inference: the ENUMERATOR refuses an empty
+        # selector list with a nonzero exit, so the driver's own `reported zero tests`
+        # backstop is shadowed and is documented at its site as covering only the
+        # residual exit-0-with-nothing-readable shape.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, source="import unittest\n")
+            verdict, output = self._drive(suite)
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("no tests were enumerated in", output)
+            self.assertIn("the unsharded test count could not be established", output)
+
+    def test_a_collection_time_load_error_fails_closed(self):
+        # The enumerator's `loader.errors` branch. `loadTestsFromModule` swallows a
+        # raising `load_tests` into an error entry plus a placeholder test rather than
+        # propagating, so the module imports cleanly and only this branch stands between
+        # a collection failure and a total that silently omits the unloadable tests.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import unittest\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_ok(self):\n        pass\n\n\n"
+                    "def load_tests(loader, tests, pattern):\n"
+                    "    raise RuntimeError('devflow-870 collection boom')\n\n"
+                    'if __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            verdict, output = self._drive(suite)
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("devflow-870 collection boom", output)
+            self.assertIn("the unsharded test count could not be established", output)
+
+    def test_a_unit_dropped_from_dispatch_only_is_a_failure(self):
+        # AC4/AC3 boundary. DROP_ONE elides one unit from DISPATCH while the collection
+        # loop still visits it, so the shortfall surfaces as a unit that recorded no exit
+        # status — NOT as the count comparison, which is `[ -z "$failure" ]`-guarded and
+        # therefore never reached here. The breadcrumb is asserted so this test cannot
+        # silently drift onto a different arm.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            verdict, output = self._drive(
+                suite, env_extra="export DEVFLOW_TEST_SHARD_DROP_ONE=1\n"
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("recorded no exit status", output)
+
+    def test_a_schedule_that_drops_work_turns_the_aggregate_red(self):
+        # AC3 (count-check half), the arm DROP_ONE cannot reach — the classic sharding
+        # regression: the scheduler silently omits work and the suite goes green having
+        # tested less. SKIP_ONE elides one unit from BOTH loops, so every VISITED unit
+        # exits 0 and reports exactly 1, `failure` is still empty, and the
+        # dispatched/executed-vs-enumerated comparison is the ONLY thing standing between
+        # this run and a vacuous pass. Asserting its distinct breadcrumb is what makes a
+        # regression that breaks only that comparison observable.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            verdict, output = self._drive(
+                suite, env_extra="export DEVFLOW_TEST_SHARD_SKIP_ONE=1\n"
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn(
+                "the schedule dropped work — dispatched 8 and executed 8 of 9 "
+                "enumerated tests",
+                output,
+            )
+            self.assertNotIn("recorded no exit status", output)
+
+    def test_a_unit_whose_worker_dies_without_recording_a_status_is_a_failure(self):
+        # AC4, the arm the killed-python test cannot reach: killing the PYTHON process
+        # still lets its subshell write the .rc, so the rc arm catches it. Killing the
+        # SUBSHELL leaves no .rc at all — a unit that was skipped outright. Before this
+        # was a per-unit failure it was a silent `continue` whose only backstop was the
+        # aggregate sum, which another unit over-reporting could compensate for.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import os\nimport signal\nimport unittest\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_orphan(self):\n"
+                    "        os.kill(os.getppid(), signal.SIGKILL)\n\n"
+                    "    def test_ok(self):\n        pass\n\n"
+                    'if __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            verdict, output = self._drive(suite, width="1")
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("recorded no exit status", output)
+
+    def test_a_unit_cannot_inflate_the_executed_count_from_its_own_stdout(self):
+        # The count is parsed from the unit's STDERR only. A unit's stdout is
+        # block-buffered to a file and flushed at interpreter exit — after unittest's
+        # unbuffered stderr summary — so a merged capture would let this printed line
+        # win the last-match parse and inflate `executed` in the one direction the
+        # aggregate comparison cannot catch.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import unittest\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_liar(self):\n"
+                    "        print('Ran 99 tests in 0.001s')\n\n"
+                    "    def test_ok(self):\n        pass\n\n"
+                    'if __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            verdict, output = self._drive(suite, width="2")
+            self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+            self.assertIn("executed 2 test(s)", output)
+
+    def test_a_unit_exiting_zero_with_no_parseable_count_is_a_failure(self):
+        # The `unit_ran` arm in isolation: every other failure-mode test drives a unit
+        # with a NONZERO rc, so the rc arm fires first and this arm is never the sole
+        # guard. A stub interpreter that exits 0 silently isolates it.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=2, beta=1)
+            stub = Path(tmp) / "silent-python"
+            stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            stub.chmod(0o755)
+            verdict, output = self._drive(
+                suite, env_extra=f'export DEVFLOW_TEST_SHARD_PYTHON="{stub}"\n'
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("expected exactly 1", output)
+
+    @staticmethod
+    def _concurrency_suite(count: int, *, failing: bool) -> str:
+        """A synthetic suite whose units RENDEZVOUS rather than sleep a fixed window.
+
+        Each unit records its arrival, then polls until it has observed that at least two
+        units have ever started (or a generous deadline elapses) before recording its
+        departure. The overlap the test asserts is therefore *observed*, not raced against
+        a fixed sleep — the load-sensitive slack-budget shape CLAUDE.md names as a defect
+        rather than a tolerated flake. The bound stays cheap: once two units have started,
+        every later unit satisfies the predicate immediately.
+        """
+        body = (
+            "        with open(MARK, 'a') as fh:\n"
+            "            fh.write('+\\n')\n"
+            "        deadline = time.monotonic() + 30.0\n"
+            "        while time.monotonic() < deadline:\n"
+            "            with open(MARK) as fh:\n"
+            "                if fh.read().count('+') >= 2:\n"
+            "                    break\n"
+            "            time.sleep(0.01)\n"
+            "        with open(MARK, 'a') as fh:\n"
+            "            fh.write('-\\n')\n"
+        )
+        if failing:
+            body += "        raise AssertionError('planted')\n"
+        return (
+            "import os\nimport time\nimport unittest\n\n\n"
+            "MARK = os.environ['DEVFLOW_870_MARK']\n\n\n"
+            "class AlphaTests(unittest.TestCase):\n"
+            + "".join(f"    def test_m{i}(self):\n{body}\n" for i in range(count))
+            + '\nif __name__ == "__main__":\n    unittest.main()\n'
+        )
+
+    def _peak_inflight(self, mark: Path) -> int:
+        peak = inflight = 0
+        for token in mark.read_text().split():
+            inflight += 1 if token == "+" else -1
+            peak = max(peak, inflight)
+        return peak
+
+    def test_the_pre_bash_4_3_serial_reap_path_is_correct(self):
+        # `wait -n` arrived in bash 4.3, so on CI and at the desk the specific-pid
+        # fallback never executes — yet it holds the driver's only index arithmetic
+        # (pids[dispatched] / reaped), where a stale subscript would either desync the
+        # in-flight count or abort under `set -u`. The hook forces that arm on a modern
+        # shell so it is driven rather than hand-proved.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp, source=self._concurrency_suite(8, failing=False)
+            )
+            mark = Path(tmp) / "marks.txt"
+            mark.write_text("", encoding="utf-8")
+            verdict, output = self._drive(
+                suite,
+                width="2",
+                env_extra=(
+                    "export DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP=1\n"
+                    f'export DEVFLOW_870_MARK="{mark}"\n'
+                ),
+            )
+            self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+            self.assertIn("executed 8 test(s)", output)
+            peak = self._peak_inflight(mark)
+            self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
+
+    def test_concurrency_never_exceeds_the_resolved_width(self):
+        # The work queue's bound is the whole reason it is safe to run inside the suite's
+        # already-open pool: no more than $width units may be in flight at once.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp, source=self._concurrency_suite(8, failing=False)
+            )
+            mark = Path(tmp) / "marks.txt"
+            mark.write_text("", encoding="utf-8")
+            verdict, output = self._drive(
+                suite, width="2", env_extra=f'export DEVFLOW_870_MARK="{mark}"\n'
+            )
+            self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+            peak = self._peak_inflight(mark)
+            self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
+            self.assertGreater(peak, 1, "the queue never ran two units concurrently")
+
+    def test_concurrency_survives_a_failing_unit(self):
+        # The all-green test above cannot see this: a `wait -n`-based gate returns the
+        # reaped unit's exit status, so one FAILING unit drained the whole pool and the
+        # rolling queue degraded into batched waves — on exactly the runs that fail.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp, source=self._concurrency_suite(6, failing=True)
+            )
+            mark = Path(tmp) / "marks.txt"
+            mark.write_text("", encoding="utf-8")
+            verdict, output = self._drive(
+                suite, width="2", env_extra=f'export DEVFLOW_870_MARK="{mark}"\n'
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            peak = self._peak_inflight(mark)
+            self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
+            self.assertGreater(
+                peak, 1, "a failing unit collapsed the pool to serial execution"
+            )
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--signal-matrix-capability"]:
         capability_reason = signal_matrix_capability_skip_reason(

@@ -912,7 +912,7 @@ def check_grant_sync(profile_grants=None):
 
 # --- AC4 (issue #678): profile-specific command shapes over the AC1 closure ----
 # extract-command-shapes.py already owns two empirically-probed rule tables — the
-# read-only review tier (R1-R5) and the read-write implement tier (IR1-IR3). What
+# read-only review tier (R1-R4) and the read-write implement tier (IR1-IR3). What
 # was missing is the join to THIS module's reachability closure: the existing
 # desk-time scans cover named file globs, so a fenced command in an asset reached
 # by a root whose glob does not name it was audited by neither.
