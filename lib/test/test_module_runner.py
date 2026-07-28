@@ -1989,6 +1989,11 @@ def strip_shell_comments(text):
     strip the invocation itself, and a `#` inside a quoted string is not a
     comment. Both are handled by taking the line as code whenever its first
     non-whitespace character is anything but `#`.
+
+    Residual: the rule is line-oriented, so a line inside a heredoc or a
+    multi-line string that begins with `#` is stripped too. Harmless while no
+    such line carries an invocation shape, which is the only content this scan
+    reads a line for.
     """
     return "\n".join(
         line for line in text.splitlines() if not line.lstrip().startswith("#")
@@ -2005,8 +2010,10 @@ def scan_routing_violations(
 ):
     """Cross-check the routing tuples against where the tree actually drives them.
 
-    Returns a list of human-readable violations, each naming the offending suite
-    (empty when every claim holds):
+    Returns a list of human-readable violations, empty when every claim holds.
+    A routing violation names the offending suite; a read failure names the
+    unreadable path instead, and the two never appear together (see below). The
+    routing claims are:
 
     - no module_driven name's invocation shape is present in run.sh;
     - every module_driven name's invocation shape is present in exactly one
@@ -2031,14 +2038,14 @@ def scan_routing_violations(
     The paths this scan reads are run_sh_path, modules_dir and
     module_harness_path, each a parameter defaulting to the real tree, mirroring
     discover_test_suites/classify_test_suites, so a planted-violation fixture can
-    point the scan at a scratch copy. The module domain is a single-level glob
-    over modules_dir plus the standalone module_harness_path — never a
-    repository-root-anchored recursive walk.
+    point the scan at a scratch copy. The module domain is a single-level,
+    suffix-filtered listing of modules_dir plus the standalone
+    module_harness_path — never a repository-root-anchored recursive walk.
 
-    Every read failure — run.sh, a module file, or the standalone harness alike —
-    returns the read-failure violations ALONE. A truncated domain cannot support
-    an ownership claim, so reporting one beside the read failure would accuse a
-    correct routing tuple of the file's I/O error.
+    Any read failure — run.sh, the modules_dir listing, a module file, or the
+    standalone harness alike — returns the read-failure violations ALONE. A
+    truncated domain cannot support an ownership claim, so reporting one beside
+    the read failure would accuse a correct routing tuple of the I/O error.
     """
     read_failures = []
     module_texts = {}
@@ -2051,10 +2058,27 @@ def scan_routing_violations(
         read_failures.append(
             f"{run_sh_path}: could not be read for the routing scan ({exc})"
         )
+    # Enumerate the module directory with iterdir(), not glob(): glob() swallows
+    # FileNotFoundError / NotADirectoryError / PermissionError on the directory
+    # itself and yields nothing, so a renamed or unreadable modules_dir would
+    # produce an empty domain with no read failure — and every module-driven
+    # suite would then be accused of owning zero files, which is exactly the
+    # misattribution the read-failure-alone rule below exists to prevent.
+    # Single-level and suffix-filtered, so it stays the non-recursive
+    # enumeration the issue-#711 convention requires.
+    try:
+        module_paths = sorted(
+            path for path in Path(modules_dir).iterdir() if path.suffix == ".sh"
+        )
+    except OSError as exc:
+        module_paths = []
+        read_failures.append(
+            f"{modules_dir}: could not be enumerated for the routing scan ({exc})"
+        )
     # The harness is read through the same try/except as the module files rather
     # than pre-tested with .exists(): a renamed, unreadable, or unstattable path
     # must be a reported read failure, never a silently truncated scan domain.
-    for path in (*sorted(Path(modules_dir).glob("*.sh")), Path(module_harness_path)):
+    for path in (*module_paths, Path(module_harness_path)):
         try:
             module_texts[path] = strip_shell_comments(
                 path.read_text(encoding="utf-8")
@@ -2661,7 +2685,10 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             violations = scan_routing_violations(run_sh, modules_dir, harness)
-            self.assertTrue(any(offender in v for v in violations), violations)
+            self.assertTrue(
+                any(offender in v and "would execute twice" in v for v in violations),
+                violations,
+            )
 
     def test_a_planted_second_owning_module_is_caught(self) -> None:
         offender = MODULE_DRIVEN_SUITES[0]
@@ -2671,7 +2698,13 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 f'  python3 "$LIB/test/{offender}"\n', encoding="utf-8"
             )
             violations = scan_routing_violations(run_sh, modules_dir, harness)
-            self.assertTrue(any(offender in v for v in violations), violations)
+            self.assertTrue(
+                any(
+                    offender in v and "driven by 2 module file(s)" in v
+                    for v in violations
+                ),
+                violations,
+            )
 
     def test_a_module_driven_suite_no_module_drives_is_caught(self) -> None:
         # The other half of the exactly-one claim: a suite routed to no module at
@@ -2681,7 +2714,13 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
             run_sh, modules_dir, harness = self._clean_tree(scratch)
             (modules_dir / "owner-0.sh").unlink()
             violations = scan_routing_violations(run_sh, modules_dir, harness)
-            self.assertTrue(any(offender in v for v in violations), violations)
+            self.assertTrue(
+                any(
+                    offender in v and "driven by 0 module file(s)" in v
+                    for v in violations
+                ),
+                violations,
+            )
 
     def test_a_removed_serial_invocation_is_caught(self) -> None:
         offender = SERIAL_BY_EXCLUSION_SUITES[0]
@@ -2694,7 +2733,13 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 encoding="utf-8",
             )
             violations = scan_routing_violations(run_sh, modules_dir, harness)
-            self.assertTrue(any(offender in v for v in violations), violations)
+            self.assertTrue(
+                any(
+                    offender in v and "coverage is silently gone" in v
+                    for v in violations
+                ),
+                violations,
+            )
 
     def test_planted_bare_path_comments_leave_every_assertion_green(self) -> None:
         # The positive control for the matcher's shape. `create-issue-contract.sh`
@@ -2739,13 +2784,48 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            # And add a commented-out driver for a module-driven suite elsewhere.
+            # And add a commented-out driver for a module-driven suite elsewhere,
+            # plus one in run.sh — the false-POSITIVE channel, where a documentation
+            # edit naming a module-driven suite must not raise "would execute twice".
             (modules_dir / "commented.sh").write_text(
                 f'  # python3 "$LIB/test/{module_driven}"\n', encoding="utf-8"
             )
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8")
+                + f'  # python3 "$LIB/test/{module_driven}"  (module-driven; see its module)\n',
+                encoding="utf-8",
+            )
             violations = scan_routing_violations(run_sh, modules_dir, harness)
-            self.assertTrue(any(serial in v for v in violations), violations)
+            self.assertTrue(
+                any(
+                    serial in v and "coverage is silently gone" in v
+                    for v in violations
+                ),
+                violations,
+            )
             self.assertFalse(any(module_driven in v for v in violations), violations)
+
+    def test_a_trailing_comment_does_not_strip_the_invocation_it_follows(
+        self,
+    ) -> None:
+        # strip_shell_comments promises whole-line-only stripping, and the serial
+        # arm is where breaking that promise fails silently: weakening the
+        # predicate to `"#" in line` would erase a live invocation carrying an
+        # end-of-line comment and report its coverage as gone. Every other comment
+        # test plants a whole-line comment, so only this one pins the promise.
+        serial = SERIAL_BY_EXCLUSION_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8").replace(
+                    f'  python3 "$LIB/test/{serial}"\n',
+                    f'  python3 "$LIB/test/{serial}"  # drives the focused suite\n',
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                scan_routing_violations(run_sh, modules_dir, harness), []
+            )
 
     def test_a_bare_basename_matcher_is_red_where_the_shape_matcher_is_green(
         self,
@@ -2808,6 +2888,51 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
                 any("expected exactly one" in v for v in violations), violations
             )
             self.assertTrue(any(str(owner) in v for v in violations), violations)
+            self.assertFalse(any(offender in v for v in violations), violations)
+
+    def test_an_unreadable_module_file_is_reported_privilege_independently(
+        self,
+    ) -> None:
+        # The mode-000 arm above self-skips under a privileged runner (root in a
+        # container is a common CI shape), which would leave the "read failure
+        # reported alone" claim unasserted exactly there. Planting a DIRECTORY at
+        # the module file's path raises IsADirectoryError for every user, so this
+        # sibling holds the same claim with no privilege dependence.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            owner = modules_dir / "owner-0.sh"
+            owner.unlink()
+            owner.mkdir()
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(
+                all("could not be read" in v for v in violations), violations
+            )
+            self.assertFalse(
+                any("expected exactly one" in v for v in violations), violations
+            )
+            self.assertFalse(any(offender in v for v in violations), violations)
+
+    def test_a_missing_modules_dir_is_reported_not_a_zero_owner_accusation(
+        self,
+    ) -> None:
+        # The directory operand's own fail-closed arm. Path.glob() would have
+        # returned an empty iterator here — no exception, no read failure — and
+        # every module-driven suite would then be reported as owning zero files,
+        # sending the reader to edit a correct routing tuple instead of to the
+        # absent directory.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, _modules_dir, harness = self._clean_tree(scratch)
+            absent = Path(scratch) / "absent-modules"
+            violations = scan_routing_violations(run_sh, absent, harness)
+            self.assertTrue(
+                all("could not be enumerated" in v for v in violations), violations
+            )
+            self.assertTrue(any(str(absent) in v for v in violations), violations)
+            self.assertFalse(
+                any("expected exactly one" in v for v in violations), violations
+            )
             self.assertFalse(any(offender in v for v in violations), violations)
 
     def test_a_missing_module_harness_is_reported_not_silently_dropped(self) -> None:
