@@ -212,6 +212,17 @@ From this version, `/devflow:review-and-fix` loads `.devflow/prompt-extensions/r
 
 Repos with no `.devflow/prompt-extensions/receiving-code-review.md` are unaffected: the load is the documented no-op.
 
+#### Upgrade note: the review tier reads its prompt extensions from your BASE ref (a TWO-halves upgrade — the window is real)
+
+From this version, the cloud review tier no longer reads `.devflow/prompt-extensions/review.md` or `requesting-code-review.md` from the checkout it reviews. That checkout is the **pull request's head**, and whatever the loader printed became instructions appended to the merge-gating reviewer's own prompt — so a PR author could write the reviewer's instructions. The review job now materializes those two files from your **trusted base ref** into a `$RUNNER_TEMP` closure, points the loader at it with `DEVFLOW_PROMPT_EXTENSION_ROOT`, and — unconditionally, on every arm including a failed base-ref fetch — truncates the workspace copies so an older loader finds nothing.
+
+This is a **two-halves** upgrade, and unlike most of the ones above the halves ship through *different* channels: the workflow arrives by re-running `install.sh` (a file copy), while the loader that honors the variable arrives by advancing `devflow_version` (the vendor fetch). Both halves are individually safe, but they are not equivalent:
+
+- **Workflow only (you re-ran `install.sh` but did not bump `devflow_version`).** The truncation and the variable export are live, but your pinned loader ignores the variable and resolves the repo root — where it finds the truncated file. **Your committed `review.md` stops loading** until you bump. That is the boundary working as designed (the truncation is what protects a consumer stuck on an older pin), but it is a real functional loss, not a no-op: bump `devflow_version` in the same change if you rely on a review extension.
+- **Loader only (you bumped `devflow_version` but did not re-run `install.sh`).** Nothing exports the variable, so the loader takes its repo-root branch and behaves exactly as before — including reading the PR-head copy. You gain the loader's new branch and none of the protection.
+
+Two further consequences worth knowing before you bump. `devflow_version` itself is now read from the base ref, which puts it in the documented **trigger-time-resolved** class: a PR that bumps it does not change its own review, only later ones. And a consumer that has never committed a prompt extension is entirely unaffected and sees **no warning** — the base ref simply carrying no such file is the ordinary shape, not a failure.
+
 #### Upgrade note: the cloud implement-tier label grants are a TWO-halves upgrade (take both together)
 
 Issue #455 fixed a cloud `/devflow:implement` defect where the run's best-effort label applies (`DevFlow` provenance, `Documented`, the configured `deferred.labels`) were **silently denied** — the phase-4 label loops emitted command *shapes* the read-write implement matcher refuses (a `for`/piped-`while read` loop or a `VAR="$(…)"` capture wrapping a label helper), and the label helpers were granted only via a config `*/basename` glob the matcher does not match against a vendored-literal leading token. The fix has **two halves that ship on two independently-updated artifacts**, and both must be taken together:

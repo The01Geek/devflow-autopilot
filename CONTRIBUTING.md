@@ -437,7 +437,13 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh <skill-name>` and honors
   any returned text as instructions appended verbatim to the end of its own prompt — the
   consumer-owned, upgrade-safe `.devflow/prompt-extensions/<skill-name>.md` (absent or
-  empty → no-op). When you **add a new skill**, copy this step verbatim (substituting the
+  empty → no-op). **Which checkout supplies those bytes is a per-tier question, separate
+  from who owns the file:** the cloud review tier checks out the pull request's head, so
+  the extensions it loads come from the trusted base ref through
+  `DEVFLOW_PROMPT_EXTENSION_ROOT` instead (issue #874) — see
+  [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](docs/DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref trust
+  boundary bullet for the canonical statement. A skill's own load step is unchanged by
+  that: it invokes the helper identically on every tier. When you **add a new skill**, copy this step verbatim (substituting the
   new skill's directory name) so it inherits the convention, **and** add the new skill's
   name plus a one-line hint to the prompt-extension scaffold list in
   `scripts/scaffold-config.sh` — `/devflow:init` scaffolds one inert
