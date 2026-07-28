@@ -548,6 +548,7 @@ filed_slugs=()           # will hold COARSE pattern tags — one per pattern tha
                          # `.tag // .slug`, and a `<category>-<subslug>` key never
                          # matches it. Per-issue detail lives in intervention_issues.
 withheld=()              # will hold {tag, cap} objects — one per pattern a cap held back
+truncations=()           # will hold {tag, delivered, total, selected} objects — one per pattern the audit_bundle_cap (or a fetch failure) truncated (issue #894)
 ```
 
 ---
@@ -569,16 +570,16 @@ PRs** — the loop proposes; a human triages each issue and runs it through the 
 never edited. The drafting subagents (8b) parallelize; the cheap filing (8c) is done
 serially.
 
-#### 8a — Gather occurrence bundles
+#### 8a — Gather occurrence bundles (bounded by `audit_bundle_cap`, issue #894)
 
 The enriched pattern object now carries every occurrence's
 `summary`/`descriptors`/`suggested_interventions` (issue #893), and the largest
 category has ~199 occurrences, so — beyond the single scalar read that names its own
-file (`SLUG`, step 1 below) — it must **not** travel through a herestring, and never
+file (`SLUG`, below) — it must **not** travel through a herestring, and never
 through an inline prompt interpolation.
 
-**The order below is load-bearing: `SLUG` names the file every later step reads, so it
-is derived before that file is written.** Per pattern:
+**`SLUG` names the file every later step reads, so it is derived — and that file
+written — before any other field is read off the pattern object:**
 
 1. **`SLUG`** — `$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`. The **one**
    sanctioned herestring over the enriched object. It is not the only place `SLUG`
@@ -594,30 +595,179 @@ is derived before that file is written.** Per pattern:
    attribution category the opaque filing key belongs to, issue #891). Now that the
    file exists these come **from it**: a second and third herestring over the whole
    enriched object is exactly what the rule above forbids.
-4. Record also the JSON array of absolute bundle paths and the **absolute path**
-   `.devflow/tmp/pattern-${SLUG}.json` (Step 8b hands that path to the subagent,
-   matching the bundle-path handoff).
+4. Record also the **absolute path** `.devflow/tmp/pattern-${SLUG}.json` (Step 8b
+   hands that path to the subagent, matching the bundle-path handoff).
 
-Then derive the occurrence PR list from **that file on disk**, not from a herestring
-over the whole enriched object:
+Stage B no longer fetches a bundle for *every* occurrence PR of a pattern — an
+unbounded cost that scaled with each pattern's cumulative occurrence history.
+Instead it fetches at most `audit_bundle_cap` occurrence bundles per pattern,
+**most-recent-first**. Resolve and validate the cap **once, before the per-pattern
+loop begins**, so no pattern is fetched before an unusable cap is detected. The
+config read stays in this fence (via `config-get.sh`, default `10`); the validation
+and selection live in the sourced `lib/audit-bundle-selection.sh`, which the suite
+drives directly:
 
 ```bash
-for n in $($LIB/../scripts/run-jq.sh -r '.occurrences[].pr' ".devflow/tmp/pattern-${SLUG}.json"); do
-    [ -f ".devflow/tmp/pr-${n}.context.json" ] || bash $LIB/fetch-pr-context.sh "$n" >/dev/null
-done
+# Source the helper with a fail-closed arm — the same arm every
+# `source $LIB/filing-decisions.sh` site in this file carries. Without it an
+# unsourceable helper leaves devflow_validate_audit_bundle_cap /
+# devflow_select_audit_bundles / devflow_audit_dispatch_ok undefined, their empty
+# stdout reads as a valid cap and an empty selection, and the run proceeds on
+# unvalidated values — the fail-open shape the validate-before-the-loop rule prevents.
+source $LIB/audit-bundle-selection.sh || {
+  echo "::error::retrospective Step 8a: lib/audit-bundle-selection.sh could not be sourced — the audit-bundle cap has no validator/selector; aborting rather than fetching every occurrence on an unvalidated cap" >&2
+  exit 1
+}
+# config-get.sh resolves an absent file / absent key / null / empty string / empty
+# array to the default 10. devflow_validate_audit_bundle_cap rejects a 0/negative
+# cap, a coerced object/boolean/multi-array, a non-numeric string, 3.5, and an
+# EMPTY resolver output (a read failure) — printing an `::error::` and exiting
+# non-zero, which the `|| exit 1` propagates so no pattern is judged on a bad cap.
+AUDIT_BUNDLE_CAP_RAW="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.audit_bundle_cap' 10)"
+AUDIT_BUNDLE_CAP="$(devflow_validate_audit_bundle_cap "$AUDIT_BUNDLE_CAP_RAW")" || exit 1
+# REPO_ROOT is loop-INVARIANT, so resolve it once here rather than re-forking `git`
+# per pattern. `|| pwd` is the repo's #295 fallback: unguarded, a git-absent or
+# not-a-work-tree host leaves it EMPTY and every bundle path below becomes the
+# absolute `/.devflow/tmp/pr-N.context.json` — a phantom path handed to Stage B.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 ```
+
+Then, for each `pattern` in `to_act` — with `SLUG`/`TAG`/`CATEGORY` and the
+`.devflow/tmp/pattern-${SLUG}.json` file already derived and written above —
+select the most-recent-N occurrence PRs and fetch only their bundles, tracking **three distinct
+quantities** — *selected* (the post-cap set size), *delivered* (the bundles Stage B
+actually receives, after excluding any that failed to fetch), and *total*
+(`occurrence_count`):
+
+```bash
+# TOTAL is occurrence_count (compute-patterns.jq sets it to the occurrences[]
+# length; read it directly, falling back to the array length if the field is
+# absent). SELECTED_PRS are the most-recent AUDIT_BUNDLE_CAP occurrence PRs in
+# DESCENDING ts order (the helper reverses the ascending occurrences[] tail — the
+# emitted order is fact the dispatch prompt states).
+# `dispatch` is the CARRIER of the no-dispatch floor: 8b dispatches, and 8c files,
+# only patterns whose `dispatch` is still 1 when this fence ends. Start optimistic
+# and clear it on any arm that leaves the pattern without evidence.
+dispatch=1
+# TOTAL is occurrence_count. The jq program's `// 0` protects a null FIELD, not a
+# failed invocation: on an unresolvable/aborting run-jq.sh, TOTAL is EMPTY and the
+# truncation comparison below would be `[ 0 -lt "" ]` → `integer expression
+# expected`, rc 2 — aborting the run mid-loop under `set -e`. Unknown is not zero,
+# so an unestablished TOTAL is recorded and the truncation entry is skipped rather
+# than fabricated from a laundered 0.
+TOTAL="$($LIB/../scripts/run-jq.sh -r '(.occurrence_count // (.occurrences // [] | length)) // 0' ".devflow/tmp/pattern-${SLUG}.json" 2>/dev/null || true)"
+case "$TOTAL" in
+    ''|*[!0-9]*)
+        blockers+=("Pattern ${SLUG}: the occurrence total could not be established (got '${TOTAL}') — truncation reporting skipped for this pattern")
+        TOTAL="" ;;
+esac
+# Fail CLOSED on a selector failure. Without this arm a non-object pattern, a
+# present-but-non-array `occurrences`, or an unresolvable jq all yield empty stdout,
+# the loop below never runs, and the run records the blocker "all 0 selected
+# occurrence bundle(s) failed to fetch" — asserting a FALSE cause (`gh`) for a
+# config-/corpus-shape defect. The helper's non-zero return exists precisely to
+# prevent that, and it only prevents it if the sole call site checks it. The
+# `::error::` the helper already wrote to stderr carries the real cause.
+SELECTED_PRS="$(devflow_select_audit_bundles "$AUDIT_BUNDLE_CAP" "$pattern")" || {
+    blockers+=("Pattern ${SLUG}: occurrence selection failed — see the audit-bundle-selection ::error:: above for the cause; not dispatched to Stage B and not filed")
+    SELECTED_PRS=""
+    dispatch=0
+}
+selected=0; delivered=0; bundle_paths=()
+for n in $SELECTED_PRS; do
+    selected=$((selected + 1))
+    BUNDLE="$REPO_ROOT/.devflow/tmp/pr-${n}.context.json"
+    # fetch-pr-context.sh runs under `set -euo pipefail` and exits non-zero WITHOUT
+    # writing a bundle when a gh call fails (auth, rate limit, a deleted PR). The
+    # pre-existing `[ -s … ] ||` short-circuit means an already-present bundle is
+    # DELIVERED without a fetch — so *delivered* is never a count of network fetches.
+    # `-s`, not `-f`: fetch-pr-context.sh's terminal `> "$OUT_FILE"` TRUNCATES before
+    # its composing jq runs, so an interrupted/OOM/full-disk run leaves a zero-byte
+    # bundle that `-f` would both short-circuit on and count as evidence.
+    # Test and deliver the SAME string — the absolute one — so a REPO_ROOT that
+    # resolved oddly cannot make the guard pass on one path while a different one is
+    # handed to Stage B.
+    FETCH_ERR=""
+    if [ ! -s "$BUNDLE" ]; then
+        # Capture fetch-pr-context.sh's own diagnostics instead of discarding them:
+        # an expired token, a deleted PR, an absent `gh` and a jq shape error are
+        # fixed differently, and this is the path the cap makes most reachable.
+        FETCH_ERR="$(bash $LIB/fetch-pr-context.sh "$n" 2>&1 >/dev/null || true)"
+    fi
+    if [ -s "$BUNDLE" ]; then
+        delivered=$((delivered + 1))
+        bundle_paths+=("$BUNDLE")
+    else
+        # A selected occurrence whose bundle is ABSENT (or zero-byte) after the fetch
+        # attempt is excluded from the path array handed to Stage B and named in the
+        # blockers — never handed to Stage B as a phantom path, and never counted as
+        # evidence. The blocker quotes the fetcher's own diagnostic rather than
+        # guessing the cause; when it wrote nothing, that absence is stated as such.
+        blockers+=("Pattern ${SLUG}: occurrence PR #${n} bundle could not be fetched — ${FETCH_ERR:-fetch-pr-context.sh produced no diagnostic} — excluded from Stage B evidence")
+    fi
+done
+# delivered == 0 (every selected bundle failed to fetch — the ordinary shape of a
+# mid-run gh auth expiry once the cap made the selected set small): DO NOT dispatch
+# this pattern to Stage B, record a blocker, and file NOTHING for it. Dispatching an
+# empty bundle set would have Stage B re-derive a root cause from metadata alone and
+# file an evidence-free issue that outlives the run. The decision is owned by
+# devflow_audit_dispatch_ok (which also fails closed on an unestablished count), and
+# `dispatch` is what 8b/8c read — the floor is a mechanism, not a comment.
+if ! devflow_audit_dispatch_ok "$delivered"; then
+    blockers+=("Pattern ${SLUG}: no occurrence bundle was delivered out of ${selected} selected — not dispatched to Stage B and not filed")
+    dispatch=0
+fi
+# Truncation entry when Stage B was delivered fewer bundles than the pattern has
+# occurrences. Carry `selected` too, so the renderer can name the fetch-failure gap
+# (delivered < selected) distinctly from the cap-dropped gap. Built with jq so the
+# element is valid JSON for the Step 9 slurp.
+#
+# Gated on `dispatch` as well: a pattern that was never dispatched contributed NO
+# Stage B evidence at all, so rendering it under "Stage B read fewer occurrence
+# bundles than the pattern has occurrences" would tell a reader a weakly-evidenced
+# issue exists for it when none does — the same evidence overstatement this change
+# removes, inverted. Its blocker above already covers it. Gated on a non-empty TOTAL
+# too, since an unestablished total cannot establish a shortfall.
+if [ "$dispatch" -eq 1 ] && [ -n "$TOTAL" ] && [ "$delivered" -lt "$TOTAL" ]; then
+    # argjson-ok: delivered,total,selected -- bounded per-pattern counts (small integers capped by audit_bundle_cap / occurrence_count), never corpus-sized operands, so they carry no E2BIG risk (issue #894)
+    TRUNC_ENTRY="$($LIB/../scripts/run-jq.sh -nc --arg tag "$TAG" \
+        --argjson delivered "$delivered" --argjson total "$TOTAL" --argjson selected "$selected" \
+        '{tag:$tag,delivered:$delivered,total:$total,selected:$selected}' 2>/dev/null || true)"
+    # A failed build would otherwise append an EMPTY element that Step 9's
+    # `map(select(. != null))` slurps away silently — the pattern's truncation record
+    # vanishing with no diagnostic, which is exactly the silent evidence loss this
+    # change exists to remove. Record it as a blocker instead.
+    if [ -n "$TRUNC_ENTRY" ]; then
+        truncations+=("$TRUNC_ENTRY")
+    else
+        blockers+=("Pattern ${SLUG}: the truncation record could not be built (delivered=${delivered}, total=${TOTAL}, selected=${selected}) — this pattern is absent from the run report's truncation section")
+    fi
+fi
+```
+
+The per-pattern `bundle_paths` array (absolute paths, *delivered* only) is what 8b
+dispatches. **A pattern whose `dispatch` is `0` — a selector failure, or no bundle
+delivered — is excluded from the 8b dispatch set and from the 8c filing set alike;
+its blocker is what the run report carries for it.**
 
 #### 8b — Dispatch all Stage B subagents concurrently
 
-Issue **one Agent call per pattern, all in a single message** so they run in
-parallel. No worktree is created or passed — the subagent makes no edits. Each
-subagent's prompt:
+Issue **one Agent call per pattern whose `dispatch` is `1`, all in a single
+message** so they run in parallel. A pattern whose 8a fence cleared `dispatch` gets
+no Agent call at all — it has no delivered bundle, and dispatching it would have
+Stage B re-derive a root cause from metadata alone. No worktree is created or passed
+— the subagent makes no edits. Each dispatched subagent's prompt:
 
 > Read and follow
 > `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../retrospective-audit/SKILL.md`
 > exactly.
 >
-> Occurrence-PR context bundle paths (absolute): `<json array of paths>`
+> Occurrence-PR context bundle paths (absolute): `<json array of DELIVERED paths>`
+>
+> Your bundle-path array is a **capped, most-recent-first subset** bounded by
+> `audit_bundle_cap`: it holds `<delivered>` bundle(s) out of the pattern's
+> `<total>` total occurrences. The pattern metadata's `occurrences[]` below remains
+> the **authoritative full list** of occurrence PRs.
 >
 > Pattern metadata is on disk at the absolute path `<REPO_ROOT>/.devflow/tmp/pattern-<slug>.json` — read it with your file-read tool. It is handed to you by path, not inlined, because the enriched object carries every occurrence's free text (issue #893).
 >
@@ -646,6 +796,11 @@ invocation, so no allowlist entry or permission grant is needed on any tier.
 Wait for **all** subagents to finish. Pair each result JSON with its pattern.
 
 #### 8c — File one issue per selected finding (serial, under the filing back-pressure caps)
+
+The filing set is the patterns 8b dispatched — those whose `dispatch` is `1`. A
+pattern excluded by the 8a floor never reaches a cap decision, is never counted
+against `max_issues_per_run` or `max_open_issues`, and appears in the run report
+through its 8a blocker rather than under a filing-cap heading.
 
 Before filing, read the three back-pressure caps, and source the helper that owns
 both the open-issue counts and the cap decision (issue #788). The counts are derived
@@ -949,6 +1104,25 @@ RECURRING_TARGETS_JSON="$(bash $LIB/recurring-targets.sh .devflow/learnings/retr
 # that produced neither, and render-report.sh then omits their sections.
 LIVENESS_WARNING="$(devflow_liveness_warning .devflow/tmp/patterns.stderr)"
 DECLINED_REFILED_JSON="$(devflow_declined_refiled .devflow/tmp/overrides-prefiling.json "$FILED_SLUGS_JSON")"
+
+# Truncation entries (issue #894): the {tag, delivered, total, selected} objects
+# Step 8a appended for every pattern the audit_bundle_cap (or a fetch failure)
+# truncated. Assembled from the pre-declared `truncations` bash array into a shell
+# variable guarded by :? and passed with --slurpfile — the same carrier shape the
+# `withheld` array uses. `[]` at minimum on a run that truncated nothing.
+TRUNCATIONS_JSON="$(printf '%s\n' "${truncations[@]:-}" | $LIB/../scripts/run-jq.sh -sc 'map(select(. != null))')"
+
+# Filing-queue aggregate operands (issue #894), derived HERE in Step 9 reusing NO
+# Step 8 binding: the line reports the LIVE post-filing queue, while Step 8c's
+# OPEN_TOTAL/MAX_OPEN were a per-iteration PRE-filing snapshot that was already
+# stale by the time the report renders. N = open filed meta-issue entries via
+# devflow_open_filed_total (never recomputed inline); M = resolved max_open_issues.
+# Both are passed as --arg STRINGS (below), so an UNESTABLISHED value is the empty
+# string — rendered `unavailable`, never laundered to 0. devflow_open_filed_total
+# prints NOTHING (not 0) when unestablished, which is exactly that empty string;
+# neither operand is :?-guarded, because empty is a valid "unavailable" state here.
+FILING_QUEUE_OPEN="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
+FILING_QUEUE_MAX="$(bash $LIB/../scripts/config-get.sh '.devflow_retrospective.max_open_issues' 10)"
 ```
 
 `recurring-targets.sh` groups every accumulated entry's
@@ -978,21 +1152,32 @@ trap 'rm -rf "$_SUMMARY_TMP"' EXIT
 # its normal no-warning value, and it is passed as --arg, never slurped.)
 : "${WITHHELD_JSON:?devflow retrospective Step 9: WITHHELD_JSON is empty — the Step 8c withheld producer failed}"
 : "${DECLINED_REFILED_JSON:?devflow retrospective Step 9: DECLINED_REFILED_JSON is empty — devflow_declined_refiled failed}"
+: "${TRUNCATIONS_JSON:?devflow retrospective Step 9: TRUNCATIONS_JSON is empty — the Step 8a truncation producer failed}"
 printf '%s\n' "${skip_records[@]:-}"        | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/skips.json"
 printf '%s' "$ANALYZED_JSON"                > "$_SUMMARY_TMP/analyzed.json"
 printf '%s' "$PATTERNS_JSON"                > "$_SUMMARY_TMP/patterns.json"
 printf '%s' "$RECURRING_TARGETS_JSON"       > "$_SUMMARY_TMP/recurring_targets.json"
 printf '%s\n' "${intervention_issues[@]:-}" | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/intervention_issues.json"
 printf '%s\n' "${cooldown_skipped[@]:-}"    | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/cooldown_skipped.json"
-printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sc '.' > "$_SUMMARY_TMP/blockers.json"
+# blockers carry RAW PROSE (every `blockers+=(…)` append is a plain string), so
+# they are slurped with the raw `-sRc split` shape `skips` uses — NOT the JSON
+# `-sc '.'` slurp, under which a non-empty prose element is a jq parse error that
+# leaves blockers.json empty and trips the Step 9 empty-file guard, aborting the
+# run and losing every blocker (issue #894: Step 8a now adds frequently-reached
+# blocker paths, making this pre-existing latent defect reachable on ordinary runs).
+printf '%s\n' "${blockers[@]:-}"            | $LIB/../scripts/run-jq.sh -sRc 'split("\n") | map(select(. != ""))' > "$_SUMMARY_TMP/blockers.json"
 # withheld_patterns (issue #788): each {tag, cap} the Step-8 caps held back, and
 # declined_refiled: the slugs whose meta-issue was previously closed NOT_PLANNED.
 # Both are `[]` on a run that produced neither, which render-report omits.
 printf '%s' "$WITHHELD_JSON"                > "$_SUMMARY_TMP/withheld_patterns.json"
 printf '%s' "$DECLINED_REFILED_JSON"        > "$_SUMMARY_TMP/declined_refiled.json"
+printf '%s' "$TRUNCATIONS_JSON"             > "$_SUMMARY_TMP/truncations.json"
 # Same fail-loud property for the four INLINE producers above. Their `> file` redirect
-# truncates the file before the pipeline runs, so a failing jq (unresolvable binary, a
-# malformed element under -sc '.') leaves the file EMPTY — and an empty --slurpfile
+# truncates the file before the pipeline runs, so a failing jq leaves the file EMPTY.
+# The reachable causes differ by slurp shape: an unresolvable jq binary fails all four,
+# while a malformed element is a parse error only under the JSON `-sc '.'` shape
+# (intervention_issues, cooldown_skipped) — the raw `-sRc split` shape (skips,
+# blockers) takes its elements as text and cannot parse-error on them. An empty --slurpfile
 # operand is []→[0]=null, silently emitting skips/blockers:null where --argjson aborted
 # loud. On success each writes at minimum `[]` (non-empty), so an empty file is
 # unambiguously producer failure. Guard by file, not by variable, because these operands
@@ -1019,7 +1204,10 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
   --slurpfile blockers            "$_SUMMARY_TMP/blockers.json" \
   --slurpfile withheld_patterns   "$_SUMMARY_TMP/withheld_patterns.json" \
   --slurpfile declined_refiled    "$_SUMMARY_TMP/declined_refiled.json" \
+  --slurpfile truncations         "$_SUMMARY_TMP/truncations.json" \
   --arg       liveness_warning    "$LIVENESS_WARNING" \
+  --arg       filing_queue_open   "$FILING_QUEUE_OPEN" \
+  --arg       filing_queue_max    "$FILING_QUEUE_MAX" \
   --argjson state_pr              "$STATE_PR" \
   '{prs_scanned:$prs_scanned,clean_count:$clean_count,analyzed_count:$analyzed_count,
     skipped_count:$skipped_count,skips:$skips[0],
@@ -1027,7 +1215,10 @@ SUMMARY_JSON="$($LIB/../scripts/run-jq.sh -nc \
     intervention_issues:$intervention_issues[0],
     cooldown_skipped:$cooldown_skipped[0],blockers:$blockers[0],
     withheld_patterns:$withheld_patterns[0],declined_refiled:$declined_refiled[0],
-    liveness_warning:$liveness_warning,state_pr:$state_pr}')"
+    truncations:$truncations[0],
+    liveness_warning:$liveness_warning,
+    filing_queue_open:$filing_queue_open,filing_queue_max:$filing_queue_max,
+    state_pr:$state_pr}')"
 rm -rf "$_SUMMARY_TMP"
 ```
 
