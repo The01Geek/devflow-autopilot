@@ -450,6 +450,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/retry-with-backoff.sh": {
+      "note": "issue #671 bounded-retry/backoff wrapper extracted from ci.yml's CLI install step",
+      "owner": "unmodularized"
+    },
     "scripts/run-jq.sh": {
       "note": "",
       "owner": "unmodularized"

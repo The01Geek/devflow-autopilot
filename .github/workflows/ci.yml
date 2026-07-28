@@ -113,24 +113,18 @@ jobs:
       # being worth it — accepting the silent-revert exposure it reopens.
       - name: Install Claude Code CLI (arms the #671 plugin-validate gate)
         run: |
-          # pipefail is load-bearing and NOT redundant here: a step with no `shell:` key
-          # runs under `bash -e {0}`, which does not set it (only an explicit
-          # `shell: bash` gets `-eo pipefail`), and this workflow has no `defaults:`
-          # block. Without it a failed download feeds bash an empty script that exits 0
-          # and this step passes green on no install at all. The verify step below then
-          # fails loudly, so the end state is a red check either way — pipefail is what
+          # The retry/backoff/terminal-exit logic lives in scripts/retry-with-backoff.sh
+          # so the suite can drive each arm; inline, nothing exercised them.
+          #
+          # `set -o pipefail` inside the command string is load-bearing and NOT
+          # redundant: a step with no `shell:` key runs under `bash -e {0}`, which does
+          # not set it (only an explicit `shell: bash` gets `-eo pipefail`), and this
+          # workflow has no `defaults:` block. Without it a failed download feeds bash
+          # an empty script that exits 0, so the install would be recorded as a success.
+          # The verify step below would still redden the check, so pipefail is what
           # attributes the failure to the download rather than to a missing binary.
-          set -o pipefail
-          # Exponential backoff rather than a flat wait: a transient CDN blip clears in
-          # a second, while a rate-limit or a partial outage needs the longer tail.
-          delay=2
-          for attempt in 1 2 3; do
-            curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CLI_VERSION" && break
-            [ "$attempt" = 3 ] && { echo "::error::claude CLI install failed after 3 attempts"; exit 1; }
-            echo "install attempt $attempt failed; retrying in ${delay}s" >&2
-            sleep "$delay"
-            delay=$((delay * 3))
-          done
+          bash scripts/retry-with-backoff.sh 3 2 \
+            'set -o pipefail; curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CLI_VERSION"'
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # Asserts the version rather than merely printing it, so the pin above is
