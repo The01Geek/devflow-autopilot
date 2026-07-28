@@ -1646,11 +1646,26 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
 
   # Selection: most-recent-first (occurrences[] arrives ascending by ts), and the
   # emitted ORDER is asserted, not just the set.
+  #
+  # rl_abs_join collapses the emitted lines with bash builtins rather than
+  # `tr '\n' ' ' | sed 's/ $//'`. `tr`/`sed` are not preflight-guaranteed, and this
+  # value IS the comparand the order assertion decides on: with either tool absent
+  # the pipeline empties it, and while that fails CLOSED against a non-empty expected
+  # literal, deriving a comparand through a non-preflight PATH tool is the shape
+  # CLAUDE.md's guard-class 2 bars — in test code as much as in shipped code.
+  rl_abs_join() {  # stdin -> the non-empty lines, space-joined
+    local l out=""
+    while IFS= read -r l; do
+      [ -n "$l" ] || continue
+      out="${out:+$out }$l"
+    done
+    printf '%s' "$out"
+  }
   RL_ABC_PAT='{"occurrences":[{"pr":10,"ts":"2020-01-01"},{"pr":20,"ts":"2020-02-01"},{"pr":30,"ts":"2020-03-01"},{"pr":40,"ts":"2020-04-01"}]}'
   assert_eq "#894 select: the most-recent CAP prs, descending ts" "40 30" \
-    "$(devflow_select_audit_bundles 2 "$RL_ABC_PAT" | tr '\n' ' ' | sed 's/ $//')"
+    "$(devflow_select_audit_bundles 2 "$RL_ABC_PAT" | rl_abs_join)"
   assert_eq "#894 select: cap >= occurrences returns all, still descending ts" "40 30 20 10" \
-    "$(devflow_select_audit_bundles 10 "$RL_ABC_PAT" | tr '\n' ' ' | sed 's/ $//')"
+    "$(devflow_select_audit_bundles 10 "$RL_ABC_PAT" | rl_abs_join)"
   assert_eq "#894 select: an empty occurrences array selects nothing" "" \
     "$(devflow_select_audit_bundles 3 '{"occurrences":[]}')"
   assert_eq "#894 select: an absent occurrences key selects nothing" "" \
@@ -1705,7 +1720,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   assert_eq "#894 select: a null/absent .pr never renders as a 'null' PR number" "false" \
     "$(case "$(devflow_select_audit_bundles 4 "$RL_ABS_NULLPAT")" in *null*) echo true ;; *) echo false ;; esac)"
   assert_eq "#894 select: a malformed element does not consume a cap slot" "40 10" \
-    "$(devflow_select_audit_bundles 2 "$RL_ABS_NULLPAT" | tr '\n' ' ' | sed 's/ $//')"
+    "$(devflow_select_audit_bundles 2 "$RL_ABS_NULLPAT" | rl_abs_join)"
 
   # ALL-ZEROS cap shapes. `00`/`000` are non-canonical exactly as `007` is, and the
   # selector's own guard must reject them with its ATTRIBUTED breadcrumb — not let
