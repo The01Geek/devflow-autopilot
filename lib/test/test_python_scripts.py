@@ -11398,7 +11398,7 @@ class _Run603:
     def open_round(self, n, verdict='REVISE', findings=1):
         Path(self.tmp, 'd.md').write_text(f'draft {n}\n', encoding='utf-8')
         digest = self._field(
-            self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+            self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
                  '--draft-file', 'd.md', nonce=True), 'digest=', 'record-dispatch')
         self('record-return', self.slug, '--round', str(n), '--verdict', verdict,
              '--findings-count', str(findings), '--carriage-object-id', digest,
@@ -12017,7 +12017,7 @@ def _row3b(r):
     # A round that EXISTS but has not closed takes the round-not-completed arm (an absent
     # round takes unknown-round above, so the two arms need different fixtures).
     Path(r.tmp, 'd.md').write_text('draft 2\n', encoding='utf-8')
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', 'd.md',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file', '--draft-file', 'd.md',
       nonce=True)
     open_rnd = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '1',
                  '--resolved-ids', '1', nonce=True)
@@ -12990,7 +12990,7 @@ def _round704(r, findings=1):
     """Open and REVISE-adjudicate round 1 so a finding id exists to key evidence to."""
     Path(r.tmp, 'd.md').write_text('draft\n', encoding='utf-8')
     digest = _field704(
-        r('record-dispatch', r.slug, '--round', '1', '--arm', 'file', '--draft-file',
+        r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file', '--draft-file',
           'd.md', nonce=True).stdout, 'digest=')
     r('record-return', r.slug, '--round', '1', '--verdict', 'REVISE', '--findings-count',
       str(findings), '--carriage-object-id', digest, nonce=True)
@@ -13982,7 +13982,7 @@ class _Run709(_Run603):
         return issue_audit_state.hash_bytes(Path(path).read_bytes())
 
     def dispatch(self, with_instructions=True):
-        argv = ['record-dispatch', self.slug, '--round', '1', '--arm', 'file',
+        argv = ['record-dispatch', '--kind', 'discovery', self.slug, '--round', '1', '--arm', 'file',
                 '--draft-file', self.draft]
         if with_instructions:
             argv += ['--instructions-file', self.instr,
@@ -14148,7 +14148,7 @@ def _row709_regen(r):
     # input is the remaining closed input the regeneration reads, and an absolute path to
     # a file that does not exist passes the dispatch-time shape check and fails only where
     # this row needs it to — inside the regeneration.
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, '--instructions-file', r.instr,
           '--instructions-draft-path', r.draft,
           '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
@@ -14209,7 +14209,7 @@ _with_run709(_row709_reason_attribution)
 # BLOCKED: the override ground and `emit-body`'s other paths are untouched, only the
 # coverage-backed clean grounding is withheld.
 def _row709_embed(r):
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'inline',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'inline',
           stdin='# t\n\nb\n', nonce=True)
     assert d.returncode == 0, d.stderr
     got = r('record-return', r.slug, '--round', '1', '--verdict', 'FILE',
@@ -14219,7 +14219,7 @@ def _row709_embed(r):
     assert_eq("#709 embed/inline: ... the file-arm --instructions-file input is refused there",
               (1, True),
               (lambda p: (p.returncode, 'no hashable instruction file' in p.stderr))(
-                  r('record-dispatch', r.slug, '--round', '2', '--arm', 'embed',
+                  r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'embed',
                     '--marker', 'write-failed', '--instructions-file', r.instr,
                     '--instructions-draft-path', r.draft, stdin='# t\n\nb\n', nonce=True)))
 
@@ -14231,7 +14231,7 @@ _with_run709(_row709_embed)
 # while missing the input the regeneration needs.
 def _row709_halfpair(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr, nonce=True)
     assert_eq("#709 closed inputs: --instructions-file without --instructions-draft-path is refused",
               (1, True),
@@ -14247,7 +14247,7 @@ _with_run709(_row709_halfpair)
 # diagnosed as a design decision.
 def _row709_halfpair_reverse(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-draft-path', r.draft, nonce=True)
     assert_eq("#709 closed inputs: --instructions-draft-path without --instructions-file is "
               "refused too (the reverse half)",
@@ -14266,7 +14266,7 @@ def _row709_draft_disagreement(r):
     r.generate()
     other = Path(r.tmp, 'other-draft.md')
     other.write_text('# A different draft\n\nbody\n', encoding='utf-8')
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr,
             '--instructions-draft-path', str(other), nonce=True)
     assert_eq("#709 closed inputs: an --instructions-draft-path naming a DIFFERENT file "
@@ -14276,7 +14276,7 @@ def _row709_draft_disagreement(r):
     # Positive control on the same fixture: the identical call with the paths agreeing
     # succeeds, so the row above proves the comparison fired and not that some other
     # precondition rejected the dispatch.
-    ok = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    ok = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
            '--draft-file', r.draft, '--instructions-file', r.instr,
            '--instructions-draft-path', r.draft, nonce=True)
     assert_eq("#709 closed inputs: ... and the same call with the paths agreeing is accepted "
@@ -14300,7 +14300,7 @@ def _row709_recorded_template(r):
         cwd=r.tmp, capture_output=True, text=True)
     assert got.returncode == 0, got.stderr
     Path(r.instr).write_text(got.stdout, encoding='utf-8')
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, '--instructions-file', r.instr,
           '--instructions-draft-path', r.draft,
           '--instructions-template', str(tmpl), nonce=True)
@@ -14318,7 +14318,7 @@ _with_run709(_row709_recorded_template)
 # literal and `_DEGRADED_REASONS` fails with rc 2 on the least-exercised path there is —
 # the one taken only when generation has ALREADY failed.
 def _row709_degraded_reason(r):
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, nonce=True)
     assert d.returncode == 0, d.stderr
     got = r('record-degraded', r.slug, '--round', '1',
@@ -14482,7 +14482,7 @@ _with_run709(_row709_pre_dispatch_steering_is_recorded)
 # mid-round) or silencing the breadcrumb both ship green.
 def _row709_dispatch_regeneration_unverified(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr,
             '--instructions-draft-path', r.draft,
             '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
@@ -15147,7 +15147,7 @@ def _cov_preconditions(r):
     # A DISPATCHED-but-unreturned round: `record-dispatch` records the round, and the
     # outcome only exists after `record-return`, so this is the genuinely-open shape.
     Path(r.tmp, 'd.md').write_text('draft 1\n', encoding='utf-8')
-    r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
       '--draft-file', 'd.md', nonce=True)
     open_round = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
                    '--expected-keys', 'g:x', '--coverage-stdin',
@@ -15911,7 +15911,7 @@ class _Run792(_Run709):
         `None` outcome — silently, at exit 0. A row that then asserts a *negative* about the
         embed round would pass while never having recorded one.
         """
-        d = self('record-dispatch', self.slug, '--round', str(n), '--arm', 'embed',
+        d = self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'embed',
                  '--marker', 'write-failed', stdin='# t\n\nb\n', nonce=True)
         assert_eq(f"#792 harness precondition: the embed-arm round-{n} dispatch records",
                   0, d.returncode)
@@ -15997,7 +15997,7 @@ def _row792_revise_revokes(r):
     # A second round on the SAME bytes returning REVISE. It is funded by the automatic
     # budget only after a REVISE predecessor, so open it through the offer channel.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE',
       '--findings-count', '1', '--carriage-object-id', r.oid(r.draft), nonce=True)
@@ -16170,7 +16170,7 @@ def _row792_pass_cap(r):
     for i in range(issue_audit_state._FINAL_BYTE_PASS_CAP):
         assert_eq(f"#792 AC98: pass {i + 1} of the cap is offerable",
                   0, r.offer(accepted=True).returncode)
-        _rd = r('record-dispatch', r.slug, '--round', str(i + 2), '--arm', 'file',
+        _rd = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(i + 2), '--arm', 'file',
                 '--draft-file', r.draft, nonce=True)
         assert_eq(f"#792 AC98: pass {i + 1} dispatches, funded by the dedicated slot",
                   0, _rd.returncode)
@@ -16202,15 +16202,15 @@ _with_run792(_row792_pass_cap)
 def _row792_refund(r):
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)          # no --verdict
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline',
       '--draft-file', r.draft, stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     closed = r('record-return', r.slug, '--round', '2', nonce=True)
     assert_eq("#792 AC85 precondition: the pass round closed verdict-less",
@@ -16233,7 +16233,7 @@ def _row792_refund(r):
     # `doc['rounds']` and the replacement dispatch was hard-refused as unfunded.
     assert_eq("#792 AC85: the refunded pass can be re-accepted",
               0, r.offer(accepted=True).returncode)
-    _d3 = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    _d3 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
             '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC85: ... and the round it funds actually DISPATCHES — a refund that "
               "re-arms the offer but not its funding is an offer no accepted round could honour",
@@ -16255,23 +16255,23 @@ def _row792_refund_at_ceiling(r):
     r('record-override', r.slug, '--kind', 'cap-reached', '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC101 precondition: the pass is accepted at the user-round ceiling under a "
               "cap-reached override", 0, r.offer(accepted=True).returncode)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     # Degrade round 2 to a verdict-less close through the documented escalation.
     r('record-return', r.slug, '--round', '2', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     assert_eq("#792 precondition: the pass round closed verdict-less",
               True, 'outcome=no-verdict' in r('record-return', r.slug, '--round', '2',
                                               nonce=True).stdout)
     assert_eq("#792 AC85/AC101: the refunded pass is re-accepted at the ceiling",
               0, r.offer(accepted=True).returncode)
-    _d = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    _d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC85/AC101: ... and DISPATCHES with no user round available to close a "
               "funding gap — the state the dedicated slot exists for",
@@ -16354,7 +16354,7 @@ def _row792_no_double_funding(r):
                              encoding='utf-8')
     assert_eq("#792 AC103 precondition: the offer is accepted over a REVISE-latest run",
               0, r.offer(accepted=True).returncode)
-    d2 = r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    d2 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC103: the pass round dispatches, funded by the dedicated slot",
               0, d2.returncode)
@@ -16364,7 +16364,7 @@ def _row792_no_double_funding(r):
               0, state.get('automatic_reaudits_used', 0))
     r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
       '--carriage-object-id', r.oid(r.draft), nonce=True)
-    d3 = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    d3 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC104: a further unfunded round is still refused after the pass",
               True, d3.returncode != 0)
@@ -16404,7 +16404,7 @@ def _row792_selectors_exclude_pass(r, pass_verdict='REVISE'):
               "unestablished-vs-unestablished",
               True, before_cal != 'calibration_backing=unestablished')
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', pass_verdict,
       '--findings-count', '0' if pass_verdict == 'FILE' else '1',
@@ -16435,7 +16435,7 @@ def _row792_pass_then_edit(r):
     # round through the existing file-arm machinery. Dispatching it without them records steering
     # as `inputs-unrecorded`, and the axis then reports `uncovered` no matter what verdict comes
     # back: an accepted pass could never make the bytes `covered`, which is the entire mechanism.
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file', '--draft-file', r.draft,
       '--instructions-file', r.instr, '--instructions-draft-path', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
       '--carriage-object-id', r.oid(r.draft),
@@ -16469,7 +16469,7 @@ def _row792_post_adjudication_fields(r):
     assert_eq("#792 AC112 precondition: the whole-draft round's adjudication renders",
               True, 'adjudicated_verdict=REVISE must_revise=2' in r.summary())
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE', '--findings-count', '1',
       '--carriage-object-id', r.oid(r.draft), nonce=True)
@@ -16516,7 +16516,7 @@ def _row792_decline_clears_pending(r):
     assert_eq("#792 iter2: the decline records", 0, r.offer(accepted=False).returncode)
     # The next ordinary round, funded through record-offer — nothing to do with the axis.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
@@ -16541,7 +16541,7 @@ def _row792_decline_retracts_grant(r):
     _dec = r.offer(accepted=False)
     assert_eq("#792 iter3: the decline RETRACTS the outstanding grant",
               True, 'grant=retracted' in _dec.stdout)
-    _d2 = r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    _d2 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
             '--draft-file', r.draft, nonce=True)
     assert_eq("#792 iter3: ... so no phantom round is funded — with no automatic budget, no "
               "user round and no live grant, the dispatch is refused",
@@ -16599,7 +16599,7 @@ def _row792_revision_retracts_outstanding_grant(r):
     assert_eq("#792 iter4 precondition: the revision records", 0, _rev.returncode)
     # The iterate loop then funds an ORDINARY round through record-offer.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
@@ -16665,15 +16665,15 @@ _with_run792(_row792_grant_ceiling)
 def _row792_refund_is_reported(r):
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     _closed = r('record-return', r.slug, '--round', '2', nonce=True)
     assert_eq("#792 iter2: the refund is REPORTED, naming the registered result token",
@@ -16704,7 +16704,7 @@ def _open_pass_round(r, n=2):
     """Arm the slot, open round `n` as the funded final-byte pass, and return its digest."""
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
     rnd = [x for x in doc['rounds'] if x['round'] == n][0]
@@ -16719,12 +16719,12 @@ def _open_pass_round(r, n=2):
 def _degrade_to_unhonoured(r, n=2):
     """Close round `n` verdict-less through the no-parseable-verdict/inline degradation."""
     for _ in range(2):
-        r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+        r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'file',
           '--draft-file', r.draft, nonce=True)
         r('record-return', r.slug, '--round', str(n), nonce=True)
     r('record-degraded', r.slug, '--round', str(n), '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     return r('record-return', r.slug, '--round', str(n), nonce=True)
 
@@ -17998,7 +17998,7 @@ class _Run795:
         return Path(self.tmp, '.devflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
 
     def open_round(self, n=1):
-        return self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+        return self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
                     '--draft-file', 'd.md', nonce=True)
 
 

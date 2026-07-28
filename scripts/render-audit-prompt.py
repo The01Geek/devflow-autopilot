@@ -18,8 +18,19 @@ Contract (issue #600):
   forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
-  and — in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
-  draft file, read solely to lift its ``# `` title heading. Writing the rendered
+  in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
+  draft file, read solely to lift its ``# `` title heading; and — on a
+  ``targeted`` round only (issue #793) — the round's FROZEN dispatch-scope file,
+  named on this module's command line and never discovered. That last read is a
+  deliberate, disclosed NARROWING of "reads no run state", stated here rather
+  than cited as still-intact: the scope file is written by the state owner and
+  its path AND content digest are both recorded on the dispatch attempt, so the
+  bytes this module reads are frozen at dispatch and cannot move afterwards.
+  That is what preserves the property the no-state rule actually protects —
+  determinism over a closed recorded tuple — while the literal claim of reading
+  no state no longer holds. Reading the LIVE ledger instead would break it twice
+  over: post-close status mutations would give the return-time regeneration a
+  different ledger than dispatch saw, so every scoped round would diverge. Writing the rendered
   dispatch instructions to disk is the ORCHESTRATOR's job, never this script's:
   the no-write half of this contract is what keeps the module a pure function of
   its inputs, which is in turn what lets ``issue-audit-state.py`` regenerate the
@@ -116,6 +127,17 @@ _DISPATCH_ARMS = ("file", "embed", "inline")
 # blocks. It is deliberately NOT a member of _DISPATCH_ARMS: those name the audit
 # arms the state owner routes, and `di` selects a different artifact entirely.
 _INSTRUCTIONS_TOKEN = "di"
+# issue #793: the template block-selection token for the `targeted` round-kind block —
+# the per-claim verdict contract, the changed-section scope, and the out-of-scope
+# observation channel. Like `di` it is deliberately NOT a member of `_DISPATCH_ARMS`: it
+# selects an additional span spliced into the dispatch instructions on a scoped round,
+# not an audit arm.
+_TARGETED_TOKEN = "tg"
+# The dispatch-scope file's format marker, written by `issue-audit-state.py`'s
+# `render_dispatch_scope`. A coupled literal: this module refuses to parse a file that
+# does not open with it, so a payload in some other shape can never be spliced into an
+# auditor prompt as though it were the tool's own.
+_SCOPE_MARKER = "<!-- devflow:dispatch-scope v1 -->"
 # Extraction hooks map to the two consumer section headings they forward.
 _HOOKS = {
     "audit-dimensions": "## Audit dimensions",
@@ -718,12 +740,74 @@ def draft_title(text: str) -> str:
     raise RenderError("the draft file is empty, so it carries no title heading")
 
 
+def parse_scope(scope_text: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """Read a frozen dispatch-scope file into ``(sections, claims)`` (issue #793).
+
+    The producer is ``issue-audit-state.py``'s ``render_dispatch_scope``, and the shape is
+    machine-written and machine-read, so anything outside it is a tampered or foreign
+    artifact rather than a dialect to accommodate — ``RenderError`` on every such shape.
+
+    Note what this function deliberately does NOT do: it applies no identity-data floor.
+    The floor lives at the single write site in the state owner, because this module
+    imports stdlib only and the module dependency runs state-owner -> renderer, so the
+    closed protocol-token vocabulary cannot be shared by import and must not be duplicated
+    into a second, unlocked copy here. A summary carrying a forged protocol token is
+    refused BEFORE it ever reaches this parser.
+    """
+    lines = scope_text.splitlines()
+    if not lines or lines[0] != _SCOPE_MARKER:
+        raise RenderError("the dispatch-scope file does not open with its format marker")
+    sections: list[str] = []
+    claims: list[tuple[str, str]] = []
+    mode = None
+    for line in lines[1:]:
+        if line.startswith("basis_digest: "):
+            continue
+        if line == "sections:":
+            mode = "sections"
+        elif line == "claims:":
+            mode = "claims"
+        elif line.startswith("- ") and mode == "sections":
+            sections.append(line[2:])
+        elif line.startswith("- ") and mode == "claims":
+            cid, _, summary = line[2:].partition(" — ")
+            claims.append((cid, summary))
+        elif line.strip():
+            raise RenderError(f"unrecognized dispatch-scope line: {line!r}")
+    if not claims:
+        # The vacuous-pass refusal. A scoped round over an empty claim set would return
+        # "every claim addressed" having checked nothing, and that answer then selects a
+        # confirming round and reads as a converging run. Refused here as well as at the
+        # write site: this one stops a HAND-MADE scope file from rendering.
+        raise RenderError(
+            "the dispatch-scope file enumerates no claims; a targeted round over an empty "
+            "claim set would pass vacuously (empty-claim-set)")
+    return sections, claims
+
+
+def _render_scope_slots(sections: list[str], claims: list[tuple[str, str]]) -> dict:
+    """The two substituted payloads a `targeted` block carries (issue #793).
+
+    Claims travel as id plus one-line summary and NOTHING else — no status, no severity,
+    no disposition, no prior verdict, no rationale, no evidence. The auditor learns what to
+    CHECK, never what was CONCLUDED. Because the parser above only ever produces those two
+    fields, this renderer is structurally unable to emit a withheld one: there is no
+    variable here holding it.
+    """
+    return {
+        "{SCOPE_CLAIMS}": "\n".join(f"- {cid} — {summary}" for cid, summary in claims),
+        "{SCOPE_SECTIONS}": (
+            "\n".join(f"- {s}" for s in sections) if sections else "- (none recorded)"),
+    }
+
+
 def render_instructions(
     template_path: Path,
     slug: str,
     draft_path: str,
     instructions_path: str,
     draft_text: str,
+    scope_text: str | None = None,
 ) -> str:
     """Render the canonical file-arm audit-DISPATCH instructions (issue #709).
 
@@ -760,6 +844,21 @@ def render_instructions(
         "{DRAFT_TITLE}": draft_title(draft_text),
     }
     inner = _assemble(blocks, _INSTRUCTIONS_TOKEN, slots, template_path)
+    if scope_text is not None:
+        # issue #793 — a `targeted` round splices its frozen payload here, so the auditor
+        # reads ONE artifact (the instruction file) exactly as it always has. Nothing rides
+        # beside it: the scope file's own path is declared out of bounds, so the payload
+        # reaches the auditor only through this splice.
+        #
+        # Purity is preserved over the WIDENED tuple rather than abandoned: `scope_text` is
+        # the bytes of a file whose digest the dispatch recorded, so the same recorded
+        # inputs still produce the same output bytes. `scope_text is None` renders exactly
+        # the pre-#793 string, which is what makes every already-recorded discovery round
+        # regenerate byte-identically.
+        sections, claims = parse_scope(scope_text)
+        scope_slots = dict(slots)
+        scope_slots.update(_render_scope_slots(sections, claims))
+        inner += "\n\n" + _assemble(blocks, _TARGETED_TOKEN, scope_slots, template_path)
     return (
         f"{INSTRUCTIONS_PREFIX} {INSTRUCTIONS_VERSION}\n{inner}\n{END_MARKER}"
     )
@@ -1237,6 +1336,11 @@ def build_parser() -> argparse.ArgumentParser:
     # rendered INTO the instructions (the auditor is told which file to hash), so
     # it takes the same shape check as every other substituted path.
     parser.add_argument("--instructions-path", type=_abs_path)
+    # issue #793: the round's FROZEN dispatch-scope file, on a `targeted` round only. It is
+    # named on the command line and never discovered, and the state owner records both its
+    # path and its content digest on the dispatch attempt, so the bytes read here are the
+    # bytes that round froze.
+    parser.add_argument("--scope-file", type=_abs_path)
     parser.add_argument("--sentinel-open", type=_sentinel)
     parser.add_argument("--sentinel-close", type=_sentinel)
     parser.add_argument("--hook", choices=tuple(_HOOKS))
@@ -1329,12 +1433,26 @@ def main(argv: list[str]) -> int:
             # through to the shared `out + "\n"` tail below: `instructions_bytes` IS
             # the on-disk contract the state owner regenerates against, so this mode's
             # framing must come from that one function, never from a second site.
+            scope_text = None
+            if args.scope_file:
+                try:
+                    scope_text = Path(args.scope_file).read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError) as exc:
+                    # Same fail-closed reasoning as the draft read above: rendering a
+                    # scope-less instruction file for a round the tool selected as
+                    # `targeted` would hash cleanly while carrying no claims at all —
+                    # a vacuous pass with a valid-looking digest.
+                    raise RenderError(
+                        f"could not read the dispatch-scope file at "
+                        f"{args.scope_file}: {exc}"
+                    ) from exc
             rendered = instructions_bytes(
                 template_path,
                 args.slug,
                 args.draft_path,
                 args.instructions_path,
                 draft_text,
+                scope_text,
             ).decode("utf-8")
             sys.stdout.write(rendered)
             _emit_dispatch_pointer(rendered)
