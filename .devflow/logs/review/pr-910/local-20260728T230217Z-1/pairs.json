@@ -1,0 +1,394 @@
+{
+  "pairs": [
+    {
+      "item": {
+        "id": "VC-1",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-1-c7f80dadc0a8.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-10",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-10-db309282a2de.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-11",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-11-78ea37f9521c.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-12",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-12-cb2b666e0d7a.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-13",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-13-993b2570d3dd.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-16",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-16-d119200067eb.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-17",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-17-ff9f2c1a23fe.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-18",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-18-274ea7345d30.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-19",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-19-e533d1820cc2.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-2",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-2-e5478f147d88.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-20",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-20-c670fd73a17a.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-21",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-21-2d4444213786.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-22",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-22-efce15ae5b8b.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-23",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-23-abc1fd0fce09.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-24",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-24-dbf14d5baac2.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-25",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-25-2fa8ef0d4229.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-26",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-26-826af706d386.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-27",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-27-fd772ea90f01.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-28",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-28-e1a3d3969763.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-29",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-29-08c75ad54f12.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-3",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-3-957539938471.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-30",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-30-cc4288ff2b3c.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-31",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-31-54b6d9055a1f.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-32",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-32-71e076c46fbb.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-33",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-33-d5f41cca4fb9.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-34",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-34-3ff1d07cc438.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-35",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-35-03b1af85c7ab.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-36",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-36-0bd3a78c4748.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-37",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-37-0d858b4b2844.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-38",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-38-d3fa86a3fcc2.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-39",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-39-b8ef6a80611d.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-4",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-4-f6007a51a7e4.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-40",
+        "verification_mode": "agent",
+        "claim_provenance": "source_authored",
+        "source_excerpt": "unestablished   EVERY other state, each with its own named reason (never DENIED)"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-40-5b24791db989.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-41",
+        "verification_mode": "agent",
+        "claim_provenance": "source_authored",
+        "source_excerpt": "This job's prompt instructs NO orchestrator write, so a Write record in its execution file has exactly one EXPECTED author (the subagent)."
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-41-5cbb62fb3398.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-42",
+        "verification_mode": "agent",
+        "claim_provenance": "source_authored",
+        "source_excerpt": "An unrecognised scenario name must FAIL the build (rc != 0), not silently produce an empty fixture."
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-42-d147f176be7d.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-43",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-43-aa482af93175.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-44",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-44-a7db7b47f712.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-45",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-45-71a72917b9e5.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-5",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-5-da5707d3edf9.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-6",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-6-8b109e5fed60.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-7",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-7-66a251508096.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-8",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-8-b12ee22ee005.json",
+      "response_text": ""
+    },
+    {
+      "item": {
+        "id": "VC-9",
+        "verification_mode": "agent",
+        "claim_provenance": "generated_paraphrase"
+      },
+      "verdict_path": ".devflow/tmp/review/pr-910/local-20260728T230217Z-1/verdicts/iter-1/VC-9-0aa4e291ed3c.json",
+      "response_text": ""
+    }
+  ]
+}
