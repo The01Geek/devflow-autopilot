@@ -15331,17 +15331,29 @@ def _sdw(*argv, stdin=None):
                            capture_output=True)
 
 
+def _sdw_stage(base, data):
+    """Drive `stage` and return `(digest, resolved_path, completed_process)`.
+
+    Issue #793 made `--path` a BASE that `stage` completes with the staged bytes' digest,
+    so every row below reads the artifact back from the RESOLVED path this reports rather
+    than from the base it passed in — a base-path read would now name a file that does not
+    exist, and reconciling these rows is part of that change, not a separate cleanup.
+    """
+    r = _sdw('stage', '--path', base, stdin=data)
+    toks = dict(t.split('=', 1) for t in r.stdout.decode().split() if '=' in t)
+    return toks.get('digest'), toks.get('path'), r
+
+
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 'issue-draft-x.NONCE.staged.md')
+    _base = str(Path(_t705) / 'issue-draft-x.NONCE.staged.md')
     _canon = str(Path(_t705) / 'issue-draft-x.md')
     _bytes = b'# Title\n\nbody bytes\n'
     # stage: atomic landing + printed digest.
-    _r = _sdw('stage', '--path', _staged, stdin=_bytes)
+    _dig, _staged, _r = _sdw_stage(_base, _bytes)
     assert_eq("#705/AC19 stage: lands bytes and prints the digest (exit 0)",
               (0, True), (_r.returncode, _r.stdout.startswith(b'digest=')))
     assert_eq("#705/AC19 stage: the staged artifact holds exactly the intended bytes",
               _bytes, Path(_staged).read_bytes())
-    _dig = _r.stdout.decode().strip().split('=', 1)[1]
     assert_eq("#705/AC19 stage: no residual temp sibling remains on success", [],
               [n for n in os.listdir(_t705) if n.endswith('.tmp')])
     # emit: byte-exact stdout, including trailing bytes.
@@ -15373,18 +15385,18 @@ with tempfile.TemporaryDirectory() as _t705:
 # apply stage-mode atomicity: a stage over an existing artifact leaves it holding exactly
 # one of the two whole byte sequences, never a mixture.
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _sdw('stage', '--path', _staged, stdin=b'first whole copy\n')
-    _sdw('stage', '--path', _staged, stdin=b'second entirely different whole copy\n')
+    _base = str(Path(_t705) / 's.NONCE.staged.md')
+    _sdw_stage(_base, b'first whole copy\n')
+    _, _staged2, _ = _sdw_stage(_base, b'second entirely different whole copy\n')
     assert_eq("#705/AC12 stage: a re-stage lands the whole new bytes (atomic, never a mixture)",
-              b'second entirely different whole copy\n', Path(_staged).read_bytes())
+              b'second entirely different whole copy\n', Path(_staged2).read_bytes())
 
 # emit byte-exactness with a NON-newline-terminated payload (the trailing-byte case): emit
 # and the --no-filters digest must be byte-transparent, never newline-normalizing.
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _base = str(Path(_t705) / 's.NONCE.staged.md')
     _no_nl = b'# Title\n\nbody with no trailing newline'
-    _sdw('stage', '--path', _staged, stdin=_no_nl)
+    _, _staged, _ = _sdw_stage(_base, _no_nl)
     _r = _sdw('emit', '--path', _staged)
     assert_eq("#705/AC19 emit: byte-exact for a payload with no trailing newline",
               (0, _no_nl), (_r.returncode, _r.stdout))
@@ -15393,8 +15405,7 @@ with tempfile.TemporaryDirectory() as _t705:
 # artifact intact for the recovery arm to read back. The parent dir is made unwritable so
 # _atomic_write's mkstemp raises (mirrors run.sh's chmod-555 unpersistable fixture).
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _dig = _sdw('stage', '--path', _staged, stdin=b'body\n').stdout.decode().strip().split('=', 1)[1]
+    _dig, _staged, _ = _sdw_stage(str(Path(_t705) / 's.NONCE.staged.md'), b'body\n')
     _rodir = Path(_t705) / 'ro'
     _rodir.mkdir()
     _canon = str(_rodir / 'c.md')
@@ -15427,8 +15438,7 @@ with tempfile.TemporaryDirectory() as _t705:
     # a real staged artifact whose digest does not match the declared expectation: the refusal
     # names reason=staged-digest-mismatch (distinct from a post-replace landed mismatch) and
     # leaves the canonical file untouched.
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _sdw('stage', '--path', _staged, stdin=b'real staged bytes\n')
+    _, _staged, _ = _sdw_stage(str(Path(_t705) / 's.NONCE.staged.md'), b'real staged bytes\n')
     _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', '0' * 40)
     assert_eq("#705/AC12 T5: the staged-digest-mismatch refusal names its reason token, canonical untouched",
               (True, b'ORIG\n'), (b'reason=staged-digest-mismatch' in _r.stdout, Path(_canon).read_bytes()))
@@ -18619,6 +18629,114 @@ assert_eq("#793: the selector answers the basis digest of the canonical bytes th
           "changed-section set was computed from",
           True,
           isinstance(_793_ok.get('basis_digest'), str) and len(_793_ok['basis_digest']) == 40)
+
+# ── issue #793: the durable byte history — `stage --path` is a BASE ────────────────────
+# The delta a `targeted` round is scoped by has no operand without a per-revision byte
+# history, so `stage` completes the caller's base path with the staged bytes' own digest.
+# The caller cannot compose that leaf itself: the digest is computed from stdin INSIDE
+# `stage`, and each shell fence is a fresh process.
+
+def _793_stage_path(out):
+    """The resolved path `stage` reported, read from its stdout."""
+    for tok in out.decode().split():
+        if tok.startswith('path='):
+            return tok.split('=', 1)[1]
+    return None
+
+
+with tempfile.TemporaryDirectory() as _t793:
+    _base = str(Path(_t793) / 'issue-draft-x.NONCE.staged.md')
+    _b1 = b'# Title\n\nfirst bytes\n'
+    _b2 = b'# Title\n\nsecond bytes\n'
+    _r = _sdw('stage', '--path', _base, stdin=_b1)
+    _p1 = _793_stage_path(_r.stdout)
+    assert_eq("#793: stage reports the RESOLVED path alongside the digest",
+              (0, True), (_r.returncode, _p1 is not None))
+    assert_eq("#793: the resolved path carries BOTH this run's nonce and the staged digest",
+              True,
+              _p1 is not None and 'NONCE' in Path(_p1).name
+              and _r.stdout.decode().split('digest=', 1)[1].split()[0] in Path(_p1).name)
+    assert_eq("#793: the resolved leaf keeps the .staged.md suffix the enumeration globs on",
+              True, _p1 is not None and _p1.endswith('.staged.md'))
+    assert_eq("#793: the bytes land at the resolved path, not at the caller's base",
+              (_b1, False), (Path(_p1).read_bytes(), Path(_base).exists()))
+    _r2 = _sdw('stage', '--path', _base, stdin=_b2)
+    _p2 = _793_stage_path(_r2.stdout)
+    assert_eq("#793: a second stage of DIFFERENT bytes leaves the first artifact readable "
+              "at its own path",
+              (_b1, _b2, True),
+              (Path(_p1).read_bytes(), Path(_p2).read_bytes(), _p1 != _p2))
+    _r3 = _sdw('stage', '--path', _base, stdin=_b1)
+    assert_eq("#793: re-staging byte-identical content resolves to the SAME path",
+              _p1, _793_stage_path(_r3.stdout))
+    assert_eq("#793: ... leaving exactly one artifact for that byte state",
+              2, len([n for n in os.listdir(_t793) if n.endswith('.staged.md')]))
+    assert_eq("#793: emit reads the resolved path back byte-exactly",
+              (0, _b1), (lambda r: (r.returncode, r.stdout))(_sdw('emit', '--path', _p1)))
+    _r = _sdw('stage', '--path', str(Path(_t793) / 'not-a-staging-base.md'), stdin=_b1)
+    assert_eq("#793: a base that is not a .staged.md path is refused rather than silently "
+              "composing an unrecognizable leaf",
+              True, _r.returncode != 0 and b'staged.md' in _r.stderr)
+
+# ── issue #793: the resolved staging path is recorded DURABLY ──────────────────────────
+# An interrupted or compacted turn must recover the artifact's name from recorded state,
+# never from the staging turn's stdout — which is exactly what the write-failure recovery
+# arm needs after the turn that computed the path is gone.
+
+def _793_ias(tmp, *argv, stdin=None):
+    return _subprocess.run([sys.executable, _IAS603, *argv], cwd=tmp, input=stdin,
+                           capture_output=True, text=True)
+
+
+with tempfile.TemporaryDirectory() as _t793b:
+    _p793 = _write_state705(_t793b, 's793', 'N793', [_round705(1, 'file')])
+    _base793 = str(Path(_t793b) / '.devflow' / 'tmp' / 'issue-draft-s793.N793.staged.md')
+    _dA, _pA, _ = _sdw_stage(_base793, b'# T\n\n## A\n\nfirst\n')
+    _r = _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+                  '--path', _pA, '--digest', _dA)
+    assert_eq("#793: record-staged-write records the resolved path and its digest (exit 0)",
+              (0, True), (_r.returncode, 'staged_write=' in _r.stdout))
+    assert_eq("#793: ... durably, so a later fence reads the artifact name from state",
+              [{'path': _pA, 'digest': _dA}],
+              json.loads(Path(_p793).read_text(encoding='utf-8')).get('staged_paths'))
+
+    # The stage → NEW FENCE → emit → apply round-trip: the staging turn's stdout is
+    # discarded entirely and the artifact is resolved from recorded state alone.
+    _r = _793_ias(_t793b, 'query-staged-write', 's793', '--nonce', 'N793', '--digest', _dA)
+    _resolved = _r.stdout.split('staged_write=', 1)[1].split()[0]
+    assert_eq("#793: query-staged-write resolves the artifact from recorded state alone",
+              (0, _pA), (_r.returncode, _resolved))
+    assert_eq("#793: ... and emit reads those bytes back through the state-resolved path",
+              (0, b'# T\n\n## A\n\nfirst\n'),
+              (lambda r: (r.returncode, r.stdout))(_sdw('emit', '--path', _resolved)))
+
+    # A run holding SEVERAL staged artifacts resolves the one that write recorded, never
+    # the newest on disk — the recovery arm's whole distinction.
+    _dB, _pB, _ = _sdw_stage(_base793, b'# T\n\n## A\n\nsecond\n')
+    _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+             '--path', _pB, '--digest', _dB)
+    _r = _793_ias(_t793b, 'query-staged-write', 's793', '--nonce', 'N793', '--digest', _dA)
+    assert_eq("#793: with several artifacts recorded, the digest names WHICH one — not the "
+              "newest on disk",
+              _pA, _r.stdout.split('staged_write=', 1)[1].split()[0])
+    assert_eq("#793: an unrecorded digest answers none rather than guessing an artifact",
+              True,
+              'staged_write=none' in _793_ias(_t793b, 'query-staged-write', 's793',
+                                              '--nonce', 'N793',
+                                              '--digest', '0' * 40).stdout)
+    # Re-recording the same pair is idempotent: the history is a set of byte states, and a
+    # replayed record must not make one byte state look like two revisions.
+    _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+             '--path', _pA, '--digest', _dA)
+    assert_eq("#793: re-recording the same (path, digest) pair is idempotent",
+              2, len(json.loads(Path(_p793).read_text(encoding='utf-8'))['staged_paths']))
+    # The recorded digest must DESCRIBE the artifact: a mismatched pair is the one operand
+    # a delta must never be computed from, so it is refused at the write boundary.
+    _r = _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+                  '--path', _pA, '--digest', '1' * 40)
+    assert_eq("#793: a digest that does not describe the artifact is refused, named",
+              (True, True),
+              (_r.returncode != 0, 'staged-digest-mismatch' in _r.stderr))
 
 assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
           ('discovery', 'empty-claim-set'),

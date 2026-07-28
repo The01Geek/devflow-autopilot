@@ -6385,6 +6385,95 @@ def cmd_record_draft_binding(args):
           f'non_bound_root={b["non_bound_root"] or "none"}')
 
 
+def cmd_record_staged_write(args):
+    """Record the RESOLVED path a `stage` landed at, durably (issue #793).
+
+    `stage --path` is a base the helper completes with the staged bytes' digest, so the
+    resolved leaf is known only to the process that computed it. That is fine within one
+    turn and useless across turns — and the two things this run needs it for both happen
+    across turns: the write-failure recovery arm must name the artifact to re-apply from
+    after an interruption, and `select_round_kind` must reconstruct a round's dispatch
+    bytes from the byte history. Recording it here is what makes the name survive a
+    compaction, an interruption, and the death of the turn that produced it.
+
+    The recorded digest must DESCRIBE the artifact, so it is re-derived from the file's
+    own bytes and compared before anything is written. A pair recorded without that check
+    is the one operand a changed-section delta must never be computed from: the delta's
+    "before" side would be bytes nobody verified, and a wrong before-side points the
+    auditor at regions the revision never touched while every downstream check still
+    passes. This mirrors `apply`'s own `staged-digest-mismatch` refusal rather than
+    inventing a second vocabulary for the same disagreement.
+
+    Recording is idempotent on the `(path, digest)` pair: the history is a set of byte
+    states, and a replayed record must not make one byte state read as two revisions.
+    """
+    doc = _load_for_mutation('record-staged-write', args.slug, args.nonce)
+    if not _is_bound_path(args.path):
+        _fail('record-staged-write',
+              f'the staged path {args.path!r} is not a non-empty absolute path free of '
+              'newline/carriage-return bytes (staged-path-not-absolute)')
+    try:
+        data = Path(args.path).read_bytes()
+    except OSError as exc:
+        _fail('record-staged-write',
+              f'could not read the staging artifact {args.path}: {exc} '
+              '(staged-artifact-unreadable)')
+    try:
+        actual = hash_bytes(data)
+    except _DigestError as exc:
+        _fail('record-staged-write', str(exc))
+    if actual != args.digest:
+        _fail('record-staged-write',
+              f'the declared digest {args.digest!r} does not describe the bytes at '
+              f'{args.path!r} (which hash to {actual!r}) (staged-digest-mismatch): the '
+              'byte history is what a scoped round diffs against, so a pair that does not '
+              'agree would compute a delta from bytes nobody verified')
+    history = doc.setdefault('staged_paths', [])
+    rec = {'path': args.path, 'digest': args.digest}
+    if rec not in history:
+        history.append(rec)
+    try:
+        save_state(doc, args.slug)
+    except StateError as exc:
+        _fail('record-staged-write', str(exc))
+    print(f'staged_write={args.path} digest={args.digest} recorded={len(history)}')
+
+
+def cmd_query_staged_write(args):
+    """Resolve a recorded staging artifact from state alone (issue #793).
+
+    With `--digest`, answers the artifact recorded for THOSE bytes; without it, the newest
+    recorded one. The digest form is what the write-failure recovery arm uses: a run
+    holding several staged artifacts must re-apply the one that write recorded, not the
+    newest on disk, and the revision's own recorded `stdin_digest` is precisely the value
+    that names it.
+
+    An unrecorded digest answers `none`. It never falls back to the newest artifact — a
+    recovery arm handed the wrong bytes would replace the canonical file with a draft state
+    the run never intended, which is worse than reporting that it cannot resolve one.
+    """
+    state = _query_state(args.slug)
+    if state is None:
+        print('staged_write=none digest=none reason=state-unestablished')
+        return
+    if state.get('nonce') != args.nonce:
+        print('staged_write=none digest=none reason=foreign-nonce')
+        return
+    history = _staged_artifacts(state)
+    if not history:
+        print('staged_write=none digest=none reason=no-staged-write-recorded')
+        return
+    if args.digest:
+        for dig, path in history:
+            if dig == args.digest:
+                print(f'staged_write={path} digest={dig}')
+                return
+        print('staged_write=none digest=none reason=digest-not-recorded')
+        return
+    dig, path = history[-1]
+    print(f'staged_write={path} digest={dig}')
+
+
 def cmd_record_write_failure(args):
     """Record a canonical-draft overwrite that failed to land at the bound path (#562).
 
@@ -7892,6 +7981,30 @@ def build_parser():
                         'empty, when it carries a newline or carriage return, or when it '
                         'carries a protocol `<field>=` token.')
     s.set_defaults(func=cmd_record_invalidate)
+
+    s = sub.add_parser('record-staged-write',
+                       help='Record the RESOLVED path a stage landed at, durably (#793), so '
+                            'a later turn recovers the artifact name from state rather than '
+                            'from the staging turn stdout.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--path', required=True,
+                   help='The RESOLVED staging artifact path stage reported (absolute).')
+    s.add_argument('--digest', required=True,
+                   help='The staged bytes object id stage reported. Re-derived from the '
+                        'artifact and refused when it does not describe those bytes.')
+    s.set_defaults(func=cmd_record_staged_write)
+
+    s = sub.add_parser('query-staged-write',
+                       help='Resolve a recorded staging artifact from state alone (#793): '
+                            'with --digest the artifact recorded for those bytes, otherwise '
+                            'the newest recorded one. Prints staged_write=<path>|none.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--digest',
+                   help='Resolve the artifact recorded for these bytes (the revision '
+                        'stdin_digest on the recovery arm). Omit for the newest recorded.')
+    s.set_defaults(func=cmd_query_staged_write)
 
     s = sub.add_parser('record-draft-binding',
                        help='Record the tiered canonical-draft-root binding, once per run '

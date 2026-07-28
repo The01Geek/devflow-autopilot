@@ -16,17 +16,31 @@ THREE MODES, one process each (each ```bash fence is a fresh shell, so a digest 
 one statement does not survive into a later one — the replace and its verification therefore
 happen in the SAME process):
 
-  * ``stage --path P`` — read the intended bytes on stdin and land them at the staging path
-    P atomically, through a temporary sibling and an ``os.replace`` rename, so no transport
-    outside this helper decides whether a staging write is atomic and an interrupted staging
-    write leaves the previous complete staged copy intact. Prints ``digest=<oid>``.
+  * ``stage --path B`` — read the intended bytes on stdin, COMPLETE the staging BASE B with
+    those bytes' own digest, and land them at the resolved path atomically, through a
+    temporary sibling and an ``os.replace`` rename, so no transport outside this helper
+    decides whether a staging write is atomic and an interrupted staging write leaves the
+    previous complete staged copy intact. Prints ``digest=<oid> path=<resolved>``.
+
+    B is a BASE and not the final path (issue #793): the digest is computed from stdin
+    inside this process and each ``bash`` fence is a fresh one, so no caller can compose
+    the leaf. Content addressing is what turns the artifact into a durable byte HISTORY —
+    a second stage of different bytes lands BESIDE the first rather than overwriting it,
+    which is the only operand a later round's changed-section delta has. Re-staging
+    byte-identical content resolves to the same path, so that byte state keeps exactly one
+    artifact. The nonce stays in the leaf so the write-failure recovery arm can still name
+    the artifact after an interruption, and every resolved path is recorded durably by
+    ``issue-audit-state.py record-staged-write``.
 
   * ``emit --path P`` — write the staging artifact's bytes byte-exactly to stdout, exiting
     non-zero on an artifact that is absent or unreadable. It is the heredoc-free transport
     that carries staged bytes into ``issue-audit-state.py record-revision --stdin-digest``.
+    P is the RESOLVED path ``stage`` reported (or the one read back from recorded state),
+    never the base.
 
   * ``apply --staged S --canonical C --expect-digest D`` — replace the canonical file C from
-    the staging artifact S and report whether the result agrees with the caller's DECLARED
+    the staging artifact S (again the RESOLVED path) and report whether the result agrees
+    with the caller's DECLARED
     expectation D. It COPIES S to a temporary sibling of C and ``os.replace``s that temporary
     onto C (a rename within a filesystem never exposes a partially-written canonical file the
     way a truncate-and-write does), and it NEVER renames the staging artifact itself, so S
@@ -129,8 +143,51 @@ def _atomic_write(target, data, mode):
         _fail(mode, f'could not land bytes at {target}: {exc}')
 
 
+_STAGED_SUFFIX = '.staged.md'
+
+
+def resolve_staged_path(base, digest, mode='stage'):
+    """Complete a staging BASE path with the staged bytes' digest (issue #793).
+
+    `<dir>/issue-draft-<slug>.<nonce>.staged.md` becomes
+    `<dir>/issue-draft-<slug>.<nonce>.<digest>.staged.md`.
+
+    The digest goes INSIDE the `.staged.md` suffix rather than after it because both audit
+    out-of-bounds enumerations glob staged artifacts on that suffix; appending the digest
+    after it would silently carry each new artifact OUT of a closed enumeration a later
+    round's auditor is bound by.
+
+    The nonce stays in the leaf, and that is load-bearing rather than vestigial: a purely
+    digest-derived path is known only to the turn that computed it, whereas the
+    write-failure recovery arm must name the artifact to re-apply from AFTER an
+    interruption. The nonce keeps the name run-scoped, and the state owner records each
+    resolved path durably so the arm reads it back from recorded state.
+
+    A base that does not end in the suffix is REFUSED rather than having the digest glued
+    on somewhere unpredictable: a leaf outside the enumerated glob is an artifact holding
+    this run's draft bytes that no out-of-bounds declaration covers.
+    """
+    if not str(base).endswith(_STAGED_SUFFIX):
+        _fail(mode, f'--path {base!r} is a staging BASE and must end in {_STAGED_SUFFIX!r}; '
+                    'this mode completes it with the staged bytes digest, and a leaf '
+                    'outside that suffix falls out of the audit out-of-bounds glob')
+    return str(base)[:-len(_STAGED_SUFFIX)] + '.' + digest + _STAGED_SUFFIX
+
+
 def cmd_stage(args):
-    """Read intended bytes on stdin and land them atomically at the staging path."""
+    """Read intended bytes on stdin and land them atomically at the RESOLVED staging path.
+
+    `--path` is a BASE, not the final artifact path: this mode completes it with the staged
+    bytes' own digest and reports the path it resolved to. A caller cannot compose that
+    leaf, because the digest is computed from stdin inside this process and each shell
+    fence is a fresh one.
+
+    Content addressing is what gives the run a durable byte HISTORY rather than a single
+    latest-bytes slot: a second stage of different bytes lands beside the first instead of
+    overwriting it, so a later round's delta has a "before" side to diff against. Re-staging
+    byte-identical content resolves to the same path and therefore leaves exactly one
+    artifact for that byte state — the rewrite is idempotent, not a duplicate.
+    """
     try:
         data = sys.stdin.buffer.read()
     except OSError as exc:
@@ -140,8 +197,12 @@ def cmd_stage(args):
     if not data:
         _fail('stage', 'no intended bytes were received on stdin')
     digest = _hash_bytes(data, 'stage')
-    _atomic_write(args.path, data, 'stage')
-    print(f'digest={digest}')
+    resolved = resolve_staged_path(args.path, digest, 'stage')
+    _atomic_write(resolved, data, 'stage')
+    # BOTH values are printed, and the path is what every later fence uses: `emit`,
+    # `apply` and the state owner's `record-staged-write` all take the RESOLVED path, so a
+    # caller that echoed only the digest would have nothing to name the artifact with.
+    print(f'digest={digest} path={resolved}')
 
 
 def cmd_emit(args):
@@ -189,14 +250,19 @@ def build_parser():
         description='Durable staged-write transport for the create-issue canonical draft (#705).')
     sub = p.add_subparsers(dest='mode', required=True)
 
-    s = sub.add_parser('stage', help='Read intended bytes on stdin; land them atomically at '
-                                     'the staging path. Prints digest=<oid>.')
+    s = sub.add_parser('stage', help='Read intended bytes on stdin; complete the staging base '
+                                     'with their digest and land them atomically at the '
+                                     'resolved path. Prints digest=<oid> path=<resolved>.')
     s.add_argument('--path', required=True,
-                   help='The staging artifact path (issue-draft-<slug>.<nonce>.staged.md).')
+                   help='The staging BASE (issue-draft-<slug>.<nonce>.staged.md). This mode '
+                        'completes it with the staged bytes digest and reports the resolved '
+                        'path; a base not ending in .staged.md is refused.')
     s.set_defaults(func=cmd_stage)
 
     s = sub.add_parser('emit', help='Write the staging artifact bytes byte-exactly to stdout.')
-    s.add_argument('--path', required=True, help='The staging artifact path to read.')
+    s.add_argument('--path', required=True,
+                   help='The RESOLVED staging artifact path to read (the path stage '
+                        'reported, or the one recorded state names).')
     s.set_defaults(func=cmd_emit)
 
     s = sub.add_parser('apply', help='Replace the canonical file from the staging artifact and '
