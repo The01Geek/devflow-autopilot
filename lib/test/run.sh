@@ -42378,7 +42378,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 245; then
+  "create-issue-contract" 240; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi
@@ -43272,7 +43272,7 @@ if [ -d "$IAS_SB" ]; then
     # subject. The generator runs under the SAME restricted PATH, which additionally
     # proves it derives nothing through a non-preflight PATH tool.
     IOID="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
-    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch --kind discovery rt --nonce "$NONCE" \
       --round 1 --arm file --draft-file draft.md \
       --instructions-file "$IAS_SB/instr-rt.md" \
       --instructions-draft-path "$IAS_SB/draft.md" > .rt-dispatch
@@ -43321,7 +43321,7 @@ LEDGER-EOF
     # Regenerate the instructions AFTER the revision: the generator reads the title from
     # the draft file, so a round must be established against the bytes it actually audits.
     IOID2="$(ias_instructions "$IAS_SB" rt draft.md "$RESTRICTED")"
-    PATH="$RESTRICTED" python3 "$IAS" record-dispatch rt --nonce "$NONCE" \
+    PATH="$RESTRICTED" python3 "$IAS" record-dispatch --kind discovery rt --nonce "$NONCE" \
       --round 2 --arm file --draft-file draft.md \
       --instructions-file "$IAS_SB/instr-rt.md" \
       --instructions-draft-path "$IAS_SB/draft.md" > /dev/null
@@ -43446,7 +43446,7 @@ for FILTER_MODE in autocrlf textauto; do
     # under the same filter config, which additionally proves the instruction-file hash
     # is filter-immune for the same reason the draft digest is.
     IOID="$(ias_instructions "$CRLF_SB" crlf draft.md)"
-    python3 "$IAS" record-dispatch crlf --nonce "$NONCE" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery crlf --nonce "$NONCE" --round 1 --arm file \
       --draft-file draft.md --instructions-file "$CRLF_SB/instr-crlf.md" \
       --instructions-draft-path "$CRLF_SB/draft.md" \
       | sed -n -E '1s/.*digest=([0-9a-f]+) body_digest.*/\1/p' > .crlf-dispatch
@@ -43546,7 +43546,7 @@ if [ -d "$RI_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nB\n' > d.md
     N="$(python3 "$IAS" init ri | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch ri --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery ri --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" init ri --nonce "$N" > .ri-unforced 2>&1 && printf 'EXITED-ZERO\n' >> .ri-unforced
     python3 "$IAS" init ri --nonce "$N" --force > /dev/null 2>&1
     python3 "$IAS" query-summary ri --nonce "$N" > .ri-forced
@@ -43633,7 +43633,7 @@ if [ -d "$EA_SB" ]; then
     printf '# T\n\nEmbed body.\n' > d.md
     N="$(python3 "$IAS" init ea < /dev/null | sed -n '1s/nonce=//p')"
     # The embed arm takes the draft bytes on stdin (there is no trustworthy file to point at).
-    D="$(python3 "$IAS" record-dispatch ea --nonce "$N" --round 1 --arm embed \
+    D="$(python3 "$IAS" record-dispatch --kind discovery ea --nonce "$N" --round 1 --arm embed \
            --marker digest-unrecorded < d.md)"
     # Carriage on this arm is the sentinel pair, not an object ID.
     SO="$(printf '%s' "$D" | tr ' ' '\n' | sed -n 's/^sentinel_open=//p')"
@@ -43691,7 +43691,7 @@ if [ -d "$CB_SB" ]; then
     # attestation, not the new gate. One generated instruction file serves every epoch
     # here — they all audit the same d.md bytes, and the generator is deterministic.
     IOID="$(ias_instructions "$CB_SB" cb d.md)"
-    python3 "$IAS" record-dispatch cb --nonce "$N" --round 1 --arm file --draft-file d.md \
+    python3 "$IAS" record-dispatch --kind discovery cb --nonce "$N" --round 1 --arm file --draft-file d.md \
       --instructions-file "$CB_SB/instr-cb.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
     OID="$(git hash-object --stdin --no-filters < d.md)"
     python3 "$IAS" record-return cb --nonce "$N" --round 1 --verdict FILE \
@@ -43709,7 +43709,7 @@ if [ -d "$CB_SB" ]; then
       # digest is the one the tool will reproduce (a cross-slug reuse would legitimately
       # mismatch — the out-of-bounds paths carry the slug).
       IOIDC="$(ias_instructions "$CB_SB" "cb$CASE" d.md)"
-      python3 "$IAS" record-dispatch "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md \
+      python3 "$IAS" record-dispatch --kind discovery "cb$CASE" --nonce "$NC" --round 1 --arm file --draft-file d.md \
         --instructions-file "$CB_SB/instr-cb$CASE.md" --instructions-draft-path "$CB_SB/d.md" > /dev/null
       python3 "$IAS" record-return "cb$CASE" --nonce "$NC" --round 1 --verdict FILE \
         --findings-count 0 --carriage-object-id "$OID" \
@@ -43749,7 +43749,7 @@ if [ -d "$OA_SB" ]; then
     for SLUG in oafix oaold; do
       printf '# T\n\nBody one.\n' > "d-$SLUG.md"
       NS="$(python3 "$IAS" init "$SLUG" | sed -n '1s/nonce=//p')"
-      python3 "$IAS" record-dispatch "$SLUG" --nonce "$NS" --round 1 --arm file \
+      python3 "$IAS" record-dispatch --kind discovery "$SLUG" --nonce "$NS" --round 1 --arm file \
         --draft-file "d-$SLUG.md" > /dev/null
       OID1="$(git hash-object --stdin --no-filters < "d-$SLUG.md")"
       # The audited round returns REVISE (not clean) on the original bytes.
@@ -43798,7 +43798,7 @@ if [ -d "$EB_SB" ]; then
     mkdir -p .devflow/tmp
     printf '# T\n\nB\n' > d.md
     N="$(python3 "$IAS" init eb | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch eb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery eb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
     OID="$(git hash-object --stdin --no-filters < d.md)"
     python3 "$IAS" record-return eb --nonce "$N" --round 1 --verdict REVISE \
       --findings-count 1 --carriage-object-id "$OID" > /dev/null
@@ -43846,7 +43846,7 @@ if [ -d "$NA_SB" ]; then
 
     # A clean FILE round proceeds.
     NF="$(python3 "$IAS" init nf | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch nf --nonce "$NF" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery nf --nonce "$NF" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return nf --nonce "$NF" --round 1 --verdict FILE \
       --findings-count 0 --carriage-object-id "$OID" > /dev/null
     python3 "$IAS" query-next-action nf --nonce "$NF" --round 1 > .na-file
@@ -43856,12 +43856,12 @@ if [ -d "$NA_SB" ]; then
     # arm) must NOT re-dispatch to the file arm again — it routes to the inline degraded arm,
     # which terminates the chain.
     NU="$(python3 "$IAS" init nu | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery nu --nonce "$NU" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE \
       --carriage-object-id "$OID" > /dev/null
     python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-1
     # The re-dispatch reuses the SAME round — no second round record.
-    python3 "$IAS" record-dispatch nu --nonce "$NU" --round 1 --arm embed \
+    python3 "$IAS" record-dispatch --kind discovery nu --nonce "$NU" --round 1 --arm embed \
       --marker file-unreadable < d.md > /dev/null
     python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE > /dev/null
     python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-2
@@ -43871,13 +43871,13 @@ if [ -d "$NA_SB" ]; then
     # The inline arm past both defined retries closes the round verdict-less rather than
     # looping — the termination invariant.
     NT="$(python3 "$IAS" init nt | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
     # first no-parseable -> retry the SAME arm; a second -> the inline degraded arm
     # (the retry-arm binding refuses a shortcut straight to inline)
-    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery nt --nonce "$NT" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return nt --nonce "$NT" --round 1 --carriage-object-id "$OID" > /dev/null
-    python3 "$IAS" record-dispatch nt --nonce "$NT" --round 1 --arm inline < d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery nt --nonce "$NT" --round 1 --arm inline < d.md > /dev/null
     python3 "$IAS" record-return nt --nonce "$NT" --round 1 > /dev/null
     python3 "$IAS" query-next-action nt --nonce "$NT" --round 1 > .na-terminal
 
@@ -43890,7 +43890,7 @@ if [ -d "$NA_SB" ]; then
       # Round 3 is past the automatic budget, so it must be FUNDED by an accepted
       # user-chosen offer first (the round-funding gate refuses an unfunded open).
       [ "$R" = 3 ] && python3 "$IAS" record-offer nb --nonce "$NB" --accepted > /dev/null
-      python3 "$IAS" record-dispatch nb --nonce "$NB" --round "$R" --arm file \
+      python3 "$IAS" record-dispatch --kind discovery nb --nonce "$NB" --round "$R" --arm file \
         --draft-file d.md > /dev/null
       python3 "$IAS" record-return nb --nonce "$NB" --round "$R" --verdict REVISE \
         --findings-count 1 --carriage-object-id "$OID" > /dev/null
@@ -43906,7 +43906,7 @@ if [ -d "$NA_SB" ]; then
     # retry flag was once set and read in one branch, so the first completion skipped the
     # same-arm retry entirely.
     NP="$(python3 "$IAS" init np | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch np --nonce "$NP" --round 1 --arm file --draft-file d.md > /dev/null
+    python3 "$IAS" record-dispatch --kind discovery np --nonce "$NP" --round 1 --arm file --draft-file d.md > /dev/null
     python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
     python3 "$IAS" query-next-action np --nonce "$NP" --round 1 > .na-npv-1
     python3 "$IAS" record-return np --nonce "$NP" --round 1 --carriage-object-id "$OID" > /dev/null
@@ -44011,14 +44011,14 @@ if [ -d "$IT_SB" ]; then
     python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict FILE \
       > .it-r1-out 2> .it-r1-err; printf '%s' "$?" > .it-r1-rc
 
-    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > .it-disp 2>&1
 
     # open round: next-action answers the fail-closed awaiting token, never proceed
     python3 "$IAS" query-next-action it --nonce "$N" --round 1 > .it-open-na 2>/dev/null
 
     # a second round cannot open while round 1 is still open
-    python3 "$IAS" record-dispatch it --nonce "$N" --round 2 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it --nonce "$N" --round 2 --arm file \
       --draft-file draft.md > /dev/null 2> .it-open-err; printf '%s' "$?" > .it-open-rc
 
     # revision with zero completed rounds is legal only after rounds exist; drive the
@@ -44040,9 +44040,9 @@ if [ -d "$IT_SB" ]; then
       --carriage-object-id "$OID" > /dev/null 2>&1
     python3 "$IAS" record-return it --nonce "$N" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2> .it-dup-err; printf '%s' "$?" > .it-dup-rc
-    python3 "$IAS" record-dispatch it --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2> .it-reopen-err; printf '%s' "$?" > .it-reopen-rc
-    python3 "$IAS" record-dispatch it --nonce "$N" --round 0 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it --nonce "$N" --round 0 --arm file \
       --draft-file draft.md > /dev/null 2> .it-ooo-err; printf '%s' "$?" > .it-ooo-rc
 
     # attestation-in-summary: with no creation epoch the summary reads attestation=none
@@ -44060,7 +44060,7 @@ if [ -d "$IT_SB" ]; then
     # carrying --findings-count must NOT record the tally; a later clean retry that
     # omits its own count leaves the summary at none, never the unproven 5
     N3="$(python3 "$IAS" init it3 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch it3 --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it3 --nonce "$N3" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it3 --nonce "$N3" --round 1 --verdict FILE \
       --findings-count 5 > /dev/null 2>&1   # no carriage id: refused, feeds retry accounting
@@ -44144,7 +44144,7 @@ if [ -d "$SR_SB" ]; then
 
     # embed-arm sentinel round-trip: dispatch on stdin, capture the tool-generated pair
     N="$(python3 "$IAS" init es | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch es --nonce "$N" --round 1 --arm embed \
+    python3 "$IAS" record-dispatch --kind discovery es --nonce "$N" --round 1 --arm embed \
       --marker write-failed < draft.md > .sr-disp 2>&1
     SO="$(sed -nE 's/.* sentinel_open=([^ ]+).*/\1/p' .sr-disp)"
     SC="$(sed -nE 's/.* sentinel_close=([^ ]+).*/\1/p' .sr-disp)"
@@ -44158,7 +44158,7 @@ if [ -d "$SR_SB" ]; then
 
     # record-override producer -> eligibility consumer round-trip (file-arm epoch)
     N2="$(python3 "$IAS" init ov | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch ov --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery ov --nonce "$N2" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     python3 "$IAS" record-return ov --nonce "$N2" --round 1 --verdict REVISE \
@@ -44183,7 +44183,7 @@ if [ -d "$SR_SB" ]; then
     # recorded-fact read-back: a file-arm DRAFT-UNREADABLE return, then query-arm
     # WITHOUT --prior-unreadable still routes embed/file-unreadable from state alone
     N3="$(python3 "$IAS" init rb | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rb --nonce "$N3" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return rb --nonce "$N3" --round 1 --verdict DRAFT-UNREADABLE \
       > /dev/null 2>&1
@@ -44191,7 +44191,7 @@ if [ -d "$SR_SB" ]; then
       --draft-file draft.md > .sr-rb-arm 2>/dev/null
     # pending-cleared-at-dispatch: record the embed retry dispatch, then next-action
     # answers the awaiting token, never the already-spent retry action
-    python3 "$IAS" record-dispatch rb --nonce "$N3" --round 1 --arm embed \
+    python3 "$IAS" record-dispatch --kind discovery rb --nonce "$N3" --round 1 --arm embed \
       --marker file-unreadable < draft.md > /dev/null 2>&1
     python3 "$IAS" query-next-action rb --nonce "$N3" --round 1 > .sr-rb-na 2>/dev/null
 
@@ -44239,7 +44239,7 @@ if [ -d "$I3_SB" ]; then
     OID="$(git hash-object --stdin --no-filters < draft.md)"
 
     N4="$(python3 "$IAS" init it4 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch it4 --nonce "$N4" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it4 --nonce "$N4" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it4 --nonce "$N4" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44255,7 +44255,7 @@ if [ -d "$I3_SB" ]; then
       --stdin-digest < draft.md > .i3-ar-ok 2>&1
 
     N5="$(python3 "$IAS" init it5 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch it5 --nonce "$N5" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it5 --nonce "$N5" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it5 --nonce "$N5" --round 1 --verdict FILE \
       --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44275,7 +44275,7 @@ if [ -d "$I3_SB" ]; then
     # path; once the preconditions landed they refused first, so the fixture had to gain
     # a completed round to keep reaching the guard it is written to pin.
     N6="$(python3 "$IAS" init it6 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch it6 --nonce "$N6" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery it6 --nonce "$N6" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return it6 --nonce "$N6" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44320,7 +44320,7 @@ if [ -d "$I4_SB" ]; then
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     N="$(python3 "$IAS" init i4 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch i4 --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i4 --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return i4 --nonce "$N" --round 1 --verdict FILE \
       --findings-count -1 --carriage-object-id "$OID" > /dev/null 2> .i4-neg; printf '%s' "$?" > .i4-neg-rc
@@ -44356,34 +44356,34 @@ if [ -d "$I5_SB" ]; then
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     N="$(python3 "$IAS" init i5 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5 --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     # unrequested re-dispatch on the open round refuses
-    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5 --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2> .i5-redisp; printf '%s' "$?" > .i5-redisp-rc
     python3 "$IAS" record-return i5 --nonce "$N" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
     # round 2 is the automatic re-audit (funded); round 3 unfunded refuses
-    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 2 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5 --nonce "$N" --round 2 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return i5 --nonce "$N" --round 2 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
-    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5 --nonce "$N" --round 3 --arm file \
       --draft-file draft.md > /dev/null 2> .i5-unfunded; printf '%s' "$?" > .i5-unfunded-rc
     # ... and an accepted offer funds it
     python3 "$IAS" record-offer i5 --nonce "$N" --accepted > /dev/null 2>&1
-    python3 "$IAS" record-dispatch i5 --nonce "$N" --round 3 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5 --nonce "$N" --round 3 --arm file \
       --draft-file draft.md > .i5-funded 2>&1; printf '%s' "$?" > .i5-funded-rc
 
     # embed dispatch without --marker refuses
     N2="$(python3 "$IAS" init i5b | sed -n '1s/nonce=//p')"
-    printf 'x\n' | python3 "$IAS" record-dispatch i5b --nonce "$N2" --round 1 \
+    printf 'x\n' | python3 "$IAS" record-dispatch --kind discovery i5b --nonce "$N2" --round 1 \
       --arm embed > /dev/null 2> .i5-nomark; printf '%s' "$?" > .i5-nomark-rc
 
     # no-digest-supplied: approve query with no --draft-file over a file-arm clean epoch
     N3="$(python3 "$IAS" init i5c | sed -n '1s/nonce=//p')"
     IOID_I5C="$(ias_instructions "$I5_SB" i5c draft.md)"
-    python3 "$IAS" record-dispatch i5c --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5c --nonce "$N3" --round 1 --arm file \
       --draft-file draft.md --instructions-file "$I5_SB/instr-i5c.md" \
       --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5c --nonce "$N3" --round 1 --verdict FILE \
@@ -44395,7 +44395,7 @@ if [ -d "$I5_SB" ]; then
     printf '# Only a title\n' > title-only.md
     N4="$(python3 "$IAS" init i5d | sed -n '1s/nonce=//p')"
     IOID_I5D="$(ias_instructions "$I5_SB" i5d title-only.md)"
-    python3 "$IAS" record-dispatch i5d --nonce "$N4" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5d --nonce "$N4" --round 1 --arm file \
       --draft-file title-only.md --instructions-file "$I5_SB/instr-i5d.md" \
       --instructions-draft-path "$I5_SB/title-only.md" > /dev/null 2>&1
     TOID="$(git hash-object --stdin --no-filters < title-only.md)"
@@ -44413,7 +44413,7 @@ if [ -d "$I5_SB" ]; then
 
     # cap-reached ACCEPT side: at the ceiling the cap record is legal
     N5="$(python3 "$IAS" init i5e | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch i5e --nonce "$N5" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5e --nonce "$N5" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return i5e --nonce "$N5" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44430,7 +44430,7 @@ if [ -d "$I5_SB" ]; then
     # (the i5c epoch above is already attested match — forward-only).
     N6="$(python3 "$IAS" init i5f | sed -n '1s/nonce=//p')"
     IOID_I5F="$(ias_instructions "$I5_SB" i5f draft.md)"
-    python3 "$IAS" record-dispatch i5f --nonce "$N6" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5f --nonce "$N6" --round 1 --arm file \
       --draft-file draft.md --instructions-file "$I5_SB/instr-i5f.md" \
       --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5f --nonce "$N6" --round 1 --verdict FILE \
@@ -44447,7 +44447,7 @@ if [ -d "$I5_SB" ]; then
     # retry attests the genuine bytes to match
     N7="$(python3 "$IAS" init i5g | sed -n '1s/nonce=//p')"
     IOID_I5G="$(ias_instructions "$I5_SB" i5g draft.md)"
-    python3 "$IAS" record-dispatch i5g --nonce "$N7" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5g --nonce "$N7" --round 1 --arm file \
       --draft-file draft.md --instructions-file "$I5_SB/instr-i5g.md" \
       --instructions-draft-path "$I5_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i5g --nonce "$N7" --round 1 --verdict FILE \
@@ -44460,7 +44460,7 @@ if [ -d "$I5_SB" ]; then
 
     # creation cannot bind an open round
     N8="$(python3 "$IAS" init i5h | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch i5h --nonce "$N8" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i5h --nonce "$N8" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-creation-epoch i5h --nonce "$N8" --round 1 \
       > /dev/null 2> .i5-open-epoch; printf '%s' "$?" > .i5-open-epoch-rc
@@ -44506,26 +44506,26 @@ if [ -d "$CS_SB" ]; then
 
     # retry-arm binding: a pending embed retry refuses a file-arm dispatch
     N="$(python3 "$IAS" init cs | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery cs --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return cs --nonce "$N" --round 1 --verdict DRAFT-UNREADABLE \
       > /dev/null 2>&1
-    python3 "$IAS" record-dispatch cs --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery cs --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2> .cs-armbind; printf '%s' "$?" > .cs-armbind-rc
 
     # dense round numbering: after round 1 closes, round 7 refuses
     N2="$(python3 "$IAS" init cs2 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery cs2 --nonce "$N2" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return cs2 --nonce "$N2" --round 1 --verdict REVISE \
       --carriage-object-id "$OID" > /dev/null 2>&1
-    python3 "$IAS" record-dispatch cs2 --nonce "$N2" --round 7 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery cs2 --nonce "$N2" --round 7 --arm file \
       --draft-file draft.md > /dev/null 2> .cs-sparse; printf '%s' "$?" > .cs-sparse-rc
 
     # honest empty-fetch compare: zero fetched bytes attest MISMATCH (the recorded
     # digest is non-empty), never attestation-unavailable
     N3="$(python3 "$IAS" init cs3 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch cs3 --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery cs3 --nonce "$N3" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return cs3 --nonce "$N3" --round 1 --verdict FILE \
       --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44604,7 +44604,7 @@ PY
     # (2) file-arm epoch + override with NO --draft-file: never compared against any
     # bytes, so it would permit any draft. Write boundary must refuse.
     N2="$(python3 "$IAS" init op2 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch op2 --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery op2 --nonce "$N2" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return op2 --nonce "$N2" --round 1 --verdict REVISE \
       --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44634,7 +44634,7 @@ PY
     # staying green while emit-body emitted arbitrary bytes from a pre-delta or
     # hand-edited state file. Plant the unbound override the write guard refuses.
     N2B="$(python3 "$IAS" init op2b | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch op2b --nonce "$N2B" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery op2b --nonce "$N2B" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return op2b --nonce "$N2B" --round 1 --verdict REVISE \
       --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44663,7 +44663,7 @@ PY
     printf '# T\n\nbody A\n' > d-a.md
     printf '# T\n\nbody B\n' > d-b.md
     OA="$(git hash-object --stdin --no-filters < d-a.md)"
-    python3 "$IAS" record-dispatch op3 --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery op3 --nonce "$N3" --round 1 --arm file \
       --draft-file d-a.md > /dev/null 2>&1
     python3 "$IAS" record-return op3 --nonce "$N3" --round 1 --verdict REVISE \
       --findings-count 1 --carriage-object-id "$OA" > /dev/null 2>&1
@@ -44679,7 +44679,7 @@ PY
 
     # (4) re-init must not discard forward-only creation tamper evidence.
     N4="$(python3 "$IAS" init op4 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch op4 --nonce "$N4" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery op4 --nonce "$N4" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return op4 --nonce "$N4" --round 1 --verdict FILE \
       --findings-count 0 --carriage-object-id "$OID" > /dev/null 2>&1
@@ -44750,7 +44750,7 @@ if [ -d "$RD_SB" ]; then
 
     # the deadlock: file-arm round -> no-parseable-verdict -> draft becomes unhashable
     N="$(python3 "$IAS" init rd | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rd --nonce "$N" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1
     python3 "$IAS" record-return rd --nonce "$N" --round 1 > /dev/null 2>&1
     python3 "$IAS" query-next-action rd --nonce "$N" --round 1 > .rd-pending 2>&1
@@ -44758,7 +44758,7 @@ if [ -d "$RD_SB" ]; then
     python3 "$IAS" query-arm rd --nonce "$N" --write-landed yes --draft-file draft.md \
       > .rd-arm 2> /dev/null
     # obey query-arm verbatim — this is the call that used to deadlock
-    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch rd --nonce "$N" --round 1 \
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch --kind discovery rd --nonce "$N" --round 1 \
       --arm embed --marker digest-unrecorded > .rd-escalate 2>&1
     printf '%s' "$?" > .rd-escalate-rc
 
@@ -44766,10 +44766,10 @@ if [ -d "$RD_SB" ]; then
     # arm guard is what refuses — not the missing-bytes check)
     N2="$(python3 "$IAS" init rd2 | sed -n '1s/nonce=//p')"
     printf '# T\n\nb\n' > d2.md
-    python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rd2 --nonce "$N2" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
     python3 "$IAS" record-return rd2 --nonce "$N2" --round 1 > /dev/null 2>&1
-    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd2 --nonce "$N2" --round 1 \
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch --kind discovery rd2 --nonce "$N2" --round 1 \
       --arm inline > /dev/null 2> .rd-inline; printf '%s' "$?" > .rd-inline-rc
 
     # negative: an INLINE-arm round's same-arm retry gains NO embed escalation. This is
@@ -44780,19 +44780,19 @@ if [ -d "$RD_SB" ]; then
     # escalation to EVERY same-arm retry, and inline — the terminal degraded arm, which
     # the docstring explicitly disclaims — is where that shows.
     N3="$(python3 "$IAS" init rd3 | sed -n '1s/nonce=//p')"
-    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch --kind discovery rd3 --nonce "$N3" --round 1 \
       --arm inline > /dev/null 2>&1
     python3 "$IAS" record-return rd3 --nonce "$N3" --round 1 > /dev/null 2>&1
-    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd3 --nonce "$N3" --round 1 \
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch --kind discovery rd3 --nonce "$N3" --round 1 \
       --arm embed --marker write-failed > /dev/null 2> .rd-inlineround
     printf '%s' "$?" > .rd-inlineround-rc
 
     # negative: the escalation never goes unmarked (it must stay recorded evidence)
     N4="$(python3 "$IAS" init rd4 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rd4 --nonce "$N4" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
     python3 "$IAS" record-return rd4 --nonce "$N4" --round 1 > /dev/null 2>&1
-    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch rd4 --nonce "$N4" --round 1 \
+    printf '# T\n\nb\n' | python3 "$IAS" record-dispatch --kind discovery rd4 --nonce "$N4" --round 1 \
       --arm embed > /dev/null 2> .rd-nomarker; printf '%s' "$?" > .rd-nomarker-rc
 
     # A CLOSED fd 0 (`0<&-`) must still produce the named breadcrumb, never a raw
@@ -44802,7 +44802,7 @@ if [ -d "$RD_SB" ]; then
     # except OSError and nothing would go RED while a traceback reached the caller's
     # stderr classifier instead of one of this tool's vocabulary strings.
     N5="$(python3 "$IAS" init rd5 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rd5 --nonce "$N5" --round 1 --arm embed \
+    python3 "$IAS" record-dispatch --kind discovery rd5 --nonce "$N5" --round 1 --arm embed \
       --marker write-failed 0<&- > /dev/null 2> .rd-nostdin
     printf '%s' "$?" > .rd-nostdin-rc
     # after_round's READ boundary — the sibling of the override read guard, found by the
@@ -44814,7 +44814,7 @@ if [ -d "$RD_SB" ]; then
     # still open carries floor 0 and must STILL be accepted.
     N7="$(python3 "$IAS" init rd7 | sed -n '1s/nonce=//p')"
     printf '# T\n\nORIG\n' > d7.md
-    printf '# T\n\nORIG\n' | python3 "$IAS" record-dispatch rd7 --nonce "$N7" --round 1 \
+    printf '# T\n\nORIG\n' | python3 "$IAS" record-dispatch --kind discovery rd7 --nonce "$N7" --round 1 \
       --arm embed --marker write-failed > /dev/null 2>&1
     RD7_OPEN="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_open'])")"
     RD7_CLOSE="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_close'])")"
@@ -44836,7 +44836,7 @@ PY
       > .rd-afterround-emit 2>/dev/null; printf '%s' "$?" > .rd-afterround-emit-rc
     # positive control: floor 0 is legitimate while the round is still open
     N8="$(python3 "$IAS" init rd8 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rd8 --nonce "$N8" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rd8 --nonce "$N8" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
     # issue #705: the round dispatched on the file arm, so record-revision requires
     # --stdin-digest even while the round is still open (floor 0 positive control).
@@ -44845,7 +44845,7 @@ PY
 
     # the attestation twin: bind a real epoch first so the read is actually reached
     N6="$(python3 "$IAS" init rd6 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch rd6 --nonce "$N6" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery rd6 --nonce "$N6" --round 1 --arm file \
       --draft-file d2.md > /dev/null 2>&1
     D6="$(git hash-object --stdin --no-filters < d2.md)"
     python3 "$IAS" record-return rd6 --nonce "$N6" --round 1 --verdict FILE \
@@ -44905,9 +44905,9 @@ if [ -d "$I6_SB" ]; then
     # AttributeError shape rd5 pins. The refusal must precede any state mutation, so
     # the positive control can re-dispatch the SAME round on the same fixture.
     N="$(python3 "$IAS" init i6a | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 --arm embed \
+    python3 "$IAS" record-dispatch --kind discovery i6a --nonce "$N" --round 1 --arm embed \
       --marker digest-unrecorded < /dev/null > /dev/null 2> .i6-empty; printf '%s' "$?" > .i6-empty-rc
-    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch i6a --nonce "$N" --round 1 \
+    printf '# T\n\nbody\n' | python3 "$IAS" record-dispatch --kind discovery i6a --nonce "$N" --round 1 \
       --arm embed --marker digest-unrecorded > /dev/null 2>&1; printf '%s' "$?" > .i6-empty-ctl-rc
 
     # (2) a git shim that answers hash-object with EMPTY stdout at exit 0 (every other
@@ -44922,10 +44922,10 @@ if [ -d "$I6_SB" ]; then
     } > stub-bin/git
     chmod +x stub-bin/git
     N2="$(python3 "$IAS" init i6b | sed -n '1s/nonce=//p')"
-    PATH="$I6_SB/stub-bin:$PATH" python3 "$IAS" record-dispatch i6b --nonce "$N2" \
+    PATH="$I6_SB/stub-bin:$PATH" python3 "$IAS" record-dispatch --kind discovery i6b --nonce "$N2" \
       --round 1 --arm file --draft-file draft.md > /dev/null 2> .i6-oid; printf '%s' "$?" > .i6-oid-rc
     # positive control: the identical invocation without the shim succeeds.
-    python3 "$IAS" record-dispatch i6b --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i6b --nonce "$N2" --round 1 --arm file \
       --draft-file draft.md > /dev/null 2>&1; printf '%s' "$?" > .i6-oid-ctl-rc
 
     # (3) query-summary on a foreign nonce: exit 0 (query contract), the rendered line
@@ -44936,7 +44936,7 @@ if [ -d "$I6_SB" ]; then
     # clean ground only issues once steering-absence is established — so this epoch
     # establishes it the way a real run does.
     IOID6="$(ias_instructions "$I6_SB" i6c draft.md)"
-    python3 "$IAS" record-dispatch i6c --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery i6c --nonce "$N3" --round 1 --arm file \
       --draft-file draft.md --instructions-file "$I6_SB/instr-i6c.md" \
       --instructions-draft-path "$I6_SB/draft.md" > /dev/null 2>&1
     python3 "$IAS" record-return i6c --nonce "$N3" --round 1 --verdict FILE \
@@ -45019,7 +45019,7 @@ if [ -d "$DB_SB" ]; then
     # empty stdin fails loud (a fresh run so the revision has a round to attach to).
     python3 "$IAS" init dr > /dev/null 2>&1
     NR="$(python3 "$IAS" query-nonce dr | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch dr --nonce "$NR" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery dr --nonce "$NR" --round 1 --arm file \
       --draft-file d.md > /dev/null 2>&1
     OIDR="$(git hash-object --stdin --no-filters < d.md)"
     python3 "$IAS" record-return dr --nonce "$NR" --round 1 --verdict REVISE \
@@ -45052,7 +45052,7 @@ if [ -d "$DB_SB" ]; then
     # requires established steering — so this epoch establishes it against the BOUND file
     # (the one the readers must resolve to), never the drifted one.
     IOIDO="$(ias_instructions "$DB_SB" 'do' "$BR/.devflow/tmp/issue-draft-do.md")"
-    python3 "$IAS" record-dispatch 'do' --nonce "$NO" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery 'do' --nonce "$NO" --round 1 --arm file \
       --draft-file "$BR/.devflow/tmp/issue-draft-do.md" \
       --instructions-file "$DB_SB/instr-do.md" \
       --instructions-draft-path "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
@@ -45082,7 +45082,7 @@ if [ -d "$DB_SB" ]; then
     NU="$(python3 "$IAS" query-nonce du | sed -n '1s/nonce=//p')"
     printf '# Draft title\n\nUNBOUND BODY\n' > ub.md
     IOIDU="$(ias_instructions "$DB_SB" du ub.md)"
-    python3 "$IAS" record-dispatch du --nonce "$NU" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery du --nonce "$NU" --round 1 --arm file \
       --draft-file ub.md --instructions-file "$DB_SB/instr-du.md" \
       --instructions-draft-path "$DB_SB/ub.md" > /dev/null 2>&1
     OIDU="$(git hash-object --stdin --no-filters < ub.md)"
@@ -45188,7 +45188,7 @@ if [ -d "$WP_SB" ]; then
     # A bound run: the matching write-path is accepted; a drifted one is refused.
     N="$(python3 "$IAS" init wp | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
-    python3 "$IAS" record-dispatch wp --nonce "$N" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp --nonce "$N" --round 1 --arm file \
       --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
     printf '%s' "$?" > .wp-match-rc
     # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
@@ -45197,18 +45197,18 @@ if [ -d "$WP_SB" ]; then
     # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
     N2="$(python3 "$IAS" init wp2 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
-    python3 "$IAS" record-dispatch wp2 --nonce "$N2" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp2 --nonce "$N2" --round 1 --arm file \
       --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
       > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
     # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
     N3="$(python3 "$IAS" init wp3 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp3 --nonce "$N3" --path "$WP_SB" --tier worktree-root > /dev/null
-    python3 "$IAS" record-dispatch wp3 --nonce "$N3" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp3 --nonce "$N3" --round 1 --arm file \
       --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-nowp-rc
     # An UNBOUND run's file arm still dispatches (the binding-required half is deferred); the
     # cross-check is scoped to a bound run, so no binding means no cross-check.
     N4="$(python3 "$IAS" init wp4 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch wp4 --nonce "$N4" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp4 --nonce "$N4" --round 1 --arm file \
       --write-path /any/where.md --draft-file d.md > /dev/null 2>&1; printf '%s' "$?" > .wp-unbound-rc
     # An EMPTY --write-path is an unestablished report, NOT an opt-out: a truthiness test would
     # collapse it onto "caller omitted the flag" and silently disarm the cross-check on exactly
@@ -45216,7 +45216,7 @@ if [ -d "$WP_SB" ]; then
     # root yields ""). It is refused by name, distinctly from the omitted case above.
     N5="$(python3 "$IAS" init wp5 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp5 --nonce "$N5" --path "$WP_SB" --tier main-root > /dev/null
-    python3 "$IAS" record-dispatch wp5 --nonce "$N5" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp5 --nonce "$N5" --round 1 --arm file \
       --write-path "" --draft-file d.md > /dev/null 2> .wp-empty; printf '%s' "$?" > .wp-empty-rc
     # ARM ORDER, not just the two arms: the empty refusal sits ABOVE the binding guard, so it
     # fires on an UNBOUND run too. Without this row, scoping the empty check under the binding
@@ -45225,21 +45225,21 @@ if [ -d "$WP_SB" ]; then
     # reaches the tool from a caller that composes the path from a shell-resolved root; the
     # shipped skill substitutes an already-resolved literal, so this is defense in depth.)
     N8="$(python3 "$IAS" init wp8 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch wp8 --nonce "$N8" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp8 --nonce "$N8" --round 1 --arm file \
       --write-path "" --draft-file d.md > /dev/null 2> .wp-empty-unbound
     printf '%s' "$?" > .wp-empty-unbound-rc
     # WHITESPACE-only is empty too: the guard is `.strip()`-based, so a "simplification" to a
     # bare falsiness test (`not args.write_path`) would keep every other row green while an
     # unbound run with "   " flips from refused to accepted.
     N9="$(python3 "$IAS" init wp9 | sed -n '1s/nonce=//p')"
-    python3 "$IAS" record-dispatch wp9 --nonce "$N9" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp9 --nonce "$N9" --round 1 --arm file \
       --write-path "   " --draft-file d.md > /dev/null 2> .wp-ws; printf '%s' "$?" > .wp-ws-rc
     # The mismatch rows above diverge the ROOT. Cover the other half of _bound_draft_file's
     # join: the correct bound root with a drifted <slug> — the compacted-context shape where a
     # run reuses a prior draft's slug — must also be refused.
     NA="$(python3 "$IAS" init wpa | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
-    python3 "$IAS" record-dispatch wpa --nonce "$NA" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wpa --nonce "$NA" --round 1 --arm file \
       --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
       > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
     # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
@@ -45247,7 +45247,7 @@ if [ -d "$WP_SB" ]; then
     # write-path under a main-root binding is accepted.
     N6="$(python3 "$IAS" init wp6 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
-    python3 "$IAS" record-dispatch wp6 --nonce "$N6" --round 1 --arm file \
+    python3 "$IAS" record-dispatch --kind discovery wp6 --nonce "$N6" --round 1 --arm file \
       --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
     printf '%s' "$?" > .wp-mainroot-rc
     # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
@@ -45256,7 +45256,7 @@ if [ -d "$WP_SB" ]; then
     # or removes the check is caught by the .wp-mismatch row, not by this one.)
     N7="$(python3 "$IAS" init wp7 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp7 --nonce "$N7" --path "$WP_SB" --tier main-root > /dev/null
-    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch wp7 --nonce "$N7" --round 1 --arm embed \
+    printf '# T\n\nB\n' | python3 "$IAS" record-dispatch --kind discovery wp7 --nonce "$N7" --round 1 --arm embed \
       --marker write-failed --write-path /totally/bogus.md > /dev/null 2>&1
     printf '%s' "$?" > .wp-embed-rc
   )

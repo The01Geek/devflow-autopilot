@@ -126,6 +126,40 @@ _EVENTS = (
 # that did NOT come through _validate (e.g. a new CLI flag read straight into classify_return),
 # or (b) a transposition ever survives to a wrong ANSWER rather than the closed retry token.
 _ARMS = ('file', 'embed', 'inline')
+# issue #793: the SECOND tool-owned per-round dispatch dimension, beside the arm. A round
+# is either a cold whole-draft derivation (`discovery`) or a claim-scoped re-check of what
+# a revision was supposed to fix (`targeted`). The set is closed and complete by
+# construction: there are exactly two things a round can be for, and `_checked_kind` below
+# refuses anything else rather than letting an unknown kind take a permissive path.
+#
+# The ORCHESTRATOR never chooses the kind. `select_round_kind` derives it from recorded
+# facts and `record-dispatch` cross-checks the caller's `--kind` against that derivation,
+# the same query-then-obey-then-cross-check shape the arm already uses — because the
+# context that would let an orchestrator choose is exactly the anchored context a scoped
+# audit exists to remove.
+_ROUND_KINDS = ('discovery', 'targeted')
+# The closed reason vocabulary `select_round_kind` answers alongside the kind. Every
+# `targeted` condition that fails names ITSELF here, so a run that paid for a cold round
+# can always say which condition sent it there rather than reporting a bare `discovery`.
+_ROUND_KIND_REASONS = (
+    # the one selecting reason for `targeted`
+    'targeted-eligible',
+    # one failing-condition token per `targeted` condition, plus the delta arms and the
+    # no-round precondition. Deliberately count-free: a comment stating how many there are
+    # rots on the next edit that adds one.
+    'no-completed-round',
+    'no-revision-after-round',
+    'not-file-arm',
+    'dispatch-bytes-unrecoverable',
+    'empty-claim-set',
+    'empty-delta',
+    'delta-error',
+)
+# issue #793: the closed per-claim verdict set a `targeted` round's auditor returns —
+# exactly two members, complete by construction. Anything else (a missing claim, an
+# off-set value) is recorded `not-addressed`: only a positively-returned `addressed`
+# counts, which is what stops an unusable return from reading as a clean sweep.
+_CLAIM_VERDICTS = ('addressed', 'not-addressed')
 _VERDICTS = ('FILE', 'REVISE', 'DRAFT-UNREADABLE')
 _ROUND_OUTCOMES = ('FILE', 'REVISE', 'no-verdict')
 # The subset of `_ROUND_OUTCOMES` that carries an auditor verdict about the bytes
@@ -229,6 +263,19 @@ _STEERING_REASON_STATE = {
     # and, unlike a stderr breadcrumb, it survives into `query-summary` and the Step 4
     # audit-summary line, which is the surface the user is actually pointed at.
     'instructions-noncanonical-at-dispatch': 'not-established',
+    # issue #793 — the two dispatch-scope-file arms, deliberately DISTINCT from each other
+    # and from `regeneration-failed`. A `targeted` round's payload is frozen in a scope
+    # file whose digest the dispatch recorded, and the two ways that can go wrong send a
+    # reader to opposite remedies:
+    #   * the file is ABSENT or UNREADABLE at return time — a cleanup pass, a lost
+    #     directory, a permission change. Nothing about the round's content is impeached;
+    #     the operand is simply gone. Folding this into `regeneration-failed` would hide
+    #     it among generator/template failures and point the reader at the generator.
+    #   * the file is PRESENT but its bytes no longer hash to the recorded digest — the
+    #     payload was edited after dispatch, which is the tamper this freeze exists to
+    #     catch. That one routes through the ordinary `diverged` regeneration path.
+    'scope-file-unreadable': 'not-established',
+    'scope-file-tampered': 'not-established',
     # The auditor did not report the no-extra-content affirmation at all.
     'extra-dispatch-content-unreported': 'not-established',
     # The auditor reported that its dispatch message carried more than the pointer.
@@ -250,6 +297,14 @@ _NEXT_ACTIONS = (
     'dispatch-embed-retry', 'dispatch-retry-same-arm', 'dispatch-inline-degraded',
     'proceed', 'revise-and-reaudit', 'revise-then-evaluate-offer', 'round-closed-no-verdict',
     'round-open-awaiting-return',
+    # issue #793: a clean `targeted` round is CONFIRMED, never trusted. It is not
+    # whole-draft evidence, so it never grounds the clean scan — and the scan cannot simply
+    # be taught to skip it, because it breaks on the first `REVISE` and would then refuse
+    # rather than fall through. A confirming whole-draft round is scheduled instead, and it
+    # needs a token of its own: `proceed` would walk the run to Step 4 on the strength of a
+    # scoped round, and reusing `revise-and-reaudit` would make the run record a revision
+    # that does not exist.
+    'confirm-whole-draft',
 )
 _ELIGIBILITY_REASONS = (
     'unaudited-revision', 'stale-override', 'no-verdict-round', 'state-unestablished',
@@ -487,7 +542,8 @@ _PROTOCOL_TOKENS = (
     'must_revise', 'non_bound_root', 'nonce', 'observed', 'ordinal', 'outcome', 'reason',
     'reinit_forced', 'remaining', 'reopened', 'revision', 'revision_ordinal',
     'revisions_applied',
-    'round', 'rounds_run', 'sentinel_close', 'sentinel_open', 'state', 'status',
+    'round', 'rounds_run', 'scoped_round', 'sentinel_close', 'sentinel_open', 'state',
+    'status',
     'stdin_digest', 'steering', 'steering_reason',
     'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
@@ -510,6 +566,19 @@ _PROTOCOL_TOKENS = (
     # field of the tool's own printed surface.
     'final_byte_coverage', 'final_byte_exhausted', 'final_byte_passes',
     'final_byte_reason', 'final_byte_trigger', 'grant',
+    # issue #793: the tokens the durable byte history emits from `record-staged-write` and
+    # `query-staged-write`. (`kind` and `digest` are already registered above, so the
+    # round-kind answer adds no token of its own.) Registered for the same reason as every
+    # entry here: an auditor-derived claim summary that could forge one of these would be
+    # writing on the tool's own printed surface, and the dispatch-scope file the auditor
+    # eventually reads is composed from exactly those summaries.
+    'staged_write', 'recorded',
+    # ...and the tokens the round-kind query and the dispatch-scope writer emit. `kind`
+    # and `digest` were already registered above, so the tokens listed here are the
+    # new ones.
+    'claim_ids', 'sections', 'basis_digest', 'scope_path', 'scope_digest',
+    # ...and the two counts record-return prints for a targeted round's per-claim sweep.
+    'addressed', 'not_addressed',
 )
 
 
@@ -597,8 +666,29 @@ def _record_splitting_char(text):
     return None
 
 # Ported budgets and bounds. These are the prose's numbers, preserved verbatim.
+#
+# `_MAX_AUTOMATIC_REAUDITS` IS DELIBERATELY LEFT ALONE by issue #793, and this is a
+# decision rather than an omission. Its readers are `cmd_record_dispatch`'s spend
+# predicate and `next_action`, which compares against it to choose between running
+# another round now (`revise-and-reaudit`) and asking the user first
+# (`revise-then-evaluate-offer`). Raising it would therefore move one whole audit round out
+# of the user's decision on EVERY run — including every embed-arm, inline-arm and
+# empty-delta run that can never take a `targeted` round and would pay a full cold round
+# for no saving — reversing the documented principle that the user, not the skill, spends
+# the tokens. This was adjudicated on 2026-07-26: issue #827, which proposed raising it
+# from 1 to 2, was closed as not planned in favour of the position stated here. The
+# confirming round #793 introduces is funded from `_MAX_CONFIRMING_ROUNDS` below instead.
 _MAX_AUTOMATIC_REAUDITS = 1
 _USER_ROUND_CAP = 3
+# issue #793: the confirming whole-draft round that follows an all-`addressed` `targeted`
+# round draws on its OWN counter, never the shared automatic pool. That separation is
+# forced, not stylistic: the automatic pool is a single shared budget, and walking it with
+# the shipped ceiling of one shows round 2 funded off round 1's `REVISE` and driving the
+# counter to its ceiling — so round 3 is ALREADY refused. A confirming round after a clean
+# scoped round therefore has no automatic funding available at any position, not merely at
+# a second revision cycle. One is enough: the confirming round is whole-draft evidence, so
+# a run needs at most one per scoped round that came back clean.
+_MAX_CONFIRMING_ROUNDS = 1
 # issue #792: the exact-byte final-byte pass draws on its OWN slot, outside
 # `_USER_ROUND_CAP`, so a run that legitimately spent every discovery round still gets
 # its safety pass. The slot is keyed to the canonical DIGEST rather than to the run, so
@@ -624,7 +714,15 @@ _FINAL_BYTE_GRANT_CAP = 6
 # deliberately NOT collapsed: each has its own cap, producer and re-arm rule, and the
 # final-byte slot's whole point is that it sits outside `_USER_ROUND_CAP`. Only the
 # enumeration is shared.
-_ROUND_BUDGETS = ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used')
+_ROUND_BUDGETS = ('automatic_reaudits_used', 'user_rounds_used', 'final_byte_passes_used',
+                  # issue #793: the confirming whole-draft round's own counter. It joins
+                  # the FUNDING enumeration (a confirming round is a real round the funding
+                  # test must admit) while staying a separate counter with its own cap —
+                  # exactly the shape `final_byte_passes_used` already established, and for
+                  # the same reason: it must not compete with the shared automatic pool,
+                  # which a run with two revision cycles exhausts before the confirming
+                  # round is ever reached.
+                  'confirming_rounds_used')
 # `final_byte_passes_used` counts grants a round DID OR WILL claim. A REFUND must never
 # decrement it: the granted round is already in `doc['rounds']` forever, and the funding test
 # compares `len(doc['rounds'])` against `_funded_rounds`, so retracting a grant for an
@@ -955,6 +1053,17 @@ class _DigestError(Exception):
     fail-closed digest paths are real should not have to scroll past the raise to find
     the type.
     """
+
+    # issue #793: an optional closed REASON token, set at the raise site. `steering_state`
+    # used to recover this by string-prefixing the message it had itself raised, so a
+    # reworded message silently degraded a named scope-file arm to the coarse
+    # `regeneration-failed`. An attribute couples the two by construction.
+    reason = None
+
+    def __init__(self, *args, reason=None):
+        super().__init__(*args)
+        if reason is not None:
+            self.reason = reason
 
 
 def hash_bytes(data):
@@ -2004,6 +2113,43 @@ def _validate(doc, slug):
             if mk not in _EMBED_MARKER_TOKENS:
                 raise StateError(f'round {num} names an embed marker outside the '
                                  f'canonical set: {mk!r}')
+        # issue #793 — the round KIND, validated here exactly as `arm` is, and for a
+        # sharper reason than symmetry. `_round_kind` defaults an unrecognized value to
+        # `discovery`, which is the PERMISSIVE direction: a corrupted kind would then
+        # ground the clean scan, back the coverage axis and read as whole-draft evidence.
+        # Defaulting is correct for an ABSENT field (a pre-#793 round genuinely was a
+        # discovery round) but must never launder a PRESENT-but-unrecognized one, so the
+        # read boundary refuses that here rather than leaving each reader to re-derive the
+        # shape defensively. Same closed-set treatment `dispatch_regeneration` gets.
+        rkind = rnd.get('kind')
+        if rkind is not None and rkind not in _ROUND_KINDS:
+            raise StateError(f'round {num} names a round kind outside the canonical '
+                             f'set: {rkind!r} (expected one of {sorted(_ROUND_KINDS)})')
+        # The derived scope a targeted round was dispatched under. `claim_ids` is the sole
+        # operand `_ingest_targeted_verdicts` reads, so a wrong-typed one would silently
+        # ingest nothing and report every claim addressed.
+        scope = rnd.get('scope')
+        if scope is not None:
+            if not isinstance(scope, dict):
+                raise StateError(f'round {num} scope {scope!r} is not an object')
+            cids = scope.get('claim_ids')
+            if cids is not None and (not isinstance(cids, list)
+                                     or not all(isinstance(c, str) for c in cids)):
+                raise StateError(f'round {num} scope claim_ids {cids!r} is not a list '
+                                 'of strings')
+        # The per-claim verdict map. It decides which ledger entries a targeted return
+        # reopens and whether the round reads as a clean sweep, so a corrupted map must
+        # fail closed here rather than reaching those readers as though every claim came
+        # back addressed.
+        cv = rnd.get('claim_verdicts')
+        if cv is not None:
+            if not isinstance(cv, dict):
+                raise StateError(f'round {num} claim_verdicts {cv!r} is not an object')
+            for cid, val in cv.items():
+                if not isinstance(cid, str) or val not in _CLAIM_VERDICTS:
+                    raise StateError(
+                        f'round {num} claim verdict {cid!r}={val!r} is outside the '
+                        f'canonical set {sorted(_CLAIM_VERDICTS)}')
         # Post-adjudication payload (issue #548). T1, convergence, and the summary line
         # read these, so a hand-corrupted value must fail closed HERE — a bogus
         # adjudicated verdict or a negative count would otherwise reach the offer/convergence
@@ -2208,6 +2354,18 @@ def _validate(doc, slug):
     # revision ordinal whose overwrite failed (an int) — a bare integer list is enough
     # for the post-revision `approve` ground, which only asks "did the latest revision's
     # overwrite land".
+    # issue #793 — the durable byte history. `_staged_artifacts` silently SKIPS a
+    # malformed record (correct for a best-effort read), so without a boundary check a
+    # corrupted history degrades to "no history", which selects `discovery` — safe, but
+    # silently, and the operator never learns the history was corrupt. Refuse the wrong
+    # SHAPE here and let the per-record skip handle only genuine partial data.
+    sp = doc.get('staged_paths')
+    if sp is not None:
+        if not isinstance(sp, list):
+            raise StateError(f'staged_paths is not a list (found {type(sp).__name__})')
+        for i, rec in enumerate(sp, start=1):
+            if not isinstance(rec, dict):
+                raise StateError(f'staged_paths entry {i} is not an object')
     wf = doc.get('write_failures')
     # Absent is legal (a pre-binding or legacy record has none); present-but-non-list is
     # corrupt and fails closed like every other read-surface field.
@@ -2444,7 +2602,12 @@ def _effective_unresolved(state):
     boundary is stated rather than silently widened here; re-auditing re-surfaces a
     genuinely unfixed defect onto a later ledgered round, which bounds the residual.
     """
-    last = last_completed(state)
+    # issue #793 — DECIDED treatment: the seed is the latest WHOLE-DRAFT round. A
+    # `targeted` round records no adjudication and no ledger of its own, so seeding from it
+    # made `_unresolved_int` answer None and the run-wide count read unestablished the
+    # moment a scoped round completed — turning a mechanism meant to reduce rounds into one
+    # that erased the count driving convergence.
+    last = _last_discovery_round(state)
     if last is None:
         return None
     frozen = _unresolved_int(last)
@@ -2477,7 +2640,12 @@ def _convergence_basis(state, converged):
     """
     if not converged:
         return 'none'
-    last = last_completed(state)
+    # issue #793 — DECIDED treatment: `adjudicated` is a claim that an AUDITOR's whole-draft
+    # verdict vouches for the state, so it is read off the latest WHOLE-DRAFT round. A
+    # `targeted` round vouches only for the claims it re-checked over the span it was
+    # scoped to, so reporting `basis=adjudicated` from one would attribute whole-draft
+    # authority to a round that never read the whole draft.
+    last = _last_discovery_round(state)
     if last is not None and last.get('adjudicated_verdict') == 'FILE':
         return 'adjudicated'
     latest_revision = revision_ordinal(state)
@@ -3000,10 +3168,18 @@ def _final_byte_honoured(rnd):
 
 
 def _last_discovery_round(state):
-    """The newest completed DISCOVERY round — one that is not a final-byte pass (#792).
+    """The newest completed DISCOVERY round — the run's latest WHOLE-DRAFT evidence.
 
     Named for the concept rather than the exclusion, so a second non-discovery round kind
-    extends this predicate's body instead of falsifying its name.
+    extends this predicate's body instead of falsifying its name. Issue #793 is that second
+    kind, and it extends the body exactly as the name promised: a `targeted` round is
+    excluded here for the same reason a final-byte pass is — it is not whole-draft
+    evidence. It audited an enumerated claim set over a changed-section span, so treating it
+    as the run's latest evidence would let a successful scoped round DEMOTE an established
+    coverage backing, WIPE a recorded calibration signal, report `basis=adjudicated` over a
+    draft nobody re-read, and ground the clean scan. Generalizing the exclusion once here
+    is what keeps `_coverage_round` and `_calibration_round` from each needing their own
+    special case.
 
     The coverage and calibration axes derive from "the run's final accepted round", and
     an accepted exact-byte pass would otherwise retire both: the coverage selector
@@ -3019,7 +3195,48 @@ def _last_discovery_round(state):
     for rnd in reversed(completed_rounds(state)):
         if rnd.get('final_byte_pass'):
             continue
+        if _round_kind(rnd) == 'targeted':      # issue #793
+            continue
         return rnd
+    return None
+
+
+def _last_whole_draft_round(state):
+    """The newest completed round that audited the WHOLE draft — the audit summary's ground.
+
+    issue #793 — DECIDED treatment for `summary_fields`. A `targeted` round audits an
+    enumerated claim set over a changed-section span, so its verdict and class counts
+    describe a scoped re-check, not a draft anybody re-read end to end. Rendering them as
+    the Step 4 audit summary would tell a reader a whole draft came back clean when none
+    was audited — which is why the summary reads this selector and the scoped round is
+    reported beside it under its own field rather than silently dropped.
+
+    Deliberately NOT `_last_discovery_round`: that selector also excludes a final-byte
+    exact-byte pass, because the coverage and calibration axes it feeds would be retired
+    by one. For THIS reader a final-byte pass IS whole-draft evidence whose verdict issue
+    #792 renders on purpose, so reusing that selector here would silently revert it. The
+    two selectors therefore differ by exactly the final-byte clause, and each states why.
+    """
+    if state is None:
+        return None
+    for rnd in reversed(completed_rounds(state)):
+        if _round_kind(rnd) == 'targeted':
+            continue
+        return rnd
+    return None
+
+
+def _last_scoped_round(state):
+    """The newest completed `targeted` round, else None — the summary's separate name.
+
+    The companion of `_last_whole_draft_round`: what that selector skips, this one names,
+    so a scoped round the summary does not ground on is still visible to the reader.
+    """
+    if state is None:
+        return None
+    for rnd in reversed(completed_rounds(state)):
+        if _round_kind(rnd) == 'targeted':
+            return rnd
     return None
 
 
@@ -3368,6 +3585,17 @@ def evaluate_eligibility(state, mode, current_digest=None, digest_failed=False):
 
     clean = None
     for rnd in reversed(completed_rounds(state)):
+        # issue #793 — a `targeted` round NEVER grounds this scan, in either direction. It
+        # is skipped rather than treated as a verdict-bearing round: its FILE outcome is
+        # not whole-draft evidence and must not become the clean ground, and its REVISE
+        # outcome is a per-claim re-check that must not revoke an earlier whole-draft clean
+        # verdict either. Skipping (rather than breaking) is deliberate and is why the
+        # confirming round exists: the scan BREAKS on the first `REVISE`, so a rule that
+        # merely stopped at a clean scoped round would land on the preceding `REVISE`,
+        # break, and refuse `unaudited-revision` — reaching the clean ground needs a real
+        # whole-draft round, which `next_action`'s `confirm-whole-draft` schedules.
+        if _round_kind(rnd) == 'targeted':
+            continue
         # The clean ground requires the NEWEST completed verdict-bearing round to be
         # FILE: a later completed REVISE round on the same bytes invalidates an older
         # clean verdict (probe-confirmed fail-open otherwise — the newest verdict wins).
@@ -3510,6 +3738,21 @@ def next_action(state, round_no):
         return 'round-closed-no-verdict'
     outcome = rnd.get('outcome')
     if outcome == 'FILE':
+        # issue #793 — a clean `targeted` round is CONFIRMED, not trusted. It audited a
+        # claim set and a changed-section span, never the whole draft, so answering
+        # `proceed` here would walk the run to Step 4 on evidence that was never
+        # whole-draft. Schedule the confirming whole-draft round instead — once, from its
+        # own counter; a second clean scoped round after the confirmation has already been
+        # paid for answers `proceed` normally.
+        if _round_kind(rnd) == 'targeted':
+            # A scoped round is NEVER whole-draft evidence, so `proceed` — which walks the
+            # run to Step 4 — is the permissive answer here in every sub-case, not just the
+            # clean one. While a confirming round is still fundable, ask for it: on a clean
+            # sweep to confirm it, and on an UNUSABLE return precisely because the round
+            # established nothing. Only once that budget is spent does the run fall through
+            # to `proceed`, and by then a whole-draft round has already been paid for.
+            if state.get('confirming_rounds_used', 0) < _MAX_CONFIRMING_ROUNDS:
+                return 'confirm-whole-draft'
         return 'proceed'
     if outcome == 'REVISE':
         if state.get('automatic_reaudits_used', 0) < _MAX_AUTOMATIC_REAUDITS:
@@ -3542,6 +3785,347 @@ def _checked_action(token):
             f'issue-audit-state: next_action produced {token!r}, which is not in '
             f'_NEXT_ACTIONS — the skill obeys this answer against a closed set')
     return token
+
+
+def _round_kind(rnd):
+    """A round's recorded kind, defaulting a pre-#793 record to `discovery`.
+
+    The default is the only correct one: a round recorded before this field existed WAS a
+    cold whole-draft derivation, so reading it as `discovery` describes what actually
+    happened rather than papering over a missing value. Every reader goes through here, so
+    the default is stated once instead of thirteen times.
+    """
+    if rnd is None:
+        return None
+    kind = rnd.get('kind')
+    return kind if kind in _ROUND_KINDS else 'discovery'
+
+
+def _checked_kind(token):
+    """Fail closed on a round kind outside the canonical set (issue #793).
+
+    The exact sibling of `_checked_action` above, and for the same reason: `_ROUND_KINDS`
+    is a closed vocabulary every consuming function branches on, so a kind outside it is
+    one no consumer has a route for. Raising here keeps the tuple load-bearing rather than
+    decorative — without it an unrecognized kind would fall through every `== 'targeted'`
+    test and be treated as a whole-draft `discovery` round, which is the PERMISSIVE
+    direction: it would ground the clean scan, back the coverage axis and render as
+    whole-draft evidence on the strength of a round nobody can classify.
+    """
+    if token not in _ROUND_KINDS:
+        raise AssertionError(
+            f'issue-audit-state: round kind {token!r} is not in _ROUND_KINDS — every '
+            f'consumer branches on this answer against a closed set')
+    return token
+
+
+def _checked_kind_reason(token):
+    """Fail closed on a selection reason outside the canonical set (issue #793).
+
+    `_no`'s sibling for the kind selector: the skill and the renderer route on these
+    tokens, so an unlisted one is a reason neither can act on.
+    """
+    if token not in _ROUND_KIND_REASONS:
+        raise AssertionError(
+            f'issue-audit-state: round-kind selection answered reason {token!r}, which is '
+            f'not in _ROUND_KIND_REASONS')
+    return token
+
+
+def _staged_artifacts(state):
+    """The run's recorded byte history as `(digest, path)` pairs, newest last (issue #793).
+
+    The history is what a `targeted` round's delta is computed against, and it exists only
+    because `stage` now keys its artifact on the staged bytes' own digest AND records the
+    resolved path durably. A malformed record is SKIPPED rather than raising: this is a
+    best-effort read over a file a human can hand-edit, and a missing operand must degrade
+    the selection to `discovery` (the expensive kind), never abort the run.
+    """
+    out = []
+    for rec in (state.get('staged_paths') or []):
+        if not isinstance(rec, dict):
+            continue
+        dig, path = rec.get('digest'), rec.get('path')
+        if isinstance(dig, str) and dig and isinstance(path, str) and path:
+            out.append((dig, path))
+    return out
+
+
+def _reconstruct_dispatch_bytes(state, digest):
+    """The bytes a round dispatched, recovered from the byte history (issue #793).
+
+    Returns the bytes, or `None` when they cannot be recovered. The lookup is by DIGEST —
+    the artifact whose recorded digest equals the round's recorded dispatch digest — and
+    the recovered bytes are RE-HASHED and compared to that same digest before they are
+    returned. Trusting the recorded digest alone would accept an artifact whose bytes
+    changed on disk after it was recorded, which is precisely the operand a delta must not
+    be computed from: a wrong "before" side produces a wrong changed-section set and
+    points the auditor at regions the revision never touched.
+
+    A missing artifact is a MISSING OPERAND (`None` → the caller selects `discovery`),
+    never a silently-wrong one.
+    """
+    if not isinstance(digest, str) or not digest:
+        return None
+    for dig, path in _staged_artifacts(state):
+        if dig != digest:
+            continue
+        try:
+            data = Path(path).read_bytes()
+        except OSError:
+            continue
+        try:
+            if hash_bytes(data) == digest:
+                return data
+        except _DigestError:
+            continue
+    return None
+
+
+def _sections(text):
+    """The draft's `## ` sections as an ordered `{heading: body}` mapping (issue #793).
+
+    Content before the first `## ` heading is collected under the sentinel key
+    `(preamble)`, so an edit to the title or the opening lines is a changed section rather
+    than an invisible one — an edit the delta cannot see is an edit the scoped auditor is
+    never pointed at.
+    """
+    out = {}
+    heading = '(preamble)'
+    buf = []
+    seen = {}
+
+    def _key(h):
+        # Duplicate `## ` headings are ORDINARY in a hand-written draft (`## Notes`,
+        # `## Context`). Keying on the heading alone let a later occurrence overwrite an
+        # earlier one, so an edit confined to the FIRST of two same-named sections
+        # disappeared from the delta entirely — producing a NARROWER scope that points the
+        # auditor away from the change, the opposite of this mechanism's fail-toward-the-
+        # expensive-kind direction. Disambiguate by occurrence so every section is its own
+        # comparand.
+        seen[h] = seen.get(h, 0) + 1
+        return h if seen[h] == 1 else f'{h} #{seen[h]}'
+
+    for line in text.splitlines():
+        if line.startswith('## '):
+            out[_key(heading)] = '\n'.join(buf)
+            heading, buf = line.strip(), []
+        else:
+            buf.append(line)
+    out[_key(heading)] = '\n'.join(buf)
+    return out
+
+
+def _changed_sections(before, after):
+    """The headings whose content differs between two draft states (issue #793).
+
+    Raises `_DigestError` on undecodable input so the caller takes its `delta-error` arm:
+    a delta that cannot be computed is UNESTABLISHED, and reading it as an empty set would
+    say "nothing changed" about bytes nobody compared — the unknown-is-not-zero rule this
+    repository applies everywhere else.
+
+    A heading present on exactly one side counts as changed, so a section the revision
+    ADDED or DELETED is in scope rather than silently absent from it.
+    """
+    try:
+        a = _sections(before.decode('utf-8'))
+        b = _sections(after.decode('utf-8'))
+    except UnicodeDecodeError as exc:
+        raise _DigestError(f'could not decode the draft bytes to compute the '
+                           f'changed-section set: {exc}') from exc
+    changed = [h for h in b if a.get(h) != b[h]]
+    changed += [h for h in a if h not in b]
+    return sorted(set(changed))
+
+
+def _enumerated_claims(state):
+    """The run's live already-raised findings, as `(claim_id, summary)` pairs (issue #793).
+
+    A claim id is `<round>.<entry id>`: entry ids are per-round positional (1..K, enforced
+    by `_validate_ledger`), so a bare id would collide across rounds and let a return's
+    verdict update the wrong ledger entry.
+
+    Only entries whose status is still `unresolved` are enumerated. A `resolved`,
+    `invalidated` or `superseded` entry is not a live claim, so re-checking it would spend
+    the round's whole point on findings nobody is waiting on — and would let a stale
+    verdict reopen something the drafter already settled.
+
+    The summary alone travels; no status, severity, disposition, prior verdict, rationale
+    or evidence is read here, which is what keeps the caller physically unable to leak one.
+    """
+    out = []
+    for rnd, entry in _all_entries(state):
+        if entry.get('status') != 'unresolved':
+            continue
+        out.append((f'{rnd["round"]}.{entry["id"]}', entry.get('summary') or ''))
+    return out
+
+
+def select_round_kind(state, canonical_path):
+    """Derive the kind the NEXT round must take, from recorded facts alone (issue #793).
+
+    Returns a dict carrying the kind, the reason token that selected it, the delta state
+    and the enumerated claim ids — the read-only answer `query-round-kind` prints and
+    `record-dispatch` cross-checks a caller's `--kind` against.
+
+    **The selection fails toward the EXPENSIVE kind, never away from it.** `targeted` is
+    selected only when all five conditions hold; every other input — including every
+    unestablished one — selects `discovery` and names the failing condition. That
+    direction is deliberate and is the whole safety argument for the mechanism: a
+    wrongly-cold round costs tokens, while a wrongly-scoped round points the auditor at
+    the wrong regions and returns a clean verdict over a draft nobody re-read.
+
+    The conditions, complete by construction, in the order the code applies them:
+      1. a recorded revision postdates the last completed round;
+      2. that round's latest attempt was on the `file` arm (only there does a canonical
+         file exist whose bytes the delta can be computed against);
+      3. the round's dispatch bytes are recoverable from the byte history AND their
+         recomputed digest equals the recorded dispatch digest;
+      4. the enumerated claim set is non-empty (an empty set would make the round
+         vacuously clean — the refusal `render-audit-prompt.py` also enforces);
+      5. the computed changed-section set is non-empty and its computation did not error.
+
+    Condition 5's basis — the digest of the canonical bytes the set was computed FROM — is
+    answered as `basis_digest` and recorded on the scope file, because the skill re-runs
+    the Step 3 gate between selection and dispatch: a byte edit landing in that window
+    would point the auditor at superseded regions while carriage, regeneration and
+    steering all still pass. `record-dispatch` refuses that dispatch by comparing its
+    `--draft-file` digest against this basis.
+    """
+    def _answer(kind, reason, *, claims=None, sections=None, basis=None):
+        # `claims` is the single representation; the ids are `[c for c, _ in claims]` at
+        # the two sites that need them. Carrying a derived alias beside it made every
+        # caller choose between two spellings of one fact.
+        return {'kind': _checked_kind(kind), 'reason': _checked_kind_reason(reason),
+                'claims': list(claims or []),
+                'sections': list(sections or []),
+                'basis_digest': basis}
+
+    last = last_completed(state) if state is not None else None
+    if last is None:
+        return _answer('discovery', 'no-completed-round')
+    if not _revision_postdates(state, last):
+        return _answer('discovery', 'no-revision-after-round')
+    attempts = last.get('attempts') or []
+    if not attempts or attempts[-1].get('arm') != 'file':
+        return _answer('discovery', 'not-file-arm')
+    before = _reconstruct_dispatch_bytes(state, attempts[-1].get('digest'))
+    if before is None:
+        return _answer('discovery', 'dispatch-bytes-unrecoverable')
+    claims = _enumerated_claims(state)
+    if not claims:
+        return _answer('discovery', 'empty-claim-set')
+    try:
+        if not canonical_path:
+            # `--draft-file` is OPTIONAL off the file arm, and this selector runs on EVERY
+            # dispatch — so an embed/inline dispatch arrives here with no path at all.
+            # Raised (rather than tested inline) so it joins the one decided arm below:
+            # without it `Path(None)` threw a raw TypeError out of a mutation command, on
+            # exactly the arm the run falls back to when the canonical write has already
+            # failed. Naming the cause keeps it distinguishable from an unreadable file.
+            raise OSError('no canonical draft path was supplied')
+        after = Path(canonical_path).read_bytes()
+        basis = hash_bytes(after)
+        sections = _changed_sections(before, after)
+    except (OSError, TypeError, _DigestError):
+        # An absent path, an unreadable canonical file and an undecodable one are the SAME
+        # decided arm: the delta could not be computed, so it is unestablished. Never an
+        # empty set. `TypeError` is caught alongside them so no future caller can
+        # reintroduce the raw-traceback escape this arm exists to prevent.
+        return _answer('discovery', 'delta-error', claims=claims)
+    if not sections:
+        return _answer('discovery', 'empty-delta', claims=claims, basis=basis)
+    return _answer('targeted', 'targeted-eligible', claims=claims, sections=sections,
+                   basis=basis)
+
+
+# The dispatch-scope file's format marker. Versioned so a future payload shape is a
+# different marker rather than a silently-reinterpreted one, and carried as the file's
+# first line so the renderer can refuse a file that is not one of these.
+_SCOPE_MARKER = '<!-- devflow:dispatch-scope v1 -->'
+
+
+def render_dispatch_scope(basis_digest, sections, claims):
+    """The dispatch-scope file's bytes: the WHOLE `targeted` payload, in one artifact.
+
+    Both payloads — the enumerated claims and the tool-derived changed-section set — travel
+    here and nowhere else (issue #793). That is not tidiness: the file-arm instruction file
+    is regenerated at return time and digest-compared over a CLOSED recorded tuple, and a
+    divergence is sticky. A payload passed as an unrecorded render argument, or read from
+    live run state, would make EVERY scoped round diverge — live ledger reads break it
+    twice over, since post-close status mutations would give the return-time regeneration a
+    different ledger than dispatch saw. Freezing the payload in a file whose path AND
+    content digest both join the recorded tuple is what lets a scoped round establish
+    steering on the same terms a cold one does.
+
+    **The identity-data floor lives HERE, at the single write site**, so the closed
+    protocol-token vocabulary stays in one module: the renderer imports stdlib only and the
+    module dependency runs state-owner → renderer, so the refusal cannot be shared by
+    import and must not be duplicated into a second, unlocked copy. A summary carrying a
+    forged protocol token or a record-splitting byte is refused BEFORE it reaches the
+    renderer.
+
+    What is deliberately ABSENT is the point of the artifact: no status, no severity, no
+    disposition, no prior verdict, no rationale and no evidence. The auditor learns what to
+    CHECK, never what was CONCLUDED — the `fix_decision`-carrying shape this repository
+    withholds from every independence-bearing pass.
+    """
+    lines = [_SCOPE_MARKER, f'basis_digest: {basis_digest}', 'sections:']
+    for s in sections:
+        lines.append(f'- {s}')
+    lines.append('claims:')
+    for cid, summary in claims:
+        splitter = _record_splitting_char(summary)
+        if splitter is not None:
+            raise _DigestError(
+                f'claim {cid} summary contains the record-splitting character '
+                f'{splitter!r}; it would split one claim into two records in the '
+                'rendered prompt')
+        forged = _forged_protocol_token(summary)
+        if forged is not None:
+            raise _DigestError(
+                f'claim {cid} summary contains the protocol token {forged + "="!r}; '
+                'auditor-derived text may not forge a field of the tool\'s own printed '
+                'surface')
+        lines.append(f'- {cid} — {summary}')
+    return ('\n'.join(lines) + '\n').encode('utf-8')
+
+
+def parse_dispatch_scope(data):
+    """Read a dispatch-scope file back into `(basis_digest, sections, claims)`.
+
+    The renderer's own reader lives in `render-audit-prompt.py`; this one exists so the
+    state owner can cross-check a dispatch's `--draft-file` digest against the recorded
+    basis. Raises `_DigestError` on any shape outside the one `render_dispatch_scope`
+    writes — a scope file is machine-written and machine-read, so a shape this does not
+    recognize is a tampered or foreign artifact, never a dialect to accommodate.
+    """
+    try:
+        text = data.decode('utf-8')
+    except UnicodeDecodeError as exc:
+        raise _DigestError(f'the dispatch-scope file is not valid UTF-8: {exc}') from exc
+    lines = text.splitlines()
+    if not lines or lines[0] != _SCOPE_MARKER:
+        raise _DigestError('the dispatch-scope file does not open with its format marker')
+    basis, sections, claims, mode = None, [], [], None
+    for line in lines[1:]:
+        if line.startswith('basis_digest: '):
+            basis = line[len('basis_digest: '):].strip()
+        elif line == 'sections:':
+            mode = 'sections'
+        elif line == 'claims:':
+            mode = 'claims'
+        elif line.startswith('- ') and mode == 'sections':
+            sections.append(line[2:])
+        elif line.startswith('- ') and mode == 'claims':
+            body = line[2:]
+            cid, _, summary = body.partition(' — ')
+            claims.append((cid, summary))
+        elif line.strip():
+            raise _DigestError(f'unrecognized dispatch-scope line: {line!r}')
+    if not basis:
+        raise _DigestError('the dispatch-scope file records no basis digest')
+    return basis, sections, claims
 
 
 def _find_round(state, round_no):
@@ -3770,6 +4354,11 @@ _ACTION_NOT_A_CALL = {
     'revise-then-evaluate-offer': 'verify-then-revise',
     'round-closed-no-verdict': 'round-closed-no-verdict',
     'round-open-awaiting-return': 'auditor-dispatch',
+    # issue #793: the confirming whole-draft round routes through `query-arm` like any
+    # fresh round rather than being rendered as a `record-dispatch` invocation here — the
+    # arm is re-decided for it (the canonical file may have become unhashable since), and
+    # `query-arm`'s own `next_call=` then renders the dispatch with the kind filled in.
+    'confirm-whole-draft': 'dispatch-arm-unestablished',
 }
 
 
@@ -3790,15 +4379,42 @@ _NEXT_CALL_REASONS = frozenset(_NEXT_CALL_REFUSALS) | frozenset(_ACTION_NOT_A_CA
 }
 
 
-def _dispatch_next_call(cmd_name, slug, nonce, action, arm=None, marker=None):
-    """Render the `record-dispatch` invocation an answer token routes to."""
+def _dispatch_next_call(cmd_name, slug, nonce, action, arm=None, marker=None, kind=None,
+                        state=None):
+    """Render the `record-dispatch` invocation an answer token routes to.
+
+    issue #793: `--kind` is now REQUIRED on `record-dispatch`, so it must reach this
+    rendered line or the suggestion refuses the moment it is copied — precisely the
+    forgotten-flag failure the #795 answer-line contract removed. It is a STATE-DERIVABLE
+    operand (the tool owns the selection), so it renders FILLED wherever the caller could
+    establish it, and bare in `needs=` only where it could not.
+    """
     if arm is None:
         arm, marker = _DISPATCH_ROUTE.get(action, (None, None))
     if arm is None:
         return _unestablished('dispatch-arm-unestablished')
-    operands = [('--nonce', nonce), ('--arm', arm)]
+    if kind is None and state is not None:
+        # A retry re-dispatches an OPEN round, so the kind it must carry is the one that
+        # round recorded — resolvable from state, therefore rendered FILLED rather than
+        # left bare in `needs=`. Without this the two `query-next-action` retry routes
+        # published a suggestion missing an argparse-required flag.
+        # `.get` rather than `[...]`: this renderer runs over caller-supplied state that
+        # need not carry every key, and a KeyError here would abort the whole answer
+        # line rather than degrading to a bare `--kind` in `needs=`.
+        _open = [r for r in (state.get('rounds') or [])
+                 if isinstance(r, dict) and r.get('outcome') is None]
+        if _open:
+            kind = _round_kind(_open[-1])
+    operands = [('--nonce', nonce), ('--arm', arm), ('--kind', kind)]
     if marker is not None:
         operands.append(('--marker', marker))
+    if kind == 'targeted':
+        # `--scope-file` is conditionally required (enforced in `cmd_record_dispatch`, not
+        # by argparse), so it is invisible to any reconciliation reading `required=True`
+        # off the subparser — exactly the shape that made the file arm publish a suggestion
+        # refusing the moment it was copied. The path is the caller's to supply, so it
+        # renders bare and lands in `needs=`.
+        operands.append(('--scope-file', None))
     if arm == 'file':
         # `record-dispatch` requires `--draft-file` on the file arm, but the requirement is
         # ARM-CONDITIONAL and enforced in `cmd_record_dispatch`, not by argparse — so it is
@@ -3841,11 +4457,12 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
         # The fresh-round answer. `query-arm` has just printed the arm it decided; the
         # round is the caller's to supply on `record-dispatch`, so it is rendered bare.
         return _dispatch_next_call(cmd_name, slug, nonce, None,
-                                   arm=ctx.get('arm'), marker=ctx.get('marker'))
+                                   arm=ctx.get('arm'), marker=ctx.get('marker'),
+                                   kind=ctx.get('kind'), state=state)
     if cmd_name == 'query-next-action':
         action = ctx.get('action')
         if action in _DISPATCH_ROUTE:
-            return _dispatch_next_call(cmd_name, slug, nonce, action)
+            return _dispatch_next_call(cmd_name, slug, nonce, action, state=state)
         if action in _ACTION_NOT_A_CALL:
             return _unestablished(_ACTION_NOT_A_CALL[action])
         # No answer token to route on. Name the ambiguity the command itself reported
@@ -3932,7 +4549,10 @@ def _next_call_body(cmd_name, state, slug, nonce, **ctx):
 # degradation to `next_call=unestablished` — the same invisibility this channel replaced a
 # `setattr` side-channel to avoid.
 _NEXT_CALL_CTX_KEYS = frozenset(
-    ('nonce', 'arm', 'marker', 'action', 'ambiguity', 'bound', 'round', 'draft_file'))
+    ('nonce', 'arm', 'marker', 'action', 'ambiguity', 'bound', 'round', 'draft_file',
+     # issue #793: `query-arm` derives the round kind alongside the arm, because the
+     # `record-dispatch` invocation it renders now REQUIRES `--kind`.
+     'kind'))
 
 
 def _next_call_ctx(**ctx):
@@ -4035,6 +4655,12 @@ _SUMMARY_FIELDS = (
     # adjudicated verdict, the per-class counts, and the unresolved-must-revise count.
     'adjudicated_verdict', 'must_revise', 'advisory', 'invalid',
     'unresolved_must_revise',
+    # issue #793: the round number of the newest completed `targeted` round, or None. The
+    # verdict and class-count fields above are read from the latest WHOLE-DRAFT round, so
+    # a scoped round would otherwise be invisible on this line — reported here rather than
+    # dropped. Renders as a space-free token BEFORE `attestation`, which stays the
+    # contractually-trailing field the #546 CLI pins anchor on.
+    'scoped_round',
     # issue #562: the bound draft root + its tier token, so the display renders the
     # `draft bound to worktree root` marker from the tool-emitted token rather than
     # from the orchestrator's recall.
@@ -4097,6 +4723,7 @@ def summary_fields(state, current_digest=None, digest_failed=False):
                         markers=[], token=None, stale_token=False, reinit_forced=False,
                         attestation=None, adjudicated_verdict=None, must_revise=None,
                         advisory=None, invalid=None, unresolved_must_revise=None,
+                        scoped_round=None,
                         bound_root=None, bound_tier=None,
                         effective_unresolved=None, convergence_basis='none',
                         coverage_backing='unestablished', coverage_render='none',
@@ -4116,6 +4743,12 @@ def summary_fields(state, current_digest=None, digest_failed=False):
             if mk not in markers:
                 markers.append(mk)
     last = last_completed(state)
+    # issue #793: the audit-summary verdict and class counts ground on the latest
+    # WHOLE-DRAFT round, and the scoped round is named beside them. Both are resolved
+    # ONCE here, for the same single-source reason the axes below cite: two independent
+    # call sites could render a verdict and a scoped-round name describing different runs.
+    whole = _last_whole_draft_round(state)
+    _scoped = _last_scoped_round(state)
     # ONE convergence evaluation feeds both summary fields (issue #603): derived from two
     # independent call sites they could render two fields describing different states.
     _convergence = evaluate_convergence(state)
@@ -4188,7 +4821,10 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         state='ok',
         findings_count=sum(counts) if counts else None,
         revisions_applied=revision_ordinal(state),
-        verdict=last.get('outcome') if last else None,
+        # issue #793: the verdict and the class counts below read the latest WHOLE-DRAFT
+        # round, never `last` — a `targeted` round's scoped result is not the run's
+        # audit-summary verdict. `_scoped` names it separately so it stays visible.
+        verdict=whole.get('outcome') if whole else None,
         rounds_run=len(state['rounds']),
         consumer_dimensions_appended=any(
             r.get('consumer_dimensions_appended') for r in state['rounds']),
@@ -4206,11 +4842,14 @@ def summary_fields(state, current_digest=None, digest_failed=False):
         # Post-adjudication actionability of the LATEST completed round (issue #548). Read
         # from that round only — the observables the reader checks against the artifact are
         # the final round's, not a cumulative sum. `None` on every field until adjudicated.
-        adjudicated_verdict=(last.get('adjudicated_verdict') if last else None),
-        must_revise=(last.get('must_revise_count') if last else None),
-        advisory=(last.get('advisory_count') if last else None),
-        invalid=(last.get('invalid_count') if last else None),
-        unresolved_must_revise=(last.get('unresolved_must_revise') if last else None),
+        adjudicated_verdict=(whole.get('adjudicated_verdict') if whole else None),
+        must_revise=(whole.get('must_revise_count') if whole else None),
+        advisory=(whole.get('advisory_count') if whole else None),
+        invalid=(whole.get('invalid_count') if whole else None),
+        unresolved_must_revise=(whole.get('unresolved_must_revise') if whole else None),
+        # issue #793: the scoped round the fields above deliberately skip — named, not
+        # dropped, so a reader sees that a targeted re-check ran.
+        scoped_round=(_scoped.get('round') if _scoped else None),
         # issue #562: the bound root + tier token (None on an unbound run — an
         # embed/inline epoch that never bound a canonical file).
         bound_root=(_binding(state) or {}).get('path'),
@@ -4438,8 +5077,98 @@ def _permitted_retry_arms(rnd):
     return permitted
 
 
+def _cross_check_kind(doc, args):
+    """Refuse a dispatch whose declared kind is not the one the tool selects (issue #793).
+
+    The exact sibling of the `write-path-mismatch` cross-check below, and for the same
+    reason: the kind is TOOL-owned, so a caller that declares one is echoing an answer it
+    was given, not making a decision. Left uncompared, a compacted context could dispatch
+    `targeted` over a selection that had since fallen back to `discovery` — pointing the
+    auditor at a delta the tool no longer stands behind while carriage, regeneration and
+    steering all still pass.
+
+    Returns the selection answer, so the scope cross-check below reuses it rather than
+    re-deriving a second, possibly different one.
+    """
+    # A RETRY re-opens an already-open round, so its kind is a FACT that round already
+    # recorded — not a fresh selection. Re-deriving it here would validate the retry
+    # against a predicate about a round that does not exist yet, and a selection that
+    # legitimately moved between the first attempt and the retry (a revision landed, the
+    # byte history changed) would refuse the very re-dispatch the tool itself prescribed.
+    # This mirrors how the arm already works: `_permitted_retry_arms(rnd)` reads the ROUND
+    # for a retry, while `route_arm` decides only for a fresh one.
+    open_round = _find_round(doc, args.round)
+    if open_round is not None and open_round.get('outcome') is None:
+        recorded = _round_kind(open_round)
+        if args.kind != recorded:
+            _fail('record-dispatch',
+                  f'the declared kind {args.kind!r} is not the kind round {args.round} was '
+                  f'opened with ({recorded!r}) (kind-mismatch): a retry re-dispatches the '
+                  'round it is retrying, so it carries that round\'s kind')
+        _rscope = open_round.get('scope') or {}
+        return {'kind': recorded, 'reason': 'targeted-eligible',
+                'claims': [(c, '') for c in (_rscope.get('claim_ids') or [])],
+                'sections': list(_rscope.get('sections') or []),
+                'basis_digest': _rscope.get('basis_digest')}
+    ans = select_round_kind(doc, args.draft_file)
+    if args.kind != ans['kind']:
+        _fail('record-dispatch',
+              f'the declared kind {args.kind!r} is not the kind the tool selects for this '
+              f'round ({ans["kind"]!r}, reason {ans["reason"]!r}) (kind-mismatch): the '
+              'round kind is tool-owned — re-run query-round-kind and dispatch the kind it '
+              'answers')
+    return ans
+
+
 def cmd_record_dispatch(args):
     doc = _load_for_mutation('record-dispatch', args.slug, args.nonce)
+    _checked_kind(args.kind)
+    if args.kind != 'targeted' and args.scope_file:
+        # Structural, and hoisted above the cross-check for the same reason as the arm
+        # refusal: a kind-mismatch would otherwise pre-empt it and name the wrong cause.
+        _fail('record-dispatch',
+              '--scope-file is a targeted-round input; a discovery round audits the whole '
+              'draft and carries no scoped payload (scope-file-on-discovery)')
+    if args.kind == 'targeted' and args.arm != 'file':
+        # STRUCTURAL, so it precedes the kind cross-check: the scoped payload reaches the
+        # auditor ONLY through the rendered instruction file, and that file exists only on
+        # the file arm — the embed and inline arms are entered because the canonical write
+        # already failed. A scoped dispatch there would record a round whose claims no
+        # auditor can ever be shown. Checked first so the refusal names THAT, rather than
+        # the cross-check refusing earlier with a less specific kind-mismatch.
+        _fail('record-dispatch',
+              f'a targeted round cannot dispatch on the {args.arm} arm '
+              '(targeted-requires-file-arm): the scoped payload reaches the auditor only '
+              'through the file-arm instruction file, so re-run query-round-kind — it '
+              'selects discovery once the file arm is unavailable')
+    _kind_answer = _cross_check_kind(doc, args)
+    if args.kind == 'targeted':
+        # A `targeted` dispatch carries its whole payload in the scope file, so the file is
+        # required and its recorded BASIS is cross-checked against the bytes this dispatch
+        # actually audits. The skill re-runs the Step 3 gate between selection and dispatch,
+        # so a byte edit landing in that window would point the auditor at superseded
+        # regions while every other check still passes — this is the only guard that sees it.
+        if not args.scope_file:
+            _fail('record-dispatch',
+                  'a targeted dispatch requires --scope-file (the frozen dispatch-scope '
+                  'file write-dispatch-scope produced); without it the round has no '
+                  'recorded payload and its regeneration cannot reproduce (scope-file-missing)')
+        try:
+            _scope_bytes = Path(args.scope_file).read_bytes()
+            _scope_digest = hash_bytes(_scope_bytes)
+            _scope_basis, _, _ = parse_dispatch_scope(_scope_bytes)
+        except OSError as exc:
+            _fail('record-dispatch', f'could not read the dispatch-scope file '
+                                     f'{args.scope_file}: {exc} (scope-file-unreadable)')
+        except _DigestError as exc:
+            _fail('record-dispatch', f'{exc} (scope-file-malformed)')
+        if _scope_basis != _kind_answer['basis_digest']:
+            _fail('record-dispatch',
+                  f'the dispatch-scope file records basis digest {_scope_basis!r}, but the '
+                  f'canonical draft now digests to {_kind_answer["basis_digest"]!r} '
+                  '(scope-basis-mismatch): the draft changed between selection and '
+                  'dispatch, so the recorded changed-section set names superseded regions '
+                  '— re-run write-dispatch-scope against the current bytes')
     if args.arm == 'file':
         if not args.draft_file:
             _fail('record-dispatch', '--draft-file is required on the file arm')
@@ -4591,6 +5320,18 @@ def cmd_record_dispatch(args):
             'instructions_path': args.instructions_file,
             'draft_path': args.instructions_draft_path,
             'template_path': args.instructions_template,
+            # issue #793 — the scope file's path AND content digest join the CLOSED
+            # recorded tuple. Both, not just the path: the path alone would let the file's
+            # bytes change after dispatch and still regenerate "cleanly", and the digest
+            # alone would leave the return-time regeneration with nothing to read. Frozen
+            # here, the return-time regeneration reproduces byte-identically from the
+            # recorded tuple, so a scoped round establishes steering on the same terms a
+            # cold one does — and a post-dispatch ledger mutation (a resolution, reopen or
+            # invalidation) cannot move it, because nothing here reads the live ledger.
+            # `None` on a discovery round, so every pre-#793 recorded tuple regenerates
+            # unchanged.
+            'scope_path': args.scope_file or None,
+            'scope_digest': (_scope_digest if args.kind == 'targeted' else None),
         }
         # OBSERVE at dispatch whether the bytes on disk are what the generator emits
         # from these recorded inputs, and RECORD the answer. This is deliberately an
@@ -4699,6 +5440,25 @@ def cmd_record_dispatch(args):
                 and prev is not None and prev.get('outcome') == 'REVISE'
                 and doc.get('automatic_reaudits_used', 0) < _MAX_AUTOMATIC_REAUDITS):
             doc['automatic_reaudits_used'] = doc.get('automatic_reaudits_used', 0) + 1
+        # issue #793 — the confirming whole-draft round's OWN spend, on its own counter,
+        # leaving the predicate above and `_MAX_AUTOMATIC_REAUDITS` byte-untouched. It
+        # fires on exactly the state `next_action` answers `confirm-whole-draft` for: the
+        # predecessor is a `targeted` round whose outcome is FILE, and this round is the
+        # whole-draft one that confirms it. The predicate is deliberately the SAME one
+        # `next_action` schedules under, not the narrower all-claims-addressed sweep: a
+        # targeted round whose return was UNUSABLE also closes FILE and is also sent to
+        # `confirm-whole-draft` — precisely because it established nothing — so funding it
+        # only on a clean sweep left the scheduled round unfundable and dead-ended the
+        # error-recovery path on `not funded`. Guarded on `not final_byte_pass` for the
+        # sibling is — an accepted final-byte pass would otherwise increment two counters
+        # and hand the run a phantom round the widened funding test then admits with no
+        # offer behind it.
+        elif (not final_byte_pass
+                and prev is not None
+                and _round_kind(prev) == 'targeted'
+                and prev.get('outcome') == 'FILE'
+                and doc.get('confirming_rounds_used', 0) < _MAX_CONFIRMING_ROUNDS):
+            doc['confirming_rounds_used'] = doc.get('confirming_rounds_used', 0) + 1
         # Round funding: every round past the initial one is funded by the automatic
         # budget spent above, an accepted user-chosen offer (record-offer), or an accepted
         # final-byte offer (record-final-byte-offer --accepted, issue #792). Opening
@@ -4726,7 +5486,20 @@ def cmd_record_dispatch(args):
                # The canonical digest the pass was funded on, so a refund re-arms the slot only
                # for those bytes. `None` on an ordinary round.
                'final_byte_pass_digest': (doc.get('final_byte_slot_digest')
-                                          if final_byte_pass else None)}
+                                          if final_byte_pass else None),
+               # issue #793: the round kind, recorded exactly as the arm is. Every reader of
+               # the run's latest completed round branches on this, so it is a per-round
+               # fact rather than something re-derived later from inputs that have since
+               # moved. A round record written before #793 carries none, and every reader
+               # defaults it to `discovery` — the whole-draft treatment those rounds
+               # actually had.
+               'kind': _checked_kind(args.kind),
+               # The derived scope a targeted round was dispatched under, for the audit
+               # trail. `None` on a discovery round.
+               'scope': ({'basis_digest': _kind_answer['basis_digest'],
+                          'sections': _kind_answer['sections'],
+                          'claim_ids': [c for c, _ in _kind_answer['claims']]}
+                         if args.kind == 'targeted' else None)}
         doc['rounds'].append(rnd)
     elif rnd.get('outcome') is not None:
         _fail('record-dispatch', f'round {args.round} is already closed with outcome '
@@ -4770,7 +5543,8 @@ def cmd_record_dispatch(args):
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-dispatch', str(exc))
-    out = f'round={args.round} arm={args.arm} digest={digest} body_digest={body_digest}'
+    out = (f'round={args.round} arm={args.arm} kind={args.kind} digest={digest} '
+           f'body_digest={body_digest}')
     if attempt['instructions']:
         out += f' instructions_digest={attempt["instructions"]["digest"]}'
         # Surface the dispatch-time observation on the line the orchestrator reads, not
@@ -4904,14 +5678,88 @@ def cmd_record_return(args):
             rnd['findings_count'] = args.findings_count
         if args.consumer_dimensions_appended:
             rnd['consumer_dimensions_appended'] = True
+        if _round_kind(rnd) == 'targeted':
+            _ingest_targeted_verdicts(doc, rnd, args)
     try:
         save_state(doc, args.slug)
     except StateError as exc:
         _fail('record-return', str(exc))
     _st = rnd.get('steering')
-    print(f'classification={cls} outcome={rnd["outcome"] or "pending"} '
-          f'steering={_st["state"] if _st else "unestablished"} '
-          f'steering_reason={_st["reason"] if _st else "none"}')
+    out = (f'classification={cls} outcome={rnd["outcome"] or "pending"} '
+           f'steering={_st["state"] if _st else "unestablished"} '
+           f'steering_reason={_st["reason"] if _st else "none"}')
+    if _round_kind(rnd) == 'targeted' and isinstance(rnd.get('claim_verdicts'), dict):
+        _v = rnd['claim_verdicts']
+        out += (f' addressed={sum(1 for x in _v.values() if x == "addressed")}'
+                f' not_addressed={sum(1 for x in _v.values() if x != "addressed")}')
+    print(out)
+
+
+def _ingest_targeted_verdicts(doc, rnd, args):
+    """Fold a `targeted` round's per-claim return into the EXISTING ledger (issue #793).
+
+    The decided seam, and the reason it is a seam at all: a scoped round records **no
+    ledger of its own**. Its per-claim return updates the entry each claim names —
+    `not-addressed` leaves it unresolved or reopens it, `addressed` changes nothing,
+    because resolution stays the drafter's own recorded verification and a re-check is not
+    one. Without this, the shipped reconciliation discipline would list every re-checked
+    defect on BOTH rounds' ledgers and the aggregate would count it once per listing — so a
+    mechanism built to REDUCE rounds would inflate the very count that fires the offer for
+    more of them, compounding with each scoped round.
+
+    Fail-closed on every shape the auditor's return can take (issue #793): a claim the
+    round dispatched but the return omits, and a claim returned with any value outside the
+    closed two-member set, are both recorded `not-addressed`. Only a positively-returned
+    `addressed` counts as addressed, and a claim id the round never dispatched is ignored
+    rather than allowed to invent an entry.
+    """
+    dispatched = list((rnd.get('scope') or {}).get('claim_ids') or [])
+    # A return that carries NO per-claim block at all is UNUSABLE, not a sweep of
+    # not-addressed verdicts. The distinction is load-bearing in two directions: recording
+    # every claim not-addressed would REOPEN every entry the drafter had resolved, and
+    # recording them addressed would schedule the confirming round on nothing. Neither is
+    # honest, so an absent block records the round as unusable and reopens nothing — the
+    # next action then selects a fresh `discovery` round.
+    if args.claim_verdicts is None or not args.claim_verdicts.strip():
+        rnd['claim_verdicts'] = {}
+        rnd['targeted_return_unusable'] = True
+        print('record-return: warning: a targeted round returned no per-claim block '
+              '(--claim-verdicts absent or empty); the round is recorded UNUSABLE — no '
+              'ledger entry is reopened and the next action selects a discovery round',
+              file=sys.stderr)
+        return
+    returned = {}
+    for line in args.claim_verdicts.splitlines():
+        cid, _, value = line.strip().partition(' ')
+        if not cid:
+            continue
+        value = value.strip()
+        # DUPLICATES FAIL CLOSED. A dict assignment is last-wins, so a return saying
+        # `1.1 not-addressed` and then `1.1 addressed` recorded ADDRESSED — scheduling the
+        # confirming round and converging the run on a claim the auditor had just said was
+        # not addressed. Any second mention that disagrees pins the claim to not-addressed.
+        if cid in returned and returned[cid] != value:
+            returned[cid] = 'not-addressed'
+        else:
+            returned[cid] = value
+    verdicts = {}
+    for cid in dispatched:
+        value = returned.get(cid)
+        verdicts[cid] = 'addressed' if value == 'addressed' else 'not-addressed'
+    rnd['claim_verdicts'] = verdicts
+    # Apply each `not-addressed` verdict to the entry its claim id names. `addressed`
+    # deliberately writes nothing: it is a re-check passing, not a recorded verification.
+    #
+    # One flat pass, joining on the id `_enumerated_claims` itself minted rather than
+    # re-deriving it by splitting the string back apart — the producer's construction is
+    # the join key, so the two cannot drift.
+    unaddressed = {cid for cid, value in verdicts.items() if value != 'addressed'}
+    if unaddressed:
+        ordinal = _settling_provenance(doc)
+        for r, entry in _all_entries(doc):
+            if (f'{r["round"]}.{entry["id"]}' in unaddressed
+                    and entry.get('status') == 'resolved'):
+                _reopen_entry(entry, ordinal)
 
 
 def cmd_record_adjudication(args):
@@ -5744,6 +6592,23 @@ def cmd_record_resolution(args):
           f'frozen={frozen} remaining={_remaining(doc)}')
 
 
+def _reopen_entry(entry, ordinal):
+    """Regress one settled ledger entry to `unresolved` (issues #603, #793).
+
+    THE single producer of the resolved -> unresolved transition. Two call sites drive it
+    now — `cmd_record_reopen` (the drafter's explicit honest-correction channel) and
+    `_ingest_targeted_verdicts` (a scoped round returning `not-addressed`) — and they must
+    perform the same clear-and-set: `_clear_settling`, then `status`, then
+    `reopen_provenance`. An earlier form of the second site omitted `reopen_provenance`,
+    leaving the entry with no regression stamp; every reader that distinguishes "never
+    resolved" from "regressed" then saw a scoped-round reopen as the former, silently
+    discarding the history that channel exists to record.
+    """
+    _clear_settling(entry)
+    entry['status'] = 'unresolved'
+    entry['reopen_provenance'] = ordinal
+
+
 def cmd_record_reopen(args):
     """Mark named resolved entries unresolved again (issue #603 AC4).
 
@@ -5764,9 +6629,7 @@ def cmd_record_reopen(args):
                   f'(not-resolved); only a resolved entry can regress')
     ordinal = _settling_provenance(doc)
     for entry in entries:
-        _clear_settling(entry)
-        entry['status'] = 'unresolved'
-        entry['reopen_provenance'] = ordinal
+        _reopen_entry(entry, ordinal)
     _save_or_fail('record-reopen', doc, args.slug)
     print(f'round={args.round} reopened={len(entries)} remaining={_remaining(doc)}')
 
@@ -5894,10 +6757,40 @@ def regenerate_instructions_digest(slug, inputs):
     except (OSError, UnicodeDecodeError) as exc:
         raise _DigestError(f'could not read the draft file recorded as a regeneration '
                            f'input ({inputs["draft_path"]}): {exc}') from exc
+    # issue #793 — the scope file is part of the CLOSED recorded tuple, so it is read here
+    # (from the recorded path) and verified against the recorded digest before it can
+    # influence a single rendered byte. Three decided arms, deliberately distinct:
+    #   * no recorded scope     → a discovery round; render exactly as before (`None`), so
+    #                             every pre-#793 recorded tuple regenerates byte-identically.
+    #   * recorded but UNREADABLE → its own named failure, so the reader is sent at the
+    #                             missing artifact rather than at the generator.
+    #   * recorded and PRESENT but the bytes no longer hash to the recorded digest → the
+    #                             tamper this freeze exists to catch; a distinct name again.
+    # Nothing here reads the live ledger, which is what makes a post-dispatch resolution,
+    # reopen or invalidation unable to move this regeneration.
+    scope_text = None
+    if inputs.get('scope_path'):
+        try:
+            scope_bytes = Path(inputs['scope_path']).read_bytes()
+        except OSError as exc:
+            raise _DigestError(
+                f'could not read the dispatch-scope file recorded as a regeneration '
+                f'input ({inputs["scope_path"]}): {exc}',
+                reason='scope-file-unreadable') from exc
+        if hash_bytes(scope_bytes) != inputs.get('scope_digest'):
+            raise _DigestError(
+                f'the dispatch-scope file at {inputs["scope_path"]} no longer matches the '
+                'digest recorded at dispatch, so the payload the auditor was given is not '
+                'the payload this round froze', reason='scope-file-tampered')
+        try:
+            scope_text = scope_bytes.decode('utf-8')
+        except UnicodeDecodeError as exc:
+            raise _DigestError(f'the dispatch-scope file is not valid UTF-8: {exc}',
+                               reason='scope-file-tampered') from exc
     try:
         rendered = mod.instructions_bytes(
             template_path, slug, inputs['draft_path'], inputs['instructions_path'],
-            draft_text)
+            draft_text, scope_text)
     except Exception as exc:  # noqa: BLE001 - the generator's own RenderError type is
         # not importable by name here without coupling to its module identity; every
         # failure lands on the same fail-closed `regeneration-failed` arm regardless of
@@ -5932,7 +6825,14 @@ def steering_state(slug, attempt, quoted_object_id, extra_dispatch_content):
         # recorded reason is the coarse closed token.
         print(f'record-return: steering-absence could not be established: {exc}',
               file=sys.stderr)
-        return ('not-established', 'regeneration-failed')
+        # issue #793 — the two dispatch-scope arms carry their OWN reasons rather than
+        # being folded into the coarse `regeneration-failed`. The distinction is the whole
+        # point of the criterion: an absent scope file and a tampered one send a reader to
+        # opposite remedies, and a reader pointed at the generator when the artifact was
+        # merely deleted spends the debugging on the wrong module. The token rides on the
+        # exception itself, set at the raise site — never recovered by matching the
+        # message text, which a rewording would silently break.
+        return ('not-established', getattr(exc, 'reason', None) or 'regeneration-failed')
     if not quoted_object_id:
         return ('not-established', 'instructions-object-id-absent')
     if quoted_object_id != canonical:
@@ -6142,6 +7042,166 @@ def cmd_record_draft_binding(args):
     b = doc['draft_binding']
     print(f'bound_path={b["path"]} tier={b["tier"]} '
           f'non_bound_root={b["non_bound_root"] or "none"}')
+
+
+def cmd_query_round_kind(args):
+    """Answer the kind the next round must take, read-only (issue #793).
+
+    Prints the kind, the reason token that selected it, the delta state and the enumerated
+    claim ids. Strictly read-only — it writes no state and no file — and it always exits 0
+    once its arguments parse, exactly like every other query in this tool's read class. An
+    unestablished input is answered as `discovery` with its failing condition named, never
+    as a non-zero exit the caller has to interpret.
+
+    The orchestrator obeys this answer; it never chooses a kind. The scope file a
+    `targeted` round needs is written by `write-dispatch-scope`, deliberately a separate
+    command, so this one can keep the read-only guarantee its class contract states.
+    """
+    state = _query_state(args.slug)
+    if state is not None and state.get('nonce') != args.nonce:
+        # A foreign nonce is not this run's state, so it must not answer for it. Reduced to
+        # None so the ONE answer path below renders it — an arm that printed its own
+        # hand-built line emitted a DIFFERENT field set (no `claim_ids=`) than the normal
+        # arm, which is a shape a caller parsing this line cannot rely on.
+        state = None
+    ans = select_round_kind(state, args.draft_file)
+    print(f'kind={ans["kind"]} reason={ans["reason"]} '
+          f'sections={len(ans["sections"])} claims={len(ans["claims"])} '
+          f'basis_digest={ans["basis_digest"] or "none"} '
+          f'claim_ids={",".join(c for c, _ in ans["claims"]) or "none"}')
+
+
+def cmd_write_dispatch_scope(args):
+    """Write the round's frozen dispatch-scope file and report its identity (issue #793).
+
+    Separate from `query-round-kind` because that query is contractually read-only, and
+    separate from `record-dispatch` because the renderer must splice this file's content
+    into the instruction file BEFORE the dispatch that hashes it.
+
+    Refuses when the current selection is not `targeted` — including an empty claim set,
+    which is the vacuous-pass shape the renderer refuses independently. Two refusals rather
+    than one is deliberate: this one stops the artifact from existing at all, and the
+    renderer's stops a hand-made one from rendering.
+    """
+    state = _query_state(args.slug)
+    if state is None:
+        _fail('write-dispatch-scope', 'the run state could not be established '
+                                      '(state-unestablished)')
+    if state.get('nonce') != args.nonce:
+        _fail('write-dispatch-scope', 'the supplied nonce does not match this run '
+                                      '(foreign-nonce)')
+    ans = select_round_kind(state, args.draft_file)
+    if ans['kind'] != 'targeted':
+        _fail('write-dispatch-scope',
+              f'the tool selects kind={ans["kind"]} reason={ans["reason"]} for the next '
+              'round, so there is no scoped payload to write (kind-not-targeted)')
+    try:
+        data = render_dispatch_scope(ans['basis_digest'], ans['sections'], ans['claims'])
+        digest = hash_bytes(data)
+    except _DigestError as exc:
+        _fail('write-dispatch-scope', str(exc))
+    if not _is_bound_path(args.path):
+        _fail('write-dispatch-scope',
+              f'the scope path {args.path!r} is not a non-empty absolute path free of '
+              'newline/carriage-return bytes (scope-path-not-absolute)')
+    try:
+        Path(args.path).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.path).write_bytes(data)
+    except OSError as exc:
+        _fail('write-dispatch-scope', f'could not write the dispatch-scope file '
+                                      f'{args.path}: {exc}')
+    print(f'scope_path={args.path} scope_digest={digest} '
+          f'basis_digest={ans["basis_digest"]} sections={len(ans["sections"])} '
+          f'claims={len(ans["claims"])}')
+
+
+def cmd_record_staged_write(args):
+    """Record the RESOLVED path a `stage` landed at, durably (issue #793).
+
+    `stage --path` is a base the helper completes with the staged bytes' digest, so the
+    resolved leaf is known only to the process that computed it. That is fine within one
+    turn and useless across turns — and the two things this run needs it for both happen
+    across turns: the write-failure recovery arm must name the artifact to re-apply from
+    after an interruption, and `select_round_kind` must reconstruct a round's dispatch
+    bytes from the byte history. Recording it here is what makes the name survive a
+    compaction, an interruption, and the death of the turn that produced it.
+
+    The recorded digest must DESCRIBE the artifact, so it is re-derived from the file's
+    own bytes and compared before anything is written. A pair recorded without that check
+    is the one operand a changed-section delta must never be computed from: the delta's
+    "before" side would be bytes nobody verified, and a wrong before-side points the
+    auditor at regions the revision never touched while every downstream check still
+    passes. This mirrors `apply`'s own `staged-digest-mismatch` refusal rather than
+    inventing a second vocabulary for the same disagreement.
+
+    Recording is idempotent on the `(path, digest)` pair: the history is a set of byte
+    states, and a replayed record must not make one byte state read as two revisions.
+    """
+    doc = _load_for_mutation('record-staged-write', args.slug, args.nonce)
+    if not _is_bound_path(args.path):
+        _fail('record-staged-write',
+              f'the staged path {args.path!r} is not a non-empty absolute path free of '
+              'newline/carriage-return bytes (staged-path-not-absolute)')
+    try:
+        data = Path(args.path).read_bytes()
+    except OSError as exc:
+        _fail('record-staged-write',
+              f'could not read the staging artifact {args.path}: {exc} '
+              '(staged-artifact-unreadable)')
+    try:
+        actual = hash_bytes(data)
+    except _DigestError as exc:
+        _fail('record-staged-write', str(exc))
+    if actual != args.digest:
+        _fail('record-staged-write',
+              f'the declared digest {args.digest!r} does not describe the bytes at '
+              f'{args.path!r} (which hash to {actual!r}) (staged-digest-mismatch): the '
+              'byte history is what a scoped round diffs against, so a pair that does not '
+              'agree would compute a delta from bytes nobody verified')
+    history = doc.setdefault('staged_paths', [])
+    rec = {'path': args.path, 'digest': args.digest}
+    if rec not in history:
+        history.append(rec)
+    try:
+        save_state(doc, args.slug)
+    except StateError as exc:
+        _fail('record-staged-write', str(exc))
+    print(f'staged_write={args.path} digest={args.digest} recorded={len(history)}')
+
+
+def cmd_query_staged_write(args):
+    """Resolve a recorded staging artifact from state alone (issue #793).
+
+    With `--digest`, answers the artifact recorded for THOSE bytes; without it, the newest
+    recorded one. The digest form is what the write-failure recovery arm uses: a run
+    holding several staged artifacts must re-apply the one that write recorded, not the
+    newest on disk, and the revision's own recorded `stdin_digest` is precisely the value
+    that names it.
+
+    An unrecorded digest answers `none`. It never falls back to the newest artifact — a
+    recovery arm handed the wrong bytes would replace the canonical file with a draft state
+    the run never intended, which is worse than reporting that it cannot resolve one.
+    """
+    state = _query_state(args.slug)
+    if state is None:
+        print('staged_write=none digest=none reason=state-unestablished')
+        return
+    if state.get('nonce') != args.nonce:
+        print('staged_write=none digest=none reason=foreign-nonce')
+        return
+    history = _staged_artifacts(state)
+    if not history:
+        print('staged_write=none digest=none reason=no-staged-write-recorded')
+        return
+    if args.digest:
+        for dig, path in history:
+            if dig == args.digest:
+                print(f'staged_write={path} digest={dig}')
+                return
+        print('staged_write=none digest=none reason=digest-not-recorded')
+        return
+    dig, path = history[-1]
+    print(f'staged_write={path} digest={dig}')
 
 
 def cmd_record_write_failure(args):
@@ -7134,8 +8194,18 @@ def cmd_query_arm(args):
         if last.get('outcome') is None and last.get('unreadable_retry_used'):
             prior_unreadable = True
     arm, marker = route_arm(args.write_landed == 'yes', hash_ok, prior_unreadable)
+    # issue #793 — the kind travels alongside the arm, because `--kind` is now REQUIRED on
+    # `record-dispatch` and this is the command whose `next_call=` renders that invocation.
+    # Deriving it here rather than leaving it bare is what keeps the rendered suggestion
+    # runnable: a required flag the renderer omits is exactly the forgotten-flag failure
+    # the #795 answer-line contract exists to prevent. An unestablished state answers
+    # `None`, and `_render_operand` then renders the flag bare in `needs=` — the honest
+    # shape, never a guessed kind.
+    kind = None
+    if state is not None:
+        kind = select_round_kind(state, args.draft_file)['kind']
     print(f'arm={arm} marker={marker or "none"}')
-    return _next_call_ctx(arm=arm, marker=marker)
+    return _next_call_ctx(arm=arm, marker=marker, kind=kind)
 
 
 def cmd_query_next_action(args):
@@ -7359,7 +8429,12 @@ def cmd_query_summary(args):
           # both precede `attestation` so that field stays the trailing token the #546 CLI
           # pins anchor on (`attestation=…$`).
           f'adjudicated_verdict={adj_v} must_revise={mr} advisory={adv} invalid={inv} '
-          f'unresolved_must_revise={umr} effective_unresolved={eff} '
+          f'unresolved_must_revise={umr} '
+          # issue #793: the scoped round the five fields above deliberately skip. A
+          # space-free token before `attestation`, which stays the trailing anchored
+          # field. `none` when no targeted round completed — the common case.
+          f'scoped_round={f["scoped_round"] if f["scoped_round"] is not None else "none"} '
+          f'effective_unresolved={eff} '
           f'convergence_basis={f["convergence_basis"]} '
           # issue #708: the coverage-backing and render tokens — space-free, before
           # bound_root, so attestation stays the trailing anchored field.
@@ -7439,6 +8514,18 @@ def build_parser():
     s.add_argument('--nonce', required=True)
     s.add_argument('--round', type=int, required=True)  # issue #795 retained: dispatch-discriminator
     s.add_argument('--arm', choices=_ARMS, required=True)
+    s.add_argument('--kind', choices=_ROUND_KINDS, required=True,
+                   help='The round kind (issue #793), REQUIRED and tool-owned: run '
+                        'query-round-kind and pass the kind it answers. Any other kind is '
+                        'refused (kind-mismatch) — the caller echoes this answer, it never '
+                        'decides it.')
+    s.add_argument('--scope-file',
+                   help='Required on a targeted round (issue #793): the absolute path of '
+                        'the frozen dispatch-scope file write-dispatch-scope produced. Its '
+                        'path AND content digest join the closed recorded regeneration '
+                        'tuple, and its recorded basis digest is cross-checked against the '
+                        'bytes this dispatch audits (scope-basis-mismatch). Refused on a '
+                        'discovery round, which carries no scoped payload.')
     s.add_argument('--write-path', help='Optional on the file arm (issue #569): the '
                    'absolute canonical-draft file path the skill observed its write land '
                    'at. When the run has a recorded draft-root binding and this is '
@@ -7471,6 +8558,12 @@ def build_parser():
                                              'findings and carriage evidence.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
+    s.add_argument('--claim-verdicts', default=None,
+                   help='Targeted rounds only (issue #793): the auditor\'s per-claim block, '
+                        'one "<claim-id> <addressed|not-addressed>" per line. A dispatched '
+                        'claim omitted here, or returned with any value outside that closed '
+                        'set, is recorded not-addressed — only a positively-returned '
+                        '"addressed" counts as addressed.')
     s.add_argument('--round', type=int, required=False, default=None)
                    # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
                    # recorded round uniquely names it; the command's own guards still bind.
@@ -7651,6 +8744,54 @@ def build_parser():
                         'empty, when it carries a newline or carriage return, or when it '
                         'carries a protocol `<field>=` token.')
     s.set_defaults(func=cmd_record_invalidate)
+
+    s = sub.add_parser('query-round-kind',
+                       help='Answer the kind the next round must take (#793), with the '
+                            'reason token that selected it, the delta state and the '
+                            'enumerated claim ids. Read-only; always exits 0.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--draft-file', required=True,
+                   help='The canonical draft file whose current bytes form the "after" '
+                        'side of the changed-section delta.')
+    s.set_defaults(func=cmd_query_round_kind)
+
+    s = sub.add_parser('write-dispatch-scope',
+                       help='Write the round\'s frozen dispatch-scope file (#793) carrying '
+                            'the enumerated claims and the changed-section set, floored '
+                            'against forged protocol tokens. Refused unless the tool '
+                            'selects a targeted round.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--draft-file', required=True,
+                   help='The canonical draft file the delta is computed against.')
+    s.add_argument('--path', required=True,
+                   help='The absolute path to write the dispatch-scope file at.')
+    s.set_defaults(func=cmd_write_dispatch_scope)
+
+    s = sub.add_parser('record-staged-write',
+                       help='Record the RESOLVED path a stage landed at, durably (#793), so '
+                            'a later turn recovers the artifact name from state rather than '
+                            'from the staging turn stdout.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--path', required=True,
+                   help='The RESOLVED staging artifact path stage reported (absolute).')
+    s.add_argument('--digest', required=True,
+                   help='The staged bytes object id stage reported. Re-derived from the '
+                        'artifact and refused when it does not describe those bytes.')
+    s.set_defaults(func=cmd_record_staged_write)
+
+    s = sub.add_parser('query-staged-write',
+                       help='Resolve a recorded staging artifact from state alone (#793): '
+                            'with --digest the artifact recorded for those bytes, otherwise '
+                            'the newest recorded one. Prints staged_write=<path>|none.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.add_argument('--digest',
+                   help='Resolve the artifact recorded for these bytes (the revision '
+                        'stdin_digest on the recovery arm). Omit for the newest recorded.')
+    s.set_defaults(func=cmd_query_staged_write)
 
     s = sub.add_parser('record-draft-binding',
                        help='Record the tiered canonical-draft-root binding, once per run '

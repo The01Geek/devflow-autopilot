@@ -11398,7 +11398,7 @@ class _Run603:
     def open_round(self, n, verdict='REVISE', findings=1):
         Path(self.tmp, 'd.md').write_text(f'draft {n}\n', encoding='utf-8')
         digest = self._field(
-            self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+            self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
                  '--draft-file', 'd.md', nonce=True), 'digest=', 'record-dispatch')
         self('record-return', self.slug, '--round', str(n), '--verdict', verdict,
              '--findings-count', str(findings), '--carriage-object-id', digest,
@@ -12017,7 +12017,7 @@ def _row3b(r):
     # A round that EXISTS but has not closed takes the round-not-completed arm (an absent
     # round takes unknown-round above, so the two arms need different fixtures).
     Path(r.tmp, 'd.md').write_text('draft 2\n', encoding='utf-8')
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', 'd.md',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file', '--draft-file', 'd.md',
       nonce=True)
     open_rnd = r('record-resolution', r.slug, '--round', '2', '--revision-ordinal', '1',
                  '--resolved-ids', '1', nonce=True)
@@ -12990,7 +12990,7 @@ def _round704(r, findings=1):
     """Open and REVISE-adjudicate round 1 so a finding id exists to key evidence to."""
     Path(r.tmp, 'd.md').write_text('draft\n', encoding='utf-8')
     digest = _field704(
-        r('record-dispatch', r.slug, '--round', '1', '--arm', 'file', '--draft-file',
+        r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file', '--draft-file',
           'd.md', nonce=True).stdout, 'digest=')
     r('record-return', r.slug, '--round', '1', '--verdict', 'REVISE', '--findings-count',
       str(findings), '--carriage-object-id', digest, nonce=True)
@@ -13982,7 +13982,7 @@ class _Run709(_Run603):
         return issue_audit_state.hash_bytes(Path(path).read_bytes())
 
     def dispatch(self, with_instructions=True):
-        argv = ['record-dispatch', self.slug, '--round', '1', '--arm', 'file',
+        argv = ['record-dispatch', '--kind', 'discovery', self.slug, '--round', '1', '--arm', 'file',
                 '--draft-file', self.draft]
         if with_instructions:
             argv += ['--instructions-file', self.instr,
@@ -14148,7 +14148,7 @@ def _row709_regen(r):
     # input is the remaining closed input the regeneration reads, and an absolute path to
     # a file that does not exist passes the dispatch-time shape check and fails only where
     # this row needs it to — inside the regeneration.
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, '--instructions-file', r.instr,
           '--instructions-draft-path', r.draft,
           '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
@@ -14209,7 +14209,7 @@ _with_run709(_row709_reason_attribution)
 # BLOCKED: the override ground and `emit-body`'s other paths are untouched, only the
 # coverage-backed clean grounding is withheld.
 def _row709_embed(r):
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'inline',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'inline',
           stdin='# t\n\nb\n', nonce=True)
     assert d.returncode == 0, d.stderr
     got = r('record-return', r.slug, '--round', '1', '--verdict', 'FILE',
@@ -14219,7 +14219,7 @@ def _row709_embed(r):
     assert_eq("#709 embed/inline: ... the file-arm --instructions-file input is refused there",
               (1, True),
               (lambda p: (p.returncode, 'no hashable instruction file' in p.stderr))(
-                  r('record-dispatch', r.slug, '--round', '2', '--arm', 'embed',
+                  r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'embed',
                     '--marker', 'write-failed', '--instructions-file', r.instr,
                     '--instructions-draft-path', r.draft, stdin='# t\n\nb\n', nonce=True)))
 
@@ -14231,7 +14231,7 @@ _with_run709(_row709_embed)
 # while missing the input the regeneration needs.
 def _row709_halfpair(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr, nonce=True)
     assert_eq("#709 closed inputs: --instructions-file without --instructions-draft-path is refused",
               (1, True),
@@ -14247,7 +14247,7 @@ _with_run709(_row709_halfpair)
 # diagnosed as a design decision.
 def _row709_halfpair_reverse(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-draft-path', r.draft, nonce=True)
     assert_eq("#709 closed inputs: --instructions-draft-path without --instructions-file is "
               "refused too (the reverse half)",
@@ -14266,7 +14266,7 @@ def _row709_draft_disagreement(r):
     r.generate()
     other = Path(r.tmp, 'other-draft.md')
     other.write_text('# A different draft\n\nbody\n', encoding='utf-8')
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr,
             '--instructions-draft-path', str(other), nonce=True)
     assert_eq("#709 closed inputs: an --instructions-draft-path naming a DIFFERENT file "
@@ -14276,7 +14276,7 @@ def _row709_draft_disagreement(r):
     # Positive control on the same fixture: the identical call with the paths agreeing
     # succeeds, so the row above proves the comparison fired and not that some other
     # precondition rejected the dispatch.
-    ok = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    ok = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
            '--draft-file', r.draft, '--instructions-file', r.instr,
            '--instructions-draft-path', r.draft, nonce=True)
     assert_eq("#709 closed inputs: ... and the same call with the paths agreeing is accepted "
@@ -14300,7 +14300,7 @@ def _row709_recorded_template(r):
         cwd=r.tmp, capture_output=True, text=True)
     assert got.returncode == 0, got.stderr
     Path(r.instr).write_text(got.stdout, encoding='utf-8')
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, '--instructions-file', r.instr,
           '--instructions-draft-path', r.draft,
           '--instructions-template', str(tmpl), nonce=True)
@@ -14318,7 +14318,7 @@ _with_run709(_row709_recorded_template)
 # literal and `_DEGRADED_REASONS` fails with rc 2 on the least-exercised path there is —
 # the one taken only when generation has ALREADY failed.
 def _row709_degraded_reason(r):
-    d = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
           '--draft-file', r.draft, nonce=True)
     assert d.returncode == 0, d.stderr
     got = r('record-degraded', r.slug, '--round', '1',
@@ -14482,7 +14482,7 @@ _with_run709(_row709_pre_dispatch_steering_is_recorded)
 # mid-round) or silencing the breadcrumb both ship green.
 def _row709_dispatch_regeneration_unverified(r):
     r.generate()
-    got = r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    got = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
             '--draft-file', r.draft, '--instructions-file', r.instr,
             '--instructions-draft-path', r.draft,
             '--instructions-template', str(Path(r.tmp, 'never-written.md')), nonce=True)
@@ -15147,7 +15147,7 @@ def _cov_preconditions(r):
     # A DISPATCHED-but-unreturned round: `record-dispatch` records the round, and the
     # outcome only exists after `record-return`, so this is the genuinely-open shape.
     Path(r.tmp, 'd.md').write_text('draft 1\n', encoding='utf-8')
-    r('record-dispatch', r.slug, '--round', '1', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '1', '--arm', 'file',
       '--draft-file', 'd.md', nonce=True)
     open_round = r('record-coverage', r.slug, '--round', '1', '--render', 'full',
                    '--expected-keys', 'g:x', '--coverage-stdin',
@@ -15331,17 +15331,29 @@ def _sdw(*argv, stdin=None):
                            capture_output=True)
 
 
+def _sdw_stage(base, data):
+    """Drive `stage` and return `(digest, resolved_path, completed_process)`.
+
+    Issue #793 made `--path` a BASE that `stage` completes with the staged bytes' digest,
+    so every row below reads the artifact back from the RESOLVED path this reports rather
+    than from the base it passed in — a base-path read would now name a file that does not
+    exist, and reconciling these rows is part of that change, not a separate cleanup.
+    """
+    r = _sdw('stage', '--path', base, stdin=data)
+    toks = dict(t.split('=', 1) for t in r.stdout.decode().split() if '=' in t)
+    return toks.get('digest'), toks.get('path'), r
+
+
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 'issue-draft-x.NONCE.staged.md')
+    _base = str(Path(_t705) / 'issue-draft-x.NONCE.staged.md')
     _canon = str(Path(_t705) / 'issue-draft-x.md')
     _bytes = b'# Title\n\nbody bytes\n'
     # stage: atomic landing + printed digest.
-    _r = _sdw('stage', '--path', _staged, stdin=_bytes)
+    _dig, _staged, _r = _sdw_stage(_base, _bytes)
     assert_eq("#705/AC19 stage: lands bytes and prints the digest (exit 0)",
               (0, True), (_r.returncode, _r.stdout.startswith(b'digest=')))
     assert_eq("#705/AC19 stage: the staged artifact holds exactly the intended bytes",
               _bytes, Path(_staged).read_bytes())
-    _dig = _r.stdout.decode().strip().split('=', 1)[1]
     assert_eq("#705/AC19 stage: no residual temp sibling remains on success", [],
               [n for n in os.listdir(_t705) if n.endswith('.tmp')])
     # emit: byte-exact stdout, including trailing bytes.
@@ -15373,18 +15385,18 @@ with tempfile.TemporaryDirectory() as _t705:
 # apply stage-mode atomicity: a stage over an existing artifact leaves it holding exactly
 # one of the two whole byte sequences, never a mixture.
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _sdw('stage', '--path', _staged, stdin=b'first whole copy\n')
-    _sdw('stage', '--path', _staged, stdin=b'second entirely different whole copy\n')
+    _base = str(Path(_t705) / 's.NONCE.staged.md')
+    _sdw_stage(_base, b'first whole copy\n')
+    _, _staged2, _ = _sdw_stage(_base, b'second entirely different whole copy\n')
     assert_eq("#705/AC12 stage: a re-stage lands the whole new bytes (atomic, never a mixture)",
-              b'second entirely different whole copy\n', Path(_staged).read_bytes())
+              b'second entirely different whole copy\n', Path(_staged2).read_bytes())
 
 # emit byte-exactness with a NON-newline-terminated payload (the trailing-byte case): emit
 # and the --no-filters digest must be byte-transparent, never newline-normalizing.
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
+    _base = str(Path(_t705) / 's.NONCE.staged.md')
     _no_nl = b'# Title\n\nbody with no trailing newline'
-    _sdw('stage', '--path', _staged, stdin=_no_nl)
+    _, _staged, _ = _sdw_stage(_base, _no_nl)
     _r = _sdw('emit', '--path', _staged)
     assert_eq("#705/AC19 emit: byte-exact for a payload with no trailing newline",
               (0, _no_nl), (_r.returncode, _r.stdout))
@@ -15393,8 +15405,7 @@ with tempfile.TemporaryDirectory() as _t705:
 # artifact intact for the recovery arm to read back. The parent dir is made unwritable so
 # _atomic_write's mkstemp raises (mirrors run.sh's chmod-555 unpersistable fixture).
 with tempfile.TemporaryDirectory() as _t705:
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _dig = _sdw('stage', '--path', _staged, stdin=b'body\n').stdout.decode().strip().split('=', 1)[1]
+    _dig, _staged, _ = _sdw_stage(str(Path(_t705) / 's.NONCE.staged.md'), b'body\n')
     _rodir = Path(_t705) / 'ro'
     _rodir.mkdir()
     _canon = str(_rodir / 'c.md')
@@ -15427,8 +15438,7 @@ with tempfile.TemporaryDirectory() as _t705:
     # a real staged artifact whose digest does not match the declared expectation: the refusal
     # names reason=staged-digest-mismatch (distinct from a post-replace landed mismatch) and
     # leaves the canonical file untouched.
-    _staged = str(Path(_t705) / 's.NONCE.staged.md')
-    _sdw('stage', '--path', _staged, stdin=b'real staged bytes\n')
+    _, _staged, _ = _sdw_stage(str(Path(_t705) / 's.NONCE.staged.md'), b'real staged bytes\n')
     _r = _sdw('apply', '--staged', _staged, '--canonical', _canon, '--expect-digest', '0' * 40)
     assert_eq("#705/AC12 T5: the staged-digest-mismatch refusal names its reason token, canonical untouched",
               (True, b'ORIG\n'), (b'reason=staged-digest-mismatch' in _r.stdout, Path(_canon).read_bytes()))
@@ -15901,7 +15911,7 @@ class _Run792(_Run709):
         `None` outcome — silently, at exit 0. A row that then asserts a *negative* about the
         embed round would pass while never having recorded one.
         """
-        d = self('record-dispatch', self.slug, '--round', str(n), '--arm', 'embed',
+        d = self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'embed',
                  '--marker', 'write-failed', stdin='# t\n\nb\n', nonce=True)
         assert_eq(f"#792 harness precondition: the embed-arm round-{n} dispatch records",
                   0, d.returncode)
@@ -15987,7 +15997,7 @@ def _row792_revise_revokes(r):
     # A second round on the SAME bytes returning REVISE. It is funded by the automatic
     # budget only after a REVISE predecessor, so open it through the offer channel.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE',
       '--findings-count', '1', '--carriage-object-id', r.oid(r.draft), nonce=True)
@@ -16160,7 +16170,7 @@ def _row792_pass_cap(r):
     for i in range(issue_audit_state._FINAL_BYTE_PASS_CAP):
         assert_eq(f"#792 AC98: pass {i + 1} of the cap is offerable",
                   0, r.offer(accepted=True).returncode)
-        _rd = r('record-dispatch', r.slug, '--round', str(i + 2), '--arm', 'file',
+        _rd = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(i + 2), '--arm', 'file',
                 '--draft-file', r.draft, nonce=True)
         assert_eq(f"#792 AC98: pass {i + 1} dispatches, funded by the dedicated slot",
                   0, _rd.returncode)
@@ -16192,15 +16202,15 @@ _with_run792(_row792_pass_cap)
 def _row792_refund(r):
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)          # no --verdict
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline',
       '--draft-file', r.draft, stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     closed = r('record-return', r.slug, '--round', '2', nonce=True)
     assert_eq("#792 AC85 precondition: the pass round closed verdict-less",
@@ -16223,7 +16233,7 @@ def _row792_refund(r):
     # `doc['rounds']` and the replacement dispatch was hard-refused as unfunded.
     assert_eq("#792 AC85: the refunded pass can be re-accepted",
               0, r.offer(accepted=True).returncode)
-    _d3 = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    _d3 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
             '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC85: ... and the round it funds actually DISPATCHES — a refund that "
               "re-arms the offer but not its funding is an offer no accepted round could honour",
@@ -16245,23 +16255,23 @@ def _row792_refund_at_ceiling(r):
     r('record-override', r.slug, '--kind', 'cap-reached', '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC101 precondition: the pass is accepted at the user-round ceiling under a "
               "cap-reached override", 0, r.offer(accepted=True).returncode)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     # Degrade round 2 to a verdict-less close through the documented escalation.
     r('record-return', r.slug, '--round', '2', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     assert_eq("#792 precondition: the pass round closed verdict-less",
               True, 'outcome=no-verdict' in r('record-return', r.slug, '--round', '2',
                                               nonce=True).stdout)
     assert_eq("#792 AC85/AC101: the refunded pass is re-accepted at the ceiling",
               0, r.offer(accepted=True).returncode)
-    _d = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    _d = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC85/AC101: ... and DISPATCHES with no user round available to close a "
               "funding gap — the state the dedicated slot exists for",
@@ -16344,7 +16354,7 @@ def _row792_no_double_funding(r):
                              encoding='utf-8')
     assert_eq("#792 AC103 precondition: the offer is accepted over a REVISE-latest run",
               0, r.offer(accepted=True).returncode)
-    d2 = r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    d2 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC103: the pass round dispatches, funded by the dedicated slot",
               0, d2.returncode)
@@ -16354,7 +16364,7 @@ def _row792_no_double_funding(r):
               0, state.get('automatic_reaudits_used', 0))
     r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
       '--carriage-object-id', r.oid(r.draft), nonce=True)
-    d3 = r('record-dispatch', r.slug, '--round', '3', '--arm', 'file',
+    d3 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '3', '--arm', 'file',
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC104: a further unfunded round is still refused after the pass",
               True, d3.returncode != 0)
@@ -16394,7 +16404,7 @@ def _row792_selectors_exclude_pass(r, pass_verdict='REVISE'):
               "unestablished-vs-unestablished",
               True, before_cal != 'calibration_backing=unestablished')
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', pass_verdict,
       '--findings-count', '0' if pass_verdict == 'FILE' else '1',
@@ -16425,7 +16435,7 @@ def _row792_pass_then_edit(r):
     # round through the existing file-arm machinery. Dispatching it without them records steering
     # as `inputs-unrecorded`, and the axis then reports `uncovered` no matter what verdict comes
     # back: an accepted pass could never make the bytes `covered`, which is the entire mechanism.
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file', '--draft-file', r.draft,
       '--instructions-file', r.instr, '--instructions-draft-path', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'FILE', '--findings-count', '0',
       '--carriage-object-id', r.oid(r.draft),
@@ -16459,7 +16469,7 @@ def _row792_post_adjudication_fields(r):
     assert_eq("#792 AC112 precondition: the whole-draft round's adjudication renders",
               True, 'adjudicated_verdict=REVISE must_revise=2' in r.summary())
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', '--verdict', 'REVISE', '--findings-count', '1',
       '--carriage-object-id', r.oid(r.draft), nonce=True)
@@ -16506,7 +16516,7 @@ def _row792_decline_clears_pending(r):
     assert_eq("#792 iter2: the decline records", 0, r.offer(accepted=False).returncode)
     # The next ordinary round, funded through record-offer — nothing to do with the axis.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
@@ -16531,7 +16541,7 @@ def _row792_decline_retracts_grant(r):
     _dec = r.offer(accepted=False)
     assert_eq("#792 iter3: the decline RETRACTS the outstanding grant",
               True, 'grant=retracted' in _dec.stdout)
-    _d2 = r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    _d2 = r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
             '--draft-file', r.draft, nonce=True)
     assert_eq("#792 iter3: ... so no phantom round is funded — with no automatic budget, no "
               "user round and no live grant, the dispatch is refused",
@@ -16589,7 +16599,7 @@ def _row792_revision_retracts_outstanding_grant(r):
     assert_eq("#792 iter4 precondition: the revision records", 0, _rev.returncode)
     # The iterate loop then funds an ORDINARY round through record-offer.
     r('record-offer', r.slug, '--accepted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
@@ -16655,15 +16665,15 @@ _with_run792(_row792_grant_ceiling)
 def _row792_refund_is_reported(r):
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     r('record-return', r.slug, '--round', '2', nonce=True)
     r('record-degraded', r.slug, '--round', '2', '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     _closed = r('record-return', r.slug, '--round', '2', nonce=True)
     assert_eq("#792 iter2: the refund is REPORTED, naming the registered result token",
@@ -16694,7 +16704,7 @@ def _open_pass_round(r, n=2):
     """Arm the slot, open round `n` as the funded final-byte pass, and return its digest."""
     r.uncovered_round()
     r.offer(accepted=True)
-    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
     doc = _json.loads(_state792(r).read_text(encoding='utf-8'))
     rnd = [x for x in doc['rounds'] if x['round'] == n][0]
@@ -16709,12 +16719,12 @@ def _open_pass_round(r, n=2):
 def _degrade_to_unhonoured(r, n=2):
     """Close round `n` verdict-less through the no-parseable-verdict/inline degradation."""
     for _ in range(2):
-        r('record-dispatch', r.slug, '--round', str(n), '--arm', 'file',
+        r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'file',
           '--draft-file', r.draft, nonce=True)
         r('record-return', r.slug, '--round', str(n), nonce=True)
     r('record-degraded', r.slug, '--round', str(n), '--reason',
       'no-parseable-verdict-exhausted', nonce=True)
-    r('record-dispatch', r.slug, '--round', str(n), '--arm', 'inline', '--draft-file', r.draft,
+    r('record-dispatch', '--kind', 'discovery', r.slug, '--round', str(n), '--arm', 'inline', '--draft-file', r.draft,
       stdin=Path(r.draft).read_text(encoding='utf-8'), nonce=True)
     return r('record-return', r.slug, '--round', str(n), nonce=True)
 
@@ -17988,7 +17998,7 @@ class _Run795:
         return Path(self.tmp, '.devflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
 
     def open_round(self, n=1):
-        return self('record-dispatch', self.slug, '--round', str(n), '--arm', 'file',
+        return self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
                     '--draft-file', 'd.md', nonce=True)
 
 
@@ -19298,6 +19308,1041 @@ except SystemExit as _cvp_exc:
     _cvp_rc = _cvp_exc.code
 assert_eq("#868 helper: the remap is narrow — a status-0 parser exit (--help) is still 0, "
           "not rewritten into an unestablished measurement", 0, _cvp_rc)
+
+print()
+print("issue-audit-state: tool-owned round kinds (issue #793)")
+
+_m793 = issue_audit_state
+
+
+def _793_state(**over):
+    """A minimal in-memory state document for round-kind selection rows.
+
+    Built by hand rather than driven through the CLI so a row can express exactly one
+    failing selection condition; the CLI round-trips live in the shell module.
+    """
+    doc = {'schema_version': _m793.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n',
+           'rounds': [], 'revisions': [], 'overrides': []}
+    doc.update(over)
+    return doc
+
+
+def _793_round(num=1, *, outcome='REVISE', arm='file', digest='d' * 40, findings=None,
+               kind='discovery'):
+    rnd = {'round': num, 'attempts': [{'arm': arm, 'digest': digest}],
+           'outcome': outcome, 'kind': kind}
+    if findings is not None:
+        rnd['findings'] = findings
+        rnd['adjudicated_verdict'] = 'REVISE'
+        rnd['must_revise_count'] = len(findings)
+        rnd['unresolved_must_revise'] = len(findings)
+    return rnd
+
+
+def _793_kr(answer):
+    """The (kind, reason) pair each selection row grades — named once."""
+    return (answer['kind'], answer['reason'])
+
+
+def _793_entry(i, summary='a defect', status='unresolved'):
+    return {'id': i, 'summary': summary, 'status': status,
+            'ingested_status': 'unresolved'}
+
+
+assert_eq("#793: the round-kind vocabulary is exactly the two closed members",
+          ('discovery', 'targeted'), tuple(_m793._ROUND_KINDS))
+
+assert_raises("#793: an off-vocabulary kind raises rather than taking a permissive path",
+              AssertionError, lambda: _m793._checked_kind('whole-draft'))
+
+assert_eq("#793: each vocabulary member survives the guard unchanged",
+          ['discovery', 'targeted'],
+          [_m793._checked_kind(k) for k in _m793._ROUND_KINDS])
+
+# Every reason the rows below drive the selector to answer must be a member — asserted
+# over the whole set the rows collect, not one representative, so the name matches what
+# the row actually grades.
+_793_REASONS_EXERCISED = ('targeted-eligible', 'no-completed-round',
+                          'no-revision-after-round', 'not-file-arm',
+                          'dispatch-bytes-unrecoverable', 'empty-claim-set',
+                          'empty-delta', 'delta-error')
+assert_eq("#793: every reason token these rows drive the selector to answer is in the "
+          "closed reason set",
+          [], [r for r in _793_REASONS_EXERCISED if r not in _m793._ROUND_KIND_REASONS])
+
+
+def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\n',
+                stage=True):
+    """Run the selector with a real byte history on disk."""
+    d = Path(tempfile.mkdtemp())   # retained for the caller to read back
+    canonical = d / 'draft.md'
+    canonical.write_bytes(after)
+    if stage:
+        dig = _m793.hash_bytes(before)
+        art = d / f'issue-draft-s.n.{dig}.staged.md'
+        art.write_bytes(before)
+        doc.setdefault('staged_paths', []).append({'path': str(art), 'digest': dig})
+        if doc['rounds']:
+            doc['rounds'][-1]['attempts'][-1]['digest'] = dig
+    return _m793.select_round_kind(doc, str(canonical))
+
+
+# --- each `targeted` condition, driven to failure in isolation -----------------------
+
+assert_eq("#793: no completed round selects discovery, naming the condition",
+          ('discovery', 'no-completed-round'),
+          _793_kr(_793_select(_793_state(), stage=False)))
+
+assert_eq("#793: condition 1 — no revision postdating the round selects discovery",
+          ('discovery', 'no-revision-after-round'),
+          _793_kr(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])]))))
+
+assert_eq("#793: condition 2 — a non-file-arm round selects discovery",
+          ('discovery', 'not-file-arm'),
+          _793_kr(
+              _793_select(_793_state(
+                  rounds=[_793_round(arm='embed', findings=[_793_entry(1)])],
+                  revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+assert_eq("#793: condition 3 — dispatch bytes absent from the byte history select "
+          "discovery",
+          ('discovery', 'dispatch-bytes-unrecoverable'),
+          _793_kr(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]),
+                          stage=False)))
+
+assert_eq("#793: condition 4 — an empty enumerated claim set selects discovery",
+          ('discovery', 'empty-claim-set'),
+          _793_kr(
+              _793_select(_793_state(rounds=[_793_round(findings=[])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+assert_eq("#793: an empty computed changed-section set selects discovery — never read "
+          "as 'nothing changed'",
+          ('discovery', 'empty-delta'),
+          _793_kr(
+              _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1)])],
+                                     revisions=[{'ordinal': 1, 'after_round': 1}]),
+                          before=b'# T\n\n## A\n\nsame\n', after=b'# T\n\n## A\n\nsame\n')))
+
+def _793_delta_error():
+    """Every earlier condition satisfied; only the delta computation fails.
+
+    Isolating the arm matters: pointing at a missing staged artifact would fail condition
+    3 first and the row would grade a different arm than it names.
+    """
+    d = Path(tempfile.mkdtemp())   # retained for the caller to read back
+    before = b'# T\n\n## A\n\nold\n'
+    dig = _m793.hash_bytes(before)
+    art = d / f'issue-draft-s.n.{dig}.staged.md'
+    art.write_bytes(before)
+    doc = _793_state(rounds=[_793_round(digest=dig, findings=[_793_entry(1)])],
+                     revisions=[{'ordinal': 1, 'after_round': 1}],
+                     staged_paths=[{'path': str(art), 'digest': dig}])
+    # The canonical file does not exist, so the "after" side cannot be read at all.
+    return _m793.select_round_kind(doc, str(d / 'absent-canonical.md'))
+
+
+assert_eq("#793: a changed-section computation that errors selects discovery",
+          ('discovery', 'delta-error'),
+          _793_kr(_793_delta_error()))
+
+# --- the satisfied path ---------------------------------------------------------------
+
+_793_ok = _793_select(_793_state(rounds=[_793_round(findings=[_793_entry(1),
+                                                              _793_entry(2)])],
+                                 revisions=[{'ordinal': 1, 'after_round': 1}]))
+
+assert_eq("#793: every condition satisfied selects targeted with its eligible reason",
+          ('targeted', 'targeted-eligible'), (_793_ok['kind'], _793_ok['reason']))
+
+assert_eq("#793: the selector answers the enumerated claim ids alongside the kind",
+          ['1.1', '1.2'], [c for c, _ in _793_ok['claims']])
+
+assert_eq("#793: the selector answers the computed changed-section set as the delta state",
+          ['## A'], _793_ok['sections'])
+
+assert_eq("#793: the selector answers the basis digest of the canonical bytes the "
+          "changed-section set was computed from",
+          True,
+          isinstance(_793_ok.get('basis_digest'), str) and len(_793_ok['basis_digest']) == 40)
+
+# ── issue #793: the durable byte history — `stage --path` is a BASE ────────────────────
+# The delta a `targeted` round is scoped by has no operand without a per-revision byte
+# history, so `stage` completes the caller's base path with the staged bytes' own digest.
+# The caller cannot compose that leaf itself: the digest is computed from stdin INSIDE
+# `stage`, and each shell fence is a fresh process.
+
+with tempfile.TemporaryDirectory() as _t793:
+    _base = str(Path(_t793) / 'issue-draft-x.NONCE.staged.md')
+    _b1 = b'# Title\n\nfirst bytes\n'
+    _b2 = b'# Title\n\nsecond bytes\n'
+    _dg1, _p1, _r = _sdw_stage(_base, _b1)
+    assert_eq("#793: stage reports the RESOLVED path alongside the digest",
+              (0, True), (_r.returncode, _p1 is not None))
+    assert_eq("#793: the resolved path carries BOTH this run's nonce and the staged digest",
+              True,
+              _p1 is not None and 'NONCE' in Path(_p1).name
+              and _r.stdout.decode().split('digest=', 1)[1].split()[0] in Path(_p1).name)
+    assert_eq("#793: the resolved leaf keeps the .staged.md suffix the enumeration globs on",
+              True, _p1 is not None and _p1.endswith('.staged.md'))
+    assert_eq("#793: the bytes land at the resolved path, not at the caller's base",
+              (_b1, False), (Path(_p1).read_bytes(), Path(_base).exists()))
+    _dg2, _p2, _r2 = _sdw_stage(_base, _b2)
+    assert_eq("#793: a second stage of DIFFERENT bytes leaves the first artifact readable "
+              "at its own path",
+              (_b1, _b2, True),
+              (Path(_p1).read_bytes(), Path(_p2).read_bytes(), _p1 != _p2))
+    _dg3, _p3, _r3 = _sdw_stage(_base, _b1)
+    assert_eq("#793: re-staging byte-identical content resolves to the SAME path",
+              _p1, _p3)
+    assert_eq("#793: ... leaving exactly one artifact for that byte state",
+              2, len([n for n in os.listdir(_t793) if n.endswith('.staged.md')]))
+    assert_eq("#793: emit reads the resolved path back byte-exactly",
+              (0, _b1), (lambda r: (r.returncode, r.stdout))(_sdw('emit', '--path', _p1)))
+    _r = _sdw('stage', '--path', str(Path(_t793) / 'not-a-staging-base.md'), stdin=_b1)
+    assert_eq("#793: a base that is not a .staged.md path is refused rather than silently "
+              "composing an unrecognizable leaf",
+              True, _r.returncode != 0 and b'staged.md' in _r.stderr)
+
+# ── issue #793: the resolved staging path is recorded DURABLY ──────────────────────────
+# An interrupted or compacted turn must recover the artifact's name from recorded state,
+# never from the staging turn's stdout — which is exactly what the write-failure recovery
+# arm needs after the turn that computed the path is gone.
+
+def _793_ias(tmp, *argv, stdin=None):
+    return _subprocess.run([sys.executable, _IAS603, *argv], cwd=tmp, input=stdin,
+                           capture_output=True, text=True)
+
+
+with tempfile.TemporaryDirectory() as _t793b:
+    _p793 = _write_state705(_t793b, 's793', 'N793', [_round705(1, 'file')])
+    _base793 = str(Path(_t793b) / '.devflow' / 'tmp' / 'issue-draft-s793.N793.staged.md')
+    _dA, _pA, _ = _sdw_stage(_base793, b'# T\n\n## A\n\nfirst\n')
+    _r = _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+                  '--path', _pA, '--digest', _dA)
+    assert_eq("#793: record-staged-write records the resolved path and its digest (exit 0)",
+              (0, True), (_r.returncode, 'staged_write=' in _r.stdout))
+    assert_eq("#793: ... durably, so a later fence reads the artifact name from state",
+              [{'path': _pA, 'digest': _dA}],
+              json.loads(Path(_p793).read_text(encoding='utf-8')).get('staged_paths'))
+
+    # The stage → NEW FENCE → emit → apply round-trip: the staging turn's stdout is
+    # discarded entirely and the artifact is resolved from recorded state alone.
+    _r = _793_ias(_t793b, 'query-staged-write', 's793', '--nonce', 'N793', '--digest', _dA)
+    _resolved = _r.stdout.split('staged_write=', 1)[1].split()[0]
+    assert_eq("#793: query-staged-write resolves the artifact from recorded state alone",
+              (0, _pA), (_r.returncode, _resolved))
+    assert_eq("#793: ... and emit reads those bytes back through the state-resolved path",
+              (0, b'# T\n\n## A\n\nfirst\n'),
+              (lambda r: (r.returncode, r.stdout))(_sdw('emit', '--path', _resolved)))
+
+    # A run holding SEVERAL staged artifacts resolves the one that write recorded, never
+    # the newest on disk — the recovery arm's whole distinction.
+    _dB, _pB, _ = _sdw_stage(_base793, b'# T\n\n## A\n\nsecond\n')
+    _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+             '--path', _pB, '--digest', _dB)
+    _r = _793_ias(_t793b, 'query-staged-write', 's793', '--nonce', 'N793', '--digest', _dA)
+    assert_eq("#793: with several artifacts recorded, the digest names WHICH one — not the "
+              "newest on disk",
+              _pA, _r.stdout.split('staged_write=', 1)[1].split()[0])
+    assert_eq("#793: an unrecorded digest answers none rather than guessing an artifact",
+              True,
+              'staged_write=none' in _793_ias(_t793b, 'query-staged-write', 's793',
+                                              '--nonce', 'N793',
+                                              '--digest', '0' * 40).stdout)
+    # Re-recording the same pair is idempotent: the history is a set of byte states, and a
+    # replayed record must not make one byte state look like two revisions.
+    _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+             '--path', _pA, '--digest', _dA)
+    assert_eq("#793: re-recording the same (path, digest) pair is idempotent",
+              2, len(json.loads(Path(_p793).read_text(encoding='utf-8'))['staged_paths']))
+    # The recorded digest must DESCRIBE the artifact: a mismatched pair is the one operand
+    # a delta must never be computed from, so it is refused at the write boundary.
+    _r = _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
+                  '--path', _pA, '--digest', '1' * 40)
+    assert_eq("#793: a digest that does not describe the artifact is refused, named",
+              (True, True),
+              (_r.returncode != 0, 'staged-digest-mismatch' in _r.stderr))
+
+# ── issue #793: the identity-data floor and the withheld-field suppression ────────────
+# Driven from a ledger fixture in which EVERY withheld field is PRESENT in the input, so
+# each absence below is the suppression working rather than an input that never had them.
+
+_793_rich = {'id': 1, 'summary': 'the AC omits its operand', 'status': 'unresolved',
+             'ingested_status': 'unresolved',
+             'severity': 'SENTINEL-SEVERITY-CRITICAL',
+             'disposition': 'SENTINEL-DISPOSITION',
+             'fix_decision': 'SENTINEL-PRIOR-VERDICT',
+             'rationale': 'SENTINEL-RATIONALE',
+             'evidence': {'locator': 'SENTINEL-EVIDENCE'}}
+_793_scope_bytes = _m793.render_dispatch_scope(
+    'a' * 40, ['## Acceptance Criteria'],
+    _m793._enumerated_claims(_793_state(
+        rounds=[_793_round(findings=[_793_rich])])))
+
+assert_eq("#793: the dispatch-scope file carries the claim id and summary",
+          True,
+          b'- 1.1 \xe2\x80\x94 the AC omits its operand' in _793_scope_bytes)
+
+for _w in (b'SENTINEL-SEVERITY-CRITICAL', b'SENTINEL-DISPOSITION',
+           b'SENTINEL-PRIOR-VERDICT', b'SENTINEL-RATIONALE', b'SENTINEL-EVIDENCE'):
+    assert_eq(f"#793: the dispatch-scope file withholds {_w.decode()} though the input "
+              "ledger entry carries it",
+              False, _w in _793_scope_bytes)
+
+assert_eq("#793: the scope file records the basis digest the changed-section set was "
+          "computed from",
+          True, b'basis_digest: ' + b'a' * 40 in _793_scope_bytes)
+
+assert_raises("#793: a claim summary forging a protocol token is refused at the single "
+              "write site, before it can reach the renderer",
+              _m793._DigestError,
+              lambda: _m793.render_dispatch_scope('a' * 40, ['## A'],
+                                                  [('1.1', 'see next_call=none for detail')]))
+
+assert_raises("#793: a claim summary carrying a record-splitting byte is refused there too",
+              _m793._DigestError,
+              lambda: _m793.render_dispatch_scope('a' * 40, ['## A'],
+                                                  [('1.1', 'line one\nline two')]))
+
+assert_eq("#793: the scope file round-trips through the state owner's own reader",
+          ('a' * 40, ['## Acceptance Criteria'],
+           [('1.1', 'the AC omits its operand')]),
+          _m793.parse_dispatch_scope(_793_scope_bytes))
+
+assert_raises("#793: a scope file that does not open with its format marker is refused",
+              _m793._DigestError,
+              lambda: _m793.parse_dispatch_scope(b'not a scope file\n'))
+
+assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
+          ('discovery', 'empty-claim-set'),
+          _793_kr(
+              _793_select(_793_state(
+                  rounds=[_793_round(findings=[_793_entry(1, status='resolved')])],
+                  revisions=[{'ordinal': 1, 'after_round': 1}]))))
+
+# ── issue #793: the confirming round, its dedicated counter, and the kind treatments ───
+# Driven through the real CLI so the funding test, next_action and the readers are
+# exercised at their executable boundary rather than by constructing state by hand.
+
+def _793_state_doc(run):
+    return json.loads(
+        Path(run.tmp, '.devflow', 'tmp',
+             f'issue-audit-state-{run.slug}.json').read_text(encoding='utf-8'))
+
+
+def _793_targeted_run():
+    """discovery(REVISE) -> revision -> targeted(all addressed) -> confirming round.
+
+    The whole point of the dedicated counter: under the shipped shared ceiling of one,
+    round 2 spends the automatic budget, so round 3 is ALREADY refused. The companion row
+    below asserts exactly that, so this one is not grading a permissive funding test.
+    """
+    td = tempfile.mkdtemp()
+    run = _Run603(td, slug='s793t')
+    draft = Path(td, 'd.md')
+    draft.write_text('# T\n\n## A\n\nold\n', encoding='utf-8')
+    # Round 1: a cold discovery round that finds one defect.
+    dig = run._field(run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+                         '--arm', 'file', '--draft-file', 'd.md', nonce=True),
+                     'digest=', 'record-dispatch')
+    run('record-return', run.slug, '--round', '1', '--verdict', 'REVISE',
+        '--findings-count', '1', '--carriage-object-id', dig, nonce=True)
+    run.adjudicate(1, 'REVISE', must=1, unresolved='1',
+                   ledger='unresolved: the AC omits its operand\n')
+    # Stage the round-1 bytes into the byte history, then revise the draft.
+    base = str(Path(td, '.devflow', 'tmp', f'issue-draft-{run.slug}.N.staged.md'))
+    _d1, _p1, _ = _sdw_stage(base, b'# T\n\n## A\n\nold\n')
+    run('record-staged-write', run.slug, '--path', _p1, '--digest', _d1, nonce=True)
+    draft.write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
+    run('record-revision', run.slug, '--after-round', '1', '--stdin-digest',
+        stdin='# T\n\n## A\n\nrevised\n', nonce=True)
+    return td, run, draft, _d1
+
+
+_793_td, _793_run, _793_draft, _793_d1 = _793_targeted_run()
+
+# The round-1 dispatch digest must equal the staged artifact's, or the byte history cannot
+# reconstruct it. Assert the precondition rather than assuming it.
+_793_doc = _793_state_doc(_793_run)
+assert_eq("#793: the byte history holds the round's dispatch bytes",
+          _793_doc['rounds'][0]['attempts'][-1]['digest'],
+          _793_doc['staged_paths'][0]['digest'])
+
+_793_kind = _793_run('query-round-kind', _793_run.slug, '--draft-file', str(_793_draft),
+                     nonce=True)
+assert_eq("#793: after a revision over a file-arm round with live claims, the tool selects "
+          "targeted (exit 0, read-only)",
+          (0, True),
+          (_793_kind.returncode, 'kind=targeted reason=targeted-eligible' in _793_kind.stdout))
+
+_793_scope = str(Path(_793_td, 'scope.md'))
+_793_ws = _793_run('write-dispatch-scope', _793_run.slug, '--draft-file', str(_793_draft),
+                   '--path', _793_scope, nonce=True)
+assert_eq("#793: write-dispatch-scope writes the frozen payload and reports its identity",
+          (0, True), (_793_ws.returncode, 'scope_digest=' in _793_ws.stdout))
+
+# The kind cross-check FIRES when the orchestrator dispatches a kind the tool did not
+# select — the guarantee-class obligation this mechanism carries.
+_793_mis = _793_run('record-dispatch', '--kind', 'discovery', _793_run.slug, '--round', '2',
+                    '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+assert_eq("#793: record-dispatch REFUSES a kind the tool did not select, named",
+          (True, True),
+          (_793_mis.returncode != 0, 'kind-mismatch' in _793_mis.stderr))
+
+_793_nos = _793_run('record-dispatch', '--kind', 'targeted', _793_run.slug, '--round', '2',
+                    '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+assert_eq("#793: a targeted dispatch without --scope-file is refused, named",
+          (True, True),
+          (_793_nos.returncode != 0, 'scope-file-missing' in _793_nos.stderr))
+
+_793_d2 = _793_run('record-dispatch', '--kind', 'targeted', _793_run.slug, '--round', '2',
+                   '--arm', 'file', '--draft-file', 'd.md', '--scope-file', _793_scope,
+                   nonce=True)
+assert_eq("#793: the targeted dispatch records, naming its kind on the answer line",
+          (0, True), (_793_d2.returncode, 'kind=targeted' in _793_d2.stdout))
+
+_793_dig2 = _793_d2.stdout.split('digest=', 1)[1].split()[0]
+_793_r2 = _793_run('record-return', _793_run.slug, '--round', '2', '--verdict', 'FILE',
+                   '--findings-count', '0', '--carriage-object-id', _793_dig2,
+                   '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793: a targeted return records its per-claim sweep",
+          (0, True), (_793_r2.returncode, 'addressed=1 not_addressed=0' in _793_r2.stdout))
+
+_793_na = _793_run('query-next-action', _793_run.slug, '--round', '2', nonce=True)
+assert_eq("#793: an all-addressed targeted round schedules the CONFIRMING whole-draft "
+          "round, never `proceed`",
+          True, 'confirm-whole-draft' in _793_na.stdout)
+
+_793_doc2 = _793_state_doc(_793_run)
+assert_eq("#793: the targeted round records no ledger of its own",
+          None, _793_doc2['rounds'][1].get('findings'))
+
+assert_eq("#793: ... and the shared automatic counter is unchanged across it",
+          1, _793_doc2.get('automatic_reaudits_used'))
+
+# The confirming round opens with NO accepted user offer, from the dedicated counter.
+_793_d3 = _793_run('record-dispatch', '--kind', 'discovery', _793_run.slug, '--round', '3',
+                   '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+assert_eq("#793: the confirming round opens with no accepted user offer",
+          0, _793_d3.returncode)
+
+_793_doc3 = _793_state_doc(_793_run)
+assert_eq("#793: ... funded from its OWN counter, leaving the shared automatic pool alone",
+          (1, 1),
+          (_793_doc3.get('confirming_rounds_used'), _793_doc3.get('automatic_reaudits_used')))
+
+# The criterion is that the confirming round never competes with the shared automatic
+# pool. Asserting `_MAX_AUTOMATIC_REAUDITS == _MAX_AUTOMATIC_REAUDITS` would be a tautology
+# that grades nothing, so assert the SEPARATION instead: two distinct counters, both funding
+# rounds, with the confirming one bounded on its own constant.
+# The separation that can actually FAIL: they are two distinct counter KEYS, both funding
+# rounds, and _funded_rounds sums both — so spending one leaves the other's headroom
+# intact. An identity comparison of the two ceilings graded nothing (both are 1, and small
+# ints are interned, so `is not` was already False — with an `or`-tautology behind it).
+assert_eq("#793: the confirming counter is a DISTINCT funding key from the shared "
+          "automatic pool, and both are summed by _funded_rounds",
+          (True, True, 3),
+          ('confirming_rounds_used' in _m793._ROUND_BUDGETS,
+           'automatic_reaudits_used' in _m793._ROUND_BUDGETS,
+           _m793._funded_rounds({'automatic_reaudits_used': 1,
+                                 'confirming_rounds_used': 1})))
+
+assert_eq("#793: spending the confirming counter leaves the shared automatic pool's "
+          "headroom untouched (the two never compete)",
+          (2, 2),
+          (_m793._funded_rounds({'confirming_rounds_used': 1}),
+           _m793._funded_rounds({'automatic_reaudits_used': 1})))
+
+assert_eq("#793: next_action still keys its revise-and-reaudit / revise-then-evaluate-offer "
+          "split on the SHARED constant — the second reader that is why it was left alone",
+          ('revise-and-reaudit', 'revise-then-evaluate-offer'),
+          (_m793.next_action({'rounds': [{'round': 1, 'outcome': 'REVISE',
+                                          'kind': 'discovery'}],
+                              'automatic_reaudits_used': 0}, 1),
+           _m793.next_action({'rounds': [{'round': 1, 'outcome': 'REVISE',
+                                          'kind': 'discovery'}],
+                              'automatic_reaudits_used':
+                                  _m793._MAX_AUTOMATIC_REAUDITS}, 1)))
+
+# The companion row: today's REVISE-keyed predicate alone would REFUSE that third round.
+# Without this, the row above could be passing on a permissive funding test.
+with tempfile.TemporaryDirectory() as _t793c:
+    _rc = _Run603(_t793c, slug='s793c')
+    Path(_t793c, 'd.md').write_text('draft\n', encoding='utf-8')
+    _rc.open_round(1, 'REVISE')
+    _rc.open_round(2, 'REVISE')
+    _d3 = _rc('record-dispatch', '--kind', 'discovery', _rc.slug, '--round', '3',
+              '--arm', 'file', '--draft-file', 'd.md', nonce=True)
+    assert_eq("#793 control: without a confirming-round grant, a third round IS refused as "
+              "unfunded (so the row above is not grading a permissive funding test)",
+              (True, True), (_d3.returncode != 0, 'not funded' in _d3.stderr))
+
+# ── the decided per-reader kind treatment ─────────────────────────────────────────────
+
+# ── the embed/inline degradation path: --draft-file is OPTIONAL off the file arm ──────
+# Found by the Phase 3 silent-failure review. select_round_kind was called unconditionally
+# from cmd_record_dispatch, so a dispatch with no --draft-file reached Path(None) and died
+# with a raw TypeError — on exactly the arm the run falls back to when the canonical write
+# has already failed. The selector's own docstring promised every unestablished input
+# selects `discovery`; there it selected nothing.
+def _793_absent_path():
+    """Every earlier condition satisfied; ONLY the canonical path is absent.
+
+    Isolated for the same reason `_793_delta_error` is: an empty byte history would fail
+    condition 3 first and the row would grade the wrong arm.
+    """
+    d = Path(tempfile.mkdtemp())
+    before = b'# T\n\n## A\n\nold\n'
+    dig = _m793.hash_bytes(before)
+    art = d / f'issue-draft-s.n.{dig}.staged.md'
+    art.write_bytes(before)
+    return _m793.select_round_kind(
+        _793_state(rounds=[_793_round(digest=dig, findings=[_793_entry(1)])],
+                   revisions=[{'ordinal': 1, 'after_round': 1}],
+                   staged_paths=[{'path': str(art), 'digest': dig}]), None)
+
+
+assert_eq("#793: an absent canonical path selects discovery — the selector's fail-closed "
+          "direction holds with no draft file at all",
+          ('discovery', 'delta-error'), _793_kr(_793_absent_path()))
+
+with tempfile.TemporaryDirectory() as _t793e:
+    _re = _Run603(_t793e, slug='s793e')
+    Path(_t793e, 'd.md').write_text('draft\n', encoding='utf-8')
+    _re.open_round(1, 'REVISE')
+    _emb = _re('record-dispatch', '--kind', 'discovery', _re.slug, '--round', '2',
+               '--arm', 'embed', '--marker', 'write-failed', nonce=True,
+               stdin='body bytes\n')
+    assert_eq("#793: an embed-arm dispatch with no --draft-file records cleanly — never a "
+              "raw traceback out of a mutation command",
+              (0, False), (_emb.returncode, 'Traceback' in _emb.stderr))
+
+assert_eq("#793: a targeted dispatch is refused off the file arm — a scoped round has no "
+          "instruction file to splice its payload into",
+          (True, True),
+          (lambda r: (r.returncode != 0, 'targeted-requires-file-arm' in r.stderr))(
+              _793_run('record-dispatch', '--kind', 'targeted', _793_run.slug, '--round',
+                       '9', '--arm', 'embed', '--marker', 'write-failed', nonce=True,
+                       stdin='b\n')))
+
+assert_eq("#793: _last_discovery_round skips a targeted round — it is not whole-draft "
+          "evidence",
+          2,
+          _m793._last_discovery_round(
+              {'rounds': [{'round': 1, 'outcome': 'FILE', 'kind': 'discovery',
+                           'attempts': [{'arm': 'file'}]},
+                          {'round': 2, 'outcome': 'FILE', 'kind': 'discovery',
+                           'attempts': [{'arm': 'file'}]},
+                          {'round': 3, 'outcome': 'FILE', 'kind': 'targeted',
+                           'attempts': [{'arm': 'file'}]}]})['round'])
+
+assert_eq("#793: a round recorded before the kind field existed reads as discovery — the "
+          "whole-draft treatment it actually had",
+          'discovery', _m793._round_kind({'round': 1, 'outcome': 'FILE'}))
+
+# Driven through the real ingestion producer: a hand-built `{'1.1': 'partially'}` map
+# asserted a property of a state `_validate` REFUSES to load, and named it as the
+# recording behavior, which lives in _ingest_targeted_verdicts.
+def _793_ingest(verdict_text, dispatched=('1.1',)):
+    doc = _793_state(rounds=[{'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
+                              'attempts': [{'arm': 'file'}],
+                              'scope': {'claim_ids': list(dispatched)}}])
+    rnd = doc['rounds'][0]
+    _m793._ingest_targeted_verdicts(
+        doc, rnd, types.SimpleNamespace(claim_verdicts=verdict_text))
+    return rnd.get('claim_verdicts'), rnd.get('targeted_return_unusable')
+
+
+assert_eq("#793: a claim returned outside the closed set is RECORDED not-addressed",
+          ({'1.1': 'not-addressed'}, None), _793_ingest('1.1 partially'))
+
+assert_eq("#793: a dispatched claim absent from the return is recorded not-addressed",
+          ({'1.1': 'not-addressed'}, None), _793_ingest('2.9 addressed'))
+
+# The fail-open the Phase 3 review reproduced: a dict assignment is last-wins, so a return
+# saying not-addressed and THEN addressed for one id recorded addressed — scheduling the
+# confirming round and converging on a claim the auditor had just rejected.
+assert_eq("#793: a DUPLICATE verdict for one claim id fails closed to not-addressed, "
+          "whichever order the return states them in",
+          ({'1.1': 'not-addressed'}, {'1.1': 'not-addressed'}),
+          (_793_ingest('1.1 not-addressed\n1.1 addressed')[0],
+           _793_ingest('1.1 addressed\n1.1 not-addressed')[0]))
+
+assert_eq("#793: a return carrying NO per-claim block is recorded UNUSABLE — it reopens "
+          "nothing and is not a sweep of not-addressed verdicts",
+          ({}, True), _793_ingest(None))
+
+assert_eq("#793: an unusable targeted return selects the confirming whole-draft round, "
+          "never `proceed` on scoped-only evidence",
+          'confirm-whole-draft',
+          _m793.next_action({'rounds': [{'round': 2, 'outcome': 'FILE',
+                                         'kind': 'targeted', 'claim_verdicts': {}}],
+                             'confirming_rounds_used': 0}, 2))
+
+assert_eq("#793: a duplicate-heading draft keeps BOTH sections in the delta — an edit to "
+          "the first must not vanish behind a later same-named heading",
+          ['## A', '## B'],
+          _m793._changed_sections(b'## A\nx\n## B\nq\n## A\nz\n',
+                                  b'## A\nEDITED\n## B\nCHANGED\n## A\nz\n'))
+
+assert_eq("#793: the rendered record-dispatch suggestion carries --kind FILLED and names "
+          "--scope-file in needs= (the forgotten-flag class #795 removed)",
+          (True, True),
+          (lambda line: ('--kind targeted' in line, '--scope-file' in line.split('needs=')[1]))(
+              _m793._dispatch_next_call(
+                  'query-next-action', 'sl', 'n', 'dispatch-embed-retry',
+                  state={'rounds': [{'round': 1, 'outcome': None, 'kind': 'targeted',
+                                     'attempts': [{'arm': 'file'}]}], 'nonce': 'n'})))
+
+# ── the return-time regeneration arms, and the selection→dispatch window ──────────────
+# Named by the Phase 3 test-coverage review as wholly untested: the two named scope-file
+# steering reasons, the basis cross-check, and the discovery-arm refusal. Each is driven
+# through the real CLI so the reason token is read off the recorded state, not inferred.
+
+def _793_scoped_round(tmpdir_holder):
+    """Open a real targeted round and return (run, scope_path, dispatch_digest, draft)."""
+    td = tempfile.mkdtemp()
+    tmpdir_holder.append(td)
+    run = _Run603(td, slug='s793s')
+    draft = Path(td, 'd.md')
+    draft.write_text('# T\n\n## A\n\nold\n', encoding='utf-8')
+    dig = run._field(run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+                         '--arm', 'file', '--draft-file', 'd.md', nonce=True),
+                     'digest=', 'record-dispatch')
+    run('record-return', run.slug, '--round', '1', '--verdict', 'REVISE',
+        '--findings-count', '1', '--carriage-object-id', dig, nonce=True)
+    run.adjudicate(1, 'REVISE', must=1, unresolved='1', ledger='unresolved: a defect\n')
+    _d, _p, _ = _sdw_stage(str(Path(td, '.devflow', 'tmp',
+                                    f'issue-draft-{run.slug}.N.staged.md')),
+                           b'# T\n\n## A\n\nold\n')
+    run('record-staged-write', run.slug, '--path', _p, '--digest', _d, nonce=True)
+    draft.write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
+    run('record-revision', run.slug, '--after-round', '1', '--stdin-digest',
+        stdin='# T\n\n## A\n\nrevised\n', nonce=True)
+    scope = str(Path(td, 'scope.md'))
+    run('write-dispatch-scope', run.slug, '--draft-file', str(draft), '--path', scope,
+        nonce=True)
+    return run, scope, draft
+
+
+def _793_dispatch_scoped(run, scope, draft, rnd='2'):
+    """Dispatch a targeted round WITH a recorded instruction file.
+
+    The instruction file is what makes the scope-file steering arms reachable at all:
+    without it `steering_state` short-circuits on `inputs-unrecorded` long before it
+    regenerates anything, so a fixture that omits it grades nothing about the scope arms.
+    """
+    instr = str(Path(run.tmp, 'instructions.md'))
+    rendered = _subprocess.run(
+        [sys.executable, str(SCRIPTS / 'render-audit-prompt.py'), 'dispatch-instructions',
+         '--slug', run.slug, '--draft-path', str(draft.resolve()),
+         '--instructions-path', instr, '--scope-file', str(Path(scope).resolve())],
+        capture_output=True, text=True)
+    Path(instr).write_text(rendered.stdout, encoding='utf-8')
+    return run('record-dispatch', '--kind', 'targeted', run.slug, '--round', rnd,
+               '--arm', 'file', '--draft-file', str(draft.resolve()),
+               '--scope-file', str(Path(scope).resolve()),
+               '--instructions-file', instr,
+               '--instructions-draft-path', str(draft.resolve()), nonce=True)
+
+
+_793_tds = []
+
+# AC: record-dispatch refuses a targeted dispatch whose scope basis no longer describes
+# the bytes it audits — the ONLY guard on the selection→dispatch window, which exists
+# because the skill re-runs the Step 3 gate in between.
+_r, _scope, _draft = _793_scoped_round(_793_tds)
+_draft.write_text('# T\n\n## A\n\nrevised AGAIN after the scope was frozen\n',
+                  encoding='utf-8')
+_bm = _r('record-dispatch', '--kind', 'targeted', _r.slug, '--round', '2', '--arm', 'file',
+         '--draft-file', 'd.md', '--scope-file', _scope, nonce=True)
+assert_eq("#793: a byte edit landing between selection and dispatch is refused, named "
+          "(the recorded changed-section set names superseded regions)",
+          (True, True), (_bm.returncode != 0, 'scope-basis-mismatch' in _bm.stderr))
+
+# AC: --scope-file is a targeted-round input; a discovery round carries no scoped payload.
+_dm = _r('record-dispatch', '--kind', 'discovery', _r.slug, '--round', '2', '--arm', 'file',
+         '--draft-file', 'd.md', '--scope-file', _scope, nonce=True)
+assert_eq("#793: --scope-file on a discovery round is refused, named",
+          (True, True), (_dm.returncode != 0, 'scope-file-on-discovery' in _dm.stderr))
+
+# AC: an ABSENT scope file at return time takes its OWN named reason, distinct from the
+# tampered arm, because the two send a reader to opposite remedies.
+_r2, _scope2, _draft2 = _793_scoped_round(_793_tds)
+_d2 = _793_dispatch_scoped(_r2, _scope2, _draft2)
+_dig2 = _d2.stdout.split('digest=', 1)[1].split()[0]
+os.unlink(_scope2)
+_ret2 = _r2('record-return', _r2.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig2,
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793: an ABSENT scope file at record-return records its own named reason",
+          True, 'scope-file-unreadable' in _ret2.stdout)
+
+# AC: a TAMPERED scope file records the tampered reason and withholds the clean ground.
+_r3, _scope3, _draft3 = _793_scoped_round(_793_tds)
+_d3 = _793_dispatch_scoped(_r3, _scope3, _draft3)
+_dig3 = _d3.stdout.split('digest=', 1)[1].split()[0]
+Path(_scope3).write_text(Path(_scope3).read_text(encoding='utf-8') + '- 9.9 — forged\n',
+                         encoding='utf-8')
+_ret3 = _r3('record-return', _r3.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig3,
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793: a TAMPERED scope file records the tampered reason — distinct from the "
+          "absent arm, and steering is not established",
+          (True, True),
+          ('scope-file-tampered' in _ret3.stdout, 'steering=not-established' in _ret3.stdout))
+
+# AC 39: the seam's whole purpose — a targeted round records NO ledger of its own, so a
+# run whose every claim returns not-addressed does not double the run-wide count.
+_r4, _scope4, _draft4 = _793_scoped_round(_793_tds)
+_d4 = _793_dispatch_scoped(_r4, _scope4, _draft4)
+_dig4 = _d4.stdout.split('digest=', 1)[1].split()[0]
+_r4('record-return', _r4.slug, '--round', '2', '--verdict', 'REVISE',
+    '--findings-count', '1', '--carriage-object-id', _dig4,
+    '--claim-verdicts', '1.1 not-addressed', nonce=True)
+_doc4 = json.loads(Path(_r4.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r4.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793/AC39: an all-not-addressed targeted round leaves the run-wide effective "
+          "unresolved count equal to the discovery round's, not doubled",
+          (1, None),
+          (_m793._effective_unresolved(_doc4), _doc4['rounds'][1].get('findings')))
+
+# ── the answer-vocabulary cross-file contract, DERIVED not transcribed ────────────────
+# Replaces the retired wording pin. The comparand is the tool's own closed tuple, so a
+# token added to _NEXT_ACTIONS and forgotten in the skill's obey list goes RED — the exact
+# drift this change introduced (confirm-whole-draft), which a literal wording pin would
+# only have caught because the sentence happened to be rewritten.
+_793_STEP36 = (SCRIPTS.parent / 'skills' / 'create-issue' / 'references'
+               / 'step-3-6-audit.md').read_text(encoding='utf-8')
+assert_eq("#793: every _NEXT_ACTIONS token the tool can answer appears in the skill's "
+          "obey-verbatim list (derived from the tuple, never transcribed)",
+          [], [t for t in _m793._NEXT_ACTIONS if f'`{t}`' not in _793_STEP36])
+
+assert_eq("#793: ... and the obey list names no token the tool cannot answer",
+          [],
+          [t for t in re.findall(r'`([a-z][a-z-]+)`',
+                                 _793_STEP36.split('**Obey the answer verbatim**')[1]
+                                 .split('.')[0])
+           if t not in _m793._NEXT_ACTIONS])
+
+# ── the remaining decided-treatment readers (AC 38/39/40), asserted not assumed ───────
+
+assert_eq("#793/AC40: the final-byte coverage axis reads the latest WHOLE-DRAFT round, so "
+          "a clean targeted round never sets it covered",
+          2,
+          _m793._last_discovery_round(
+              {'rounds': [{'round': 2, 'outcome': 'FILE', 'kind': 'discovery',
+                           'attempts': [{'arm': 'file'}], 'final_byte_pass': False},
+                          {'round': 3, 'outcome': 'FILE', 'kind': 'targeted',
+                           'attempts': [{'arm': 'file'}], 'final_byte_pass': False}]})['round'])
+
+# AC 38: _valid_override and cmd_record_override must stay a MATCHED PAIR — both resolve
+# their epoch from the same round, and both stay kind-blind. An override overrides
+# AUDITING, not whole-draft evidence, so teaching one half to skip a targeted epoch would
+# desynchronize the read-side gate from the write-side guard it mirrors.
+_793_ovr_src = (SCRIPTS / 'issue-audit-state.py').read_text(encoding='utf-8')
+assert_eq("#793/AC38: _valid_override and cmd_record_override resolve their epoch from "
+          "the SAME kind-blind selector (a matched pair, neither taught to skip)",
+          (True, True),
+          ('epoch = last_completed(state)' in _793_ovr_src,
+           'epoch = last_completed(doc)' in _793_ovr_src))
+
+assert_eq("#793/AC39: a run whose latest completed round is targeted still answers on the "
+          "override ground — the decline path files rather than dead-ending",
+          True,
+          _m793._valid_override(
+              {'rounds': [{'round': 1, 'outcome': 'FILE', 'kind': 'targeted',
+                           'attempts': [{'arm': 'embed'}]}],
+               'revisions': [],
+               # `recorded_at_ordinal` is the field the gate compares against
+               # `revision_ordinal(state)` — 0 here, with no revisions recorded. An
+               # embed-arm epoch carries no digest comparand, which is legal.
+               'overrides': [{'kind': 'user-decline', 'recorded_at_ordinal': 0,
+                              'surface': 'approve'}]}, None) is not None)
+
+# AC 26: a targeted round returning DRAFT-UNREADABLE takes the existing unreadable-retry
+# path unchanged, and the RETRY carries the round's recorded kind rather than a fresh
+# selection. The review found this branch unreached by any test.
+_r5, _scope5, _draft5 = _793_scoped_round(_793_tds)
+_d5 = _793_dispatch_scoped(_r5, _scope5, _draft5)
+_dig5 = _d5.stdout.split('digest=', 1)[1].split()[0]
+_ur = _r5('record-return', _r5.slug, '--round', '2', '--verdict', 'DRAFT-UNREADABLE',
+          '--carriage-object-id', _dig5, nonce=True)
+assert_eq("#793/AC26: a targeted DRAFT-UNREADABLE return takes the unreadable-retry path "
+          "unchanged (the round stays open, pending a retry)",
+          (0, True),
+          (_ur.returncode, 'outcome=pending' in _ur.stdout or 'dispatch' in _ur.stdout))
+
+# The retry is validated against the ROUND's recorded kind, not a fresh selection — so a
+# retry declaring the other kind is refused even though the round is legitimately open.
+_wrong = _r5('record-dispatch', '--kind', 'discovery', _r5.slug, '--round', '2',
+             '--arm', 'file', '--draft-file', str(_draft5.resolve()), nonce=True)
+assert_eq("#793/AC26: the retry is selected against the round's RECORDED kind — a retry "
+          "declaring the other kind is refused, named",
+          (True, True),
+          (_wrong.returncode != 0, 'kind-mismatch' in _wrong.stderr))
+
+assert_eq("#793: last_completed stays kind-blind — it answers the newest completed "
+          "round whatever its kind",
+          3,
+          _m793.last_completed(
+              {'rounds': [{'round': 2, 'outcome': 'FILE', 'kind': 'discovery'},
+                          {'round': 3, 'outcome': 'FILE', 'kind': 'targeted'}]})['round'])
+
+
+# --- AC 38: summary_fields renders the verdict and class counts from the latest
+# WHOLE-DRAFT round, and names the scoped round separately -------------------------
+#
+# The Step 4 audit summary is what a human reads to decide whether the draft is filable.
+# A `targeted` round audits an enumerated claim set over a changed-section span, so
+# rendering ITS verdict and class counts as the run's summary would report a scoped
+# re-check as if a whole draft had been re-read. `last_completed` stays kind-blind (the
+# row above), so this reader needs its own whole-draft selector — and the scoped round
+# must still be VISIBLE, not merely suppressed, hence the separate field.
+#
+# Distinct from `_last_discovery_round`: that selector also excludes a final-byte pass,
+# which for THIS reader is whole-draft evidence whose verdict #792 deliberately renders.
+# Reusing it would silently revert that.
+
+def _793_sum_state(rounds):
+    """A completed-round-only state document `summary_fields` can be driven over."""
+    return {'schema_version': _m793.SCHEMA_VERSION, 'slug': 's', 'nonce': 'n',
+            'rounds': rounds, 'revisions': [], 'overrides': []}
+
+
+def _793_sum_round(num, kind, outcome, *, mr, adv, inv, umr, final_byte=False):
+    return {'round': num, 'kind': kind, 'outcome': outcome,
+            'attempts': [{'arm': 'file', 'digest': 'd' * 40}],
+            'adjudicated_verdict': outcome, 'must_revise_count': mr,
+            'advisory_count': adv, 'invalid_count': inv,
+            'unresolved_must_revise': umr, 'final_byte_pass': final_byte}
+
+
+# A discovery round found 3 must-revise findings; a later targeted round re-checked them
+# and came back clean. The summary must still report the DISCOVERY round's verdict and
+# counts — the scoped round re-read no whole draft.
+_793_sum_mixed = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: the summary verdict and every class count come from the latest "
+          "WHOLE-DRAFT round, not the newer targeted one",
+          ('REVISE', 'REVISE', 3, 1, 0, 3),
+          (_793_sum_mixed['verdict'], _793_sum_mixed['adjudicated_verdict'],
+           _793_sum_mixed['must_revise'], _793_sum_mixed['advisory'],
+           _793_sum_mixed['invalid'], _793_sum_mixed['unresolved_must_revise']))
+
+assert_eq("#793/AC38: the targeted round is NAMED separately rather than suppressed — "
+          "a reader sees the scoped round ran",
+          2, _793_sum_mixed['scoped_round'])
+
+# A run with no targeted round answers the identical fields it does today, and reports no
+# scoped round — the negative control that keeps the widening from changing kind-blind runs.
+_793_sum_plain = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+]))
+assert_eq("#793/AC38: a run with no targeted round is unchanged, and names no scoped round",
+          ('REVISE', 3, 3, None),
+          (_793_sum_plain['verdict'], _793_sum_plain['must_revise'],
+           _793_sum_plain['unresolved_must_revise'], _793_sum_plain['scoped_round']))
+
+# A final-byte pass is whole-draft evidence (#792) — the new selector must NOT exclude it
+# the way `_last_discovery_round` does, or this widening silently reverts #792's summary.
+_793_sum_fb = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'discovery', 'FILE', mr=0, adv=0, inv=0, umr=0, final_byte=True),
+]))
+assert_eq("#793/AC38: a final-byte pass still grounds the summary — the whole-draft "
+          "selector excludes ONLY a targeted round",
+          ('FILE', 0, None),
+          (_793_sum_fb['verdict'], _793_sum_fb['must_revise'],
+           _793_sum_fb['scoped_round']))
+
+# Every targeted round is skipped, not merely the newest one.
+_793_sum_two = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'discovery', 'REVISE', mr=3, adv=1, inv=0, umr=3),
+    _793_sum_round(2, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+    _793_sum_round(3, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: consecutive targeted rounds are all skipped, and the NEWEST is the "
+          "one named",
+          ('REVISE', 3, 3),
+          (_793_sum_two['verdict'], _793_sum_two['must_revise'],
+           _793_sum_two['scoped_round']))
+
+# A run whose ONLY completed round is targeted has no whole-draft evidence at all: the
+# verdict and counts must read unestablished (None), never the scoped round's clean FILE.
+# This is the fail-open the widening exists to close — reporting `verdict=FILE` here would
+# tell a reader a whole draft passed when none was ever audited.
+_793_sum_only = _m793.summary_fields(_793_sum_state([
+    _793_sum_round(1, 'targeted', 'FILE', mr=0, adv=0, inv=0, umr=0),
+]))
+assert_eq("#793/AC38: a run whose only completed round is targeted reports NO whole-draft "
+          "verdict or counts, and names the scoped round",
+          (None, None, None, 1),
+          (_793_sum_only['verdict'], _793_sum_only['must_revise'],
+           _793_sum_only['unresolved_must_revise'], _793_sum_only['scoped_round']))
+
+assert_eq("#793/AC38: the unestablished branch carries the new field too, so the field "
+          "set is total on both of summary_fields' answers",
+          None, _m793.summary_fields(None)['scoped_round'])
+
+assert_eq("#793/AC38: scoped_round joins the closed protocol-token vocabulary, so an "
+          "auditor-derived summary cannot forge the tool's own printed field",
+          'scoped_round', _m793._forged_protocol_token('scoped_round=2'))
+
+# ── the UNUSABLE targeted return must not dead-end (review finding, PR #884) ──────────
+# `next_action` schedules `confirm-whole-draft` for ANY targeted round whose outcome is
+# FILE while the confirming budget remains — the unusable return included, precisely
+# because that round established nothing. The funding branch in `record-dispatch` must
+# therefore be gated on the SAME predicate; gating it on the narrower "all claims
+# addressed" made the scheduled round unfundable, so the run was told to open a round
+# the tool then refused as `not funded`. Driven end to end through the real CLI: the
+# unit-level predicate agreement is asserted below it, but only the CLI round-trip grades
+# the dead end itself.
+_r6, _scope6, _draft6 = _793_scoped_round(_793_tds)
+_d6 = _793_dispatch_scoped(_r6, _scope6, _draft6)
+_dig6 = _d6.stdout.split('digest=', 1)[1].split()[0]
+# A targeted return carrying NO per-claim block at all: outcome FILE, round UNUSABLE.
+_ret6 = _r6('record-return', _r6.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig6, nonce=True)
+_doc6 = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793: a targeted return with no per-claim block records outcome FILE and marks "
+          "the round UNUSABLE (the precondition the dead end needed)",
+          (0, 'FILE', True, {}),
+          (_ret6.returncode, _doc6['rounds'][1]['outcome'],
+           _doc6['rounds'][1].get('targeted_return_unusable'),
+           _doc6['rounds'][1].get('claim_verdicts')))
+
+_na6 = _r6('query-next-action', _r6.slug, '--round', '2', nonce=True)
+assert_eq("#793: ... and next_action still schedules the confirming whole-draft round on "
+          "the unusable return, exactly as its own contract states",
+          True, 'confirm-whole-draft' in _na6.stdout)
+
+_d6b = _r6('record-dispatch', '--kind', 'discovery', _r6.slug, '--round', '3',
+           '--arm', 'file', '--draft-file', str(_draft6.resolve()), nonce=True)
+_doc6b = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+                         f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793: ... and the round next_action scheduled is FUNDED — the confirming "
+          "counter is spent for it, so record-dispatch accepts instead of dead-ending "
+          "the error-recovery path on `not funded`",
+          (0, 1),
+          (_d6b.returncode, _doc6b.get('confirming_rounds_used')))
+
+# The unit-level statement of the same agreement: for every state `next_action` answers
+# `confirm-whole-draft` on, the funding predicate must hold. Asserted over both targeted
+# FILE sub-cases (clean sweep and unusable), so narrowing either side goes RED.
+for _kind_label, _verdicts, _unusable in (('a clean sweep', {'1.1': 'addressed'}, False),
+                                          ('an UNUSABLE return', {}, True)):
+    _st793 = {'rounds': [{'round': 1, 'outcome': 'FILE', 'kind': 'targeted',
+                          'claim_verdicts': _verdicts,
+                          'targeted_return_unusable': _unusable,
+                          'attempts': [{'arm': 'file'}]}],
+              'confirming_rounds_used': 0}
+    assert_eq(f"#793: {_kind_label} targeted FILE round schedules confirm-whole-draft, and "
+              f"the funding predicate record-dispatch gates on holds for the same state",
+              ('confirm-whole-draft', True),
+              (_m793.next_action(_st793, 1),
+               _m793._round_kind(_st793['rounds'][0]) == 'targeted'
+               and _st793['rounds'][0].get('outcome') == 'FILE'))
+
+# ── AC32 limb one: a targeted round NEVER grounds the clean scan ──────────────────────
+# The guard is a `continue` in evaluate_eligibility's reverse scan. Without it a clean
+# SCOPED round becomes the clean ground and a run resolves `eligible` on evidence that
+# never covered the whole draft — the fail-open the confirming round exists to close.
+_793_elig_targeted = _state([dict(_round(1, 'file', 'FILE', 'D1'), kind='targeted')])
+assert_eq("#793/AC32: a clean `targeted` round never grounds the clean scan — eligibility "
+          "refuses no-verdict-round rather than accepting scoped-only evidence",
+          ('not-eligible', 'unaudited-revision', None),
+          (lambda r: (r['answer'], r['reason'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_793_elig_targeted, 'approve', 'D1')))
+
+# The companion that proves the row above is not vacuous: the SAME round, kind-blind,
+# is the clean ground. So the refusal is attributable to the kind guard alone.
+assert_eq("#793/AC32: ... while the byte-identical DISCOVERY round does ground it — the "
+          "refusal above is the kind guard, not some unrelated precondition",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([dict(_round(1, 'file', 'FILE', 'D1'), kind='discovery')]),
+                  'approve', 'D1')))
+
+# A targeted round must not REVOKE an older whole-draft clean verdict either — the guard
+# skips rather than breaks, which is the other direction AC32's first limb names.
+assert_eq("#793/AC32: a trailing `targeted` REVISE round does not revoke the earlier "
+          "whole-draft clean verdict (the guard skips, it does not break)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1'),
+                      dict(_round(2, 'file', 'REVISE', 'D1'), kind='targeted')]),
+              'approve', 'D1')['answer'])
+
+# ── _convergence_basis: a targeted round never vouches whole-draft ────────────────────
+# `basis=adjudicated` claims an AUDITOR's whole-draft verdict vouches for the state.
+# `_last_discovery_round`'s targeted guard is what keeps a scoped round from making that
+# claim; driven here through _convergence_basis, the reader that publishes the token.
+
+
+def _793_basis_round(num, kind, outcome, adj):
+    return {'round': num, 'kind': kind, 'outcome': outcome,
+            'attempts': [{'arm': 'file', 'digest': 'd' * 40}],
+            'adjudicated_verdict': adj, 'final_byte_pass': False}
+
+
+assert_eq("#793: a trailing FILE-adjudicated `targeted` round does NOT answer "
+          "basis=adjudicated — a scoped round vouches for no whole draft",
+          'resolution',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'targeted', 'FILE', 'FILE')],
+               'revisions': [], 'overrides': []}, True))
+
+assert_eq("#793: ... while the byte-identical DISCOVERY round does answer "
+          "basis=adjudicated, so the row above is the kind guard alone",
+          'adjudicated',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'discovery', 'FILE', 'FILE')],
+               'revisions': [], 'overrides': []}, True))
+
+assert_eq("#793: a targeted round trailing a FILE-adjudicated whole-draft round is "
+          "SKIPPED, not treated as the latest adjudication — the basis survives it",
+          'adjudicated',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'discovery', 'FILE', 'FILE'),
+                          _793_basis_round(2, 'targeted', 'FILE', None)],
+               'revisions': [], 'overrides': []}, True))
+
+# ── AC18 positive arm: a clean scoped round ESTABLISHES steering ──────────────────────
+# The tampered arm above asserts `steering=not-established`. AC18 requires the verified
+# regeneration asserted DIRECTLY, so this arm drives an untouched scope file through the
+# same fixture and reads the established token and its canonical-match reason off the
+# record-return answer line — the same executable surface the negative control uses.
+_r7, _scope7, _draft7 = _793_scoped_round(_793_tds)
+_d7 = _793_dispatch_scoped(_r7, _scope7, _draft7)
+_dig7 = _d7.stdout.split('digest=', 1)[1].split()[0]
+_instr7 = Path(_r7.tmp, 'instructions.md')
+_ret7 = _r7('record-return', _r7.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig7,
+            '--instructions-object-id', _m793.hash_bytes(_instr7.read_bytes()),
+            '--extra-dispatch-content', 'no',
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793/AC18: an UNTAMPERED scope file regenerates to the recorded identity, so "
+          "the round records steering as ESTABLISHED with the canonical-match reason",
+          (0, True, False, False),
+          (_ret7.returncode,
+           'steering=established' in _ret7.stdout,
+           'scope-file-tampered' in _ret7.stdout,
+           'scope-file-unreadable' in _ret7.stdout))
+
+_doc7 = json.loads(Path(_r7.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r7.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, so a "
+          "later reader sees the verified regeneration rather than re-inferring it",
+          'established', (_doc7['rounds'][1].get('steering') or {}).get('state'))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

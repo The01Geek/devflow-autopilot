@@ -213,6 +213,39 @@ how a reviewer read it.
 > - before: run `<id>`, captured `<date>`, peak `<N>`, re-emissions `<M>`
 > - after:  run `<id>`, captured `<date>`, peak `<N'>`, re-emissions `<M'>`  (must be strictly lower)
 
+### Step 3.6 round kinds (issue #793) — maintainer measurement obligation, UNFILLED
+
+A third axis on the same corpus: what a **claim-scoped** later round costs against the cold
+whole-draft round it replaces. Issue #793 made the round kind tool-owned, so a later round
+re-checks the enumerated already-raised claims over the tool-derived changed-section set instead
+of re-establishing the whole draft and the whole repository from scratch.
+
+**No CI check re-derives the figures below, and none can.** The auditor's cost is spent in a
+sidechain the committed fixtures only model; capturing an after-corpus requires running the
+instrument over real transcripts produced by the merged change, which no command granted during
+implementation can do. This is therefore a recorded **maintainer measurement obligation**, filled
+**post-merge by the maintainer**, not in the implementing PR — and the obligation is the guard:
+**a measurement showing no decrease means the change is reverted or deferred, never shipped as a
+reduction.**
+
+The row is unfilled **by pendency, not by omission**: the measurement is due and has not yet been
+taken. That is a different state from the #795 row above, which is unfilled *by decision* because
+no measurement is due on its axis — a bare template with neither statement is how a dropped
+obligation reads.
+
+> Maintainer before/after record (to be filled post-merge from a real create-issue corpus):
+> - before: run `<id>`, captured `<date>`, rounds `<N>`, attributed auditor tokens/round `<T>`, findings `<F>`
+> - after:  run `<id>`, captured `<date>`, rounds `<N'>`, attributed auditor tokens/round `<T'>`, findings `<F'>`  (`T'` must be strictly lower on the scoped rounds)
+> - escaped-defect proxies: `record-reopen` count `<R>`; later-round must-revise findings whose quoted draft line falls inside an earlier scoped round's recorded scope `<S>` (with its unattributable denominator `<D>`); post-filing class — reported `unestablished`, never a number
+
+**The instrument that produces these figures is not yet built.** Acceptance criteria 48–59 of
+issue #793 — sidechain attribution, round-boundary derivation from the transcript's own
+`record-dispatch` records, the best-effort state-file reader, the before/after operands, the
+per-kind medians and the three escaped-defect proxies — were deferred to **issue #889**, because
+each of them reads a round kind the mechanism had to record first. Until that follow-up lands, this row
+cannot be filled by any existing tooling, and saying so here is what keeps the gap inspectable
+rather than silent.
+
 ### Step 3.6 state-owner round-trips (issue #795)
 
 A separate axis from the peak-context measurement above, on the same corpus: how many times
