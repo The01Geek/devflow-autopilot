@@ -53,16 +53,12 @@ if ! . "$_SF_HERE/filing-decisions.sh" 2>/dev/null; then
     return 0 2>/dev/null || true
 fi
 
-# _sf_token_set <string> — the deterministic token-set signature used for the alias:
-# lowercase, split on non-alphanumeric runs, drop empties, sort, de-duplicate, join
-# with a single dash. The stopword set is EMPTY, so no token is dropped before
-# comparison — two strings differing by ANY token get distinct signatures. Computed
-# in jq (never tr/sed/cut — this value decides a filing selection, and CLAUDE.md bars
+# The deterministic token-set signature used for the alias is lowercase, split on
+# non-alphanumeric runs, drop empties, sort, de-duplicate — two strings differing by
+# ANY token get distinct signatures (the stopword set is EMPTY). It is defined ONCE,
+# as the `tokset` jq function inside the alias-lookup program below, and computed in
+# jq (never tr/sed/cut — this value decides a filing selection, and CLAUDE.md bars
 # deriving a selection value through a non-preflight PATH tool).
-_sf_token_set() {
-    "$DEVFLOW_JQ" -r -n --arg s "$1" '
-        $s | ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length > 0)) | unique | join("-")'
-}
 
 # devflow_select_findings
 #   --category <cat>            attribution category (slug grammar) for these findings
@@ -143,6 +139,18 @@ devflow_select_findings() {
     local _base_per_cat _base_open
     _base_per_cat="$(devflow_open_filed_for_category "$overrides" "$category")"
     _base_open="$(devflow_open_filed_total "$overrides")"
+    # Both helpers fail CLOSED by printing NOTHING (never `0`) on a malformed record
+    # set. An empty comparand in the `$(( ... ))` arithmetic below would silently
+    # coerce to 0 — laundering an unknown count into an empty backlog and filing past
+    # the caps. Unknown is not zero (CLAUDE.md): withhold every finding instead.
+    case "$_base_per_cat" in ''|*[!0-9]*)
+        echo "::error::select-findings: the per-category open-filed comparand for '${category}' is unestablished (got '${_base_per_cat}') — withholding every finding for this pattern rather than filing past the cap on a laundered zero" >&2
+        return 1 ;;
+    esac
+    case "$_base_open" in ''|*[!0-9]*)
+        echo "::error::select-findings: the open-filed total comparand is unestablished (got '${_base_open}') — withholding every finding for this pattern rather than filing past the cap on a laundered zero" >&2
+        return 1 ;;
+    esac
 
     # ── Walk the ranked findings, composing/aliasing/legality-checking each key and
     # asking the cap owner per finding. `_filed_here` is the running count of issues
@@ -180,11 +188,13 @@ devflow_select_findings() {
         # Alias: collapse subslug churn onto an existing record of the SAME category
         # whose key yields an EQUAL token set. Compare full-key signatures — both keys
         # share the category prefix, so equal signatures ⟺ equal subslug token sets.
-        local _new_sig _existing_key
-        _new_sig="$(_sf_token_set "$_key")"
-        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg sig "$_new_sig" '
+        # `tokset` is defined once here and applied to BOTH the new key and each
+        # existing key in the same program, so the signature rule cannot drift.
+        local _existing_key
+        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg key "$_key" '
             def tokset: ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length>0)) | unique | join("-");
-            [ (.patterns // {}) | to_entries[]
+            ($key | tokset) as $sig
+            | [ (.patterns // {}) | to_entries[]
               | select((.value | objects) != null)
               | select((.value.category // "") == $cat)
               | select((.key | tokset) == $sig)
