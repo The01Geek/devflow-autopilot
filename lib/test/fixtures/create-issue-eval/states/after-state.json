@@ -1,0 +1,31 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "kind": "discovery",
+      "scope": null,
+      "findings": [
+        {"id": 1, "summary": "acceptance criteria omit the new flag", "status": "unresolved", "quoted_draft_line": 22},
+        {"id": 2, "summary": "problem statement contradicts the desired behavior", "status": "unresolved", "quoted_draft_line": 8}
+      ]
+    },
+    {
+      "round": 2,
+      "kind": "targeted",
+      "scope": {"draft_lines": [10, 50], "claim_ids": ["c1", "c2"]},
+      "findings": [
+        {"id": 1, "summary": "the flag is named but its default is still unstated", "status": "unresolved", "quoted_draft_line": 24}
+      ]
+    },
+    {
+      "round": 3,
+      "kind": "discovery",
+      "scope": null,
+      "findings": [
+        {"id": 1, "summary": "a defect inside the earlier targeted scope slipped through", "status": "unresolved", "quoted_draft_line": 30},
+        {"id": 2, "summary": "a finding the auditor did not anchor to a draft line", "status": "unresolved"},
+        {"id": 3, "summary": "a defect outside any earlier targeted scope", "status": "unresolved", "quoted_draft_line": 99}
+      ]
+    }
+  ]
+}

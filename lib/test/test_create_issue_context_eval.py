@@ -117,6 +117,16 @@ class HappyPathTest(unittest.TestCase):
             "runs_over_400k": 0,
             "median_repeated_read_count": 0,
             "median_reemission_count": 0,
+            # Issue #889 axes. The corpus carries no state file, so every per-kind /
+            # scope-escape / post-filing / wall-clock figure reads `unestablished`
+            # (never a number) and the auditor-cost median is 0 (no sidechain records).
+            "median_attributed_auditor_cost": 0,
+            "median_auditor_cost_discovery": "unestablished",
+            "median_auditor_cost_targeted": "unestablished",
+            "total_record_reopen": 0,
+            "scope_escape": {"count": "unestablished", "unattributable": "unestablished"},
+            "post_filing_escapes": "unestablished",
+            "wall_clock": "unestablished",
         })
 
 
@@ -470,6 +480,195 @@ class SecurityTest(unittest.TestCase):
                 self.assertIn("blocked", err.getvalue())
             finally:
                 os.chmod(blocked, 0o700)
+
+
+class RoundAttributionTest(_SingleSessionMixin, unittest.TestCase):
+    """Issue #889: sidechain (auditor) cost is attributed to transcript-derived rounds."""
+
+    def test_sidechain_cost_attributed_to_current_round(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"issue-audit-state.py record-dispatch --round 1 --kind discovery"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":100,"cache_read_input_tokens":200,'
+            '"cache_creation_input_tokens":50,"output_tokens":10}}}',
+        ])
+        self.assertEqual(len(runs), 1)
+        # The auditor cost is the full token total (context sub-fields + output).
+        self.assertEqual(runs[0]["round_auditor_cost"], {1: 360})
+        self.assertEqual(runs[0]["attributed_auditor_cost"], 360)
+        # The sidechain record is NOT a main-thread turn.
+        self.assertEqual(runs[0]["turn_count"], 1)
+
+    def test_sidechain_before_any_dispatch_is_unrounded_not_round_one(self):
+        # A sidechain turn before any record-dispatch marker cannot be keyed to a
+        # round; it is held separately, never silently folded into round 1.
+        runs, _ = self._run_one([
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":7}}}',
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1}}}',
+        ])
+        self.assertEqual(runs[0]["round_auditor_cost"], {})
+        self.assertEqual(runs[0]["unrounded_auditor_cost"], 7)
+        self.assertEqual(runs[0]["attributed_auditor_cost"], 7)
+
+    def test_round_boundary_switches_on_new_dispatch(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"issue-audit-state.py record-dispatch --round 1 --kind discovery"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":100}}}',
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b2",'
+            '"input":{"command":"issue-audit-state.py record-dispatch --round 2 --kind targeted"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":40}}}',
+        ])
+        self.assertEqual(runs[0]["round_auditor_cost"], {1: 100, 2: 40})
+        self.assertEqual(runs[0]["dispatch_rounds"], [1, 2])
+
+    def test_record_reopen_counted(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"issue-audit-state.py record-reopen --round 2 --finding 1.1"}}]}}',
+        ])
+        self.assertEqual(runs[0]["record_reopen_count"], 1)
+
+    def test_non_create_issue_sidechain_not_attributed(self):
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"issue-audit-state.py record-dispatch --round 1 --kind discovery"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"other-skill",'
+            '"message":{"usage":{"input_tokens":9999}}}',
+        ])
+        self.assertEqual(runs[0]["attributed_auditor_cost"], 0)
+
+
+class StateReaderBestEffortTest(unittest.TestCase):
+    """Issue #889 AC8: every degraded state-file shape -> unestablished, never a crash."""
+
+    def _state(self, payload):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            fh.write(payload)
+            return fh.name
+
+    def test_absent_state_is_none(self):
+        self.assertIsNone(CICE.read_state(None))
+        self.assertIsNone(CICE.read_state("/no/such/state.json"))
+
+    def test_degraded_shapes_read_as_none(self):
+        degraded = [
+            "",                                   # empty
+            "   \n",                              # whitespace-only
+            "{ not json",                         # malformed
+            "[1,2,3]",                            # not an object
+            '{"rounds": "notalist"}',             # wrong-typed rounds container
+            '{"rounds": [ "notanobject" ]}',      # a round that is not an object
+            '{"rounds": [ {"round": 1} ]}',       # a round with no recognized kind
+            '{"rounds": [ {"round": 1, "kind": "bogus"} ]}',  # unrecognized kind
+            '{"rounds": [ {"round": true, "kind": "discovery"} ]}',  # bool round num
+        ]
+        for payload in degraded:
+            path = self._state(payload)
+            self.assertIsNone(CICE.read_state(path),
+                              "degraded payload should read as None: {!r}".format(payload))
+
+    def test_degraded_state_makes_per_kind_and_scope_unestablished(self):
+        runs, _ = CICE.eval_corpus(
+            os.path.join(_FIX, "after-rounds"))
+        summary = CICE.aggregate(runs, CICE.read_state("/no/such/state.json"))
+        self.assertEqual(summary["median_auditor_cost_discovery"], "unestablished")
+        self.assertEqual(summary["median_auditor_cost_targeted"], "unestablished")
+        self.assertEqual(summary["scope_escape"],
+                         {"count": "unestablished", "unattributable": "unestablished"})
+
+    def test_valid_state_reads_rounds(self):
+        state = CICE.read_state(os.path.join(_FIX, "states", "after-state.json"))
+        self.assertIsNotNone(state)
+        self.assertEqual(state[1]["kind"], "discovery")
+        self.assertEqual(state[2]["kind"], "targeted")
+        self.assertEqual(state[2]["scope"]["draft_lines"], [10, 50])
+
+
+class PerKindAndProxyTest(unittest.TestCase):
+    """Issue #889 AC6/AC9/AC11: per-kind medians and the three escaped-defect proxies."""
+
+    def _summary(self, corpus, state_name):
+        runs, _ = CICE.eval_corpus(os.path.join(_FIX, corpus))
+        state = CICE.read_state(os.path.join(_FIX, "states", state_name))
+        return runs, CICE.aggregate(runs, state)
+
+    def test_per_kind_medians(self):
+        _runs, summary = self._summary("after-rounds", "after-state.json")
+        # discovery rounds: r1=139000, r3=50000 -> median 94500; targeted: r2=26800.
+        self.assertEqual(summary["median_auditor_cost_discovery"], 94500)
+        self.assertEqual(summary["median_auditor_cost_targeted"], 26800)
+
+    def test_reopen_proxy(self):
+        _runs, summary = self._summary("after-rounds", "after-state.json")
+        self.assertEqual(summary["total_record_reopen"], 1)
+
+    def test_scope_escape_proxy_and_denominator(self):
+        _runs, summary = self._summary("after-rounds", "after-state.json")
+        # One later-round finding (line 30) falls inside the earlier targeted [10,50]
+        # scope; one later-round finding carries no draft line (unattributable).
+        self.assertEqual(summary["scope_escape"], {"count": 1, "unattributable": 1})
+
+    def test_post_filing_and_wall_clock_are_unestablished(self):
+        _runs, summary = self._summary("after-rounds", "after-state.json")
+        self.assertEqual(summary["post_filing_escapes"], "unestablished")
+        self.assertEqual(summary["wall_clock"], "unestablished")
+
+    def test_before_has_no_targeted_scope_so_zero_escapes(self):
+        _runs, summary = self._summary("before-rounds", "before-state.json")
+        self.assertEqual(summary["scope_escape"], {"count": 0, "unattributable": 0})
+        self.assertEqual(summary["median_auditor_cost_targeted"], "unestablished")
+
+
+class PairedDeltaTest(unittest.TestCase):
+    """Issue #889 AC7/AC12: paired before/after deltas and the reduction inequality."""
+
+    def _paired(self):
+        return CICE.build_paired_report(
+            os.path.join(_FIX, "before-rounds"),
+            os.path.join(_FIX, "after-rounds"),
+            os.path.join(_FIX, "states", "before-state.json"),
+            os.path.join(_FIX, "states", "after-state.json"),
+        )
+
+    def test_reduction_detected_with_strict_inequality(self):
+        report = self._paired()
+        before_cost = report["before"]["runs"][0]["attributed_auditor_cost"]
+        after_cost = report["after"]["runs"][0]["attributed_auditor_cost"]
+        # The reduction is asserted LIVE from the committed fixtures with a strict
+        # inequality, never from a transcribed figure.
+        self.assertLess(after_cost, before_cost)
+
+    def test_paired_delta_fields(self):
+        report = self._paired()
+        delta = report["delta"]
+        self.assertEqual(set(delta), {
+            "attributed_auditor_cost", "per_run_context", "round_count", "finding_count",
+        })
+        # Latency is deliberately NOT a delta field (wall-clock is unestablished).
+        self.assertNotIn("latency", delta)
+        self.assertLess(delta["attributed_auditor_cost"], 0)
+        self.assertEqual(delta["finding_count"], 2)
+
+    def test_paired_delta_omits_latency_even_in_json(self):
+        report = self._paired()
+        self.assertNotIn("latency", report["delta"])
+        self.assertNotIn("wall_clock", report["delta"])
 
 
 if __name__ == "__main__":

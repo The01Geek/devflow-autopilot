@@ -238,13 +238,30 @@ obligation reads.
 > - after:  run `<id>`, captured `<date>`, rounds `<N'>`, attributed auditor tokens/round `<T'>`, findings `<F'>`  (`T'` must be strictly lower on the scoped rounds)
 > - escaped-defect proxies: `record-reopen` count `<R>`; later-round must-revise findings whose quoted draft line falls inside an earlier scoped round's recorded scope `<S>` (with its unattributable denominator `<D>`); post-filing class — reported `unestablished`, never a number
 
-**The instrument that produces these figures is not yet built.** Acceptance criteria 48–59 of
-issue #793 — sidechain attribution, round-boundary derivation from the transcript's own
-`record-dispatch` records, the best-effort state-file reader, the before/after operands, the
-per-kind medians and the three escaped-defect proxies — were deferred to **issue #889**, because
-each of them reads a round kind the mechanism had to record first. Until that follow-up lands, this row
-cannot be filled by any existing tooling, and saying so here is what keeps the gap inspectable
-rather than silent.
+**The instrument that produces these figures is built (issue #889).**
+`scripts/create-issue-context-eval.py` now attributes the auditor's own `isSidechain`
+`usage` records to rounds, derives round boundaries from the transcript's own
+`record-dispatch --round N` records (the state file supplies only the round→kind labelling,
+best-effort — every degraded state-file shape yields `unestablished` per-kind figures, never a
+number), reports the per-kind auditor-cost medians, accepts a `--before`/`--after` operand pair
+with paired deltas (attributed auditor cost, per-run context, round count, finding count — **never
+latency**), and reports the three escaped-defect proxies (`record-reopen` count; the scope-escape
+count with its unattributable denominator; and a declared post-filing class reported
+`unestablished`). Wall-clock is **not** a measured axis on this tier — it is reported
+`unestablished`, citing this document's local-tier row in
+[`docs/efficiency-trace.md`](efficiency-trace.md), rather than asserted as something the
+orchestrator observes; and no cost figure is sourced from a value the orchestrator volunteers (the
+harness emits the same `usage` data deterministically). The main-thread context figures are a
+**secondary** axis and are never the sole basis of the reduction claim.
+
+`lib/test/test_create_issue_context_eval.py` asserts the reduction **live** from the committed
+synthetic before/after fixtures under `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`
+(plus their `states/` labelling) with a **strict inequality**, so a modeled reduction the
+instrument can detect is CI-reconcilable — distinct from the real-corpus figures below, which
+remain a **maintainer measurement obligation** because capturing an after-corpus requires running
+the instrument over real transcripts produced by the merged change, which no command granted during
+implementation can do. The obligation is still the guard: a real-corpus measurement showing no
+decrease means the change is reverted or deferred, never shipped as a reduction.
 
 ### Step 3.6 state-owner round-trips (issue #795)
 

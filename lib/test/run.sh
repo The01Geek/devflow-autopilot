@@ -43293,9 +43293,18 @@ if [ -d "$IAS_SB" ]; then
     PATH="$RESTRICTED" python3 "$IAS" record-adjudication rt --nonce "$NONCE" --round 1 \
       --verdict REVISE --must-revise 2 --advisory 0 --invalid 0 --unresolved-must-revise 2 \
       --ledger-stdin > .rt-adj <<'LEDGER-EOF'
-unresolved: first finding
+unresolved@12: first finding
 unresolved: second finding $(not expanded) `nor this`
 LEDGER-EOF
+    # issue #889: the first ledger line carries the OPTIONAL `@<n>` draft-line
+    # coordinate — the draft line the auditor quoted as the line it attacks. Every
+    # later query below re-loads the state and runs `_validate_ledger` over this
+    # entry, so the flow proves ingest + persistence + the read-boundary validation
+    # of the new field; assert the recorded value directly from the state file (the
+    # second, coordinate-less line proves the field stays absent when not supplied).
+    IAS889_RC=0
+    PATH="$RESTRICTED" python3 -c 'import json,sys; d=json.load(open(".devflow/tmp/issue-audit-state-rt.json")); f=[r for r in d["rounds"] if r["round"]==1][0]["findings"]; sys.exit(0 if f[0].get("quoted_draft_line")==12 and "quoted_draft_line" not in f[1] else 1)' || IAS889_RC=$?
+    assert_eq "issue #889: ledger records the per-finding quoted_draft_line coordinate" "0" "$IAS889_RC"
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 
