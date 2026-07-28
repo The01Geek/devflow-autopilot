@@ -23907,7 +23907,9 @@ assert_eq "#874 promptext: both truncated paths are published for the grounding 
 # that aborts the job today, because install.sh creates no such directory and a
 # redirect into a missing one fails under the default `bash -e` step shell.
 mkdir -p "$MTE_WF/wsB"
-MTE_WF_B="$(devflow_mte_run_promptext "$MTE_WF/wsB")"
+# Arms B and C are checked through their filesystem effect and recorded rc, not
+# through the published path list, so the run's stdout is discarded here.
+devflow_mte_run_promptext "$MTE_WF/wsB" >/dev/null
 assert_eq "#874 promptext: exit 0 on a checkout with no .devflow/prompt-extensions/ directory" "0" "$(devflow_mte_promptext_rc)"
 assert_eq "#874 promptext: the missing directory is created and the protected names truncated into it" "yes" \
   "$([ -f "$MTE_WF/wsB/.devflow/prompt-extensions/review.md" ] && [ ! -s "$MTE_WF/wsB/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
@@ -23916,7 +23918,7 @@ assert_eq "#874 promptext: a protected name the checkout never carried still yie
 # Arm C: the directory exists but carries none of the protected files.
 mkdir -p "$MTE_WF/wsC/.devflow/prompt-extensions"
 printf 'unrelated\n' > "$MTE_WF/wsC/.devflow/prompt-extensions/implement.md"
-MTE_WF_C="$(devflow_mte_run_promptext "$MTE_WF/wsC")"
+devflow_mte_run_promptext "$MTE_WF/wsC" >/dev/null
 assert_eq "#874 promptext: exit 0 when the directory carries none of the protected files" "0" "$(devflow_mte_promptext_rc)"
 assert_eq "#874 promptext: an unprotected sibling extension is left untouched" "unrelated" \
   "$(cat "$MTE_WF/wsC/.devflow/prompt-extensions/implement.md")"
