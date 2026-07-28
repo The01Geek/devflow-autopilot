@@ -50,9 +50,11 @@ HARDENED_PATHS="${HARDENED_PATHS:-}"
 # fail-closed literals instead.
 CI_SUMMARY="${CI_SUMMARY//\`/}"
 ALLOWED_TOOLS="${ALLOWED_TOOLS//\`/}"
-# HARDENED_PATHS carries the #458-displaced Stop-hook closure paths (newline-
-# separated repo-relative paths). They are maintainer-controlled today (the
-# HOOK_TARGETS closure literal in trusted workflow shell), but containment is a
+# HARDENED_PATHS carries the trusted-source-displaced paths (newline-separated
+# repo-relative paths) from BOTH producers — the #458 Stop-hook closure and the
+# #874 prompt-extension truncation, joined by the displaced_join step.
+# They are maintainer-controlled today (the HOOK_TARGETS closure literal and the
+# protected prompt-extension set, both in trusted workflow shell), but containment is a
 # property of THIS renderer, not the caller — a backtick in one would close a
 # fence early — so strip them here too, exactly like CI_SUMMARY/ALLOWED_TOOLS.
 # A value of backticks only strips to empty and renders no section (AC4).
@@ -106,10 +108,15 @@ PATHS_EOF
   # Backtick containment for the SHA does NOT rest on this substitution (it does
   # not strip backticks) — it rests on the top-of-file HEAD_SHA backtick strip.
   _DISP_PROSE=$(cat <<'__DISP_PROSE_EOF__'
-> **5. Stop-hook-floor displacement (issue #458).** The working-tree files listed
-> below were deliberately replaced with trusted base-ref copies (or fail-closed
-> stubs) by the Stop-hook trusted-source floor before this session started, so
+> **5. Trusted-source displacement (issues #458, #874).** The working-tree files
+> listed below were deliberately displaced before this session started by one of
+> two trusted-source producers — the Stop-hook trusted-source floor, which
+> replaces them with trusted base-ref copies or fail-closed stubs (issue #458),
+> or the prompt-extension truncation, which empties (or creates empty) the
+> workspace copy of each protected extension (issue #874) — so
 > their working-tree bytes and file modes do not reflect the reviewed head. The
+> list carries no per-path provenance, so never attribute a listed path to a
+> particular producer. The
 > working-tree copy is NEVER consulted for any content claim about a listed path
 > — head or base alike — because the published list carries no per-path
 > provenance and on the stub arms the working-tree bytes are a no-op stub, not

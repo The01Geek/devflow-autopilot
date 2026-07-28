@@ -286,11 +286,13 @@ jobs:
       # reintroduces exactly the defect this change closes: on a fetch failure the
       # PR-head workspace copy would survive and the loader would read it.
       #
-      # The four arms on which the closure is not populated — a failed base-ref fetch, an
-      # empty base ref, no trusted source for the materialization helper, and a per-name
-      # read failure or unwritable target inside the helper — therefore each degrade to an
-      # EMPTY closure, never to the repo-root path being taken. The truncation is the belt for the remaining case where the
-      # cooperating half is absent: a consumer whose base ref pins a devflow_version
+      # The arms on which the closure is not populated — a failed base-ref fetch, an
+      # empty base ref, no trusted source for the materialization helper, a per-name read
+      # failure or unwritable target inside the helper, a helper usage defect (non-zero
+      # exit), a traversal-shaped protected name, and a non-blob object at a protected
+      # path — therefore each degrade to an EMPTY closure, rather than sending the loader
+      # back to the PR-head file. The truncation is the belt for the remaining case where
+      # the cooperating half is absent: a consumer whose base ref pins a devflow_version
       # predating this change gets a loader that ignores the variable, resolves the
       # repo-root path, finds the truncated file, and loads nothing.
       - name: Establish the trusted prompt-extension closure
@@ -312,13 +314,33 @@ jobs:
           # this job empty that file instead — silently, exit 0 — before ci_summary and
           # harden_hooks read the tree. `rm -f` unlinks the link itself and never its
           # target, so the create that follows always makes a fresh regular file.
-          if [ -L .devflow/prompt-extensions ]; then
-            echo "::warning::PR-head '.devflow/prompt-extensions' is a symlink; removing the link rather than writing through it."
+          #
+          # The guard covers ANY non-directory at the directory path, not just a
+          # symlink: `mkdir -p` fails with "File exists" on a regular file, and under
+          # this step's `set -e` that aborts the job before `vendor`, `baseprovision`,
+          # `harden_hooks`, `compose` and the reviewer itself ever run — a PR-author-
+          # triggerable denial of the merge gate, since committing a plain file at
+          # `.devflow/prompt-extensions` is all it takes. Removing the offending entry
+          # keeps the step's own premise ("every path here is PR-author-controlled")
+          # true for the directory path as well as the leaves.
+          if [ -e .devflow/prompt-extensions ] && [ ! -d .devflow/prompt-extensions ]; then
+            echo "::warning::PR-head '.devflow/prompt-extensions' exists but is not a directory (symlink or regular file); removing it rather than writing through it."
             rm -f .devflow/prompt-extensions
           fi
           mkdir -p .devflow/prompt-extensions
           TRUNCATED=''
           for _n in $DEVFLOW_PROTECTED_PROMPT_EXTENSIONS; do
+            # Same three-pattern name guard the materialization helper applies to its
+            # own NAME arguments. The workflow passes literals, so a hit means a caller
+            # defect in the job-level declaration — and here the operation that would
+            # follow is `rm -rf`, so an unguarded escape is a recursive delete OUTSIDE
+            # the extensions directory rather than the helper's warn-and-skip.
+            case "$_n" in
+              */* | *..* | '')
+                echo "::warning::devflow protected prompt-extension name '$_n' contains a path separator or '..', or is empty; skipping it rather than removing a path outside .devflow/prompt-extensions/."
+                continue
+                ;;
+            esac
             _p=".devflow/prompt-extensions/${_n}.md"
             if [ -L "$_p" ] || { [ -e "$_p" ] && [ ! -f "$_p" ]; }; then
               echo "::warning::PR-head '$_p' is a symlink or a non-regular file; removing it rather than writing through it."
@@ -869,9 +891,11 @@ jobs:
               # extension and exports DEVFLOW_PROMPT_EXTENSION_ROOT pointing at a
               # $RUNNER_TEMP closure, and `baseprovision` populates that closure from
               # the TRUSTED base ref inside its fetch-success branch and nowhere else.
-              # The four arms on which population does not happen — a failed base-ref
-              # fetch, an empty base ref, no trusted helper source, and a per-name read
-              # failure or unwritable target — each leave the closure empty rather than
+              # The arms on which population does not happen — a failed base-ref
+              # fetch, an empty base ref, no trusted helper source, a per-name read
+              # failure or unwritable target, a helper usage defect, a traversal-shaped
+              # protected name, and a non-blob object at a protected path — each leave the
+              # closure empty rather than
               # sending the loader back to the PR-head path. The residuals this does NOT close —
               # the PR-selectable marketplace manifest and the PR-head composite
               # actions under .github/actions/ — are filed separately.
