@@ -181,13 +181,23 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 
 
 # Bound on the per-source parse memos below. A process that builds a census
-# repeatedly re-presents unchanged source text each time, so a cache turns the
-# re-derivation into a hit. The bound keeps the retained decompositions
-# proportional to the sources one census holds rather than to the number of
-# censuses the process performs. The bound is deliberately near the number of
-# shell sources one census visits rather than generous: a decomposition retains
-# the source text and its per-line records, so slack beyond the live set is
-# spent holding superseded images of whichever source the caller keeps editing.
+# repeatedly re-presents unchanged source text each time, so a cache turns that
+# re-derivation into a hit. Two facts set the bound, and they pull opposite
+# ways. A census sweeps its sources in order and never revisits one, so a bound
+# BELOW the per-census source count evicts each entry before the next census
+# reaches it — a memo that retains text and returns no hits. But every slot
+# beyond the live set holds a superseded image of whichever source the caller
+# keeps editing, and those images are the largest thing here.
+#
+# The bound is therefore sized to the audited set plus headroom rather than to
+# the widest sweep. Consequence, stated rather than hidden: on a tree carrying
+# more tracked shell sources than this bound, the definition sweep gets no
+# cross-census hits. That costs nothing where it happens — a tree that large is
+# the real repository, where the gate builds exactly one census and has nothing
+# to reuse — while the tight bound keeps peak memory down in the repeated-census
+# case, which is the one this bound exists for. Raising it to clear the widest
+# sweep was measured on the heaviest worker: 40.6s/936MB against 47.4s/599MB
+# here, i.e. it buys CPU by roughly half again as much peak RSS.
 _SOURCE_PARSE_CACHE_SIZE = 16
 
 
@@ -407,11 +417,11 @@ def _definition_counts(
             ) from exc
         except OSError as exc:
             raise CensusError(f"cannot read test shell source: {path}: {exc}") from exc
-        path_counts, path_lexical_count, path_definition_count = _definition_scan(
-            relative, text
-        )
+        path_counts, path_lexical_count = _definition_scan(relative, text)
+        path_definition_count = 0
         for helper, count in path_counts:
             counts[helper] += count
+            path_definition_count += count
         if (
             relative not in audited_sources
             and path_lexical_count != path_definition_count
@@ -427,22 +437,21 @@ def _definition_counts(
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
 def _definition_scan(
     relative: str, text: str
-) -> tuple[tuple[tuple[str, int], ...], int, int]:
+) -> tuple[tuple[tuple[str, int], ...], int]:
     """Count this source's helper definitions and lexical helper tokens.
 
-    Returns ``(per-helper definition counts, lexical token total, definition
-    total)``. Split out of :func:`_definition_counts` so the derivation is a
+    Returns ``(per-helper definition counts, lexical token total)``; the
+    definition total the caller compares against is the sum of the counts, so
+    it is derived there rather than returned twice. Split out of
+    :func:`_definition_counts` so the derivation is a
     pure function of the source's own name and text, and therefore memoizable
     across the repeated censuses a single process builds. Only the name and the
     text reach the key; the caller keeps the accumulation and the
     audited-source reconciliation, which depend on the whole run.
     """
     path_counts: list[tuple[str, int]] = []
-    path_definition_count = 0
     for helper, pattern in _DEFINITION_TEXT_RE.items():
-        matches = tuple(pattern.finditer(text))
-        path_counts.append((helper, len(matches)))
-        path_definition_count += len(matches)
+        path_counts.append((helper, sum(1 for _ in pattern.finditer(text))))
     path_lexical_count = 0
     for logical in _logical_lines(text, relative):
         for segment in _shell_segments(logical.physical):
@@ -458,7 +467,7 @@ def _definition_scan(
                     "supported helper token shares a definition segment: "
                     f"{relative}:{logical.line_start}"
                 )
-    return tuple(path_counts), path_lexical_count, path_definition_count
+    return tuple(path_counts), path_lexical_count
 
 
 def _extract_source(repo_root: Path, source: str) -> tuple[CensusRow, ...]:

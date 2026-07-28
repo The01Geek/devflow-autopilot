@@ -2801,6 +2801,9 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             self._repo(mutated)
             self._repo(pristine)
             pristine_run_sh = (pristine / "lib/test/run.sh").read_bytes()
+            # Captured rather than assumed: _repo does not set init.defaultBranch,
+            # so the fixture's starting branch is whatever the host configured.
+            pristine_branch = self._branch(pristine)
 
             source = mutated / "lib/test/run.sh"
             source.write_text(
@@ -2823,17 +2826,18 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 pristine_run_sh, (pristine / "lib/test/run.sh").read_bytes()
             )
             self.assertFalse((pristine / "lib/test/leaked-fixture.sh").exists())
-            self.assertEqual(
-                "main",
-                subprocess.run(
-                    ["git", "branch", "--show-current"],
-                    cwd=pristine,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip(),
-            )
+            self.assertEqual(pristine_branch, self._branch(pristine))
+            self.assertEqual("topic", self._branch(mutated))
             self.assertEqual((0, "", ""), self._public_rc(pristine))
+
+    def _branch(self, root):
+        return subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
 
     def _audited_source_added_after_base(self, root, relative):
         """Rewind ``origin/main`` past ``relative`` so HEAD adds it, as a branch would."""
