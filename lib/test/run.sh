@@ -44894,12 +44894,19 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   # step never ran, the artifact path is wrong) must record a fail-closed failure
   # rather than an empty-but-clean tally. Both the count and the recorded reason are
   # asserted — a `failed=1` alone could equally come from the no-summary arm.
-  python3 "$E877_TALLY" extract --shard monolith --tier monolith \
-    --log "$E877_TDIR/definitely-not-here.log" --rc 0 --out "$E877_TDIR/t-nolog" >/dev/null 2>&1
+  # The reason is matched with a `case` glob over the captured stderr — a bash builtin,
+  # not a `grep <literal> <file>` presence scan, which is the shape the #810 declaration
+  # gate governs (this asserts a RUNTIME diagnostic, not a source literal).
+  E877_NOLOG_ERR="$(python3 "$E877_TALLY" extract --shard monolith --tier monolith \
+    --log "$E877_TDIR/definitely-not-here.log" --rc 0 --out "$E877_TDIR/t-nolog" 2>&1 >/dev/null)"
+  case "$E877_NOLOG_ERR" in
+    *'could not read shard log'*) E877_NOLOG_SEEN=yes ;;
+    *) E877_NOLOG_SEEN=no ;;
+  esac
+  assert_eq "#877 extract: the unreadable-log failure names the log it could not read" "yes" \
+    "$E877_NOLOG_SEEN"
   assert_eq "#877 extract: an unreadable shard log records a fail-closed failure" "failed=1" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-nolog/summary")"
-  assert_eq "#877 extract: the unreadable-log failure names the log it could not read" "yes" \
-    "$(grep -qF 'could not read shard log' "$E877_TDIR/t-nolog/names" && echo yes || echo no)"
 
   # combine's zero-dirs refusal: --scan over a directory holding no tallies must refuse
   # rather than render "0 passed, 0 failed" as a green gate. --expect 0 is the explicit
