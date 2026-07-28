@@ -18530,13 +18530,49 @@ assert_eq("#868 helper: a body whose every bullet holds exits 0",
 assert_eq("#868 helper: the holds bullet is classified as carrying a path+quote handle",
           True, 'handle=path-quote' in _cvp_out)
 
-# The quote spans a line break in the source file above, so this arm also proves the
-# comparison is whitespace-normalized rather than a raw substring test — the premise
-# would read as REFUTED against the same true file without it.
-assert_eq("#868 helper: the quote match is whitespace-normalized, so a sentence wrapped "
-          "across source lines still resolves",
-          True, '\n             since merge base'
-          in _CVP_TREE['lib/test/pin-corpus-lint.py'])
+# --- a WEAK (filename-shaped, directory-less) span never earns a refutation --
+# `devflow_review.stale_prose.enabled` and `_MARKER.finditer` pass any "ends in a
+# dotted tail" test, and this repo's own issues are full of them. Refuting a premise
+# because such a span names no file would tell the run to discard a TRUE premise and
+# record false issue-accuracy feedback against the issue.
+for _cvp_weak in ('spec.loader', 'p.name', 'config.json'):
+    _cvp_rc, _cvp_out = _cvp_run(
+        f'**Verified:** `{_cvp_weak}` — *"a sentence nobody ever wrote"*\n', _CVP_TREE)
+    assert_eq(f"#868 helper: the dotted identifier {_cvp_weak} is never REFUTED for "
+              "naming no file — a guess must not become a refutation",
+              True, 'state=refuted' not in _cvp_out)
+    assert_eq(f"#868 helper: {_cvp_weak} does not force a non-clean exit",
+              0, _cvp_rc)
+
+# The same asymmetry governs the QUOTE arm, not only the missing-path arm: a
+# quotation that fails to resolve inside a directory-less filename-shaped span is
+# evidence the guess picked the wrong file, not that the premise drifted.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `config.json` — *"a sentence nobody ever wrote"*\n',
+    dict(_CVP_TREE, **{'config.json': '{}\n'}))
+assert_eq("#868 helper: a quote that misses inside a directory-less filename-shaped "
+          "span is unestablished, not refuted",
+          True, 'state=unestablished' in _cvp_out and _cvp_rc == 0)
+
+# ...while a STRONG span — one carrying a directory separator — still refutes, so the
+# asymmetry above is a scoped concession, not a hole that swallows the whole guard.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test/gone.py` — *"anything"*\n', _CVP_TREE)
+assert_eq("#868 helper: a directory-bearing path that names no file still REFUTES, so "
+          "the weak-span concession did not disarm the guard",
+          2, _cvp_rc)
+
+# --- a command handle is recognized structurally, not by a tool-name list ---
+# A hardcoded set of tool names rots worst in consumer repos, whose toolchain is not
+# this one: their best-grounded bullets would report handle=none and Step 3.5 would
+# instruct a pointless rewrite.
+for _cvp_cmd in ('npm test -- --coverage', 'cargo test --all',
+                 'pytest -k verified lib/', 'shellcheck -e SC1091 x.sh'):
+    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_cmd}` reports zero.\n',
+                                 _CVP_TREE)
+    assert_eq(f"#868 helper: `{_cvp_cmd}` is recognized as a command handle without "
+              "appearing in any tool-name list",
+              True, 'handle=command' in _cvp_out)
 
 # --- the refuted arm: the quote is gone from a file that still exists --------
 _cvp_rc, _cvp_out = _cvp_run(

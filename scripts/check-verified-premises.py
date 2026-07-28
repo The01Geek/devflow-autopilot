@@ -88,14 +88,18 @@ _BACKTICKED = re.compile(r'`([^`\n]+)`')
 # (`grep -c '^tombstone:'`) far more often than they delimit a quoted premise.
 _QUOTED = re.compile(r'["“]([^"“”]{8,})["”]')
 
-# The leading word of a backticked span that makes it a command rather than a
-# path. A command span is never mined for a path, even though it usually
-# contains one — `grep -c '^x' lib/test/f.tsv` names a file, but the premise is
-# the command's *result*, which this helper will not execute to obtain.
-_COMMAND_HEADS = frozenset({
-    'grep', 'rg', 'git', 'python3', 'python', 'ls', 'find', 'sed', 'awk',
-    'cat', 'head', 'tail', 'wc', 'test', 'bash', 'sh', 'gh', 'jq', 'diff',
-})
+# A file extension, used only as the WEAK arm of path detection — see
+# `_path_strength`.
+_EXTENSION = re.compile(r'\.[A-Za-z0-9]{1,6}$')
+
+# Why the undecidable handles cannot be adjudicated, keyed by handle. Module
+# level so the vocabulary sits beside the patterns that produce it, and so the
+# set of undecidable handles has exactly one definition.
+_UNDECIDABLE_REASONS = {
+    'quote': 'quoted sentence names no path to search',
+    'command': 'command handle reported, never executed',
+    'none': 'no re-derivation handle in the bullet',
+}
 
 
 def normalize(text: str) -> str:
@@ -119,24 +123,32 @@ def normalize(text: str) -> str:
     return ' '.join(stripped.split())
 
 
-def _looks_like_path(span: str) -> bool:
-    """True when a backticked span is plausibly a repository path.
+def _path_strength(span: str) -> str:
+    """Classify a backticked span as a `strong` path, a `weak` one, or `no`.
 
-    Requires no whitespace plus either a directory separator or a file
-    extension, which excludes the flags, identifiers and literals that make up
-    the overwhelming majority of backticked spans in an issue body.
+    The distinction is what stops a *guess* from becoming a *refutation*. A
+    span carrying a directory separator is a **strong** path claim: little else
+    in an issue body looks like `lib/test/run.sh`. A span that merely ends in a
+    dotted tail is **weak**, because so do the identifiers this repo's own
+    issues are full of — `devflow_review.stale_prose.enabled`, `tally.refuted`,
+    `_MARKER.finditer`. Reporting "no such file" about one of those as
+    `refuted` would tell the run to discard a true premise and record false
+    issue-accuracy feedback against the issue, so a missing *weak* path
+    resolves to `unestablished` instead (see `recheck`).
 
-    An **absolute** path is rejected here rather than adjudicated. The span is
-    third-party text, and `Path(root) / "/etc/passwd"` discards `root` entirely
-    under pathlib's join semantics — so an absolute span would silently point
-    the read outside the tree. It is not a repository path, so it is not a
-    handle. `_resolves_inside` closes the traversal half of the same hole.
+    An **absolute** path is rejected outright rather than adjudicated. The span
+    is third-party text, and `Path(root) / "/etc/passwd"` discards `root`
+    entirely under pathlib's join semantics, so an absolute span would silently
+    point the read outside the tree. It is not a repository path, so it is not
+    a handle. `_resolves_inside` closes the traversal half of the same hole.
     """
     if not span or any(c.isspace() for c in span):
-        return False
+        return 'no'
     if span.startswith('-') or span.startswith('/') or span.startswith('~'):
-        return False
-    return '/' in span or re.search(r'\.[A-Za-z0-9]{1,6}$', span) is not None
+        return 'no'
+    if '/' in span:
+        return 'strong'
+    return 'weak' if _EXTENSION.search(span) else 'no'
 
 
 def _resolves_inside(root: Path, rel: str) -> bool:
@@ -155,8 +167,19 @@ def _resolves_inside(root: Path, rel: str) -> bool:
 
 
 def _is_command(span: str) -> bool:
-    head = span.strip().split()[0] if span.strip() else ''
-    return head in _COMMAND_HEADS
+    """True when a backticked span is a command rather than a path.
+
+    Structural, not a name allowlist. An earlier draft matched the span's first
+    word against a hardcoded set of tool names, which rotted in two directions
+    at once: a consumer repo's own toolchain (`npm test`, `cargo test`,
+    `pytest -k x`) fell outside the set and its best-grounded bullets were
+    reported as carrying no handle at all, while a bare tool name sitting in
+    ordinary prose was reported as a command handle — laundering exactly the
+    handle-less shape #857's three false premises took. Multi-token *is* the
+    discriminator: a repository path never contains whitespace, and a command
+    almost always does.
+    """
+    return bool(span.strip()) and any(c.isspace() for c in span.strip())
 
 
 def parse_bullets(body: str) -> list:
@@ -180,11 +203,24 @@ def parse_bullets(body: str) -> list:
 
 
 def classify(span: str) -> tuple:
-    """Return `(handle, paths, quotes)` for one bullet span."""
-    backticked = _BACKTICKED.findall(span)
-    commands = [b for b in backticked if _is_command(b)]
-    paths = [b for b in backticked if not _is_command(b) and _looks_like_path(b)]
-    quotes = [q for q in _QUOTED.findall(span)]
+    """Return `(handle, paths, quotes)` for one bullet span.
+
+    `paths` carries each cited path with its strength, as `(strength, span)`
+    pairs, so `recheck` can tell a confident path claim from a guess.
+    """
+    paths, commands = [], []
+    for backticked in _BACKTICKED.findall(span):
+        if _is_command(backticked):
+            # A command span is never mined for a path even though it usually
+            # contains one — `grep -c '^x' lib/test/f.tsv` names a file, but
+            # the premise is the command's *result*, which this helper will
+            # not execute to obtain.
+            commands.append(backticked)
+            continue
+        strength = _path_strength(backticked)
+        if strength != 'no':
+            paths.append((strength, backticked))
+    quotes = _QUOTED.findall(span)
     if paths and quotes:
         handle = 'path-quote'
     elif paths:
@@ -200,17 +236,13 @@ def classify(span: str) -> tuple:
 
 def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     """Adjudicate one bullet against the tree. Returns `(state, detail)`."""
-    if handle in ('quote', 'command', 'none'):
+    if handle in _UNDECIDABLE_REASONS:
         # No domain to read, or a handle this helper declines to execute. The
         # premise is not refuted — it is simply undecided, which routes the
         # caller to ordinary investigation.
-        return 'unestablished', {
-            'quote': 'quoted sentence names no path to search',
-            'command': 'command handle reported, never executed',
-            'none': 'no re-derivation handle in the bullet',
-        }[handle]
+        return 'unestablished', _UNDECIDABLE_REASONS[handle]
 
-    escaping = [p for p in paths if not _resolves_inside(root, p)]
+    escaping = [p for _, p in paths if not _resolves_inside(root, p)]
     if escaping:
         # Not refuted — refused. A premise pointing outside the repository is
         # not a premise about the tree this run builds on, and the helper
@@ -219,15 +251,26 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         return 'unestablished', ('cited path resolves outside the repository, '
                                  'refused: ' + ','.join(escaping))
 
-    missing = [p for p in paths if not (root / p).is_file()]
+    missing = [(s, p) for s, p in paths if not (root / p).is_file()]
     if missing:
-        return 'refuted', 'cited path absent from the tree: ' + ','.join(missing)
+        # Only a STRONG path claim earns a refutation. A weak one — a dotted
+        # identifier that merely looks filename-shaped — is a guess, and
+        # refuting a premise on a guess is worse than declining to decide it:
+        # the run would discard a true premise and record false issue-accuracy
+        # feedback against the issue.
+        strong = [p for s, p in missing if s == 'strong']
+        if strong:
+            return 'refuted', 'cited path absent from the tree: ' + ','.join(strong)
+        return 'unestablished', (
+            'cited span looks filename-shaped but names no directory, so its '
+            'absence is not evidence of a stale premise: '
+            + ','.join(p for _, p in missing))
 
     if handle == 'path':
-        return 'holds', 'cited path present: ' + ','.join(paths)
+        return 'holds', 'cited path present: ' + ','.join(p for _, p in paths)
 
     readable = {}
-    for rel in paths:
+    for _, rel in paths:
         try:
             readable[rel] = normalize((root / rel).read_text(
                 encoding='utf-8', errors='replace'))
@@ -239,8 +282,16 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         for rel, haystack in readable.items():
             if needle and needle in haystack:
                 return 'holds', f'quote resolves in {rel}'
-    return 'refuted', ('quoted sentence no longer occurs in '
-                       + ','.join(paths))
+
+    # Same asymmetry as the missing-path arm: a quotation that fails to resolve
+    # in a STRONG path is a refutation, but in a weak one it is only evidence
+    # that the guess was wrong about which file was meant.
+    if any(s == 'strong' for s, _ in paths):
+        return 'refuted', ('quoted sentence no longer occurs in '
+                           + ','.join(p for _, p in paths))
+    return 'unestablished', (
+        'quoted sentence does not occur in the filename-shaped span cited, '
+        'which names no directory: ' + ','.join(p for _, p in paths))
 
 
 class _ArgParser(argparse.ArgumentParser):
