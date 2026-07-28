@@ -21,14 +21,6 @@ CI_ROOT="${DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT:-${LIB%/lib}}"
 CI_SKILL="$CI_ROOT/skills/create-issue/SKILL.md"
 CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
 CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"  # #600 audit-prompt renderer template
-# #793: the two reference files whose out-of-bounds enumerations are LOCATION-sensitive.
-# Each list must live in its own arm's file — a file-arm list that survived only in the
-# embed-arm file would leave the file arm undeclared — so these pins keep a specific-file
-# target rather than the concatenated bundle, per the #614 per-pin routing rule. It also
-# makes their typed structural declarations INSPECTABLE, which a runtime-built bundle
-# target structurally cannot be.
-CI_STEP36="$CI_ROOT/skills/create-issue/references/step-3-6-audit.md"
-CI_FALLBACK_ARMS="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatch-arms.md"
 # #614: create-issue is a BUNDLE — a thin SKILL.md root plus marker-gated step and
 # fallback references under references/. A contract sentence lives in exactly one of
 # those sources, and which one is an implementation detail that may be re-partitioned,
@@ -43,6 +35,13 @@ CI_FALLBACK_ARMS="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatc
 CI_REF_STEP35="$CI_ROOT/skills/create-issue/references/step-3-5-steelman.md"
 # shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_REVDELTA="$CI_ROOT/skills/create-issue/references/revision-delta.md"
+# #793: step-3-6-audit.md and fallback-audit-dispatch-arms.md (CI_REF_FB_DISPATCH below)
+# are the two references whose out-of-bounds enumerations are LOCATION-sensitive — each
+# list must live in its own arm's file, since a file-arm list surviving only in the
+# embed-arm file would leave the file arm undeclared. Their pins therefore keep a
+# specific-file target rather than the concatenated bundle, per the per-pin routing rule
+# above. These two seams are the binding sites; do not reintroduce separately-named
+# aliases for the same paths, which is what shellcheck flagged as unused.
 # shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
 CI_REF_STEP36="$CI_ROOT/skills/create-issue/references/step-3-6-audit.md"
 # shellcheck disable=SC2034  # pin-retarget seam (see the block comment above)
