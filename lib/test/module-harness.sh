@@ -350,10 +350,22 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # own `.rc` file rather than inferred from a bare `wait`, which returns 0 regardless of
 # what its children did and so surfaces no failure at all.
 #
-# DEVFLOW_TEST_SHARD_PYTHON substitutes the interpreter used for the UNIT launches only
-# (never the enumeration), and DEVFLOW_TEST_SHARD_DROP_ONE skips dispatching one unit.
-# Both exist so lib/test/test_module_harness.py can drive the spawn-failure and
-# lossy-schedule arms, which are otherwise unreachable from a test.
+# Four DEVFLOW_TEST_SHARD_* hooks exist so lib/test/test_module_harness.py can drive arms
+# that are otherwise unreachable from a test; each is read at exactly one site below.
+#   DEVFLOW_TEST_SHARD_PYTHON          substitutes the interpreter used for the UNIT
+#                                      launches only, never the enumeration (spawn-failure
+#                                      and no-parseable-count arms).
+#   DEVFLOW_TEST_SHARD_DROP_ONE        skips DISPATCHING one unit while the collection loop
+#                                      still visits it, so that unit records no `.rc`
+#                                      (missing-status arm).
+#   DEVFLOW_TEST_SHARD_SKIP_ONE        skips one unit in BOTH loops, so every collected unit
+#                                      has a `.rc` and the shortfall surfaces only in the
+#                                      dispatched/executed-vs-enumerated comparison — the
+#                                      arm DROP_ONE cannot reach, because the missing-`.rc`
+#                                      arm populates `failure` first.
+#   DEVFLOW_TEST_SHARD_FORCE_SERIAL_REAP  forces the pre-bash-4.3 specific-pid reap branch
+#                                      on a modern shell (the driver's only index
+#                                      arithmetic).
 # PRECONDITION: capture-dir must be a FRESH, exclusively-owned, writable directory. The
 # collection loop trusts every unit-<n>.out{,.err,.rc} it finds there, so a reused
 # directory feeds a prior call's results into this call's count and defeats the
@@ -402,10 +414,13 @@ spec.loader.exec_module(module)
 
 loader = unittest.TestLoader()
 suite = loader.loadTestsFromModule(module)
-# Both checks are kept deliberately: loader.errors carries the diagnostic text, while the
-# _FailedTest scan catches a placeholder that reached the suite by any other route. This
-# value is the total the whole fail-closed contract is measured against, so it is cheaper
-# to refuse twice than to trust a placeholder as a real test.
+# Both checks are kept deliberately, and NEITHER is dead: on a raising `load_tests`,
+# loadTestsFromModule records an entry here AND substitutes a _FailedTest placeholder into
+# the suite, so the two arms are first and second line of defense over one input. Removing
+# this one is observable — the _FailedTest scan still refuses, but the diagnostic text is
+# lost (mutation-verified against test_a_collection_time_load_error_fails_closed, which
+# pins that text). This value is the total the whole fail-closed contract is measured
+# against, so it is cheaper to refuse twice than to trust a placeholder as a real test.
 if loader.errors:
     for entry in loader.errors:
         print(entry, file=sys.stderr)
@@ -446,6 +461,12 @@ DEVFLOW_SHARD_ENUM
       [ -n "$num" ] && ids+=("$num")
     done < "$plan_out"
     total="${#ids[@]}"
+    # BACKSTOP, not the primary zero-test guard: the enumerator already exits 1 on an
+    # empty selector list, so a file with no tests reaches the enumeration-failure arm
+    # above and never this one. This arm covers the residual shape that refusal cannot —
+    # an enumerator that exits 0 having written nothing readable (a truncated or
+    # unreadable plan file). It is therefore not driven by the no-tests fixture in
+    # lib/test/test_module_harness.py, which exercises the enumerator's own refusal.
     [ "$total" -gt 0 ] || \
       failure="the enumeration of $script_path reported zero tests"
   fi
@@ -456,6 +477,7 @@ DEVFLOW_SHARD_ENUM
     # its unit by file rather than by racing to match a pid against `wait`'s return.
     for ((index = 0; index < total; index++)); do
       if [ -n "${DEVFLOW_TEST_SHARD_DROP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
+      if [ -n "${DEVFLOW_TEST_SHARD_SKIP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
       # Reap ONE unit per freed slot, ignoring its exit status — a unit's authoritative
       # status is the one it wrote to its own .rc file, which the collection loop below
       # reads. Two spellings are deliberately NOT used here. `wait -n || wait` reaps the
@@ -493,6 +515,10 @@ DEVFLOW_SHARD_ENUM
     wait
 
     for ((index = 0; index < total; index++)); do
+      # SKIP_ONE alone elides the unit here too, leaving every VISITED unit with a `.rc`
+      # so `failure` is still empty when the count comparison below runs. DROP_ONE
+      # deliberately does NOT, which is what makes the two hooks reach different arms.
+      if [ -n "${DEVFLOW_TEST_SHARD_SKIP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
       cap="$capture_dir/unit-$index.out"
       if [ ! -e "$cap.rc" ]; then
         # The unit's subshell died before recording its status (OOM, a group signal, a

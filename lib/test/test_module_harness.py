@@ -1924,23 +1924,74 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
 
     def test_a_file_with_no_tests_fails_closed(self):
         # A zero-test enumeration is indistinguishable from a schedule that dropped
-        # everything, so it is never a green pass.
+        # everything, so it is never a green pass. Which arm catches it is asserted by
+        # breadcrumb rather than left to inference: the ENUMERATOR refuses an empty
+        # selector list with a nonzero exit, so the driver's own `reported zero tests`
+        # backstop is shadowed and is documented at its site as covering only the
+        # residual exit-0-with-nothing-readable shape.
         with tempfile.TemporaryDirectory() as tmp:
             suite = self._write_suite(tmp, source="import unittest\n")
             verdict, output = self._drive(suite)
             self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("no tests were enumerated in", output)
+            self.assertIn("the unsharded test count could not be established", output)
 
-    def test_a_dropped_test_turns_the_aggregate_red(self):
-        # AC3 (count-check half) — the classic sharding regression: the scheduler
-        # silently omits work and the suite goes green having tested less. The injected
-        # hook skips dispatching one unit, so the executed sum falls short of the
-        # enumerated total and the count check must catch it.
+    def test_a_collection_time_load_error_fails_closed(self):
+        # The enumerator's `loader.errors` branch. `loadTestsFromModule` swallows a
+        # raising `load_tests` into an error entry plus a placeholder test rather than
+        # propagating, so the module imports cleanly and only this branch stands between
+        # a collection failure and a total that silently omits the unloadable tests.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import unittest\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    "    def test_ok(self):\n        pass\n\n\n"
+                    "def load_tests(loader, tests, pattern):\n"
+                    "    raise RuntimeError('devflow-870 collection boom')\n\n"
+                    'if __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            verdict, output = self._drive(suite)
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("devflow-870 collection boom", output)
+            self.assertIn("the unsharded test count could not be established", output)
+
+    def test_a_unit_dropped_from_dispatch_only_is_a_failure(self):
+        # AC4/AC3 boundary. DROP_ONE elides one unit from DISPATCH while the collection
+        # loop still visits it, so the shortfall surfaces as a unit that recorded no exit
+        # status — NOT as the count comparison, which is `[ -z "$failure" ]`-guarded and
+        # therefore never reached here. The breadcrumb is asserted so this test cannot
+        # silently drift onto a different arm.
         with tempfile.TemporaryDirectory() as tmp:
             suite = self._write_suite(tmp, alpha=5, beta=4)
             verdict, output = self._drive(
                 suite, env_extra="export DEVFLOW_TEST_SHARD_DROP_ONE=1\n"
             )
             self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("recorded no exit status", output)
+
+    def test_a_schedule_that_drops_work_turns_the_aggregate_red(self):
+        # AC3 (count-check half), the arm DROP_ONE cannot reach — the classic sharding
+        # regression: the scheduler silently omits work and the suite goes green having
+        # tested less. SKIP_ONE elides one unit from BOTH loops, so every VISITED unit
+        # exits 0 and reports exactly 1, `failure` is still empty, and the
+        # dispatched/executed-vs-enumerated comparison is the ONLY thing standing between
+        # this run and a vacuous pass. Asserting its distinct breadcrumb is what makes a
+        # regression that breaks only that comparison observable.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            verdict, output = self._drive(
+                suite, env_extra="export DEVFLOW_TEST_SHARD_SKIP_ONE=1\n"
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn(
+                "the schedule dropped work — dispatched 8 and executed 8 of 9 "
+                "enumerated tests",
+                output,
+            )
+            self.assertNotIn("recorded no exit status", output)
 
     def test_a_unit_whose_worker_dies_without_recording_a_status_is_a_failure(self):
         # AC4, the arm the killed-python test cannot reach: killing the PYTHON process
