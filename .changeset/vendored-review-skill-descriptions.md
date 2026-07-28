@@ -10,6 +10,12 @@ type: Changed
   description and no basis to pick the DevFlow fork. Their descriptions now name the DevFlow
   trigger surface (a DevFlow review verdict / the review-and-fix loop; the review engine's
   final pass) while staying repo-agnostic for consumer installs. Bodies are unchanged.
+- **Corrected the provenance sentence shipped in `receiving-code-review`.** It read "vendored
+  verbatim from `superpowers`" while standing at 9.2x the upstream skill's size, and was
+  already divergent at its own import commit — an accuracy defect that reached consumer
+  repos. It now reads that the skill originates in the MIT-licensed `superpowers` plugin
+  (© 2025 Jesse Vincent) and has been substantially modified by DevFlow.
+  `requesting-code-review`, which carried no provenance sentence at all, gains the same line.
 - **Six vendored agents now name their DevFlow engine role in their descriptions.**
   `code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `type-design-analyzer`,
   `code-explorer`, and `code-architect` carried descriptions byte-identical to the upstream
