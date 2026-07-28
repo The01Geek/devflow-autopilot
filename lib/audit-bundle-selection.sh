@@ -2,22 +2,26 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # audit-bundle-selection.sh — sourceable; the executable owner of the Stage B
-# occurrence-bundle cap validation and the most-recent-N selection (issue #894).
+# occurrence-bundle cap validation, the most-recent-N selection, and the
+# no-dispatch floor (issue #894).
 #
 # The retrospective loop's Step 8a used to fetch a context bundle for EVERY
 # occurrence PR of every actionable pattern, unbounded — a cost proportional to
 # each pattern's cumulative occurrence history, growing monotonically with the
 # corpus. This helper bounds that fetch: the skill fence resolves
 # `.devflow_retrospective.audit_bundle_cap` (via config-get.sh, with the default
-# 10), passes the resolved value to `devflow_validate_audit_bundle_cap`, and then
-# asks `devflow_select_audit_bundles` for the most-recent-N occurrence PRs.
+# 10), passes the resolved value to `devflow_validate_audit_bundle_cap`, then asks
+# `devflow_select_audit_bundles` for the most-recent-N occurrence PRs, and finally
+# asks `devflow_audit_dispatch_ok` whether the bundles that actually arrived are
+# enough to dispatch that pattern to Stage B at all.
 #
-# The validation and selection live here rather than inline in the SKILL.md fence
-# for the same reason lib/filing-decisions.sh exists: a mis-shaped cap or a
-# wrong-order selection decides which evidence Stage B sees, and CLAUDE.md's
-# convention bars leaving a branch-selecting decision inline in a non-testable
-# prose surface — "a feature the suite cannot catch defeated". The suite drives
-# both functions directly.
+# The validation, the selection and the dispatch floor live here rather than inline
+# in the SKILL.md fence for the same reason lib/filing-decisions.sh exists: a
+# mis-shaped cap, a wrong-order selection, or a missed no-evidence floor decides
+# which evidence Stage B sees — and whether an evidence-free issue is filed at all —
+# and CLAUDE.md's convention bars leaving a branch-selecting decision inline in a
+# non-testable prose surface, "a feature the suite cannot catch defeated". The suite
+# drives every function here directly.
 #
 # Config-read boundary: this helper reads NO config — the skill fence resolves the
 # cap through config-get.sh and passes it in. The reason is position, not a blanket
@@ -96,14 +100,20 @@ devflow_validate_audit_bundle_cap() {
             return 1 ;;
     esac
     # All-digit now (0, 00, 08, 007, or a canonical positive). Reject a LEADING-ZERO
-    # value that is not all zeros, BEFORE the `-le 0` test: `007` is all-digit and
-    # passes `-le 0` (bash's test builtin reads it as decimal 7), but it is not a
-    # canonical JSON integer literal, so handing it to `--argjson` downstream is
-    # implementation-dependent — jq 1.7 coerces it to 7 while a strict JSON parser
-    # rejects it outright. Refuse it here rather than let a config-shape defect
-    # surface downstream as an empty selection the caller reads as "this pattern has
-    # no occurrences". An ALL-zeros value (`0`, `00`) is excluded from this arm and
-    # falls through to the starvation arm below, which names the real reason.
+    # value that is not all zeros, BEFORE the `-le 0` test — for two independent
+    # reasons. (1) It is not a canonical JSON integer literal, so handing it to
+    # `--argjson` downstream is implementation-dependent: jq 1.7 coerces `08` to 8
+    # while a strict JSON parser rejects it outright. (2) The `-le 0` test could not
+    # safely judge it anyway: `test`/`[` evaluates numeric operands under shell
+    # arithmetic rules, which read a leading-zero literal as OCTAL — `007` is 7 in
+    # either base, but `08` is not a legal octal literal and `[ 08 -le 0 ]` fails
+    # with `value too great for base`. So this arm must stay ABOVE that test; a
+    # maintainer who reorders the two gets a hard `test` error, not a fallthrough.
+    # Refusing here also stops a config-shape defect from surfacing downstream as an
+    # empty selection the caller reads as "this pattern has no occurrences". An
+    # ALL-zeros value (`0`, `00`) is excluded from this arm and falls through to the
+    # starvation arm below, which names the real reason (all-zeros is a legal octal
+    # literal, so that test is safe on it).
     case "$cap" in
         0*[1-9]*)
             echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer with no leading zero — '$cap' is not a canonical JSON integer literal, so its numeric meaning downstream is parser-dependent; write the intended count without leading zeros" >&2
@@ -152,8 +162,14 @@ devflow_select_audit_bundles() {
         echo "::error::audit-bundle-selection: devflow_select_audit_bundles received an EMPTY pattern JSON — refusing to return an empty selection the caller would read as 'this pattern has no occurrences'" >&2
         return 1
     fi
+    # A canonical positive integer never begins with `0`, so the single `0*` arm
+    # rejects EVERY leading-zero shape at once — `0`, the all-zeros `00`/`000`, and
+    # the leading-zero-positive `08`/`007`. An enumeration that spelled these out
+    # separately (`0*[1-9]*|0`) silently admitted the all-zeros shapes, which then
+    # reached `--argjson` and were stopped by jq's parse error under the GENERIC
+    # "could not select occurrence PRs" breadcrumb instead of this attributed one.
     case "$cap" in
-        ''|*[!0-9]*|0*[1-9]*|0)
+        ''|*[!0-9]*|0*)
             echo "::error::audit-bundle-selection: devflow_select_audit_bundles received a non-canonical cap '$cap' — it must be the positive integer devflow_validate_audit_bundle_cap printed, not the raw config value" >&2
             return 1 ;;
     esac
@@ -174,8 +190,47 @@ devflow_select_audit_bundles() {
         echo "::error::audit-bundle-selection: devflow_select_audit_bundles could not select occurrence PRs — ${out:-jq produced no diagnostic}. Refusing to return an empty selection the caller would read as 'this pattern has no occurrences'" >&2
         return 1
     fi
+    # `2>&1` above merges jq's stderr into the capture so the FAILURE arm can quote a
+    # diagnostic. On a ZERO-exit run any warning jq wrote is in `$out` too, and would
+    # flow into the caller's `for n in $SELECTED_PRS` as a bogus PR number — a
+    # phantom `pr-<warning-word>.context.json` fetch. So validate the success-path
+    # output: every non-empty line must be a bare PR number, and anything else fails
+    # CLOSED with its own attributed breadcrumb rather than reaching the caller.
+    # Builtin-only (guard-class 2) — no tr/sed/grep decides this selection.
+    local line
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        case "$line" in
+            *[!0-9]*)
+                echo "::error::audit-bundle-selection: devflow_select_audit_bundles produced a non-numeric output line ('$line') — jq exited 0 but wrote a diagnostic into the selection; refusing to hand the caller a phantom occurrence PR" >&2
+                return 1 ;;
+        esac
+    done <<< "$out"
     # Empty stdout is the legitimate no-occurrences return; print nothing rather than
     # a blank line, and return 0 explicitly (a bare `[ -n … ] &&` would return 1 here).
     [ -n "$out" ] && printf '%s\n' "$out"
     return 0
+}
+
+# devflow_audit_dispatch_ok <delivered>
+#
+# The executable carrier of the Stage B no-dispatch floor (issue #894). Returns 0
+# when the pattern has at least one DELIVERED occurrence bundle and may therefore be
+# dispatched to Stage B and filed; returns 1 when it must be excluded from the 8b/8c
+# set. Fails CLOSED (return 1, `::error::`) on an unestablished operand — an empty or
+# non-numeric `delivered` is not evidence that evidence exists.
+#
+# This exists as a function rather than an inline `[ "$delivered" -eq 0 ]` because the
+# floor is the load-bearing safety property of the whole change: it is what stops an
+# evidence-free GitHub issue being filed from metadata alone. A branch whose stated
+# effect lives only in a comment has no owner the suite can drive, and CLAUDE.md's
+# convention bars leaving such a decision inline in a non-testable prose surface.
+devflow_audit_dispatch_ok() {
+    local delivered="${1:-}"
+    case "$delivered" in
+        ''|*[!0-9]*)
+            echo "::error::audit-bundle-selection: devflow_audit_dispatch_ok received a non-count delivered value ('$delivered') — refusing to treat an unestablished bundle count as evidence that Stage B has any evidence" >&2
+            return 1 ;;
+    esac
+    [ "$delivered" -gt 0 ]
 }

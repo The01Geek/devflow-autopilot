@@ -156,10 +156,12 @@ devflow_render_report() {
         printf 'These recurred after their last fix. `regressed` is a **cumulative** state — a standing `newest occurrence > last fix` comparison over the whole history, not a this-run event — so a pattern that regressed long ago and has not recurred since still appears here.\n\n'
         # The `.category` field is guarded through `(($p.category | strings) // "")`
         # exactly as the pattern-row emitter above does. Rows are distinguished by
-        # their `tag`/`slug` key, which every row carries; the `(category: …)` clause
-        # is purely additive attribution (issue #891) and is SUPPRESSED when the
-        # entry's category equals its key, so it is not what makes two same-category
-        # records distinguishable.
+        # their `tag`/`slug` key, which the row always PRINTS — falling back to
+        # `(unnamed)` for the malformed entry that carries neither, which is why the
+        # two-level fallback below is not dead code. The `(category: …)` clause is
+        # purely additive attribution (issue #891) and is SUPPRESSED when the entry's
+        # category equals its key, so it is not what makes two same-category records
+        # distinguishable.
         _rr_emit regressed '
             (.patterns // [] | map(select(type == "object" and ((.status | strings) // "") == "regressed")))[]
             | . as $p
@@ -201,11 +203,19 @@ devflow_render_report() {
         # `2>/dev/null || true` degrade below produces when the probe itself fails.
         q_open="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_open // ""' 2>/dev/null || true)"
         q_max="$(echo "$summary_json" | "$DEVFLOW_JQ" -r '.filing_queue_max // ""' 2>/dev/null || true)"
-        # An established count is a run of digits; anything else (the empty string)
-        # is unestablished and renders `unavailable`. An established 0 renders `0`.
+        # An established count is a CANONICAL run of digits; anything else (the empty
+        # string) is unestablished and renders `unavailable`. An established 0 renders
+        # `0`. The extra `0?*` arm rejects a LEADING-ZERO all-digit value (`08`,
+        # reachable from a hand-written `"max_open_issues": "08"` through
+        # config-get.sh's verbatim string coercion) while still admitting a bare `0`:
+        # `test` evaluates numeric operands under shell arithmetic, which reads `08`
+        # as an illegal octal literal, so `[ "$q_open" -ge "$q_max" ]` would write
+        # `value too great for base` to stderr and return non-true — silently
+        # SUPPRESSING ` — at capacity` on a queue that is at capacity. This is the
+        # same shape devflow_validate_audit_bundle_cap refuses with its own arm.
         # The comparison uses bash builtins only (guard-class 2) — no tr/sed/wc.
-        case "$q_open" in ''|*[!0-9]*) n_disp=unavailable ;; *) n_disp="$q_open" ;; esac
-        case "$q_max"  in ''|*[!0-9]*) m_disp=unavailable ;; *) m_disp="$q_max"  ;; esac
+        case "$q_open" in ''|*[!0-9]*|0?*) n_disp=unavailable ;; *) n_disp="$q_open" ;; esac
+        case "$q_max"  in ''|*[!0-9]*|0?*) m_disp=unavailable ;; *) m_disp="$q_max"  ;; esac
         cap_suffix=""
         # The ` — at capacity` suffix fires when, and only when, BOTH operands are
         # established and N >= M. An unestablished operand yields no suffix.
@@ -214,6 +224,15 @@ devflow_render_report() {
         fi
         printf '\n## Filing queue\n\n'
         printf -- '- filing queue: %s/%s open%s\n' "$n_disp" "$m_disp" "$cap_suffix"
+        # `max_open_issues` is not an absolute ceiling: lib/filing-decisions.sh lets a
+        # `regressed` pattern bypass it, so a run CAN file while at capacity. Say so,
+        # or a reader takes ` — at capacity` as "nothing was filed".
+        # An `if`, not a `[ … ] && printf` AND-list: under this file's `set -e` the
+        # false branch of such a list is a non-zero command in statement position and
+        # would abort the render mid-report.
+        if [ -n "$cap_suffix" ]; then
+            printf -- '- `max_open_issues` is not absolute — a `regressed` pattern bypasses this ceiling, so a run can file while at capacity.\n'
+        fi
     fi
 
     # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line

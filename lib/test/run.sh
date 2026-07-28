@@ -14836,6 +14836,11 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   #      does not weaken the claim.
   # Everything else is compared verbatim.
   #
+  # SCOPE: this is a ONE-SHOT PRE-MERGE gate, not a standing guarantee. It is
+  # meaningful only while the #894 change is unmerged, because its base side is the
+  # merge-base with origin/main; the tautology guard below detects the post-merge
+  # state and self-skips rather than passing vacuously.
+  #
   # Self-skips when the base renderer cannot be materialised (a shallow clone, no
   # origin/main, a `git show` failure) — a blocking-gate skip, never a silent pass.
   rr_normalize() {  # stdin -> stdout; drops the timestamp line and the Regressed block
@@ -14867,7 +14872,19 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
     RR_BASE_OUT="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$RR_BASE_DIR" "$SUM894" 2>/dev/null || true)"
     rm -rf "$RR_BASE_DIR"
   fi
-  if [ -z "$RR_BASE_OUT" ]; then
+  # TAUTOLOGY GUARD. `git merge-base origin/main HEAD` resolves to a PRE-change
+  # renderer only while this work is unmerged. Once it lands, every branch's
+  # merge-base already carries the #894 sections, and this harness renders the
+  # current renderer against ITSELF — passing by construction while guarding
+  # nothing, with no signal that it stopped guarding. Detect that state from the
+  # base SOURCE (the marker the change introduced) and self-skip naming it, so the
+  # harness announces its own retirement instead of silently going vacuous.
+  RR_BASE_IS_POST=false
+  case "$RR_BASE_SRC" in *'## Filing queue'*) RR_BASE_IS_POST=true ;; esac
+  if [ "$RR_BASE_IS_POST" = true ]; then
+    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
+      "the merge-base renderer already carries the #894 sections, so this comparison would render the current renderer against itself — it is a ONE-SHOT PRE-MERGE gate and has now retired; re-anchor it to a checked-in golden fixture if a standing guarantee is wanted"
+  elif [ -z "$RR_BASE_OUT" ]; then
     skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
       "could not render lib/render-report.sh from the merge-base with origin/main (no merge-base, git show failed, or the base renderer produced no output in isolation)"
   else

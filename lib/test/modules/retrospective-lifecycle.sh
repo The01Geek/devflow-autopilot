@@ -1515,8 +1515,12 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   rl_cap_token() {
     printf '{"devflow_retrospective":{"max_issues_per_run":%s}}' "$1" > "$RL_TMP/cfg/.devflow/config.json"
     local cap
-    cap="$(cd "$RL_TMP/cfg" && CONFIG_FILE=.devflow/config.json \
-             "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 2>/dev/null)"
+    # The fixture is selected by config-get.sh's THIRD POSITIONAL argument. A
+    # `CONFIG_FILE=` env prefix is inert here — the script takes no such variable —
+    # and reading as an explicit selection while the cwd silently did the selecting
+    # is what makes an environment-shifted rerun mysterious.
+    cap="$(cd "$RL_TMP/cfg" && \
+             "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 .devflow/config.json 2>/dev/null)"
     devflow_filing_cap_verdict open 0 "$cap" 0 99 0 99 2>/dev/null
   }
   # scalar — the ordinary shape
@@ -1534,7 +1538,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   # missing / null — fall back to the declared default, which is usable
   printf '{"devflow_retrospective":{}}' > "$RL_TMP/cfg/.devflow/config.json"
   assert_eq "#788 cap-shape: a missing cap falls back to the default" "file" \
-    "$(devflow_filing_cap_verdict open 0 "$(cd "$RL_TMP/cfg" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 2>/dev/null)" 0 99 0 99 2>/dev/null)"
+    "$(devflow_filing_cap_verdict open 0 "$(cd "$RL_TMP/cfg" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 .devflow/config.json 2>/dev/null)" 0 99 0 99 2>/dev/null)"
   assert_eq "#788 cap-shape: a null cap falls back to the default" "file" "$(rl_cap_token null)"
   # RESIDUALS (pinned, not fixed — config-get.sh coercion is repo-wide and out of
   # this PR's scope). Both launder a wrong-typed value into a REAL filing budget:
@@ -1556,11 +1560,13 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   # shellcheck source=../../audit-bundle-selection.sh
   . "$REPO_ROOT/lib/audit-bundle-selection.sh"
   mkdir -p "$RL_TMP/abc/.devflow"
-  # rl_abc_raw <config-value> -> the config-get.sh-coerced string the fence passes
+  # rl_abc_raw <config-value> -> the config-get.sh-coerced string the fence passes.
+  # The fixture is selected by config-get.sh's THIRD POSITIONAL argument (a
+  # `CONFIG_FILE=` env prefix would be inert — the script reads no such variable).
   rl_abc_raw() {
     printf '{"devflow_retrospective":{"audit_bundle_cap":%s}}' "$1" > "$RL_TMP/abc/.devflow/config.json"
-    (cd "$RL_TMP/abc" && CONFIG_FILE=.devflow/config.json \
-       "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)
+    (cd "$RL_TMP/abc" && \
+       "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)
   }
   # rl_abc_token <config-value> -> "cap:<n>" when validated, "REJECT" when the
   # validator fails closed. Composes config-get.sh -> devflow_validate_audit_bundle_cap.
@@ -1585,7 +1591,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   rl_abc_missing() {
     printf '{"devflow_retrospective":{}}' > "$RL_TMP/abc/.devflow/config.json"
     local raw v
-    raw="$(cd "$RL_TMP/abc" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)"
+    raw="$(cd "$RL_TMP/abc" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)"
     if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
   }
   assert_eq "#894 cap: a missing key falls back to the default 10" "cap:10" "$(rl_abc_missing)"
@@ -1621,7 +1627,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   rl_abc_nofile() {
     local raw v
     rm -rf "$RL_TMP/abc-nofile"; mkdir -p "$RL_TMP/abc-nofile"
-    raw="$(cd "$RL_TMP/abc-nofile" && CONFIG_FILE=.devflow/config.json "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 2>/dev/null)"
+    raw="$(cd "$RL_TMP/abc-nofile" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)"
     if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
   }
   assert_eq "#894 cap: an ABSENT config file falls back to the default 10" "cap:10" "$(rl_abc_nofile)"
@@ -1700,6 +1706,126 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
     "$(case "$(devflow_select_audit_bundles 4 "$RL_ABS_NULLPAT")" in *null*) echo true ;; *) echo false ;; esac)"
   assert_eq "#894 select: a malformed element does not consume a cap slot" "40 10" \
     "$(devflow_select_audit_bundles 2 "$RL_ABS_NULLPAT" | tr '\n' ' ' | sed 's/ $//')"
+
+  # ALL-ZEROS cap shapes. `00`/`000` are non-canonical exactly as `007` is, and the
+  # selector's own guard must reject them with its ATTRIBUTED breadcrumb — not let
+  # them reach `--argjson`, where jq's parse error surfaces under the GENERIC
+  # "could not select occurrence PRs" wording and misattributes a config-shape
+  # defect. An enumerated guard (`0*[1-9]*|0`) admitted exactly these two.
+  assert_eq "#894 select FAIL: an all-zeros '00' cap is refused" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 00 "$RL_ABC_PAT")"
+  assert_eq "#894 select FAIL: an all-zeros '000' cap is refused" "rc=1 stdout=[]" \
+    "$(rl_abs_fail 000 "$RL_ABC_PAT")"
+  RL_ABS_ERR_00="$(devflow_select_audit_bundles 00 "$RL_ABC_PAT" 2>&1 >/dev/null || true)"
+  assert_eq "#894 select FAIL: '00' is ATTRIBUTED to the cap guard, not to a generic jq failure" "true" \
+    "$(case "$RL_ABS_ERR_00" in *"non-canonical cap"*"devflow_validate_audit_bundle_cap"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 select FAIL: '00' does NOT surface the generic could-not-select breadcrumb" "false" \
+    "$(case "$RL_ABS_ERR_00" in *"could not select occurrence PRs"*) echo true ;; *) echo false ;; esac)"
+
+  # SUCCESS-PATH stderr contamination. The jq call merges stderr into the capture so
+  # the failure arm can quote a diagnostic; on a ZERO exit any warning jq wrote is in
+  # that capture too and would flow into the caller's `for n in $SELECTED_PRS` as a
+  # phantom PR number. Drive it with a stub jq that exits 0 while writing a warning.
+  cat > "$RL_TMP/jq-warn.sh" <<'RLJQW'
+#!/usr/bin/env bash
+echo "jq: warning: something looked odd" >&2
+echo 42
+exit 0
+RLJQW
+  chmod +x "$RL_TMP/jq-warn.sh"
+  RL_ABS_WARN_RC="$(DEVFLOW_JQ="$RL_TMP/jq-warn.sh" devflow_select_audit_bundles 3 "$RL_ABC_PAT" >/dev/null 2>&1; echo $?)"
+  assert_eq "#894 select: a zero-exit jq that also wrote to stderr fails CLOSED, not a phantom PR" "1" \
+    "$RL_ABS_WARN_RC"
+  RL_ABS_WARN_OUT="$(DEVFLOW_JQ="$RL_TMP/jq-warn.sh" devflow_select_audit_bundles 3 "$RL_ABC_PAT" 2>/dev/null || true)"
+  assert_eq "#894 select: the contaminated line never reaches the caller as a selection" "" \
+    "$RL_ABS_WARN_OUT"
+  RL_ABS_WARN_ERR="$(DEVFLOW_JQ="$RL_TMP/jq-warn.sh" devflow_select_audit_bundles 3 "$RL_ABC_PAT" 2>&1 >/dev/null || true)"
+  assert_eq "#894 select: the contamination breadcrumb names the phantom-PR risk it prevents" "true" \
+    "$(case "$RL_ABS_WARN_ERR" in *"non-numeric output line"*"phantom occurrence PR"*) echo true ;; *) echo false ;; esac)"
+  # POSITIVE CONTROL on the same stub shape: a stub that exits 0 and writes ONLY a
+  # number is accepted, so the row above pins the contamination guard rather than
+  # "any stub jq fails".
+  cat > "$RL_TMP/jq-clean.sh" <<'RLJQC'
+#!/usr/bin/env bash
+echo 42
+exit 0
+RLJQC
+  chmod +x "$RL_TMP/jq-clean.sh"
+  assert_eq "#894 select CONTROL: a clean zero-exit stub is accepted (the guard is not 'all stubs fail')" "42" \
+    "$(DEVFLOW_JQ="$RL_TMP/jq-clean.sh" devflow_select_audit_bundles 3 "$RL_ABC_PAT" 2>/dev/null || true)"
+
+  # RESIDUAL ARM: a jq failure that writes NO diagnostic — the `${out:-…}` fallback,
+  # which no other row reaches (every failure above comes from a real jq that does
+  # write one).
+  cat > "$RL_TMP/jq-silent.sh" <<'RLJQS'
+#!/usr/bin/env bash
+exit 3
+RLJQS
+  chmod +x "$RL_TMP/jq-silent.sh"
+  RL_ABS_SILENT_ERR="$(DEVFLOW_JQ="$RL_TMP/jq-silent.sh" devflow_select_audit_bundles 3 "$RL_ABC_PAT" 2>&1 >/dev/null || true)"
+  assert_eq "#894 select: a silent jq failure still names the absence of a diagnostic" "true" \
+    "$(case "$RL_ABS_SILENT_ERR" in *"jq produced no diagnostic"*) echo true ;; *) echo false ;; esac)"
+
+  # ── #894 the NO-DISPATCH FLOOR, the load-bearing safety property ────────────
+  # devflow_audit_dispatch_ok is what stops an evidence-free GitHub issue being
+  # filed for a pattern Stage B never saw a bundle for. It is a FUNCTION rather than
+  # an inline `[ "$delivered" -eq 0 ]` precisely so this decision has an owner the
+  # suite drives; the SKILL.md fence keys its `dispatch` carrier off it, and 8b/8c
+  # dispatch and file only patterns whose carrier is still 1.
+  rl_dispatch() {  # <delivered> -> "ok" | "excluded"
+    if devflow_audit_dispatch_ok "$1" 2>/dev/null; then echo ok; else echo excluded; fi
+  }
+  assert_eq "#894 floor: one delivered bundle is enough to dispatch" "ok" "$(rl_dispatch 1)"
+  assert_eq "#894 floor: many delivered bundles dispatch" "ok" "$(rl_dispatch 10)"
+  assert_eq "#894 floor BOUNDARY: zero delivered is excluded from 8b/8c" "excluded" "$(rl_dispatch 0)"
+  # Unknown is not zero, and it is also not evidence: an unestablished count fails
+  # CLOSED (excluded), never dispatching on a count nobody established.
+  assert_eq "#894 floor: an EMPTY delivered count fails closed, not open" "excluded" "$(rl_dispatch '')"
+  assert_eq "#894 floor: a non-numeric delivered count fails closed" "excluded" "$(rl_dispatch 'x')"
+  assert_eq "#894 floor: a negative delivered count fails closed" "excluded" "$(rl_dispatch '-1')"
+  RL_DISPATCH_ERR="$(devflow_audit_dispatch_ok '' 2>&1 >/dev/null || true)"
+  assert_eq "#894 floor: the unestablished-count breadcrumb names what it refuses to assume" "true" \
+    "$(case "$RL_DISPATCH_ERR" in *"non-count delivered value"*"unestablished"*) echo true ;; *) echo false ;; esac)"
+  # A legitimate exclusion writes NO ::error:: — the zero case is an ordinary
+  # outcome, not a malfunction, so it must not pollute the run's error stream.
+  RL_DISPATCH_ZERO_ERR="$(devflow_audit_dispatch_ok 0 2>&1 >/dev/null || true)"
+  assert_eq "#894 floor: a legitimate zero-delivered exclusion emits no ::error::" "" \
+    "$RL_DISPATCH_ZERO_ERR"
+
+  # ── #894 resolve-jq.sh-not-sourceable arm (sibling precedent: render-report.sh) ─
+  # A copied/vendored deployment without lib/ must fall back to a bare `jq` with a
+  # breadcrumb rather than aborting the sourcing caller under set -e.
+  rm -rf "$RL_TMP/abs-lone"; mkdir -p "$RL_TMP/abs-lone"
+  cp "$REPO_ROOT/lib/audit-bundle-selection.sh" "$RL_TMP/abs-lone/audit-bundle-selection.sh"
+  # `unset DEVFLOW_JQ` inside the child: an inherited value would satisfy the `:=`
+  # fallback and make the row pass without the fallback ever running.
+  RL_ABS_LONE_OUT="$(bash -c 'unset DEVFLOW_JQ; set -euo pipefail; . "$1/audit-bundle-selection.sh"; printf "%s" "${DEVFLOW_JQ:-EMPTY}"' _ "$RL_TMP/abs-lone" 2>"$RL_TMP/abs-lone.err")"
+  assert_eq "#894 lone-deploy: sourcing without a resolve-jq.sh sibling still leaves DEVFLOW_JQ non-empty" "true" \
+    "$(case "$RL_ABS_LONE_OUT" in ''|EMPTY) echo false ;; *) echo true ;; esac)"
+  RL_ABS_LONE_ERR="$(<"$RL_TMP/abs-lone.err")"
+  assert_eq "#894 lone-deploy: the fallback leaves a breadcrumb naming the override" "true" \
+    "$(case "$RL_ABS_LONE_ERR" in *"resolve-jq.sh could not be sourced"*"DEVFLOW_JQ"*) echo true ;; *) echo false ;; esac)"
+
+  # ── #894 the `blockers` slurp SHAPE, a repaired latent run-killer ────────────
+  # Every `blockers+=(…)` append in Step 9's producer is RAW PROSE, so the array must
+  # be slurped with the raw `-sRc split` shape, never the JSON `-sc '.'` one. Under
+  # `-sc '.'` a prose element is a jq PARSE ERROR: blockers.json is left empty by the
+  # already-truncating `> file` redirect, the Step 9 empty-file guard fires, and the
+  # run aborts having lost every blocker. Step 8a makes that path frequently reached,
+  # so a silent revert to `-sc '.'` reinstates a run-killer on ordinary runs. Drive
+  # BOTH shapes over the same realistic prose element: the old one must fail, the
+  # shipped one must round-trip.
+  RL_BLK_PROSE='Pattern x: occurrence PR #7 bundle could not be fetched — gh: not logged in — excluded from Stage B evidence'
+  RL_BLK_OLD_RC="$(printf '%s\n' "$RL_BLK_PROSE" | "${DEVFLOW_JQ:-jq}" -sc '.' >/dev/null 2>&1; echo $?)"
+  assert_eq "#894 blockers: the OLD -sc '.' slurp really does fail on a prose element (the defect)" "false" \
+    "$(case "$RL_BLK_OLD_RC" in 0) echo true ;; *) echo false ;; esac)"
+  RL_BLK_NEW="$(printf '%s\n' "$RL_BLK_PROSE" | "${DEVFLOW_JQ:-jq}" -sRc 'split("\n") | map(select(. != ""))' 2>/dev/null || true)"
+  assert_eq "#894 blockers: the shipped raw slurp round-trips the prose element verbatim" "true" \
+    "$(case "$RL_BLK_NEW" in '["Pattern x: occurrence PR #7 bundle could not be fetched — gh: not logged in — excluded from Stage B evidence"]') echo true ;; *) echo false ;; esac)"
+  # The empty-array case both shapes must agree on: `[]`, never empty output — an
+  # empty file is what trips Step 9's guard.
+  assert_eq "#894 blockers: an empty blockers array still slurps to a non-empty []" "[]" \
+    "$(printf '%s\n' "" | "${DEVFLOW_JQ:-jq}" -sRc 'split("\n") | map(select(. != ""))' 2>/dev/null || true)"
 )
 
 # ── #894 render-report: Regressed patterns, Filing queue, truncation sections ─
@@ -1793,9 +1919,12 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   # probe merely yields an empty section and every row would pass vacuously against
   # a de-guarded renderer. Verified by mutation: removing a probe's
   # `2>/dev/null || true` turns these rows RED only in the fresh-bash form.
+  rl_rr_out() {  # <summary-json> -> the report a fresh set -e bash produced ("" on abort)
+    bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$REPO_ROOT/lib" "$1" 2>/dev/null || true
+  }
   rl_rr_survives() {  # <summary-json> -> true when the report reached "Issues filed"
     local out
-    out="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$REPO_ROOT/lib" "$1" 2>/dev/null || true)"
+    out="$(rl_rr_out "$1")"
     case "$out" in *"## Issues filed"*) echo true ;; *) echo false ;; esac
   }
   assert_eq "#894 malformed: a non-array .patterns does not abort the render" "true" \
@@ -1808,10 +1937,67 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
     "$(rl_rr_survives '{"prs_scanned":1,"truncations":"nope"}')"
   assert_eq "#894 malformed: a scalar element inside .truncations does not abort the render" "true" \
     "$(rl_rr_survives '{"prs_scanned":1,"truncations":[7,{"tag":"ok","delivered":1,"total":2,"selected":1}]}')"
+  assert_eq "#894 malformed: a non-string .tag inside .truncations does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"truncations":[{"tag":{"x":1},"delivered":1,"total":2,"selected":1}]}')"
+  assert_eq "#894 malformed: non-numeric truncation counts do not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"truncations":[{"tag":"ok","delivered":"a","total":[2],"selected":null}]}')"
+  assert_eq "#894 malformed: a null .truncations does not abort the render" "true" \
+    "$(rl_rr_survives '{"prs_scanned":1,"truncations":null}')"
+
+  # PRODUCER <-> RENDERER FIELD COUPLING. The Step 8a producer writes exactly
+  # {tag, delivered, total, selected}; the renderer reads those four names. A rename
+  # on either side is silent — the section keeps rendering, just with a degraded
+  # value — so pin each name by driving an entry where ONLY that key is renamed and
+  # asserting the observable it feeds disappears.
+  assert_eq "#894 coupling: renaming 'selected' silently kills the fetch-failure clause" "false" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"truncations":[{"tag":"cp","delivered":2,"total":9,"selected_count":8}]}')" in *"failed to fetch"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 coupling: the same entry WITH 'selected' does render the clause (positive control)" "true" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"truncations":[{"tag":"cp","delivered":2,"total":9,"selected":8}]}')" in *"6 selected bundle(s) failed to fetch"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 coupling: renaming 'delivered' degrades the delivered count to 0" "true" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"truncations":[{"tag":"cp","delivered_count":2,"total":9,"selected":2}]}')" in *"received 0 of 9"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 coupling: renaming 'total' degrades the total to 0" "true" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"truncations":[{"tag":"cp","delivered":2,"occurrence_total":9,"selected":2}]}')" in *"received 2 of 0"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 coupling: renaming 'tag' falls back to (unnamed) rather than dropping the row" "true" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"truncations":[{"pattern":"cp","delivered":2,"total":9,"selected":2}]}')" in *'`(unnamed)`'*"received 2 of 9"*) echo true ;; *) echo false ;; esac)"
+  # These two rows go through the FRESH-BASH helper like every sibling above. Called
+  # directly under `|| true`, bash suspends errexit for the whole call, so `set -e`
+  # is inert and the rows would pass against a de-guarded renderer — vacuous by this
+  # block's own stated criterion.
+  RL_FQNS="$(rl_rr_out '{"prs_scanned":1,"filing_queue_open":{"a":1},"filing_queue_max":[2]}')"
   assert_eq "#894 malformed: non-string filing-queue operands render unavailable, not an abort" "true" \
-    "$(case "$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":{"a":1},"filing_queue_max":[2]}' 2>/dev/null || true)" in *"filing queue: unavailable/unavailable open"*) echo true ;; *) echo false ;; esac)"
+    "$(case "$RL_FQNS" in *"filing queue: unavailable/unavailable open"*) echo true ;; *) echo false ;; esac)"
   assert_eq "#894 malformed: an at-capacity comparison is never attempted on a non-numeric operand" "false" \
-    "$(case "$(devflow_render_report '{"prs_scanned":1,"filing_queue_open":{"a":1},"filing_queue_max":[2]}' 2>/dev/null || true)" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+    "$(case "$RL_FQNS" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 malformed: non-string filing-queue operands do not abort the render mid-report" "true" \
+    "$(case "$RL_FQNS" in *"## Issues filed"*) echo true ;; *) echo false ;; esac)"
+
+  # LEADING-ZERO filing-queue operands. `"max_open_issues": "08"` is hand-writable
+  # and config-get.sh passes a JSON string through verbatim, so `08` reaches the
+  # renderer. `test` evaluates numeric operands under shell arithmetic, where `08`
+  # is an illegal octal literal: an all-digit-only guard admits it, `[ 9 -ge 08 ]`
+  # writes `value too great for base` and returns non-true, and ` — at capacity`
+  # is silently SUPPRESSED on a queue that is at capacity.
+  RL_FQLZ="$(rl_rr_out '{"prs_scanned":1,"filing_queue_open":"08","filing_queue_max":"10"}')"
+  assert_eq "#894 queue: a leading-zero N is unestablished, not a laundered octal" "true" \
+    "$(case "$RL_FQLZ" in *"filing queue: unavailable/10 open"*) echo true ;; *) echo false ;; esac)"
+  RL_FQLZM="$(rl_rr_out '{"prs_scanned":1,"filing_queue_open":"12","filing_queue_max":"08"}')"
+  assert_eq "#894 queue: a leading-zero M is unestablished, not a laundered octal" "true" \
+    "$(case "$RL_FQLZM" in *"filing queue: 12/unavailable open"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 queue: a leading-zero operand yields no at-capacity claim either way" "false" \
+    "$(case "${RL_FQLZ}${RL_FQLZM}" in *"at capacity"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 queue: a leading-zero operand does not abort the render" "true" \
+    "$(case "$RL_FQLZ" in *"## Issues filed"*) echo true ;; *) echo false ;; esac)"
+  # A bare `0` is still established — the guard rejects a leading zero, not zero.
+  assert_eq "#894 queue: a bare 0 is still an established count, not collapsed with '08'" "true" \
+    "$(case "$(rl_rr_out '{"prs_scanned":1,"filing_queue_open":"0","filing_queue_max":"10"}')" in *"filing queue: 0/10 open"*) echo true ;; *) echo false ;; esac)"
+
+  # The at-capacity line reports STATE, and `max_open_issues` is not absolute:
+  # lib/filing-decisions.sh lets a `regressed` pattern bypass it. Without the note a
+  # reader takes ` — at capacity` as "nothing was filed".
+  assert_eq "#894 queue: at capacity names the regressed bypass, so the ceiling is not read as absolute" "true" \
+    "$(case "$RL_FQEQ" in *"at capacity"*"regressed"*"bypasses this ceiling"*) echo true ;; *) echo false ;; esac)"
+  assert_eq "#894 queue: the bypass note is absent when the queue is NOT at capacity" "false" \
+    "$(case "$RL_FQ2" in *"bypasses this ceiling"*) echo true ;; *) echo false ;; esac)"
   # NOTE on the ONE malformed shape deliberately NOT driven here: a valid-JSON
   # NON-OBJECT summary (`[]`), where jq's `has()` is undefined. It is unreachable at
   # the Filing-queue probe — the PRE-EXISTING `.prs_scanned` probe near the top of
