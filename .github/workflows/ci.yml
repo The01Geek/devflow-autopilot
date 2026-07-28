@@ -70,10 +70,13 @@ jobs:
 
       # Install the Claude Code CLI so the #671 `claude plugin validate --strict`
       # gate ARMS instead of self-skipping. Until this step existed the CLI was on no
-      # runner, so that gate took its `blocking-gate` skip branch on every CI run and
-      # was the suite's ONLY skip (run 30274021296 @ fb5256b7: "12523 passed, 0 failed,
-      # 1 skipped"). A skip does not fail the suite (issue #456), so the gate was
-      # disarmed silently while CI stayed green.
+      # runner, so that gate took its `blocking-gate` skip branch on every CI run. It
+      # was the only skip in the run cited here (run 30274021296 @ fb5256b7: "12523
+      # passed, 0 failed, 1 skipped") — a dated snapshot, NOT a standing invariant:
+      # arming this gate does not drive CI to zero skips, because the #434 stale-prose
+      # self-scan skips separately ("working tree dirty") and survives this change.
+      # A skip does not fail the suite (issue #456), so the gate was disarmed silently
+      # while CI stayed green.
       #
       # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
       # that validation DESCENDS into the skills/ and agents/ trees rather than stopping
@@ -86,26 +89,30 @@ jobs:
       # Validation is auth-free. Measured while authoring this step, on a bench, not a
       # description of this job's configuration: with ANTHROPIC_API_KEY and
       # CLAUDE_CODE_OAUTH_TOKEN unset and HOME redirected to an empty dir, validation
-      # still exits 0. (This job redirects nothing — the next step writes "$HOME/.local/
-      # bin" into GITHUB_PATH.) So the step needs no secret, which matters because this
+      # still exits 0. (This job redirects nothing — this step's last line writes
+      # "$HOME/.local/bin" into GITHUB_PATH.) So the step needs no secret, which matters because this
       # job runs arbitrary PR code (see the `on:` comment on why we do not use
       # pull_request_target). Confirmed in situ: the gate passes in a PR-triggered job
       # that is `contents: read` and carries no secrets.
       #
-      # PINNED rather than `stable`/`latest`, for the reason the lint job pins
-      # ShellCheck: here the CLI *is* the validator, so an unpinned upgrade that adds a
-      # new warning would redden this REQUIRED check on an unrelated PR with no repo
-      # change. Bump it deliberately, and note the pin is one level shallower than it
+      # PINNED rather than `stable`/`latest`, for the reason the lint job pins ruff
+      # (an unpinned `pip install ruff` picked up 0.16.0, flagged ~645 pre-existing
+      # findings repo-wide, and turned that job red on every branch at once): here the
+      # CLI *is* the validator, so an unpinned upgrade that adds a new warning would
+      # redden this REQUIRED check on an unrelated PR with no repo change. (The
+      # ShellCheck pin nearby is a FLOOR — 0.9.0 predates `--extended-analysis` — which
+      # is a different argument; ruff's is the one that applies here.) Bump it deliberately, and note the pin is one level shallower than it
       # looks: install.sh itself is refetched unpinned and unchecksummed each run, so
       # the version argument pins the CLI, not the installer. The blast radius is
       # bounded — this job is `contents: read` and holds no secrets — and the verify
       # step below asserts the version actually landed.
       #
       # The gate lives in lib/test/run.sh (the `monolith` shard), but the CLI is
-      # installed on EVERY shard uniformly — the same reasoning as the checkout depth
-      # above — so a gate that later moves into a module shard does not quietly revert
-      # to self-skipping. That uniformity has a real cost worth stating: it puts four
-      # network installs behind a REQUIRED check, so a claude.ai outage can redden
+      # installed on EVERY shard uniformly — like the checkout depth above, though for
+      # a different reason: that one is uniform to keep the checkout config single-form,
+      # this one so a gate that later moves into a module shard does not quietly revert
+      # to self-skipping. That uniformity has a real cost worth stating: it puts one
+      # network install per shard behind a REQUIRED check, so a claude.ai outage can redden
       # `lib + python tests` via a shard that consumes nothing from the CLI. The retry
       # below absorbs the transient case; a sustained outage fails the check loudly,
       # which is the intended direction for a gate whose whole defect class is failing
@@ -140,8 +147,10 @@ jobs:
       #
       # An empty CLAUDE_CLI_VERSION does NOT make this step vacuous: the helper exits 2
       # on an empty pin, so the check fails closed. It would still leave the INSTALL
-      # half unpinned (`bash -s ""` takes the installer's default), which is why the
-      # literal is also pinned in run.sh.
+      # half unpinned (`bash -s ""` takes the installer's default), which is why run.sh
+      # separately pins that the env: key carries a version-SHAPED value (not the exact
+      # literal, which would trap every deliberate bump) — that pin is what catches the
+      # key being dropped OR emptied.
       - name: Verify the claude CLI resolves on PATH at the pinned version
         run: |
           v="$(claude --version)"

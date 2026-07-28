@@ -25386,7 +25386,19 @@ if command -v claude >/dev/null 2>&1; then
       > "$PKG_DESC/tree/agents/probe-agent.md" \
       || { printf 'FATAL: #671 descent fixture rebuild failed (agent write)\n' >&2; exit 1; }
   }
-  devflow_pkg_validate_rc() { claude plugin validate --strict "$PKG_DESC/tree" >/dev/null 2>&1; echo $?; }
+  # Version asymmetry worth knowing when this block goes red: CI pins the CLI
+  # (CLAUDE_CLI_VERSION in ci.yml's shard job) because there the CLI *is* the validator,
+  # but at the desk these arms run against whatever `claude` the host has. So a future CLI
+  # that changes one of these exit codes reddens the LOCAL suite first, against a version
+  # CI never ran. The helper keeps the validator's own output and replays it on an
+  # UNEXPECTED rc, naming the observed CLI version, so the cause is not re-derived by hand.
+  devflow_pkg_validate_rc() {  # $1 = expected rc; output replayed only when rc differs
+    local _out _rc
+    _out="$(claude plugin validate --strict "$PKG_DESC/tree" 2>&1)"; _rc=$?
+    [ "$_rc" = "${1-}" ] || printf 'claude %s: validate rc=%s\n%s\n' \
+      "$(claude --version 2>/dev/null || echo '(version unavailable)')" "$_rc" "$_out" >&2
+    echo "$_rc"
+  }
 
   # Drive one arm: rebuild the fixture, assert it is VALID (per-arm positive control),
   # apply the mutation, then assert rejection. The per-arm control is the point — a
@@ -25397,13 +25409,13 @@ if command -v claude >/dev/null 2>&1; then
     local _label="$1" _rel="$2"; shift 2
     devflow_pkg_fixture
     assert_eq "#671 descent positive control ($_label): fixture is valid BEFORE the mutation" "0" \
-      "$(devflow_pkg_validate_rc)"
+      "$(devflow_pkg_validate_rc 0)"
     if [ "$#" -eq 0 ]; then : > "$PKG_DESC/tree/$_rel"; else printf '%s\n' "$@" > "$PKG_DESC/tree/$_rel"; fi
-    assert_eq "#671 descent: $_label is rejected (exit 1)" "1" "$(devflow_pkg_validate_rc)"
+    assert_eq "#671 descent: $_label is rejected (exit 1)" "1" "$(devflow_pkg_validate_rc 1)"
   }
 
-  # The matrix is deliberately SYMMETRIC across both component trees: each of the three
-  # frontmatter shapes is driven against a skill AND against an agent. An asymmetric
+  # The matrix is deliberately SYMMETRIC across both component trees: each frontmatter
+  # shape is driven against a skill AND against an agent. An asymmetric
   # matrix (the earlier shape: skills×3, agents×1) leaves a regression that opens agent
   # files but checks only YAML-parseability — never presence or emptiness — fully green.
   devflow_pkg_descent_arm "malformed YAML frontmatter in a skill" "skills/probe/SKILL.md" \
@@ -25420,7 +25432,7 @@ if command -v claude >/dev/null 2>&1; then
   rm -rf "$PKG_DESC"
   unset -f devflow_pkg_fixture devflow_pkg_validate_rc devflow_pkg_descent_arm
 else
-  skip "#671 claude plugin validate --strict (plugin tree + descent matrix)" blocking-gate "claude CLI not on PATH — neither the plugin-tree strict validation NOR the frontmatter descent matrix (the executable backing for ci.yml's descent claim) was run (a CI runner could install it; install the CLI to arm this gate)"
+  skip "#671 claude plugin validate --strict (plugin tree + descent matrix)" blocking-gate "claude CLI not on PATH — neither the plugin-tree strict validation NOR the frontmatter descent matrix (the executable backing for ci.yml's descent claim) was run (CI installs it, see the shard job in .github/workflows/ci.yml; install the CLI locally to arm this gate at the desk)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -36494,7 +36506,7 @@ assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (
 # than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
 # therefore records a visible SKIP (kind `blocking-gate`) instead of a false FAIL, and the
 # terminal summary re-lists it so the skip is never mistaken for a clean pass. CI's checkout
-# is clean, and (since #456) `.github/workflows/ci.yml`'s test job sets `fetch-depth: 0` so
+# is clean, and (since #456) `.github/workflows/ci.yml`'s shard job sets `fetch-depth: 0` so
 # `origin/main` resolves — so BOTH skip arms are inert in CI and the assertion runs live
 # there. Before that fetch-depth change the origin/main arm skipped this gate on every CI run.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
@@ -39613,7 +39625,7 @@ assert_eq "#671 ci.yml matcher fails closed on an absent file (never a bare 'no'
 assert_eq "#671 ci.yml matcher fails closed when awk itself errors (malformed ERE)" "awk-failed" \
   "$(devflow_ci_shard_has '[' "$LIB/../.github/workflows/ci.yml" 2>/dev/null)"
 rm -rf "$CI671_TMP"
-# The pinned CLI version literal. The VERIFY half fails closed on an empty pin on its own
+# The pinned CLI version. The VERIFY half fails closed on an empty pin on its own
 # (scripts/assert-cli-version.sh exits 2), but the INSTALL half does not: `bash -s ""`
 # silently takes whatever the installer defaults to. So a dropped or renamed env: key
 # would still leave an unpinned CLI installed, and this pin is what catches its removal.
@@ -39660,6 +39672,23 @@ assert_eq "#671 assert-cli-version: the empty-pin arm names the unset variable" 
   "$(bash "$ACV" '' 'x' 2>&1 | grep -q 'CLAUDE_CLI_VERSION is unset or empty' && echo yes || echo no)"
 assert_eq "#671 assert-cli-version: the mismatch arm names both expected and observed" "yes" \
   "$(bash "$ACV" '2.1.212' '2.0.9 (Claude Code)' 2>&1 | grep -q 'expected claude 2.1.212 on PATH, got: 2.0.9' && echo yes || echo no)"
+# Both message arms above merge stderr into stdout (2>&1) to READ the text, which cannot
+# distinguish a message written to stderr from one written to stdout. The helper emits both
+# ::error:: lines with an explicit >&2, so assert the ROUTING too: with stderr discarded
+# there must be nothing left on stdout. Without these, dropping the >&2 keeps them green.
+assert_eq "#671 assert-cli-version: the mismatch ::error:: goes to STDERR, not stdout" "" \
+  "$(bash "$ACV" '2.1.212' '2.0.9 (Claude Code)' 2>/dev/null)"
+assert_eq "#671 assert-cli-version: the empty-pin ::error:: goes to STDERR, not stdout" "" \
+  "$(bash "$ACV" '' 'x' 2>/dev/null)"
+# `got="${actual%% *}"` is a parser over externally-produced output (`claude --version`),
+# so it gets the boundary rows CLAUDE.md's best-effort-parser rule asks for. Both currently
+# fail CLOSED; the arms exist so a future "trim harder / be lenient" edit cannot silently
+# turn either into a false PASS.
+assert_eq "#671 assert-cli-version: LEADING WHITESPACE does not satisfy the pin (fails closed)" "1" \
+  "$(devflow_acv_rc '2.1.212' ' 2.1.212 (Claude Code)')"
+assert_eq "#671 assert-cli-version: MULTI-LINE version output does not satisfy the pin (fails closed)" "1" \
+  "$(devflow_acv_rc '2.1.212' 'warning: something
+2.1.212 (Claude Code)')"
 #
 # ── scripts/retry-with-backoff.sh: every arm of the extracted install retry ──
 # Extracted from ci.yml's install step, where nothing drove the retry arms, the backoff
