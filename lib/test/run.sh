@@ -24463,11 +24463,27 @@ READ_DEN_ENTRY = {"tool_name": "Read",
                   "tool_input": {"file_path": SIDE, "note": "SUBWRITE_PAYLOAD"}}
 BASH_DEN_ENTRY = {"tool_name": "Bash",
                   "tool_input": {"command": "cat " + SIDE + "  # SUBWRITE_PAYLOAD"}}
+# Envelope-nested builders (the production shape). `parent_tool_use_id` rides the envelope;
+# the tool_use blocks under message.content[] carry only type/id/name/input.
+def envelope(parent, blocks):
+    return {"type": "assistant", "parent_tool_use_id": parent, "session_id": "s",
+            "message": {"content": blocks}}
+def block(name, tid, inp):
+    return {"type": "tool_use", "id": tid, "name": name, "input": inp}
+D_BLK = block("Task", "d1", {"subagent_type": "general-purpose",
+                             "prompt": "emit SUBWRITE markers"})
+CB_BLK = block("Bash", "c1", {"command": "printf SUBWRITE_CONTROL_BEFORE"})
+CA_BLK = block("Bash", "c2", {"command": "printf SUBWRITE_CONTROL_AFTER"})
+WRITE_BLK = block("Write", "w1", {"file_path": SIDE, "content": "SUBWRITE_PAYLOAD"})
 scenarios = {
     # happy path
     "permitted": [D, CB, write(), CA],
     "denied": [D, CB, WDEN],
-    "denied_with_leftover": [D, CB, WDEN],  # side-file present but denial wins
+    # Same records as "denied": devflow_swv always passes the PRESENT side-effect file, so
+    # this scenario is a readability duplicate rather than a distinct shape. The arm order
+    # it reads as testing is really covered by "denied_authoritative", which carries a
+    # permit-eligible Write for the denial to actually win over.
+    "denied_with_leftover": [D, CB, WDEN],
     # A chain-attributable Write recorded AND a Write denial + side-file present: DENIED
     # must win over PERMITTED (denial signal is authoritative). Without this the
     # denied-before-permitted precedence is only vacuously covered.
@@ -24481,9 +24497,12 @@ scenarios = {
          "prompt": ("use the Write tool to create the file "
                     ".devflow/tmp/subwrite-review.txt with content SUBWRITE_PAYLOAD")}}]}],
     # Same echo but the denial entry carries NO tool_name (the per-entry denial shape is
-    # unrecorded, so a refusal may omit it). The tool_name exclusion alone would let this
-    # through; dispatch_denied (keyed on the subagent_type/general-purpose fingerprint in the
-    # entry text) is checked BEFORE write_denied so it still routes to unestablished.
+    # unrecorded, so a refusal may omit it). A tool_name exclusion alone would let this
+    # through; what keeps it off the write bucket is the PER-ENTRY classifier, which tests
+    # the dispatch fingerprint (the quoted subagent_type key / the general-purpose type name)
+    # first FOR EACH ENTRY. The verdict-arm order is the opposite — write_denied is checked
+    # before the dispatch-refused arm — and is safe precisely because no entry classified as
+    # a dispatch refusal ever reaches the write bucket.
     "dispatch_denied_echo_no_toolname": [{"permission_denials": [
         {"tool_input": {"subagent_type": "general-purpose",
          "prompt": ("use the Write tool to create the file "
@@ -24554,6 +24573,39 @@ scenarios = {
     # orchestrator marker call still resolves PERMITTED (the exclusion must not over-reach).
     "orch_marker_beside_real_write": [D, CB, write(), CA,
                                       bash("echo SUBWRITE_CONTROL_AFTER reported", None, "o1")],
+    # ── THE PRODUCTION NESTING. The flat records above are a convenience shape; the real
+    # claude-code-action stream-json record carries `parent_tool_use_id` on the MESSAGE
+    # ENVELOPE and nests the tool_use blocks under `message.content[]`, which carry only
+    # type/id/name/input. Reading the field off the tool_use node therefore yields None on
+    # every real record — PERMITTED would be unreachable by construction and the
+    # orchestrator exclusion silently inert. The committed census cannot settle this
+    # (docs/execution-file-shape.md records that its flattened key set "erases parentage"),
+    # so these fixtures pin the resolution on the shape the helper will actually meet.
+    "envelope_permitted": [envelope(None, [D_BLK]),
+                           envelope("d1", [CB_BLK, WRITE_BLK, CA_BLK])],
+    # A first dispatch refused, then a successful retry: the refusal must NOT preempt the
+    # completed measurement (the arm-order regression this fixture exists to pin).
+    "envelope_refused_then_retry": [{"permission_denials": [TASK_DEN_ENTRY]},
+                                    envelope(None, [D_BLK]),
+                                    envelope("d1", [CB_BLK, WRITE_BLK, CA_BLK])],
+    # A Write denial with NO dispatch anywhere: nothing to attribute it to, so never DENIED.
+    "envelope_denial_no_dispatch": [{"permission_denials": [WDEN_ENTRY]}],
+    # A Write denial beside an ORCHESTRATOR-issued Write naming the same file: the
+    # no-orchestrator-write premise the DENIED attribution rests on is falsified.
+    "envelope_denial_with_orch_write": [envelope(None, [D_BLK]), envelope(None, [WRITE_BLK]),
+                                        envelope("d1", [CB_BLK]),
+                                        {"permission_denials": [WDEN_ENTRY]}],
+    # The clean denial: dispatch recorded, no orchestrator Write — the one shape that IS DENIED.
+    "envelope_denial_clean": [envelope(None, [D_BLK]), envelope("d1", [CB_BLK]),
+                              {"permission_denials": [WDEN_ENTRY]}],
+    # A Write carrying the payload to some OTHER path: not the write the probe asked about.
+    "envelope_payload_other_path": [
+        envelope(None, [D_BLK]),
+        envelope("d1", [CB_BLK,
+                        {"type": "tool_use", "id": "w9", "name": "Write",
+                         "input": {"file_path": "/elsewhere.txt",
+                                   "content": "SUBWRITE_PAYLOAD"}},
+                        CA_BLK])],
 }
 recs = scenarios[scen]
 with open(path, "w", encoding="utf-8") as fh:
@@ -24648,8 +24700,9 @@ assert_eq "#858 subagent-write: a dispatch denial echoing the subagent prompt �
 assert_eq "#858 subagent-write: the prompt-echoing dispatch denial is NOT collapsed onto a false DENIED" \
   "no" "$(printf '%s' "$SWV_ECHO" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
 # Same echo, but the denial entry carries NO tool_name (the unrecorded per-entry shape):
-# must STILL route to unestablished, not a false DENIED — the dispatch-refused arm is
-# checked before write_denied.
+# must STILL route to unestablished, not a false DENIED. The mechanism is the PER-ENTRY
+# classifier (dispatch fingerprint tested first for each entry), not the verdict-arm order,
+# which runs write_denied first.
 SWV_ECHO_NT="$(devflow_swv dispatch_denied_echo_no_toolname)"
 assert_eq "#858 subagent-write: a tool_name-less dispatch denial echoing the prompt → unestablished" \
   "unestablished" "$(swv_verdict "$SWV_ECHO_NT")"
@@ -24715,6 +24768,110 @@ assert_eq "#858 subagent-write: with no parent chains recorded anywhere, marker 
 assert_eq "#858 subagent-write: that third-world reason discloses it cannot tell them from orchestrator calls" "yes" \
   "$(printf '%s' "$SWV_NPC" | grep -qF 'cannot be distinguished from orchestrator-issued ones' && echo yes || echo no)"
 
+# The unestablished arms are distinguished by their REASONS, not just the shared verdict:
+# a swapped pair of arms would tell the maintainer the wrong cause of a null probe result
+# while the suite stayed green (the describe-denial-count.sh arm-misattribution class).
+assert_eq "#858 subagent-write: the no-dispatch arm names the dispatch never occurring" "yes" \
+  "$(printf '%s' "$(devflow_swv no_dispatch)" | grep -qF 'the dispatch never occurred' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the dispatch-recorded-but-silent arm names the unsurfaced dispatchee actions" "yes" \
+  "$(printf '%s' "$(devflow_swv no_subagent_call)" | grep -qF 'does not surface dispatchee actions' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the ran-but-did-not-attempt arm says so distinctly" "yes" \
+  "$(printf '%s' "$(devflow_swv controls_no_write)" | grep -qF 'ran but did not attempt the write' && echo yes || echo no)"
+# The refusal arm deliberately does NOT name a cause: a head refusal records the attempted
+# tool_input (which carries subagent_type), so a text scan cannot separate the two causes.
+assert_eq "#858 subagent-write: the dispatch-refusal reason claims no unestablished cause" "yes" \
+  "$(printf '%s' "$(devflow_swv dispatch_denied_head)" | grep -qF 'recorded cause is not established by the entry shape' && echo yes || echo no)"
+
+# ── THE PRODUCTION NESTING (envelope-carried parent_tool_use_id). These are the assertions
+# the flat fixtures above structurally cannot make: on the shape a real claude-code-action
+# execution file uses, PERMITTED must be REACHABLE. Before the parent-threading fix every
+# one of these resolved `unestablished` with "no entry carries a parent_tool_use_id at all",
+# so a paid probe could never return the outcome it was filed to obtain.
+assert_eq "#858 subagent-write: envelope-nested parentage resolves → PERMITTED is reachable on the real shape" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv envelope_permitted)")"
+SWV_ENV="$(devflow_swv envelope_permitted)"
+assert_eq "#858 subagent-write: the envelope-nested run reports chain_attributable=yes" "yes" \
+  "$(printf '%s' "$SWV_ENV" | grep -qF '| chain_attributable | yes |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the envelope-nested run reports write_chain_ok=yes" "yes" \
+  "$(printf '%s' "$SWV_ENV" | grep -qF '| write_chain_ok | yes |' && echo yes || echo no)"
+# The PERMITTED reason CITES the chain by its two ids, so a reader can re-verify it against
+# the execution file rather than taking a bare yes/no on trust.
+assert_eq "#858 subagent-write: the PERMITTED reason cites the tool_use id and its parent" "yes" \
+  "$(printf '%s' "$SWV_ENV" | grep -qF "tool_use id 'w1' -> parent_tool_use_id 'd1'" && echo yes || echo no)"
+# A dispatch refusal co-recorded with a SUCCESSFUL retry must not preempt the completed
+# measurement — otherwise the emitted reason asserts "no write permission was even
+# attempted" beside a table reporting the write recorded, chained and corroborated.
+assert_eq "#858 subagent-write: a refused dispatch followed by a successful retry is still PERMITTED" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv envelope_refused_then_retry)")"
+assert_eq "#858 subagent-write: that retry run reports dispatch_outcome=recorded, not denied" "yes" \
+  "$(printf '%s' "$(devflow_swv envelope_refused_then_retry)" | grep -qF '| dispatch_outcome | recorded |' && echo yes || echo no)"
+# ── DENIED corroboration. DENIED rests entirely on "the dispatched subagent is the only
+# possible author", so each shape that falsifies that premise must route to unestablished.
+# The clean shape below is the positive control proving the gates are not blanket-refusing.
+assert_eq "#858 subagent-write: a Write denial with NO dispatch recorded is NOT DENIED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv envelope_denial_no_dispatch)")"
+assert_eq "#858 subagent-write: that no-dispatch reason names the missing dispatch" "yes" \
+  "$(printf '%s' "$(devflow_swv envelope_denial_no_dispatch)" | grep -qF 'NO dispatch appears in this file' && echo yes || echo no)"
+assert_eq "#858 subagent-write: a Write denial beside an orchestrator-issued Write is NOT DENIED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv envelope_denial_with_orch_write)")"
+assert_eq "#858 subagent-write: that reason names the falsified no-orchestrator-write premise" "yes" \
+  "$(printf '%s' "$(devflow_swv envelope_denial_with_orch_write)" | grep -qF 'premise the denial attribution rests on is falsified' && echo yes || echo no)"
+assert_eq "#858 subagent-write: positive control — a dispatch-recorded, orchestrator-write-free denial IS DENIED" \
+  "DENIED" "$(swv_verdict "$(devflow_swv envelope_denial_clean)")"
+# A Write carrying the payload to some OTHER path is not the write the probe asked about:
+# reporting it as "a Write targeting subwrite-<tier>.txt" would be false about the run.
+assert_eq "#858 subagent-write: a payload-carrying Write to a DIFFERENT path is not PERMITTED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv envelope_payload_other_path)")"
+
+# ── The implement tier. Every assertion above runs on --tier review, so a mutation that
+# hardcoded the review side-path would survive the whole block while misreporting the
+# implement-tier job this same change ships. The tier is the write marker's only source.
+devflow_swv_build permitted
+: > "$SWV_TMP/side-implement.txt"
+SWV_IMPL="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier implement --side-effect-file "$SWV_TMP/side-implement.txt" 2>/dev/null)"
+assert_eq "#858 subagent-write: the implement tier derives its own write marker (a review-named Write does not match)" \
+  "unestablished" "$(swv_verdict "$SWV_IMPL")"
+assert_eq "#858 subagent-write: the implement-tier record carries tier=implement" "yes" \
+  "$(printf '%s' "$SWV_IMPL" | grep -qE '\| tier \| `implement` \|' && echo yes || echo no)"
+# And an implement-named denial IS attributed on the implement tier (the mutation that
+# hardcodes the review path reports "no write was attempted" about a refused write).
+python3 - "$SWV_TMP/exec-impl.jsonl" <<'PY_IMPL'
+import json, sys
+side = ".devflow/tmp/subwrite-implement.txt"
+recs = [
+    {"type": "tool_use", "name": "Task", "id": "d1",
+     "input": {"subagent_type": "general-purpose", "prompt": "emit SUBWRITE markers"}},
+    {"type": "tool_use", "name": "Bash", "id": "c1", "parent_tool_use_id": "d1",
+     "input": {"command": "printf SUBWRITE_CONTROL_BEFORE"}},
+    {"permission_denials": [{"tool_input": {"file_path": side}}]},
+]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for r in recs:
+        fh.write(json.dumps(r) + "\n")
+PY_IMPL
+assert_eq "#858 subagent-write: an implement-named Write denial is DENIED on the implement tier" \
+  "DENIED" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec-impl.jsonl" --tier implement --side-effect-file "$SWV_TMP/side-implement.txt" 2>/dev/null)")"
+# Negative control for the same fixture: on the REVIEW tier that implement-named denial is
+# not the review write, so the tier really is what selects the marker.
+assert_eq "#858 subagent-write: the same implement-named denial is NOT DENIED on the review tier" \
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec-impl.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+
+# ── Every permission-decision parameter travels with the verdict. The workflow passes all
+# five on both jobs; a dropped or mislabelled row ships silently into the record that exists
+# to make the measurement reproducible.
+devflow_swv_build permitted
+SWV_PARAMS="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" \
+  --permission-mode acceptEdits --model claude-haiku-4-5-20251001 --effort low \
+  --ref refs/pull/910/head --head-commit deadbeef 2>/dev/null)"
+for _row in 'permission_mode:acceptEdits' 'model:claude-haiku-4-5-20251001' 'effort:low' \
+            'ref:refs/pull/910/head' 'head_commit:deadbeef'; do
+  assert_eq "#858 subagent-write: the record carries the '${_row%%:*}' parameter with its value" "yes" \
+    "$(printf '%s' "$SWV_PARAMS" | grep -qF "**${_row%%:*}:** \`${_row#*:}\`" && echo yes || echo no)"
+done
+# Negative control: an omitted parameter emits NO row (so the loop above is not vacuous).
+assert_eq "#858 subagent-write: an omitted parameter emits no row" "no" \
+  "$(printf '%s' "$(devflow_swv permitted)" | grep -qF '**head_commit:**' && echo yes || echo no)"
+
 # ── --tier outside the closed set: a specific stderr breadcrumb AND unestablished, never a
 # silent coercion to `unknown` that makes the helper look for a side-effect file no probe
 # job writes and then render a confident-looking negative.
@@ -24725,8 +24882,20 @@ assert_eq "#858 subagent-write: an invalid --tier → unestablished, never a coe
   "unestablished" "$(swv_verdict "$SWV_TIER_OUT")"
 assert_eq "#858 subagent-write: an invalid --tier names the bad value on stderr" "yes" \
   "$(printf '%s' "$SWV_TIER_ERR" | grep -qFe "--tier value 'bogus' is not one of review/implement" && echo yes || echo no)"
+# The side-effect file is passed DELIBERATELY: without it the run lands on the
+# "chain-attributable Write but no on-disk corroboration" arm and reads `unestablished`
+# whether or not the tier check ran at all — a vacuous assertion. With it, the fixture is
+# otherwise PERMITTED-eligible, so only the tier guard can produce `unestablished`.
 assert_eq "#858 subagent-write: a MISSING --tier value is not silently accepted" \
-  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier 2>/dev/null)")"
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+# Positive control for the pair above: the SAME fixture and the same side-effect file with a
+# VALID tier is PERMITTED, so neither tier assertion can pass by an unrelated precondition.
+assert_eq "#858 subagent-write: positive control — the same fixture with a valid tier is PERMITTED" \
+  "PERMITTED" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)")"
+# The tier arm must NOT borrow the execution-file note prefix: the file was read cleanly and
+# a reason blaming it is a positively-stated misdiagnosis (the arm-misattribution class).
+assert_eq "#858 subagent-write: the invalid-tier reason does not blame the execution file" "no" \
+  "$(printf '%s' "$SWV_TIER_OUT" | grep -qF 'execution file could not be read cleanly' && echo yes || echo no)"
 
 # ── The flag parser must not consume the NEXT FLAG as a value: `--tier --allowlist X` would
 # otherwise bind tier="--allowlist" and drop the allowlist from the record that exists to

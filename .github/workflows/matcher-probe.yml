@@ -1442,7 +1442,8 @@ jobs:
           python3 scripts/env-propagation-probe-verdict.py "${EXECUTION_FILE}"
 
   # issue #858 — measure whether a DISPATCHED subagent's Write into `.devflow/tmp/**`
-  # succeeds under each tier's real profile. `Write(.devflow/tmp/**)` (review) and
+  # succeeds under each tier's generated baseline joined with that job's standing extras
+  # (NOT the shipped profile alone — the record reproduces the resolved literal verbatim). `Write(.devflow/tmp/**)` (review) and
   # unrestricted Write (implement) are granted, but every shipped instruction that authors
   # into that tree is addressed to the ORCHESTRATOR — whether a DISPATCHEE can write is
   # unestablished (a grant proven for the dispatcher is not inherited; CLAUDE.md: "Unknown

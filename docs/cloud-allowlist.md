@@ -224,11 +224,13 @@ on no profile, so the run is not an acceptance criterion of the change that adde
 this note). Until then, a refusal of the dispatched vendored-literal command is
 handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — PENDING a maintainer-dispatched run (issue #858)
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — review tier — PENDING a maintainer-dispatched run (issue #858)
 
 `.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
 that measures whether a **dispatched subagent's** `Write` into `.devflow/tmp/**`
-succeeds under the review tier's real profile. `Write(.devflow/tmp/**)` is granted for
+succeeds under the review tier's **generated baseline joined with the `probe` job's own
+standing candidate extras** — not the shipped review profile alone, which is why the
+record reproduces the resolved literal verbatim rather than describing it. `Write(.devflow/tmp/**)` is granted for
 the **orchestrator** (the `Write(.devflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
 for the dispatcher is `unestablished` for the **dispatchee** — CLAUDE.md's "Unknown is
 not zero". The job is **dedicated** (not a shape row in the `probe` job, whose session
@@ -250,7 +252,9 @@ on-disk side-effect file. It reports the two control facts **independently** —
 read. Every state outside the measurable pair reports `unestablished`, never `DENIED`.
 
 Both signals are attributed **per recorded entry**, never over the concatenation of the
-run's entries: the write is the `Write` tool's own call naming the side-effect path (a
+run's entries: the write is the `Write` tool's own call naming the tier's side-effect
+filename — the payload marker alone is not enough, since a write of that payload to another
+path is not the write the probe asked about (a
 different tool merely *naming* that path is not the write, and a different tool's refusal
 quoting it is not the write's denial), and a parent-less marker call is the orchestrator's
 wherever the execution file records parent chains at all. A multi-entry denial list holding
@@ -265,8 +269,9 @@ workflow and invalidates a recorded head), naming the **ref** (the implementing 
 the job does not exist on the default branch until this merges), the **run id**, the
 **job id**, the **head commit**, and the **resolved `--allowed-tools` literal verbatim**
 alongside `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001`, and
-`--effort low`. A `PERMITTED` cites the `parent_tool_use_id` chain tying the `Write` to
-the job's dispatch; a `DENIED`'s attribution rests on the no-orchestrator-write prompt
+`--effort low`. A `PERMITTED` cites, by their two ids, the
+`tool_use`/`parent_tool_use_id` pair tying the `Write` to the job's dispatch, so a reader
+can re-verify the chain against the execution file; a `DENIED`'s attribution rests on the no-orchestrator-write prompt
 (the `permission_denials` per-entry shape is not yet recorded), and the run's **observed
 denial-entry shape** is recorded alongside — the read that upgrades the denial side from
 by-construction to measured. Commit the job's machine output beside
@@ -399,7 +404,7 @@ direct leading token so the *same* command works on the local and cloud tiers. H
 the probe come back DENIED, the cloud tier would have kept the full-suite default
 and those tiers would have stayed local-only.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — PENDING a maintainer-dispatched run (issue #858)
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — implement tier — PENDING a maintainer-dispatched run (issue #858)
 
 `matcher-probe.yml` also carries a **`subagent-write-implement-probe`** job that measures
 the same dispatched-subagent `Write` fact on the **implement** tier — because a shape
