@@ -30,6 +30,14 @@ drift out of it silently.
 | Read-only and idempotent | the AC 8 rows | idempotency section | a re-run produces identical output and leaves the source file unchanged |
 | `--section` selector | the `--section` rows | section-selector section | `--section` emits only the named section, and a missing section is not an error |
 | `--section` × name guards | traversal rows | section-selector section | the path-traversal refusal still fires when `--section` is present, so the flag is never a bypass |
+| `DEVFLOW_PROMPT_EXTENSION_ROOT` presence states | none — authored for issue #874 | trusted-root-override section | unset and empty-string are both inert and read the repo root; a non-empty value composes `<root>/<skill>.md` directly and the repo-root copy is demonstrably not read |
+| `DEVFLOW_PROMPT_EXTENSION_ROOT` target states | none — authored for issue #874 | trusted-root-override section | whitespace-only, non-existent, regular-file-not-directory, and existing-but-empty roots each yield the empty no-op rather than falling back to the repo root |
+| Override-branch containment | none — authored for issue #874 | trusted-root-override section | the pre-existing `/` and `..` name guards still refuse ahead of every read on the override branch, so the trusted root is no more escapable than the repo root |
+| Branch-scoped breadcrumb | none — authored for issue #874 | trusted-root-override section | the override branch names the resolved directory and the selecting branch on stderr, the repo-root branch writes none, and an empty extension under the breadcrumb still yields empty stdout |
+
+The four rows above were authored for issue #874 rather than extracted, so they cite
+no former `lib/test/run.sh` location. They record the module's coverage, not its size:
+this inventory still states no exact assertion count, for the reason given above.
 
 The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
