@@ -25353,6 +25353,65 @@ if command -v claude >/dev/null 2>&1; then
   assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
     "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
   rm -rf "$PKG_STAGE"
+
+  # (3b) The gate above is only worth arming if strict validation actually DESCENDS into the
+  # component trees rather than stopping at the manifest — that is the claim ci.yml's install
+  # step makes to justify itself, so it is asserted executably here instead of by hand.
+  # A SYNTHETIC minimal tree is used, not the real one: it keeps each mutation hermetic and
+  # one-line, and the real tree is already covered by the assertion above.
+  # Each arm is a negative test, so each carries a POSITIVE CONTROL — the unmutated fixture
+  # must pass first. Without it, a fixture rejected for some unrelated reason (a bad manifest,
+  # a stray file) would read as a passing negative test while proving nothing about descent.
+  PKG_DESC="$(mktemp -d)"
+  devflow_pkg_fixture() {  # rebuild the valid synthetic plugin tree from scratch
+    rm -rf "${PKG_DESC:?}/tree"
+    mkdir -p "$PKG_DESC/tree/.claude-plugin" "$PKG_DESC/tree/skills/probe" "$PKG_DESC/tree/agents"
+    # `author` is required for a --strict pass: its absence is a warning, and --strict
+    # promotes warnings to errors. Omitting it made the positive control fail and every
+    # mutation arm below "pass" for that unrelated reason — the exact masquerade the
+    # positive control exists to expose.
+    printf '%s\n' '{"name":"descent-probe","description":"synthetic fixture","version":"0.0.1","author":{"name":"DevFlow test fixture"}}' \
+      > "$PKG_DESC/tree/.claude-plugin/plugin.json"
+    printf '%s\n' '---' 'name: probe' 'description: synthetic probe skill' '---' 'body' \
+      > "$PKG_DESC/tree/skills/probe/SKILL.md"
+    printf '%s\n' '---' 'name: probe-agent' 'description: synthetic probe agent' '---' 'body' \
+      > "$PKG_DESC/tree/agents/probe-agent.md"
+  }
+  devflow_pkg_validate_rc() { claude plugin validate --strict "$PKG_DESC/tree" >/dev/null 2>&1; echo $?; }
+
+  # Positive control: the unmutated synthetic fixture validates clean. Every arm below
+  # rebuilds from this same fixture, so a non-zero here would invalidate all of them.
+  devflow_pkg_fixture
+  assert_eq "#671 descent positive control: the unmutated synthetic plugin tree validates clean" "0" \
+    "$(devflow_pkg_validate_rc)"
+
+  # Malformed YAML frontmatter in a SKILL → rejected.
+  devflow_pkg_fixture
+  printf '%s\n' '---' 'name: [unclosed' 'description: "x' '---' 'body' > "$PKG_DESC/tree/skills/probe/SKILL.md"
+  assert_eq "#671 descent: malformed YAML frontmatter in a skill is rejected (exit 1)" "1" \
+    "$(devflow_pkg_validate_rc)"
+
+  # No frontmatter block at all in a SKILL → rejected.
+  devflow_pkg_fixture
+  printf '%s\n' 'no frontmatter at all' > "$PKG_DESC/tree/skills/probe/SKILL.md"
+  assert_eq "#671 descent: a skill with no frontmatter block is rejected (exit 1)" "1" \
+    "$(devflow_pkg_validate_rc)"
+
+  # Empty SKILL.md → rejected.
+  devflow_pkg_fixture
+  : > "$PKG_DESC/tree/skills/probe/SKILL.md"
+  assert_eq "#671 descent: an empty SKILL.md is rejected (exit 1)" "1" \
+    "$(devflow_pkg_validate_rc)"
+
+  # Malformed YAML frontmatter in an AGENT → rejected (the agents tree is walked too, not
+  # just skills; this is the arm that would silently lapse if only skills were descended).
+  devflow_pkg_fixture
+  printf '%s\n' '---' 'name: [unclosed' '---' 'body' > "$PKG_DESC/tree/agents/probe-agent.md"
+  assert_eq "#671 descent: malformed YAML frontmatter in an agent is rejected (exit 1)" "1" \
+    "$(devflow_pkg_validate_rc)"
+
+  rm -rf "$PKG_DESC"
+  unset -f devflow_pkg_fixture devflow_pkg_validate_rc
 else
   skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
 fi
@@ -39417,24 +39476,62 @@ assert_eq "#456 the #423 T6b site is a host-capability skip through skip()" "1" 
 assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()" "2" \
   "$(grep -cF "$S456_434_CALL" "$SELF_SRC")"
 #
+# ── ci.yml shard-job settings whose ABSENCE disarms a suite gate rather than failing it ──
+# Both pins below guard that failure class, so both go through one matcher. A plain
+# substring scan of the job region fails OPEN on the most common way a step is disabled:
+# commenting it out leaves the matched literal intact inside the comment body, so the pin
+# still prints `yes` while the step no longer runs — precisely the silent disarm these
+# pins exist to catch. The matcher therefore skips comment lines, and the negative
+# controls below drive that arm rather than trusting it.
+devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
+  awk -v pat="$1" '
+    /^  shard:/{ins=1; next}
+    /^  [a-z]/{ins=0}
+    ins && /^[[:space:]]*#/{next}
+    ins && $0 ~ pat {f=1}
+    END{print (f?"yes":"no")}' "${2:-$LIB/../.github/workflows/ci.yml}"
+}
 # ci.yml: the shard job's checkout sets fetch-depth: 0 so origin/main resolves. The
 # #434 stale-prose self-scan runs in the `monolith` shard (issue #877 split the single
 # test job into a concurrent shard matrix + a `lib + python tests` aggregator); the
 # aggregator only recombines tallies and needs no history, so fetch-depth: 0 moved to
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
-  "$(awk '/^  shard:/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+  "$(devflow_ci_shard_has 'fetch-depth: 0')"
 #
 # ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
-# `claude plugin validate --strict` gate below. This is the same failure class as the
-# fetch-depth: 0 pin above — a ci.yml setting whose absence DISARMS a suite gate
-# instead of failing it. With no CLI on PATH that gate takes its blocking-gate skip
-# branch, and a skip exits 0, so dropping this step would silently retire manifest +
-# frontmatter validation for every shipped skill and agent while CI stayed green.
-# Matched on the installer URL rather than the step name: the URL is what actually
-# puts the binary on PATH, and a renamed step still arms the gate.
+# `claude plugin validate --strict` gate earlier in this file. Same failure class as the
+# fetch-depth: 0 pin above. With no CLI on PATH that gate takes its blocking-gate skip
+# branch, and a skip exits 0, so dropping this step would silently retire the CLI's
+# strict plugin-tree validation while CI stayed green. Scope note: the PyYAML frontmatter
+# and JSON manifest gates sit OUTSIDE that `command -v claude` branch and keep running
+# regardless — only the strict plugin-tree layer is disarmed.
+# Two lines are pinned because they fail independently: the installer fetches the binary,
+# and the GITHUB_PATH append is what actually puts it on PATH for later steps — an
+# install whose PATH export was dropped leaves the gate skipping just as surely. Matching
+# these rather than the step names keeps a renamed step passing.
 assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
-  "$(awk '/^  shard:/{ins=1; next} /^  [a-z]/{ins=0} ins && /claude\.ai\/install\.sh/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+  "$(devflow_ci_shard_has 'claude\.ai/install\.sh')"
+assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "yes" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH')"
+# Negative controls — mutation-checked, not assumed. Each comments out one pinned line in
+# a COPY of ci.yml and asserts the matcher flips to `no`, so a matcher that silently
+# reverted to a comment-blind substring scan turns this block RED. The positive controls
+# are the three assertions above, which run against the real unmutated file.
+CI671_TMP="$(mktemp -d)"
+for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'echo "$HOME/.local/bin"'; do
+  # Comment out the one line, byte-for-byte, leaving every other line untouched.
+  awk -v target="$ci671_pat" '{ if (index($0, target)) print "#" $0; else print }' \
+    "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
+  case "$ci671_pat" in
+    'fetch-depth: 0')  ci671_probe='fetch-depth: 0' ;;
+    *install.sh)       ci671_probe='claude\.ai/install\.sh' ;;
+    *)                 ci671_probe='GITHUB_PATH' ;;
+  esac
+  assert_eq "#671 ci.yml pin is comment-aware: commenting out '$ci671_pat' flips the matcher to no" "no" \
+    "$(devflow_ci_shard_has "$ci671_probe" "$CI671_TMP/ci.yml")"
+done
+rm -rf "$CI671_TMP"
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
