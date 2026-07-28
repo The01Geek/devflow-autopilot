@@ -64,8 +64,10 @@
 #     '.devflow/prompt-extensions/' segment appended. Top precedence, and inert both
 #     when unset and when set to the empty string, per the DEVFLOW_GH / DEVFLOW_JQ /
 #     DEVFLOW_BASH convention. This branch writes a stderr breadcrumb naming the
-#     directory it resolved; the repo-root branch writes none, so a caller that
-#     leaves the variable unset observes byte-identical output.
+#     directory it resolved. The repo-root branch writes no such root-selection
+#     breadcrumb — its only stderr output is the pre-existing could-not-resolve-a-repo-root
+#     diagnostic below, unchanged by this branch's arrival — so a caller that leaves the
+#     variable unset observes byte-identical output.
 #   * otherwise, .devflow/prompt-extensions/ anchored to the git repo root
 #     (git rev-parse --show-toplevel, falling back to pwd when not in a git tree —
 #     mirroring lib/config-source.sh; issue #295). Anchoring to the root means a

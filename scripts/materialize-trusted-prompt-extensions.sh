@@ -31,7 +31,8 @@
 #
 # STDOUT carries the fully-formed workflow-command lines (`::warning::` / `::notice::`)
 # and nothing else, so the caller re-emits nothing and selects nothing — the branch
-# selection this helper exists to own cannot leak back into the YAML. STDERR is unused.
+# selection this helper exists to own cannot leak back into the YAML. STDERR carries
+# only the usage errors below, which exit 2; no runtime arm writes to it.
 #
 # Exit codes:
 #   0  every runtime condition — the four per-name arms of the branch table below and
