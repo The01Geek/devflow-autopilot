@@ -1910,16 +1910,17 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
 
     def test_an_absent_or_empty_mode_runs_the_full_population(self):
         # The default direction is the safe one: a caller that names no mode, or names an
-        # empty one (an unset variable expanded into the argument list), gets EVERY test
-        # and no bound clause. This is the property that keeps every pre-#890 call site
-        # unchanged and keeps an unset environment variable from shrinking coverage.
+        # empty one (an unset variable forwarded into the argument list — the shape the
+        # shipped call site uses), gets EVERY test and no bound clause. A two-per-class
+        # population is enough to separate `full` from `smoke` here; the full-population
+        # count at several widths is already covered by the green-file test above.
         with tempfile.TemporaryDirectory() as tmp:
-            suite = self._write_suite(tmp, alpha=5, beta=4)
+            suite = self._write_suite(tmp, alpha=2, beta=2)
             for mode in (None, "", "full"):
                 with self.subTest(mode=mode):
                     verdict, output = self._drive(suite, mode=mode)
                     self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
-                    self.assertIn("executed 9 test(s)", output)
+                    self.assertIn("executed 4 test(s)", output)
                     self.assertNotIn("BOUNDED", output)
 
     def test_an_unrecognized_mode_fails_closed_without_running_anything(self):
@@ -1936,7 +1937,8 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
                     verdict, output = self._drive(suite, mode=mode)
                     self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
                     self.assertIn(
-                        f"unrecognized population mode {mode} (expected full or smoke)",
+                        "devflow shard driver: unrecognized population mode "
+                        f"{mode} (expected full or smoke)",
                         output,
                     )
                     self.assertNotIn("executed ", output)

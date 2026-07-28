@@ -371,20 +371,17 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # directory feeds a prior call's results into this call's count and defeats the
 # executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
 #
-# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). `full` (the default when
-# the argument is absent or empty) enumerates and runs every test in the file. `smoke`
-# enumerates only the FIRST test of each test class, which is what lets one caller drive
-# the file end-to-end without paying its whole population: the driver's enumerate →
-# dispatch → collect → fold path is exercised in full, and every class is still loaded and
-# entered, but the per-test fixture cost is paid once per class instead of once per test.
-#
-# The mode is a POSITIONAL argument rather than an ambient environment read, deliberately:
-# it decides how much of a file executes, so it must be visible at the call site that
-# chose it rather than inheritable by any process that happens to run underneath one. Two
-# further properties keep the reduction from ever happening by accident — an absent or
-# empty mode means `full` (a caller that says nothing gets everything), and any value that
-# is neither `full` nor `smoke` fails CLOSED: the call enumerates nothing, runs nothing,
-# and records a FAIL naming the bad value, so a typo can never read as a bounded pass.
+# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). This is the single home of
+# the mode's meaning; the two runners that select one (`run-module.sh --heavy-units` and
+# devflow_run_full_suite_module) carry a pointer here, not a second copy.
+#   full  — the default, applied when the argument is absent OR empty, so a caller that
+#           says nothing (or forwards an unset variable) always gets every test.
+#   smoke — enumerate only the FIRST test of each test CLASS. The enumerate → dispatch →
+#           collect → fold path is exercised in full and every class is still loaded and
+#           entered; only the per-test fixture cost drops to once per class. It exists for
+#           a caller that drives a file purely to prove the driver drives it.
+#   anything else — fails CLOSED: nothing is enumerated, nothing runs, and the call records
+#           a FAIL naming the bad value, so a typo can never read as a bounded pass.
 devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [full|smoke]
   local assertion_name="$1" script_path="$2" capture_dir="$3"
   local mode="${4:-full}"
@@ -393,15 +390,14 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [fu
   local plan_out plan_err index unit_rc unit_ran num cap bound_note=""
   local -a ids=() pids=()
 
-  [ -n "$mode" ] || mode=full
   case "$mode" in
     full) ;;
     smoke) bound_note=", BOUNDED smoke subset — the full population did NOT run" ;;
     *)
-      # Fail closed BEFORE any enumeration or dispatch: an unrecognized mode is a caller
-      # defect, and the one thing it must never do is silently select a smaller population.
-      printf '  %s: refused — unrecognized population mode %s (expected full or smoke)\n' \
-        "${script_path##*/}" "$mode"
+      # Refuse before enumeration or dispatch, using the same `devflow shard driver:`
+      # report shape every other failure arm in this function uses.
+      printf '    devflow shard driver: unrecognized population mode %s (expected full or smoke)\n' \
+        "$mode"
       assert_eq "$assertion_name" "" \
         "unrecognized population mode '$mode' (expected full or smoke)"
       return
@@ -469,35 +465,27 @@ def flatten(item):
         yield item
 
 
-mode = sys.argv[2] if len(sys.argv) > 2 else "full"
+# Validated by the caller's own `case`, so an unexpected value cannot reach here.
+smoke = sys.argv[2] == "smoke"
 
 selectors = []
+seen_classes = set()
 prefix = spec.name + "."
 for test in flatten(suite):
     if type(test).__name__ == "_FailedTest":
         print("unloadable test entry: %s" % test.id(), file=sys.stderr)
         raise SystemExit(1)
+    # Grouping on the live class object rather than on a substring of the identifier: it
+    # is exact by construction, so a nested or same-named class cannot collapse into a
+    # sibling's group. Enumeration order is preserved, so the bound is deterministic.
+    if smoke:
+        if type(test) in seen_classes:
+            continue
+        seen_classes.add(type(test))
     identifier = test.id()
     if identifier.startswith(prefix):
         identifier = identifier[len(prefix):]
     selectors.append(identifier)
-
-if mode == "smoke":
-    # One selector per test class, keeping enumeration order so the bound is
-    # deterministic on every host. Every class is still loaded, entered, and run through
-    # the same dispatch path; only the per-class repetition is dropped. The class key is
-    # the selector minus its final method segment, which also keeps a nested identifier
-    # (a class defined inside another scope) grouped by its own class rather than
-    # collapsed with a sibling's.
-    seen_classes = set()
-    bounded = []
-    for identifier in selectors:
-        key = identifier.rsplit(".", 1)[0]
-        if key in seen_classes:
-            continue
-        seen_classes.add(key)
-        bounded.append(identifier)
-    selectors = bounded
 
 if not selectors:
     print("no tests were enumerated in %s" % path, file=sys.stderr)
@@ -1316,6 +1304,12 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       # Consumed by module_host_capability_skip in the sourced module.
       # shellcheck disable=SC2034,SC2030
       MODULE_SKIP_CREDIT_FILE="$module_skip_credit_file"
+      # Heavy-unit population (issue #890). The full suite always runs the full one, and
+      # this is an unconditional assignment rather than an environment-derived default so
+      # an inherited MODULE_HEAVY_UNIT_MODE cannot shrink what the suite executes. The
+      # focused runner's --heavy-units flag is the only thing that ever selects `smoke`.
+      # shellcheck disable=SC2034,SC2030
+      MODULE_HEAVY_UNIT_MODE=full
       unset MODULE_FAILURES_FILE
       # shellcheck source=/dev/null disable=SC1090
       . "$module_path"

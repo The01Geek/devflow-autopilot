@@ -91,6 +91,13 @@ class ModuleRunnerTests(unittest.TestCase):
             'printf "INVALID\\n" >> "$RESULTS_FILE"\n'
             'assert_eq "valid assertion after invalid record" "expected" "expected"\n',
         )
+        # Issue #890: reports the heavy-unit population the runner handed the module body,
+        # so --heavy-units can be driven without running a real (expensive) module.
+        self._write_module(
+            "heavy-units.sh",
+            'printf "HEAVY-UNITS=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\n'
+            'assert_eq "heavy-units assertion" "expected" "expected"\n',
+        )
         self._write_module(
             "blocking.sh",
             'printf "ready\\n" > "$READY_MARKER"\n'
@@ -107,6 +114,7 @@ class ModuleRunnerTests(unittest.TestCase):
                 "empty": {"path": "lib/test/modules/empty.sh"},
                 "crash": {"path": "lib/test/modules/crash.sh"},
                 "invalid-tally": {"path": "lib/test/modules/invalid-tally.sh"},
+                "heavy-units": {"path": "lib/test/modules/heavy-units.sh"},
                 "blocking": {"path": "lib/test/modules/blocking.sh"},
                 "workflow-flight-recorder": {
                     "path": "lib/test/modules/workflow-flight-recorder.sh"
@@ -179,6 +187,42 @@ class ModuleRunnerTests(unittest.TestCase):
             if line.startswith("Log: "):
                 return Path(line.removeprefix("Log: "))
         self.fail(f"runner output did not name its log:\n{result.stdout}")
+
+    def test_heavy_units_defaults_to_full_and_ignores_an_inherited_value(self) -> None:
+        """Issue #890. The bounded heavy-unit population is a real coverage reduction, so
+        the thing that must be impossible is ACQUIRING it — a stale export in a CI
+        environment silently shrinking what a module shard runs while the shard still goes
+        green. The runner therefore assigns the mode unconditionally instead of defaulting
+        off the environment, and both halves are asserted here: the default is `full`, and
+        a hostile inherited value does not survive into the module body."""
+        for extra_env in (None, {"MODULE_HEAVY_UNIT_MODE": "smoke"}):
+            with self.subTest(inherited=extra_env):
+                result = self._run("heavy-units", extra_env=extra_env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("HEAVY-UNITS=full", result.stdout)
+
+    def test_heavy_units_flag_selects_the_bounded_population(self) -> None:
+        """The one channel that CAN select the bounded population is the explicit flag,
+        which is what makes the choice visible at the call site that made it."""
+        result = self._run_args("--heavy-units", "smoke", "heavy-units")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("HEAVY-UNITS=smoke", result.stdout)
+
+    def test_heavy_units_rejects_an_unrecognized_or_missing_value(self) -> None:
+        """A misspelled mode must not fall through to either population: to `full` it
+        would hide the defect behind a green run, and to `smoke` it would drop coverage.
+        The runner refuses at selection time, before any module is sourced."""
+        for args in (
+            ("--heavy-units", "smoak", "heavy-units"),
+            ("--heavy-units", "Smoke", "heavy-units"),
+            ("--heavy-units",),
+        ):
+            with self.subTest(args=args):
+                result = self._run_args(*args)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("selector error", result.stderr)
+                self.assertNotIn("HEAVY-UNITS=", result.stdout)
 
     def test_exact_selection_runs_one_module_and_persists_its_log(self) -> None:
         result = self._run("sample")
@@ -1402,9 +1446,8 @@ class ModuleRunnerTests(unittest.TestCase):
         `monolith` CI shard — while the module it drives is also run, in full, by the
         `modules-pin` shard. That made the module's heaviest unit (the sharded
         test_pin_corpus_lint.py block) execute twice per CI run, and the second execution
-        was the critical path of the required check. The run below therefore sets
-        DEVFLOW_MODULE_HEAVY_UNIT_MODE=smoke, which bounds that one unit to a single test
-        per class inside the module.
+        was the critical path of the required check. The run below therefore passes
+        `--heavy-units smoke`, which bounds that one unit to a single test per class.
 
         What the test proves is unchanged, and that is the point: it still invokes
         lib/test/run-module.sh against the real module id, still requires exit 0, and
@@ -1412,11 +1455,11 @@ class ModuleRunnerTests(unittest.TestCase):
         three things CONTRIBUTING.md step 8 asks for, none of which is weakened by the
         bounded unit, because the bound changes how many Python tests one assertion covers
         and not how many assertions the module emits. The full population still runs
-        exactly once per CI run, in `modules-pin`, which passes no mode and therefore gets
-        the `full` default.
+        exactly once per CI run, in `modules-pin`, which passes no flag and therefore gets
+        the runner's `full` default.
 
-        The bound is ASSERTED, not assumed: without the third assertion below, a future
-        change that dropped the mode plumbing would silently restore the duplicate
+        The bound is ASSERTED, not assumed: without the last assertion below, a future
+        change that dropped the flag plumbing would silently restore the duplicate
         execution while this test stayed green, which is exactly the failure this issue
         exists to remove."""
         registry = json.loads(
@@ -1429,7 +1472,6 @@ class ModuleRunnerTests(unittest.TestCase):
         ]
         environment = os.environ.copy()
         environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
-        environment["DEVFLOW_MODULE_HEAVY_UNIT_MODE"] = "smoke"
         with tempfile.TemporaryDirectory() as log_dir:
             result = subprocess.run(
                 [
@@ -1437,6 +1479,8 @@ class ModuleRunnerTests(unittest.TestCase):
                     str(RUNNER_SOURCE),
                     "--log-dir",
                     log_dir,
+                    "--heavy-units",
+                    "smoke",
                     "harness-python-guards",
                 ],
                 cwd=ROOT,
@@ -1463,15 +1507,11 @@ class ModuleRunnerTests(unittest.TestCase):
             # The bounded unit actually took the bounded path. The driver states the bound
             # in the same statement as its tally, so this reads the run's own report
             # rather than re-deriving the population: a run that silently fell back to the
-            # full population would print the tally without this clause and fail here.
-            self.assertIn(
-                "test_pin_corpus_lint.py:",
+            # full population would print that tally without this clause and fail here.
+            self.assertRegex(
                 result.stdout,
-                result.stdout[-4000:] + result.stderr[-4000:],
-            )
-            self.assertIn(
-                "BOUNDED smoke subset — the full population did NOT run",
-                result.stdout,
+                r"test_pin_corpus_lint\.py: .*BOUNDED smoke subset "
+                r"— the full population did NOT run",
                 result.stdout[-4000:] + result.stderr[-4000:],
             )
             self.assertTrue(list(Path(log_dir).iterdir()))

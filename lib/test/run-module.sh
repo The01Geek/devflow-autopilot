@@ -12,6 +12,10 @@ REPO_ROOT="$(cd "$TEST_DIR/../.." && pwd -P)"
 REGISTRY="$REPO_ROOT/scripts/workflow-flight-recorder-registry.json"
 LOG_DIR="$REPO_ROOT/.devflow/tmp/test-module-logs"
 MODULE_ID=""
+# Assigned unconditionally (issue #890), never defaulted with `:-` off the environment:
+# this is what makes an inherited MODULE_HEAVY_UNIT_MODE structurally unable to shrink
+# what a run executes. Only --heavy-units below changes it.
+MODULE_HEAVY_UNIT_MODE=full
 
 # Fail closed on BOTH the source and its outcome: a failed top-level `.` does
 # not stop bash (no set -e here), and the floor is only an incidental backstop —
@@ -29,7 +33,7 @@ type devflow_run_focused_python_test >/dev/null 2>&1 || {
 }
 
 usage() {
-  printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] MODULE\n' >&2
+  printf 'Usage: bash lib/test/run-module.sh [--registry PATH] [--log-dir PATH] [--heavy-units full|smoke] MODULE\n' >&2
 }
 
 selector_error() {
@@ -47,6 +51,23 @@ while [ "$#" -gt 0 ]; do
     --log-dir)
       [ "$#" -ge 2 ] || { usage; selector_error "--log-dir requires a path"; }
       LOG_DIR="$2"
+      shift 2
+      ;;
+    --heavy-units)
+      # How much of a module's heaviest unit to run (issue #890). `full` is the default
+      # and the only value any shipped runner passes; `smoke` exists for the pooled
+      # real-runner meta-test, which drives a module end-to-end purely to prove the runner
+      # drives it, and must not pay that module's whole population a second time in the
+      # same CI run. A decision this consequential is a FLAG rather than an inherited
+      # environment read, so it is visible at the call site that chose it and cannot be
+      # acquired by any process that happens to run underneath one.
+      [ "$#" -ge 2 ] || { usage; selector_error "--heavy-units requires full or smoke"; }
+      # Consumed by the dynamically selected module sourced in the worker.
+      # shellcheck disable=SC2034
+      case "$2" in
+        full|smoke) MODULE_HEAVY_UNIT_MODE="$2" ;;
+        *) usage; selector_error "--heavy-units takes full or smoke, not '$2'" ;;
+      esac
       shift 2
       ;;
     --help|-h)

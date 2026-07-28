@@ -89,16 +89,6 @@ LOG_FILE="$TALLY_DIR/log.txt"
 shard_rc=0
 : > "$LOG_FILE"
 
-# Every shard runs its modules at their FULL population (issue #890). The bounded
-# `smoke` population exists for exactly one caller — the pooled real-runner meta-test in
-# lib/test/test_module_runner.py, which sets it in its own subprocess environment so the
-# monolith shard stops re-running the pin-corpus block a second time. Setting `full`
-# explicitly here (rather than relying on the driver's default) means an ambient
-# DEVFLOW_MODULE_HEAVY_UNIT_MODE in a CI environment can never shrink what a shard
-# executes: the shard's coverage is decided by this line, not by what it inherited.
-DEVFLOW_MODULE_HEAVY_UNIT_MODE=full
-export DEVFLOW_MODULE_HEAVY_UNIT_MODE
-
 MODS="$(_shard_modules "$SHARD")"
 if [ -z "$MODS" ]; then
   # Monolith shard: the whole suite minus the module tier (dedup) so it never
