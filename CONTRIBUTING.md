@@ -177,29 +177,45 @@ executable behavioral test over a static presence pin. Reviving a retired wordin
 literal requires both deliberate revival authorization and a genuine declared
 structural boundary; a new boundary row alone does not make the revival valid.
 
-**Retiring existence-only pins (issues #798, restated by #876).** Look the pin up in
-the frozen census `.devflow/logs/pin-corpus-inventory.tsv` and read its adjudicated
-`bucket_final`. What decides the disposition is **whether the pin was buying a
-divergence check** — that is, whether some tool or consumer relies on two or more
-homes carrying identical content:
+**Retiring existence-only pins (issues #798, restated by #876).** What decides the
+disposition is **whether the pin was buying a divergence check** — whether anything
+depends on two or more homes agreeing. Establish that from the pin's **counted
+homes**, which is a mechanically derivable fact, not a recorded judgment:
 
-- **It was.** Remove the pin only in the same change that removes at least one of
-  those copies; a pin-only removal is not an accepted disposition, because it leaves
-  the duplicated content without its divergence check.
-- **It was not** — the pin's target is agent-executed prose no tool reads, the class
-  `CLAUDE.md`'s *Recorded decision (issue #843)* bullet governs. Then **a pin-only
-  removal IS the accepted disposition**: retirement owes no copy deletion, because
-  the pin never protected a copy. The compensating control is the review pass that
-  reads the prose.
+- **Two or more counted homes.** Remove the pin only in the same change that removes
+  at least one of those copies; a pin-only removal is not an accepted disposition,
+  because it leaves the duplicated content without its divergence check. This is the
+  unchanged #798 rule.
+- **Fewer than two counted homes, AND the pin's target is agent-executed prose no
+  tool reads** — the class `CLAUDE.md`'s *Recorded decision (issue #843)* bullet
+  governs. Then **a pin-only removal IS the accepted disposition**: retirement owes
+  no copy deletion, because there was no second copy to protect. The compensating
+  control is the review pass that reads the prose.
+- **Fewer than two counted homes, but a tool or consumer reads the target** — a
+  marker a tool parses, a routing-table row a module reconciles, a
+  generated-artifact identity, a typed executable boundary. Retain the pin under the
+  `# structural-pin-ok:` rule above. The `#291` boundaries are the worked case:
+  review-and-fix Step 2.6 consumes the cap's *consequence*, so those pins are
+  retained even though the cap's applicability limbs are read by nobody but the
+  agent.
 
-The census's adjudication is where that question is *recorded*, not a second test:
-a prose `bucket_final` answers "no", every other bucket answers "yes". Two
-consequences worth stating because they are easy to misread, both instances of the
-same predicate rather than extra rules — a pin over a prompt surface that protects a
-**machine-consumed contract** answers "yes" (a tool reads it) and is retained under
-the `# structural-pin-ok:` rule above; and the `#291` boundaries answer "yes"
-(review-and-fix Step 2.6 consumes the cap's consequence) even though the cap's
-applicability limbs answer "no".
+**Read the census as the record, and fail closed when it has no row.**
+`.devflow/logs/pin-corpus-inventory.tsv` records each site's `counted_occurrences`,
+its `homes`, and its adjudicated `bucket_final` — read it there. It is a **frozen
+snapshot**, not a live index: a pin added since its `# revision:` line has **no
+row**, which is the normal state between refreshes. An absent row means the census
+cannot answer, **never** that the answer is "no" — establish the counted homes
+directly and treat two-or-more as the first arm. Adjudications are *read* from the
+inventory but *changed* in `lib/test/pin-corpus-adjudications.tsv` (the delta-gated
+table), then regenerated; never hand-edit the generated inventory.
+
+**Current state of the recorded adjudications — the prose arm is authorized but not
+yet reachable.** Every site in the shipped census is currently adjudicated
+`bucket_final: boundary`, and `lib/test/test_residual_prose_retirement_manifest.py`
+asserts exactly that. So no pin's *recorded* disposition selects the prose arm
+today: this rule authorizes the disposition, and the re-adjudication pass that makes
+it selectable is separate, still-open work. Do not read the arm's presence here as
+evidence that any particular pin has been adjudicated retirable.
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;
