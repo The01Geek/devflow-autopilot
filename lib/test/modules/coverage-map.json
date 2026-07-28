@@ -148,6 +148,10 @@
       "note": "issue #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict core; driven in lib/test/modules/review-stall-backstop.sh (bgv arms + fail-open matrix)",
       "owner": "review-stall-backstop"
     },
+    "scripts/env-propagation-probe-verdict.py": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/branch-for-issue.py": {
       "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
