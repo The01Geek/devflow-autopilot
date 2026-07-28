@@ -24066,8 +24066,16 @@ assert_eq "#874 workflow: the materialization ladder carries the vendor_source==
   "$(grep -cF 'VENDOR_SOURCE:-}" = "fetch" ] \' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
 assert_eq "#874 workflow: the fetch rank points at the runtime-vendored materialization helper" "1" \
   "$(grep -c 'devflow/scripts/materialize-trusted-prompt-extensions.sh" \]' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
-assert_eq "#874 workflow: baseprovision receives vendor_source so the third rank has an operand" "1" \
-  "$(grep -c 'VENDOR_SOURCE: \${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" | awk '{print ($1>=3)?1:0}')"
+# Assert the binding on the baseprovision step ITSELF, from the parsed YAML. A repo-wide
+# occurrence count says nothing about WHICH step carries it: delete baseprovision's
+# binding while any other site gains one and a count-based check stays green while the
+# vendored-fetch rank silently loses its operand.
+assert_eq "#874 workflow: baseprovision receives vendor_source so the third rank has an operand" "yes" \
+  "$(python3 -c 'import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
+m = [s for s in steps if s.get("id") == "baseprovision"]
+v = str(m[0].get("env", {}).get("VENDOR_SOURCE", "")) if len(m) == 1 else ""
+print("yes" if "steps.vendor.outputs.vendor_source" in v else "no")' "$RUNNER" 2>/dev/null || echo UNREAD)"
 # The helper's non-zero (usage-defect) exit is annotated rather than swallowed.
 assert_eq "#874 workflow: a non-zero helper exit is annotated, not swallowed by || true" "1" \
   "$(grep -c 'materialization helper (source=' "$RUNNER" || true)"
@@ -24217,6 +24225,24 @@ assert_eq "#874 env-probe verdict: a missing positive control → INCONCLUSIVE, 
 EPV_SILENT="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT")"
 assert_eq "#874 env-probe verdict: a silent hop → INCONCLUSIVE, never a negative" "INCONCLUSIVE" \
   "$(devflow_epv_verdict "$EPV_SILENT")"
+# ── The COMMANDED-vs-OBSERVED arm. The probe's own instructions put each marker into a
+# tool_use input in UNEXPANDED form — hop one's `printf 'ENVPROBE_HOP1 %s\n' "$VAR"` and
+# the hop-two dispatch prompt — so a bare-substring reading of the marker reports BOTH
+# hops from the commands that merely ASK for the measurement. A run whose echo-back
+# never happened would then satisfy "both hops reported" with neither observed and fall
+# through to NEITHER_HOP, recording "not visible at either depth" for a run that
+# measured nothing. This arm feeds exactly the unexpanded shapes and requires the
+# unestablished verdict; it is the regression that a bare-substring reading would fail.
+EPV_RAW1='printf '"'"'ENVPROBE_HOP1 %s\n'"'"' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"'
+EPV_RAW2='printf '"'"'ENVPROBE_HOP2 %s\n'"'"' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"'
+EPV_CMDONLY="$(devflow_epv "$EPV_CB" "$EPV_CA" "$EPV_RAW1" "$EPV_RAW2")"
+assert_eq "#874 env-probe verdict: unexpanded instruction text alone → INCONCLUSIVE, never NEITHER_HOP" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$EPV_CMDONLY")"
+# ...and the same run WITH the echo-backs present is a real measurement again, so the
+# guard above cannot be satisfied by simply never reporting anything.
+EPV_ECHOED="$(devflow_epv "$EPV_CB" "$EPV_CA" "$EPV_RAW1" "ENVPROBE_HOP1 $EPV_SENT" "$EPV_RAW2" "ENVPROBE_HOP2 $EPV_SENT")"
+assert_eq "#874 env-probe verdict: the echo-backs alongside the instruction text still measure BOTH_HOPS" "BOTH_HOPS" \
+  "$(devflow_epv_verdict "$EPV_ECHOED")"
 # Co-occurrence: the sentinel must appear in the SAME recorded entry as the hop marker,
 # so it cannot leak in from the other hop's entry and credit a hop that never saw it.
 EPV_LEAK="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT" "ENVPROBE_HOP2 UNSET" "a stray mention of $EPV_SENT")"

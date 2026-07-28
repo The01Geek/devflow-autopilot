@@ -45,6 +45,7 @@ degraded run this probe exists to characterize.
 
 import json
 import os
+import re
 import sys
 
 # The sentinel the workflow puts in the step-level env:. Deliberately not a plausible
@@ -56,6 +57,29 @@ HOP2 = "ENVPROBE_HOP2"
 # them a run that never got started reads identically to one where nothing propagated.
 CONTROL_BEFORE = "ENVPROBE_CONTROL_BEFORE"
 CONTROL_AFTER = "ENVPROBE_CONTROL_AFTER"
+
+# A hop is REPORTED only when a recorded entry carries its marker followed by an
+# OBSERVED value — the sentinel, or the literal UNSET the probe's `:-UNSET` default
+# produces. Bare-marker presence is NOT enough, and that distinction is the whole
+# guard: the probe's own instructions put each marker into a tool_use input in
+# UNEXPANDED form (`printf 'ENVPROBE_HOP1 %s\n' "$VAR"` for hop one, and the hop-two
+# dispatch prompt for hop two), so a bare-substring test reports BOTH hops from the
+# commands that merely ASK for the measurement. A run whose echo-back never happened
+# would then satisfy `hop1_reported and hop2_reported` while neither hop was observed,
+# and fall through to NEITHER_HOP — recording "a step-level env: entry is not visible
+# at either depth" as a measurement of a run that measured nothing. That is the
+# unknown-is-not-zero collapse the arm ordering below exists to prevent, so the
+# operand it reads must mean "observed", not "commanded".
+_OBSERVED = {SENTINEL, "UNSET"}
+
+
+def _hop_values(tool_uses, marker):
+    """Return the set of OBSERVED values recorded for a hop marker.
+
+    Matches `<marker> <token>` and keeps only tokens the probe can actually observe.
+    A `%s` template (the unexpanded printf the instructions carry) yields nothing."""
+    pat = re.compile(re.escape(marker) + r"\s+([^\s\"'\\]+)")
+    return {v for t in tool_uses for v in pat.findall(t)} & _OBSERVED
 
 
 def parse_execution_file(exec_file):
@@ -120,13 +144,17 @@ def collect(parsed):
 def compute_verdict(tool_uses, note_top):
     """Return (verdict, reason, record_it).
 
-    A hop counts as PROPAGATED only when its marker and the sentinel co-occur in the
-    SAME recorded tool_use entry. Requiring co-occurrence is what stops the sentinel
-    leaking in from the OTHER hop's entry and crediting a hop that never saw it."""
-    hop1 = any(HOP1 in t and SENTINEL in t for t in tool_uses)
-    hop2 = any(HOP2 in t and SENTINEL in t for t in tool_uses)
-    hop1_reported = any(HOP1 in t for t in tool_uses)
-    hop2_reported = any(HOP2 in t for t in tool_uses)
+    A hop counts as PROPAGATED only when its marker is recorded alongside the sentinel
+    as an OBSERVED value in the same entry. Requiring co-occurrence is what stops the
+    sentinel leaking in from the OTHER hop's entry and crediting a hop that never saw
+    it; requiring an OBSERVED value (see `_hop_values`) is what stops the probe's own
+    unexpanded instruction text from being counted as a report."""
+    hop1_values = _hop_values(tool_uses, HOP1)
+    hop2_values = _hop_values(tool_uses, HOP2)
+    hop1 = SENTINEL in hop1_values
+    hop2 = SENTINEL in hop2_values
+    hop1_reported = bool(hop1_values)
+    hop2_reported = bool(hop2_values)
     before = any(CONTROL_BEFORE in t for t in tool_uses)
     after = any(CONTROL_AFTER in t for t in tool_uses)
 

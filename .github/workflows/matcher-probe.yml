@@ -1372,29 +1372,41 @@ jobs:
             Action 1 (positive control, BEFORE) — run this Bash command once:
             printf '%s\n' 'ENVPROBE_CONTROL_BEFORE'
 
-            Action 2 (hop one — your own shell) — run this Bash command once, exactly
-            as written, so the shell itself expands the variable and you never
-            transcribe a value by hand:
+            Action 2 (hop one, read) — run this Bash command once, exactly as written,
+            so the shell itself expands the variable and you never transcribe a value
+            by hand:
             printf 'ENVPROBE_HOP1 %s\n' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"
 
-            Action 3 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            Action 3 (hop one, echo back) — take the single line Action 2 printed and
+            echo it back through a Bash command of your own, once. This step is what
+            RECORDS the value: Action 2's own command text carries the variable
+            unexpanded, so without this echo-back the value you read is never captured
+            and hop one cannot be measured at all.
+            printf '%s\n' 'PASTE_THE_ACTION_2_OUTPUT_LINE_HERE'
+            If Action 2 produced nothing usable, run this instead:
+            printf '%s\n' 'ENVPROBE_HOP1 NO_RESULT'
+
+            Action 4 — dispatch exactly ONE subagent via the Task/Agent tool, with
             subagent_type `general-purpose` and this exact prompt:
-            "Run this Bash command once and make its output your ENTIRE final response,
+            Run this Bash command once and make its output your ENTIRE final response,
             one line and nothing else:
-            printf 'ENVPROBE_HOP2 %s\n' \"${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}\""
+            printf 'ENVPROBE_HOP2 %s\n' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"
             Dispatch it once. Do not retry it and do not dispatch a second one.
 
-            Action 4 (hop two) — take the single line the subagent returned and echo it
-            back through a Bash command of your own, once:
-            printf '%s\n' '<paste the subagent's returned line here verbatim>'
+            Action 5 (hop two, echo back) — take the single line the subagent returned
+            and echo it back through a Bash command of your own, once:
+            printf '%s\n' 'PASTE_THE_SUBAGENT_RETURNED_LINE_HERE'
             If the subagent returned nothing usable, run this instead:
             printf '%s\n' 'ENVPROBE_HOP2 NO_RESULT'
 
-            Action 5 (positive control, AFTER — proves you reached and passed Actions 2
-            through 4) — run this Bash command once:
+            In Actions 3 and 5, replace the placeholder token with the observed line
+            itself — keep the surrounding single quotes and do not add any of your own.
+
+            Action 6 (positive control, AFTER — proves you reached and passed Actions 2
+            through 5) — run this Bash command once:
             printf '%s\n' 'ENVPROBE_CONTROL_AFTER'
 
-            After all five, STOP and reply with the single word DONE.
+            After all six, STOP and reply with the single word DONE.
 
           # No plugin_marketplaces/plugins: this probe exercises only Bash printf and the
           # harness's own dispatch tool. Task and Agent are both granted so the allowlist

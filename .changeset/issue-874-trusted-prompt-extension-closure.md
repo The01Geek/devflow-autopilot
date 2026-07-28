@@ -5,7 +5,7 @@ bump: patch
 ### Security
 
 - The cloud review tier now reads its own appended prompt extensions from the **trusted base ref** instead of the pull request's checkout. `.github/workflows/devflow-runner.yml` unconditionally creates a `$RUNNER_TEMP` closure, creates `.devflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`), and exports `DEVFLOW_PROMPT_EXTENSION_ROOT`; it then populates that closure from the base ref inside the existing fetch-success branch alone, through the new suite-driven helper `scripts/materialize-trusted-prompt-extensions.sh`. Because the suppression is unconditional and the population is not, each arm on which population does not happen degrades to an empty closure rather than to the PR-head path. Residuals — the PR-selectable marketplace manifest, the PR-head composite actions under `.github/actions/`, and the diff channel — are recorded rather than claimed closed.
-- `devflow_version` is likewise resolved from the trusted base ref by a new step declared above `vendor`, so a pull request no longer selects which plugin commit — and therefore which loader — reviews it. This moves the key into the documented trigger-time-resolved class: a PR that bumps it does not affect its own review.
+- `devflow_version` is likewise resolved from the trusted base ref by a new step declared above `vendor`, so a pull request no longer selects which plugin commit — and therefore which loader — reviews it. On the review tier the key is now in-PR-inert via the base-ref trust boundary (the same channel `devflow_runner.allowed_tools` uses, distinct from the trigger-time-resolved default-branch channel): a PR that bumps it does not affect its own review.
 
 ### Added
 
