@@ -1,0 +1,127 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T19:00:41Z",
+  "loop_role": "fix",
+  "current_step": "loop-control",
+  "current_substep": "phase3_dispatch",
+  "pending_dispatch": {
+    "kind": "phase3_reviewer_fanout",
+    "roster": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:type-design-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "dispatched_at": "2026-07-28T19:05:00Z"
+  },
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "checklist": [],
+  "dispatched_effort": [
+    {
+      "agent": "devflow:code-reviewer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:type-design-analyzer",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "phase": "3",
+      "requested": "low",
+      "resolved": "low",
+      "application_point": "session-fallback",
+      "effective": null,
+      "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:type-design-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "acceptance_criteria_source": "pr-identity-mismatch",
+  "verification_evidence": {
+    "full_suite": "13340 passed, 0 failed, 0 skipped",
+    "capture": "/private/tmp/claude-501/-Users-the01geek-repos-devflow-autopilot/d465035b-7889-436e-a963-e1adfb5d05e4/scratchpad/suite.log",
+    "ruff": "All checks passed",
+    "shellcheck": "clean (tracked *.sh outside lib/test, plus run.sh with --extended-analysis=false)",
+    "batched_regeneration": "run",
+    "skipped_checks": []
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
