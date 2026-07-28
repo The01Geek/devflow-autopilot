@@ -9,18 +9,28 @@ shares filesystem or process-global state with another. There is no ``os.chdir``
 module-level mutable state, and every test that touches the filesystem allocates its own
 ``tempfile.TemporaryDirectory()`` and passes an explicit ``cwd=`` to its subprocesses. A
 test added here that takes a process-global lock on the working directory, or shares
-mutable state across tests, breaks that property and makes the sharded run
+mutable *state* across tests, breaks that property and makes the sharded run
 order-dependent. Keep new tests self-contained.
 
-Note that the linter and census modules these tests drive do carry process-global
-``functools.lru_cache`` stores. Those are shared by any tests that land in the same
-process, but every one of them is keyed on the source name and text alone — no
-``repo_root``, no filesystem state — so a hit returns a value derived from exactly
-the bytes the caller presented and the outcome stays order-independent.
-``MemoizedParseContractTests`` and
+The linter and census modules these tests drive do carry process-global
+``functools.lru_cache`` stores, so tests landing in the same process share them.
+That is compatible with the requirement above for two separate reasons, not one.
+The per-source parse memos are keyed on the source name and text alone — no
+``repo_root``, no filesystem state — so a hit returns a value derived from
+exactly the bytes the caller presented. ``_load_mutation_census_module`` is
+different: it takes no arguments at all and hands every caller one module
+object; it is safe because that module holds nothing mutable beyond those same
+key-pure memos, not because of its key.
+
+The executable form of the first claim is the three
+``StaticPinWorktreeCompositionTests.test_leaked_*_would_misclassify_a_sibling*``
+probes, which present two differing repositories to one process and are verified
+to go RED under a simulated mis-keying of each memo they name.
+``MemoizedParseContractTests`` pins the separate contracts that make a memo hit
+safe to hand out, and
 ``StaticPinWorktreeCompositionTests.test_repository_mutations_do_not_leak_between_fixtures``
-are the executable form of that claim; a memo that started capturing repository
-state would turn them RED.
+pins filesystem isolation only — it runs no scan, so no memo is populated during
+it, and neither of those two would notice a memo that captured repository state.
 """
 
 from __future__ import annotations
@@ -200,6 +210,29 @@ class MemoizedParseContractTests(unittest.TestCase):
             path_vars["devflow_leaked_var"] = "/tmp/leak"
         with self.assertRaises(TypeError):
             literal_vars["devflow_leaked_var"] = "leak"
+
+    def test_census_reuses_every_audited_source_within_one_build(self):
+        # The memos are a cost mechanism, so nothing about a correct verdict
+        # tells you they are working: deleting every lru_cache decorator leaves
+        # the rest of the suite green and only the wall clock moves. This pins
+        # the reuse itself, against the real repository, because the property
+        # depends on how many tracked shell sources the definition sweep visits
+        # relative to the bound — a quantity no constant in the source encodes.
+        census = self.mod._load_mutation_census_module()
+        census._logical_lines.cache_clear()
+        census.build_census(REPO_ROOT)
+        info = census._logical_lines.cache_info()
+        audited = len(census._audited_sources(REPO_ROOT))
+        self.assertEqual(
+            audited,
+            info.hits,
+            "the census re-parses each audited source for its row extraction "
+            "after the definition sweep has visited every tracked shell source, "
+            f"so it should take {audited} within-build hits; it took "
+            f"{info.hits} ({info}). If the tracked shell sources have outgrown "
+            "_SOURCE_PARSE_CACHE_SIZE in mutation-pin-census.py, raise that "
+            "bound — the memo is silently buying nothing until you do.",
+        )
 
     def test_variable_maps_still_advance_across_an_assignment(self):
         # The snapshot is taken only where an assignment could have changed the

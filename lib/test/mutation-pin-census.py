@@ -180,29 +180,29 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
     return tuple(sorted(entries))
 
 
-# Bound on the per-source parse memos below, sized against the audited set.
+# Bound on the per-source parse memos below.
 #
-# Two distinct repeats are in play, and only one of them is bounded by this
-# number. WITHIN one census each audited source is visited twice — once by the
-# definition sweep and again by the row extraction — so the audited set must fit
-# for that second visit to hit. ACROSS censuses in one process the whole visited
-# set would have to fit, and the definition sweep visits every tracked shell
-# source under lib/test, which on this repository is far more than this bound.
+# The reuse this buys is a WITHIN-census repeat: the definition sweep parses
+# every tracked shell source under lib/test, and the row extraction afterwards
+# parses the audited subset again. What has to fit for that second parse to hit
+# is NOT the audited set — the sweep is ordered and never revisits an entry, so
+# an audited source parsed early is evicted by the non-audited ones that sort
+# after it long before the extraction asks for it again. What has to fit is the
+# whole set the sweep visits. Sizing this against the audited count instead was
+# measured wrong: at a bound of 15 the audited 13 still "fit" and 12 of the 13
+# second parses missed anyway.
 #
-# The bound is therefore sized to the audited set plus headroom, buying the
-# intra-census repeat and, on a tree whose tracked shell sources fit, the
-# cross-census one as well. Consequence, stated rather than hidden: on a larger
-# tree the definition sweep gets no cross-census hits. That costs nothing where
-# it happens — such a tree is the real repository, where the gate builds exactly
-# one census and has nothing to reuse — while the tight bound keeps peak memory
-# down in the repeated-census case, which is the case this bound exists for.
-# Widening it to clear the definition sweep was measured on 2026-07-28 against
-# this file's heaviest single worker on an arm64 laptop: 40.6s/936MB against
-# 47.4s/599MB. Past-time snapshot of that run, not a live figure.
+# So the bound clears the tracked shell sources one sweep visits, with margin.
+# A tree that outgrows it does not break — it silently stops getting the hits,
+# which is why test_census_reuses_every_audited_source_within_one_build pins the
+# hit count against the audited set and names raising this bound as the remedy.
+# Cross-census reuse rides along wherever the same margin holds.
 #
-# Derived from the audited count rather than hardcoded, so the "plus headroom"
-# claim above cannot quietly become false as the audited set grows.
-_SOURCE_PARSE_CACHE_SIZE = EXPECTED_SOURCE_COUNT + 3
+# Measured 2026-07-28 on an arm64 laptop against this file's heaviest single
+# worker: this bound costs roughly 90MB of peak RSS over one sized to the
+# audited set alone, for the same 13 within-census hits on the current tree and
+# a margin that keeps them as the tree grows. Past-time snapshot of that run.
+_SOURCE_PARSE_CACHE_SIZE = 48
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
