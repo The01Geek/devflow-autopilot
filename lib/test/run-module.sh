@@ -584,13 +584,12 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     while IFS= read -r _sk_line || [ -n "$_sk_line" ]; do
       case "$_sk_line" in
         "host-capability"$'\t'*)
+          # The focused skip override is the sole writer here and always emits
+          # name<TAB>reason (an empty reason still leaves the trailing TAB), so the record
+          # always carries both fields — no tabless-name branch is reachable.
           _sk_rest="${_sk_line#host-capability$'\t'}"
           _sk_name="${_sk_rest%%$'\t'*}"
-          if [ "$_sk_rest" = "$_sk_name" ]; then
-            _sk_reason=""
-          else
-            _sk_reason="${_sk_rest#*$'\t'}"
-          fi
+          _sk_reason="${_sk_rest#*$'\t'}"
           printf '  SKIP  %s [host-capability] — %s\n' "$_sk_name" "$_sk_reason"
           ;;
       esac
