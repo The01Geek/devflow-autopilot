@@ -127,10 +127,10 @@ devflow_render_report() {
             (.patterns // [] | map(select(type == "object")))
             | sort_by(-((.occurrence_count | numbers) // 0))[]
             | . as $p
-            | (($p.tag // $p.slug // "") | strings) as $key
+            | ((($p.tag // $p.slug // "") | strings) // "") as $key
             | (($p.category | strings) // "") as $cat
             | "- `\($p.tag // $p.slug // "(unnamed)")` — \(($p.occurrence_count | numbers) // 0)× (status: \(($p.status | strings) // "open"))"
-              + (if $cat != "" and $cat != ($key // "") then " (category: `\($cat)`)" else "" end)
+              + (if $cat != "" and $cat != $key then " (category: `\($cat)`)" else "" end)
               + (if (($p.filing_outcome | strings) // "") != "" then " — \($p.filing_outcome)" else "" end)
               + (if (($p.withheld_by | strings) // "") != "" then " — withheld by `\($p.withheld_by)`" else "" end)
               + (if ($p.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'

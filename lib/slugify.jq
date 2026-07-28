@@ -25,7 +25,6 @@
 def slug_kebab:
   ascii_downcase
   | gsub("[^a-z0-9]+"; "-")
-  | gsub("-+"; "-")
   | ltrimstr("-") | rtrimstr("-");
 def slugify:
   slug_kebab
