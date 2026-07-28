@@ -11471,6 +11471,10 @@ def _row2(r):
         # query-findings' trailing summary= field and clobber the reconciliation surface.
         ('a summary carrying an interior carriage return', 1, '1',
          'unresolved: first half\rsecond half\n', 'ledger-summary-control-char'),
+        # issue #889: a non-positive quoted-draft-line coordinate. `@0` parses via
+        # `@(\d+)` but is not a 1-based line number, so it is refused at ingestion.
+        ('a non-positive draft-line coordinate', 1, '1', 'unresolved@0: a\n',
+         'ledger-draft-line-range'),
     ):
         got = r.adjudicate(1, 'REVISE', k, u, payload)
         assert_eq(f"#603-2/AC1: {name} is refused with a named breadcrumb",
@@ -11963,6 +11967,18 @@ for _name, _mutate in (
                                             supersession_round=9)])),
     ('a resolution ordinal naming no recorded revision',
      lambda r: r.update(findings=[_entry603(1, 'a', 'resolved', resolution_ordinal=7)])),
+    # issue #889: the optional per-finding quoted_draft_line coordinate. Absent is
+    # legal (covered by the positive control above), present-but-wrong-shape is
+    # corrupt — a string, a non-positive int, and a JSON boolean each collapse to
+    # StateError at the read boundary.
+    ('a quoted_draft_line that is a string',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line='12')])),
+    ('a quoted_draft_line that is zero',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=0)])),
+    ('a quoted_draft_line that is negative',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=-3)])),
+    ('a quoted_draft_line that is a boolean (true is not a line number)',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=True)])),
 ):
     _corrupt = _state([_round603(1, unresolved=1, must_revise=1,
                                  ledger=[_entry603(1, 'a')])], revisions=(1,))

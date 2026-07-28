@@ -577,6 +577,8 @@ class StateReaderBestEffortTest(unittest.TestCase):
             '{"rounds": [ {"round": 1} ]}',       # a round with no recognized kind
             '{"rounds": [ {"round": 1, "kind": "bogus"} ]}',  # unrecognized kind
             '{"rounds": [ {"round": true, "kind": "discovery"} ]}',  # bool round num
+            '{"rounds": [ {"round": "x", "kind": "discovery"} ]}',  # non-int round num, valid kind
+            '{"rounds": [ {"kind": "discovery"} ]}',  # missing round num, valid kind
         ]
         for payload in degraded:
             path = self._state(payload)
