@@ -104,6 +104,11 @@ import sys
 CONTROL_BEFORE = "SUBWRITE_CONTROL_BEFORE"
 CONTROL_AFTER = "SUBWRITE_CONTROL_AFTER"
 PAYLOAD = "SUBWRITE_PAYLOAD"
+# Lowered once at module scope — every match below is case-insensitive, so recomputing
+# `.lower()` on these fixed constants inside the per-entry loops is pure repeated work.
+_CONTROL_BEFORE_L = CONTROL_BEFORE.lower()
+_CONTROL_AFTER_L = CONTROL_AFTER.lower()
+_PAYLOAD_L = PAYLOAD.lower()
 
 # Names of the built-in dispatch tools. A tool_use with one of these names is the
 # ORCHESTRATOR'S dispatch, whose input quotes the marker vocabulary — so a marker in such
@@ -173,9 +178,13 @@ def collect(parsed):
     def walk(o):
         if isinstance(o, dict):
             if o.get("type") == "tool_use":
+                text = json.dumps(o.get("input"))
                 tool_uses.append(
                     {
-                        "text": json.dumps(o.get("input")),
+                        "text": text,
+                        # Lowered once here so the per-entry marker matches below never
+                        # re-lower the same string two-to-four times.
+                        "text_lower": text.lower(),
                         "name": str(o.get("name", "")).lower(),
                         "id": o.get("id") if isinstance(o.get("id"), str) else "",
                         "parent": o.get("parent_tool_use_id"),
@@ -211,11 +220,16 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     dispatch_recorded = any(tu["name"] in DISPATCH_TOOL_NAMES for tu in tool_uses)
 
     # A dispatch denial: a permission_denials entry naming a dispatch tool or the
-    # subagent-type/definition machinery. Split into two reasons where the entry says so.
-    dispatch_denied = any(
-        n in denial_text for n in DISPATCH_TOOL_NAMES
-    ) or "subagent_type" in denial_text or "general-purpose" in denial_text
-    unknown_type = "subagent_type" in denial_text or "unknown" in denial_text or "general-purpose" in denial_text
+    # subagent-type/definition machinery. Each substring is tested once and reused.
+    has_subagent_type = "subagent_type" in denial_text
+    has_general_purpose = "general-purpose" in denial_text
+    dispatch_denied = (
+        any(n in denial_text for n in DISPATCH_TOOL_NAMES)
+        or has_subagent_type
+        or has_general_purpose
+    )
+    # Only consulted inside the `elif dispatch_denied:` arm to pick the reason wording.
+    unknown_type = has_subagent_type or has_general_purpose or "unknown" in denial_text
 
     # Subagent-issued calls: a probe marker in a tool_use whose OWN name is not the
     # dispatch tool (the dispatch's own input quotes the marker vocabulary — counting it
@@ -223,22 +237,25 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     def is_subagent_marker(tu):
         if tu["name"] in DISPATCH_TOOL_NAMES:
             return False
-        t = tu["text"].lower()
+        t = tu["text_lower"]
         return (
-            CONTROL_BEFORE.lower() in t
-            or CONTROL_AFTER.lower() in t
+            _CONTROL_BEFORE_L in t
+            or _CONTROL_AFTER_L in t
             or write_marker in t
-            or PAYLOAD.lower() in t
+            or _PAYLOAD_L in t
         )
 
     subagent_calls = [tu for tu in tool_uses if is_subagent_marker(tu)]
     recorded_at_all = bool(subagent_calls)
+    # `x in dispatch_ids` is already False for every element when the set is empty, so an
+    # explicit `and bool(dispatch_ids)` conjunct would guard nothing — a True `any(...)`
+    # here already proves a recorded dispatch was chained to.
     chain_attributable = any(
         (tu["parent"] in dispatch_ids) for tu in subagent_calls if tu["parent"] is not None
-    ) and bool(dispatch_ids)
+    )
 
-    control_before = any(CONTROL_BEFORE.lower() in tu["text"].lower() for tu in subagent_calls)
-    control_after = any(CONTROL_AFTER.lower() in tu["text"].lower() for tu in subagent_calls)
+    control_before = any(_CONTROL_BEFORE_L in tu["text_lower"] for tu in subagent_calls)
+    control_after = any(_CONTROL_AFTER_L in tu["text_lower"] for tu in subagent_calls)
 
     # The Write tool_use targeting the tier's side-effect path (name == write, or the
     # payload/path marker in a non-dispatch entry).
@@ -246,14 +263,14 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         tu
         for tu in tool_uses
         if tu["name"] not in DISPATCH_TOOL_NAMES
-        and (write_marker in tu["text"].lower() or (tu["name"] == "write" and PAYLOAD.lower() in tu["text"].lower()))
+        and (write_marker in tu["text_lower"] or (tu["name"] == "write" and _PAYLOAD_L in tu["text_lower"]))
     ]
     write_recorded = bool(write_calls)
-    write_chain_ok = bool(dispatch_ids) and any(
+    write_chain_ok = any(
         (tu["parent"] in dispatch_ids) for tu in write_calls if tu["parent"] is not None
     )
     write_denied = write_marker in denial_text or (
-        "write" in denial_text and PAYLOAD.lower() in denial_text
+        "write" in denial_text and _PAYLOAD_L in denial_text
     )
 
     # ── Verdict, degraded arms FIRST (a measurement that did not run must never read as
@@ -307,8 +324,8 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         )
     elif not write_recorded:
         verdict, reason = "unestablished", (
-            "both controls were recorded and chain-attributable but the write was neither "
-            "recorded nor denied — the subagent reached the write step and did not attempt it"
+            "a chain-attributable subagent call was recorded but the write was neither "
+            "recorded nor denied — the subagent ran but did not attempt the write"
         )
     else:  # write_recorded and write_chain_ok and not side_present
         verdict, reason = "unestablished", (
