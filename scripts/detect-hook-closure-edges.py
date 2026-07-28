@@ -143,6 +143,14 @@ def refs_in(path):
     the caller surfaces that as a violation rather than treating it as "no edges".
     """
     out = set()
+    # Edge detection is scoped by file type. The shell-syntax regexes (source/exec/assign)
+    # apply to a .sh member; a .py member's meaningful outbound edge is the in-process
+    # `importlib.util.spec_from_file_location` load (issue #805), and running the shell
+    # regexes over Python would only match shell-looking tokens inside docstrings/strings
+    # (e.g. a `bash x.sh` example) that are NOT live edges — so a .py member gets ONLY the
+    # importlib capture. (A .py member's Python-mediated `subprocess`/`os.system` spawn of a
+    # repo script remains a documented, uncaught limit — see the module docstring.)
+    is_py = path.endswith(".py")
     has_spec = False
     py_import_candidates = set()
     with open(path, encoding="utf-8", errors="replace") as fh:
@@ -150,15 +158,17 @@ def refs_in(path):
             line = _strip_comment(raw)
             if not line.strip():
                 continue
-            if src_re.search(line):
-                for m in slashsh_re.finditer(line):
-                    out.add(m.group(1))
-            for rx in (pyexec_re, shexec_re, execb_re):
-                for m in rx.finditer(line):
-                    out.add(os.path.basename(m.group(1)))
-            for rx in (assign_re, assign_var_re):
-                for m in rx.finditer(line):
-                    out.add(os.path.basename(m.group(1)))
+            if not is_py:
+                if src_re.search(line):
+                    for m in slashsh_re.finditer(line):
+                        out.add(m.group(1))
+                for rx in (pyexec_re, shexec_re, execb_re):
+                    for m in rx.finditer(line):
+                        out.add(os.path.basename(m.group(1)))
+                for rx in (assign_re, assign_var_re):
+                    for m in rx.finditer(line):
+                        out.add(os.path.basename(m.group(1)))
+                continue
             if _HAS_SPEC.search(line):
                 has_spec = True
             for m in pyjoin_re.finditer(line):
@@ -169,33 +179,15 @@ def refs_in(path):
     # edge only when the file actually performs such a load; the `os.path.join(... .py ...)`
     # basename candidates are added to the edge set only then (fail toward NOT inventing an
     # edge for a data-file join in a non-importing member).
-    if has_spec:
+    if is_py and has_spec:
         out |= py_import_candidates
     return out
-
-
-def _real_repo_basenames(root):
-    """The basenames of every tracked .sh/.py under scripts/ and lib/. A closure ESCAPE
-    is a reference to a real repo file NOT in the closure; a reference whose basename
-    matches no real file is documentation/example noise (a `.py`/`.sh` token inside a
-    docstring or an illustrative comment — e.g. `bash x.sh`), never a live source/exec/
-    import edge, so it is not a violation. Walk only scripts/ and lib/ (NOT the repo root,
-    which would descend into sibling git worktrees under .claude/worktrees/, issue #711)."""
-    real = set()
-    for sub in ("scripts", "lib"):
-        base = os.path.join(root, sub)
-        for dirpath, _dirs, files in os.walk(base):
-            for name in files:
-                if name.endswith((".sh", ".py")):
-                    real.add(name)
-    return real
 
 
 def main():
     root = os.environ["REPO_ROOT"]
     closure = os.environ["CLOSURE"].split()
     closure_base = {os.path.basename(p) for p in closure}
-    real_basenames = _real_repo_basenames(root)
     violations = []
     for rel in closure:
         try:
@@ -212,8 +204,6 @@ def main():
             base = os.path.basename(ref)
             if base == os.path.basename(rel):
                 continue
-            if base not in real_basenames:
-                continue  # references no real repo file — doc/example noise, not an edge
             if base not in closure_base:
                 violations.append(f"{rel} -> {ref} (not in HOOK_TARGETS)")
     for v in sorted(set(violations)):

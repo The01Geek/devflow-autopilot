@@ -22308,7 +22308,7 @@ assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 10 closure entries (.sh + .py)" "10" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 13 closure entries (.sh + .py)" "13" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -22862,7 +22862,7 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
-# the ten DevFlow-layout paths over same-named files (a wrong verdict).
+# the DevFlow-layout closure paths over same-named files (a wrong verdict).
 # Two steps read the trusted base-ref .claude/settings.json via git show: the #460
 # harden-stop-hooks relevance gate, and the #505 baseprovision compose materialization
 # (same trusted-ref read; the compose consumes only that materialized $RUNNER_TEMP path).
@@ -34587,15 +34587,17 @@ assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file
 # AC7: Phase 0.1.5 scratch persistence.
 assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$REVIEW_BUNDLE"
 
-# ── #504 AC10 stale-prose corrections.
-assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
-assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
+# ── #504 AC10 stale-prose corrections. Re-anchored COUNT-FREE (issue #805): the two
+# devflow-runner.yml prose literals name the closure rather than its size, so the pins
+# stop encoding a total (formerly "ten") that changes whenever the closure does.
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate names the closure (count-free)" "DevFlow-layout closure paths would clobber" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning names the closure (count-free)" "DevFlow-layout closure paths are stubbed" "$RUNNER_YML"
 # This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
-# real FP1 comment (the prose this corrects nine->ten) and once here as the pin's own argument.
+# real FP1 comment (the count-free prose) and once here as the pin's own argument.
 # assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
-# self-inclusive count of 2: reverting the comment to "nine" drops it to 1 (this line alone) -> FAIL.
-assert_eq "#504 AC10 run.sh #460 FP1 says ten" "2" \
-  "$(pin_count 'ten DevFlow-layout paths over same-named' "$LIB/test/run.sh")"
+# self-inclusive count of 2: re-introducing a count in the comment drops it to 1 (this line alone) -> FAIL.
+assert_eq "#504 AC10 run.sh #460 FP1 names the closure (count-free)" "2" \
+  "$(pin_count 'DevFlow-layout closure paths over same-named' "$LIB/test/run.sh")"
 assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"

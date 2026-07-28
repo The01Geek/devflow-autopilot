@@ -102,6 +102,7 @@ _emit_unavailable() {
   printf 'tool_use: unavailable\n'
   printf 'subagent_type: unavailable\n'
   printf 'permission_denials: unavailable\n'
+  printf 'permission_denials_commands: unavailable\n'
   printf '\n## Structural key-paths (redacted; string leaves shown as type only)\n'
   # The reason is interpolated bare — never behind an "execution file ..." prefix — so a
   # jq-side degradation is not grammatically blamed on the file in the emitted RECORD
@@ -293,7 +294,34 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
   _emit_unavailable "jq slurp pass failed ('$FILE')"
 fi
 
+# --- Denied-command emission (issue #805, Part 3). The existing record REDACTS every
+# string leaf; this field is the deliberate, scoped EXCEPTION — the whole point of the
+# feature is to surface the agent's own denied commands so a maintainer need not download
+# and parse the 2.4 MB execution artifact by hand. The commands are the engine's OWN
+# emitted Bash, not arbitrary prompt/repo content, but they can still carry injected text,
+# so this layer only bounds them (per-command cap + a total cap, each with an explicit
+# truncation marker) and emits a compact SINGLE-LINE JSON object; the ::-workflow-command
+# and fence-breaking-backtick neutralization and the fenced rendering happen at the
+# devflow-review.yml consumer. Single-line so devflow-runner.yml can carry it through
+# $GITHUB_OUTPUT as one JSON-encoded value with no delimiter-injection surface.
+#   present  -> {"commands":[...], "total":N, "truncated":bool}
+#   absent   -> {"commands":[], "total":0, "truncated":false}  (a run that denied nothing)
+#   unavailable -> the literal `unavailable` (jq failed / file unreadable)
+DENIED_COMMANDS="$("$DEVFLOW_JQ" -c '
+    def cap: if (type == "string") and (length > 500)
+             then (.[0:500] + " …[per-command-truncated]") else . end;
+    [ .. | objects | (.permission_denials? // empty)
+      | select(type == "array") | .[]
+      | (.tool_input.command? // .command? // empty)
+      | select(type == "string") | cap ] as $all
+    | { commands: ($all[0:40]),
+        total: ($all | length),
+        truncated: (($all | length) > 40) }
+  ' "$FILE" 2>/dev/null || true)"
+[ -n "$DENIED_COMMANDS" ] || DENIED_COMMANDS="unavailable"
+
 printf '%s\n' "$_HEADER"
 printf 'encoding: %s\n' "$ENCODING"
 printf '%s\n' "$BODY"
+printf 'permission_denials_commands: %s\n' "$DENIED_COMMANDS"
 exit 0
