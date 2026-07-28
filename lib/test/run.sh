@@ -14261,7 +14261,7 @@ assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Doc
 # `findings` array of one-to-three sub-patterns rather than a single {title, body}.
 RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
 assert_eq "#893: Stage B emits the findings-array contract (subslug per finding)" "yes" \
-  "$(grep -qF 'subslug' "$RA_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'subslug' appears several times in retrospective-audit SKILL
+  "$(grep -qF 'subslug' "$RA_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'subslug' appears several times in retrospective-audit SKILL  # structural-pin-ok: cross-file-phase-contract -- `subslug` is the machine-consumed field name of Stage B's returned findings[] objects that lib/select-findings.sh parses; the two sides must name it identically
 assert_eq "#152: Stage B runs no git worktree" "yes" \
   "$(grep -q 'git worktree' "$RA_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts Stage B runs no git worktree (expected absent)
 assert_eq "#152: Stage B drops the targets[] return field" "yes" \
