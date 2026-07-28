@@ -11,14 +11,17 @@ bump: patch
   state-file shape yields `unestablished` figures with a stderr breadcrumb naming the
   path, never a number and never a crash). It reports a per-run per-round breakdown
   carrying each round's recorded kind, per-kind auditor-cost medians, and a
-  `--before`/`--after` paired-delta mode whose four keys are each a corpus-wide total
-  named as one (total attributed auditor cost, total peak context, total round count,
-  finding count — never latency, and `unestablished` rather than a measured-looking
-  number when either corpus is empty or under-counted). Of the three escaped-defect proxies, the
+  `--before`/`--after` paired-delta mode emitting three corpus-wide sums, each named
+  `total_` for that reason (total attributed auditor cost, total peak context, total
+  round count) plus `finding_count`, a state-file axis rather than a corpus sum — never
+  latency. Each sum-based delta reads `unestablished` rather than a measured-looking
+  number when either corpus is empty or under-counted on any loss channel the skip tally
+  records. Of the three escaped-defect proxies, the
   `record-reopen` count is measured and the declared post-filing class is reported
   `unestablished` by construction; the scope-escape count and its unattributable
-  denominator read `unestablished` on any state file carrying a targeted round, because
-  no producer records a `draft_lines` span on a targeted round's scope — the instrument
+  denominator read `unestablished` on any state file carrying a targeted round whose
+  recorded scope yields no usable `draft_lines` span — which, since no producer records
+  that span, is every targeted round on a real state file — so the instrument
   reports that gap rather than the `0` that would read as "no defects escaped scope"
   (a state carrying no targeted round at all reports a genuine, established `0`).
   Wall-clock is reported `unestablished` on this tier, and the main-thread context

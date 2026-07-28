@@ -131,20 +131,25 @@ _ABSENT_KIND_DEFAULT = "discovery"
 # the sole round-boundary source (the state file carries no clock to join on).
 #
 # Anchored on the state-owner script name so the marker is a CONTRACT rather than a
-# bare substring: a `grep record-dispatch`, an `echo record-reopen`, or a `cat` of this
-# skill reference no longer opens a spurious round boundary or inflates the reopen
-# tally. ACCEPTED RESIDUAL, stated so the claim is not read wider than it is: the anchor
-# is the script NAME, not command position, so an `echo` or `grep` whose text quotes a
-# FULL command line (`… issue-audit-state.py record-dispatch --round 2 …`) still
-# matches. The round value is accepted quoted or bare because the skill's rendered fence
+# bare substring: a BARE `grep record-dispatch`, a BARE `echo record-reopen`, or a `cat`
+# of this skill reference no longer opens a spurious round boundary or inflates the
+# reopen tally, because none of them carries the script name adjacent to the subcommand.
+# ACCEPTED RESIDUAL, stated so neither claim is read wider than it is: the anchor is the
+# script NAME, not command position, so an `echo`/`grep` whose text QUOTES the anchored
+# pair (`echo "issue-audit-state.py record-reopen"`, `… record-dispatch --round 2 …`)
+# does still match — the recognizer cannot tell a quoted command line from a run one.
+# The round value is accepted quoted or bare because the skill's rendered fence
 # writes `--round "<round>"` (quoted) while the fixtures write it bare — a regex that
 # required a bare digit derived NO round boundary on a faithful real transcript.
-# The intervening span may not cross a further state-owner invocation, so a
-# `record-dispatch` carrying no `--round` of its own cannot borrow the `--round` of a
-# LATER command on the same line and open a boundary that command never opened.
+# The intervening span may cross neither a further state-owner invocation NOR a shell
+# command separator (`;`, `&`, `|`, newline), so a `record-dispatch` carrying no
+# `--round` of its own cannot borrow the `--round` of a LATER command on the same line
+# — including one that is not itself a state-owner invocation
+# (`record-dispatch --kind targeted; echo trailing --round 9`), which the
+# state-owner-only lookahead alone still admitted.
 _DISPATCH_ROUND_RE = re.compile(
     r"issue-audit-state\.py\s+record-dispatch\b"
-    r"(?:(?!issue-audit-state\.py)[^\n])*?--round\s+[\"']?(\d+)")
+    r"(?:(?!issue-audit-state\.py)[^\n;&|])*?--round\s+[\"']?(\d+)")
 _REOPEN_RE = re.compile(r"issue-audit-state\.py\s+record-reopen\b")
 
 
@@ -427,6 +432,14 @@ class RunAccumulator:
                     self._produced_blocks.add(digest)
 
     def result(self):
+        """The run record's own fields.
+
+        NOT the complete field set of a run record as a report consumer sees it:
+        `_join_round_kinds` injects one further key, `round_kinds`, after
+        `eval_corpus` returns. Every reader of a run record therefore reads
+        `round_kinds` defensively (`.get`), because a run record taken straight from
+        this method has not been through the join.
+        """
         peak = max(self.per_turn_context) if self.per_turn_context else 0
         final = self.per_turn_context[-1] if self.per_turn_context else 0
         round_cost = {n: self.round_auditor_cost[n]
@@ -516,6 +529,14 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
         "escaped_path": 0,
         "walk_error": 0,
         "malformed_record": 0,
+        # A session file carrying auditor (sidechain) records but NO main-thread
+        # attributed turn. `if acc.attributed` drops such a file whole, taking its
+        # sidechain cost AND its `sidechain_records_seen` with it — and that counter is
+        # the operand the module docstring's unverified "does the harness stamp
+        # `attributionSkill` on a sidechain record?" assumption is meant to be
+        # falsifiable from. Dropping it silently is exactly the layout where the
+        # assumption is most likely wrong, so the drop is tallied and breadcrumbed.
+        "sidechain_only_file": 0,
     }
     for session_file in _iter_session_files(corpus_root, skipped):
         acc = RunAccumulator(os.path.basename(session_file), large_block_chars)
@@ -572,6 +593,20 @@ def eval_corpus(corpus_root, large_block_chars=LARGE_BLOCK_MIN_CHARS):
                     continue
         if acc.attributed:
             runs.append(acc.result())
+        elif acc.sidechain_records_seen:
+            # Sidechain records but no main-thread attributed turn: a dropped run whose
+            # auditor cost the aggregate will never see. Tally + breadcrumb so an
+            # under-counted corpus is visible in `skipped` (and degrades the paired
+            # delta) rather than reading as a clean measurement.
+            skipped["sidechain_only_file"] += 1
+            sys.stderr.write(
+                "warning: skipping session file with sidechain records but no "
+                "main-thread attributed turn {} ({} sidechain record(s), {} "
+                "attributed)\n".format(
+                    session_file, acc.sidechain_records_seen,
+                    acc.sidechain_records_attributed,
+                )
+            )
     runs.sort(key=lambda r: r["source"])
     return runs, skipped
 
@@ -616,6 +651,15 @@ def read_state(state_path):
     labelling, the per-round scope, and the per-finding quoted draft line. It carries
     no time or ordering coordinate — round boundaries come from the transcript alone
     (this module imports no time facility), so there is no join to attempt here.
+
+    **CONTRACT for consumers: `None` and `{}` are different answers and truthiness does
+    not distinguish them.** `None` means the state was never established (every
+    state-derived figure reads `unestablished`); `{}` means it WAS established and
+    records no rounds (`state_established: True`, `finding_count: 0`, an established
+    scope-escape `0`). Both are falsy, so every consumer here tests `state is None` —
+    a `if state:` test would silently reclassify a legitimately-empty state as
+    unestablished, republishing the unknown-collapse this reader exists to prevent.
+    `StateNoneVsEmptyContractTest` in the test module pins both readings.
     """
     if not state_path:
         return None
@@ -631,7 +675,14 @@ def read_state(state_path):
         return _degraded_state(state_path, "empty")
     try:
         doc = json.loads(raw)
-    except (ValueError, TypeError) as exc:
+    # Deliberately broad. `json.loads` does NOT raise only ValueError/TypeError: a
+    # deeply-nested document exhausts the decoder's recursion and raises
+    # `RecursionError`, which inherits from `RuntimeError` and would escape a
+    # (ValueError, TypeError) clause as an uncaught traceback — falsifying AC8's "never
+    # a crash" on precisely the hand-corrupted input this reader exists to survive.
+    # Enumerating the escape hatches one at a time is how the next unanticipated
+    # exception type gets out, so the clause is residual rather than a list.
+    except Exception as exc:  # noqa: BLE001 - AC8 fail-closed: degrade, never crash
         return _degraded_state(state_path, "not parseable JSON: {}".format(exc))
     if not isinstance(doc, dict):
         return _degraded_state(state_path, "top level is not an object")
@@ -834,14 +885,23 @@ def aggregate(runs, state=None):
     `state` (issue #889) supplies the round→kind labelling the per-kind medians need;
     absent or degraded state makes those figures `unestablished` (never a number).
 
-    **One convention across every field.** On an EMPTY run population every aggregate
-    figure reads `unestablished`, secondary residency axis included — a reader of one
-    summary object must never have to know which field they are looking at to tell
-    "measured zero" from "no population". `state_established` and `finding_count` live
-    here rather than beside the summary so the canonical-field-order completeness
-    property (and the renderer that iterates it) covers them too, and so
-    `state_established` is DERIVED from the sentinel rather than re-answered from the
-    same operand a second way.
+    **One convention across every RUN-DERIVED field.** On an empty run population every
+    figure computed from `runs` reads `unestablished`, secondary residency axis included
+    — a reader must never have to know which run-derived field they are looking at to
+    tell "measured zero" from "no population". `run_count` is the one deliberate
+    exception: `0` is its measurement, not a collapsed unknown.
+
+    **The state-derived fields are NOT run-derived and do not follow that convention.**
+    `state_established`, `finding_count`, `scope_escape_count` and
+    `scope_escape_unattributable` answer the STATE file, whose establishment is
+    independent of the run population: `aggregate([], <valid state>)` therefore returns
+    a real `finding_count`, a real scope-escape pair and `state_established: True`, and
+    that is correct — the state WAS read. Their own unknown-collapse guard is the state
+    sentinel (`_finding_count` / `scope_escape_proxy` return `UNESTABLISHED` on an
+    absent or degraded state), not the run count. They live here rather than beside the
+    summary so the canonical-field-order completeness property (and the renderer that
+    iterates it) covers them too, and so `state_established` is DERIVED from the
+    sentinel rather than re-answered from the same operand a second way.
     """
     peaks = [r["peak_context"] for r in runs]
     medians = per_kind_medians(runs, state)
@@ -917,9 +977,13 @@ def _join_round_kinds(runs, state):
 
     KNOWN GAP, disclosed: the state file keys rounds by NUMBER alone, so a corpus of
     several runs joined against a single state file labels every run's round N with that
-    one state's round N. The join is correct for the one-run-per-state case the paired
-    mode uses; a multi-run corpus needs a per-run state file, which the state owner does
-    not yet emit a run coordinate for.
+    one state's round N. The join is correct only when the side holds ONE run — which is
+    a property of the committed fixtures under
+    `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`, NOT a property of
+    paired mode: `--before`/`--after` each take a DIRECTORY, and `eval_corpus` yields one
+    run per qualifying session JSONL beneath it, so a multi-run side mislabels. Closing
+    it needs a per-run state file, which the state owner does not yet emit a run
+    coordinate for.
     """
     for run in runs:
         run["round_kinds"] = {
@@ -958,23 +1022,38 @@ def _paired_delta(before, after):
     wall-clock axis reads `unestablished`, so a paired latency delta would present a
     number the tier never measured.
 
-    **Every key is a CORPUS-WIDE total, and every name says so.** Under the old
-    `per_run_context` name a 3-run before corpus against a 1-run after corpus reported a
-    large "context reduction" that was pure population difference — and the other two
-    sums, computed identically one line away, carried the same confound under
+    **Every CORPUS-SUMMED key is named `total_`, and there are exactly three of them:**
+    `total_attributed_auditor_cost`, `total_peak_context` and `total_round_count`. Under
+    the old `per_run_context` name a 3-run before corpus against a 1-run after corpus
+    reported a large "context reduction" that was pure population difference — and the
+    other two sums, computed identically one line away, carried the same confound under
     population-neutral-sounding names. Each side's `run_count` is on its own summary for
-    the reader to divide by.
+    the reader to divide by. **`finding_count` is the fourth key and is deliberately NOT
+    one of them:** it is a STATE-file axis (`_finding_count` totals the ledger entries
+    across one state file's rounds), independent of how many runs either corpus holds,
+    so it carries no `total_` marker and the population confound the naming rule guards
+    against does not apply to it. It has its own guard instead — the state sentinel, via
+    `_findings_delta` below.
 
-    **An empty or unreadable run population makes every sum-based delta
-    `unestablished`.** A side with no runs sums to `0`, so subtracting would assert a
-    measured regression against a corpus whose own summary already reads `unestablished`
-    — the report would contradict itself inside one document.
+    **An empty or under-counted run population makes every sum-based delta
+    `unestablished`** — `_degraded` consults the run list AND every channel of the skip
+    tally. A side with no runs, or one whose walk, file-open or record parse dropped
+    anything, sums low, so subtracting would assert a measured saving against a corpus
+    that was never fully read.
     """
     def _degraded(report):
-        # No runs at all, or a corpus knowingly under-counted because a session file
-        # could not be read: either way the sums below are not a measurement.
+        # No runs at all, or a corpus knowingly under-counted on ANY loss channel.
+        # Every channel `eval_corpus` tallies drops either a whole session file
+        # (`walk_error`, `escaped_path`, `unreadable_file`, `sidechain_only_file`) or a
+        # `usage`-bearing record inside a counted run (`non_json_line`, `not_object`,
+        # `no_type`, `malformed_record`) — each one directly DEFLATES the sums below,
+        # so consulting `unreadable_file` alone would publish a real-looking negative
+        # delta as a measured saving about a corpus that was never fully read: the
+        # unknown-collapsed-onto-a-real-value shape this module exists to refuse.
+        # The test iterates `.values()` rather than a hand-listed key set so a channel
+        # added to `eval_corpus` later cannot silently fall outside the guard.
         return (not report["runs"]
-                or report["skipped"].get("unreadable_file", 0) > 0)
+                or any(v > 0 for v in report["skipped"].values()))
 
     degraded = _degraded(before) or _degraded(after)
 

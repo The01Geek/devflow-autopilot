@@ -11475,6 +11475,15 @@ def _row2(r):
         # `@(\d+)` but is not a 1-based line number, so it is refused at ingestion.
         ('a non-positive draft-line coordinate', 1, '1', 'unresolved@0: a\n',
          'ledger-draft-line-range'),
+        # issue #889: the accepted set is the UNPADDED decimal form. `@007` parses via
+        # `@(\d+)`; normalizing it to 7 would silently accept a coordinate the author
+        # did not write, so it is refused with its own distinct breadcrumb (distinct
+        # from `ledger-draft-line-range` above, so a test asserting one cannot be
+        # satisfied by the other firing).
+        ('a zero-padded draft-line coordinate', 1, '1', 'unresolved@007: a\n',
+         'ledger-draft-line-format'),
+        ('a zero-padded zero draft-line coordinate', 1, '1', 'unresolved@00: a\n',
+         'ledger-draft-line-format'),
     ):
         got = r.adjudicate(1, 'REVISE', k, u, payload)
         assert_eq(f"#603-2/AC1: {name} is refused with a named breadcrumb",

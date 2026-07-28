@@ -6034,7 +6034,7 @@ def _ingest_ledger(must_revise, unresolved):
     ledger = []
     for idx, line in enumerate(lines, start=1):
         status = None
-        draft_line = None
+        raw_draft_line = None
         for candidate in _LEDGER_PREFIXES:
             prefix = f'{candidate}: '
             if line.startswith(prefix):
@@ -6044,10 +6044,14 @@ def _ingest_ledger(must_revise, unresolved):
             # line it attacks, as an OPTIONAL `<status>@<n>: <summary>` coordinate. The
             # plain prefix is checked first, so a summary that itself begins `@n: ` is
             # never mis-captured. The coordinate is draft-space (a line number in the
-            # draft), never a repository path:line.
+            # draft), never a repository path:line. The ACCEPTED SET is the unpadded
+            # decimal form only: the digits are captured as TEXT here so a zero-padded
+            # `@007` can be refused loudly below rather than silently normalized to `7`
+            # — a silent normalization accepts a coordinate the author did not write
+            # and leaves no breadcrumb saying so.
             m = re.match(re.escape(candidate) + r'@(\d+): ', line)
             if m is not None:
-                status, draft_line = candidate, int(m.group(1))
+                status, raw_draft_line = candidate, m.group(1)
                 summary = line[m.end():]
                 break
         if status is None:
@@ -6078,9 +6082,16 @@ def _ingest_ledger(must_revise, unresolved):
                   f're-issue the call')
         entry = {'id': idx, 'summary': summary, 'status': status,
                  'ingested_status': status}
-        if draft_line is not None:
-            # A positive draft-space line number (the regex captured `\d+`, so it is
-            # non-negative; a leading-zero-only `0` is refused as no line number).
+        if raw_draft_line is not None:
+            # The accepted set is the UNPADDED decimal form of a 1-based line number.
+            # `@0` is refused as no line number; `@007` is refused as padded rather
+            # than normalized to `7`.
+            if len(raw_draft_line) > 1 and raw_draft_line.startswith('0'):
+                _fail('record-adjudication',
+                      f'ledger line {idx} carries a zero-padded draft-line coordinate '
+                      f'@{raw_draft_line} (ledger-draft-line-format); write the 1-based '
+                      f'draft line unpadded and re-issue the call')
+            draft_line = int(raw_draft_line)
             if draft_line < 1:
                 _fail('record-adjudication',
                       f'ledger line {idx} carries a non-positive draft-line coordinate '

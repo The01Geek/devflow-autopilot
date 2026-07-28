@@ -18,6 +18,7 @@ import os
 import re
 import tempfile
 import unittest
+import unittest.mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.abspath(os.path.join(_HERE, "..", ".."))
@@ -621,6 +622,53 @@ class RoundAttributionTest(_SingleSessionMixin, unittest.TestCase):
         self.assertEqual(runs[0]["unrounded_auditor_cost"], 6)
         self.assertEqual(runs[0]["record_reopen_count"], 1)
 
+    def test_a_round_less_dispatch_cannot_borrow_a_non_owner_commands_round(self):
+        """The intervening span may not cross a shell command separator either.
+
+        The state-owner-only lookahead alone still admitted this: a `record-dispatch`
+        with no `--round` followed by ANY later command carrying one (`; echo trailing
+        --round 9`) opened a boundary that command never opened, bucketing the
+        auditor's cost into a fabricated round 9.
+        """
+        for separator in (";", "&&", "||", "|"):
+            with self.subTest(separator=separator):
+                runs, _ = self._run_one([
+                    '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+                    '"message":{"usage":{"input_tokens":1},"content":['
+                    '{"type":"tool_use","name":"Bash","id":"b1",'
+                    '"input":{"command":"scripts/issue-audit-state.py record-dispatch '
+                    '--kind targeted ' + separator + ' echo trailing --round 9"}}]}}',
+                    '{"type":"assistant","isSidechain":true,'
+                    '"attributionSkill":"devflow:create-issue",'
+                    '"message":{"usage":{"input_tokens":6}}}',
+                ])
+                self.assertEqual(runs[0]["dispatch_rounds"], [])
+                self.assertEqual(runs[0]["unrounded_auditor_cost"], 6)
+
+    def test_the_skill_reference_rendered_form_opens_a_boundary(self):
+        """The REAL command shape `step-3-6-audit.md` renders, not the fixture's head.
+
+        The committed transcript fixtures write a bare `scripts/issue-audit-state.py`
+        head; the skill renders a `python3 "${CLAUDE_SKILL_DIR:-…}"/../../scripts/…`
+        head with a QUOTED round value. `_DISPATCH_ROUND_RE` anchors on the script name
+        plus the subcommand, which both satisfy — but no committed fixture exercised the
+        anchored real form, so a tightening that broke it would have stayed green.
+        """
+        command = ('python3 \\"${CLAUDE_SKILL_DIR:-/base/dir}\\"'
+                   '/../../scripts/issue-audit-state.py record-dispatch '
+                   '\\"my-slug\\" --nonce \\"n1\\" --round \\"3\\" --kind targeted')
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"' + command + '"}}]}}',
+            '{"type":"assistant","isSidechain":true,'
+            '"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":12}}}',
+        ])
+        self.assertEqual(runs[0]["dispatch_rounds"], [3])
+        self.assertEqual(runs[0]["round_auditor_cost"], {3: 12})
+
     def test_record_reopen_counted(self):
         runs, _ = self._run_one([
             '{"type":"assistant","attributionSkill":"devflow:create-issue",'
@@ -689,6 +737,62 @@ class StateReaderBestEffortTest(unittest.TestCase):
             path = self._state(payload)
             self.assertIsNone(CICE.read_state(path),
                               "degraded payload should read as None: {!r}".format(payload))
+
+    def test_a_non_valueerror_decoder_failure_degrades_and_never_crashes(self):
+        """`json.loads` does not raise only ValueError/TypeError.
+
+        A deeply-nested document raises `RecursionError`, which inherits from
+        `RuntimeError` and escapes a `(ValueError, TypeError)` clause as an uncaught
+        traceback — falsifying AC8's "never a crash" on exactly the hand-corrupted
+        input this reader exists to survive. The failure is INJECTED rather than driven
+        by a literal nesting depth: the depth at which CPython's decoder gives up is
+        interpreter- and stack-size-dependent (it took >20k frames on the authoring
+        host), so a checked-in depth pins a host property, not the contract.
+        """
+        path = self._state('{"rounds": []}')
+        # Positive control: unpatched, this exact file establishes an empty state, so
+        # the None below is attributable to the injected failure, not to the fixture.
+        self.assertEqual(CICE.read_state(path), {})
+        class _NovelDecoderFailure(Exception):
+            """Stands for the next unanticipated exception type, which is why the
+            clause under test is residual rather than an enumerated list."""
+
+        for exc in (RecursionError("stack overflow"), MemoryError(),
+                    _NovelDecoderFailure("some novel decoder failure")):
+            with self.subTest(exc=type(exc).__name__):
+                with unittest.mock.patch.object(
+                        CICE.json, "loads", side_effect=exc):
+                    self.assertIsNone(CICE.read_state(path))
+
+    def test_real_deep_nesting_never_crashes_whatever_the_decoder_does(self):
+        """The real-input companion: a deeply-nested document, however it fails.
+
+        On an interpreter whose decoder survives the nesting this degrades on the
+        top-level-shape arm instead; either way `read_state` returns None rather than
+        propagating. Asserting the OUTCOME rather than which arm fired is what keeps
+        this row portable across interpreters (and CI's Python is not this host's).
+        """
+        depth = 250_000
+        self.assertIsNone(CICE.read_state(
+            self._state("[" * depth + "1" + "]" * depth)))
+
+    def test_directory_path_degrades_and_never_crashes(self):
+        """A state path that is a DIRECTORY: IsADirectoryError is an OSError."""
+        self.assertIsNone(CICE.read_state(self._tmp.name))
+
+    def test_permission_denied_state_degrades_and_never_crashes(self):
+        path = self._state('{"rounds": []}')
+        # Positive control: readable, the same file establishes an empty state.
+        self.assertEqual(CICE.read_state(path), {})
+        os.chmod(path, 0)
+        self.addCleanup(os.chmod, path, 0o600)
+        # Running as root, or on a filesystem that ignores the mode, the file stays
+        # readable — assert what is actually true there rather than emitting a skip
+        # (a skipped check is never a clean pass in this suite).
+        if os.access(path, os.R_OK):
+            self.assertEqual(CICE.read_state(path), {})
+        else:
+            self.assertIsNone(CICE.read_state(path))
 
     def test_non_utf8_state_degrades_and_never_crashes(self):
         """A byte-level degraded row: UnicodeDecodeError is a ValueError, not an OSError.
@@ -1189,6 +1293,163 @@ class MainCliTest(unittest.TestCase):
         self.assertTrue(doc["summary"]["state_established"])
         self.assertIsInstance(doc["summary"]["finding_count"], int)
         self.assertEqual(doc["summary"]["scope_escape_count"], 1)
+
+    def test_single_corpus_missing_directory_returns_two_naming_it(self):
+        """The single-corpus `isdir` arm, which two newer validations now precede.
+
+        The diff moved the `--before-state`/`--after-state` mode-mismatch checks and the
+        `--state-file` existence check ABOVE this one, so the surviving ordering is what
+        this asserts: a bare missing directory still reaches its own arm and names it.
+        """
+        rc, _out, err = self._run(["/no/such/dir"])
+        self.assertEqual(rc, 2)
+        self.assertIn("transcript directory not found: /no/such/dir", err)
+        # Positive control: the same call shape with a real directory succeeds, so the
+        # rc 2 above is attributable to the missing path, not to the argv shape.
+        rc, _out, _err = self._run([self._AFTER])
+        self.assertEqual(rc, 0)
+
+
+class StateNoneVsEmptyContractTest(unittest.TestCase):
+    """`read_state` returns two DIFFERENT falsy answers; truthiness conflates them.
+
+    `None` = never established; `{}` = established, no rounds. Every consumer tests
+    `state is None` by convention, and a future `if state:` would silently reclassify a
+    legitimately-empty state as unestablished. These assertions pin both readings so
+    that flip goes RED.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def _state(self, payload):
+        path = os.path.join(self._tmp.name, "state.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        return path
+
+    def test_empty_rounds_state_is_established_not_none(self):
+        state = CICE.read_state(self._state('{"rounds": []}'))
+        self.assertEqual(state, {})
+        self.assertIsNotNone(state)
+
+    def test_aggregate_reads_an_empty_state_as_established_zero(self):
+        summary = CICE.aggregate([], CICE.read_state(self._state('{"rounds": []}')))
+        self.assertTrue(summary["state_established"])
+        self.assertEqual(summary["finding_count"], 0)
+        self.assertEqual(summary["scope_escape_count"], 0)
+        # Negative control: the SAME empty run population with no state at all reports
+        # the sentinel on those exact fields, so the numbers above are attributable to
+        # the established-but-empty state rather than to the empty run list.
+        none_summary = CICE.aggregate([], None)
+        self.assertFalse(none_summary["state_established"])
+        self.assertEqual(none_summary["finding_count"], "unestablished")
+        self.assertEqual(none_summary["scope_escape_count"], "unestablished")
+
+    def test_state_derived_fields_are_independent_of_the_run_population(self):
+        """The docstring's scoped claim: state-derived fields do NOT read the run list.
+
+        `aggregate([], <valid state>)` returns real state-derived figures — that is
+        correct, and it is why the empty-population convention is documented as
+        RUN-derived rather than universal.
+        """
+        state = CICE.read_state(os.path.join(_FIX, "states", "after-state.json"))
+        summary = CICE.aggregate([], state)
+        self.assertTrue(summary["state_established"])
+        self.assertIsInstance(summary["finding_count"], int)
+        self.assertGreater(summary["finding_count"], 0)
+        # ...while every RUN-derived figure on the same object reads the sentinel.
+        for key in ("median_peak_context", "max_peak_context",
+                    "median_attributed_auditor_cost", "total_record_reopen"):
+            self.assertEqual(summary[key], "unestablished", key)
+        self.assertEqual(summary["run_count"], 0)
+
+
+class SidechainOnlySessionTest(_SingleSessionMixin, unittest.TestCase):
+    """A session file with auditor records but no main-thread attributed turn.
+
+    `if acc.attributed` drops it whole, taking `sidechain_records_seen` with it — the
+    operand that makes the module's unverified `attributionSkill`-on-sidechain
+    assumption falsifiable. Dropping it silently defeats that disclosure in exactly the
+    layout where the assumption is most likely wrong, so the drop is tallied.
+    """
+
+    def test_sidechain_only_file_is_tallied_not_silently_dropped(self):
+        runs, skipped = self._run_one([
+            '{"type":"assistant","isSidechain":true,'
+            '"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":900}}}',
+        ])
+        self.assertEqual(runs, [])
+        self.assertEqual(skipped["sidechain_only_file"], 1)
+
+    def test_unstamped_sidechain_only_file_is_also_tallied(self):
+        """The layout the assumption fails in: sidechain records with no attribution."""
+        runs, skipped = self._run_one([
+            '{"type":"assistant","isSidechain":true,'
+            '"message":{"usage":{"input_tokens":900}}}',
+        ])
+        self.assertEqual(runs, [])
+        self.assertEqual(skipped["sidechain_only_file"], 1)
+
+    def test_a_session_with_no_records_at_all_is_not_tallied(self):
+        """Negative control: the tally means "sidechain seen", not "no run emitted"."""
+        runs, skipped = self._run_one([
+            '{"type":"assistant","attributionSkill":"other",'
+            '"message":{"usage":{"input_tokens":5}}}',
+        ])
+        self.assertEqual(runs, [])
+        self.assertEqual(skipped["sidechain_only_file"], 0)
+
+
+class PairedDeltaDegradedChannelsTest(unittest.TestCase):
+    """`_paired_delta._degraded` consults EVERY skip channel, not `unreadable_file`.
+
+    Each channel drops either a whole session file or a `usage`-bearing record inside a
+    counted run, so each deflates the sums the delta subtracts: a before-corpus with a
+    permission-denied subtree publishes a large negative delta as a measured saving.
+    """
+
+    _CHANNELS = ("non_json_line", "not_object", "no_type", "unreadable_file",
+                 "escaped_path", "walk_error", "malformed_record",
+                 "sidechain_only_file")
+
+    def _report(self, skipped):
+        """A minimal report shape with one run and the supplied skip tally."""
+        return {"runs": [{"attributed_auditor_cost": 10, "peak_context": 10,
+                          "dispatch_rounds": [1]}],
+                "skipped": dict(skipped),
+                "finding_count": 3}
+
+    def test_every_channel_degrades_the_sum_deltas(self):
+        clean = {k: 0 for k in self._CHANNELS}
+        # Positive control FIRST: a clean tally on both sides yields real numbers, so
+        # each `unestablished` below is attributable to the one channel under test.
+        baseline = CICE._paired_delta(self._report(clean), self._report(clean))
+        for key in ("total_attributed_auditor_cost", "total_peak_context",
+                    "total_round_count"):
+            self.assertIsInstance(baseline[key], int, key)
+        for channel in self._CHANNELS:
+            dirty = dict(clean, **{channel: 1})
+            for before, after in ((self._report(dirty), self._report(clean)),
+                                  (self._report(clean), self._report(dirty))):
+                delta = CICE._paired_delta(before, after)
+                for key in ("total_attributed_auditor_cost", "total_peak_context",
+                            "total_round_count"):
+                    self.assertEqual(
+                        delta[key], "unestablished",
+                        "{} stayed measured with {} > 0".format(key, channel))
+
+    def test_the_guard_covers_the_live_skip_key_set(self):
+        """The channel list above is reconciled against `eval_corpus`'s own tally.
+
+        A channel added to `eval_corpus` and not to `_CHANNELS` would leave this test
+        asserting less than the guard covers while both stayed green.
+        """
+        with tempfile.TemporaryDirectory() as empty:
+            _runs, skipped = CICE.eval_corpus(empty)
+        self.assertEqual(set(skipped), set(self._CHANNELS))
 
 
 if __name__ == "__main__":
