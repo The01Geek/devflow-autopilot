@@ -96,6 +96,10 @@ class ModuleRunnerTests(unittest.TestCase):
         self._write_module(
             "heavy-units.sh",
             'printf "HEAVY-UNITS=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\n'
+            # A real child PROCESS, not another subshell: this is the only shape that
+            # observes the runner's `export -n`, whose whole job is to stop the mode
+            # propagating past the module body it is meant for.
+            'bash -c \'printf "HEAVY-UNITS-CHILD=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\'\n'
             'assert_eq "heavy-units assertion" "expected" "expected"\n',
         )
         self._write_module(
@@ -200,25 +204,40 @@ class ModuleRunnerTests(unittest.TestCase):
                 result = self._run("heavy-units", extra_env=extra_env)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("HEAVY-UNITS=full", result.stdout)
+                # A full run must carry no bounded-run notice: the inverted-guard mutant
+                # (which would stamp every CI shard's log as reduced) is caught only here.
+                self.assertNotIn("REQUESTED bounded", result.stdout)
 
     def test_heavy_units_flag_selects_the_bounded_population(self) -> None:
         """The one channel that CAN select the bounded population is the explicit flag,
-        which is what makes the choice visible at the call site that made it."""
+        which is what makes the choice visible at the call site that made it.
+
+        The two further assertions pin the runner's own reduced-run accounting. The notice
+        is the only signal a bounded run leaves in the artifact a shard log preserves — the
+        summary line above it cannot carry one, because its shape is machine-consumed — and
+        the child-process probe pins the `export -n`, without which the runner's own
+        `--heavy-units smoke` would propagate to every process launched underneath it. Both
+        lines are deletion-safe otherwise: nothing else in the suite observes either."""
         result = self._run_args("--heavy-units", "smoke", "heavy-units")
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("HEAVY-UNITS=smoke", result.stdout)
+        self.assertIn(
+            "Module heavy-units: heavy units REQUESTED bounded (--heavy-units smoke)",
+            result.stdout,
+        )
+        self.assertIn("HEAVY-UNITS-CHILD=unset", result.stdout)
 
     def test_heavy_units_rejects_an_unrecognized_or_missing_value(self) -> None:
         """A misspelled mode must not fall through to either population: to `full` it
         would hide the defect behind a green run, and to `smoke` it would drop coverage.
         The runner refuses at selection time, before any module is sourced.
 
-        Each arm asserts the refusing guard's OWN message, not merely `selector error`:
-        every rejection this runner emits — an unknown option, a missing module id —
-        exits 2 with that same substring, so a bare exit-code-plus-substring assertion
-        would stay green against a mutant that deleted the guard under test and let a
-        neighbouring one do the rejecting."""
+        The refusing guard's OWN message is pinned per arm, not merely `selector error`:
+        a neighbouring rejection in this runner — an unknown option, a missing module id —
+        also exits 2 carrying that same substring, so a bare exit-code-plus-substring
+        assertion would stay green against a mutant that deleted the guard under test and
+        let one of those do the rejecting."""
         for args, expected in (
             (
                 ("--heavy-units", "smoak", "heavy-units"),

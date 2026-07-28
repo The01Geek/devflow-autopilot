@@ -376,10 +376,11 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # points here rather than restating it.
 #
 # COUPLED SITES for the `bound_note` sentence below: it is not decoration — it is the only
-# signal a caller has that a run took the bounded path, and two tests in a different
-# directory assert it (lib/test/test_module_harness.py's smoke tests, and the meta-test in
-# lib/test/test_module_runner.py, whose assertRegex on it is what stops dropped flag
-# plumbing from silently restoring a duplicate execution). Reword it and reconcile both.
+# signal a caller has that a run took the bounded path, and it is asserted in
+# lib/test/test_module_harness.py (both its presence on a bounded run and its absence on a
+# full one) and in lib/test/test_module_runner.py, whose assertRegex on it is what stops
+# dropped flag plumbing from silently restoring a duplicate execution. Reword it and
+# reconcile those.
 #   full  — the default, applied when the argument is absent OR empty, so a caller that
 #           says nothing (or forwards an unset variable) always gets every test.
 #   smoke — enumerate only the FIRST test of each test CLASS that the loader produced a test

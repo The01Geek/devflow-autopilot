@@ -44762,24 +44762,34 @@ assert_eq "#877 an unknown shard name is rejected" "nonzero" \
 E890_SDIR="$(git_sandbox '#890 shard argv fixture')"
 mkdir -p "$E890_SDIR/lib/test"
 cp "$E877_RUNSHARD" "$E890_SDIR/lib/test/run-shard.sh"
-# Both helpers run-shard.sh reaches through its own SCRIPT_DIR are stubbed, so the probe
-# costs two trivial spawns per shard and observes exactly one thing: the argv handed down.
+# The two helpers a MODULE shard reaches through its own SCRIPT_DIR are stubbed (the third,
+# run.sh, is reached only by the monolith shard, which owns no modules and is skipped
+# below), so the probe spawns nothing but trivial stubs and observes exactly one thing:
+# the argv the dispatcher hands down.
 printf '%s\n' '#!/usr/bin/env bash' 'printf "STUB-ARGV %s\n" "$*"' \
   > "$E890_SDIR/lib/test/run-module.sh"
 printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' \
   > "$E890_SDIR/lib/test/shard-tally.py"
-E890_ARGV=""
-for _s in modules-pin modules-large modules-rest; do
-  E890_ARGV="$E890_ARGV$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
+# The shard population is DERIVED from the dispatcher, not hand-listed: a hand-listed
+# triple would silently stop probing a newly added shard, and the assertion below would
+# stay green for it. The monolith sentinel is excluded by its own empty module group, so
+# the exclusion is derived too.
+E890_FLAGS=""
+E890_UNOBSERVED=""
+for _s in $(bash "$E877_RUNSHARD" --list-shards 2>/dev/null); do
+  [ -n "$(bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null)" ] || continue
+  E890_OUT="$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
     bash "$E890_SDIR/lib/test/run-shard.sh" "$_s" 2>/dev/null | grep '^STUB-ARGV ' || true)"
+  E890_FLAGS="$E890_FLAGS$(printf '%s' "$E890_OUT" | grep -o -- '--heavy-units' || true)"
+  # Per-shard, not aggregate: a shard that stopped reaching run-module.sh at all would
+  # contribute no argv, so the flag match above would stay vacuously empty for it while an
+  # aggregate control kept passing on some OTHER shard's output.
+  [ -n "$E890_OUT" ] || E890_UNOBSERVED="$E890_UNOBSERVED $_s"
 done
 assert_eq "#890 no module shard passes a coverage-reducing --heavy-units flag" "" \
-  "$(printf '%s' "$E890_ARGV" | grep -o -- '--heavy-units' || true)"
-# Positive control for the probe itself: the stub DID run and DID report an argv, so the
-# empty match above is a real absence rather than a probe that never observed anything.
-assert_eq "#890 positive control: the argv probe observed the dispatcher's real invocations" \
-  "harness-python-guards" \
-  "$(printf '%s' "$E890_ARGV" | grep -o 'harness-python-guards' || true)"
+  "$E890_FLAGS"
+assert_eq "#890 positive control: every module shard's dispatch was actually observed" "" \
+  "$E890_UNOBSERVED"
 rm -rf "$E890_SDIR"
 
 # ── Tally recombination (shard-tally.py) ──

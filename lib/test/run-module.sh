@@ -63,15 +63,18 @@ while [ "$#" -gt 0 ]; do
     --heavy-units)
       # How much of a module's heaviest unit to run (issue #890) — see
       # devflow_run_sharded_python_test in lib/test/module-harness.sh for what each mode
-      # means. `full` is the default, and no shard or suite runner passes this flag at
-      # all; the sole call site in the tree is the pooled real-runner meta-test in
-      # lib/test/test_module_runner.py, which passes `smoke` because it drives a module
-      # end-to-end purely to prove the runner drives it, and must not pay that module's
-      # whole population a second time in the same CI run. A decision this consequential
-      # is a FLAG rather than an inherited environment read, so it is visible at the call
-      # site that chose it rather than acquired from an ambient variable.
+      # means. `full` is the default, and no shard or suite runner passes this flag at all
+      # (asserted by the #890 argv probe in lib/test/run.sh). Its only CONSUMING call site
+      # is the pooled real-runner meta-test in lib/test/test_module_runner.py, which passes
+      # `smoke` because it drives a module end-to-end purely to prove the runner drives it,
+      # and must not pay that module's whole population a second time in the same CI run;
+      # the flag's own behavior tests in that same file drive it against a fixture module.
+      # A decision this consequential is a FLAG rather than an inherited environment read,
+      # so it is visible at the call site that chose it rather than acquired from an
+      # ambient variable.
       [ "$#" -ge 2 ] || { usage; selector_error "--heavy-units requires full or smoke"; }
-      # Consumed by the dynamically selected module sourced in the worker.
+      # Consumed by the dynamically selected module sourced in the worker, and read again
+      # by this script itself when it emits the bounded-run notice after the summary.
       # shellcheck disable=SC2034
       case "$2" in
         full|smoke) MODULE_HEAVY_UNIT_MODE="$2" ;;
@@ -441,15 +444,18 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
   printf '\nModule %s: %s passed, %s failed\n' "$MODULE_ID" "$PASS_COUNT" "$FAIL_COUNT"
   # A bounded run is a coverage reduction, and the summary line above cannot express one:
   # its shape is a machine-consumed contract (lib/test/shard-tally.py anchors a regex on it
-  # end to end, and the CONTRIBUTING-step-8 meta-tests assert it as an exact line), so the
+  # end to end, and the harness-python-guards step-8 meta-test asserts it as an exact
+  # splitlines() member — the other step-8 meta-tests only substring-match it), so the
   # notice is its own line rather than a suffix. Without it a reader — or a future shard —
   # would see a bounded run's tally and a full run's tally as byte-identical, which is the
   # same "a reduced run is never a clean pass" rule issue #456 established for skips.
-  # It reports what was REQUESTED; whether any unit actually bounded anything is the
-  # driver's own tally line, above it in this log — only a module that consumes the mode
-  # reports a bound, so asking for `smoke` on a module that ignores it is a full run.
+  #
+  # It reports what was REQUESTED, and says so, because that is all this scope can
+  # establish: only a module that reads the mode bounds anything, so requesting `smoke` for
+  # a module that ignores it yields a full run. Whether a unit actually bounded its
+  # population is the driver's own tally line, above this one in the same log.
   if [ "$MODULE_HEAVY_UNIT_MODE" != full ]; then
-    printf 'Module %s: heavy units BOUNDED (--heavy-units %s) — this run did NOT execute the full population\n' \
+    printf 'Module %s: heavy units REQUESTED bounded (--heavy-units %s) — a module that reads this mode did NOT execute its full population; see the driver tally above\n' \
       "$MODULE_ID" "$MODULE_HEAVY_UNIT_MODE"
   fi
   if [ "$FAIL_COUNT" -gt 0 ]; then

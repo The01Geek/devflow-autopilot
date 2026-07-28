@@ -159,10 +159,11 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
 
         It needs its own test because its failure mode is entirely invisible: the sharded
         driver folds either population into exactly one assert_eq, and `minimum_assertions`
-        is a floor, so a dropped pin moves neither the module tally nor the suite summary.
-        Both halves are asserted — the default, and a hostile exported value — mirroring
-        the symmetric coverage the focused runner's flag already has in
-        lib/test/test_module_runner.py."""
+        is a floor, so a dropped assignment moves neither the module tally nor the suite
+        summary. Both halves are asserted — the default, and a hostile exported value —
+        mirroring the coverage the focused runner's own unconditional assignment has in
+        lib/test/test_module_runner.py's
+        test_heavy_units_defaults_to_full_and_ignores_an_inherited_value."""
         for exported in (None, "smoke"):
             with self.subTest(exported=exported):
                 environment = os.environ.copy()
