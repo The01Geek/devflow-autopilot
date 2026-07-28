@@ -152,6 +152,55 @@ class FullSuiteModuleHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["PASS"])
 
+    def test_full_suite_boundary_pins_the_heavy_unit_population_to_full(self) -> None:
+        """Issue #890. devflow_run_full_suite_module assigns MODULE_HEAVY_UNIT_MODE=full
+        unconditionally, and that assignment is the only thing standing between an
+        inherited `smoke` and a silently reduced complete-suite run.
+
+        It needs its own test because its failure mode is entirely invisible: the sharded
+        driver folds either population into exactly one assert_eq, and `minimum_assertions`
+        is a floor, so a dropped pin moves neither the module tally nor the suite summary.
+        Both halves are asserted — the default, and a hostile exported value — mirroring
+        the symmetric coverage the focused runner's flag already has in
+        lib/test/test_module_runner.py."""
+        for exported in (None, "smoke"):
+            with self.subTest(exported=exported):
+                environment = os.environ.copy()
+                if exported is None:
+                    environment.pop("MODULE_HEAVY_UNIT_MODE", None)
+                else:
+                    environment["MODULE_HEAVY_UNIT_MODE"] = exported
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    root = Path(temporary_directory)
+                    module = root / "module.sh"
+                    module.write_text(
+                        'printf "HEAVY-UNITS=%s\\n" "${MODULE_HEAVY_UNIT_MODE-unset}"\n'
+                        'printf "PASS\\n" >> "$RESULTS_FILE"\n',
+                        encoding="utf-8",
+                    )
+                    driver = root / "driver.sh"
+                    driver.write_text(
+                        "#!/usr/bin/env bash\n"
+                        f'RESULTS_FILE="{root / "results"}"\n'
+                        f'MODULE_FAILURES_FILE="{root / "failures"}"\n'
+                        '> "$RESULTS_FILE"\n'
+                        '> "$MODULE_FAILURES_FILE"\n'
+                        "assert_eq() { :; }\n"
+                        f'. "{HARNESS}"\n'
+                        f'devflow_run_full_suite_module "{module}" "sample" 1\n',
+                        encoding="utf-8",
+                    )
+                    result = subprocess.run(
+                        ["bash", str(driver)],
+                        cwd=root,
+                        env=environment,
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("HEAVY-UNITS=full", result.stdout, result.stdout + result.stderr)
+
     def test_rejected_relative_scratch_allocation_is_removed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
@@ -1822,7 +1871,7 @@ class ShardedPythonTestDriverTests(unittest.TestCase):
         env_extra: str = "",
         mode: "str | None" = None,
     ) -> "tuple[str, str]":
-        """Run the driver over SCRIPT_PATH, returning (tally line, combined output).
+        """Run the driver over SCRIPT_PATH, returning (VERDICT line, combined output).
 
         `mode` is the driver's optional fourth positional argument (issue #890). None
         omits it entirely, which is the shape every pre-#890 call site uses and must keep
@@ -1898,15 +1947,23 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             )
 
     def test_smoke_mode_still_fails_closed_on_a_failure_inside_the_bounded_subset(self):
-        # A bounded run is not a weaker verdict for what it does run. The planted failure
-        # is in `alpha_0`, the first test of the first class, which is exactly the test
-        # the bound keeps — so the aggregate must still go RED and still echo the
-        # capture. Without this, "bounded" could quietly mean "unfailable".
-        with tempfile.TemporaryDirectory() as tmp:
-            suite = self._write_suite(tmp, alpha=5, beta=4, fail_in="alpha_0")
-            verdict, output = self._drive(suite, mode="smoke")
-            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
-            self.assertIn("planted", output)
+        # A bounded run is not a weaker verdict for what it does run. Without this,
+        # "bounded" could quietly mean "unfailable".
+        #
+        # The two planted failures are what make the per-CLASS property observable, and
+        # the second one is load-bearing: the count assertions in the test above are
+        # satisfied by "the first two selectors overall" just as well as by "the first of
+        # each class", so a regression to a flat head-N bound would keep them green while
+        # silently never entering the later classes. `beta_0` is the first test of the
+        # SECOND class — a test a head-2 bound would never reach — so a run that goes RED
+        # on it can only have entered BetaTests.
+        for planted in ("alpha_0", "beta_0"):
+            with self.subTest(planted=planted):
+                with tempfile.TemporaryDirectory() as tmp:
+                    suite = self._write_suite(tmp, alpha=5, beta=4, fail_in=planted)
+                    verdict, output = self._drive(suite, mode="smoke")
+                    self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+                    self.assertIn("planted", output)
 
     def test_an_absent_or_empty_mode_runs_the_full_population(self):
         # The default direction is the safe one: a caller that names no mode, or names an

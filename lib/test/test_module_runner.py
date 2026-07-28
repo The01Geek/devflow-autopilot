@@ -212,17 +212,35 @@ class ModuleRunnerTests(unittest.TestCase):
     def test_heavy_units_rejects_an_unrecognized_or_missing_value(self) -> None:
         """A misspelled mode must not fall through to either population: to `full` it
         would hide the defect behind a green run, and to `smoke` it would drop coverage.
-        The runner refuses at selection time, before any module is sourced."""
-        for args in (
-            ("--heavy-units", "smoak", "heavy-units"),
-            ("--heavy-units", "Smoke", "heavy-units"),
-            ("--heavy-units",),
+        The runner refuses at selection time, before any module is sourced.
+
+        Each arm asserts the refusing guard's OWN message, not merely `selector error`:
+        every rejection this runner emits — an unknown option, a missing module id —
+        exits 2 with that same substring, so a bare exit-code-plus-substring assertion
+        would stay green against a mutant that deleted the guard under test and let a
+        neighbouring one do the rejecting."""
+        for args, expected in (
+            (
+                ("--heavy-units", "smoak", "heavy-units"),
+                "--heavy-units takes full or smoke, not 'smoak'",
+            ),
+            (
+                ("--heavy-units", "Smoke", "heavy-units"),
+                "--heavy-units takes full or smoke, not 'Smoke'",
+            ),
+            (("--heavy-units",), "--heavy-units requires full or smoke"),
         ):
             with self.subTest(args=args):
                 result = self._run_args(*args)
                 self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-                self.assertIn("selector error", result.stderr)
+                self.assertIn(f"selector error: {expected}", result.stderr)
                 self.assertNotIn("HEAVY-UNITS=", result.stdout)
+        # Positive control on the same fixture: the module id and the runner are otherwise
+        # valid, so each rejection above is attributable to the flag under test rather than
+        # to a precondition the fixture itself fails.
+        control = self._run_args("--heavy-units", "smoke", "heavy-units")
+        self.assertEqual(control.returncode, 0, control.stdout + control.stderr)
+        self.assertIn("HEAVY-UNITS=smoke", control.stdout)
 
     def test_exact_selection_runs_one_module_and_persists_its_log(self) -> None:
         result = self._run("sample")
@@ -1449,14 +1467,16 @@ class ModuleRunnerTests(unittest.TestCase):
         was the critical path of the required check. The run below therefore passes
         `--heavy-units smoke`, which bounds that one unit to a single test per class.
 
-        What the test proves is unchanged, and that is the point: it still invokes
-        lib/test/run-module.sh against the real module id, still requires exit 0, and
-        still requires the module's own emitted tally to EQUAL the registry floor — the
-        three things CONTRIBUTING.md step 8 asks for, none of which is weakened by the
-        bounded unit, because the bound changes how many Python tests one assertion covers
-        and not how many assertions the module emits. The full population still runs
-        exactly once per CI run, in `modules-pin`, which passes no flag and therefore gets
-        the runner's `full` default.
+        What the test proves is unchanged, and that is the point. CONTRIBUTING.md step 8
+        asks for three things: invoke lib/test/run-module.sh against the module id, read
+        the `minimum_assertions` floor from the registry rather than hard-coding a second
+        copy, and assert the emitted summary equals `Module <id>: {floor} passed, 0
+        failed`. All three still hold below (the exit-0 assertion is an additional
+        property this test has always carried, not one of step 8's three), and none is
+        weakened by the bounded unit, because the bound changes how many Python tests one
+        assertion covers and not how many assertions the module emits. The full population
+        still runs exactly once per CI run, in `modules-pin`, which passes no flag and
+        therefore gets the runner's `full` default.
 
         The bound is ASSERTED, not assumed: without the last assertion below, a future
         change that dropped the flag plumbing would silently restore the duplicate

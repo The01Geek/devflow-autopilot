@@ -44751,6 +44751,37 @@ assert_eq "#877 the monolith shard owns no modules (it runs run.sh minus the mod
 assert_eq "#877 an unknown shard name is rejected" "nonzero" \
   "$(bash "$E877_RUNSHARD" --modules-of not-a-shard >/dev/null 2>&1 && echo zero || echo nonzero)"
 
+# ── No shard ever requests a bounded heavy-unit population (issue #890) ──
+# `run-module.sh --heavy-units smoke` reduces what a module executes. The whole
+# "the full population still runs exactly once per CI run, in modules-pin" argument rests
+# on the dispatcher passing no such flag, and the #877 union assertion above cannot see it:
+# it compares which MODULES each shard names, never the ARGUMENTS it invokes them with, so
+# adding `--heavy-units smoke` to a shard arm would erase the full population from CI while
+# every tally above stayed green. Drive the dispatcher in a fixture tree whose run-module.sh
+# is a stub that records its own argv, and assert the recorded argv carries no such flag.
+E890_SDIR="$(git_sandbox '#890 shard argv fixture')"
+mkdir -p "$E890_SDIR/lib/test"
+cp "$E877_RUNSHARD" "$E890_SDIR/lib/test/run-shard.sh"
+# Both helpers run-shard.sh reaches through its own SCRIPT_DIR are stubbed, so the probe
+# costs two trivial spawns per shard and observes exactly one thing: the argv handed down.
+printf '%s\n' '#!/usr/bin/env bash' 'printf "STUB-ARGV %s\n" "$*"' \
+  > "$E890_SDIR/lib/test/run-module.sh"
+printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' \
+  > "$E890_SDIR/lib/test/shard-tally.py"
+E890_ARGV=""
+for _s in modules-pin modules-large modules-rest; do
+  E890_ARGV="$E890_ARGV$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
+    bash "$E890_SDIR/lib/test/run-shard.sh" "$_s" 2>/dev/null | grep '^STUB-ARGV ' || true)"
+done
+assert_eq "#890 no module shard passes a coverage-reducing --heavy-units flag" "" \
+  "$(printf '%s' "$E890_ARGV" | grep -o -- '--heavy-units' || true)"
+# Positive control for the probe itself: the stub DID run and DID report an argv, so the
+# empty match above is a real absence rather than a probe that never observed anything.
+assert_eq "#890 positive control: the argv probe observed the dispatcher's real invocations" \
+  "harness-python-guards" \
+  "$(printf '%s' "$E890_ARGV" | grep -o 'harness-python-guards' || true)"
+rm -rf "$E890_SDIR"
+
 # ── Tally recombination (shard-tally.py) ──
 E877_TDIR="$(mktemp -d 2>/dev/null || true)"
 if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then

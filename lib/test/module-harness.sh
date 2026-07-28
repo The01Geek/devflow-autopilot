@@ -371,9 +371,15 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # directory feeds a prior call's results into this call's count and defeats the
 # executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
 #
-# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). This is the single home of
-# the mode's meaning; the two runners that select one (`run-module.sh --heavy-units` and
-# devflow_run_full_suite_module) carry a pointer here, not a second copy.
+# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). This is where the mode's
+# meaning is defined; the module call site (lib/test/modules/harness-python-guards.sh)
+# points here rather than restating it.
+#
+# COUPLED SITES for the `bound_note` sentence below: it is not decoration — it is the only
+# signal a caller has that a run took the bounded path, and two tests in a different
+# directory assert it (lib/test/test_module_harness.py's smoke tests, and the meta-test in
+# lib/test/test_module_runner.py, whose assertRegex on it is what stops dropped flag
+# plumbing from silently restoring a duplicate execution). Reword it and reconcile both.
 #   full  — the default, applied when the argument is absent OR empty, so a caller that
 #           says nothing (or forwards an unset variable) always gets every test.
 #   smoke — enumerate only the FIRST test of each test CLASS that the loader produced a test
@@ -427,7 +433,9 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [fu
   # added class is scheduled (and counted) without editing this driver. In `full` mode the
   # printed count IS "the number an unsharded run would execute" — derived by collection
   # only, never by a second full serial run, which would cost exactly what this saves. In
-  # `smoke` mode it is the number of test CLASSES, and the executed-vs-enumerated check
+  # `smoke` mode it is the number of test classes the loader produced at least one test for
+  # (see the mode contract above for why that is not the same as the file's class count),
+  # and the executed-vs-enumerated check
   # below is unchanged: it compares against whatever this enumeration decided, so a
   # bounded run still fails closed on dropped work.
   if ! PYTHON_COLORS=0 python3 - "$script_path" "$mode" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
@@ -1307,10 +1315,12 @@ devflow_run_full_suite_module() { # module-path module-name minimum-assertions
       # Consumed by module_host_capability_skip in the sourced module.
       # shellcheck disable=SC2034,SC2030
       MODULE_SKIP_CREDIT_FILE="$module_skip_credit_file"
-      # Heavy-unit population (issue #890). The full suite always runs the full one, and
-      # this is an unconditional assignment rather than an environment-derived default so
-      # an inherited MODULE_HEAVY_UNIT_MODE cannot shrink what the suite executes. The
-      # focused runner's --heavy-units flag is the only thing that ever selects `smoke`.
+      # Heavy-unit population (issue #890). When the full suite runs a module at all — it
+      # does not under DEVFLOW_SKIP_SUITE_MODULES=1, the monolith CI shard's selector — it
+      # always runs the full population, and this is an unconditional assignment rather
+      # than an environment-derived default so an inherited MODULE_HEAVY_UNIT_MODE cannot
+      # shrink what the suite executes. The focused runner's --heavy-units flag is the only
+      # thing that ever selects `smoke`.
       # shellcheck disable=SC2034,SC2030
       MODULE_HEAVY_UNIT_MODE=full
       unset MODULE_FAILURES_FILE
