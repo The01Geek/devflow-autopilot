@@ -23519,19 +23519,28 @@ assert_eq "provision: setup config_json sourced from base (steps.baseprovision)"
 # warn (collapse to read-only), not abort the job. Pin both halves of that arm.
 assert_eq "provision: malformed base config resets BASE_JSON to {}" "1" \
   "$(grep -c "BASE_JSON='{}'" "$RUNNER" | awk '{print ($1>=1)?1:0}')"
-assert_eq "provision: malformed/non-object base config warns + read-only" "1" \
+# TWO steps warn on a malformed base config since issue #874: baseprovision (which
+# collapses to read-only) and the baseversion step (which emits an empty
+# devflow_version, so vendor-slice.sh fails closed on the fetch branch). Both are the
+# same trusted-read arm, so the count moves with the second reader.
+assert_eq "provision: malformed/non-object base config warns + read-only (baseprovision + #874 baseversion)" "2" \
   "$(grep -c 'malformed or non-object .devflow/config.json' "$RUNNER" || true)"
 
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-# Two sites read the trusted BASE_REF from the event payload and fetch it: the
-# baseprovision step and the #458 harden-stop-hooks step (same trusted-source rule).
-assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden step)" "2" \
+# THREE sites read the trusted BASE_REF from the event payload and fetch it: the
+# baseprovision step, the #458 harden-stop-hooks step, and the #874 baseversion step
+# (all under the same trusted-source rule). The #874 step fetches independently rather
+# than relying on another step's FETCH_HEAD surviving — reading FETCH_HEAD outside the
+# branch that established it is the misattribution that trust rule exists to prevent.
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden + #874 baseversion)" "3" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden step)" "2" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden + #874 baseversion)" "3" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
-assert_eq "provision: provision_env read from FETCH_HEAD base config" "1" \
+# Two readers of the trusted base config: baseprovision (provision_env, allowed_tools,
+# setup) and the #874 baseversion step (devflow_version).
+assert_eq "provision: base config read from FETCH_HEAD (provision_env + #874 devflow_version)" "2" \
   "$(grep -c 'FETCH_HEAD:.devflow/config.json' "$RUNNER" || true)"
 
 # Security: the flag is read EXACTLY ONCE, and only from the base-ref config

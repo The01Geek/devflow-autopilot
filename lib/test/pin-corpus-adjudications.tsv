@@ -410,7 +410,8 @@ literal:8c60f9a42078133fd135e0fff5a2ab130c76a54d0aa1c26de5b018ea75221d2f	boundar
 literal:8c737a198de5a831b932b5ba6aaea7466f033aec86f19eb3f54bafc97f0a0b52	boundary	maintainer adjudication: docs-root repository_enumeration_contract: The operative root convention requires index-based enumeration so checks remain invariant in repositories containing sibling worktrees.
 literal:8ce2f5941a380e3aed2bacb7b8d31620137b596dd8b0a77f976c448908651a7b	boundary	maintainer adjudication: review VS: verdict finding-schema boundary: 339(AC1): defect_signature kind enum gains documented_falsehood
 literal:8d594892ca8e0c5ad44de919ba7513c70a87cf73354b0f9b0aac4e47ed481a60	boundary	maintainer adjudication: declared security or interface boundary
-literal:8f6b70862aa85d9b3529968ee16bd6bd9b7ce6549861a5489ff58023dcb46f16	boundary	maintainer adjudication: declared security or interface boundary
+literal:4b605af16379dd92726605468dbaf29935cc390251a9ed21fd5dae57485fede1	boundary	maintainer adjudication: declared security or interface boundary
+literal:b1e0d0d7c20a42b1352df809f7d8be9d32ac7bc43e5aabe47fce3b1322868d4b	boundary	maintainer adjudication: declared security or interface boundary
 literal:8f826d917fdb95f5ae31ec1c21442d63f82c444c4ef24fe03f29b7c0c473bddc	boundary	maintainer adjudication: review-and-fix FAIL_CLOSED: Stops mutation when pre-fix gate coverage is unreadable.
 literal:9053990cfddb4e6947a9cdb0c64dd7ca1a25cef6d31fb129e01b16e8ce7c6fb5	boundary	Retain routing/state-transition contract: #312 item 5: Phase 2.3 carries the stub-blindness rule.
 literal:906149d0dccf54694f6b54f023113143c21b5f8c7bb4176c74461af1c2be4a75	boundary	maintainer adjudication: review-and-fix CONFIG_ROUTING: Pins fail-closed iteration-cap derivation syntax.
