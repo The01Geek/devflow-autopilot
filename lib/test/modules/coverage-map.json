@@ -19,6 +19,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/compose-filing-key.sh": {
+      "note": "issue #891 opaque filing-key composition helper",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/compute-patterns.jq": {
       "note": "issue #788 retrospective issue-closure lifecycle",
       "owner": "retrospective-lifecycle"
@@ -114,6 +118,10 @@
     "lib/scan.sh": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "lib/slugify.jq": {
+      "note": "issue #891 shared slugify module (compute-patterns.jq + compose-filing-key.sh include it)",
+      "owner": "retrospective-lifecycle"
     },
     "lib/telemetry-branch.sh": {
       "note": "",
@@ -1724,6 +1732,10 @@
     "890": {
       "note": "",
       "owner": "unmodularized"
+    },
+    "891": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
     },
     "91": {
       "note": "",

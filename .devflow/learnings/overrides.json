@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "patterns": {
     "tooling-gap": {
       "state": "declined",
@@ -13,7 +13,8 @@
           "closedAt": "2026-06-28T21:24:43Z",
           "fixed_at": "2026-06-28T21:24:43Z"
         }
-      ]
+      ],
+      "category": "tooling-gap"
     },
     "incomplete-edit": {
       "state": "fixed",
@@ -27,7 +28,8 @@
           "closedAt": "2026-06-03T22:46:33Z",
           "fixed_at": "2026-06-03T22:46:33Z"
         }
-      ]
+      ],
+      "category": "incomplete-edit"
     },
     "convention-violation": {
       "state": "fixed",
@@ -41,7 +43,8 @@
           "closedAt": "2026-06-30T07:35:57Z",
           "fixed_at": "2026-06-30T07:35:57Z"
         }
-      ]
+      ],
+      "category": "convention-violation"
     },
     "doc-accuracy": {
       "state": "fixed",
@@ -55,7 +58,8 @@
           "closedAt": "2026-06-30T03:55:01Z",
           "fixed_at": "2026-06-30T03:55:01Z"
         }
-      ]
+      ],
+      "category": "doc-accuracy"
     },
     "issue-quality": {
       "state": "fixed",
@@ -69,7 +73,8 @@
           "closedAt": "2026-06-30T04:32:25Z",
           "fixed_at": "2026-06-30T04:32:25Z"
         }
-      ]
+      ],
+      "category": "issue-quality"
     },
     "lenient-verdict": {
       "state": "fixed",
@@ -83,7 +88,8 @@
           "closedAt": "2026-06-30T04:29:16Z",
           "fixed_at": "2026-06-30T04:29:16Z"
         }
-      ]
+      ],
+      "category": "lenient-verdict"
     },
     "unverified-assumption": {
       "state": "fixed",
@@ -97,7 +103,8 @@
           "closedAt": "2026-06-30T01:16:40Z",
           "fixed_at": "2026-06-30T01:16:40Z"
         }
-      ]
+      ],
+      "category": "unverified-assumption"
     },
     "deferred-verification": {
       "state": "fixed",
@@ -111,7 +118,8 @@
           "closedAt": "2026-07-09T05:02:37Z",
           "fixed_at": "2026-07-09T05:02:37Z"
         }
-      ]
+      ],
+      "category": "deferred-verification"
     },
     "unmet-acceptance-criteria": {
       "state": "fixed",
@@ -125,7 +133,8 @@
           "closedAt": "2026-07-09T14:10:44Z",
           "fixed_at": "2026-07-09T14:10:44Z"
         }
-      ]
+      ],
+      "category": "unmet-acceptance-criteria"
     },
     "outstanding-reject": {
       "state": "fixed",
@@ -139,7 +148,8 @@
           "closedAt": "2026-07-09T03:48:45Z",
           "fixed_at": "2026-07-09T03:48:45Z"
         }
-      ]
+      ],
+      "category": "outstanding-reject"
     },
     "fabricated-claim": {
       "state": "fixed",
@@ -153,7 +163,8 @@
           "closedAt": "2026-07-24T10:11:25Z",
           "fixed_at": "2026-07-24T10:11:25Z"
         }
-      ]
+      ],
+      "category": "fabricated-claim"
     }
   },
   "dismissed": {}

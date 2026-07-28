@@ -21,8 +21,12 @@
 # Output (stdout):
 #   Compact JSON array of actionable pattern objects, each shaped as:
 #     {
-#       "tag":              <string>,          # category slug (== slug)
-#       "slug":             <string>,          # URL-safe issue-filing slug (== tag)
+#       "tag":              <string>,          # the entry's own (opaque) filing key (== slug)
+#       "slug":             <string>,          # URL-safe issue-filing key (== tag)
+#       "category":         <string>,          # attribution category (issue #891):
+#                                              #   the entry's own key when it holds no
+#                                              #   lifecycle record, else the record's
+#                                              #   stored category
 #       "occurrence_count": <int>,
 #       "status":           "open"|"regressed" (any of the six lifecycle
 #                           values under --full),
@@ -102,7 +106,7 @@ COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
 # ── Stub overrides.json if absent or empty (first-run safety) ─────────────────
 _OVERRIDES_ACTUAL="$OVERRIDES_FILE"
 if [ ! -f "$OVERRIDES_FILE" ] || [ ! -s "$OVERRIDES_FILE" ]; then
-    printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$_JQ_TMP/overrides.json"
+    printf '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$_JQ_TMP/overrides.json"
     _OVERRIDES_ACTUAL="$_JQ_TMP/overrides.json"
 fi
 
@@ -111,13 +115,13 @@ fi
 # pipe an empty stream to jq rather than letting it error on a missing file.
 if [ -f "$RETRO_FILE" ] && [ -s "$RETRO_FILE" ]; then
   PATTERN_VIEW="$(
-    "$DEVFLOW_JQ" -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
+    "$DEVFLOW_JQ" -s -L "$HERE" --slurpfile overrides "$_OVERRIDES_ACTUAL" \
        -f "$HERE/compute-patterns.jq" \
        "$RETRO_FILE"
   )"
 else
   PATTERN_VIEW="$(
-    printf '' | "$DEVFLOW_JQ" -s --slurpfile overrides "$_OVERRIDES_ACTUAL" \
+    printf '' | "$DEVFLOW_JQ" -s -L "$HERE" --slurpfile overrides "$_OVERRIDES_ACTUAL" \
        -f "$HERE/compute-patterns.jq"
   )"
 fi
@@ -242,6 +246,12 @@ OUTPUT="$(
       | {
           tag: $tag,
           slug: $slug,
+          # The attribution category (issue #891): equals the entry own key when
+          # it holds no lifecycle record, else the stored category on the record.
+          # Emitted so the run report can name both the opaque filing key and the
+          # category, and so Step 8c can bind the per-category cap comparand to it.
+          # (No apostrophes here: this jq program sits inside bash single quotes.)
+          category: ($v.category // $tag),
           occurrence_count: $v.occurrence_count,
           status: $v.status,
           first_seen: $v.first_seen,

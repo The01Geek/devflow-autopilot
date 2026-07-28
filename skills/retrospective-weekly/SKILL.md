@@ -326,7 +326,8 @@ The script prints `"materialized: appended N, replaced M"` to stdout.
 
 First reconcile every pattern's lifecycle record against the live state of its
 filed meta-issue (issue #788): `pattern-state.sh run` migrates the overrides file
-to schema v2 in place (on first read) and refreshes each `filed`/`fixed`/`declined`
+to schema v3 in place (on first read — issue #891 stamps each record's `category`
+field) and refreshes each `filed`/`fixed`/`declined`
 state, so the pattern view derived below already reflects this run's reconciliation.
 It runs **before** `actionable-patterns.sh`; a wholesale reconcile failure exits
 non-zero and aborts the derivation (fail-closed — deriving patterns from
@@ -568,8 +569,10 @@ done
 ```
 
 Record, per pattern: `SLUG` (`$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`), `TAG`
-(`$LIB/../scripts/run-jq.sh -r .tag <<< "$pattern"`), the JSON array of absolute bundle paths, and the
-`pattern` object.
+(`$LIB/../scripts/run-jq.sh -r .tag <<< "$pattern"`), `CATEGORY`
+(`$LIB/../scripts/run-jq.sh -r .category <<< "$pattern"` — the attribution category
+the opaque filing key belongs to, issue #891), the JSON array of absolute bundle
+paths, and the `pattern` object.
 
 #### 8b — Dispatch all Stage B subagents concurrently
 
@@ -714,9 +717,12 @@ esac
 # back-pressure. Re-deriving (rather than incrementing a carried total) is also
 # self-correcting: meta-issue.sh writes each lifecycle record at filing time, so the
 # read already includes everything filed earlier in this run.
-PER_CAT="$(devflow_open_filed_in_category .devflow/learnings/overrides.json "$SLUG")"
+# Sum the per-category filed count across EVERY record sharing this pattern's
+# attribution CATEGORY (issue #891), not just the record keyed by its opaque filing
+# key — a category can now be spread across several sub-pattern records.
+PER_CAT="$(devflow_open_filed_for_category .devflow/learnings/overrides.json "$CATEGORY")"
 case "$PER_CAT" in
-  ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the per-category filed count for slug '$SLUG' (got '$PER_CAT') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+  ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the per-category filed count for category '$CATEGORY' (got '$PER_CAT') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
      exit 1 ;;
 esac
 # Total `filed` entries across every record, re-derived for the same reasons.
@@ -800,6 +806,7 @@ else
     if ISSUE_URL="$(bash $LIB/meta-issue.sh \
             --tag "$TAG" \
             --slug "$SLUG" \
+            --category "$CATEGORY" \
             --title "$TITLE" \
             --body-file ".devflow/tmp/issue-body-${SLUG}.md" \
             --overrides .devflow/learnings/overrides.json)"; then
