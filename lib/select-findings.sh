@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Daniel Radman
+# SPDX-License-Identifier: MIT
+# select-findings.sh — the sole owner of WHICH Stage B findings become filings for
+# one pattern (issue #893). Sourced into the retrospective orchestrator's shell; it
+# composes and legality-checks each finding's filing key, collapses subslug churn
+# onto an existing lifecycle record by a deterministic token-set alias, ranks tight
+# clusters ahead of grab-bags (descending evidence-PR count), truncates to the top
+# three, and asks the SHIPPED `devflow_filing_cap_verdict` (lib/filing-decisions.sh)
+# for every cap decision rather than re-implementing one.
+#
+# Defines: devflow_select_findings
+#
+# Contract (mirrors lib/filing-decisions.sh's sourceable, fail-closed-but-loud shape):
+#   - This file is SOURCED, so it sets NO shell options — a `set -euo pipefail` here
+#     would leak into the orchestrator, aborting the whole run on a later benign
+#     non-zero. Every function validates its own operands and RETURNS a value.
+#   - devflow_select_findings calls `exit` on NO path: an `exit` in a sourced helper
+#     terminates the orchestrator's shell mid-loop, after issues were already filed,
+#     leaving no report and no blocker line. It only ever `return`s.
+#   - On stdout it prints a JSON array of the findings to file, each shaped
+#     {key, subslug, title, body, evidence_prs, rationale, category}, in the order
+#     they should be filed (descending evidence-PR count). Report/breadcrumb lines
+#     (dropped-illegal, truncated, empty, malformed, withheld-by-cap, aliased) go to
+#     stderr with a `select-findings:` prefix the orchestrator relays.
+#   - Prints NOTHING on stdout and RETURNS non-zero when lib/filing-decisions.sh
+#     cannot be sourced (a missing cap owner withholds rather than files uncapped),
+#     and when the overrides file is absent/unreadable/unmigrated (an unreadable
+#     record set is not "no existing record" — treating it as such would open a
+#     duplicate issue per run).
+
+# jq binary: resolved once via the sourced sibling resolver (issue #247);
+# best-effort — a copied/vendored deployment without lib/ falls back to bare
+# `jq` with a breadcrumb rather than aborting under set -e.
+# shellcheck source=resolve-jq.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-jq.sh" \
+  || { echo "devflow: resolve-jq.sh could not be sourced beside ${BASH_SOURCE[0]} — using bare 'jq' (set DEVFLOW_JQ to override)" >&2; : "${DEVFLOW_JQ:=jq}"; }
+
+_SF_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source the shipped cap owner. A missing owner must WITHHOLD (return non-zero),
+# never file uncapped — so a failed source is a hard fail of the whole selection,
+# not a degrade.
+if ! . "$_SF_HERE/filing-decisions.sh" 2>/dev/null; then
+    echo "::error::select-findings: could not source lib/filing-decisions.sh beside ${BASH_SOURCE[0]} — the cap owner is unavailable, so every finding is withheld this pattern (nothing filed uncapped)" >&2
+    # Define a stub that always withholds, so a caller that sourced us despite the
+    # failed cap-owner source still fails closed rather than calling an undefined
+    # function.
+    devflow_select_findings() {
+        echo "::error::select-findings: refusing to select — lib/filing-decisions.sh was not sourced; every finding withheld" >&2
+        return 1
+    }
+    return 0 2>/dev/null || true
+fi
+
+# _sf_token_set <string> — the deterministic token-set signature used for the alias:
+# lowercase, split on non-alphanumeric runs, drop empties, sort, de-duplicate, join
+# with a single dash. The stopword set is EMPTY, so no token is dropped before
+# comparison — two strings differing by ANY token get distinct signatures. Computed
+# in jq (never tr/sed/cut — this value decides a filing selection, and CLAUDE.md bars
+# deriving a selection value through a non-preflight PATH tool).
+_sf_token_set() {
+    "$DEVFLOW_JQ" -r -n --arg s "$1" '
+        $s | ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length > 0)) | unique | join("-")'
+}
+
+# devflow_select_findings
+#   --category <cat>            attribution category (slug grammar) for these findings
+#   --findings-file <path>      JSON file: the Stage B result's `findings` array
+#   --overrides <path>          overrides.json (alias lookup + per-category cap comparand)
+#   --status <status>           the pattern's lifecycle status (regressed bypass)
+#   --filed-this-run <n>        issues filed so far this run (across all patterns)
+#   --max-per-run <n>           .devflow_retrospective.max_issues_per_run
+#   --max-per-cat <n>           .devflow_retrospective.max_open_per_category
+#   --max-open <n>              .devflow_retrospective.max_open_issues
+#
+# Emits the to-file findings array on stdout; report lines on stderr. Returns 0 on a
+# clean selection (including an empty result), non-zero only on a withhold-everything
+# condition (unreadable/unmigrated overrides, unusable operands).
+devflow_select_findings() {
+    local category="" findings_file="" overrides="" status="" \
+          filed_this_run="" max_per_run="" max_per_cat="" max_open=""
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --category)       category="$2";       shift 2 ;;
+            --findings-file)  findings_file="$2";  shift 2 ;;
+            --overrides)      overrides="$2";      shift 2 ;;
+            --status)         status="$2";         shift 2 ;;
+            --filed-this-run) filed_this_run="$2"; shift 2 ;;
+            --max-per-run)    max_per_run="$2";    shift 2 ;;
+            --max-per-cat)    max_per_cat="$2";    shift 2 ;;
+            --max-open)       max_open="$2";       shift 2 ;;
+            *) echo "::error::select-findings: unknown argument '$1'" >&2; return 2 ;;
+        esac
+    done
+
+    # ── Validate operands (withhold everything on any unusable one) ──────────────
+    if [ -z "$category" ] || [ -z "$findings_file" ] || [ -z "$overrides" ]; then
+        echo "::error::select-findings: missing required argument (--category='${category}' --findings-file='${findings_file}' --overrides='${overrides}') — withholding every finding for this pattern" >&2
+        return 2
+    fi
+    if [ ! -r "$findings_file" ]; then
+        echo "::error::select-findings: findings file '${findings_file}' is unreadable — withholding every finding for this pattern" >&2
+        return 2
+    fi
+
+    # ── Overrides gate: absent/unreadable/unmigrated → withhold, coin no key ─────
+    # An unreadable record set is NOT "no existing record"; treating it as such would
+    # skip the alias lookup and open a duplicate issue per run. `// 1` mirrors the
+    # migrator's own read so an absent version reads as v1 (a refused version).
+    if [ ! -f "$overrides" ] || [ ! -r "$overrides" ] || [ ! -s "$overrides" ]; then
+        echo "::error::select-findings: overrides file '${overrides}' is absent, unreadable, or empty — withholding every finding for this pattern (an unreadable record set is not 'no existing record')" >&2
+        return 1
+    fi
+    local _ov_schema
+    _ov_schema="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$overrides" 2>/dev/null)" || _ov_schema=""
+    if [ "$_ov_schema" != "3" ]; then
+        echo "::error::select-findings: overrides file '${overrides}' reports schema_version '${_ov_schema:-unreadable}', not 3 (the version the lifecycle writer refuses to stamp) — withholding every finding for this pattern" >&2
+        return 1
+    fi
+
+    # ── Rank by DESCENDING evidence-PR count, then truncate to the top three ─────
+    # This is the single ordering in force: Stage B's dominant-first order is
+    # advisory; the truncation and the caps consume THIS order. A malformed findings
+    # value (non-array) yields an empty ranked list here — the caller decides the
+    # malformed-vs-empty distinction before calling us (it passes an array).
+    local _ranked _n_total _n_kept
+    _ranked="$("$DEVFLOW_JQ" -c '
+        (. // []) | (arrays // [])
+        | [ .[] | (objects // empty) ]
+        | sort_by( -( (.evidence_prs | arrays // []) | length ) )' "$findings_file" 2>/dev/null)" \
+      || { echo "::error::select-findings: could not read the findings array from '${findings_file}' (jq exited non-zero) — withholding every finding for this pattern" >&2; return 1; }
+    _n_total="$("$DEVFLOW_JQ" 'length' <<<"$_ranked" 2>/dev/null)" || _n_total=0
+    if [ "${_n_total:-0}" -gt 3 ]; then
+        echo "select-findings: pattern category '${category}' returned ${_n_total} findings — keeping the top 3 by evidence-PR count and dropping $(( _n_total - 3 ))" >&2
+        _ranked="$("$DEVFLOW_JQ" -c '.[0:3]' <<<"$_ranked")"
+    fi
+    _n_kept="$("$DEVFLOW_JQ" 'length' <<<"$_ranked" 2>/dev/null)" || _n_kept=0
+
+    # ── Per-category comparand (issue #891): summed across every record whose stored
+    # `category` equals this category, so the cap bounds a whole category rather than
+    # degenerating into a per-sub-pattern cap once each finding holds its own record.
+    local _base_per_cat _base_open
+    _base_per_cat="$(devflow_open_filed_for_category "$overrides" "$category")"
+    _base_open="$(devflow_open_filed_total "$overrides")"
+
+    # ── Walk the ranked findings, composing/aliasing/legality-checking each key and
+    # asking the cap owner per finding. `_filed_here` is the running count of issues
+    # THIS call has decided to file, so the per-run / per-category / open-total
+    # comparands grow as findings are accepted (matching what Step 8c will do).
+    local _out="[]" _filed_here=0 i=0
+    while [ "$i" -lt "$_n_kept" ]; do
+        local _f _subslug _title _body _rationale _evidence
+        _f="$("$DEVFLOW_JQ" -c ".[$i]" <<<"$_ranked")"
+        _subslug="$("$DEVFLOW_JQ" -r '.subslug // "" | if type=="string" then . else "" end' <<<"$_f" 2>/dev/null)" || _subslug=""
+
+        # Drop a finding whose subslug is absent/empty — a legacy title/body result
+        # (absent subslug) is handled by the CALLER, which passes it as a bare
+        # category filing; a findings-array element with no subslug is a real drop.
+        if [ -z "$_subslug" ]; then
+            echo "select-findings: dropped a finding of category '${category}' with an absent or empty subslug (title: $("$DEVFLOW_JQ" -r '.title // "(none)"' <<<"$_f" 2>/dev/null))" >&2
+            i=$(( i + 1 )); continue
+        fi
+
+        # Compose the opaque filing key through the #891 composer.
+        local _key
+        if ! _key="$("$_SF_HERE/compose-filing-key.sh" "$category" "$_subslug" 2>/dev/null)"; then
+            echo "select-findings: dropped a finding of category '${category}' — compose-filing-key.sh rejected subslug '${_subslug}' (illegal or empties after canonicalization)" >&2
+            i=$(( i + 1 )); continue
+        fi
+        # Legality: constrain the composed key to the meta-issue.sh grammar. A key
+        # outside it exits the filing non-zero and makes the cooldown lookup silently
+        # drop the issue — so drop it here with a breadcrumb.
+        case "$_key" in
+            ''|*[!A-Za-z0-9_-]*)
+                echo "select-findings: dropped a finding of category '${category}' — composed key '${_key}' falls outside the [A-Za-z0-9_-]+ grammar" >&2
+                i=$(( i + 1 )); continue ;;
+        esac
+
+        # Alias: collapse subslug churn onto an existing record of the SAME category
+        # whose key yields an EQUAL token set. Compare full-key signatures — both keys
+        # share the category prefix, so equal signatures ⟺ equal subslug token sets.
+        local _new_sig _existing_key
+        _new_sig="$(_sf_token_set "$_key")"
+        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg sig "$_new_sig" '
+            def tokset: ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length>0)) | unique | join("-");
+            [ (.patterns // {}) | to_entries[]
+              | select((.value | objects) != null)
+              | select((.value.category // "") == $cat)
+              | select((.key | tokset) == $sig)
+              | .key ] | .[0] // ""' "$overrides" 2>/dev/null)" || _existing_key=""
+        if [ -n "$_existing_key" ] && [ "$_existing_key" != "$_key" ]; then
+            echo "select-findings: aliased finding subslug '${_subslug}' (key '${_key}') onto the existing lifecycle record '${_existing_key}' of category '${category}' — equal token set, no second issue" >&2
+            _key="$_existing_key"
+        fi
+
+        # Cap decision — from the SHIPPED owner, no cap arm of our own. The comparands
+        # grow with _filed_here (issues this call already accepted).
+        local _per_cat_now _open_now _verdict
+        _per_cat_now=$(( _base_per_cat + _filed_here ))
+        _open_now=$(( _base_open + _filed_here ))
+        _verdict="$(devflow_filing_cap_verdict "$status" "$(( filed_this_run + _filed_here ))" "$max_per_run" "$_per_cat_now" "$max_per_cat" "$_open_now" "$max_open")"
+        if [ "$_verdict" != "file" ]; then
+            echo "select-findings: withheld finding '${_key}' (category '${category}') by cap '${_verdict}'" >&2
+            i=$(( i + 1 )); continue
+        fi
+
+        # Accepted — append the enriched finding, carrying the resolved key + category.
+        _out="$("$DEVFLOW_JQ" -c --arg key "$_key" --arg cat "$category" --arg sub "$_subslug" --argjson f "$_f" '
+            . + [ { key: $key, subslug: $sub, category: $cat,
+                    title: ($f.title // ""), body: ($f.body // ""),
+                    evidence_prs: ($f.evidence_prs // []), rationale: ($f.rationale // "") } ]' <<<"$_out")"
+        _filed_here=$(( _filed_here + 1 ))
+        i=$(( i + 1 ))
+    done
+
+    printf '%s\n' "$_out"
+    return 0
+}

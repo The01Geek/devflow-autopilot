@@ -119,6 +119,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/select-findings.sh": {
+      "note": "issue #893 sole owner of which Stage B findings become filings (compose/alias/rank/cap)",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/slugify.jq": {
       "note": "issue #891 shared slugify module (compute-patterns.jq + compose-filing-key.sh include it)",
       "owner": "retrospective-lifecycle"

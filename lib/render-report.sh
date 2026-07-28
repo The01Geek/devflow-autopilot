@@ -218,7 +218,14 @@ devflow_render_report() {
     if [ "$issues_count" -eq 0 ]; then
         printf '_None filed._\n'
     elif [ "$issues_count" -gt 0 ]; then
-        _rr_emit intervention_issues '(.intervention_issues // [] | map(select(type == "object")))[] | "- `\(.tag // "(unnamed)")` — \(.url // "(no url)")"'
+        # Name each filed issue by its filing KEY and its CATEGORY (issue #893): a
+        # finding now files under an opaque `<category>-<subslug>` key, so the bare
+        # `tag` alone no longer tells the maintainer which category it bounds. Fall
+        # back to `.tag` for a legacy bare-category entry that carries no `.key`.
+        _rr_emit intervention_issues '(.intervention_issues // [] | map(select(type == "object")))[]
+            | "- `\(.key // .tag // "(unnamed)")`"
+              + (((.category | strings) // "") | if . != "" then " (category: `\(.)`)" else "" end)
+              + " — \(.url // "(no url)")"'
     fi
 
     # Cooldown-skipped patterns (omit section if empty)

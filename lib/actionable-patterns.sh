@@ -32,7 +32,10 @@
 #                           values under --full),
 #       "first_seen":       <iso8601|null>,
 #       "last_seen":        <iso8601|null>,
-#       "occurrences":      [...],
+#       "occurrences":      [...],             # each element carries pr/ts/verdict plus
+#                                              #   that occurrence's own summary/descriptors/
+#                                              #   suggested_interventions (issue #893), so
+#                                              #   Stage B clusters sub-patterns per-occurrence
 #       "descriptors":      [<string>, ...],   # union of the occurrences' free-text
 #                                              #   descriptors — Stage B reads these to
 #                                              #   decide if the cluster is one fix or many

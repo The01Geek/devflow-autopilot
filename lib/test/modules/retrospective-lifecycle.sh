@@ -2333,5 +2333,119 @@ RL_REND_SAME="$( . "$REPO_ROOT/lib/render-report.sh"; devflow_render_report '{"p
 assert_eq "#891 render: an equal key/category renders the single-name row (no category clause)" "false" \
   "$(printf '%s' "$RL_REND_SAME" | grep -qF '(category:' && echo true || echo false)"
 
+# ════════════════════════════════════════════════════════════════════════════
+echo "#893 Stage B findings: enrichment + select-findings + report"
+# ════════════════════════════════════════════════════════════════════════════
+RL_SF="$REPO_ROOT/lib/select-findings.sh"
+
+# ── enrichment: occurrences carry per-occurrence summary/descriptors/SI ───────
+RL_ENR_CORPUS='{"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"],"summary":"slow suite","descriptors":["d1"],"suggested_interventions":[{"summary":"si1"}]}'
+RL_ENR_VIEW="$(rl_cp "$RL_ENR_CORPUS" '{"schema_version":3,"patterns":{},"dismissed":{}}')"
+assert_eq "#763B enrich: occurrences carry per-occurrence summary" "slow suite" \
+  "$(printf '%s' "$RL_ENR_VIEW" | jq -r '."tooling-gap".occurrences[0].summary')"
+assert_eq "#763B enrich: occurrences carry per-occurrence descriptors" "d1" \
+  "$(printf '%s' "$RL_ENR_VIEW" | jq -r '."tooling-gap".occurrences[0].descriptors[0]')"
+assert_eq "#763B enrich: occurrences carry per-occurrence suggested_interventions" "si1" \
+  "$(printf '%s' "$RL_ENR_VIEW" | jq -r '."tooling-gap".occurrences[0].suggested_interventions[0].summary')"
+
+# ── enrichment: absent fields default without aborting ────────────────────────
+RL_ENR_ABSENT='{"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}'
+RL_ENR_AVIEW="$(rl_cp "$RL_ENR_ABSENT" '{"schema_version":3,"patterns":{},"dismissed":{}}')"; RL_ENR_ARC=$?
+assert_eq "#763B enrich: an absent-field entry derives with exit 0" "0" "$RL_ENR_ARC"
+assert_eq "#763B enrich: absent summary defaults to null" "null" \
+  "$(printf '%s' "$RL_ENR_AVIEW" | jq -r '."tooling-gap".occurrences[0].summary')"
+assert_eq "#763B enrich: absent descriptors defaults to []" "0" \
+  "$(printf '%s' "$RL_ENR_AVIEW" | jq -r '."tooling-gap".occurrences[0].descriptors | length')"
+assert_eq "#763B enrich: absent suggested_interventions defaults to []" "0" \
+  "$(printf '%s' "$RL_ENR_AVIEW" | jq -r '."tooling-gap".occurrences[0].suggested_interventions | length')"
+
+# ── enrichment: wrong-typed fields default without aborting; count unchanged ──
+RL_ENR_BADSUM='{"kind":"implementation","pr":1,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"],"summary":123,"descriptors":"nope","suggested_interventions":"x"}'
+RL_ENR_BVIEW="$(rl_cp "$RL_ENR_BADSUM" '{"schema_version":3,"patterns":{},"dismissed":{}}')"; RL_ENR_BRC=$?
+assert_eq "#763B enrich: wrong-typed fields derive with exit 0" "0" "$RL_ENR_BRC"
+assert_eq "#763B enrich: a wrong-typed summary defaults to null" "null" \
+  "$(printf '%s' "$RL_ENR_BVIEW" | jq -r '."tooling-gap".occurrences[0].summary')"
+assert_eq "#763B enrich: a wrong-typed summary leaves the occurrence present (count 1)" "1" \
+  "$(printf '%s' "$RL_ENR_BVIEW" | jq -r '."tooling-gap".occurrence_count')"
+
+# ── select-findings: helper setup ────────────────────────────────────────────
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/sf-ov.json"
+# rl_sf <args...> — source select-findings inside a subshell (no set -e leak) and
+# call devflow_select_findings; stdout is captured, stderr routed to $RL_TMP/sf.err.
+rl_sf() { ( . "$RL_SF"; devflow_select_findings "$@" ); }
+
+# select: compose + descending evidence order + truncate top 3
+printf '%s' '[{"subslug":"aa","title":"A","body":"b","evidence_prs":[1],"rationale":"r"},{"subslug":"bb","title":"B","body":"b","evidence_prs":[2,3,4],"rationale":"r"},{"subslug":"cc","title":"C","body":"b","evidence_prs":[5,6],"rationale":"r"},{"subslug":"dd","title":"D","body":"b","evidence_prs":[7],"rationale":"r"}]' > "$RL_TMP/sf-f4.json"
+RL_SF_OUT="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$RL_TMP/sf.err")"
+assert_eq "#763B file: a fourth finding is truncated to the top three" "3" \
+  "$(printf '%s' "$RL_SF_OUT" | jq 'length')"
+assert_eq "#763B select: findings ordered descending by evidence-PR count (first is bb, 3 PRs)" "tooling-gap-bb" \
+  "$(printf '%s' "$RL_SF_OUT" | jq -r '.[0].key')"
+assert_eq "#763B file: the truncation drop is reported naming the pattern" "true" \
+  "$(grep -qF 'dropping 1' "$RL_TMP/sf.err" && echo true || echo false)"
+assert_eq "#763B select: a finding key is composed through the shipped composer" "true" \
+  "$(printf '%s' "$RL_SF_OUT" | jq -e 'all(.[]; .key | test("^[A-Za-z0-9_-]+$"))' >/dev/null && echo true || echo false)"
+
+# select: an illegal/empty subslug is dropped with a breadcrumb and the rest survive
+printf '%s' '[{"subslug":"","title":"empty","body":"b","evidence_prs":[1],"rationale":"r"},{"subslug":"good","title":"G","body":"b","evidence_prs":[2],"rationale":"r"}]' > "$RL_TMP/sf-illegal.json"
+RL_SF_ILL="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-illegal.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$RL_TMP/sf-ill.err")"
+assert_eq "#763B select: an empty subslug is dropped, the rest survive" "1" \
+  "$(printf '%s' "$RL_SF_ILL" | jq 'length')"
+assert_eq "#763B select: the dropped finding leaves a named breadcrumb" "true" \
+  "$(grep -qF 'absent or empty subslug' "$RL_TMP/sf-ill.err" && echo true || echo false)"
+
+# inject: an instruction-shaped subslug is slugified or dropped, never obeyed
+printf '%s' '[{"subslug":"drop table in:title `rm -rf`","title":"X","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$RL_TMP/sf-inject.json"
+RL_SF_INJ="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-inject.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"
+assert_eq "#763B inject: an instruction-shaped subslug yields a grammar-safe key (no qualifier/backtick)" "true" \
+  "$(printf '%s' "$RL_SF_INJ" | jq -e 'all(.[]; .key | test("^[a-z0-9-]+$"))' >/dev/null && echo true || echo false)"
+
+# select: equal token sets alias onto the existing key
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":10,"url":"https://x/issues/10","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/sf-alias-ov.json"
+printf '%s' '[{"subslug":"suite-slow","title":"Aliased","body":"b","evidence_prs":[1,2],"rationale":"r"}]' > "$RL_TMP/sf-alias-f.json"
+RL_SF_AL="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-alias-f.json" --overrides "$RL_TMP/sf-alias-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$RL_TMP/sf-al.err")"
+assert_eq "#763B select: equal token multisets alias onto the existing key" "tooling-gap-slow-suite" \
+  "$(printf '%s' "$RL_SF_AL" | jq -r '.[0].key')"
+assert_eq "#763B select: the alias is reported" "true" \
+  "$(grep -qF 'aliased finding' "$RL_TMP/sf-al.err" && echo true || echo false)"
+
+# select: every cap decision comes from devflow_filing_cap_verdict (withhold on max_per_run 0)
+RL_SF_CAP="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 0 --max-per-cat 99 --max-open 99 2>"$RL_TMP/sf-cap.err")"
+assert_eq "#763B select: a zero per-run cap withholds every finding" "0" \
+  "$(printf '%s' "$RL_SF_CAP" | jq 'length')"
+assert_eq "#763B select: the cap withhold names devflow_filing_cap_verdict's cap token" "true" \
+  "$(grep -qF 'max_issues_per_run' "$RL_TMP/sf-cap.err" && echo true || echo false)"
+
+# select: per-category comparand aggregates across a category's records (issue #891)
+# Two filed records of one category, each holding one open issue → per-cat base is 2.
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-a":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":1,"state":"filed"}]},"tooling-gap-b":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/sf-agg-ov.json"
+printf '%s' '[{"subslug":"cc","title":"C","body":"b","evidence_prs":[9],"rationale":"r"}]' > "$RL_TMP/sf-agg-f.json"
+RL_SF_AGG="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-agg-f.json" --overrides "$RL_TMP/sf-agg-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 2 --max-open 99 2>/dev/null)"
+assert_eq "#763B select: the per-category comparand aggregates (2 records hit max-per-cat 2 → withhold)" "0" \
+  "$(printf '%s' "$RL_SF_AGG" | jq 'length')"
+
+# select: an unmigrated/absent overrides file withholds and returns non-zero (no stdout)
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/sf-v2.json"
+RL_SF_V2="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/sf-v2.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_V2_RC=$?
+assert_eq "#763B select: an unmigrated overrides file returns non-zero" "true" "$([ "$RL_SF_V2_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#763B select: an unmigrated overrides file emits nothing on stdout" "" "$RL_SF_V2"
+RL_SF_ABS="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/does-not-exist.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_ABS_RC=$?
+assert_eq "#763B select: an absent overrides file withholds (non-zero, no key coined)" "true" "$([ "$RL_SF_ABS_RC" -ne 0 ] && echo true || echo false)"
+
+# select: an unsourceable cap owner withholds and returns non-zero, printing nothing
+# Copy select-findings WITHOUT filing-decisions.sh beside it → the source fails and
+# the withhold stub takes over.
+cp "$RL_SF" "$RL_TMP/orphan-select.sh"
+RL_SF_ORPH="$( ( . "$RL_TMP/orphan-select.sh" 2>/dev/null; devflow_select_findings --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 ) 2>/dev/null )"; RL_SF_ORPH_RC=$?
+assert_eq "#763B select: an unsourceable cap owner returns non-zero" "true" "$([ "$RL_SF_ORPH_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#763B select: an unsourceable cap owner emits nothing on stdout" "" "$RL_SF_ORPH"
+
+# report: the intervention_issues emitter names each filed issue by key and category
+RL_REND_KEY="$( . "$REPO_ROOT/lib/render-report.sh"; devflow_render_report '{"intervention_issues":[{"key":"tooling-gap-slow-suite","category":"tooling-gap","url":"https://x/issues/5"}]}' )"
+assert_eq "#763B report: a filed issue is named by its filing key" "true" \
+  "$(printf '%s' "$RL_REND_KEY" | grep -qF '`tooling-gap-slow-suite`' && echo true || echo false)"
+assert_eq "#763B report: a filed issue names its category" "true" \
+  "$(printf '%s' "$RL_REND_KEY" | grep -qF '(category: `tooling-gap`)' && echo true || echo false)"
+
 rm -rf "$RL_TMP"
 trap - RETURN

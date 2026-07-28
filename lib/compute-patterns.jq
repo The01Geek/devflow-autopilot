@@ -23,7 +23,12 @@ include "slugify";
 #     "first_seen": <iso8601 | null>,
 #     "last_seen": <iso8601 | null>,
 #     "occurrence_count": <int>,
-#     "occurrences": [{"pr": <int>, "ts": <iso8601>, "verdict": "imperfect|blocked"}],
+#     "occurrences": [{"pr": <int>, "ts": <iso8601>, "verdict": "imperfect|blocked",
+#                      "summary": <string | null>,
+#                      "descriptors": [<string>, ...],
+#                      "suggested_interventions": [<object>, ...]}],   # per-occurrence
+#                                              # free text (issue #893) so Stage B
+#                                              # clusters sub-patterns from on-disk data
 #     "descriptors": [<string>, ...],   # union of the occurrences' free-text descriptors
 #     "status": "dismissed" | "regressed" | "declined" | "filed" | "fixed" | "open",
 #     "fix_history": [{"pr": <int>, "ts": <iso8601>}],
@@ -102,7 +107,20 @@ def occurrences_for($entries; $cat):
    | select(.verdict == "imperfect" or .verdict == "blocked")
    | select(grouping_tags | any(slugify == $cat))
    | select(.merged_at != null and .merged_at != "")
-   | {pr: .pr, ts: .merged_at, verdict: .verdict}]
+   # Enrich each occurrence with its OWN free text so Stage B can cluster
+   # sub-patterns from the on-disk pattern object without reopening every context
+   # bundle (issue #893). Each new field is guarded at its own type boundary AND
+   # carries a fallback: a bare `(.summary | strings)` yields the EMPTY STREAM on a
+   # non-string, and an object-construction value that yields the empty stream
+   # produces ZERO objects — the whole occurrence would vanish from occurrences[]
+   # and occurrence_count would silently drop. The `// null` / `// []` fallbacks
+   # (mirroring the fixed_at form above) keep the element present with an
+   # absent-value default. summary → null, descriptors → [], suggested_interventions
+   # → [] on absent or wrong-typed.
+   | {pr: .pr, ts: .merged_at, verdict: .verdict,
+      summary: ((.summary | strings) // null),
+      descriptors: ((.descriptors | arrays) // []),
+      suggested_interventions: ((.suggested_interventions | arrays) // [])}]
   | sort_by(.ts);
 
 def descriptors_for($entries; $cat):
@@ -110,7 +128,10 @@ def descriptors_for($entries; $cat):
    | select(.kind == "implementation")
    | select(.verdict == "imperfect" or .verdict == "blocked")
    | select(grouping_tags | any(slugify == $cat))
-   | (.descriptors // [])[]]
+   # `arrays` guards a non-array descriptors (an LLM-authored corpus row can carry a
+   # string or object here); an unguarded `(.descriptors // [])[]` aborts the whole
+   # weekly derivation on `Cannot iterate over string` (issue #893).
+   | (((.descriptors | arrays) // [])[])]
   | map(select(. != null and . != "")) | unique;
 
 def fixes_for($entries; $cat):
