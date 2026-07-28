@@ -42,8 +42,13 @@ from pathlib import Path
 
 # A run.sh final summary line (from lib/test/summary.sh). Anchored to a whole line.
 _BARE_SUMMARY = re.compile(r"^(\d+) passed, (\d+) failed(?:, (\d+) skipped)?$")
-# A run-module.sh per-module summary line (one per module in a group shard).
-_MODULE_SUMMARY = re.compile(r"^Module (\S+): (\d+) passed, (\d+) failed$")
+# A run-module.sh per-module summary line (one per module in a group shard). The optional
+# trailing `, K skipped` clause carries a module-tier host-capability skip (issue #887),
+# symmetric with `_BARE_SUMMARY`'s own optional skipped group — one skip-accounting shape
+# across both tiers. Byte-identical to the pre-#887 pattern when no skip fired.
+_MODULE_SUMMARY = re.compile(
+    r"^Module (\S+): (\d+) passed, (\d+) failed(?:, (\d+) skipped)?$"
+)
 # The skip-itemization lines summary.sh prints after the real summary.
 _SKIP_LINE = re.compile(r"^  SKIP  (.*)$")
 # The failure-recap header both run.sh and run-module.sh print.
@@ -80,15 +85,21 @@ def _parse_log(
     passed = failed = skipped = 0
     warnings: list[str] = []
 
-    # Module tier: sum every per-module summary line (a group shard has >= 1).
+    # Module tier: sum every per-module summary line (a group shard has >= 1). Record each
+    # summary line's index so a module's own itemized `  SKIP  ` lines — emitted right after
+    # its summary — can be collected below (issue #887), the module-tier analogue of the
+    # monolith's post-summary skip itemization.
     saw_module = False
+    module_summary_indices: list[int] = []
     if tier in ("modules", "auto"):
-        for line in lines:
+        for idx, line in enumerate(lines):
             m = _MODULE_SUMMARY.match(line)
             if m:
                 saw_module = True
                 passed += int(m.group(2))
                 failed += int(m.group(3))
+                skipped += int(m.group(4)) if m.group(4) is not None else 0
+                module_summary_indices.append(idx)
 
     # Monolith tier: the LAST bare-format summary line is the real run.sh summary.
     last_summary_idx = -1
@@ -114,6 +125,19 @@ def _parse_log(
             sm = _SKIP_LINE.match(line)
             if sm:
                 skip_details.append(sm.group(1))
+    # Module tier: a module's itemized `  SKIP  ` lines immediately follow its summary
+    # line, up to the first line that is not a `  SKIP  ` line (issue #887). Each declaring
+    # module contributes its own run of skip lines; collecting per-summary keeps them
+    # attributed and bounded, and — because run-module.sh emits exactly K skip lines when
+    # its summary announces `K skipped` — the combined tally's #456 disagreement check
+    # covers the module tier exactly as it does the monolith tier.
+    for idx in module_summary_indices:
+        for line in lines[idx + 1:]:
+            sm = _SKIP_LINE.match(line)
+            if sm:
+                skip_details.append(sm.group(1))
+            else:
+                break
 
     # Failure identifiers: the `  - ` bullets after any `Failure recap:` header
     # (run.sh prints one at the tail; run-module.sh prints one per failing module).
