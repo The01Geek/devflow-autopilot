@@ -584,9 +584,14 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     while IFS= read -r _sk_line || [ -n "$_sk_line" ]; do
       case "$_sk_line" in
         "host-capability"$'\t'*)
-          # The focused skip override is the sole writer here and always emits
-          # name<TAB>reason (an empty reason still leaves the trailing TAB), so the record
-          # always carries both fields — no tabless-name branch is reachable.
+          # The focused skip override emits name<TAB>reason (an empty reason still leaves
+          # the trailing TAB), so every record IT writes carries both fields. It is not
+          # the only possible writer, though — SKIPS_FILE is inherited and a module can
+          # append to it, which is exactly why SKIP_MALFORMED_COUNT exists. A hand-written
+          # single-field line passes that guard and takes the `#*\t` fallback, rendering
+          # the name a second time as the reason. Benign under this file's stated threat
+          # model (a test harness, not a sandbox) — noted so the shape is not mistaken for
+          # an invariant the split relies on.
           _sk_rest="${_sk_line#host-capability$'\t'}"
           _sk_name="${_sk_rest%%$'\t'*}"
           _sk_reason="${_sk_rest#*$'\t'}"

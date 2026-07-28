@@ -2440,6 +2440,59 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         self.assertIn("1 passed, 0 failed, 1 skipped", rendered.stdout)
         self.assertIn("synthetic arm", rendered.stdout)
 
+    def test_two_module_skips_are_folded_and_rendered_in_the_plural(self) -> None:
+        """K > 1 skips: both fold, both itemize, and the clause reads "2 skipped".
+
+        Every other fold test declares exactly one skip, so the loop's second iteration,
+        the plural clause, and the multi-line itemization were unexercised.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "synthetic ran" "x" "x"\n'
+            'module_host_capability_skip "first arm" "reads not denied here" 2\n'
+            'module_host_capability_skip "second arm" "no fifo support here" 3\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        self.assertEqual(
+            observed["skips"],
+            "host-capability\tfirst arm\treads not denied here\n"
+            "host-capability\tsecond arm\tno fifo support here\n",
+        )
+        render = self.root / "render2.sh"
+        render.write_text(
+            "#!/usr/bin/env bash\n"
+            f'. "{ROOT / "lib/test/summary.sh"}"\n'
+            f'devflow_render_test_summary 1 0 2 "{self.root / "skips"}"\n',
+            encoding="utf-8",
+        )
+        rendered = subprocess.run(
+            ["bash", str(render)], text=True, capture_output=True, check=False
+        )
+        self.assertIn("1 passed, 0 failed, 2 skipped", rendered.stdout)
+        self.assertIn("first arm", rendered.stdout)
+        self.assertIn("second arm", rendered.stdout)
+
+    def test_an_overlong_credit_is_rejected_by_the_length_guard(self) -> None:
+        """The digit-length arm of the credit validator, not just the non-digit arm.
+
+        Malformed-credit coverage used only a non-numeric token, so the `????????*`
+        bound — which exists so the summing arithmetic cannot overflow — was never
+        driven. An 8-digit credit is digits-only and must still be rejected, and the
+        rejection must not quietly grant the floor relief it declared.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 12345678\n',
+            3,
+        )
+        self.assertIn("malformed skip-assertion credit", observed["failures"])
+        self.assertIn(
+            "malformed skip-assertion credit: 12345678", observed["completed"].stderr
+        )
+        # The rejected credit buys nothing: the floor of 3 still trips on 1 assertion.
+        self.assertIn("minimum is", observed["completed"].stderr)
+
     def test_declared_credit_prevents_a_spurious_floor_trip(self) -> None:
         """A host that cannot express the condition reports a skip, not a floor trip."""
         observed = self._drive_boundary(
@@ -2577,6 +2630,39 @@ class HostCapabilitySkipChannelTests(unittest.TestCase):
         self.assertIn("skip-credit record is unreadable", observed["failures"])
         # And the forfeited credit never buys floor relief.
         self.assertIn("minimum is", observed["completed"].stderr)
+
+    def test_a_failed_credit_write_is_fatal_not_silently_dropped(self) -> None:
+        """A credit line that cannot be written must abort, not vanish (issue #899).
+
+        The boundary's reject arm zeroes the credit only when the total REACHES the
+        floor, so a partial loss is not conservative: it can carry a run from the
+        rejected state (strict floor) into the accepted state (lowered floor). An
+        unguarded append would drop the line and let the module clear a relaxed floor,
+        which is fail-open in a fail-closed path — so the wrapper guards the write and
+        terminates the worker, and the boundary reports that as an attributable module
+        failure.
+
+        The trigger is a DIRECTORY as the credit target, which raises EISDIR on the
+        append for every uid — unlike `chmod 000`, which root ignores and which would
+        make this test self-skip on such a host.
+        """
+        observed = self._drive_boundary(
+            'assert_eq "one" "x" "x"\n'
+            'MODULE_SKIP_CREDIT_FILE="$(mktemp -d "${TMPDIR:-/tmp}/dfcredit.XXXXXX")"\n'
+            'module_host_capability_skip "gated arm" "host cannot deny reads" 2\n'
+            # Never reached: the wrapper exits the worker on the failed write.
+            'assert_eq "after the failed write" "x" "y"\n',
+            1,
+        )
+        completed = observed["completed"]
+        self.assertIn(
+            "FATAL: could not record host-capability skip credit", completed.stderr
+        )
+        # Attributable at the boundary, not a silent continue.
+        self.assertIn("exited with status 1", observed["failures"])
+        # And the worker really stopped there: the post-write assertion never ran, so
+        # no FAIL verdict from it reached the tally.
+        self.assertEqual(observed["results"], "PASS\n")
 
     def test_a_leading_zero_credit_is_summed_as_decimal(self) -> None:
         """A digit-only credit the validator accepts must sum in base 10.

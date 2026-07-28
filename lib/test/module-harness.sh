@@ -91,8 +91,32 @@ module_host_capability_skip() {  # name reason assertions-covered
   # multi-line declaration ("2\n3") from splitting into two separately-valid credit
   # lines at the validator, which would launder it into 5 credits. The collapsed
   # result is not digits-only, so the validator still rejects it, attributably.
+  #
+  # The write is GUARDED, and the guard terminates rather than returning (issue #899
+  # review). A dropped credit line is not a safe loss: the boundary's reject arm zeroes
+  # the credit only when the total reaches MIN_ASSERTIONS, so losing SOME of several
+  # credit lines can move a run from the rejected state (strict floor) into the accepted
+  # state (lowered floor) — e.g. two arms crediting 2 and 5 against MIN=6 pass the reject
+  # arm at 5 if the `2` write is lost, and the module then clears a floor of 1. That is
+  # fail-OPEN in the one path whose entire purpose is to fail closed, so the write may
+  # not be best-effort.
+  #
+  # Why `exit 1` and not this file's overwhelmingly more common `return 1`: every
+  # `return 1` here lives in a function whose CALLER inspects the status (`|| return 1`,
+  # `|| :`, an `if` head). This wrapper is invoked as a bare statement from a module arm,
+  # and neither runner sets `-e` (both are `set -u` only — see the mktemp-guard note
+  # above), so a nonzero return from here is discarded by every real call site and would
+  # reproduce the very fail-open being closed. Termination is contained: on BOTH tiers
+  # the module body runs inside the backgrounded worker subshell _devflow_supervise_module
+  # launches, so this exits that worker alone — the full-suite boundary reports
+  # "exited with status 1" as an attributable module FAIL and the focused runner fails the
+  # module the same way. The blast radius is one module, never the suite. The sole other
+  # `exit 1` in this file (_devflow_module_supervisor_signal) terminates on the same
+  # basis, and the sibling SKIPS_FILE write in lib/test/run-module.sh's focused `skip`
+  # override guards identically.
   if [ -n "${MODULE_SKIP_CREDIT_FILE:-}" ]; then
-    printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE"
+    printf '%s\n' "${_hcs_credit//[$'\t'$'\n'$'\r']/ }" >> "$MODULE_SKIP_CREDIT_FILE" || {
+      printf 'FATAL: could not record host-capability skip credit\n' >&2; exit 1; }
   fi
 }
 
