@@ -703,7 +703,7 @@ A structured handoff that prevents a deliberately-deferred Critical finding from
 
 ## 14. The cloud tier: GitHub Actions architecture
 
-Four DevFlow workflows (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check):
+Four DevFlow workflows (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check — since issue #877 that job is an **aggregator** that recombines the pass/fail/skip tallies of a concurrent `shard` matrix (`monolith` + `modules-*`) and fails the required check if any shard fails, is cancelled, is skipped, or is missing; the required-check name is unchanged):
 
 | Workflow | `name:` | Purpose |
 |---|---|---|
