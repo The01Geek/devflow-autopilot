@@ -2051,7 +2051,10 @@ def scan_routing_violations(
         run_text = strip_shell_comments(
             Path(run_sh_path).read_text(encoding="utf-8")
         )
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError, not an OSError: a non-UTF-8 body is
+        # a read failure under this helper's "any read failure" contract, so it
+        # must route here rather than propagate as an uncaught crash.
         # Return here rather than falling through: every later step is discarded
         # by the read-failure-alone rule anyway, so continuing would read the
         # whole module domain only to throw it away.
@@ -2086,7 +2089,9 @@ def scan_routing_violations(
             module_texts[path] = strip_shell_comments(
                 path.read_text(encoding="utf-8")
             )
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
+            # Same widening as the run.sh read above: a non-UTF-8 module body is
+            # a read failure, not an uncaught UnicodeDecodeError.
             read_failures.append(
                 f"{path}: could not be read for the routing scan ({exc})"
             )
@@ -2945,13 +2950,71 @@ class RoutingClassificationAgainstTheTreeTests(unittest.TestCase):
         # The harness goes through the same try/except as a module file rather
         # than a .exists() pre-test, so a renamed or unstattable path is a
         # reported read failure instead of a silently truncated scan domain.
+        #
+        # The fixture moves one suite's ownership onto the harness before
+        # removing it, so the read-failure-alone assertion below is drivable: a
+        # scan that reported accusations beside the read failure would accuse
+        # that suite of owning zero files. Removing an unowning harness would
+        # leave nothing for the assertion to catch.
+        offender = MODULE_DRIVEN_SUITES[0]
         with tempfile.TemporaryDirectory() as scratch:
             run_sh, modules_dir, harness = self._clean_tree(scratch)
+            (modules_dir / "owner-0.sh").unlink()
+            harness.write_text(
+                f'  python3 "$LIB/test/{offender}"\n', encoding="utf-8"
+            )
             harness.unlink()
             violations = scan_routing_violations(run_sh, modules_dir, harness)
             self.assertEqual(len(violations), 1, violations)
             self.assertIn("could not be read", violations[0])
             self.assertIn(str(harness), violations[0])
+            # Same read-failure-alone claim its two siblings assert: the truncated
+            # domain must not also accuse a correct routing tuple.
+            self.assertFalse(
+                any("expected exactly one" in v for v in violations), violations
+            )
+            self.assertFalse(any(offender in v for v in violations), violations)
+
+    def test_the_standalone_harness_counts_as_a_legitimate_single_owner(self) -> None:
+        # The harness is part of the ownership domain, not merely read into it:
+        # a suite whose only driver is module-harness.sh must satisfy the
+        # exactly-one claim with no module file naming it at all.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            (modules_dir / "owner-0.sh").unlink()
+            harness.write_text(
+                f'  python3 "$LIB/test/{offender}"\n', encoding="utf-8"
+            )
+            self.assertEqual(
+                scan_routing_violations(run_sh, modules_dir, harness), []
+            )
+
+    def test_a_non_utf8_module_file_is_reported_as_a_read_failure(self) -> None:
+        # read_text(encoding="utf-8") raises UnicodeDecodeError — a ValueError,
+        # not an OSError — so an OSError-only handler would let a non-UTF-8 body
+        # escape the "any read failure" contract as an uncaught crash.
+        offender = MODULE_DRIVEN_SUITES[0]
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            owner = modules_dir / "owner-0.sh"
+            owner.write_bytes(b'  python3 "$LIB/test/\xff\xfe"\n')
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertTrue(
+                all("could not be read" in v for v in violations), violations
+            )
+            self.assertTrue(any(str(owner) in v for v in violations), violations)
+            self.assertFalse(any(offender in v for v in violations), violations)
+
+    def test_a_non_utf8_run_sh_is_reported_as_a_read_failure(self) -> None:
+        # The run.sh read has its own handler, so it needs its own arm.
+        with tempfile.TemporaryDirectory() as scratch:
+            run_sh, modules_dir, harness = self._clean_tree(scratch)
+            run_sh.write_bytes(b'  python3 "$LIB/test/\xff\xfe"\n')
+            violations = scan_routing_violations(run_sh, modules_dir, harness)
+            self.assertEqual(len(violations), 1, violations)
+            self.assertIn("could not be read", violations[0])
+            self.assertIn(str(run_sh), violations[0])
 
 
 if __name__ == "__main__":
