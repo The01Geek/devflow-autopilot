@@ -177,35 +177,29 @@ executable behavioral test over a static presence pin. Reviving a retired wordin
 literal requires both deliberate revival authorization and a genuine declared
 structural boundary; a new boundary row alone does not make the revival valid.
 
-**Retiring existence-only pins (issue #798).** Use the frozen census in
-`.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the
-pin's literal appears in two or more counted homes, remove the pin only in the same
-change that removes at least one of those copies; a pin-only removal is not an
-accepted disposition because it leaves the duplicated prose without its divergence
-check.
+**Retiring existence-only pins (issues #798, restated by #876).** Look the pin up in
+the frozen census `.devflow/logs/pin-corpus-inventory.tsv` and read its adjudicated
+`bucket_final`. What decides the disposition is **whether the pin was buying a
+divergence check** — that is, whether some tool or consumer relies on two or more
+homes carrying identical content:
 
-**Carve-out — prose-pin retirement under the generalized #843 policy (issue #876).**
-The rule above rests on a premise that does not hold for one class of pin: that the
-pin was buying a divergence check worth keeping. When the pin's target is
-**agent-executed prompt prose whose only reader is the runtime agent** — the class
-`CLAUDE.md`'s *Recorded decision (issue #843)* bullet governs — that premise is
-false. Such a pin never checked divergence against anything a tool consumes; it
-asserted that a sentence was still present, and the compensating control for that
-sentence is the review pass that reads it, not the pin. So for that class a
-**pin-only removal IS an accepted disposition**, and retirement does not have to
-delete a copy it was never protecting. Three limits keep the carve-out narrow:
+- **It was.** Remove the pin only in the same change that removes at least one of
+  those copies; a pin-only removal is not an accepted disposition, because it leaves
+  the duplicated content without its divergence check.
+- **It was not** — the pin's target is agent-executed prose no tool reads, the class
+  `CLAUDE.md`'s *Recorded decision (issue #843)* bullet governs. Then **a pin-only
+  removal IS the accepted disposition**: retirement owes no copy deletion, because
+  the pin never protected a copy. The compensating control is the review pass that
+  reads the prose.
 
-- It reaches only a pin whose adjudicated disposition is a prose bucket
-  (`prose-sole-copy` / `prose-multi-copy`) in the census. A pin adjudicated
-  `boundary`, `required-copy`, `generated`, `config-key`, or `suite-internal` keeps
-  the unmodified rule above.
-- It never reaches a pin protecting a **machine-consumed contract** — a marker a
-  tool parses, a routing-table row a module reconciles, a generated-artifact
-  identity — even when that contract's home happens to be a prompt surface. Those
-  are retained and carry a live `# structural-pin-ok: <category> -- <rationale>`.
-- It does not weaken the **consequence** pins the #843 decision explicitly keeps
-  (the `#291` boundaries are the worked example): the cap's applicability limbs
-  carry no coverage, but its consequence still does.
+The census's adjudication is where that question is *recorded*, not a second test:
+a prose `bucket_final` answers "no", every other bucket answers "yes". Two
+consequences worth stating because they are easy to misread, both instances of the
+same predicate rather than extra rules — a pin over a prompt surface that protects a
+**machine-consumed contract** answers "yes" (a tool reads it) and is retained under
+the `# structural-pin-ok:` rule above; and the `#291` boundaries answer "yes"
+(review-and-fix Step 2.6 consumes the cap's consequence) even though the cap's
+applicability limbs answer "no".
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;
