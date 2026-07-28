@@ -62,6 +62,46 @@ jobs:
       - name: Preflight (dependency check)
         run: bash lib/preflight.sh
 
+      # Install the Claude Code CLI so the #671 `claude plugin validate --strict`
+      # gate ARMS instead of self-skipping. Until this step existed the CLI was on no
+      # runner, so that gate took its `blocking-gate` skip branch on every CI run and
+      # was the suite's ONLY skip (run 30274021296 @ fb5256b7: "12523 passed, 0 failed,
+      # 1 skipped"). A skip does not fail the suite (issue #456), so the gate was
+      # disarmed silently while CI stayed green.
+      #
+      # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
+      # that validation DESCENDS into every skills/*/SKILL.md and agents/*.md: a
+      # malformed-YAML, absent, or empty frontmatter block in any of them exits 1
+      # (measured against each of those three mutations while authoring this step).
+      # Validation is auth-free — it passes with ANTHROPIC_API_KEY and
+      # CLAUDE_CODE_OAUTH_TOKEN unset and HOME redirected — so this job needs no
+      # secret, which matters because it runs arbitrary PR code (see the `on:` comment
+      # on why we do not use pull_request_target).
+      #
+      # PINNED rather than `stable`/`latest`, for the reason the lint job pins
+      # ShellCheck: here the CLI *is* the validator, so an unpinned upgrade that adds a
+      # new warning would redden this REQUIRED check on an unrelated PR with no repo
+      # change. Bump it deliberately. pipefail is load-bearing — `curl | bash` with a
+      # failed download otherwise feeds bash an empty script and exits 0, which would
+      # restore the exact silent-self-skip this step removes; the `claude --version`
+      # step below then fails loudly rather than skipping (GITHUB_PATH only takes
+      # effect in LATER steps, so it cannot be folded into this one).
+      #
+      # The gate lives in lib/test/run.sh (the `monolith` shard), but the CLI is
+      # installed on EVERY shard uniformly — the same reasoning as fetch-depth: 0
+      # above — so a gate that later moves into a module shard does not quietly revert
+      # to self-skipping.
+      - name: Install Claude Code CLI (arms the #671 plugin-validate gate)
+        env:
+          CLAUDE_CLI_VERSION: 2.1.212
+        run: |
+          set -o pipefail
+          curl -fsSL https://claude.ai/install.sh | bash -s "$CLAUDE_CLI_VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Verify the claude CLI resolves on PATH
+        run: claude --version
+
       - name: Run shard (${{ matrix.shard }})
         env:
           DEVFLOW_SHARD_TALLY_DIR: ${{ github.workspace }}/shard-tally-out

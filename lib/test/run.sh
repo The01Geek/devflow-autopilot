@@ -39424,6 +39424,17 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
   "$(awk '/^  shard:/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+#
+# ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
+# `claude plugin validate --strict` gate below. This is the same failure class as the
+# fetch-depth: 0 pin above — a ci.yml setting whose absence DISARMS a suite gate
+# instead of failing it. With no CLI on PATH that gate takes its blocking-gate skip
+# branch, and a skip exits 0, so dropping this step would silently retire manifest +
+# frontmatter validation for every shipped skill and agent while CI stayed green.
+# Matched on the installer URL rather than the step name: the URL is what actually
+# puts the binary on PATH, and a renamed step still arms the gate.
+assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
+  "$(awk '/^  shard:/{ins=1; next} /^  [a-z]/{ins=0} ins && /claude\.ai\/install\.sh/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
