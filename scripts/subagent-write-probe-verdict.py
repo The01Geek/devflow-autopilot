@@ -66,8 +66,8 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   (unknown subagent type / dispatch head not granted), no dispatch recorded,
                   no subagent-issued call recorded at all, subagent calls recorded but not
                   chain-attributable, a Write recorded but not chain-attributable to this
-                  job's dispatch, both controls recorded and chain-attributable but the
-                  write neither recorded nor denied (the subagent did not attempt it), or a
+                  job's dispatch, a chain-attributable subagent call recorded but the write
+                  neither recorded nor denied (the subagent ran but did not attempt it), or a
                   chain-attributable Write with no corroborating on-disk file.
 
 Markers, kept in lockstep with matcher-probe.yml's subagent-write probe prompts:
@@ -116,6 +116,11 @@ _PAYLOAD_L = PAYLOAD.lower()
 DISPATCH_TOOL_NAMES = ("task", "agent")
 
 VALID_TIERS = ("review", "implement")
+
+# The closed three-outcome vocabulary. Enforced at the end of compute() (paralleling the
+# VALID_TIERS guard) so a typo in any one verdict arm cannot silently ship an invalid
+# verdict into the machine-consumed table.
+_VERDICTS = ("PERMITTED", "DENIED", "unestablished")
 
 VERSION_CAVEAT = (
     "This verdict is a dated observation of one `claude-code-action` version and one "
@@ -193,7 +198,12 @@ def collect(parsed):
             pd = o.get("permission_denials")
             if isinstance(pd, list):
                 for d in pd:
-                    denials.append(json.dumps(d))
+                    # Retain each denial's own tool_name (lower-cased) so the write-denial
+                    # attribution below can exclude a denied DISPATCH — whose recorded
+                    # tool_input echoes the subagent prompt (naming the side-effect path and
+                    # payload) — the same way is_subagent_marker excludes a dispatch tool_use.
+                    tn = str(d.get("tool_name", "")).lower() if isinstance(d, dict) else ""
+                    denials.append({"text": json.dumps(d), "tool_name": tn})
             for v in o.values():
                 walk(v)
         elif isinstance(o, list):
@@ -210,7 +220,17 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     All marker matches are case-insensitive so a decorated recording still reads present.
     `side_path` is the tier's side-effect filename stem used as the write marker."""
     write_marker = side_path.lower()
-    denial_text = "\n".join(denials).lower()
+    denial_text = "\n".join(d["text"] for d in denials).lower()
+    # Write-denial attribution excludes denials whose OWN tool_name is a dispatch tool: a
+    # refused Task/Agent dispatch records the subagent prompt verbatim (it names
+    # `subwrite-<tier>.txt` and SUBWRITE_PAYLOAD), so matching the full denial_text would
+    # collapse a dispatch refusal onto a false DENIED — the exact "permission finding about
+    # a run that never attempted the permission" the probe must never publish. A denial with
+    # no tool_name (the per-entry shape is not yet recorded) is NOT excluded, so a genuine
+    # Write denial still attributes even when its shape is partially unknown.
+    write_denial_text = "\n".join(
+        d["text"] for d in denials if d["tool_name"] not in DISPATCH_TOOL_NAMES
+    ).lower()
 
     # Ids of the recorded dispatches (Task/Agent tool_use entries). A subagent call is
     # chain-attributable when its parent_tool_use_id is one of these.
@@ -269,8 +289,8 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     write_chain_ok = any(
         (tu["parent"] in dispatch_ids) for tu in write_calls if tu["parent"] is not None
     )
-    write_denied = write_marker in denial_text or (
-        "write" in denial_text and _PAYLOAD_L in denial_text
+    write_denied = write_marker in write_denial_text or (
+        "write" in write_denial_text and _PAYLOAD_L in write_denial_text
     )
 
     # ── Verdict, degraded arms FIRST (a measurement that did not run must never read as
@@ -336,6 +356,9 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     dispatch_outcome = "denied" if dispatch_denied else ("recorded" if dispatch_recorded else "absent")
     write_outcome = "denied" if write_denied else ("recorded" if write_recorded else "absent")
 
+    # A typo in any verdict arm above would otherwise ship an invalid string into the
+    # machine-consumed table; catch it here (parallel to the VALID_TIERS guard).
+    assert verdict in _VERDICTS, "internal error: invalid verdict %r" % verdict
     return {
         "verdict": verdict,
         "reason": reason,
@@ -424,7 +447,7 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     if r["denials"]:
         out.append("```")
         for d in r["denials"]:
-            out.append(d[:400])
+            out.append(d["text"][:400])
         out.append("```")
     else:
         out.append("_No permission_denials entries found in the execution file._")

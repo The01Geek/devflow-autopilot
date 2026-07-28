@@ -24456,6 +24456,18 @@ scenarios = {
     "permitted": [D, CB, write(), CA],
     "denied": [D, CB, WDEN],
     "denied_with_leftover": [D, CB, WDEN],  # side-file present but denial wins
+    # A chain-attributable Write recorded AND a Write denial + side-file present: DENIED
+    # must win over PERMITTED (denial signal is authoritative). Without this the
+    # denied-before-permitted precedence is only vacuously covered.
+    "denied_authoritative": [D, CB, write(), WDEN],
+    # A DENIED *dispatch* whose recorded tool_input echoes the verbatim subagent prompt
+    # (which names the side-effect path and SUBWRITE_PAYLOAD): must NOT collapse onto a
+    # false DENIED — the denial's own tool_name is Task, so it is excluded from write
+    # attribution and routes to the dispatch-refused unestablished arm.
+    "dispatch_denied_echo": [{"permission_denials": [
+        {"tool_name": "Task", "tool_input": {"subagent_type": "general-purpose",
+         "prompt": ("use the Write tool to create the file "
+                    ".devflow/tmp/subwrite-review.txt with content SUBWRITE_PAYLOAD")}}]}],
     # attribution
     "orch_null_parent": [D, write(parent=None)],       # a Write with no parent → not permitted
     "other_dispatch": [D, CB, write(parent="OTHER"), CA],  # Write chains to a foreign dispatch
@@ -24471,6 +24483,7 @@ scenarios = {
     "controls_no_write": [D, CB, CA],  # both controls chain-attributable, no write attempted
     # adversarial / malformed input (execution file is an external format — CLAUDE.md matrix)
     "not_object": None,                # written as a bare JSON string below
+    "partial_corrupt": [D, CB, write(), CA],  # valid PERMITTED set + one garbage line below
     "pd_not_list": [write(), {"permission_denials": "oops-not-a-list"}],
     "tooluse_missing_name": [D, {"type": "tool_use", "id": "c1", "parent_tool_use_id": "d1",
                                  "input": {"command": "printf SUBWRITE_CONTROL_BEFORE"}}],
@@ -24486,6 +24499,11 @@ with open(path, "w", encoding="utf-8") as fh:
     else:
         for r in recs:
             fh.write(json.dumps(r) + "\n")
+        if scen == "partial_corrupt":
+            # A valid, PERMITTED-shaped record set plus ONE unparseable JSONL line: the
+            # dropped-line note must force unestablished, never a confident PERMITTED read
+            # of a file that was not fully parsed.
+            fh.write("{ this line is not valid json\n")
 PY_SWV
 }
 devflow_swv() {  # $1 scenario; remaining args passed through; review tier, present side-file
@@ -24552,6 +24570,24 @@ assert_eq "#858 subagent-write: the helper is pure over repeated invocation" "ye
 assert_eq "#858 subagent-write: an empty permission_denials list is not coerced to a denial" \
   "PERMITTED" "$(swv_verdict "$(devflow_swv valid_falsy)")"
 
+# DENIED is authoritative over PERMITTED — a chain-attributable Write recorded alongside a
+# Write denial, side-file present, must resolve DENIED (guards the denied-before-permitted
+# arm order the earlier denied* fixtures could not, since they carried no permit-eligible Write).
+assert_eq "#858 subagent-write: a Write denial wins over a co-recorded chain-attributable Write (DENIED authoritative)" \
+  "DENIED" "$(swv_verdict "$(devflow_swv denied_authoritative)")"
+# A denied DISPATCH whose entry echoes the verbatim subagent prompt must route to
+# unestablished, NOT a false DENIED — the denial-side dispatch-echo defense.
+SWV_ECHO="$(devflow_swv dispatch_denied_echo)"
+assert_eq "#858 subagent-write: a dispatch denial echoing the subagent prompt → unestablished" \
+  "unestablished" "$(swv_verdict "$SWV_ECHO")"
+assert_eq "#858 subagent-write: the prompt-echoing dispatch denial is NOT collapsed onto a false DENIED" \
+  "no" "$(printf '%s' "$SWV_ECHO" | grep -qE '\*\*Verdict: `DENIED`\*\*' && echo yes || echo no)"
+# Partial corruption: a valid PERMITTED-shaped set plus one unparseable JSONL line must
+# force unestablished (the dropped-line note), never a confident PERMITTED of a file that
+# was not fully parsed.
+assert_eq "#858 subagent-write: a partially-corrupt execution file → unestablished, never a confident PERMITTED" \
+  "unestablished" "$(swv_verdict "$(devflow_swv partial_corrupt)")"
+
 # The fixture conforms to the committed execution-file shape census: no fixture key
 # contradicts a census-recorded type. Keys absent from the census (e.g. file_path — the
 # census run performed no Write) are allowed; the census is a dated, incomplete observation.
@@ -24597,10 +24633,21 @@ PY_CONF
 # Separate fields, not conjoined: the emitted table reports dispatch, both control facts,
 # and write as distinct rows so a reader tells a denied write from an absent dispatch.
 SWV_TABLE="$(devflow_swv permitted)"
-for _field in 'dispatch_outcome' 'recorded_at_all' 'chain_attributable' 'write_outcome'; do
+for _field in 'dispatch_outcome' 'recorded_at_all' 'chain_attributable' 'write_outcome' 'control_before' 'control_after'; do
   assert_eq "#858 subagent-write: the emitted table carries the '$_field' field" "yes" \
     "$(printf '%s' "$SWV_TABLE" | grep -qF "| $_field |" && echo yes || echo no)"
 done
+# The field VALUES (not just their labels) are correct — a mislabel that always printed
+# 'absent' would pass a presence-only check. PERMITTED run: both outcomes 'recorded'.
+assert_eq "#858 subagent-write: PERMITTED run reports write_outcome=recorded" "yes" \
+  "$(printf '%s' "$SWV_TABLE" | grep -qF '| write_outcome | recorded |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: PERMITTED run reports dispatch_outcome=recorded" "yes" \
+  "$(printf '%s' "$SWV_TABLE" | grep -qF '| dispatch_outcome | recorded |' && echo yes || echo no)"
+# DENIED run: write_outcome=denied; dispatch-refused run: dispatch_outcome=denied.
+assert_eq "#858 subagent-write: DENIED run reports write_outcome=denied" "yes" \
+  "$(printf '%s' "$(devflow_swv denied)" | grep -qF '| write_outcome | denied |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: dispatch-refused run reports dispatch_outcome=denied" "yes" \
+  "$(printf '%s' "$(devflow_swv dispatch_denied_unknown)" | grep -qF '| dispatch_outcome | denied |' && echo yes || echo no)"
 # The machine-consumed tier field travels with the verdict.
 assert_eq "#858 subagent-write: the outcome record carries the tier as a machine field" "yes" \
   "$(printf '%s' "$SWV_TABLE" | grep -qE '\| tier \| `review` \|' && echo yes || echo no)"

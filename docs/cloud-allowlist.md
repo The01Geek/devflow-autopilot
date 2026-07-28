@@ -229,7 +229,7 @@ handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 `.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
 that measures whether a **dispatched subagent's** `Write` into `.devflow/tmp/**`
 succeeds under the review tier's real profile. `Write(.devflow/tmp/**)` is granted for
-the **orchestrator** (row 9 above, PERMITTED from run `29111394360`), but a grant proven
+the **orchestrator** (the `Write(.devflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
 for the dispatcher is `unestablished` for the **dispatchee** — CLAUDE.md's "Unknown is
 not zero". The job is **dedicated** (not a shape row in the `probe` job, whose session
 already writes to `.devflow/tmp/probe-09.txt`): its prompt performs **no orchestrator
