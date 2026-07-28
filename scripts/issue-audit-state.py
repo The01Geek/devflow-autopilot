@@ -22,11 +22,16 @@ interaction. This module never posts an issue.
 TWO-CLASS CLI CONTRACT (the skill branches on exactly this):
   * Query subcommands ALWAYS exit 0 once their arguments parse (an argparse usage
     error — a missing required flag or an unknown one — exits 2 before the query logic
-    runs) and answer on stdout with a decided single-line
-    token — fail-closed answers included — except for the multi-line read-back queries
-    `query-findings`, `query-claim-baselines`, and `query-finding-evidence`, which each
-    print one decided line per record (an empty store prints the single line
-    `findings=none` / `claims=none` / `evidence=none`). A crashed read is never
+    runs) and answer on stdout with a decided single
+    answer line — fail-closed answers included — except for the multi-line read-back
+    queries `query-findings`, `query-claim-baselines`, `query-finding-evidence`,
+    `query-coverage`, and `query-adjudication-records`, which each print one decided line
+    per record (an empty store prints the single line `findings=none` / `claims=none` /
+    `evidence=none` / `records=none`), and the composite `query-boundary`, which prints
+    one decided line per boundary component. Since issue #795 most subcommands print a
+    SECOND and final line, `next_call=` (see `_resolve_next_call`); the decided answer
+    line above is unchanged and stays FIRST, and `_NEXT_CALL_EXCLUDED` names the
+    subcommands that print no such line. A crashed read is never
     presented as a value. Queries are strictly READ-ONLY: the tool-unavailability fallback depends
     on a mutation-persistence failure still leaving the queries answering, so no
     query may write. This is why the eligibility token is *derived* on demand rather
@@ -65,6 +70,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -255,6 +261,109 @@ _ELIGIBILITY_REASONS = (
 )
 _GROUNDS = ('file-identity', 'event-ordering', 'override')
 
+# ---------------------------------------------------------------------------
+# issue #795 — round resolution and the `next_call=` answer channel.
+# ---------------------------------------------------------------------------
+
+# THE DECIDING RULE for whether `--round` carries a state-resolved default:
+#
+#   A default is supplied only where `--round` *names* a round the state uniquely
+#   determines. Where it *selects* which operation runs, or names a round the caller
+#   alone chooses, the flag keeps `required=True`.
+#
+# `_ROUND_DEFAULTED` is that closed set. Every other `--round` site retains
+# `required=True`, in one of three retained groups named beside its own registration:
+#   * dispatch-discriminator  — `record-dispatch` (`_find_round` reads it BEFORE any
+#     validation and routes between opening a round and retrying an open one, so a
+#     resolved number would decide an operation only the caller knows).
+#   * caller-selected-round   — `record-creation-epoch` (which audited round creation
+#     binds to) and `record-degraded` (whose required-ness is a shipped sentence in
+#     `skills/create-issue/references/step-3-6-audit.md`).
+#   * per-round-id-selector   — the cross-round channels whose `--ids` are per-round
+#     `1..K`: `record-resolution`, `record-reopen`, `record-invalidate`,
+#     `record-finding-evidence`, `query-finding-evidence`, `query-adjudication-records`.
+#     A defaulted round there would resolve, reopen, or invalidate a *different,
+#     existing, valid* entry with no id-unknown refusal to catch it.
+_ROUND_DEFAULTED = (
+    'query-next-action', 'record-return', 'record-adjudication',
+    'record-adjudication-render', 'record-coverage',
+)
+
+# The fixed head placeholder a rendered `next_call=` invocation carries. The module never
+# sees the runner-reported portable anchor (`CLAUDE_SKILL_DIR` is substituted at prompt
+# time), a bare relative path would break from a subdirectory or a linked worktree, and a
+# `sys.argv[0]` path would teach a NON-anchored invocation — the form this repo's anchor
+# pins bar, and which those pins cannot see because tool stdout is not scanned. So the
+# renderer emits the subcommand and operands only, behind this placeholder, and the
+# procedure states that the caller substitutes its own anchored head.
+_STATE_OWNER_PLACEHOLDER = '<state-owner>'
+
+# The closed caller-supplied operand classes. A flag here is rendered BARE and named in
+# `needs=`; the resolver never fills a value for it. Six classes, complete by construction
+# — and the complement is decided rather than residual: an operand in none of them and not
+# state-derivable is also rendered bare and named in `needs=` (see `_render_operand`).
+_CALLER_SUPPLIED_FLAGS = {
+    # 1. A reported observation. `--landed`'s own help states the governing reason:
+    #    "the tool cannot observe chat, so this is a reported observation."
+    '--landed', '--write-landed',
+    # 2. An adjudication verdict or count.
+    '--verdict', '--must-revise', '--advisory', '--invalid', '--unresolved-must-revise',
+    # 3. An auditor-supplied identifier.
+    '--carriage-object-id', '--carriage-sentinel-open', '--carriage-sentinel-close',
+    '--instructions-object-id', '--extra-dispatch-content',
+    # 4. A free-text reason or id list.
+    '--reason', '--resolved-ids', '--ids',
+    # 5. A stdin-payload flag.
+    '--ledger-stdin', '--coverage-stdin', '--stdin-digest', '--domain-stdin',
+    # 6. A caller-INTENT operand whose value selects which operation runs. `--round` is
+    #    that operand on exactly the two subcommands named in `_ROUND_IS_CALLER_INTENT`;
+    #    it is state-derivable elsewhere, so it is keyed by subcommand rather than
+    #    listed flat here.
+}
+
+# Class 6's subcommand-keyed half (see `_CALLER_SUPPLIED_FLAGS`).
+_ROUND_IS_CALLER_INTENT = ('record-dispatch', 'record-creation-epoch')
+
+# The queries whose stdout is MULTI-LINE: each prints one decided line per record (an
+# empty store printing a single `<noun>=none` token), or — for `query-coverage` and
+# `query-boundary` — a decided first line followed by further lines. This set is the
+# machine-consumed contract the module docstring's and the shipped skill's query-class
+# enumerations are reconciled against.
+_MULTILINE_READBACKS = (
+    'query-findings', 'query-claim-baselines', 'query-finding-evidence',
+    'query-coverage', 'query-adjudication-records', 'query-boundary',
+)
+
+# THE `next_call=` EXCLUSION PREDICATE, three-armed. A subcommand emits `next_call=` only
+# when its stdout is a SINGLE DECIDED LINE *and* the procedure does not consume that
+# stdout by command substitution. The arms:
+#   * payload stdout        — `emit-body`, whose stdout is the audited body bytes.
+#   * multi-line stdout     — `_MULTILINE_READBACKS`, plus `check-claim-staleness`
+#     (one line per claim; neither query nor mutation).
+#   * capture-consumed stdout — no current subcommand occupies this arm, but the
+#     `MAIN_ROOT="$(…)"` fence shows it is a real shape a future addition would fall
+#     into silently, which is why the predicate rather than this enumeration is what a
+#     future emitter is measured against.
+# The COMPLEMENT is decided, not residual: a subcommand in none of the three arms emits
+# `next_call=`.
+_NEXT_CALL_EXCLUDED = frozenset(
+    ('emit-body', 'check-claim-staleness') + _MULTILINE_READBACKS
+)
+
+# The three sanctioned `next_call=` shapes, complete by construction. `_checked_next_call`
+# constrains the resolver's return against them the way `_checked_action` constrains
+# `next_action` against `_NEXT_ACTIONS`.
+_NEXT_CALL_UNESTABLISHED_RE = re.compile(r'\Anext_call=unestablished reason=[a-z0-9-]+\Z')
+
+# Refusal tokens the render boundary can answer with. Every operand taken from recorded
+# state is shape-checked before rendering; a failing value yields
+# `next_call=unestablished reason=<token>` rather than an emitted string. This is the
+# render-boundary counterpart of the ledger channel's existing refusals.
+_NEXT_CALL_REFUSALS = (
+    'render-path-not-absolute', 'render-value-carries-newline',
+    'render-value-carries-shell-metacharacter', 'render-value-not-a-string',
+)
+
 # The tiered canonical-draft-root binding (issue #562). A run binds exactly one
 # successfully-writable draft root; `tier` names which ladder rung landed. The
 # non-bound root is recorded verbatim when a resolver-answered tier-1 main root and a
@@ -382,6 +491,11 @@ _PROTOCOL_TOKENS = (
     'stdin_digest', 'steering', 'steering_reason',
     'summary', 'superseded', 't1', 't2', 'tier', 'token',
     'unledgered_revise', 'unresolved',
+    # issue #795: the tokens the trailing `next_call=` answer line emits, plus the
+    # per-component status lines `query-boundary` prints when a component cannot be
+    # established. Registered like every other printed field so auditor-derived text can
+    # never forge one of the tool's own surface tokens.
+    'next_call', 'needs', 'component', 'detail',
     'unresolved_must_revise', 'user_declined', 'user_rounds_used', 'verdict',
     # issue #743: tokens the advisory/invalid record read-back, the calibration query, and
     # the render report emit. Widening the vocabulary keeps auditor-derived summaries and
@@ -3437,6 +3551,453 @@ def _find_round(state, round_no):
     return None
 
 
+def _resolve_named_round(state, explicit_round):
+    """Resolve the round a subcommand in `_ROUND_DEFAULTED` operates on (issue #795).
+
+    Returns `(round_no, ambiguity_token)`. An explicit `--round` is honoured verbatim and
+    validated downstream exactly as before — this resolver only supplies the number the
+    state already uniquely determines when the caller omitted the flag.
+
+    The state names exactly one candidate: the LAST recorded round. Every member of
+    `_ROUND_DEFAULTED` targets it — `record-return` and `query-next-action` want it while
+    it is open, and `record-adjudication` / `record-adjudication-render` /
+    `record-coverage` want it once closed. Each caller then applies its OWN existing
+    guard (duplicate-return, write-once adjudication, write-once coverage, the
+    adjudicated-verdict precondition), so every refusal reachable on the explicit path
+    stays reachable on the defaulted path — the resolver decides which round, never
+    whether the transition is legal.
+
+    `ambiguity_token` is non-None only where the state does NOT uniquely determine a
+    round: there is no state at all, or no round has been recorded. Callers fail closed on
+    it in their own class's shape — a mutation exits non-zero with a named breadcrumb and
+    writes no state; a query still exits 0 and prints a decided answer carrying a
+    `reason=` token.
+    """
+    if explicit_round is not None:
+        return explicit_round, None
+    if state is None:
+        return None, 'state-unestablished'
+    if not state.get('rounds'):
+        return None, 'no-round-recorded'
+    return state['rounds'][-1]['round'], None
+
+
+def _require_named_round(prefix, doc, args):
+    """Resolve a state-defaulted `--round` for a MUTATION, or fail closed (issue #795).
+
+    Rebinds `args.round` to the resolved number and returns it, so every guard downstream
+    runs against that number with its own breadcrumb text unchanged — which is what keeps
+    every refusal reachable on the explicit path reachable on the defaulted path. It runs
+    BEFORE the first guard and before any mutation of `doc`, so an ambiguity exits with no
+    state write.
+
+    The mutation members of `_ROUND_DEFAULTED` share this one call rather than each
+    carrying its own copy of the breadcrumb: a four-way coupled literal drifts on the next
+    edit. `query-next-action` deliberately does NOT use it — a query fails closed in its
+    own class's shape (exit 0 plus a decided `reason=` token), never through `_fail`.
+    """
+    args.round, ambiguity = _resolve_named_round(doc, args.round)
+    if ambiguity is not None:
+        _fail(prefix, f'--round was omitted and the state does not uniquely determine a '
+                      f'round ({ambiguity}); re-issue the call naming the round explicitly')
+    return args.round
+
+
+class _RenderRefusal(Exception):
+    """A recorded value failed the `next_call=` render-boundary shape check."""
+
+    def __init__(self, token):
+        if token not in _NEXT_CALL_REFUSALS:
+            raise AssertionError(
+                f'issue-audit-state: _RenderRefusal({token!r}) is outside '
+                '_NEXT_CALL_REFUSALS — the render boundary answers a closed set')
+        super().__init__(token)
+        self.token = token
+
+
+# Flags whose rendered value is a filesystem path, and so must additionally satisfy the
+# absolute-path shape `_is_bound_path` already enforces on the recorded binding.
+_NEXT_CALL_PATH_FLAGS = ('--draft-file', '--path', '--instructions-file')
+
+# Shell metacharacters refused outright in a rendered operand. The emitted line is a
+# suggestion a human copies into a shell, so a recorded value carrying any of these would
+# compose a command the state owner never intended.
+_NEXT_CALL_METACHARACTERS = re.compile(r'[$`"\\;|&<>(){}\[\]*?!~\'\s]')
+
+
+def _shape_check(flag, value):
+    """Validate a state-derived operand before it is rendered into a `next_call=` line."""
+    if isinstance(value, bool):
+        # `bool` is an `int` subclass, so it would otherwise render as `True`/`False` —
+        # neither of which is a legal operand value anywhere in this CLI.
+        raise _RenderRefusal('render-value-not-a-string')
+    if isinstance(value, int):
+        # A round number is a legitimate state-derived integer operand; render its decimal
+        # form, which by construction carries no newline and no metacharacter.
+        return str(value)
+    if not isinstance(value, str):
+        raise _RenderRefusal('render-value-not-a-string')
+    if _record_splitting_char(value) is not None:
+        # The file's shared record-splitter predicate, not a private copy: the hazard is
+        # identical (a value forging a LINE on the printed surface), so if that set ever
+        # widens this boundary moves with the predicate's other callers.
+        raise _RenderRefusal('render-value-carries-newline')
+    if flag in _NEXT_CALL_PATH_FLAGS:
+        if not _is_bound_path(value):
+            raise _RenderRefusal('render-path-not-absolute')
+        # A path legitimately carries `/` and, per `_is_bound_path`, may carry a SPACE — so
+        # it cannot go through the metacharacter sweep below. It is SHELL-QUOTED instead of
+        # exempted: the emitted line is a command a human pastes into a shell, so an
+        # unquoted `/Users/jo/My Repos/d.md` would paste as two arguments and run a
+        # different, wrong invocation. `shlex.quote` is a no-op on an ordinary path and
+        # makes any other legal-but-awkward one paste back as the single argument recorded.
+        # The newline/CR refusal above still binds and is not delegated to quoting.
+        return shlex.quote(value)
+    if _NEXT_CALL_METACHARACTERS.search(value):
+        raise _RenderRefusal('render-value-carries-shell-metacharacter')
+    return value
+
+
+def _render_operand(target, flag, state_value):
+    """Render one operand, or answer None meaning "bare, and named in `needs=`".
+
+    `target` is the subcommand being RENDERED, never the one doing the rendering. The
+    distinction is load-bearing and was got wrong: `_ROUND_IS_CALLER_INTENT` names the
+    subcommands whose own `--round` is a branch discriminator (`record-dispatch`,
+    `record-creation-epoch`), so keying it on the emitting command meant the guard could
+    never fire — `query-arm` rendering a `record-dispatch` call filled `--round` from
+    state and left it out of `needs=`, handing the caller a pre-decided branch, which is
+    exactly the fail-open this class exists to prevent. It was inert only because every
+    call site passes `None` for that operand today.
+
+    Three outcomes, and the complement is decided rather than residual:
+      * a member of `_CALLER_SUPPLIED_FLAGS` (or `--round` on a subcommand where it is
+        the caller-intent operand) is always bare — never rendered with a value;
+      * an operand the state holds is rendered filled, after `_shape_check`;
+      * an operand in neither class — not caller-supplied, and not state-derivable — is
+        also bare and named in `needs=`.
+    """
+    if flag in _CALLER_SUPPLIED_FLAGS:
+        return None
+    if flag == '--round' and target in _ROUND_IS_CALLER_INTENT:
+        return None
+    if state_value is None:
+        return None
+    return _shape_check(flag, state_value)
+
+
+def _checked_next_call(line):
+    """Fail closed on a `next_call=` answer outside the three sanctioned shapes.
+
+    The same discipline `_checked_action` applies to `next_action`: the caller parses this
+    line against a closed shape set, so a fourth shape would read as an unrecognized
+    string mid-lifecycle. Constraining the resolver at its point of return is what keeps
+    the shape set load-bearing rather than decorative.
+    """
+    if not (line == 'next_call=none'
+            or _NEXT_CALL_UNESTABLISHED_RE.match(line)
+            or line.startswith(f'next_call={_STATE_OWNER_PLACEHOLDER} ')):
+        raise AssertionError(
+            f'issue-audit-state: _resolve_next_call produced {line!r}, which matches none '
+            'of the three sanctioned next_call shapes (an invocation line, next_call=none, '
+            'or next_call=unestablished reason=<token>)')
+    return line
+
+
+def _next_call_invocation(cmd_name, subcommand, operands):
+    """Compose an invocation line from `(flag, state_value)` pairs, in argument order.
+
+    Every operand the state holds is filled; every caller-supplied or non-derivable one is
+    rendered bare and collected into `needs=`. A `_RenderRefusal` from any operand aborts
+    the whole line — a partially-rendered invocation would be worse than none, because the
+    caller would run it.
+    """
+    parts, needs = [], []
+    # The head of the subcommand being rendered — `_render_operand` classifies operands by
+    # the TARGET, not by whoever is emitting the suggestion (see its docstring).
+    target = subcommand.split(' ', 1)[0]
+    for flag, state_value in operands:
+        rendered = _render_operand(target, flag, state_value)
+        if rendered is None:
+            parts.append(flag)
+            needs.append(flag)
+        else:
+            parts.append(f'{flag} {rendered}')
+    # One token list, joined once. An earlier form built the line with an embedded
+    # `" ".join(parts)` and squeezed doubled spaces afterwards — which both papered over the
+    # empty-operand case and could have rewritten a legitimate double space inside a path
+    # operand (`_shape_check` exempts paths from the metacharacter sweep).
+    tokens = [f'next_call={_STATE_OWNER_PLACEHOLDER}', subcommand, *parts,
+              f'needs={",".join(needs)}' if needs else 'needs=none']
+    return ' '.join(tokens)
+
+
+def _unestablished(reason):
+    if reason not in _NEXT_CALL_REASONS:
+        raise AssertionError(
+            f'issue-audit-state: {reason!r} is not a member of _NEXT_CALL_REASONS — a '
+            'reason token reaching the emitted surface must be declared, so a typo is a '
+            'loud failure rather than an unknown-token branch at the caller')
+    return f'next_call=unestablished reason={reason}'
+
+
+# The dispatch-routing answers that mandate a `record-dispatch` call, and the arm (and
+# marker, where the arm hard-requires one) each names. Translating an answer token into an
+# invocation used to be prose work in a separately gated file; this table is what lets the
+# tool publish the invocation instead. Each rendered answer names `--round` BARE — as does
+# `query-arm`'s fresh-round answer — because the shipped procedure names those arms as
+# where the forgotten-flag trap bites.
+_DISPATCH_ROUTE = {
+    'dispatch-embed-retry': ('embed', 'file-unreadable'),
+    'dispatch-inline-degraded': ('inline', None),
+}
+
+# `dispatch-retry-same-arm` is DELIBERATELY absent from THIS table: the arm to retry is
+# whichever the round already ran, which the table cannot name, so it is routed through
+# `_ACTION_NOT_A_CALL` below to `unestablished reason=dispatch-arm-unestablished` rather
+# than rendering a call with a guessed arm. It is not one of the routing answers that name
+# `--round` bare — those are `query-arm`'s fresh-round answer plus this table's members.
+# (Routing it explicitly is load-bearing: while it was merely absent it fell through to the
+# generic `next-action-unestablished` tail, so the token the shipped procedure documents was
+# never the token emitted.)
+
+# Answer tokens whose mandated next step is NOT a tool call — a user interaction or a
+# required verification — and the reason each answers with.
+_ACTION_NOT_A_CALL = {
+    'dispatch-retry-same-arm': 'dispatch-arm-unestablished',
+    'proceed': 'boundary-offer',
+    'revise-and-reaudit': 'verify-then-revise',
+    'revise-then-evaluate-offer': 'verify-then-revise',
+    'round-closed-no-verdict': 'round-closed-no-verdict',
+    'round-open-awaiting-return': 'auditor-dispatch',
+}
+
+
+# Every reason token the `next_call=unestablished` arm may carry, from ALL of its sources:
+# the render-boundary refusals, the `_ACTION_NOT_A_CALL` values, the ad-hoc literals in
+# `_next_call_body`, and `render-failed` (printed by `main()`'s broad catch). Collected into
+# one closed set because `_checked_next_call` only shape-matches `[a-z0-9-]+`, so a typo
+# (`state-unestablised`) sailed through and left a token-keyed caller on its unknown-token
+# branch with nothing asserting the difference. Validated at `_unestablished()`, the single
+# construction point, the way `_RenderRefusal` already validates its own token.
+# Defined AFTER `_ACTION_NOT_A_CALL` because it composes it; `_unestablished` resolves this
+# global at call time, so its own definition may sit above.
+_NEXT_CALL_REASONS = frozenset(_NEXT_CALL_REFUSALS) | frozenset(_ACTION_NOT_A_CALL.values()) | {
+    'advisory-record-rendering', 'auditor-dispatch', 'boundary-offer', 'draft-write',
+    'foreign-nonce', 'nonce-unsupplied', 'no-round-recorded', 'render-failed',
+    'round-unestablished', 'state-unestablished', 'user-approval', 'user-election',
+    'next-action-unestablished', 'dispatch-arm-unestablished',
+}
+
+
+def _dispatch_next_call(cmd_name, slug, nonce, action, arm=None, marker=None):
+    """Render the `record-dispatch` invocation an answer token routes to."""
+    if arm is None:
+        arm, marker = _DISPATCH_ROUTE.get(action, (None, None))
+    if arm is None:
+        return _unestablished('dispatch-arm-unestablished')
+    operands = [('--nonce', nonce), ('--arm', arm)]
+    if marker is not None:
+        operands.append(('--marker', marker))
+    if arm == 'file':
+        # `record-dispatch` requires `--draft-file` on the file arm, but the requirement is
+        # ARM-CONDITIONAL and enforced in `cmd_record_dispatch`, not by argparse — so it is
+        # invisible to any reconciliation that reads `required=True` off the subparser.
+        # Without this the file arm, the most common lifecycle path, published a suggestion
+        # that refuses the moment it is copied. The path is the caller's to supply, so it
+        # renders bare and lands in `needs=` like every other caller-supplied operand.
+        operands.append(('--draft-file', None))
+    operands.append(('--round', None))
+    return _next_call_invocation(cmd_name, f'record-dispatch {slug}', operands)
+
+
+def _resolve_next_call(cmd_name, state, slug, nonce, **ctx):
+    """The next legal invocation after `cmd_name`, as one of the three sanctioned shapes.
+
+    THIS LINE IS A GENERATED SUGGESTION THE CALLER REVIEWS BEFORE RUNNING, never an
+    instruction, and it never overrides the mandated next step where the two disagree.
+    """
+    try:
+        return _checked_next_call(_next_call_body(cmd_name, state, slug, nonce, **ctx))
+    except _RenderRefusal as exc:
+        return _checked_next_call(_unestablished(exc.token))
+
+
+def _next_call_body(cmd_name, state, slug, nonce, **ctx):
+    if state is None:
+        return _unestablished('state-unestablished')
+    if nonce is None:
+        # NOT `foreign-nonce`: nothing foreign was supplied. `query-nonce` registers no
+        # `--nonce` (it exists to recover one after a compaction), so it reached here with
+        # None and published a mismatch diagnosis directly beneath its own correct answer —
+        # telling a caller their nonce was wrong at the exact moment it handed them the
+        # right one. Separate the two so each reason names what actually happened.
+        return _unestablished('nonce-unsupplied')
+    if state.get('nonce') != nonce:
+        return _unestablished('foreign-nonce')
+
+    # --- the dispatch-routing answers -------------------------------------------------
+    if cmd_name == 'query-arm':
+        # The fresh-round answer. `query-arm` has just printed the arm it decided; the
+        # round is the caller's to supply on `record-dispatch`, so it is rendered bare.
+        return _dispatch_next_call(cmd_name, slug, nonce, None,
+                                   arm=ctx.get('arm'), marker=ctx.get('marker'))
+    if cmd_name == 'query-next-action':
+        action = ctx.get('action')
+        if action in _DISPATCH_ROUTE:
+            return _dispatch_next_call(cmd_name, slug, nonce, action)
+        if action in _ACTION_NOT_A_CALL:
+            return _unestablished(_ACTION_NOT_A_CALL[action])
+        # No answer token to route on. Name the ambiguity the command itself reported
+        # where it has one, so the two lines agree rather than the second going generic.
+        return _unestablished(ctx.get('ambiguity') or 'next-action-unestablished')
+
+    # --- the lifecycle chain ----------------------------------------------------------
+    if cmd_name == 'init':
+        return _next_call_invocation(cmd_name, f'query-arm {slug}', [
+            ('--nonce', nonce), ('--write-landed', None), ('--draft-file', None)])
+    if cmd_name == 'record-dispatch':
+        # The mandated next step is dispatching the auditor, not a tool call.
+        return _unestablished('auditor-dispatch')
+    if cmd_name == 'record-return':
+        rnd = ctx.get('round')
+        if rnd is None:
+            return _unestablished('round-unestablished')
+        return _next_call_invocation(cmd_name, f'record-adjudication {slug}', [
+            ('--nonce', nonce), ('--round', rnd), ('--verdict', None),
+            ('--must-revise', None), ('--advisory', None), ('--invalid', None),
+            ('--unresolved-must-revise', None)])
+    if cmd_name == 'record-adjudication':
+        rnd = ctx.get('round')
+        return _next_call_invocation(cmd_name, f'record-coverage {slug}', [
+            ('--nonce', nonce), ('--round', rnd), ('--render', None),
+            ('--expected-keys', None), ('--coverage-stdin', None)])
+    if cmd_name == 'record-coverage':
+        rnd = ctx.get('round')
+        return _next_call_invocation(cmd_name, f'query-next-action {slug}', [
+            ('--nonce', nonce), ('--round', rnd)])
+    if cmd_name in ('query-triggers', 'query-convergence'):
+        # Both feed the single boundary offer, which is a user interaction.
+        return _unestablished('boundary-offer')
+    if cmd_name == 'query-calibration':
+        # The mandated next step is rendering the advisory/invalid records to the user —
+        # the very observation `record-adjudication-render --landed` attests to.
+        return _unestablished('advisory-record-rendering')
+    if cmd_name == 'record-adjudication-render':
+        return _next_call_invocation(cmd_name, f'query-final-byte {slug}', [
+            ('--nonce', nonce), ('--draft-file', ctx.get('draft_file'))])
+    if cmd_name == 'query-final-byte':
+        return _next_call_invocation(cmd_name, f'query-eligibility {slug}', [
+            ('--nonce', nonce), ('--mode', 'approve'),
+            ('--draft-file', ctx.get('draft_file'))])
+    if cmd_name == 'query-eligibility':
+        # Presentation and the approval election are the user's.
+        return _unestablished('user-approval')
+    if cmd_name == 'record-creation-epoch':
+        return _next_call_invocation(cmd_name, f'emit-body {slug}', [
+            ('--nonce', nonce), ('--draft-file', ctx.get('draft_file'))])
+    if cmd_name == 'record-creation-attestation':
+        return _next_call_invocation(cmd_name, f'query-summary {slug}',
+                                     [('--nonce', nonce)])
+    if cmd_name == 'query-summary':
+        # Terminal: the run's last mandated state-owner call.
+        return 'next_call=none'
+    if cmd_name == 'query-draft-binding':
+        if ctx.get('bound'):
+            return _unestablished('draft-write')
+        return _next_call_invocation(cmd_name, f'record-draft-binding {slug}', [
+            ('--nonce', nonce), ('--path', None), ('--tier', None)])
+    if cmd_name == 'record-draft-binding':
+        return _unestablished('draft-write')
+    if cmd_name == 'record-revision':
+        return _next_call_invocation(cmd_name, f'record-resolution {slug}', [
+            ('--nonce', nonce), ('--round', None), ('--revision-ordinal', None),
+            ('--resolved-ids', None)])
+    if cmd_name == 'record-resolution':
+        return _next_call_invocation(cmd_name, f'query-eligibility {slug}', [
+            ('--nonce', nonce), ('--mode', 'iterate'),
+            ('--draft-file', ctx.get('draft_file'))])
+    if cmd_name == 'record-offer':
+        return _unestablished('user-election')
+    # Everything else — the recording side channels (`record-reopen`, `record-invalidate`,
+    # `record-finding-evidence`, `record-claim-baseline`, `record-write-failure`,
+    # `record-override`, `record-final-byte-offer`) among them — mandates no single next
+    # call: where the run goes next depends on where it already was, which the record
+    # itself does not determine.
+    return 'next_call=none'
+
+
+# The closed key set the four context-producing commands may hand back. Checked at the
+# producer, so a renamed or misspelled key is a loud AssertionError rather than a silent
+# degradation to `next_call=unestablished` — the same invisibility this channel replaced a
+# `setattr` side-channel to avoid.
+_NEXT_CALL_CTX_KEYS = frozenset(
+    ('nonce', 'arm', 'marker', 'action', 'ambiguity', 'bound', 'round', 'draft_file'))
+
+
+def _next_call_ctx(**ctx):
+    """A command's own local decision, RETURNED to the `next_call=` resolver.
+
+    Four commands decide something the resolver cannot re-read from the state file —
+    `init`'s minted nonce, `query-arm`'s routed arm/marker, `query-next-action`'s answer
+    token, and `query-draft-binding`'s bound/none answer. Rather than let those four emit
+    inline (which would make the emission site 30-way and put the burden of "decided line
+    first" on 30 separate hand-edits), each RETURNS this mapping and the single
+    dispatch-level emitter reads it from `args.func(args)`.
+
+    The return channel rather than a `setattr` side-channel on the argparse namespace: the
+    ~34 commands that hand back nothing already return `None` implicitly, so they stay
+    untouched either way — but a returned value makes the dataflow visible at both ends,
+    where a string-keyed attribute stashed onto `args` is invisible to a reader and to any
+    static check, and could be written after a `return` had already left the function.
+    """
+    unknown = sorted(set(ctx) - _NEXT_CALL_CTX_KEYS)
+    if unknown:
+        raise AssertionError(
+            f'issue-audit-state: _next_call_ctx got unknown key(s) {unknown}; the resolver '
+            f'reads only {sorted(_NEXT_CALL_CTX_KEYS)}, so an unlisted key would degrade '
+            'silently to next_call=unestablished')
+    return ctx
+
+
+def _emit_next_call(cmd_name, args, ctx):
+    """Print the trailing `next_call=` line — the FINAL stdout line of every subcommand
+    outside `_NEXT_CALL_EXCLUDED`.
+
+    Called from the dispatch wrapper in `main()` AFTER the command's own function has
+    returned, which is what makes "the existing decided line is byte-identical and first"
+    true by construction rather than by 30 correct hand-edits: no command's own `print()`
+    is touched, and a command that refuses (`_fail` raises `SystemExit`) never reaches
+    here, so a refusal still carries its exact non-zero-plus-breadcrumb shape.
+    """
+    if cmd_name in _NEXT_CALL_EXCLUDED:
+        raise AssertionError(
+            f'issue-audit-state: _emit_next_call called for {cmd_name!r}, which the '
+            'three-armed exclusion predicate excludes from emitting next_call=')
+    ctx = dict(ctx or {})
+    ctx.setdefault('round', getattr(args, 'round', None))
+    ctx.setdefault('draft_file', getattr(args, 'draft_file', None))
+    # The POST-mutation state: re-read from disk after the command ran, so a mutation's
+    # `next_call=` answers against what it just wrote. A read failure is not a crash —
+    # `_query_state` is the read-only, never-raising accessor the queries already use, and
+    # a `None` state resolves to `next_call=unestablished reason=state-unestablished`.
+    state = _query_state(args.slug)
+    # A command that MINTS or rewrites the run's nonce hands the value back through the
+    # same context channel (`init` does — its `--nonce` is optional and drives cold-start
+    # vs re-init, so the caller-supplied value is absent on the cold path and comparing it
+    # would answer `foreign-nonce` about the run `init` just created). Reading it from the
+    # context rather than testing `cmd_name` here keeps this emitter subcommand-agnostic:
+    # a second nonce-minting subcommand needs no second `if cmd_name ==` arm.
+    # Read EVERY namespace field the same guarded way (issue #795 review): `query-nonce`
+    # registers no `--nonce` at all — it EXISTS to recover the nonce after a compaction — so
+    # an unguarded `args.nonce` crashed the one call a lost run makes, breaking the query
+    # class's exit-0 contract on the recovery path it exists for. The emitter must depend on no
+    # parser shape it does not itself check; the resolver already answers `foreign-nonce` /
+    # `state-unestablished` for an absent value.
+    nonce = ctx.pop('nonce', None) or getattr(args, 'nonce', None)
+    print(_resolve_next_call(cmd_name, state, args.slug, nonce, **ctx))
+
+
 def route_arm(write_landed, hash_ok, prior_unreadable):
     """Decide a dispatch's arm.
 
@@ -3721,18 +4282,42 @@ def _new_doc(slug, nonce):
 
 def cmd_init(args):
     load_error = None
+    load_exc = None
     try:
         existing = load_state(args.slug)
     except StateError as exc:
         existing = None
         load_error = str(exc)
+        # `load_state` chains the underlying OSError with `raise ... from exc`, so the
+        # absence-vs-unreadable distinction survives on `__cause__`. Reading it here keeps
+        # the discriminator on the failure that actually occurred rather than on a second,
+        # error-swallowing filesystem probe.
+        load_exc = exc.__cause__
     if args.nonce:
         if existing is None:
             # Carry the load failure's own detail: "no readable state file" alone would
             # mask a present-but-corrupt file behind a message recommending the
             # budget-resetting cold start.
             detail = f' (the load failed: {load_error})' if load_error else ''
-            _fail('init', 'a nonce was supplied but no readable state file exists for '
+            # ...and the REMEDY has to split with it. Both arms used to end in "omit
+            # --nonce for a cold start", which is the routing-prose's Route-B shape (fix
+            # the call you just made). That is right when the file is genuinely ABSENT,
+            # and wrong when it is present-but-unreadable: there a cold start silently
+            # discards recorded state, and the condition is squarely the routing prose's
+            # Route C (a load-time state error). Discriminate on the file's existence,
+            # which is the only operand that separates the two.
+            # Discriminate on the load failure's own shape, NOT on a follow-up
+            # `Path.exists()`: `exists()` swallows every OSError and returns False, so a
+            # file present behind a permission-denied parent read as ABSENT and got routed
+            # to the cold start this arm exists to prevent — a breadcrumb asserting the
+            # absence of a file it names in the same sentence as unreadable. Only a genuine
+            # FileNotFoundError is absence; every other load failure is present-but-unreadable.
+            if load_error is not None and not isinstance(load_exc, FileNotFoundError):
+                _fail('init', 'a nonce was supplied and a state file exists for slug '
+                              f'{args.slug!r} but could not be read{detail}; this is a '
+                              'state-owner-unavailable condition — do NOT cold-start over '
+                              'it, since that would discard the recorded state')
+            _fail('init', 'a nonce was supplied but no state file exists for '
                           f'slug {args.slug!r}{detail}; omit --nonce for a cold start')
         if existing['nonce'] != args.nonce:
             _fail('init', 'nonce mismatch — this call does not belong to the run that '
@@ -3781,6 +4366,9 @@ def cmd_init(args):
     except StateError as exc:
         _fail('init', str(exc))
     print(f'nonce={doc["nonce"]}')
+    # `init` mints the nonce, so it hands the value back rather than leaving the shared
+    # emitter to special-case this subcommand's name (see `_next_call_ctx`).
+    return _next_call_ctx(nonce=doc['nonce'])
 
 
 def _load_for_mutation(prefix, slug, nonce):
@@ -4199,6 +4787,7 @@ def cmd_record_dispatch(args):
 
 def cmd_record_return(args):
     doc = _load_for_mutation('record-return', args.slug, args.nonce)
+    _require_named_round('record-return', doc, args)   # issue #795 state-defaulted --round
     rnd = _find_round(doc, args.round)
     if rnd is None:
         _fail('record-return', f'no dispatch recorded for round {args.round}; a verdict '
@@ -4340,6 +4929,7 @@ def cmd_record_adjudication(args):
     that is the only verdict the `unestablished` count pairs with.
     """
     doc = _load_for_mutation('record-adjudication', args.slug, args.nonce)
+    _require_named_round('record-adjudication', doc, args)   # issue #795 state-defaulted --round
     rnd = _find_round(doc, args.round)
     if rnd is None:
         _fail('record-adjudication', f'no round {args.round} recorded; an adjudication '
@@ -4754,6 +5344,7 @@ def cmd_record_adjudication_render(args):
     and the summary. Idempotent: re-reporting the same value is a legal replay.
     """
     doc = _load_for_mutation('record-adjudication-render', args.slug, args.nonce)
+    _require_named_round('record-adjudication-render', doc, args)   # issue #795 state-defaulted --round
     rnd = _find_round(doc, args.round)
     if rnd is None:
         _fail('record-adjudication-render', f'no round {args.round} recorded (no-such-round)')
@@ -4795,6 +5386,7 @@ def cmd_record_coverage(args):
     the orchestrator's adjudication — never certified scrutiny.
     """
     doc = _load_for_mutation('record-coverage', args.slug, args.nonce)
+    _require_named_round('record-coverage', doc, args)   # issue #795 state-defaulted --round
     rnd = _find_round(doc, args.round)
     if rnd is None:
         _fail('record-coverage', f'no round {args.round} recorded; coverage cannot precede '
@@ -4918,14 +5510,15 @@ def cmd_query_coverage(args):
     contain spaces — the anchor floor bars it forging a `<field>=` token).
     """
     state = _query_state(args.slug)
-    if state is not None and state['nonce'] != args.nonce:
-        print('coverage_backing=unestablished coverage_render=none reason=foreign-nonce')
+    # The producer already owns the foreign-nonce answer, so it is not restated here; this
+    # branch's only remaining job is to skip the per-dimension rows a foreign caller may
+    # not read. The decided line is derived ONCE and handed to the producer, so the round
+    # below and the tokens above still ride the same derivation (see the comment following).
+    cov = None if (state is not None and state['nonce'] != args.nonce) \
+        else evaluate_coverage(state)
+    print(_coverage_backing_line(state, args.nonce, cov=cov))
+    if cov is None:
         return
-    cov = evaluate_coverage(state)
-    # `reason=` renders on EVERY arm (`none` when there is nothing to name): a
-    # conditionally-present trailing field cannot be told from a truncated line.
-    print(f'coverage_backing={cov["backing"]} coverage_render={cov["render"]} '
-          f'reason={cov.get("reason") or "none"}')
     # The coverage round rides on the SAME derivation that decided the tokens — deriving
     # it a second time would be two call sites that must agree on which round is
     # authoritative, the drift #603 removed from the summary fields.
@@ -4935,6 +5528,31 @@ def cmd_query_coverage(args):
             anchor = e.get('anchor')
             trailer = f' anchor={anchor}' if anchor is not None else ''
             print(f'key={e["key"]} outcome={e["outcome"]}{trailer}')
+
+
+def _coverage_backing_line(state, nonce, cov=None):
+    """The `query-coverage` DECIDED FIRST line only (issue #795 hoist).
+
+    `cov` is an optional PRE-DERIVED `evaluate_coverage(state)` — the same optional-operand
+    shape `evaluate_calibration_trigger(state, cal)` already uses. `cmd_query_coverage`
+    passes the derivation it needs anyway for the per-dimension rows, so the hoist adds no
+    second call site that must agree on which round is authoritative; `query-boundary`
+    omits it and the producer derives its own.
+
+    Deliberately not the per-dimension rows: `cmd_query_coverage` prints a decided first
+    line then one `key=… outcome=…` row per dimension, so there is no single line to match
+    for that component. `query-boundary` carries only this decided line — what the boundary
+    decision reads — and the procedure keeps calling `query-coverage` where the rows are
+    needed, so the issue-#708 durable read-back is not truncated.
+    """
+    if state is not None and state['nonce'] != nonce:
+        return 'coverage_backing=unestablished coverage_render=none reason=foreign-nonce'
+    if cov is None:
+        cov = evaluate_coverage(state)
+    # `reason=` renders on EVERY arm (`none` when there is nothing to name): a
+    # conditionally-present trailing field cannot be told from a truncated line.
+    return (f'coverage_backing={cov["backing"]} coverage_render={cov["render"]} '
+            f'reason={cov.get("reason") or "none"}')
 
 
 # ── The post-close ledger channels (issue #603) ───────────────────────────────────
@@ -5593,7 +6211,9 @@ def cmd_query_draft_binding(args):
     # contract to signal absent-vs-corrupt to all callers, out of proportion for this
     # state-owner foundation. Both cases are correct and fail-closed today (bound=none);
     # revisit as a shared-query-surface seam if the caller needs the distinction.
-    print(_binding_line(state))
+    line = _binding_line(state)
+    print(line)
+    return _next_call_ctx(bound=not line.startswith('bound=none'))
 
 
 def cmd_record_override(args):
@@ -6324,16 +6944,78 @@ def cmd_query_calibration(args):
     A query-class command: exit 0 once arguments parse.
     """
     state = _query_state(args.slug)
-    if state is not None and state['nonce'] != args.nonce:
-        print('calibration_backing=unestablished adjudication_render=none '
-              'calibration_trigger=no unevidenced=none reason=foreign-nonce')
-        return
+    print(_calibration_line(state, args.nonce))
+
+
+# The boundary components, in emission order, each paired with the producer that answers
+# it. ONE ordering, not a constant and a separate local tuple that must agree.
+_BOUNDARY_PRODUCERS = (
+    ('triggers', lambda s, n: _triggers_line(s, n)),
+    ('convergence', lambda s, n: _convergence_line(s, n)),
+    ('coverage', lambda s, n: _coverage_backing_line(s, n)),
+    ('calibration', lambda s, n: _calibration_line(s, n)),
+)
+_BOUNDARY_COMPONENTS = tuple(name for name, _ in _BOUNDARY_PRODUCERS)
+
+
+def cmd_query_boundary(args):
+    """The Step 3.6 → Step 4 boundary decision, in ONE read (issue #795).
+
+    Carries the DECIDED FIRST LINE of the trigger, convergence, coverage, and calibration
+    answers — each byte-identical to the first line its individual query prints, one per
+    line, in `_BOUNDARY_COMPONENTS` order. It composes those lines from the same hoisted
+    producers the individual queries call, so the two can never drift.
+
+    The four individual queries survive and answer exactly as before; this is an additional
+    read, never a replacement. It carries NO per-dimension coverage rows (see
+    `_coverage_backing_line`), so the procedure keeps calling `query-coverage` where the
+    rows are needed.
+
+    PER-COMPONENT STATUS: when one component cannot be established, it is NAMED with its
+    reason on a `component=<name> reason=<token>` line and no short answer is returned that
+    a caller would read as complete — the other three still answer, because one malformed
+    sub-derivation must not blind the boundary read to the components that are fine.
+    """
+    state = _query_state(args.slug)
+    out = []
+    for name, produce in _BOUNDARY_PRODUCERS:
+        try:
+            out.append(produce(state, args.nonce))
+        except Exception as exc:  # noqa: BLE001 - see below
+            # A DELIBERATELY broad catch, narrowly scoped to ONE producer call. The
+            # producers read a document a human can hand-corrupt, and their failure modes
+            # are open-ended (a missing key, a wrong-typed field, a value that will not
+            # format). Narrowing the type here would let an unanticipated shape escape as a
+            # traceback and break the query class's exit-0 contract — the opposite of
+            # failing closed. Nothing is swallowed: the component is named on its own
+            # `component=` line with the exception's own type as the reason token.
+            # In POSITION, not appended after the answers: a failing component that moved
+            # to the end would break the docstring's own "one per line, in
+            # `_BOUNDARY_COMPONENTS` order" promise and make a positional read wrong.
+            # The stdout token stays free of the exception TEXT (untrusted document
+            # content must never reach the parsed surface), but the cause is not dropped:
+            # its siblings (`_query_state`, `cmd_query_arm`) both keep the diagnosis on
+            # stderr, and a bare `detail=KeyError` names no key, field, or round.
+            sys.stderr.write(
+                f'issue-audit-state.py query-boundary: component {name!r} could not be '
+                f'established — {type(exc).__name__}: {exc}\n')
+            out.append(f'component={name} reason=unestablished '
+                       f'detail={type(exc).__name__}')
+    for line in out:
+        print(line)
+
+
+def _calibration_line(state, nonce):
+    """The `query-calibration` decided line (issue #795 hoist; see `_triggers_line`)."""
+    if state is not None and state['nonce'] != nonce:
+        return ('calibration_backing=unestablished adjudication_render=none '
+                'calibration_trigger=no unevidenced=none reason=foreign-nonce')
     cal = evaluate_calibration(state)
     trig = 'yes' if evaluate_calibration_trigger(state, cal) else 'no'
     ids = ','.join(str(i) for i in cal['unevidenced']) if cal['unevidenced'] else 'none'
-    print(f'calibration_backing={cal["backing"]} adjudication_render={cal["render"]} '
-          f'calibration_trigger={trig} unevidenced={ids} '
-          f'reason={cal.get("reason") or "none"}')
+    return (f'calibration_backing={cal["backing"]} adjudication_render={cal["render"]} '
+            f'calibration_trigger={trig} unevidenced={ids} '
+            f'reason={cal.get("reason") or "none"}')
 
 
 def _nonneg_int(text):
@@ -6387,11 +7069,39 @@ def cmd_emit_body(args):
     sys.stdout.buffer.write(body)
 
 
+# Diagnostics already written to stderr this process, keyed by the exact (slug, message)
+# pair. Deduping on the identity of the emitted line is what lets the duplicate-suppression
+# be safe: see `_query_state`.
+_STATE_BREADCRUMB_EMITTED = set()
+
+
 def _query_state(slug):
+    """Read the run's state, or None with a breadcrumb naming why (never a raise).
+
+    A repeated read of the same file in one process emits its breadcrumb ONCE — the
+    `next_call=` emitter's post-mutation re-read would otherwise put two consecutive
+    copies of one diagnostic on a surface the state-owner-unavailable fallback routes on,
+    which reads as two separate failures.
+
+    The suppression is keyed on the **identity of the diagnostic actually emitted**, never
+    on a caller-supplied flag (issue #795 shadow review). The previous `quiet=True`
+    parameter suppressed the breadcrumb unconditionally at the emitter's call site, on the
+    assumption that the command had already emitted the identical line. That holds for the
+    QUERY class, whose handlers reach state through this function — but every MUTATION
+    subcommand reaches state through `load_state`/`_fail` and never calls this at all, so
+    for those ~20 subcommands the emitter's re-read was the FIRST read here and its
+    suppression left `next_call=unestablished reason=state-unestablished` standing with no
+    diagnosis of why. Keying on the emitted line closes that gap without reintroducing the
+    doubled diagnostic: a genuine second read of an already-reported failure stays quiet,
+    while a first-and-only read always speaks.
+    """
     try:
         return load_state(slug)
     except StateError as exc:
-        sys.stderr.write(f'issue-audit-state.py query: state unestablished — {exc}\n')
+        key = (slug, str(exc))
+        if key not in _STATE_BREADCRUMB_EMITTED:
+            _STATE_BREADCRUMB_EMITTED.add(key)
+            sys.stderr.write(f'issue-audit-state.py query: state unestablished — {exc}\n')
         return None
 
 
@@ -6425,6 +7135,7 @@ def cmd_query_arm(args):
             prior_unreadable = True
     arm, marker = route_arm(args.write_landed == 'yes', hash_ok, prior_unreadable)
     print(f'arm={arm} marker={marker or "none"}')
+    return _next_call_ctx(arm=arm, marker=marker)
 
 
 def cmd_query_next_action(args):
@@ -6432,19 +7143,41 @@ def cmd_query_next_action(args):
     if state is not None and state['nonce'] != args.nonce:
         print('action=round-closed-no-verdict reason=foreign-nonce')
         return
-    print(f'action={next_action(state, args.round)}')
+    # issue #795: `--round` is state-defaulted here. An ambiguity fails closed IN THIS
+    # SUBCOMMAND'S OWN CLASS: a query still exits 0 and prints a DECIDED answer carrying a
+    # `reason=` token, exactly as `cmd_query_arm` already answers `reason=foreign-nonce`.
+    # A non-zero query exit after parsing would break "queries always exit 0 once their
+    # arguments parse" and, since the fallback partition covers only non-zero MUTATION
+    # exits, would present as that fallback's "no contract output" class — degrading a
+    # whole run to one bounded in-chat round over a forgotten flag on a read.
+    args.round, _amb = _resolve_named_round(state, args.round)
+    if _amb is not None:
+        print(f'action=round-closed-no-verdict reason={_amb}')
+        return _next_call_ctx(action=None, ambiguity=_amb)
+    action = next_action(state, args.round)
+    print(f'action={action}')
+    return _next_call_ctx(action=action)
 
 
 def cmd_query_triggers(args):
     state = _query_state(args.slug)
-    if state is not None and state['nonce'] != args.nonce:
+    print(_triggers_line(state, args.nonce))
+
+
+def _triggers_line(state, nonce):
+    """The `query-triggers` decided line (issue #795 hoist).
+
+    Hoisted so `query-boundary` composes this exact line rather than re-deriving it — the
+    one-producer discipline the summary fields already follow. `cmd_query_triggers` prints
+    it unchanged, so its stdout is byte-identical to before the hoist.
+    """
+    if state is not None and state['nonce'] != nonce:
         # Fail closed like the sibling queries, but NAME the cause: the state file is
         # valid, the caller is foreign — 'state-unestablished' would misattribute. The
         # coverage field stays present (not-hold) so the line shape is identical on every
         # arm and the orchestrator's hand-parse never sees a field appear/disappear.
-        print('t1=not-hold t2=hold coverage=not-hold calibration=not-hold '
-              'reason=foreign-nonce')
-        return
+        return ('t1=not-hold t2=hold coverage=not-hold calibration=not-hold '
+                'reason=foreign-nonce')
     t = evaluate_triggers(state)
     reason = t['reason'] or ''
     # issue #708: the unbacked-coverage offer trigger is a sibling of T1/T2 on the SAME
@@ -6454,10 +7187,10 @@ def cmd_query_triggers(args):
     # field the orchestrator's parse already anchors on.
     # issue #743: the calibration disclosure trigger renders BEFORE `reason=` (which stays
     # the trailing field the orchestrator's parse anchors on), a sibling of `coverage=`.
-    print(f't1={"hold" if t["t1"] else "not-hold"} '
-          f't2={"hold" if t["t2"] else "not-hold"} '
-          f'coverage={"hold" if t["coverage"] else "not-hold"} '
-          f'calibration={"hold" if t["calibration"] else "not-hold"} reason={reason}')
+    return (f't1={"hold" if t["t1"] else "not-hold"} '
+            f't2={"hold" if t["t2"] else "not-hold"} '
+            f'coverage={"hold" if t["coverage"] else "not-hold"} '
+            f'calibration={"hold" if t["calibration"] else "not-hold"} reason={reason}')
 
 
 def _unledgered_revise(state):
@@ -6488,18 +7221,22 @@ def _unledgered_revise(state):
 
 def cmd_query_convergence(args):
     state = _query_state(args.slug)
-    if state is not None and state['nonce'] != args.nonce:
+    print(_convergence_line(state, args.nonce))
+
+
+def _convergence_line(state, nonce):
+    """The `query-convergence` decided line (issue #795 hoist; see `_triggers_line`)."""
+    if state is not None and state['nonce'] != nonce:
         # Fail closed like the sibling queries, naming the cause: a foreign caller cannot
         # read a converged verdict off another run's state. The field set must stay
         # IDENTICAL to the answering arm's — a fail-closed answer that drops a field is a
         # different shape for a parser to handle, and `unledgered_revise=none` here means
         # "no rounds are named", which is exactly right when nothing was read.
-        print('converged=no reason=foreign-nonce basis=none unledgered_revise=none')
-        return
+        return 'converged=no reason=foreign-nonce basis=none unledgered_revise=none'
     c = evaluate_convergence(state)
     reason = c['reason'] or ''
-    print(f'converged={"yes" if c["converged"] else "no"} reason={reason} '
-          f'basis={c["basis"]} unledgered_revise={_unledgered_revise(state)}')
+    return (f'converged={"yes" if c["converged"] else "no"} reason={reason} '
+            f'basis={c["basis"]} unledgered_revise={_unledgered_revise(state)}')
 
 
 def _findings_line(rnd, entry):
@@ -6666,13 +7403,25 @@ def cmd_query_nonce(args):
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
-def main():
+def build_parser():
+    """Build and return the fully-registered argument parser.
+
+    Hoisted out of `main()` (issue #795) so the registered subcommand set — a
+    MACHINE-CONSUMED contract, not prose — is readable without running the CLI. The
+    docstring/prose reconciliation guards compare their enumerations against
+    `build_parser()._subparsers`-derived choices rather than grepping for a sentence,
+    which is what makes those guards assertions about the contract rather than about
+    wording.
+    """
     p = argparse.ArgumentParser(
         prog='issue-audit-state.py',
         description='State owner for the /devflow:create-issue fresh-context audit '
                     'lifecycle. Queries always exit 0 once the arguments parse and '
-                    'print a decided token; '
-                    'mutations exit non-zero with a named breadcrumb.')
+                    'print a decided answer line; '
+                    'mutations exit non-zero with a named breadcrumb. Most subcommands '
+                    'print a second and final next_call= line naming the next legal '
+                    'invocation; it is a generated suggestion the caller reviews, never '
+                    'an instruction, and the decided answer line stays first.')
     sub = p.add_subparsers(dest='cmd', required=True)
 
     s = sub.add_parser('init', help='Start a run: mint a nonce (cold start deletes any '
@@ -6688,7 +7437,7 @@ def main():
                                                'draft digest.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: dispatch-discriminator
     s.add_argument('--arm', choices=_ARMS, required=True)
     s.add_argument('--write-path', help='Optional on the file arm (issue #569): the '
                    'absolute canonical-draft file path the skill observed its write land '
@@ -6722,7 +7471,9 @@ def main():
                                              'findings and carriage evidence.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=False, default=None)
+                   # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
+                   # recorded round uniquely names it; the command's own guards still bind.
     s.add_argument('--verdict', choices=_VERDICTS,
                    help='Omit when the return carried no parseable VERDICT line.')
     s.add_argument('--findings-count', type=int)
@@ -6749,7 +7500,9 @@ def main():
                             'payload (issue #548).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=False, default=None)
+                   # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
+                   # recorded round uniquely names it; the command's own guards still bind.
     s.add_argument('--verdict', choices=_ADJUDICATED_VERDICTS, required=True,
                    help='The adjudicated verdict (FILE or REVISE); the raw auditor token '
                         'stays recorded separately as provenance.')
@@ -6792,7 +7545,9 @@ def main():
                             'reported-observation pattern).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=False, default=None)
+                   # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
+                   # recorded round uniquely names it; the command's own guards still bind.
     s.add_argument('--landed', choices=('yes', 'no'), required=True,
                    help='yes records `reported`, no records `unreported`; the tool cannot '
                         'observe chat, so this is a reported observation. An unreported '
@@ -6805,7 +7560,7 @@ def main():
                             'record, auditor fields JSON-encoded, summary trailing.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: per-round-id-selector
     s.add_argument('--record-class', choices=_ADJUDICATION_RECORD_CLASSES,
                    help='Restrict to one class; omit to read both.')
     s.set_defaults(func=cmd_query_adjudication_records)
@@ -6823,7 +7578,9 @@ def main():
                             '(issue #708).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=False, default=None)
+                   # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
+                   # recorded round uniquely names it; the command's own guards still bind.
     s.add_argument('--render', choices=_COVERAGE_RENDERS, required=True,
                    help="'full' when the auditor rendered every dimension on the "
                         "orchestrator's authoritative enumeration; 'degraded' when a render "
@@ -6860,7 +7617,7 @@ def main():
                             'revision (#603).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True,
+    s.add_argument('--round', type=int, required=True,  # issue #795 retained: per-round-id-selector
                    help='Any ledgered round up to the latest completed round; '
                         'cross-round resolution lets a late fix clear the round that '
                         'found the defect.')
@@ -6875,7 +7632,7 @@ def main():
                        help='Mark named resolved ledger entries unresolved again (#603).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: per-round-id-selector
     s.add_argument('--ids', required=True,
                    help='Comma-separated ledger entry ids that regressed.')
     s.set_defaults(func=cmd_record_reopen)
@@ -6885,7 +7642,7 @@ def main():
                             'mandatory reason (#603).')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: per-round-id-selector
     s.add_argument('--ids', required=True,
                    help='Comma-separated ledger entry ids adjudicated must-revise in '
                         'error.')
@@ -6934,7 +7691,7 @@ def main():
                                                'degraded audit arm.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: caller-selected-round
     s.add_argument('--reason', choices=_DEGRADED_REASONS, required=True)
     s.set_defaults(func=cmd_record_degraded)
 
@@ -6963,7 +7720,7 @@ def main():
                                                      'the bytes actually being posted.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=True)  # issue #795 retained: caller-selected-round
     s.add_argument('--draft-file', help='The canonical draft file the file-arm posting '
                                         'sources from. On a file-arm epoch it binds the '
                                         'body digest of the bytes emit-body will actually '
@@ -7031,7 +7788,7 @@ def main():
              'item `incomplete`, never verified.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--round', type=_nonneg_int, required=True)  # issue #795 retained: per-round-id-selector
     s.add_argument('--finding-id', type=_nonneg_int, required=True)
     s.add_argument('--locator')
     s.add_argument('--command')
@@ -7059,7 +7816,7 @@ def main():
              'still reports a conflicting sibling.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=_nonneg_int, required=True)
+    s.add_argument('--round', type=_nonneg_int, required=True)  # issue #795 retained: per-round-id-selector
     s.add_argument('--finding-id', type=_nonneg_int)
     s.set_defaults(func=cmd_query_finding_evidence)
 
@@ -7082,8 +7839,18 @@ def main():
                                                  'round.')
     s.add_argument('slug')
     s.add_argument('--nonce', required=True)
-    s.add_argument('--round', type=int, required=True)
+    s.add_argument('--round', type=int, required=False, default=None)
+                   # issue #795: state-defaulted (_ROUND_DEFAULTED) — the state's last
+                   # recorded round uniquely names it; the command's own guards still bind.
     s.set_defaults(func=cmd_query_next_action)
+
+    s = sub.add_parser('query-boundary',
+                       help='The Step 3.6 to Step 4 boundary decision in one read: the '
+                            'decided line of the trigger, convergence, coverage and '
+                            'calibration answers, one per line.')
+    s.add_argument('slug')
+    s.add_argument('--nonce', required=True)
+    s.set_defaults(func=cmd_query_boundary)
 
     s = sub.add_parser('query-triggers', help='Evaluate the T1 and T2 offer triggers.')
     s.add_argument('slug')
@@ -7153,8 +7920,66 @@ def main():
     s.add_argument('slug')
     s.set_defaults(func=cmd_query_nonce)
 
-    args = p.parse_args()
-    args.func(args)
+    return p
+
+
+def registered_subcommands():
+    """The subcommand names the parser actually exposes (issue #795)."""
+    parser = build_parser()
+    for action in parser._actions:  # noqa: SLF001 - argparse exposes no public accessor
+        if isinstance(action, argparse._SubParsersAction):  # noqa: SLF001
+            return frozenset(action.choices)
+    raise AssertionError('issue-audit-state: build_parser() registered no subparsers')
+
+
+def main():
+    args = build_parser().parse_args()
+    ctx = args.func(args)
+    # issue #795 — the SINGLE `next_call=` emission site. It runs after the command's own
+    # function returned, so every existing decided line stays byte-identical and first, and
+    # a refusal (which raises `SystemExit` out of `_fail`) never reaches here.
+    if args.cmd not in _NEXT_CALL_EXCLUDED:
+        try:
+            _emit_next_call(args.cmd, args, ctx)
+        except Exception as exc:  # noqa: BLE001 - see below
+            # DELIBERATELY broad, and never a swallow. By this point the decided answer
+            # line is already printed and any mutation is already persisted, so an
+            # exception escaping here would exit non-zero on a call that SUCCEEDED — and
+            # the whole CLI is contract-typed on that exit code: a caller reads a non-zero
+            # query as the fallback's "no contract output" class and a non-zero mutation as
+            # an illegal transition or an unpersistable state, so it would retry or degrade
+            # over work that actually landed. `next_call=` is a generated suggestion; its
+            # failure is named on stderr and the decided answer stands.
+            # Emit the `unestablished` shape rather than NOTHING. The contract this
+            # channel publishes is that every non-excluded subcommand's FINAL stdout line
+            # is one of exactly three shapes; printing no line at all left a caller
+            # parsing that final line reading whatever the command's own last decided line
+            # happened to be, which is not a `next_call=` answer and carries no reason. A
+            # render failure is precisely an unestablished next call, so say so on the
+            # channel the caller reads, and keep the diagnosis on stderr.
+            print('next_call=unestablished reason=render-failed')
+            # Two DIFFERENT conditions reach this handler, and collapsing them onto one
+            # message hid the worse one (issue #795 shadow review). An ordinary exception
+            # is a data/environment problem: the state held something unrenderable. An
+            # `AssertionError` here comes from this module's own self-checks —
+            # `_checked_next_call`'s three-shape contract and `_unestablished`'s closed
+            # reason vocabulary — and means the TOOL is wrong, not the input. Both must
+            # still exit 0 for the reason above, so the only channel left to distinguish
+            # them is the message; give the contract violation a distinctive, greppable
+            # marker so it is visible in a transcript and assertable by the suite, rather
+            # than reading as one more environment hiccup.
+            if isinstance(exc, AssertionError):
+                sys.stderr.write(
+                    f'issue-audit-state.py {args.cmd}: CONTRACT VIOLATION in the next_call= '
+                    f'channel — {exc}. This is a defect in issue-audit-state.py itself, not '
+                    'a problem with your state or arguments; the decided answer above stands '
+                    'and this call succeeded, but the suggestion channel is unsound and '
+                    'should be reported.\n')
+            else:
+                sys.stderr.write(
+                    f'issue-audit-state.py {args.cmd}: the next_call= suggestion could not be '
+                    f'rendered ({type(exc).__name__}: {exc}); the decided answer above stands '
+                    'and this call succeeded\n')
 
 
 if __name__ == '__main__':
