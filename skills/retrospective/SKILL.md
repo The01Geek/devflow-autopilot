@@ -4,6 +4,7 @@ description: >
   Stage A of /devflow:retrospective-weekly: analyze one non-clean PR from its pre-fetched
   context bundle and return a retrospective entry as JSON. Invoked as a
   subagent — do not call it directly.
+disable-model-invocation: true
 ---
 
 # retrospective — Stage A subagent analysis brief
