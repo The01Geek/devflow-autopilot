@@ -129,8 +129,10 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 from __future__ import annotations
 
 import ast
+import bisect
 import csv
 import difflib
+import functools
 import hashlib
 import importlib.util
 import io
@@ -141,6 +143,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import NamedTuple
 
 # Non-source trees always excluded from the relocation search set (issue #661): a
@@ -346,12 +349,26 @@ def _apply_assignment(name, rhs, path_vars, literal_vars, lib, protected=()):
 
 
 def variable_maps_by_line(text, lib, overrides):
-    """Return sequential assignment maps before each logical line."""
+    """Return sequential assignment maps before each logical line.
+
+    Every line between two assignments sees the same values, so one read-only
+    view is shared across that whole run and a fresh pair is taken only where
+    an assignment could have changed them — on a source whose lines mostly
+    carry no assignment that is far fewer copies than one pair per line. The
+    views are ``MappingProxyType`` so a caller that tried to write through one
+    fails at the write instead of silently altering every line sharing it;
+    every reader today only looks values up.
+    """
     maps = {}
     path_vars = dict(overrides)
     literal_vars = {}
+    protected = set(overrides)
+    snapshot = (
+        MappingProxyType(dict(path_vars)),
+        MappingProxyType(dict(literal_vars)),
+    )
     for lineno, line in join_logical_lines(text):
-        maps[lineno] = (dict(path_vars), dict(literal_vars))
+        maps[lineno] = snapshot
         match = _ASSIGNMENT_RE.match(line)
         if match is None:
             continue
@@ -361,7 +378,11 @@ def variable_maps_by_line(text, lib, overrides):
             path_vars,
             literal_vars,
             lib,
-            protected=set(overrides),
+            protected=protected,
+        )
+        snapshot = (
+            MappingProxyType(dict(path_vars)),
+            MappingProxyType(dict(literal_vars)),
         )
     return maps
 
@@ -1760,9 +1781,47 @@ _POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
 _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
 
 
+# Bound on the per-source parse memos below, sized to the two images a scan
+# holds for the source it is extracting: its merge-base image and its worktree
+# image. Two repeats are caught, and they are not the same for both memos. The
+# within-extraction repeat is _function_definitions' alone — one extraction
+# reaches it twice for one image, once directly and once through
+# _function_bodies inside the helper-spec inference. The re-presented
+# merge-base image, which a later scan in the same process hands back
+# unchanged, is the repeat both memos share; the helper-spec inference is
+# derived only once per image per extraction, so that is its only one. Slack
+# beyond the two images buys neither repeat and is spent retaining superseded
+# copies of a multi-megabyte source.
+_IMAGE_PARSE_CACHE_SIZE = 2
+
+
+def _newline_offsets(text):
+    """Return the ascending offsets of every newline in ``text``."""
+    offsets = []
+    position = text.find("\n")
+    while position != -1:
+        offsets.append(position)
+        position = text.find("\n", position + 1)
+    return offsets
+
+
 def _function_definitions(text):
-    """Return quote-, comment-, escape-, and parameter-aware function spans."""
+    """Return quote-, comment-, escape-, and parameter-aware function spans.
+
+    The returned mapping is a fresh dict on every call: the underlying parse is
+    memoized on ``text``, so handing the cached object to a caller that mutated
+    it would corrupt every later hit.
+    """
+    return dict(_function_definitions_cached(text))
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _function_definitions_cached(text):
     definitions = {}
+    # Derived lazily: a source with no function definition never pays for it,
+    # and one with many amortizes a single pass over the whole text instead of
+    # rescanning the prefix per definition to derive its line number.
+    newline_offsets = None
     for match in _FUNCTION_START_RE.finditer(text):
         depth = 1
         parameter_depth = 0
@@ -1808,10 +1867,12 @@ def _function_definitions(text):
             elif char == "}":
                 depth -= 1
                 if depth == 0:
+                    if newline_offsets is None:
+                        newline_offsets = _newline_offsets(text)
                     definitions[match.group(1)] = (
                         text[body_start:index],
-                        text.count("\n", 0, match.start()) + 1,
-                        text.count("\n", 0, index) + 1,
+                        bisect.bisect_left(newline_offsets, match.start()) + 1,
+                        bisect.bisect_left(newline_offsets, index) + 1,
                     )
                     break
             index += 1
@@ -1905,9 +1966,7 @@ def _helper_call(tokens, helper_specs):
     return calls[0] if calls else (None, None)
 
 
-def helper_specs_for_source(
-    text, include_families=False, include_origins=False
-):
+def helper_specs_for_source(text):
     """Return built-in plus source-local wrapper helper specifications.
 
     A focused module may wrap the shared pin API. Enumerating function
@@ -1916,7 +1975,19 @@ def helper_specs_for_source(
     ``$@`` forwarding forms to an already-known helper; conventional
     ``*_pin_*`` wrappers provide the small fallback needed for wrappers
     implemented via lower-level counters (for example ``_raf_pin_unique``).
+
+    Returns ``(specs, families, origins)`` — the inference that produces the
+    specs produces the other two as a by-product. Each mapping is a fresh dict
+    on every call, because the underlying inference is memoized on ``text`` and
+    handing a cached object to a caller that mutated it would corrupt every
+    later hit.
     """
+    specs, families, origins = _helper_specs_for_source_cached(text)
+    return dict(specs), dict(families), dict(origins)
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _helper_specs_for_source_cached(text):
     specs = dict(HELPERS)
     families = {name: _helper_family(name) for name in HELPERS}
     origins = {}
@@ -2011,11 +2082,7 @@ def helper_specs_for_source(
         if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
             specs[name] = (1, 2, None)
             families[name] = "static-helper"
-    if include_families and include_origins:
-        return specs, families, origins
-    if include_families:
-        return specs, families
-    return specs
+    return specs, families, origins
 
 
 def parse_structural_declaration(physical_lines):
@@ -2855,20 +2922,34 @@ def extract_guard_sites(text, source_path, repo_root):
         return extract_python_guard_sites(text, source_path, repo_root)
     repo_root = os.path.abspath(repo_root)
     lib = os.path.join(repo_root, "lib")
-    helper_specs, helper_families, wrapper_origins = helper_specs_for_source(
-        text, include_families=True, include_origins=True
-    )
+    helper_specs, helper_families, wrapper_origins = helper_specs_for_source(text)
     definitions = _function_definitions(text)
     function_by_line = {
         line: name
         for name, (_, start, end) in definitions.items()
         for line in range(start, end + 1)
     }
-    invoked_wrappers = set()
-    for invocation_line, invocation_text in join_logical_lines(text):
-        invocation_tokens = tokenize(
-            invocation_text.lstrip(), split_shell_operators=True
+    # Tokenize each logical line once and share the result between the
+    # wrapper-invocation pass below and the site pass after it: both tokenize
+    # the same left-stripped text under the same options, so on a source of this
+    # size the second pass was a measurable duplicate of the first. A blank or
+    # comment-led line tokenizes to nothing — tokenize stops at a token-leading
+    # '#' — so neither pass can resolve a helper on it; its tokens are recorded
+    # as None, which both keeps the retained tokens proportional to the lines
+    # that can carry a site and gives both passes one spelling of "skip me".
+    tokenized_lines = []
+    for lineno, logical_line in join_logical_lines(text):
+        stripped = logical_line.lstrip()
+        tokens = (
+            tokenize(stripped, split_shell_operators=True)
+            if stripped and not stripped.startswith("#")
+            else None
         )
+        tokenized_lines.append((lineno, logical_line, tokens))
+    invoked_wrappers = set()
+    for invocation_line, _, invocation_tokens in tokenized_lines:
+        if invocation_tokens is None:
+            continue
         _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
         if (
             invocation_helper in definitions
@@ -2883,13 +2964,12 @@ def extract_guard_sites(text, source_path, repo_root):
     maps_by_line = variable_maps_by_line(text, lib, {})
     physical = text.splitlines()
     sites = []
-    for lineno, logical_line in join_logical_lines(text):
-        stripped = logical_line.lstrip()
-        if not stripped or stripped.startswith("#"):
+    for lineno, logical_line, toks in tokenized_lines:
+        if toks is None:
             continue
+        stripped = logical_line.lstrip()
         path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
-        toks = tokenize(stripped, split_shell_operators=True)
         helper_index, helper = _helper_call(toks, helper_specs)
         if helper is not None:
             args = toks[helper_index + 1 :]
@@ -2928,15 +3008,22 @@ def extract_guard_sites(text, source_path, repo_root):
                 )
             )
             continue
-        spanned_tokens = tokenize(
-            stripped, split_shell_operators=True, include_spans=True
-        )
-        shell_tokens = [token for token, _, _ in spanned_tokens]
-        executable_grep_offsets = {
-            spanned_tokens[index][1]
-            for index, helper in _helper_calls(shell_tokens, {"grep": None})
-            if helper == "grep"
-        }
+        # `executable_grep_offsets` is read only by the raw-presence loop
+        # below, whose pattern requires a literal `grep`, so a line carrying no
+        # `grep` needs neither this second span-aware tokenization nor the
+        # offsets derived from it. The gate is scoped to the derivation alone —
+        # the `cat`-presence branch after the loop still runs for every line.
+        executable_grep_offsets = set()
+        if "grep" in stripped:
+            spanned_tokens = tokenize(
+                stripped, split_shell_operators=True, include_spans=True
+            )
+            shell_tokens = [token for token, _, _ in spanned_tokens]
+            executable_grep_offsets = {
+                spanned_tokens[index][1]
+                for index, helper in _helper_calls(shell_tokens, {"grep": None})
+                if helper == "grep"
+            }
         raw_matches = []
         for candidate in _RAW_PRESENCE_RE.finditer(stripped):
             command_sub = candidate.start("command_sub")
@@ -3300,7 +3387,15 @@ class _MutationInventoryRow(NamedTuple):
     disposition: str
 
 
+@functools.lru_cache(maxsize=1)
 def _load_mutation_census_module():
+    """Load the census module once per process.
+
+    Re-executing it per call rebuilt a fresh module object each time, which
+    discarded that module's own per-source memos before a later scan in the
+    same process could reach them. The module is stateless apart from those
+    memos, so one instance serves every scan.
+    """
     path = Path(__file__).with_name("mutation-pin-census.py")
     try:
         spec = importlib.util.spec_from_file_location(
@@ -3311,7 +3406,15 @@ def _load_mutation_census_module():
             raise InfrastructureError("cannot load mutation-pin census module")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            # A failed exec leaves a half-initialized module registered under
+            # this name. lru_cache does not memoize the raise, so a later call
+            # re-execs — but anything that imported the name in between would
+            # get the broken object. Unregister before propagating.
+            sys.modules.pop(spec.name, None)
+            raise
         return module
     except InfrastructureError:
         raise
