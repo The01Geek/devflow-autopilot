@@ -19172,6 +19172,133 @@ assert_eq("#868 helper: a bullet using typographic quotes still resolves its quo
           "(GitHub and editors substitute them freely)",
           True, 'state=holds' in _cvp_out)
 
+# --- typographic DASHES fold too, in the holds direction --------------------
+# `normalize` folds em/en dashes to ASCII on BOTH sides. Only the quote-folding
+# half was pinned; a dash quoted one way and written the other is the same
+# false-refutation shape, and the fold is what stops it.
+for _cvp_body_dash, _cvp_src_dash in (('—', '-'), ('–', '-'), ('-', '—')):
+    _cvp_rc, _cvp_out = _cvp_run(
+        f'**Verified:** `docs/notes.md` — *"the gate {_cvp_body_dash} exactly '
+        'that message"*\n',
+        tree=dict(_CVP_TREE, **{
+            'docs/notes.md': f'It reports the gate {_cvp_src_dash} exactly '
+                             'that message.\n'}))
+    assert_eq(f"#868 helper: a quotation whose dash ({_cvp_body_dash}) differs from the "
+              f"source's ({_cvp_src_dash}) still resolves — the fold is symmetric, so an "
+              "editor's substitution never refutes a true premise",
+              True, 'state=holds' in _cvp_out and _cvp_rc == 0)
+
+# --- elided fragments must match NON-OVERLAPPING and IN ORDER ---------------
+# The cursor advance is what makes an elision mean "this text, then later that
+# text". Without it a single occurrence would satisfy both fragments, and a
+# quotation whose second half no longer follows the first would report `holds`.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"the resolver reports … the resolver '
+    'reports"*\n',
+    tree=dict(_CVP_TREE, **{'docs/notes.md': 'the resolver reports once.\n'}))
+assert_eq("#868 helper: two elided fragments are not both satisfied by ONE occurrence — "
+          "the second must occur AFTER the first, so a single hit does not mint holds",
+          True, 'state=holds' not in _cvp_out)
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"the resolver reports … the resolver '
+    'reports"*\n',
+    tree=dict(_CVP_TREE, **{
+        'docs/notes.md': 'the resolver reports once, and the resolver '
+                         'reports again.\n'}))
+assert_eq("#868 helper: the same two fragments DO resolve when a second, later occurrence "
+          "exists — the ordering rule narrows the match, it does not disable it",
+          True, 'state=holds' in _cvp_out and _cvp_rc == 0)
+
+# --- a locator-suffixed strong path whose QUOTATION misses ------------------
+# The suffix downgrade applies to a resolving quote. A suffixed strong path
+# whose quotation is genuinely gone is still a refutation: the file was read
+# and adjudicated, and the unadjudicated suffix does not launder the miss.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md:42` — *"a sentence nobody ever wrote"*\n')
+assert_eq("#868 helper: a strong path carrying a line-number locator still REFUTES when "
+          "its quotation is gone — the suffix downgrades a resolving quote, it does not "
+          "suppress an adjudicated miss",
+          True, 'state=refuted' in _cvp_out and _cvp_rc == 2)
+
+# --- handle precedence: a quotation beats a co-occurring command ------------
+# `classify` tests paths, then quotes, then commands. A bullet carrying both a
+# command and a quotation is adjudicable through the quote, so it must not
+# degrade to the never-executed `command` handle.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `grep -c pins lib/test` reports 3, '
+    '*"The gate exited 2 with exactly that message."*\n')
+assert_eq("#868 helper: a bullet carrying BOTH a command and an 8+ char quotation "
+          "classifies by the quotation, not as the undecidable command handle",
+          True, 'handle=quote ' in _cvp_out)
+
+# --- a cited TARGET file that is not valid UTF-8 is read, not refuted -------
+# The body read is strict (`UnicodeDecodeError` → unestablished), but a cited
+# TARGET is read with `errors='replace'`: a stray byte in the searched file is
+# not evidence the premise drifted, so the quote is still adjudicated around it.
+with tempfile.TemporaryDirectory() as _cvp_td:
+    _cvp_root = Path(_cvp_td).resolve()
+    (_cvp_root / 'docs').mkdir()
+    (_cvp_root / 'docs' / 'notes.md').write_bytes(
+        b'The gate exited 2 with \xff\xfe exactly that message.\n')
+    (_cvp_root / '_body.md').write_text(
+        '**Verified:** `docs/notes.md` — *"The gate exited 2 with"*\n',
+        encoding='utf-8')
+    _cvp_buf = io.StringIO()
+    with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+        _cvp_rc = check_verified_premises.main(
+            ['--body-file', str(_cvp_root / '_body.md'),
+             '--repo-root', str(_cvp_root)])
+    assert_eq("#868 helper: a cited TARGET file holding invalid UTF-8 is decoded with "
+              "replacement and its surviving text still adjudicated — an undecodable byte "
+              "is not evidence a premise drifted",
+              True, 'state=holds' in _cvp_buf.getvalue() and _cvp_rc == 0)
+
+# --- _resolves_inside accepts an in-tree `..` it merely traverses ------------
+# Only the ESCAPING negative was pinned. The true branch matters just as much:
+# a path that dips through a parent and lands back inside the tree is a normal
+# citation, and refusing it would downgrade a re-derivable premise for nothing.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/../docs/notes.md` — *"The gate exited 2 with exactly '
+    'that message."*\n')
+assert_eq("#868 helper: a citation traversing `..` but RESOLVING back inside the tree is "
+          "adjudicated normally, not refused as an escape",
+          True, 'state=holds' in _cvp_out and _cvp_rc == 0)
+
+# --- _default_root selects the NEAREST enclosing .git -----------------------
+# `.git` at two levels is the submodule/inner-repo shape. The nearest one wins,
+# mirroring `git rev-parse --show-toplevel` — so a citation is adjudicated
+# against the inner tree that actually encloses the cwd.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"the inner tree"*\n',
+    tree={'.git': None, 'docs/notes.md': 'outer\n',
+          'inner/.git': None, 'inner/docs/notes.md': 'the inner tree\n'},
+    repo_root=False, cwd='inner')
+assert_eq("#868 helper: with `.git` at two levels, the NEAREST enclosing one is the root, "
+          "so the citation resolves against the inner tree rather than the outer",
+          True, 'state=holds' in _cvp_out and _cvp_rc == 0)
+
+# --- the exit-2 remap covers every argparse route, not just error() ---------
+# `error()` is not argparse's only way to status 2: an action may call
+# `parser.exit(2)` directly. 2 is this helper's REFUTED code, so any route
+# emitting it would report a stale premise the parser never looked at.
+try:
+    with contextlib.redirect_stderr(io.StringIO()):
+        check_verified_premises._ArgParser(prog='x').exit(2, 'boom\n')
+    _cvp_rc = 0
+except SystemExit as _cvp_exc:
+    _cvp_rc = _cvp_exc.code
+assert_eq("#868 helper: a direct parser.exit(2) — the argparse route that does NOT pass "
+          "through error() — is remapped to 3, so no parser surface can mint the refuted "
+          "exit code", 3, _cvp_rc)
+try:
+    with contextlib.redirect_stderr(io.StringIO()):
+        check_verified_premises._ArgParser(prog='x').exit(0)
+    _cvp_rc = 'no-exit'
+except SystemExit as _cvp_exc:
+    _cvp_rc = _cvp_exc.code
+assert_eq("#868 helper: the remap is narrow — a status-0 parser exit (--help) is still 0, "
+          "not rewritten into an unestablished measurement", 0, _cvp_rc)
+
 print()
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(0 if FAIL == 0 else 1)

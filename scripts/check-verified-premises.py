@@ -87,6 +87,33 @@ import re
 import sys
 import traceback
 from pathlib import Path
+from typing import NamedTuple
+
+# The exit codes, named rather than spelled as bare integers at the seven
+# terminating sites. The 2-vs-3 distinction is this module's central discipline
+# — 2 makes the implementing run discard a premise and file accuracy feedback,
+# 3 only sends it to the investigation it would have done anyway — and a bare
+# `return 2` reads identically to a bare `return 3` at the call site.
+EXIT_CLEAN = 0
+EXIT_REFUTED = 2
+EXIT_UNESTABLISHED = 3
+
+
+class CitedPath(NamedTuple):
+    """One path citation mined from a bullet.
+
+    A named triple rather than a bare tuple because `strength` is the field the
+    refutation gate reads (`== 'strong'`) and `bare` is the one every existence
+    check and file read resolves — a positional reorder of two same-typed `str`
+    fields would silently adjudicate the strength of a path and the presence of
+    a strength label, and no test asserting behaviour on well-formed input
+    would catch it. With names, that mistake is an `AttributeError` instead.
+    """
+
+    strength: str
+    bare: str
+    suffix: str
+
 
 # The `Verified` marker, in the shapes filed DevFlow issues actually carry.
 # Matching only `**Verified:**` found zero bullets in bodies using any other
@@ -312,6 +339,23 @@ def parse_bullets(body: str) -> list:
     inside a longer paragraph (the blank-line bound), and place consecutive
     bullets on adjacent list-item lines with no blank line between them (the
     list-item bound, observed on issue #857).
+
+    DISCLOSED RESIDUAL, the converse of those three bounds: a plain
+    continuation line — non-blank, not a list item, carrying no marker — is
+    absorbed into the span, so its backticked paths and quotations are
+    adjudicated as this bullet's. That is deliberate for the shape it was
+    chosen for (a soft-wrapped bullet, which markdown itself treats as one
+    item, and whose citations therefore genuinely are the bullet's), and it is
+    why the bound is not a hard newline: bounding at `\\n` would sever every
+    wrapped bullet from its own citation and refute a TRUE premise against a
+    file it did cite — a miss in the dangerous direction, which this module
+    trades away everywhere else. The cost of the trade is the other shape:
+    where a following line is a genuinely separate claim that markdown still
+    reads as a continuation, a strong path cited *there* can drive `refuted`
+    on a bullet that did not cite it. Bounded — the neighbouring cases
+    (adjacent bullets, separated paragraphs, a following marker) each have
+    their own bound above — but real, and unpinned by construction: it is not
+    decidable from the text which of the two shapes an author meant.
     """
     spans = []
     for match in _MARKER.finditer(body):
@@ -330,9 +374,9 @@ def parse_bullets(body: str) -> list:
 def classify(span: str) -> tuple:
     """Return `(handle, paths, quotes)` for one bullet span.
 
-    `paths` carries each cited path as a `(strength, bare_path, suffix)` triple,
-    so `recheck` can tell a confident path claim from a guess and can tell a
-    whole-file citation from one naming a location inside the file.
+    `paths` carries each cited path as a `CitedPath`, so `recheck` can tell a
+    confident path claim from a guess and can tell a whole-file citation from
+    one naming a location inside the file.
     """
     paths, commands = [], []
     for backticked in _BACKTICKED.findall(span):
@@ -346,7 +390,7 @@ def classify(span: str) -> tuple:
         strength = _path_strength(backticked)
         if strength != 'no':
             bare, suffix = _split_locator(backticked)
-            paths.append((strength, bare, suffix))
+            paths.append(CitedPath(strength, bare, suffix))
     quotes = _QUOTED.findall(span)
     if paths and quotes:
         handle = 'path-quote'
@@ -369,7 +413,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         # caller to ordinary investigation.
         return 'unestablished', _UNDECIDABLE_REASONS[handle]
 
-    escaping = [p for _, p, _ in paths if not _resolves_inside(root, p)]
+    escaping = [p.bare for p in paths if not _resolves_inside(root, p.bare)]
     if escaping:
         # Not refuted — refused. A premise pointing outside the repository is
         # not a premise about the tree this run builds on, and the helper
@@ -382,23 +426,23 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     # a strong span that exists, and testing `is_file()` reported it absent —
     # a false refutation against a shape this repo's own issue bodies use
     # constantly.
-    missing = [(s, p) for s, p, _ in paths if not (root / p).exists()]
+    missing = [p for p in paths if not (root / p.bare).exists()]
     if missing:
         # Only a STRONG path claim earns a refutation. A weak one — a dotted
         # identifier that merely looks filename-shaped — is a guess, and
         # refuting a premise on a guess is worse than declining to decide it:
         # the run would discard a true premise and record false issue-accuracy
         # feedback against the issue.
-        strong = [p for s, p in missing if s == 'strong']
+        strong = [p.bare for p in missing if p.strength == 'strong']
         if strong:
             return 'refuted', 'cited path absent from the tree: ' + ','.join(strong)
         return 'unestablished', (
             'no cited span is a strong path claim (each is filename-shaped '
             'without a directory, or slash-bearing without a path-shaped '
             'tail), so its absence is not evidence of a stale premise: '
-            + ','.join(p for _, p in missing))
+            + ','.join(p.bare for p in missing))
 
-    located = [p for _, p, suffix in paths if suffix]
+    located = [p.bare for p in paths if p.suffix]
     if handle == 'path':
         # Presence is NOT the premise. A bullet citing `lib/scan.sh` is
         # asserting something about that file's contents, and confirming the
@@ -408,10 +452,11 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         # run would otherwise have done.
         return 'unestablished', (
             'cited path present but the bullet carries no quotation to '
-            're-derive the premise from: ' + ','.join(p for _, p, _ in paths))
+            're-derive the premise from: ' + ','.join(p.bare for p in paths))
 
     readable, skipped, unread = {}, [], []
-    for _, rel, _suffix in paths:
+    for cited in paths:
+        rel = cited.bare
         target = root / rel
         if target.is_dir():
             # A directory has no text to search. Collect it rather than
@@ -534,8 +579,8 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     # searched against the co-cited files — and letting it license a refutation
     # over a miss in a co-cited WEAK file refutes on a guess, the harm the
     # weak-path, unread-file and elision arms all exist to close.
-    adjudicated_strong = [p for s, p, _ in paths
-                          if s == 'strong' and p in readable]
+    adjudicated_strong = [p.bare for p in paths
+                          if p.strength == 'strong' and p.bare in readable]
     if adjudicated_strong:
         detail = ('quoted sentence no longer occurs in ' + ','.join(readable)
                   + ': ' + ' | '.join(unresolved))
@@ -551,7 +596,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             # adjudication of everything the bullet cited.
             detail += '; not adjudicated: ' + ','.join(skipped)
         return 'refuted', detail
-    if any(s == 'strong' for s, _, _ in paths):
+    if any(p.strength == 'strong' for p in paths):
         # A strong path WAS cited, but none of them reached `readable`, so the
         # miss says nothing about it. Reusing the weak-span wording below would
         # be a documented falsehood here: a directory-bearing span was cited.
@@ -574,11 +619,25 @@ class _ArgParser(argparse.ArgumentParser):
     told the issue contains a stale premise it never looked at. A bad
     invocation is a measurement that never happened, which is exactly what
     exit 3 means here.
+
+    The remap lives in `exit`, not only in `error`, because `error` is not
+    argparse's only route to status 2: an argument *action* may call
+    `parser.exit(2)` directly, and future arguments (a `type=` callable, a
+    mutually-exclusive group) can reach it without passing through `error` at
+    all. Overriding only `error` would leave those routes emitting the
+    refutation code, which is the one exit this module may never assert without
+    having adjudicated a premise. Status 0 (`--help`, `--version`) is left
+    alone: it is a successful invocation, not a measurement.
     """
 
+    def exit(self, status=0, message=None):
+        super().exit(EXIT_UNESTABLISHED if status == EXIT_REFUTED else status,
+                     message)
+
     def error(self, message):
-        self.exit(3, f'VERIFIED_PREMISES unavailable reason=bad-invocation '
-                     f'detail={message}\n')
+        self.exit(EXIT_UNESTABLISHED,
+                  f'VERIFIED_PREMISES unavailable reason=bad-invocation '
+                  f'detail={message}\n')
 
 
 def main(argv=None) -> int:
@@ -604,7 +663,7 @@ def main(argv=None) -> int:
         # own failures are the quietest thing it emits is not a guard.
         traceback.print_exc(file=sys.stderr)
         print(f'VERIFIED_PREMISES unavailable reason=internal-error detail={exc!r}')
-        return 3
+        return EXIT_UNESTABLISHED
 
 
 def _run(args) -> int:
@@ -614,7 +673,7 @@ def _run(args) -> int:
         # Unestablished, never a clean pass: a body that could not be read is
         # not a body with no stale premises in it.
         print(f'VERIFIED_PREMISES unavailable reason=body-unreadable detail={exc}')
-        return 3
+        return EXIT_UNESTABLISHED
 
     if not body.strip():
         # An empty body and a body carrying no bullets are NOT the same
@@ -623,7 +682,7 @@ def _run(args) -> int:
         # when in fact nothing was ever read.
         print('VERIFIED_PREMISES unavailable reason=body-empty '
               'detail=the body file is empty or whitespace-only')
-        return 3
+        return EXIT_UNESTABLISHED
 
     root = Path(args.repo_root).resolve() if args.repo_root else _default_root()
     if root is None:
@@ -635,14 +694,14 @@ def _run(args) -> int:
         print('VERIFIED_PREMISES unavailable reason=repo-root-unestablished '
               'detail=no .git was found above the current directory and no '
               '--repo-root was given')
-        return 3
+        return EXIT_UNESTABLISHED
     if not root.is_dir():
         # An unusable root makes every cited path miss, which would render as a
         # whole-body mass REFUTATION — an unestablished measurement dressed as
         # a hard verdict, and the mirror image of "unknown is not zero".
         print('VERIFIED_PREMISES unavailable reason=repo-root-unusable '
               f'detail={root} is not an existing directory')
-        return 3
+        return EXIT_UNESTABLISHED
 
     tally = {'holds': 0, 'refuted': 0, 'unestablished': 0}
     for index, span in enumerate(parse_bullets(body), start=1):
@@ -654,7 +713,7 @@ def _run(args) -> int:
     print('VERIFIED_PREMISES total={} holds={} refuted={} unestablished={}'.format(
         sum(tally.values()), tally['holds'], tally['refuted'],
         tally['unestablished']))
-    return 2 if tally['refuted'] else 0
+    return EXIT_REFUTED if tally['refuted'] else EXIT_CLEAN
 
 
 def _default_root():

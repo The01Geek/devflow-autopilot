@@ -17,8 +17,10 @@ type: Added
 - **Drafted issues must give each `Verified:` bullet a re-derivation handle.** `/devflow:create-issue`
   now requires every `Verified:` bullet to carry the repository path plus the sentence quoted
   verbatim from it, or the exact command whose output grounded the claim, so re-checking a premise
-  is mechanical rather than a re-investigation; the Step 3.5 self-steelman runs the same helper over
-  the assembled draft and rewrites any bullet that carries no handle before the user sees it. The
+  is mechanical rather than a re-investigation; the Step 3.5 self-steelman requires the same helper
+  to run over the assembled draft — executed at the Step 3.6 pre-dispatch canonical write, the
+  first anchor at which that draft file exists — and rewrites any bullet that carries no handle
+  before the user sees it. The
   helper reads files and nothing else — a command handle is reported for the caller to re-run under
   its own judgment and is never executed, and a cited path that is absolute or escapes the
   repository root is refused rather than adjudicated. (#880)
