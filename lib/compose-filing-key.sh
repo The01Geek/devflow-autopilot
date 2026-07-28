@@ -72,13 +72,19 @@ if [ -z "$CATEGORY" ] || [ -z "$SUBSLUG" ]; then
 fi
 
 # ── Canonicalize each component separately (un-truncated), via the shared module.
-# One jq call prints the two canonical forms on two lines, read back with bash
-# builtins only (no tr/cut/head — this value decides an EMITTED key).
-_CANON="$("$DEVFLOW_JQ" -r -n -L "$HERE" --arg cat "$CATEGORY" --arg sub "$SUBSLUG" \
-    'include "slugify"; ($cat | slug_kebab), ($sub | slug_kebab)')" \
-  || { echo "compose-filing-key: could not canonicalize the arguments (jq exited non-zero)" >&2; exit 1; }
-CAT_CANON="${_CANON%%$'\n'*}"
-SUB_CANON="${_CANON#*$'\n'}"
+# TWO separate jq calls, one per argument — deliberately NOT one call printing both
+# on two lines: command substitution strips ALL trailing newlines, so a two-line
+# emit whose SECOND line is empty (the subslug canonicalizes to "") collapses to a
+# single line, and the `${_CANON#*$'\n'}` split then yields the whole (category)
+# string for SUB_CANON instead of "", defeating the empty-canonicalization guard
+# below and emitting a bogus `<cat>-<cat>` key (fail-open). A per-argument capture
+# preserves an empty result as "" (jq -r prints "\n" for an empty string, which the
+# substitution strips to ""). Bash-builtin capture only (no tr/cut/head — this value
+# decides an EMITTED key).
+CAT_CANON="$("$DEVFLOW_JQ" -r -n -L "$HERE" --arg cat "$CATEGORY" 'include "slugify"; $cat | slug_kebab')" \
+  || { echo "compose-filing-key: could not canonicalize the category argument (jq exited non-zero)" >&2; exit 1; }
+SUB_CANON="$("$DEVFLOW_JQ" -r -n -L "$HERE" --arg sub "$SUBSLUG" 'include "slugify"; $sub | slug_kebab')" \
+  || { echo "compose-filing-key: could not canonicalize the subslug argument (jq exited non-zero)" >&2; exit 1; }
 
 # Either canonicalizing to empty is a hard reject (no stdout).
 if [ -z "$CAT_CANON" ] || [ -z "$SUB_CANON" ]; then
@@ -105,7 +111,8 @@ _print_stable() {
 
 if [ "${#_RAW}" -le "$_CEILING" ]; then
     # Arm 1: fits whole.
-    _print_stable "$_RAW"
+    _print_stable "$_RAW" \
+      || { echo "compose-filing-key: could not canonicalize the composed key for output (jq exited non-zero)" >&2; exit 1; }
 else
     # Arm 2: truncate to leave room for `-<digest>` and append a deterministic
     # digest of the FULL pre-truncation string. python3/hashlib only (see header).
@@ -116,5 +123,6 @@ else
     # Strip a trailing dash the truncation may have exposed so the join is a single
     # `-`, never `--`.
     _PREFIX="${_PREFIX%-}"
-    _print_stable "${_PREFIX}-${_DIGEST}"
+    _print_stable "${_PREFIX}-${_DIGEST}" \
+      || { echo "compose-filing-key: could not canonicalize the composed key for output (jq exited non-zero)" >&2; exit 1; }
 fi

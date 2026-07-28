@@ -2092,10 +2092,40 @@ assert_eq "#891 compose: an empty argument prints nothing" "" "$RL_CK_EMPTY"
 RL_CK_CANON="$(bash "$RL_CK" '///' slow-suite 2>/dev/null)"; RL_CK_CANON_RC=$?
 assert_eq "#891 compose: an argument canonicalizing to empty exits non-zero" "true" "$([ "$RL_CK_CANON_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "#891 compose: the canonicalizes-to-empty case prints nothing" "" "$RL_CK_CANON"
+# Regression: the SECOND argument canonicalizing to empty must also fail closed —
+# a two-line jq capture would collapse trailing newlines and yield a bogus <cat>-<cat>
+# key (the fail-open the per-argument canonicalization fixes).
+RL_CK_SUBEMPTY="$(bash "$RL_CK" tooling-gap '###' 2>/dev/null)"; RL_CK_SUBEMPTY_RC=$?
+assert_eq "#891 compose: a SECOND argument canonicalizing to empty exits non-zero" "true" "$([ "$RL_CK_SUBEMPTY_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: the second-arg-empty case prints nothing (no bogus cat-cat key)" "" "$RL_CK_SUBEMPTY"
 # A category whose OWN canonical form exceeds the ceiling exits non-zero, no stdout.
 RL_CK_BIGCAT="$(bash "$RL_CK" 'this-category-name-is-far-too-long-to-fit-inside-the-forty-character-ceiling' sub 2>/dev/null)"; RL_CK_BIGCAT_RC=$?
 assert_eq "#891 compose: an over-long category exits non-zero" "true" "$([ "$RL_CK_BIGCAT_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "#891 compose: an over-long category prints nothing" "" "$RL_CK_BIGCAT"
+# The digest arm's DISTINGUISHING property: two long compositions that share the
+# truncated 31-char prefix but differ in the tail must produce DISTINCT keys — the
+# whole reason the digest exists. An empty/constant digest would collapse them and
+# still pass the ≤40/grammar/determinism checks above, so assert distinctness here.
+RL_CK_L1="$(bash "$RL_CK" tooling-gap 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail-one' 2>/dev/null)"
+RL_CK_L2="$(bash "$RL_CK" tooling-gap 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail-two' 2>/dev/null)"
+assert_eq "#891 compose: two long inputs sharing a prefix give DISTINCT keys (digest present)" "false" \
+  "$([ "$RL_CK_L1" = "$RL_CK_L2" ] && echo true || echo false)"
+assert_eq "#891 compose: the truncated key ends in an 8-hex-char digest suffix" "true" \
+  "$(printf '%s' "$RL_CK_L1" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
+# Ceiling boundary (arm-1 vs arm-2 selection): a composition canonicalizing to
+# exactly 40 chars is printed whole (no digest); one at 41 is truncated+digested.
+# category 'cat' (3) + '-' (1) → subslug of 36 non-hex 'z' = 40 → whole; 37 = 41 →
+# arm 2. Generate the subslugs by length (never hand-counted) so the boundary is
+# exact; 'z' is non-hex so the digest-suffix grep can never false-match a whole key.
+RL_CK_SUB36="$(printf 'z%.0s' $(seq 1 36))"
+RL_CK_SUB37="$(printf 'z%.0s' $(seq 1 37))"
+RL_CK_40="$(bash "$RL_CK" cat "$RL_CK_SUB36" 2>/dev/null)"
+assert_eq "#891 compose: a 40-char composition is exactly 40 chars" "40" "${#RL_CK_40}"
+assert_eq "#891 compose: a 40-char composition is printed WHOLE (no digest suffix)" "false" \
+  "$(printf '%s' "$RL_CK_40" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
+RL_CK_41="$(bash "$RL_CK" cat "$RL_CK_SUB37" 2>/dev/null)"
+assert_eq "#891 compose: a 41-char composition is truncated with a digest (arm 2)" "true" \
+  "$([ "${#RL_CK_41}" -le 40 ] && printf '%s' "$RL_CK_41" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
 
 # ── slugify module: compute-patterns.jq and compose-filing-key.sh share ONE def.
 # Behavioral parity: compose's output canonicalized through the module (the same
@@ -2186,6 +2216,13 @@ printf '%s' '{"schema_version":2,"patterns":{"rec-a":{"category":42,"state":"fix
 bash "$RL_PS" migrate "$RL_TMP/badcat2.json" 2>"$RL_TMP/badcat.err" >/dev/null
 assert_eq "#891 migrate: a non-string category is repaired to the record key" "rec-a" \
   "$(jq -r '.patterns["rec-a"].category' "$RL_TMP/badcat2.json")"
+# An explicit empty-string category takes the same repair-to-key + warning path.
+printf '%s' '{"schema_version":2,"patterns":{"rec-b":{"category":"","state":"fixed","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{}}' > "$RL_TMP/emptycat.json"
+bash "$RL_PS" migrate "$RL_TMP/emptycat.json" 2>"$RL_TMP/emptycat.err" >/dev/null
+assert_eq "#891 migrate: an empty-string category is repaired to the record key" "rec-b" \
+  "$(jq -r '.patterns["rec-b"].category' "$RL_TMP/emptycat.json")"
+assert_eq "#891 migrate: repairing an empty-string category also warns naming the record" "true" \
+  "$(grep -q 'rec-b' "$RL_TMP/emptycat.err" && grep -q '::warning::' "$RL_TMP/emptycat.err" && echo true || echo false)"
 assert_eq "#891 migrate: repairing a bad category emits a ::warning:: naming the record" "true" \
   "$(grep -q 'rec-a' "$RL_TMP/badcat.err" && grep -q '::warning::' "$RL_TMP/badcat.err" && echo true || echo false)"
 # migrate over an absent / empty overrides path materializes a v3 stub.
@@ -2204,6 +2241,13 @@ assert_eq "#891 migrate: the v3 stub has empty patterns{} and dismissed{}" "true
     "$(devflow_open_filed_for_category "$RL_TMP/percat.json" tooling-gap 2>/dev/null)"
   assert_eq "#891 for_category: an unclaimed category counts 0" "0" \
     "$(devflow_open_filed_for_category "$RL_TMP/percat.json" nonesuch 2>/dev/null)"
+  # The `state == "filed"` FILTER is load-bearing: a same-category record whose
+  # meta-issue entry is `fixed` (a closed issue) must NOT consume a cap slot, so a
+  # category with one filed + one fixed entry counts 1, not 2. (Without a non-filed
+  # entry in the fixture a defect counting every state would pass vacuously.)
+  printf '%s' '{"schema_version":3,"patterns":{"tg--open":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--closed":{"category":"tooling-gap","state":"fixed","meta_issues":[{"number":2,"state":"fixed"}]}},"dismissed":{}}' > "$RL_TMP/percat-mixed.json"
+  assert_eq "#891 for_category: only FILED entries count; a fixed entry does not consume a slot" "1" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-mixed.json" tooling-gap 2>/dev/null)"
   # A wrong-shaped record for an UNRELATED category unestablishes the requested count.
   printf '%s' '{"schema_version":3,"patterns":{"tooling-gap--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"broken":"not-an-object"},"dismissed":{}}' > "$RL_TMP/percat-broken.json"
   assert_eq "#891 for_category: a wrong-shaped unrelated record unestablishes the count (empty, never 0)" "" \
