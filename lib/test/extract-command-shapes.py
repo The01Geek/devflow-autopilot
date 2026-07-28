@@ -518,6 +518,44 @@ def classify(statement: str) -> list[str]:
     return hits
 
 
+# ── Arm-level classifier (issue #805) ────────────────────────────────────────
+# `classify()` above reports at RULE-ID granularity, collapsing R3's two arms onto
+# the single token `R3` (`_redirect_violation(...) or _cat_heredoc_violation(...)`).
+# scripts/pretooluse-shape-guard.py's runtime deny set is defined over ARMS, and R3
+# is the rule where arm granularity matters: its `/tmp`-target redirect arm is
+# probe-denied (a runtime deny is warranted) while its in-workspace `cat`-heredoc arm
+# is banned only as authoring discipline (a runtime deny there would cost the engine a
+# shape the harness permits). The two arm predicates `_redirect_violation` and
+# `_cat_heredoc_violation` are module-private, so a deny set defined over arms cannot be
+# evaluated by intersecting `classify()`'s returned rule ids — this classifier is the
+# arm discriminator that makes it evaluable. The arm identifiers are the JOIN KEY between
+# the guard's remediation table and the permitted alternatives docs/cloud-allowlist.md
+# records; every other rule maps one-to-one to an arm of the same name.
+REVIEW_ARMS = frozenset({"R1", "R2", "R3-tmp", "R3-heredoc", "R4"})
+
+
+def classify_arms(statement: str) -> list[str]:
+    """Return the ARM identifiers this statement matches (possibly several).
+
+    R3 is split into `R3-tmp` (a `/tmp`-target `>`/`>>` redirect — probe-denied) and
+    `R3-heredoc` (a `cat`-headed heredoc write — lint discipline, not a probe result).
+    R1/R2/R4 each map to an arm of the same name.
+    """
+    arms: list[str] = []
+    if _assignment_violation(statement):
+        arms.append("R1")
+    head = _heads._head_of(statement)
+    if head and head[0] == "cd":
+        arms.append("R2")
+    if _redirect_violation(statement):
+        arms.append("R3-tmp")
+    if _cat_heredoc_violation(statement):
+        arms.append("R3-heredoc")
+    if head and head[0] in _INTERPRETERS:
+        arms.append("R4")
+    return arms
+
+
 def _fence_line_offsets(text: str) -> list[tuple[int, str]]:
     """Return (1-based line number, block-body) for every ```bash fence."""
     blocks: list[tuple[int, str]] = []

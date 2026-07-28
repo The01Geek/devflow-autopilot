@@ -37,6 +37,19 @@ position (`then . "$dep"`) source edge is detected, not a blind spot. Trailing s
 comments are stripped quote-aware (a `#` inside a quoted string — e.g. an `issue #$n`
 breadcrumb — is NOT a comment, so a real edge later on the same line is not lost).
 
+Python-import edges (issue #805). A `.py` closure member can pull in another repo file
+NOT through a shell spawn but through an in-process `importlib.util.spec_from_file_location`
+load (the idiom modules with hyphenated filenames use — scripts/pretooluse-shape-guard.py
+loads lib/test/extract-command-shapes.py this way, which loads extract-command-heads.py in
+turn). That edge runs PR-head-editable Python inside the sourcing process, so it is exactly
+as trust-sensitive as a `source`/`exec`, yet the shell-syntax regexes above cannot see it.
+`pyimport_re` matches a `spec_from_file_location(..., <path-with-a-repo-file>)` load and adds
+the referenced basename to the edge set, so the guard's own dependency edge is auditable and
+the closure the trusted-source floor certifies is one the walker can actually inspect. Its
+`.py` capture requires the path literal carry a `/` and a `.py` suffix; a fully variable-
+assembled path is not statically resolvable (the same limit `assign_var_re` documents for
+the shell forms).
+
 Known granularity limits (documented, not silently assumed — none occur in the current
 closure; all are conservative gaps a maintainer widening the closure should keep in
 mind):
@@ -54,7 +67,8 @@ mind):
   - **Python-internal spawns.** The regexes are shell-syntax-only, so a `.py` closure
     member's `subprocess.run(["bash", "scripts/new.sh"])` (or `os.system`) spawn of a
     repo script is NOT matched — a `.py` member is audited only for the shell-form edge
-    syntaxes above, not for Python-mediated subprocess spawns.
+    syntaxes above and the `importlib` load form below, not for Python-mediated
+    subprocess spawns.
   - **Line-continuation source/exec.** Matching is line-based: `src_re`/`slashsh_re` and
     the exec regexes require the keyword and the path on the SAME line, so a
     backslash-continued source (a `.`/`source` whose path sits on the next physical line
@@ -80,6 +94,24 @@ assign_re = re.compile(
 assign_var_re = re.compile(
     r'\b[A-Za-z_][A-Za-z0-9_]*=\s*"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?'
     r'(?:/[A-Za-z0-9_.-]+)*/([A-Za-z0-9_.-]+\.(?:sh|py))\b'
+)
+# Python-import edge (issue #805): a `.py` closure member that loads another repo file
+# via `importlib.util.spec_from_file_location`. The loaded path is normally assembled with
+# `os.path.join(dir, "name.py")` (the basename literal sits on the join line, not the spec
+# line), so the basename is captured from a quoted `.py`/`.sh` literal inside an
+# `os.path.join(...)` call — but ONLY counted for a file that also contains a
+# `spec_from_file_location` call (`_HAS_SPEC` below), so an ordinary `os.path.join` of a
+# data file in a non-importing member is not misread as a code edge. A path passed as a
+# literal directly to `spec_from_file_location(...)` is captured too.
+_HAS_SPEC = re.compile(r'\bspec_from_file_location\b')
+# `.*?` (non-greedy, line-scoped) so a nested call inside the join —
+# `os.path.join(os.path.dirname(os.path.abspath(__file__)), "x.py")` — does not truncate
+# the scan at its inner `)`; it stops at the FIRST quoted `.py`/`.sh` literal on the line.
+pyjoin_re = re.compile(
+    r'os\.path\.join\(.*?["\']([A-Za-z0-9_.-]+\.(?:py|sh))["\']'
+)
+specarg_re = re.compile(
+    r'spec_from_file_location\([^)]*["\']([^\s"\']*/[A-Za-z0-9_.-]+\.(?:py|sh))["\']'
 )
 
 
@@ -111,6 +143,8 @@ def refs_in(path):
     the caller surfaces that as a violation rather than treating it as "no edges".
     """
     out = set()
+    has_spec = False
+    py_import_candidates = set()
     with open(path, encoding="utf-8", errors="replace") as fh:
         for raw in fh:
             line = _strip_comment(raw)
@@ -125,13 +159,43 @@ def refs_in(path):
             for rx in (assign_re, assign_var_re):
                 for m in rx.finditer(line):
                     out.add(os.path.basename(m.group(1)))
+            if _HAS_SPEC.search(line):
+                has_spec = True
+            for m in pyjoin_re.finditer(line):
+                py_import_candidates.add(m.group(1))
+            for m in specarg_re.finditer(line):
+                py_import_candidates.add(os.path.basename(m.group(1)))
+    # A member's `importlib.util.spec_from_file_location` load is a real, trust-sensitive
+    # edge only when the file actually performs such a load; the `os.path.join(... .py ...)`
+    # basename candidates are added to the edge set only then (fail toward NOT inventing an
+    # edge for a data-file join in a non-importing member).
+    if has_spec:
+        out |= py_import_candidates
     return out
+
+
+def _real_repo_basenames(root):
+    """The basenames of every tracked .sh/.py under scripts/ and lib/. A closure ESCAPE
+    is a reference to a real repo file NOT in the closure; a reference whose basename
+    matches no real file is documentation/example noise (a `.py`/`.sh` token inside a
+    docstring or an illustrative comment — e.g. `bash x.sh`), never a live source/exec/
+    import edge, so it is not a violation. Walk only scripts/ and lib/ (NOT the repo root,
+    which would descend into sibling git worktrees under .claude/worktrees/, issue #711)."""
+    real = set()
+    for sub in ("scripts", "lib"):
+        base = os.path.join(root, sub)
+        for dirpath, _dirs, files in os.walk(base):
+            for name in files:
+                if name.endswith((".sh", ".py")):
+                    real.add(name)
+    return real
 
 
 def main():
     root = os.environ["REPO_ROOT"]
     closure = os.environ["CLOSURE"].split()
     closure_base = {os.path.basename(p) for p in closure}
+    real_basenames = _real_repo_basenames(root)
     violations = []
     for rel in closure:
         try:
@@ -148,6 +212,8 @@ def main():
             base = os.path.basename(ref)
             if base == os.path.basename(rel):
                 continue
+            if base not in real_basenames:
+                continue  # references no real repo file — doc/example noise, not an edge
             if base not in closure_base:
                 violations.append(f"{rel} -> {ref} (not in HOOK_TARGETS)")
     for v in sorted(set(violations)):
