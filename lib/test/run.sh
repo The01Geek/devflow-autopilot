@@ -24446,8 +24446,12 @@ unset GITHUB_STEP_SUMMARY
 printf '%s\n' 'SUBWRITE_PAYLOAD' > "$SWV_TMP/side-review.txt"
 # Fixtures are built by python3 (not shell JSON concatenation): the records carry
 # parent_tool_use_id chains and denial shapes a shell heredoc would mangle, and command
-# substitution strips trailing newlines. Each scenario is a production-realistic execution
-# file whose keys/types conform to the committed census (asserted below).
+# substitution strips trailing newlines. MOST scenarios are production-realistic execution
+# files whose keys/types conform to the committed census (the conformance loop below asserts
+# it across the flat, envelope-nested, and denial key vocabularies). A few are DELIBERATELY
+# non-conformant because the shape under test is the malformed one — `write_denial_null_toolname`
+# records `tool_name: null` against a census that says `string`, `not_object`/`pd_not_list`/
+# `wrong_type_parent` likewise — and those are correctly excluded from the conformance loop.
 devflow_swv_build() {  # $1 = scenario name; writes $SWV_TMP/exec.jsonl
   python3 - "$SWV_TMP/exec.jsonl" "$1" <<'PY_SWV'
 import json, sys
@@ -24908,12 +24912,20 @@ assert_eq "#858 subagent-write: the null-tool_name denial does NOT claim the wri
 # records as most likely in production. It must reach the residual arm's own named reason, and
 # must never reach the trailing arm's positive claim that no write was attempted.
 SWV_DEN_NT_NEITHER="$(devflow_swv write_denial_no_toolname_names_neither)"
-assert_eq "#858 subagent-write: a name-less denial naming neither marker → unestablished" \
-  "unestablished" "$(swv_verdict "$SWV_DEN_NT_NEITHER")"
+# NOTE — deliberately NO bare "verdict is unestablished" assertion here. Under the regression
+# this arm exists to catch, the entry falls through to the trailing "did not attempt the
+# write" arm, which is ALSO `unestablished` — so a verdict-only assertion cannot change state
+# under its own named regression and would guard nothing. The two assertions below carry the
+# whole signal: they distinguish WHICH unestablished arm was reached.
 assert_eq "#858 subagent-write: the name-less names-neither denial does NOT claim the write was never attempted" "no" \
   "$(printf '%s' "$SWV_DEN_NT_NEITHER" | grep -qF 'did not attempt the write' && echo yes || echo no)"
-assert_eq "#858 subagent-write: the name-less names-neither denial reaches the residual arm's own reason" "yes" \
-  "$(printf '%s' "$SWV_DEN_NT_NEITHER" | grep -qF 'the three narrower classifiers' && echo yes || echo no)"
+# Keys on the machine-consumed write_outcome field, not on the reason's prose: a reason-literal
+# grep would go RED on a pure rewording with no behavior change (the wording-only-pin class),
+# and would not actually test the routing it claims to.
+assert_eq "#858 subagent-write: the name-less names-neither denial routes to the residual arm (write neither denied nor absent-by-default)" "yes" \
+  "$(printf '%s' "$SWV_DEN_NT_NEITHER" | grep -qF '| write_outcome | absent |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the name-less names-neither denial records the refusal it observed" "1" \
+  "$(printf '%s' "$SWV_DEN_NT_NEITHER" | grep -cF 'Permission to use the tool was denied')"
 # A denial entry embedding the refused call must not have that call harvested as a RECORDED
 # call: the control facts are the attributable measurement, so a refusal must never satisfy
 # them. Both control rows stay `no` even though the embedded block is a chain-attributable
@@ -25273,6 +25285,32 @@ assert_eq "#858 subagent-write: a present-but-empty side-effect file reports 'wr
 printf '%s\n' 'some other tool wrote this' > "$SWV_TMP/side-foreign.txt"
 assert_eq "#858 subagent-write: a side-effect file whose content lacks the payload does not corroborate PERMITTED" \
   "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-foreign.txt" 2>/dev/null)")"
+# The REASON, not just the table field. The prose is the half a human reads, so a
+# wrong-content run must not state the file is absent — the record would contradict itself.
+assert_eq "#858 subagent-write: a wrong-content side-effect file is NOT reported as 'absent' in the reason" "no" \
+  "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-foreign.txt" 2>/dev/null | grep -qF 'side-effect file is absent' && echo yes || echo no)"
+# The UNREADABLE arm. A side-effect read failure must never be reported as an EXECUTION-file
+# read failure (that blames the wrong file), and — because the execution-file note is tested
+# ahead of every signal-bearing arm — must never mask a measurable DENIED.
+printf '%s\n' 'SUBWRITE_PAYLOAD' > "$SWV_TMP/side-unreadable.txt"
+chmod 000 "$SWV_TMP/side-unreadable.txt"
+if [ ! -r "$SWV_TMP/side-unreadable.txt" ]; then
+  SWV_UNREAD="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-unreadable.txt" 2>/dev/null)"
+  assert_eq "#858 subagent-write: an unreadable side-effect file reports its own state, not 'absent'" "yes" \
+    "$(printf '%s' "$SWV_UNREAD" | grep -qF '| side_effect_state | unreadable |' && echo yes || echo no)"
+  assert_eq "#858 subagent-write: an unreadable side-effect file is NOT blamed on the execution file" "no" \
+    "$(printf '%s' "$SWV_UNREAD" | grep -qF 'the execution file could not be read cleanly' && echo yes || echo no)"
+  devflow_swv_build_ok denied
+  assert_eq "#858 subagent-write: an unreadable side-effect file does not mask a measurable DENIED" \
+    "DENIED" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier review --side-effect-file "$SWV_TMP/side-unreadable.txt" 2>/dev/null)")"
+  devflow_swv_build_ok permitted
+else
+  # Root (or an ACL-permissive filesystem) ignores mode 000, so the arm cannot be reached
+  # here. Auditable skip rather than a silently-absent check (#456 accounting).
+  skip "#858 subagent-write: unreadable side-effect file arm" host-capability \
+    "chmod 000 did not make the file unreadable (running as root, or a permissive filesystem)"
+fi
+chmod 644 "$SWV_TMP/side-unreadable.txt"
 # Positive control on the same fixture: the ONLY difference is the file's content, so the two
 # assertions above cannot be passing because of some unrelated precondition.
 assert_eq "#858 subagent-write: the same fixture with a payload-bearing file DOES reach PERMITTED" \
@@ -25455,6 +25493,25 @@ assert_eq "#858 matcher-probe: no second IMPLEMENT= assignment was introduced" "
 # no generated region / manifest).
 assert_eq "#858 matcher-probe: the two dispatch heads are appended in the new jobs' composed allowlists" "2" \
   "$(grep -cF 'TOOLS="${UPSTREAM_TOOLS},Task,Agent"' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+# `Task` is granted ONLY in those two hand-written literals — the AC's "enters no generated
+# region and no shipped profile" claim. `generate-capability-profiles.py --check` catches
+# manifest-vs-literal DRIFT but would stay green if Task were added to the manifest and every
+# literal regenerated in lockstep, so the claim needs its own guard.
+# structural-pin-ok: security-credential-boundary -- the manifest is the generated allowlists'
+# single source of truth; a dispatch head appearing there widens every shipped profile at once.
+assert_eq "#858 matcher-probe: Task is absent from the capability manifest (the grant lives only in the probe jobs)" "0" \
+  "$(grep -cF '"Task' "$LIB/capability-profiles.json" || true)"
+# Both verdict steps record the PR HEAD ref/commit, never GITHUB_REF/GITHUB_SHA. On a
+# pull_request event those are `refs/pull/<n>/merge` and the ephemeral merge commit — neither
+# the head the record must name nor one that survives the merge — and pull_request is the
+# trigger that produces the pre-merge record. A silent revert would ship an unre-verifiable
+# provenance claim, so pin the form the jobs actually pass.
+# structural-pin-ok: machine-sentinel-provenance -- the recorded ref/commit IS the record's
+# provenance key; a wrong value makes the committed evidence unre-verifiable after merge.
+assert_eq "#858 matcher-probe: both verdict steps pass the PR head ref/sha, not the merge ref/sha" "2" \
+  "$(grep -cF -- '--ref "${PROBE_REF}"' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+assert_eq "#858 matcher-probe: neither verdict step reverted to the merge-commit GITHUB_SHA" "0" \
+  "$(grep -cF -- '--head-commit "${GITHUB_SHA}"' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
 # Both new jobs carry `always()` in their `if`. A BARE `needs:` SKIPS the dependent when the
 # workflow's cancel-in-progress cancels the upstream tier job — a fourth, silent outcome
 # outside the closed three-outcome vocabulary, and the one the --upstream-tools-empty arm

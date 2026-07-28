@@ -65,7 +65,10 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
 
   PERMITTED       a subagent `Write` tool_use naming the tier's side-effect filename was
                   recorded, its parent chains to a dispatch recorded in this file, AND the
-                  on-disk side-effect file is present. The verdict cites that chain by its
+                  on-disk side-effect file carries the probe's payload marker (presence
+                  alone is NOT corroboration — an empty, truncated, or foreign-authored
+                  file does not establish that the write landed). The verdict cites that
+                  chain by its
                   `tool_use` id and `parent_tool_use_id`, so a reader can re-verify it.
   DENIED          a permission_denials entry attributable to the subagent's Write was
                   recorded, AND a dispatch is recorded in this file (with no dispatchee to
@@ -88,10 +91,13 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   filename, or — with no tool_name recorded — it names the side-effect
                   filename), otherwise a FOREIGN write denial (a `Write`, or an entry
                   recording no tool_name, carrying the PAYLOAD but naming another path),
-                  otherwise an UNATTRIBUTABLE `Write` refusal (its own tool_name is Write and
-                  it names neither), otherwise neither. Only the WRITE-denial bucket can
-                  produce DENIED; the two buckets after it route to their own named
-                  `unestablished` reasons, so no denial entry is silently dropped.
+                  otherwise an UNATTRIBUTABLE refusal (its own tool_name is Write, OR no
+                  tool_name is recorded, and it names neither) — the RESIDUAL bucket, so it
+                  also absorbs a name-less refusal of some other tool, which costs a true
+                  "did not attempt" measurement but never states a falsehood. Only the
+                  WRITE-denial bucket can produce DENIED; the two buckets after it route to
+                  their own named `unestablished` reasons, so no denial entry is silently
+                  dropped.
                   Per-entry classification is what lets a
                   multi-entry list holding BOTH a dispatch refusal and a real Write denial
                   resolve DENIED, while a lone dispatch refusal whose recorded input echoes
@@ -159,8 +165,10 @@ Usage: subagent-write-probe-verdict.py [EXECUTION_FILE] --tier {review|implement
   --tier               review or implement (machine-consumed `tier` field in the output).
                        Any other value (including a missing one) emits a stderr breadcrumb
                        naming it and routes the run to `unestablished`.
-  --side-effect-file   the tier's `.devflow/tmp/subwrite-<tier>.txt`; its on-disk presence
-                       corroborates a PERMITTED. Absent -> no corroboration.
+  --side-effect-file   the tier's `.devflow/tmp/subwrite-<tier>.txt`. Corroborates a
+                       PERMITTED only when it is present AND carries the payload marker;
+                       reported as absent / wrong-content / unreadable otherwise, each with
+                       its own reason. Presence alone is not corroboration.
   --upstream-tools-empty  the consumed upstream allowlist output was empty, absent or
                        unresolved (the upstream tier job did not complete, or the step that
                        composes its literal did not) -> unestablished (never a skipped job
@@ -330,10 +338,13 @@ def collect(parsed):
                         # re-lower the same string two-to-four times.
                         "text_lower": text.lower(),
                         # NON-STRING NORMALIZES TO THE EMPTY SENTINEL, never to str()'s
-                        # rendering of it. `str(None).lower()` is "none" — a THIRD value that
-                        # is neither a recorded name nor the empty "not recorded" sentinel the
-                        # classifiers below are built on, so a null-named node would decline
-                        # every bucket and read as a tool literally called "none".
+                        # rendering of it. This side is currently BEHAVIOR-INERT — every
+                        # consumer of `name` tests for a positive ("write", a dispatch name),
+                        # and "" and "none" both decline all of them identically. It is kept
+                        # for symmetry with the denial-side `tool_name` normalization, where
+                        # "" IS an accepted sentinel and the same coercion was load-bearing,
+                        # so the two sides cannot drift into disagreeing about what
+                        # "not recorded" means.
                         "name": o.get("name", "").lower() if isinstance(o.get("name"), str) else "",
                         "id": o.get("id") if isinstance(o.get("id"), str) else "",
                         "parent": here,
@@ -397,7 +408,7 @@ def collect(parsed):
 
 
 def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empty,
-            tier_note="", records_note=""):
+            tier_note="", records_note="", side_state="absent", side_note=""):
     """Return a dict of every field the table reports plus the final verdict/reason.
 
     All marker matches are case-insensitive so a decorated recording still reads present.
@@ -694,7 +705,7 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         verdict, reason = "PERMITTED", (
             "a subagent Write tool_use targeting %s was recorded, its parent chains to a "
             "dispatch recorded in this file (tool_use id '%s' -> parent_tool_use_id '%s'), "
-            "and the on-disk side-effect file is present"
+            "and the on-disk side-effect file carries the probe's payload marker"
             % (side_path, write_chain_pair[0], write_chain_pair[1])
         )
     elif not dispatch_recorded and not recorded_at_all:
@@ -759,9 +770,23 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
             "recorded nor denied — the subagent ran but did not attempt the write"
         )
     else:  # write_recorded and write_chain_ok and not side_present
+        # THREE distinct states reach here, and the reason names which one. Hardcoding
+        # "absent" made the prose — the half a human actually reads — positively assert the
+        # file was missing on a run whose table said `wrong-content`, so the record
+        # contradicted itself. Each state gets its own sentence.
+        if side_state == "wrong-content":
+            _why = (
+                "the on-disk side-effect file is present but does not carry the probe's "
+                "payload marker — a truncated, empty, or foreign-authored file is not "
+                "corroboration that the subagent's write landed"
+            )
+        elif side_state == "unreadable":
+            _why = "the on-disk side-effect file is present but could not be read"
+        else:
+            _why = "the on-disk side-effect file is absent"
         verdict, reason = "unestablished", (
-            "a chain-attributable Write tool_use was recorded but the on-disk side-effect "
-            "file is absent, so the permit is uncorroborated"
+            "a chain-attributable Write tool_use was recorded but %s, so the permit is "
+            "uncorroborated" % _why
         )
 
     # A RECORDED dispatch wins over a co-recorded refusal: the table must not report
@@ -826,6 +851,7 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     # content file is NOT corroboration and is NOT silently absent either — it gets its own
     # named reason below (`side_effect_state`), because unknown is not zero.
     side_state = "absent"
+    side_note = ""
     if side_effect_file and os.path.isfile(side_effect_file):
         try:
             with open(side_effect_file, encoding="utf-8", errors="replace") as _fh:
@@ -833,8 +859,14 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
         except OSError as exc:
             # Present but unreadable: an established file whose content could not be checked
             # is unknown, never corroboration — and never silently "absent" either.
+            #
+            # This note does NOT go into `notes`/`note_top`. note_top is consumed by the arm
+            # that prefixes "the execution file could not be read cleanly:", so routing a
+            # SIDE-EFFECT read failure there blames the wrong file — and, because note_top is
+            # tested ahead of every signal-bearing arm, it would also mask a genuinely
+            # measurable DENIED. It travels on its own channel instead.
             side_state = "unreadable"
-            notes.append(
+            side_note = (
                 "the on-disk side-effect file %s is present but could not be read (%s), so "
                 "its content could not corroborate the write" % (side_effect_file, exc)
             )
@@ -879,7 +911,7 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
 
     r = compute(
         denials, tool_uses, note_top, side_path, side_present, upstream_empty, tier_note,
-        records_note,
+        records_note, side_state, side_note,
     )
 
     out = []

@@ -283,10 +283,12 @@ there is no dispatchee to attribute the denial to, so such a list reports `unest
 deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo
 `pull_request` scoped to the workflow's own path — so pushing this change to the
 implementing PR *does* fire it — and `gh workflow run` is granted on no profile). Record
-the verdict here from the **final pre-merge head commit** (a later push *that touches
-`matcher-probe.yml`* re-fires the workflow and invalidates a recorded head; the `paths:`
-filter means a push touching only other files — including the commit that records this
-very verdict — does not), naming the **ref** (the implementing branch —
+the verdict here from the **final pre-merge head commit** (a later push re-fires the
+workflow and invalidates a recorded head — the `paths:` filter does NOT narrow this: on a
+`pull_request` event GitHub evaluates `paths:` against the three-dot base…head diff, i.e.
+the files changed in the whole PR, and this PR changes `matcher-probe.yml`, so every
+subsequent push re-fires both paid probe jobs — including the commit that records this very
+verdict), naming the **ref** (the implementing branch —
 the job does not exist on the default branch until this merges), the **run id**, the
 **job id**, the **head commit**, and the **resolved `--allowed-tools` literal verbatim**
 alongside `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001`, and

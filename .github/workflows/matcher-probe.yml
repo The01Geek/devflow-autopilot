@@ -1587,10 +1587,11 @@ jobs:
           # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
           # neither the head this record must name nor a commit that survives the merge, so
           # a record built from them is unre-verifiable the moment the PR lands. That
-          # `pull_request` path is the ONLY pre-merge trigger these jobs have (workflow_dispatch
-          # exists only once the job is on the default branch), so it is the path the record is
-          # actually produced on. The `||` fallbacks keep workflow_dispatch on
-          # GITHUB_REF/GITHUB_SHA, which are correct there. Same idiom as devflow-review.yml.
+          # `pull_request` is the trigger that produces the pre-merge record, so it is the path
+          # that matters here. (workflow_dispatch is also reachable — this workflow already
+          # carries it on the default branch, so a maintainer can dispatch and select this
+          # branch — and the `||` fallbacks keep that path on GITHUB_REF/GITHUB_SHA, which are
+          # the correct values there.) Same idiom as devflow-review.yml's head.sha read.
           PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
           PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
@@ -1706,10 +1707,11 @@ jobs:
           # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
           # neither the head this record must name nor a commit that survives the merge, so
           # a record built from them is unre-verifiable the moment the PR lands. That
-          # `pull_request` path is the ONLY pre-merge trigger these jobs have (workflow_dispatch
-          # exists only once the job is on the default branch), so it is the path the record is
-          # actually produced on. The `||` fallbacks keep workflow_dispatch on
-          # GITHUB_REF/GITHUB_SHA, which are correct there. Same idiom as devflow-review.yml.
+          # `pull_request` is the trigger that produces the pre-merge record, so it is the path
+          # that matters here. (workflow_dispatch is also reachable — this workflow already
+          # carries it on the default branch, so a maintainer can dispatch and select this
+          # branch — and the `||` fallbacks keep that path on GITHUB_REF/GITHUB_SHA, which are
+          # the correct values there.) Same idiom as devflow-review.yml's head.sha read.
           PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
           PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
