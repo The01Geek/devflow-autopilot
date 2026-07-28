@@ -17,7 +17,14 @@ type: Changed
   that auto-passes being the classic un-gating trap — and the recombination preserves the
   full skip population rather than laundering it into a clean pass (issue #456). No test
   is dropped: `lib/test/run.sh` asserts the shard map's module union against the
-  registry. Measured on this PR's own CI: the four shards ran 639s / 291s / 54s / 43s
+  registry — and, in both directions, that the registry equals the module set the suite
+  actually drives and that no module is listed in two shard groups. The recombination's
+  skip-accounting guard is unconditional: a tally announcing `0 skipped` beside a
+  non-empty skip detail file fails closed instead of dropping those lines, `--expect` is
+  required so the missing-shard guard cannot be disabled by omission, and the
+  aggregator's shard-result gate moved out of inline workflow YAML into
+  `lib/test/gate-shard-result.sh` so every arm (success / failure / cancelled / skipped /
+  unestablished) is driven by the suite. Measured on this PR's own CI: the four shards ran 639s / 291s / 54s / 43s
   with a 9s aggregator, for a ~665s wall clock against a ~850s single-job baseline
   (a past-time snapshot, not a pinned figure). Reaching the sub-4-minute target needs
   further work — the `monolith` shard still carries the pin-corpus block through the

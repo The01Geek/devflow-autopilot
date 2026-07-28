@@ -106,13 +106,11 @@ jobs:
       - name: Recombine shard tallies (aggregate pass/fail/skip accounting)
         run: python3 lib/test/shard-tally.py combine --scan shard-tallies --expect 4
 
+      # The branch selection and its user-facing message live in the helper, not
+      # inline here, so lib/test/run.sh can drive every arm (success / failure /
+      # cancelled / skipped / unestablished) rather than grep-pinning a literal.
       - name: Gate on shard results
-        run: |
-          echo "shard matrix result: ${{ needs.shard.result }}"
-          if [ "${{ needs.shard.result }}" != "success" ]; then
-            echo "::error::one or more test shards did not succeed (${{ needs.shard.result }})"
-            exit 1
-          fi
+        run: bash lib/test/gate-shard-result.sh "${{ needs.shard.result }}"
 
   lint:
     name: lint (shellcheck + actionlint + ruff)
@@ -178,7 +176,7 @@ jobs:
           # they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
-            lib/test/run-shard.sh \
+            lib/test/run-shard.sh lib/test/gate-shard-result.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh \
             lib/test/modules/create-issue-contract.sh \

@@ -19,9 +19,11 @@ This helper is the transport-and-recombine layer:
              followed by one line per skipped check and a failure recap. Preserves
              the skip population and its per-check detail exactly (issue #456: a
              skipped check is never laundered into a clean pass). Exits non-zero if
-             any shard failed, any shard exited non-zero, or any tally is missing or
-             malformed — the aggregator FAILS CLOSED, so a lost shard never reads as
-             a green merge gate.
+             any shard failed, any shard exited non-zero, any tally is missing or
+             malformed, or the announced skip tally disagrees with the itemized skip
+             lines in EITHER direction — the aggregator FAILS CLOSED, so a lost shard
+             never reads as a green merge gate. `--expect <n>` is REQUIRED: the
+             missing-shard guard must not be disable-able by omitting a flag.
 
 Parsing keys on the two stable, unit-tested summary contracts:
   * lib/test/summary.sh   — `N passed, M failed[, K skipped]` + `  SKIP  ...` lines
@@ -225,7 +227,7 @@ def _collect_dirs(args: argparse.Namespace) -> list[Path]:
 
 def cmd_combine(args: argparse.Namespace) -> int:
     dirs = _collect_dirs(args)
-    if args.expect is not None and len(dirs) < args.expect:
+    if len(dirs) < args.expect:
         # A shard that never uploaded its tally (crashed/cancelled before the upload
         # step) would otherwise be invisible here — combine would sum the survivors
         # and could report green over an incomplete run. Fail closed on a shortfall.
@@ -290,20 +292,30 @@ def cmd_combine(args: argparse.Namespace) -> int:
             problems.append(f"{d}: skip/failure detail unreadable ({error})")
 
     # Render the combined summary in the single-job format.
-    if total_skip == 0:
+    #
+    # The plain `N passed, M failed` line — the one that says "nothing was skipped" —
+    # is taken ONLY when BOTH the summed tally and the itemized population are empty.
+    # Keying it on `total_skip == 0` alone was fail-OPEN in exactly the direction #456
+    # exists to close: a well-keyed but garbled tally can carry `skipped=0` beside a
+    # NON-empty skips file (extract will pair them when a `  SKIP  `-shaped line trails
+    # a no-skip summary — the same content-collision class --tier isolation defends
+    # against), and those skip lines were then dropped silently, unguarded, rc 0. The
+    # disagreement check is therefore unconditional, below, and reached on both arms.
+    skip_disagreement = len(all_skips) != total_skip
+    if total_skip == 0 and not all_skips:
         print(f"{total_pass} passed, {total_fail} failed")
     else:
         print(f"{total_pass} passed, {total_fail} failed, {total_skip} skipped")
         for sk in all_skips:
             print(f"  SKIP  {sk}")
-        # The announced skip tally and the itemized lines must agree (issue #456).
-        if len(all_skips) != total_skip:
-            print(
-                f"  SKIP  (skip tally {total_skip} disagrees with "
-                f"{len(all_skips)} itemized skip line(s) across shards — the skip "
-                "population of this run is unverified)"
-            )
-            problems.append("skip tally/detail disagreement across shards")
+    # The announced skip tally and the itemized lines must agree (issue #456).
+    if skip_disagreement:
+        print(
+            f"  SKIP  (skip tally {total_skip} disagrees with "
+            f"{len(all_skips)} itemized skip line(s) across shards — the skip "
+            "population of this run is unverified)"
+        )
+        problems.append("skip tally/detail disagreement across shards")
 
     if total_fail > 0:
         print()
@@ -344,7 +356,17 @@ def main(argv: list[str] | None = None) -> int:
     co = sub.add_parser("combine", help="recombine shard tallies into one summary")
     co.add_argument("dirs", nargs="*", help="shard tally directories")
     co.add_argument("--scan", help="a parent dir; every child holding a summary file is a shard tally")
-    co.add_argument("--expect", type=int, help="fail closed unless at least this many shard tallies are present")
+    # REQUIRED, not optional: an optional missing-shard guard is one an invocation can
+    # silently disable by omission, and the omission looks identical to a green gate.
+    # Every caller must state the shard count it expects, so a shard that never uploaded
+    # its tally is always visible. (`--expect 0` is the explicit "no floor" opt-out and
+    # still routes through the zero-dirs refusal below.)
+    co.add_argument(
+        "--expect",
+        type=int,
+        required=True,
+        help="fail closed unless at least this many shard tallies are present",
+    )
     co.set_defaults(func=cmd_combine)
 
     args = parser.parse_args(argv)
