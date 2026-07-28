@@ -551,3 +551,52 @@ The **workflow grants** ship to consumers via `install.sh` **file-copy**, while 
 independently-updated artifacts** whose skew silently **re-denies the applies**, so
 **the two halves must be upgraded together** (docs: `docs/install.md`,
 `docs/DEVFLOW_SYSTEM_OVERVIEW.md`).
+
+## PreToolUse shape guard (issue #805)
+
+`lib/test/extract-command-shapes.py` turns a denied-shape review fence RED **at the
+desk**; a runtime consumer makes that desk lint *incomplete* — it does not stop the
+engine re-emitting a denied shape live. `scripts/pretooluse-shape-guard.py` is that
+runtime consumer: a `PreToolUse` hook (review tier, registered through the action's
+`settings` input and hardened from the trusted base ref via the `#458` `HOOK_TARGETS`
+closure) that **denies** a Bash command whose any statement matches a probe-proven
+denied **arm** and returns a `permissionDecisionReason` naming the permitted
+alternative, at the moment of the offending call. It resolves through
+`extract-command-shapes.py`'s arm-level `classify_arms()` because the deny set is
+defined over **arms**, not rule ids (`classify()` collapses R3's two arms onto one
+token).
+
+### The deny set and each arm's permitted alternative (authoritative)
+
+This table is the **authoritative** record of each denied arm's permitted alternative;
+`scripts/pretooluse-shape-guard.py`'s `REMEDIATION` table is its **mirror**, and a
+`lib/test/run.sh` assertion ties each guard remediation string to the alternative
+recorded here, so a change to a recorded alternative reconciles the guard in the same
+commit (the same coupled-mirror discipline the closure literals carry, applied to a
+`scripts/`-to-`docs/` pair).
+
+| Arm | Denied shape | Permitted alternative (the join key is the arm id) |
+| --- | --- | --- |
+| `R1` | a leading `VAR=value` assignment or env-prefix (`M=x cmd`) | capture a command's output with `VAR=$(cmd)`, or pass the value as an argument |
+| `R3-tmp` | a `>`/`>>` redirect targeting `/tmp` | author the file with the Write tool under `.devflow/tmp/`, or stream through a pipe into `tee` |
+| `R4` | an interpreter head (`python3`/`python`/`node`) | invoke the helper directly by its granted path as the command's **leading token** |
+
+**Excluded arms (a runtime deny is terminal, so denying a permitted shape costs the
+engine a working shape):** `R2` (a leading `cd`, DROPPED as unproven/confounded — probe
+row 3) and `R3-heredoc` (an in-workspace `cat`-headed heredoc write, banned as authoring
+discipline, not a probe result). The guard **defers** these.
+
+### PreToolUse probe evidence (Part 1)
+
+`.github/workflows/matcher-probe.yml`'s `pretooluse-probe` arm establishes, by
+observation, whether a `PreToolUse` hook fires under `claude-code-action`
+(`FIRED`/`NOT-FIRED`) and whether its `permissionDecisionReason` reaches the engine
+transcript (`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
+resolved from the workflow definition and is **not** observable inside the implementing
+pull request's own run, so the probe is dispatched **after merge** and its run id +
+three-way result, plus one review run's per-arm denial counts against the
+run-30138268273 baseline of five `/tmp`-redirect denials, are recorded here then:
+
+| Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
+| --- | --- | --- | --- |
+| _(pending post-merge dispatch)_ | — | — | — |
