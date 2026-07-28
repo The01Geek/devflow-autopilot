@@ -373,6 +373,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/pretooluse-shape-guard.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "issue #805 PreToolUse command-shape guard",
+      "owner": "unmodularized"
+    },
     "scripts/provision-auto-mode.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1672,6 +1677,10 @@
     "803": {
       "note": "",
       "owner": "create-issue-contract"
+    },
+    "805": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "810": {
       "note": "",

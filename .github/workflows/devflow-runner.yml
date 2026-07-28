@@ -1459,8 +1459,10 @@ jobs:
             # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
             # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
             # not wire these hooks there is nothing to harden — and stubbing/creating the
-            # the DevFlow-layout closure paths would clobber a same-named consumer file (a wrong
-            # verdict). So harden ONLY when the trusted base settings.json wires an entry
+            # hardened closure over same-named consumer files would be a wrong verdict (the
+            # emitted skip notice below states that rationale for the consumer to read, and
+            # lib/test/run.sh pins it there rather than in this explanatory comment). So
+            # harden ONLY when the trusted base settings.json wires an entry
             # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
             # lib/test/run.sh-driven source of truth for this selection — falling back to
             # an inline substring scan only when no trusted helper resolved. Keyed on the
@@ -1521,7 +1523,7 @@ jobs:
             fi
             if [ "$HOOKS_WIRED" -eq 0 ]; then
               SKIP_HARDEN=1
-              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
+              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects, and stubbing/creating the DevFlow-layout closure paths would clobber a same-named consumer file)."
             else
               TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
               for t in $TARGETS; do

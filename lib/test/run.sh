@@ -22281,7 +22281,7 @@ assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
 # source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
@@ -22291,7 +22291,7 @@ assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus 
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
-  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(jq '[.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("lib/efficiency-trace.sh") and contains("--persist"))] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
@@ -22512,14 +22512,21 @@ assert_eq "#805 drift-guard: the shapes->heads importlib edge is detected + requ
 # so the scripts/-to-docs/ coupled mirror cannot drift silently. This is a machine-consumed
 # cross-file contract (the guard's remediation text is the emitted permissionDecisionReason),
 # not a prose-presence pin.
-for _pair in 'R1=VAR=$(cmd)' 'R3-tmp=.devflow/tmp/' 'R4=leading token'; do
-  # structural-pin-ok: cross-file-phase-contract -- guard REMEDIATION <-> docs/cloud-allowlist.md arm alternative
-  _arm="${_pair%%=*}"; _phrase="${_pair#*=}"
-  assert_eq "#805 remediation mirror: arm $_arm alternative is in the guard" "yes" \
-    "$(grep -qF "$_phrase" "$GUARD_PY" && echo yes || echo no)"
-  assert_eq "#805 remediation mirror: arm $_arm alternative is in docs/cloud-allowlist.md" "yes" \
-    "$(grep -qF "$_phrase" "$ALLOWLIST_DOC" && echo yes || echo no)"
-done
+assert_eq "#805 remediation mirror: arm R1 alternative is in the guard" "yes" \
+  "$(grep -qF 'VAR=$(cmd)' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R1 alternative is in docs/cloud-allowlist.md" "yes" \
+  "$(grep -qF 'VAR=$(cmd)' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+assert_eq "#805 remediation mirror: arm R3-tmp alternative is in the guard" "yes" \
+  "$(grep -qF '.devflow/tmp/' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R3-tmp alternative is in docs/cloud-allowlist.md" "yes" \
+  "$(grep -qF '.devflow/tmp/' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+# R4's permitted alternative reads as a whitespace-bearing English phrase on the docs side,
+# which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE token is the
+# whitespace-free join key carried verbatim by both sides, so the R4 row is mirrored on that.
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard" "yes" \
+  "$(grep -qF 'python3/python/node' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in docs/cloud-allowlist.md" "yes" \
+  "$(grep -qF 'python3/python/node' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
 # Language-appropriate stub (issue #805): drive harden-stop-hooks.sh with an EMPTY
 # TRUSTED_DIR so every target is stubbed, then assert the .py target's stub parses under
 # python3 and a .sh target's stub parses under bash — asserting the INSTALLED BYTES parse,
@@ -23055,15 +23062,18 @@ PY
   # AC1 CONTENT (#504): the fixture now runs the step through the terminal AC1 publish
   # block, so assert what it actually WROTE to $GITHUB_OUTPUT — the workflow-side
   # `printf '%s\n' $TARGETS` word-split is exercised nowhere else (the renderer tests feed
-  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the ten
-  # paths onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
-  # would publish zero — both pass every other assertion green. The ten paths each start
+  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the whole
+  # closure onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
+  # would publish zero — both pass every other assertion green. Every closure path starts
   # with lib/ or scripts/; the disposition/heredoc-delimiter lines do not, so the count is
-  # exactly ten on the correct (word-split) publish, 1 under the quoted-regression, 0 under
-  # an emptied one.
+  # exactly the closure size on the correct (word-split) publish, 1 under the
+  # quoted-regression, 0 under an emptied one. The expected count is DERIVED from
+  # HSH_CLOSURE_LIT (the pinned closure literal) rather than transcribed, so growing the
+  # closure does not leave a stale number here.
+  HH_CLOSURE_N="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -cE '^(lib|scripts)/' || true)"
   assert_eq "#504 AC1 errexit fixture: harden published disposition=displaced to GITHUB_OUTPUT" "1" \
     "$(grep -c '^disposition=displaced$' "$HH_FIX/gh_out.txt" || true)"
-  assert_eq "#504 AC1 errexit fixture: harden published the ten displaced paths (word-split, one per line)" "10" \
+  assert_eq "#504 AC1 errexit fixture: harden published every displaced closure path (word-split, one per line)" "$HH_CLOSURE_N" \
     "$(grep -cE '^(lib|scripts)/' "$HH_FIX/gh_out.txt" || true)"
   # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
   # `-e` must kill it with git's 128 again, proving this test pins the exact regression
@@ -34650,8 +34660,8 @@ assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displa
 # ── #504 AC10 stale-prose corrections. Re-anchored COUNT-FREE (issue #805): the two
 # devflow-runner.yml prose literals name the closure rather than its size, so the pins
 # stop encoding a total (formerly "ten") that changes whenever the closure does.
-assert_pin_unique "#504 AC10 devflow-runner relevance-gate names the closure (count-free)" "DevFlow-layout closure paths would clobber" "$RUNNER_YML"
-assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning names the closure (count-free)" "DevFlow-layout closure paths are stubbed" "$RUNNER_YML"
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate names the closure (count-free)" "DevFlow-layout closure paths would clobber" "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- re-anchored (issue #805) from the explanatory YAML comment onto the EMITTED ::notice:: the relevance-gate early-out prints, so the consumer-fidelity rationale the gate acts on is pinned where a consumer actually reads it
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning names the closure (count-free)" "DevFlow-layout closure paths are stubbed" "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- the FP-S1 ::warning:: is the emitted, consumer-visible disclosure of the fail-closed arm the suite drives over harden-stop-hooks.sh; the pin couples the emitted text to that arm so the two cannot describe different behaviour
 # This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
 # real FP1 comment (the count-free prose) and once here as the pin's own argument.
 # assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
@@ -37970,11 +37980,24 @@ done
 # --- exec-shape(redaction): the security boundary (AC2). The full fixture seeds a
 # fake secret, a long prompt body, and a hostile/attacker-controlled check-run name
 # as STRING LEAVES. Assert on the EMITTED BYTES that NONE of them survive — a test
-# that checks the filter's internals would prove nothing. ---
+# that checks the filter's internals would prove nothing.
+# SCOPE (issue #805): `permission_denials_commands:` is the one DISCLOSED exception to
+# leaf redaction — surfacing the agent's own denied Bash is the whole point of that field
+# — so the redaction boundary is asserted over the rest of the record, and the exception's
+# extent is pinned separately below (exactly one line, and that line is the denied-command
+# field). Excluding the line wholesale here would let a future leak hide inside it. ---
+EES_FULL_REDACTED="$(printf '%s\n' "$EES_FULL" | grep -v '^permission_denials_commands: ' || true)"
 for _leak in 'SECRET_sentinel_value' 'this is a long prompt body' 'DROP TABLE' 'onerror=alert'; do
-  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from output" "yes" \
-    "$(printf '%s' "$EES_FULL" | grep -qF "$_leak" && echo no || echo yes)"
+  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from the redacted record" "yes" \
+    "$(printf '%s' "$EES_FULL_REDACTED" | grep -qF "$_leak" && echo no || echo yes)"
 done
+# The exception is EXACTLY the denied-command field: the fixture's denied command carries
+# the secret sentinel, so assert it survives on that ONE line and on no other. A redaction
+# regression that leaked a leaf elsewhere would add a second matching line and turn this RED.
+assert_eq "#805 exec-shape(redaction): the denied-command sentinel appears on exactly one emitted line" "1" \
+  "$(printf '%s\n' "$EES_FULL" | grep -cF 'SECRET_sentinel_value' || true)"
+assert_eq "#805 exec-shape(redaction): that line is the disclosed permission_denials_commands exception" "1" \
+  "$(printf '%s\n' "$EES_FULL" | grep -F 'SECRET_sentinel_value' | grep -c '^permission_denials_commands: ' || true)"
 # The structural section still carries the KEY→type shape (redaction keeps structure).
 assert_eq "#437 exec-shape(redaction): structural key retained as type-only" "yes" \
   "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: string' && echo yes || echo no)"

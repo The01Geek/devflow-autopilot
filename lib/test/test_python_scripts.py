@@ -20352,9 +20352,9 @@ assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, 
 # root. To drive it hermetically (isolated store, no collision with the real repo or the
 # parallel pool), each invocation runs in a throwaway git repo that carries copies of the
 # guard's importlib closure at their committed relative paths.
-import shutil as _shutil805
-import subprocess as _sp805
-import json as _json805
+import shutil as _shutil805  # noqa: E402
+import subprocess as _sp805  # noqa: E402
+import json as _json805  # noqa: E402
 
 _GUARD_SRC = SCRIPTS / 'pretooluse-shape-guard.py'
 _SHAPES_SRC = Path(__file__).resolve().parent / 'extract-command-shapes.py'

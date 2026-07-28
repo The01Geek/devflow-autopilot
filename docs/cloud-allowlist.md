@@ -579,7 +579,7 @@ commit (the same coupled-mirror discipline the closure literals carry, applied t
 | --- | --- | --- |
 | `R1` | a leading `VAR=value` assignment or env-prefix (`M=x cmd`) | capture a command's output with `VAR=$(cmd)`, or pass the value as an argument |
 | `R3-tmp` | a `>`/`>>` redirect targeting `/tmp` | author the file with the Write tool under `.devflow/tmp/`, or stream through a pipe into `tee` |
-| `R4` | an interpreter head (`python3`/`python`/`node`) | invoke the helper directly by its granted path as the command's **leading token** |
+| `R4` | an interpreter head (`python3/python/node`) | invoke the helper directly by its granted path as the command's **leading token** |
 
 **Excluded arms (a runtime deny is terminal, so denying a permitted shape costs the
 engine a working shape):** `R2` (a leading `cd`, DROPPED as unproven/confounded — probe
