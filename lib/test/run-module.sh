@@ -121,6 +121,8 @@ esac
 SELECTOR_STDERR=""
 RESULTS_FILE=""
 DETAILS_FILE=""
+SKIPS_FILE=""
+CREDIT_FILE=""
 MODULE_PID=""
 MODULE_SCRATCH_ROOT=""
 MODULE_GROUP_PID_FILE=""
@@ -138,6 +140,12 @@ cleanup() {
   # the tally it belongs to rather than left as /tmp litter.
   [ -z "$RESULTS_FILE" ] || rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" || cleanup_rc=1
   [ -z "$DETAILS_FILE" ] || rm -f "$DETAILS_FILE" || cleanup_rc=1
+  # The private skip tally and skip-credit record (issue #887), siblings of the tally
+  # above: the focused `skip` override writes a host-capability declaration here rather
+  # than to stdout, so a module-authored reason never reaches the log the unrequested-
+  # bound guard scans.
+  [ -z "$SKIPS_FILE" ] || rm -f "$SKIPS_FILE" || cleanup_rc=1
+  [ -z "$CREDIT_FILE" ] || rm -f "$CREDIT_FILE" || cleanup_rc=1
   _devflow_cleanup_module_scratch "$MODULE_SCRATCH_ROOT" || cleanup_rc=1
   _devflow_test_append_cleanup_marker \
     "${DEVFLOW_TEST_RUNNER_CLEANUP_MARKER:-}" || cleanup_rc=1
@@ -315,6 +323,15 @@ RESULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-results.XXXXXX")" || \
 DETAILS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-details.XXXXXX")" || {
   selector_error "could not allocate failure details"
 }
+# The private skip tally and skip-credit record (issue #887). Bound into the worker
+# below (SKIPS_FILE is inherited; MODULE_SKIP_CREDIT_FILE points at CREDIT_FILE) so a
+# module's module_host_capability_skip declaration records here instead of aborting the
+# focused runner, and the parent folds it after `wait` exactly as the full-suite boundary
+# does — a visible skip with its assertion credit applied, never a laundered clean pass.
+SKIPS_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-skips.XXXXXX")" || \
+  selector_error "could not allocate the skip tally"
+CREDIT_FILE="$(mktemp "${TMPDIR:-/tmp}/devflow-module-credits.XXXXXX")" || \
+  selector_error "could not allocate the skip-credit record"
 MODULE_SCRATCH_ROOT="$(devflow_module_allocate_owned_directory \
   "${TMPDIR:-/tmp}/devflow-module-scratch.XXXXXX")" || \
   selector_error "could not allocate the module scratch root"
@@ -352,6 +369,11 @@ MODULE_LAUNCHING=1
     # Consumed by the dynamically selected module sourced below.
     # shellcheck disable=SC2034
     LIB="$REPO_ROOT/lib"
+    # Consumed by module_host_capability_skip (module-harness.sh) in the sourced module:
+    # its assertion-credit declaration lands here, and the parent applies it against the
+    # module's floor after `wait` (issue #887). SKIPS_FILE is inherited from the parent.
+    # shellcheck disable=SC2034
+    MODULE_SKIP_CREDIT_FILE="$CREDIT_FILE"
 
     sanitize_result_field() {
       local value="$1"
@@ -362,13 +384,33 @@ MODULE_LAUNCHING=1
     }
 
     skip() {
-      # This fires for a raw `skip` AND for module_host_capability_skip, which delegates
-      # to it (issue #838) — so the message must not accuse the module of a contract
-      # violation it may not have committed: a host-capability declaration is sanctioned,
-      # it is just not expressible on THIS tier, where a focused run has no skip channel
-      # to fold it into. The first clause is the durable literal callers assert on.
+      # Two paths reach this override (issue #887). A `module_host_capability_skip`
+      # declaration (module-harness.sh) delegates here with the sanction marker set for
+      # the duration of its call; that is a legitimate host-capability skip, so the
+      # focused runner now HAS a skip channel — it records the declaration to the private
+      # skip tally and returns, and the parent folds it into a visible skip with its
+      # assertion credit applied. A RAW `skip` a module invokes directly never carries
+      # the marker (nor a `host-capability` kind), so it stays a fatal contract violation.
+      # The two paths are distinguished by the marker, and that distinction is covered by
+      # an executed test in test_module_runner.py, not by inspection.
+      local _sk_name="${1:-}" _sk_kind="${2:-}" _sk_reason="${3:-}"
+      if [ "${_DEVFLOW_SANCTIONED_HOST_CAPABILITY_SKIP:-}" = 1 ] && [ "$_sk_kind" = host-capability ]; then
+        # Write the declaration to the private skip tally, NOT to stdout: the parent
+        # emits the itemized `  SKIP  ` line AFTER its BOUNDED-smoke-subset scan of the
+        # log, so a module-authored reason — even one that happens to contain the literal
+        # `BOUNDED smoke subset` — cannot reach that scan and trip the unrequested-bound
+        # failure predicate. Field shape and sanitization mirror run.sh's skip()
+        # (kind<TAB>name<TAB>reason, bash-builtin collapse of TAB/NL/CR — guard-class 2).
+        local _sk_name_clean="${_sk_name//[$'\t'$'\n'$'\r']/ }"
+        [ -n "$_sk_name_clean" ] || _sk_name_clean="(unnamed check)"
+        printf 'host-capability\t%s\t%s\n' \
+          "$_sk_name_clean" "${_sk_reason//[$'\t'$'\n'$'\r']/ }" >> "$SKIPS_FILE" || {
+          printf 'FATAL: could not record host-capability skip\n' >&2; exit 1; }
+        return 0
+      fi
+      # The first clause is the durable literal callers assert on.
       printf 'FATAL: modules may not self-skip (module contract) — keep skippable gates in the full suite.\n' >&2
-      printf 'If this came from module_host_capability_skip, the declaration is legitimate but the focused runner cannot account for it; run the full suite (lib/test/run.sh) to have the skip folded and its assertion credit applied.\n' >&2
+      printf 'If this came from module_host_capability_skip the declaration is legitimate and the focused runner folds it as a skip; reaching this fatal means a RAW skip crossed the module contract boundary.\n' >&2
       exit 1
     }
 
@@ -460,21 +502,126 @@ if [ "$MODULE_HEAVY_UNIT_MODE" = full ] && [ -r "$LOG_FILE" ]; then
   done < "$LOG_FILE"
 fi
 
+# Fold the private skip tally and skip-credit record (issue #887). The focused `skip`
+# override writes ONLY `host-capability`-kinded lines here (a raw skip is fatal and never
+# records), so a line of any other shape is a contract breach counted as a failure. The
+# credit sum lowers the module's effective floor exactly as the full-suite boundary does,
+# so a host taking a gated arm reports a visible skip instead of a floor trip that reads
+# like a regression. Read with bash builtins, never grep/awk: these values decide an
+# EMITTED result (the failure tally and the skip suffix) and a SELECTION (the floor the
+# assertion count is compared against) — guard-class 2 bars a non-preflight PATH tool.
+#
+# The unreadable-record arms below mirror the full-suite boundary's, for the same reason
+# it states: `-s` distinguishes "nothing was recorded" (the common case, a clean no-op)
+# from a file that exists WITH content, and a non-empty-but-unreadable record is neither —
+# the redirect fails, the loop body never runs, and the records vanish silently. Without
+# the arm that silence is fail-OPEN in the one direction that matters: the skips disappear
+# from the summary while a still-readable credit record keeps lowering EFFECTIVE_MIN, so a
+# module could clear a relaxed floor and report a byte-clean pass. A lost skip record
+# therefore also FORFEITS every credit — crediting the floor while the skips themselves are
+# invisible is exactly the laundering this channel exists to prevent.
+SKIP_COUNT=0
+SKIP_MALFORMED_COUNT=0
+SKIP_RECORDS_LOST=0
+if [ -s "$SKIPS_FILE" ] && [ ! -r "$SKIPS_FILE" ]; then
+  SKIP_RECORDS_LOST=1
+elif [ -r "$SKIPS_FILE" ]; then
+  while IFS= read -r _sk_line || [ -n "$_sk_line" ]; do
+    [ -n "$_sk_line" ] || continue
+    case "$_sk_line" in
+      "host-capability"$'\t'*) SKIP_COUNT=$((SKIP_COUNT + 1)) ;;
+      *) SKIP_MALFORMED_COUNT=$((SKIP_MALFORMED_COUNT + 1)) ;;
+    esac
+  done < "$SKIPS_FILE"
+fi
+SKIP_CREDIT_TOTAL=0
+SKIP_CREDIT_MALFORMED=0
+SKIP_CREDIT_UNREADABLE=0
+if [ -s "$CREDIT_FILE" ] && [ ! -r "$CREDIT_FILE" ]; then
+  SKIP_CREDIT_UNREADABLE=1
+elif [ -r "$CREDIT_FILE" ]; then
+  while IFS= read -r _cr_line || [ -n "$_cr_line" ]; do
+    [ -n "$_cr_line" ] || continue
+    case "$_cr_line" in
+      # Digits only, and short enough that the arithmetic below cannot overflow — the
+      # same bounded-digit shape the assertion floor uses. `10#` forces base 10 so a
+      # leading-zero credit is decimal, never an octal reinterpretation.
+      ''|*[!0-9]*|????????*) SKIP_CREDIT_MALFORMED=$((SKIP_CREDIT_MALFORMED + 1)) ;;
+      *) SKIP_CREDIT_TOTAL=$((SKIP_CREDIT_TOTAL + 10#$_cr_line)) ;;
+    esac
+  done < "$CREDIT_FILE"
+fi
+# A credit that meets or exceeds the floor would leave nothing for the floor to assert, so
+# it is rejected and the RAW minimum stands — fail closed toward the stricter bound.
+# A lost skip record forfeits every credit first (see the unreadable arm above), so the raw
+# minimum stands and the shortfall is reported rather than credited away.
+SKIP_CREDIT_REJECTED=0
+if [ "$SKIP_RECORDS_LOST" -ne 0 ]; then
+  SKIP_CREDIT_TOTAL=0
+elif [ "$SKIP_CREDIT_TOTAL" -ge "$MIN_ASSERTIONS" ]; then
+  SKIP_CREDIT_REJECTED=1
+  SKIP_CREDIT_TOTAL=0
+fi
+EFFECTIVE_MIN=$((MIN_ASSERTIONS - SKIP_CREDIT_TOTAL))
+
 EXTRA_FAIL_COUNT=0
 [ "$UNREQUESTED_BOUND" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$INVALID_RESULT_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_RC" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 [ "$MODULE_CLEANUP_FAILED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_MALFORMED_COUNT" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_CREDIT_MALFORMED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_CREDIT_REJECTED" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_RECORDS_LOST" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
+[ "$SKIP_CREDIT_UNREADABLE" -eq 0 ] || EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 ASSERTION_COUNT=$((PASS_COUNT + ASSERT_FAIL_COUNT))
 if [ "$ASSERTION_COUNT" -eq 0 ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
-elif [ "$ASSERTION_COUNT" -lt "$MIN_ASSERTIONS" ]; then
+elif [ "$ASSERTION_COUNT" -lt "$EFFECTIVE_MIN" ]; then
   EXTRA_FAIL_COUNT=$((EXTRA_FAIL_COUNT + 1))
 fi
 FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
 
 {
-  printf '\nModule %s: %s passed, %s failed\n' "$MODULE_ID" "$PASS_COUNT" "$FAIL_COUNT"
+  # The summary line stays BYTE-IDENTICAL to the pre-#887 shape when no skip fired, so
+  # test_module_runner.py's exact `Module <id>: N passed, M failed` membership assertions
+  # and the assertion-count triple are unaffected. A skip appends the optional `, K skipped`
+  # tally clause — the same shape lib/test/shard-tally.py's `_BARE_SUMMARY` already models
+  # and lib/test/summary.sh renders — and the itemized `  SKIP  ` lines follow. This is a
+  # TALLY (it goes on the tally line), distinct from the bounded-run NOTICE below (which is
+  # not a tally and stays on its own line): the machine-consumed contract permits extending
+  # the tally line with the optional trailing skip clause, and lib/test/shard-tally.py's
+  # `_MODULE_SUMMARY` regex is updated in the same change to read it (issue #887).
+  if [ "$SKIP_COUNT" -gt 0 ]; then
+    printf '\nModule %s: %s passed, %s failed, %s skipped\n' \
+      "$MODULE_ID" "$PASS_COUNT" "$FAIL_COUNT" "$SKIP_COUNT"
+  else
+    printf '\nModule %s: %s passed, %s failed\n' "$MODULE_ID" "$PASS_COUNT" "$FAIL_COUNT"
+  fi
+  # Itemized `  SKIP  <name> [host-capability] — <reason>` lines (issue #456: a skip is
+  # never laundered into a clean pass). Emitted from the PRIVATE skip tally, and only HERE
+  # — after the unrequested-bound scan above has finished reading the log — so a module-
+  # authored reason cannot reach that scan. Field split with bash builtins (guard-class 2).
+  if [ "$SKIP_COUNT" -gt 0 ] && [ -r "$SKIPS_FILE" ]; then
+    while IFS= read -r _sk_line || [ -n "$_sk_line" ]; do
+      case "$_sk_line" in
+        "host-capability"$'\t'*)
+          # The focused skip override emits name<TAB>reason (an empty reason still leaves
+          # the trailing TAB), so every record IT writes carries both fields. It is not
+          # the only possible writer, though — SKIPS_FILE is inherited and a module can
+          # append to it, which is exactly why SKIP_MALFORMED_COUNT exists. A hand-written
+          # single-field line passes that guard and takes the `#*\t` fallback, rendering
+          # the name a second time as the reason. Benign under this file's stated threat
+          # model (a test harness, not a sandbox) — noted so the shape is not mistaken for
+          # an invariant the split relies on.
+          _sk_rest="${_sk_line#host-capability$'\t'}"
+          _sk_name="${_sk_rest%%$'\t'*}"
+          _sk_reason="${_sk_rest#*$'\t'}"
+          printf '  SKIP  %s [host-capability] — %s\n' "$_sk_name" "$_sk_reason"
+          ;;
+      esac
+    done < "$SKIPS_FILE"
+  fi
   # A bounded run is a coverage reduction, and the summary line above cannot express one:
   # its shape is a machine-consumed contract (lib/test/shard-tally.py anchors a regex on it
   # end to end, and step-8 real-runner meta-tests assert it as an exact splitlines()
@@ -511,11 +658,36 @@ FAIL_COUNT=$((ASSERT_FAIL_COUNT + EXTRA_FAIL_COUNT))
     if [ "$MODULE_CLEANUP_FAILED" -ne 0 ]; then
       printf '  - module scratch cleanup failed\n'
     fi
+    if [ "$SKIP_MALFORMED_COUNT" -ne 0 ]; then
+      printf '  - skip tally contained %s non-host-capability record(s) (a module may not self-skip)\n' \
+        "$SKIP_MALFORMED_COUNT"
+    fi
+    if [ "$SKIP_CREDIT_MALFORMED" -ne 0 ]; then
+      printf '  - skip-credit record contained %s malformed declaration(s)\n' \
+        "$SKIP_CREDIT_MALFORMED"
+    fi
+    if [ "$SKIP_CREDIT_REJECTED" -ne 0 ]; then
+      printf '  - skip-assertion credit met or exceeded the assertion floor %s and was rejected\n' \
+        "$MIN_ASSERTIONS"
+    fi
+    if [ "$SKIP_RECORDS_LOST" -ne 0 ]; then
+      printf '  - private skip tally is unreadable; every skip credit was forfeited\n'
+    fi
+    if [ "$SKIP_CREDIT_UNREADABLE" -ne 0 ]; then
+      printf '  - private skip-credit record is unreadable\n'
+    fi
     if [ "$ASSERTION_COUNT" -eq 0 ]; then
       printf '  - module executed zero assertions\n'
-    elif [ "$ASSERTION_COUNT" -lt "$MIN_ASSERTIONS" ]; then
-      printf '  - module executed %s assertions; minimum is %s\n' \
-        "$ASSERTION_COUNT" "$MIN_ASSERTIONS"
+    elif [ "$ASSERTION_COUNT" -lt "$EFFECTIVE_MIN" ]; then
+      # The credited clause is appended only when a credit was actually granted, so an
+      # uncredited run's message stays byte-identical to the pre-#887 text.
+      if [ "$SKIP_CREDIT_TOTAL" -gt 0 ]; then
+        printf '  - module executed %s assertions; minimum is %s (effective %s after %s credited skip assertions)\n' \
+          "$ASSERTION_COUNT" "$MIN_ASSERTIONS" "$EFFECTIVE_MIN" "$SKIP_CREDIT_TOTAL"
+      else
+        printf '  - module executed %s assertions; minimum is %s\n' \
+          "$ASSERTION_COUNT" "$MIN_ASSERTIONS"
+      fi
     fi
   fi
   printf 'Log: %s\n' "$LOG_FILE"
