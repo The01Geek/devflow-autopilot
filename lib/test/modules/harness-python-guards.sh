@@ -329,10 +329,25 @@ _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
 }
+# POPULATION MODE (issue #890). This unit is the module's heaviest by a wide margin, and
+# it is executed TWICE per CI run: once as the `modules-pin` shard, and once inside the
+# `monolith` shard, because lib/test/test_module_runner.py is a pooled suite and its
+# CONTRIBUTING-step-8 real-runner meta-test drives this whole module end-to-end through
+# lib/test/run-module.sh. That second execution was the critical path of the required
+# check. DEVFLOW_MODULE_HEAVY_UNIT_MODE lets the meta-test bound this unit to one test per
+# class — enough to prove the runner drives a registered module end-to-end, which is all
+# step 8 asks of it — while every other caller (the module shard, a local full suite, a
+# bare `run-module.sh harness-python-guards`) runs the full population.
+#
+# The default is `full` and the driver fails closed on any other value, so the reduction
+# is reachable only by a caller that names it: an unset, empty, or misspelled variable
+# never silently shrinks this population. The driver also states the bound in its own
+# tally line, so a bounded run cannot be mistaken for a full one in a log.
 devflow_run_sharded_python_test \
   "#810 pin-corpus authoring gate: focused Python tests pass" \
   "$LIB/test/test_pin_corpus_lint.py" \
-  "$_HPG_PIN_LINT_SHARDS"
+  "$_HPG_PIN_LINT_SHARDS" \
+  "${DEVFLOW_MODULE_HEAVY_UNIT_MODE:-full}"
 # The module-driven-only invariant for this suite — no run.sh invocation, exactly
 # one driving module file — is now asserted generically for every
 # MODULE_DRIVEN_SUITES member by scan_routing_violations in

@@ -1815,9 +1815,20 @@ class ShardedPythonTestDriverTests(unittest.TestCase):
         )
 
     def _drive(
-        self, script_path: Path, *, width: str = "3", env_extra: str = ""
+        self,
+        script_path: Path,
+        *,
+        width: str = "3",
+        env_extra: str = "",
+        mode: "str | None" = None,
     ) -> "tuple[str, str]":
-        """Run the driver over SCRIPT_PATH, returning (tally line, combined output)."""
+        """Run the driver over SCRIPT_PATH, returning (tally line, combined output).
+
+        `mode` is the driver's optional fourth positional argument (issue #890). None
+        omits it entirely, which is the shape every pre-#890 call site uses and must keep
+        meaning `full`.
+        """
+        mode_argument = "" if mode is None else f' "{mode}"'
         shell = f"""
 set -u
 RESULTS_FILE="$(mktemp)"
@@ -1832,7 +1843,7 @@ assert_eq() {{
 }}
 . "{SUMMARY_SH}"
 . "{HARNESS}"
-devflow_run_sharded_python_test "sharded" "{script_path}" "$CAPTURE_DIR"
+devflow_run_sharded_python_test "sharded" "{script_path}" "$CAPTURE_DIR"{mode_argument}
 printf 'VERDICT pass:%s fail:%s\\n' \
   "$(grep -c '^PASS$' "$RESULTS_FILE" || true)" \
   "$(grep -c '^FAIL$' "$RESULTS_FILE" || true)"
@@ -1867,6 +1878,68 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
                     verdict, output = self._drive(suite, width=width)
                     self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
                     self.assertIn("executed 9 test(s)", output)
+
+    def test_smoke_mode_runs_one_test_per_class_and_says_so(self):
+        # Issue #890. The bounded population is what removes the monolith shard's second
+        # execution of the pin-corpus block, so three things are asserted together: the
+        # enumeration collapses to one selector per CLASS (not to a fixed count, and not
+        # to one selector overall — every class is still entered), the aggregate verdict
+        # is still exactly one PASS so the module's assertion tally does not move, and the
+        # tally line carries the bound. That last one is what a caller keys on to prove it
+        # got the bounded path rather than a silent fallback to the full population.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            verdict, output = self._drive(suite, mode="smoke")
+            self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+            self.assertIn("executed 2 test(s)", output)
+            self.assertIn("(2 enumerated,", output)
+            self.assertIn(
+                "BOUNDED smoke subset — the full population did NOT run", output
+            )
+
+    def test_smoke_mode_still_fails_closed_on_a_failure_inside_the_bounded_subset(self):
+        # A bounded run is not a weaker verdict for what it does run. The planted failure
+        # is in `alpha_0`, the first test of the first class, which is exactly the test
+        # the bound keeps — so the aggregate must still go RED and still echo the
+        # capture. Without this, "bounded" could quietly mean "unfailable".
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4, fail_in="alpha_0")
+            verdict, output = self._drive(suite, mode="smoke")
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            self.assertIn("planted", output)
+
+    def test_an_absent_or_empty_mode_runs_the_full_population(self):
+        # The default direction is the safe one: a caller that names no mode, or names an
+        # empty one (an unset variable expanded into the argument list), gets EVERY test
+        # and no bound clause. This is the property that keeps every pre-#890 call site
+        # unchanged and keeps an unset environment variable from shrinking coverage.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            for mode in (None, "", "full"):
+                with self.subTest(mode=mode):
+                    verdict, output = self._drive(suite, mode=mode)
+                    self.assertEqual(verdict, "VERDICT pass:1 fail:0", output)
+                    self.assertIn("executed 9 test(s)", output)
+                    self.assertNotIn("BOUNDED", output)
+
+    def test_an_unrecognized_mode_fails_closed_without_running_anything(self):
+        # The failure mode that matters is a MISSPELLED bound — `smoak`, `Smoke`, a stale
+        # spelling from an older call site. It must not fall through to either population:
+        # falling through to full would hide the defect behind a green run, and falling
+        # through to bounded would silently drop coverage. It refuses instead, naming the
+        # value, and executes nothing at all (asserted by the absence of any tally line,
+        # not merely by the verdict).
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(tmp, alpha=5, beta=4)
+            for mode in ("smoak", "Smoke", "1"):
+                with self.subTest(mode=mode):
+                    verdict, output = self._drive(suite, mode=mode)
+                    self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+                    self.assertIn(
+                        f"unrecognized population mode {mode} (expected full or smoke)",
+                        output,
+                    )
+                    self.assertNotIn("executed ", output)
 
     def test_a_single_failing_test_turns_the_aggregate_red_and_echoes_its_capture(self):
         # AC1 (red half) + AC2: a nonzero unit exit is not swallowed by the aggregation,

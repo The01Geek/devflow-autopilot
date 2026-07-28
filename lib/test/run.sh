@@ -73,6 +73,15 @@ fi
 # the real module-tier invocations run — while dropping the export attribute so no child
 # process inherits it. A no-op when the var is unset (the ordinary full run).
 export -n DEVFLOW_SKIP_SUITE_MODULES 2>/dev/null || true
+# Heavy-unit population, pinned to the full one for this suite's own module tier (issue
+# #890). The bounded `smoke` population belongs to exactly one caller — the pooled
+# real-runner meta-test, which sets it in its own subprocess environment — and this
+# assignment makes an ambient value in the invoking environment unable to shrink what the
+# full suite executes. `export -n` for the same reason the selector above uses it: the
+# value is read by the module-tier invocations in THIS shell, and the child processes
+# that legitimately choose their own mode set it themselves.
+DEVFLOW_MODULE_HEAVY_UNIT_MODE=full
+export -n DEVFLOW_MODULE_HEAVY_UNIT_MODE 2>/dev/null || true
 RESULTS_FILE="$(mktemp)"
 MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
@@ -44750,6 +44759,44 @@ assert_eq "#877 the monolith shard owns no modules (it runs run.sh minus the mod
   "$(bash "$E877_RUNSHARD" --modules-of monolith 2>/dev/null)"
 assert_eq "#877 an unknown shard name is rejected" "nonzero" \
   "$(bash "$E877_RUNSHARD" --modules-of not-a-shard >/dev/null 2>&1 && echo zero || echo nonzero)"
+
+# ── Heavy-unit population: a shard always runs its modules in FULL (issue #890) ──
+# The bounded `smoke` population exists for one caller only — the pooled real-runner
+# meta-test, which sets DEVFLOW_MODULE_HEAVY_UNIT_MODE in its own subprocess environment
+# so the monolith shard stops paying the pin-corpus block a second time. The hazard that
+# creates is coverage loss by inheritance: an ambient `smoke` anywhere in a CI environment
+# would shrink what the module shards execute, and the shards would still go green having
+# tested less. run-shard.sh therefore SETS the mode rather than inheriting it, and this
+# drives that behaviorally: the dispatcher runs in a fixture tree with a stub module
+# runner that reports the mode it was handed, invoked with a hostile ambient `smoke`.
+E890_SDIR="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$E890_SDIR" ] && [ -d "$E890_SDIR" ]; then
+  mkdir -p "$E890_SDIR/lib/test"
+  cp "$E877_RUNSHARD" "$E890_SDIR/lib/test/run-shard.sh"
+  # Stub the two helpers run-shard.sh reaches through its own SCRIPT_DIR, so the probe
+  # costs nothing and observes exactly one thing: the mode the dispatcher handed down.
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'printf "STUB-MODULE %s MODE=%s\n" "$1" "${DEVFLOW_MODULE_HEAVY_UNIT_MODE-unset}"' \
+    > "$E890_SDIR/lib/test/run-module.sh"
+  printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' \
+    > "$E890_SDIR/lib/test/shard-tally.py"
+  E890_OUT="$(DEVFLOW_MODULE_HEAVY_UNIT_MODE=smoke DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally" \
+    bash "$E890_SDIR/lib/test/run-shard.sh" modules-pin 2>/dev/null)"
+  assert_eq "#890 a module shard forces the full population despite an ambient smoke mode" \
+    "STUB-MODULE harness-python-guards MODE=full" \
+    "$(printf '%s\n' "$E890_OUT" | grep '^STUB-MODULE ' || true)"
+  # Positive control for the probe itself: with the dispatcher's assignment removed, the
+  # ambient value DOES reach the module runner. Without this, the assertion above would
+  # pass identically if the stub simply never saw any environment at all.
+  grep -v '^DEVFLOW_MODULE_HEAVY_UNIT_MODE=full$' "$E890_SDIR/lib/test/run-shard.sh" \
+    > "$E890_SDIR/lib/test/run-shard-unguarded.sh"
+  E890_CTRL="$(DEVFLOW_MODULE_HEAVY_UNIT_MODE=smoke DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-ctrl" \
+    bash "$E890_SDIR/lib/test/run-shard-unguarded.sh" modules-pin 2>/dev/null)"
+  assert_eq "#890 positive control: without that assignment the ambient mode reaches the module runner" \
+    "STUB-MODULE harness-python-guards MODE=smoke" \
+    "$(printf '%s\n' "$E890_CTRL" | grep '^STUB-MODULE ' || true)"
+  rm -rf "$E890_SDIR"
+fi
 
 # ── Tally recombination (shard-tally.py) ──
 E877_TDIR="$(mktemp -d 2>/dev/null || true)"

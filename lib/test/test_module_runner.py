@@ -1396,7 +1396,29 @@ class ModuleRunnerTests(unittest.TestCase):
         make, which #710 never added. The floor is read from the registry and compared
         for EQUALITY, so the test carries no second copy of the floor value: the registry
         entry, the module's emitted tally, and the run.sh call-site floor are one coupled
-        triple, reconciled together."""
+        triple, reconciled together.
+
+        Issue #890: this test is a member of a POOLED suite, so it runs inside the
+        `monolith` CI shard — while the module it drives is also run, in full, by the
+        `modules-pin` shard. That made the module's heaviest unit (the sharded
+        test_pin_corpus_lint.py block) execute twice per CI run, and the second execution
+        was the critical path of the required check. The run below therefore sets
+        DEVFLOW_MODULE_HEAVY_UNIT_MODE=smoke, which bounds that one unit to a single test
+        per class inside the module.
+
+        What the test proves is unchanged, and that is the point: it still invokes
+        lib/test/run-module.sh against the real module id, still requires exit 0, and
+        still requires the module's own emitted tally to EQUAL the registry floor — the
+        three things CONTRIBUTING.md step 8 asks for, none of which is weakened by the
+        bounded unit, because the bound changes how many Python tests one assertion covers
+        and not how many assertions the module emits. The full population still runs
+        exactly once per CI run, in `modules-pin`, which passes no mode and therefore gets
+        the `full` default.
+
+        The bound is ASSERTED, not assumed: without the third assertion below, a future
+        change that dropped the mode plumbing would silently restore the duplicate
+        execution while this test stayed green, which is exactly the failure this issue
+        exists to remove."""
         registry = json.loads(
             (ROOT / "scripts/workflow-flight-recorder-registry.json").read_text(
                 encoding="utf-8"
@@ -1407,6 +1429,7 @@ class ModuleRunnerTests(unittest.TestCase):
         ]
         environment = os.environ.copy()
         environment.pop("DEVFLOW_TEST_EXPERIMENT_FORCE_FAILURE", None)
+        environment["DEVFLOW_MODULE_HEAVY_UNIT_MODE"] = "smoke"
         with tempfile.TemporaryDirectory() as log_dir:
             result = subprocess.run(
                 [
@@ -1436,6 +1459,20 @@ class ModuleRunnerTests(unittest.TestCase):
             self.assertIn(
                 f"Module harness-python-guards: {floor} passed, 0 failed",
                 result.stdout.splitlines(),
+            )
+            # The bounded unit actually took the bounded path. The driver states the bound
+            # in the same statement as its tally, so this reads the run's own report
+            # rather than re-deriving the population: a run that silently fell back to the
+            # full population would print the tally without this clause and fail here.
+            self.assertIn(
+                "test_pin_corpus_lint.py:",
+                result.stdout,
+                result.stdout[-4000:] + result.stderr[-4000:],
+            )
+            self.assertIn(
+                "BOUNDED smoke subset — the full population did NOT run",
+                result.stdout,
+                result.stdout[-4000:] + result.stderr[-4000:],
             )
             self.assertTrue(list(Path(log_dir).iterdir()))
 

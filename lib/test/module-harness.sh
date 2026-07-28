@@ -299,7 +299,7 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
   assert_eq "$assertion_name" "0" "$test_rc"
 }
 
-# devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir>
+# devflow_run_sharded_python_test <assertion-name> <script-path> <capture-dir> [full|smoke]
 #
 # The concurrent sibling of devflow_run_focused_python_test (issue #870): it runs ONE
 # python3 unittest file as many bounded-concurrency selector processes and folds every
@@ -370,12 +370,43 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # collection loop trusts every unit-<n>.out{,.err,.rc} it finds there, so a reused
 # directory feeds a prior call's results into this call's count and defeats the
 # executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
-devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
+#
+# OPTIONAL FOURTH ARGUMENT — the population mode (issue #890). `full` (the default when
+# the argument is absent or empty) enumerates and runs every test in the file. `smoke`
+# enumerates only the FIRST test of each test class, which is what lets one caller drive
+# the file end-to-end without paying its whole population: the driver's enumerate →
+# dispatch → collect → fold path is exercised in full, and every class is still loaded and
+# entered, but the per-test fixture cost is paid once per class instead of once per test.
+#
+# The mode is a POSITIONAL argument rather than an ambient environment read, deliberately:
+# it decides how much of a file executes, so it must be visible at the call site that
+# chose it rather than inheritable by any process that happens to run underneath one. Two
+# further properties keep the reduction from ever happening by accident — an absent or
+# empty mode means `full` (a caller that says nothing gets everything), and any value that
+# is neither `full` nor `smoke` fails CLOSED: the call enumerates nothing, runs nothing,
+# and records a FAIL naming the bad value, so a typo can never read as a bounded pass.
+devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [full|smoke]
   local assertion_name="$1" script_path="$2" capture_dir="$3"
+  local mode="${4:-full}"
   local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
   local width total dispatched=0 executed=0 launched=0 reaped=0 reap_any failure=""
-  local plan_out plan_err index unit_rc unit_ran num cap
+  local plan_out plan_err index unit_rc unit_ran num cap bound_note=""
   local -a ids=() pids=()
+
+  [ -n "$mode" ] || mode=full
+  case "$mode" in
+    full) ;;
+    smoke) bound_note=", BOUNDED smoke subset — the full population did NOT run" ;;
+    *)
+      # Fail closed BEFORE any enumeration or dispatch: an unrecognized mode is a caller
+      # defect, and the one thing it must never do is silently select a smaller population.
+      printf '  %s: refused — unrecognized population mode %s (expected full or smoke)\n' \
+        "${script_path##*/}" "$mode"
+      assert_eq "$assertion_name" "" \
+        "unrecognized population mode '$mode' (expected full or smoke)"
+      return
+      ;;
+  esac
 
   width="$(_devflow_pool_resolve_width)"
   # `wait -n` (reap any one job) exists from bash 4.3. BASH_VERSINFO is a shell builtin,
@@ -394,10 +425,13 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   plan_err="$capture_dir/unit-plan.err"
 
   # Enumerate the file's test IDs from the loader rather than a frozen list, so a newly
-  # added class is scheduled (and counted) without editing this driver. The printed count
-  # IS "the number an unsharded run would execute" — derived by collection only, never by
-  # a second full serial run, which would cost exactly what this saves.
-  if ! PYTHON_COLORS=0 python3 - "$script_path" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
+  # added class is scheduled (and counted) without editing this driver. In `full` mode the
+  # printed count IS "the number an unsharded run would execute" — derived by collection
+  # only, never by a second full serial run, which would cost exactly what this saves. In
+  # `smoke` mode it is the number of test CLASSES, and the executed-vs-enumerated check
+  # below is unchanged: it compares against whatever this enumeration decided, so a
+  # bounded run still fails closed on dropped work.
+  if ! PYTHON_COLORS=0 python3 - "$script_path" "$mode" > "$plan_out" 2> "$plan_err" <<'DEVFLOW_SHARD_ENUM'
 import importlib.util
 import pathlib
 import sys
@@ -435,6 +469,8 @@ def flatten(item):
         yield item
 
 
+mode = sys.argv[2] if len(sys.argv) > 2 else "full"
+
 selectors = []
 prefix = spec.name + "."
 for test in flatten(suite):
@@ -445,6 +481,23 @@ for test in flatten(suite):
     if identifier.startswith(prefix):
         identifier = identifier[len(prefix):]
     selectors.append(identifier)
+
+if mode == "smoke":
+    # One selector per test class, keeping enumeration order so the bound is
+    # deterministic on every host. Every class is still loaded, entered, and run through
+    # the same dispatch path; only the per-class repetition is dropped. The class key is
+    # the selector minus its final method segment, which also keeps a nested identifier
+    # (a class defined inside another scope) grouped by its own class rather than
+    # collapsed with a sibling's.
+    seen_classes = set()
+    bounded = []
+    for identifier in selectors:
+        key = identifier.rsplit(".", 1)[0]
+        if key in seen_classes:
+            continue
+        seen_classes.add(key)
+        bounded.append(identifier)
+    selectors = bounded
 
 if not selectors:
     print("no tests were enumerated in %s" % path, file=sys.stderr)
@@ -578,9 +631,12 @@ DEVFLOW_SHARD_ENUM
   fi
 
   # Logged on the clean path too: a silent no-op is indistinguishable from a driver that
-  # never ran, so the reader can always see how much of the file actually executed.
-  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated)\n' \
-    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}"
+  # never ran, so the reader can always see how much of the file actually executed. The
+  # bound clause is part of that same statement rather than a separate line: a bounded run
+  # is a materially different claim from a full one, and a caller (or a human reading a
+  # log) must not be able to see the tally without seeing that it was bounded.
+  printf '  %s: executed %s test(s) across %s concurrent worker(s) (%s enumerated%s)\n' \
+    "${script_path##*/}" "$executed" "$width" "${total:-unestablished}" "$bound_note"
   # On stdout, with the tally line above it and the per-unit captures below: the whole
   # report stays on one stream, which is the stream discipline _devflow_echo_capture's
   # header states and the reason a reader never sees a diagnosis detached from evidence.
