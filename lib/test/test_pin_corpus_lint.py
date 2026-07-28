@@ -11,6 +11,16 @@ module-level mutable state, and every test that touches the filesystem allocates
 test added here that takes a process-global lock on the working directory, or shares
 mutable state across tests, breaks that property and makes the sharded run
 order-dependent. Keep new tests self-contained.
+
+Note that the linter and census modules these tests drive do carry process-global
+``functools.lru_cache`` stores. Those are shared by any tests that land in the same
+process, but every one of them is keyed on the source name and text alone — no
+``repo_root``, no filesystem state — so a hit returns a value derived from exactly
+the bytes the caller presented and the outcome stays order-independent.
+``MemoizedParseContractTests`` and
+``StaticPinWorktreeCompositionTests.test_repository_mutations_do_not_leak_between_fixtures``
+are the executable form of that claim; a memo that started capturing repository
+state would turn them RED.
 """
 
 from __future__ import annotations
@@ -141,6 +151,64 @@ class Issue687OutputRoutingTests(unittest.TestCase):
             self.assertEqual(3, rc)
             self.assertEqual("zzcmd687\n", stdout.getvalue())
             self.assertEqual("", stderr.getvalue())
+
+
+class MemoizedParseContractTests(unittest.TestCase):
+    """Pin the two contracts that make the per-source parse memos safe.
+
+    Both are invariants a later reader could plausibly "optimize away" — the
+    defensive copy looks redundant, and the read-only view looks like
+    ceremony — while the resulting corruption is silent and reaches every
+    later cache hit rather than the edit site. Neither was observable from
+    the rest of the suite: removing them left it green.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+        cls.text = (REPO_ROOT / "lib/test/modules/harness-python-guards.sh").read_text(
+            encoding="utf-8"
+        )
+
+    def test_function_definitions_hands_each_caller_its_own_mapping(self):
+        first = self.mod._function_definitions(self.text)
+        self.assertNotEqual({}, first)
+        first["devflow_leaked_definition"] = ("", 1, 1)
+        self.assertNotIn(
+            "devflow_leaked_definition", self.mod._function_definitions(self.text)
+        )
+
+    def test_helper_specs_hand_each_caller_their_own_mappings(self):
+        specs, families, origins = self.mod.helper_specs_for_source(self.text)
+        specs["devflow_leaked_spec"] = (1, 2, None)
+        families["devflow_leaked_spec"] = "static-helper"
+        origins["devflow_leaked_spec"] = 1
+        again_specs, again_families, again_origins = self.mod.helper_specs_for_source(
+            self.text
+        )
+        self.assertNotIn("devflow_leaked_spec", again_specs)
+        self.assertNotIn("devflow_leaked_spec", again_families)
+        self.assertNotIn("devflow_leaked_spec", again_origins)
+
+    def test_variable_maps_are_read_only_views(self):
+        maps = self.mod.variable_maps_by_line(
+            self.text, str(REPO_ROOT / "lib"), {}
+        )
+        self.assertTrue(maps)
+        path_vars, literal_vars = maps[next(iter(maps))]
+        with self.assertRaises(TypeError):
+            path_vars["devflow_leaked_var"] = "/tmp/leak"
+        with self.assertRaises(TypeError):
+            literal_vars["devflow_leaked_var"] = "leak"
+
+    def test_variable_maps_still_advance_across_an_assignment(self):
+        # The snapshot is taken only where an assignment could have changed the
+        # maps, so this pins that the sharing did not flatten the sequence into
+        # one map: the line before an assignment must not see its value.
+        text = "A='before'\nB='after'\nC='last'\n"
+        maps = self.mod.variable_maps_by_line(text, "/tmp/lib", {})
+        self.assertNotIn("B", maps[2][1])
+        self.assertEqual("after", maps[3][1]["B"])
 
 
 class PinCorpusLint810Tests(unittest.TestCase):
@@ -2785,14 +2853,131 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
 
+    # ── cross-repository memo-leak probes ──────────────────────────────────
+    #
+    # The linter and census memos live for the process, and _public_rc runs
+    # main() IN-PROCESS, so two fixtures alive at once share them. A memo whose
+    # key stopped distinguishing two sources would answer for the wrong
+    # repository — but only a fixture whose difference the PRISTINE verdict
+    # depends on can observe that. Seeding the mutated repository with any old
+    # difference is not enough, which is what an earlier single-probe version of
+    # this test got wrong: it appended one assert_pin_unique pin, which moves
+    # none of the memoized derivations, and four distinct mis-keying mutations
+    # all left it green.
+    #
+    # The probes are split because the two subgates cannot both be observed on
+    # one fixture: a census InfrastructureError makes the whole scan rc 2,
+    # masking the static-pin subgate's rc 3, and the census aborts on its
+    # definition sweep before its row extraction runs. Each probe therefore
+    # isolates one memo family, and each is verified to go RED under a
+    # simulated mis-keying of the memo it names.
+
+    # Inert on its own — an undefined name is not a helper — so it can sit in
+    # the pristine image safely and only becomes a pin if a leaked definition or
+    # helper-spec map arrives from the mutated one.
+    _LEAK_PROBE_CALL = (
+        "\nleak_probe_pin_unique 'leak probe' 'STATIC_PIN_FIXTURE=1' "
+        '"$LIB/test/static-pin-fixture.sh"\n'
+    )
+    # Moves _function_definitions, and through the *_pin_unique fallback the
+    # inferred helper specs.
+    _LEAK_PROBE_DEFINITION = (
+        "\nleak_probe_pin_unique() {\n"
+        '  assert_pin_unique "$1" "$2" "$3"\n'
+        "}\n"
+    )
+    # Moves the census ROW EXTRACTION: assert_pin_red_under is in the census
+    # HELPERS tuple (assert_pin_unique is not), and run.sh is audited, so this
+    # gives the audited sweep a row where the gate requires none.
+    _LEAK_PROBE_AUDITED_CENSUS = (
+        "\nassert_pin_red_under 'leak probe red' 'STATIC_PIN_FIXTURE=1' "
+        '"$LIB/test/static-pin-fixture.sh" "$LIB/test/static-pin-fixture.sh"\n'
+    )
+    # Moves the census DEFINITION SWEEP. That sweep reconciles lexical helper
+    # tokens against definition counts only for NON-audited sources, so the
+    # token has to land in one; the same token in run.sh is skipped by the
+    # audited carve-out.
+    _LEAK_PROBE_NON_AUDITED_CENSUS = (
+        "\n: assert_pin_red_under 'non-audited lexical token'\n"
+    )
+
+    def _leak_probe(self, mutate, expected_mutated_rc, expected_marker):
+        """Scan a mutated repository, then assert a pristine sibling is clean.
+
+        ``mutate`` receives the mutated root and appends whatever moves the memo
+        under test. The mutated scan runs FIRST so every memo is seeded from its
+        image; scanning the pristine one first would let a mis-keyed memo be
+        seeded correctly and hide the leak.
+
+        ``expected_marker`` is asserted against the mutated scan's own output,
+        and it is what makes each probe discriminating: the exit code alone is
+        not enough, because a mis-keyed memo can leave the mutated repository
+        failing for an unrelated reason at the same rc. The marker names the
+        finding the memo under test is responsible for producing.
+        """
+        with (
+            tempfile.TemporaryDirectory() as mutated_dir,
+            tempfile.TemporaryDirectory() as pristine_dir,
+        ):
+            mutated, pristine = Path(mutated_dir), Path(pristine_dir)
+            self._repo(mutated)
+            self._repo(pristine)
+            for root in (mutated, pristine):
+                run_sh = root / "lib/test/run.sh"
+                run_sh.write_text(
+                    run_sh.read_text(encoding="utf-8") + self._LEAK_PROBE_CALL,
+                    encoding="utf-8",
+                )
+            mutate(mutated)
+            mutated_rc, mutated_stdout, mutated_stderr = self._public_rc(mutated)
+            self.assertEqual(expected_mutated_rc, mutated_rc, mutated_stderr)
+            self.assertIn(expected_marker, mutated_stdout + mutated_stderr)
+            self.assertEqual((0, "", ""), self._public_rc(pristine))
+
+    def test_leaked_source_parse_would_misclassify_a_sibling_repository(self):
+        def mutate(root):
+            run_sh = root / "lib/test/run.sh"
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8") + self._LEAK_PROBE_DEFINITION,
+                encoding="utf-8",
+            )
+
+        # The marker is the WRAPPER's name: reaching it requires the definition
+        # scan and the helper-spec inference to have run on this image. Under a
+        # mis-keyed memo the scan instead reports the plain assert_pin_unique
+        # inside the wrapper body — same rc 3, different finding — which is
+        # exactly why the rc is not the discriminator here.
+        self._leak_probe(mutate, 3, "leak_probe_pin_unique")
+
+    def test_leaked_census_row_extraction_would_misclassify_a_sibling(self):
+        def mutate(root):
+            run_sh = root / "lib/test/run.sh"
+            run_sh.write_text(
+                run_sh.read_text(encoding="utf-8")
+                + self._LEAK_PROBE_AUDITED_CENSUS,
+                encoding="utf-8",
+            )
+
+        # rc 3, not 2: a mutation call outside the retained-boundary set is a
+        # policy finding, so the census reports rather than aborting — which is
+        # what leaves its row extraction reached and therefore observable here.
+        self._leak_probe(mutate, 3, "adjudicated retained boundary")
+
+    def test_leaked_census_definition_sweep_would_misclassify_a_sibling(self):
+        def mutate(root):
+            fixture = root / "lib/test/static-pin-fixture.sh"
+            fixture.write_text(
+                fixture.read_text(encoding="utf-8")
+                + self._LEAK_PROBE_NON_AUDITED_CENSUS,
+                encoding="utf-8",
+            )
+
+        self._leak_probe(mutate, 2, "unclassified supported helper token")
+
     def test_repository_mutations_do_not_leak_between_fixtures(self):
-        # Two fixtures alive at once, one mutated destructively, and the other
-        # then asserted pristine in both its bytes and its verdict. The bytes
-        # half covers the filesystem isolation the per-test temporary directory
-        # provides; the verdict half covers the content-keyed parse memos in
-        # pin-corpus-lint.py and mutation-pin-census.py, which would report the
-        # mutated repository's answer for the pristine one if a memo key ever
-        # stopped distinguishing the two sources.
+        # The filesystem half of the isolation claim: a destructively mutated
+        # fixture leaves its sibling's bytes, untracked files, and branch alone.
+        # The memo half is covered by the three probes above.
         with (
             tempfile.TemporaryDirectory() as mutated_dir,
             tempfile.TemporaryDirectory() as pristine_dir,
@@ -2807,9 +2992,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
             source = mutated / "lib/test/run.sh"
             source.write_text(
-                source.read_text(encoding="utf-8")
-                + "\nassert_pin_unique 'leak probe' 'STATIC_PIN_FIXTURE=1' "
-                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                source.read_text(encoding="utf-8") + self._LEAK_PROBE_DEFINITION,
                 encoding="utf-8",
             )
             (mutated / "lib/test/leaked-fixture.sh").write_text(
@@ -2818,24 +3001,25 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             subprocess.run(
                 ["git", "switch", "-qc", "topic"], cwd=mutated, check=True
             )
-            rc, stdout, _ = self._public_rc(mutated)
-            self.assertEqual(3, rc)
-            self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
-
             self.assertEqual(
                 pristine_run_sh, (pristine / "lib/test/run.sh").read_bytes()
             )
             self.assertFalse((pristine / "lib/test/leaked-fixture.sh").exists())
             self.assertEqual(pristine_branch, self._branch(pristine))
             self.assertEqual("topic", self._branch(mutated))
-            self.assertEqual((0, "", ""), self._public_rc(pristine))
 
     def _branch(self, root):
+        # stderr is deliberately NOT captured: check=True raises
+        # CalledProcessError, whose message carries only the exit status, so a
+        # captured stderr would be swallowed on exactly the failures worth
+        # diagnosing (git absent, a safe.directory refusal, a git too old for
+        # the sibling `git switch`). Leaving it on the console matches every
+        # other subprocess call in this fixture class.
         return subprocess.run(
             ["git", "branch", "--show-current"],
             cwd=root,
             check=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
             text=True,
         ).stdout.strip()
 

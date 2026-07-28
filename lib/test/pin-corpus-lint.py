@@ -1783,11 +1783,15 @@ _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
 
 # Bound on the per-source parse memos below, sized to the two images a scan
 # holds for the source it is extracting: its merge-base image and its worktree
-# image. That covers both repeats these memos exist to catch — the two
-# derivations taken from one image during a single extraction, and the
-# unchanged merge-base image re-presented by a later scan in the same process.
-# Slack beyond those two buys nothing and is spent retaining superseded copies
-# of a multi-megabyte source.
+# image. Two repeats are caught, and they are not the same for both memos. The
+# within-extraction repeat is _function_definitions' alone — one extraction
+# reaches it twice for one image, once directly and once through
+# _function_bodies inside the helper-spec inference. The re-presented
+# merge-base image, which a later scan in the same process hands back
+# unchanged, is the repeat both memos share; the helper-spec inference is
+# derived only once per image per extraction, so that is its only one. Slack
+# beyond the two images buys neither repeat and is spent retaining superseded
+# copies of a multi-megabyte source.
 _IMAGE_PARSE_CACHE_SIZE = 2
 
 
@@ -3402,7 +3406,15 @@ def _load_mutation_census_module():
             raise InfrastructureError("cannot load mutation-pin census module")
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            # A failed exec leaves a half-initialized module registered under
+            # this name. lru_cache does not memoize the raise, so a later call
+            # re-execs — but anything that imported the name in between would
+            # get the broken object. Unregister before propagating.
+            sys.modules.pop(spec.name, None)
+            raise
         return module
     except InfrastructureError:
         raise
