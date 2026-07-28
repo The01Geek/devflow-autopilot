@@ -1,0 +1,141 @@
+{
+  "iter": 1,
+  "note": "Step 3.5 fix-delta gate result + inner re-fix attempt 1 of 2. Companion to iter-1.json.",
+  "iter_fix_base": "fcb535fac4e1c8a0ce8fc210ccdfeaea192f0681",
+  "fix_commits": [
+    "c15f1c6bc290f60029b77fc7cc2a58b35f6e08e2",
+    "d58625975b9ad745825590ea0db3b6800c970eab"
+  ],
+  "head_after_checkpoint": "331bab4ac82fd32ddfaec34878412f8da376b911",
+  "base_checkpoint_2": {
+    "token": "UPDATED",
+    "behind_by": 43
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null,
+      "inner_attempts_used": 1,
+      "inner_attempt_cap": 2,
+      "delta_scope_note": "Scoped fcb535fa..c15f1c6b rather than ..HEAD: HEAD also carried the repo owner's main merge, which is not this iteration's fix set."
+    }
+  },
+  "gate_findings": [
+    {
+      "id": "G1",
+      "severity": "Important",
+      "summary": "side-effect read failure routed through note_top — blamed the execution file AND masked a measurable DENIED",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G2",
+      "severity": "Important",
+      "summary": "wrong-content/unreadable both emitted the hardcoded 'file is absent' reason — record contradicted its own table",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G3",
+      "severity": "Important",
+      "summary": "the iteration-1 docs paths: edit was itself false — GitHub evaluates paths: for pull_request against the three-dot base...head diff",
+      "disposition": "reverted",
+      "commit": "d5862597",
+      "evidence": "docs.github.com workflow-syntax: 'Three-dot diffs are a comparison between the most recent version of the topic branch and the commit where the topic branch was last synced with the base branch.'",
+      "root_cause": "Step 2.5 misclassification — a GitHub Actions semantic passed through as a codebase claim instead of being web-verified"
+    },
+    {
+      "id": "G4",
+      "severity": "Important",
+      "summary": "stale contract mirrors: PERMITTED docstring/usage/reason still said 'presence'; unclassified bucket docstring still said tool_name is Write",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G5",
+      "severity": "Important",
+      "summary": "coverage-map note + run.sh comment claimed the unreadable arm was driven; it was not",
+      "disposition": "fixed by driving the arm",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G6",
+      "severity": "Suggestion",
+      "summary": "added assertion could not change state under its own named regression (both paths yield unestablished)",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G7",
+      "severity": "Suggestion",
+      "summary": "residual-arm assertion grepped a self-authored reason literal — a wording-only pin",
+      "disposition": "fixed — re-keyed onto write_outcome",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G8",
+      "severity": "Suggestion",
+      "summary": "the `name` normalization is behavior-inert; its comment overstated the effect",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G9",
+      "severity": "Suggestion",
+      "summary": "widened residual bucket also absorbs a name-less refusal of another tool",
+      "disposition": "disclosed in the docstring rather than narrowed — it costs a true measurement, never states a falsehood",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G10",
+      "severity": "Suggestion",
+      "summary": "PROBE_REF/PROBE_SHA unpinned; workflow_dispatch rationale inaccurate",
+      "disposition": "fixed — both pinned, comment corrected",
+      "commit": "d5862597"
+    },
+    {
+      "id": "G11",
+      "severity": "Suggestion",
+      "summary": "fixture block header claimed every scenario conforms to the census",
+      "disposition": "fixed",
+      "commit": "d5862597"
+    }
+  ],
+  "gate_verified_clean": [
+    "the permission_denials walk skip loses nothing legitimate (census records no nested tool_use in denial entries; the wrong-type breadcrumb still fires before the skip)",
+    "the SUBWRITE_PAYLOAD comparand is emitted by both probe prompts on the only path that produces the file",
+    "PROBE_REF/PROBE_SHA correct on both declared trigger paths; values arrive via env: and are quoted (no injection)",
+    "the census-conformance loop restores the shared fixture correctly"
+  ],
+  "loop_state": "NOT CONVERGED — iteration 1 plus one inner re-fix attempt. The inner re-fix has not been re-gated, and Step 4.5 / a Step 1 iteration-2 re-review has not run.",
+  "verification_evidence": {
+    "pre_refix_run": {
+      "command": "lib/test/run.sh",
+      "result": "pass",
+      "summary": "13466 passed, 0 failed",
+      "applies_to": "c15f1c6b — superseded"
+    },
+    "post_refix_run": {
+      "command": "lib/test/run.sh > .devflow/tmp/verification-858.log 2>&1",
+      "result": "running",
+      "applies_to": "331bab4a"
+    }
+  },
+  "carried_to_iteration_2": [
+    "F-denied-over-corroborated-write",
+    "F-nonempty-container-no-records",
+    "F-comment-drift-parse-docstring",
+    "F-comment-drift-one-residual",
+    "F-comment-drift-observed-provenance",
+    "F-workflow-header-enumeration",
+    "F-observed-denials-section-unpinned",
+    "F-unrecognised-flag-arm-undriven",
+    "F-step-summary-append-vs-truncate",
+    "F-structural-pin-ok-declarations",
+    "F-workflow-param-passing-unpinned",
+    "F-deep-nesting-alternation-catch-all",
+    "F-inline-branch-selection-not-extracted"
+  ],
+  "telemetry": "unavailable"
+}
