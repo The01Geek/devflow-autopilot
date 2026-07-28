@@ -44734,7 +44734,7 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
     '100 passed, 0 failed, 1 skipped' \
     '  SKIP  #671 claude plugin validate --strict [blocking-gate] — claude CLI not on PATH' \
     > "$E877_TDIR/mono.log"
-  python3 "$E877_TALLY" extract --shard monolith --log "$E877_TDIR/mono.log" --rc 0 --out "$E877_TDIR/t-mono" >/dev/null 2>&1
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono.log" --rc 0 --out "$E877_TDIR/t-mono" >/dev/null 2>&1
   assert_eq "#877 extract: monolith takes the LAST summary and scopes skips to the tail" "passed=100 failed=0 skipped=1" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s skipped=%s"%(d["passed"],d["failed"],d["skipped"]))' "$E877_TDIR/t-mono/summary")"
   assert_eq "#877 extract: the tail skip (not the fixture-noise one) is recorded" "1" \
@@ -44748,14 +44748,25 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
     '  - some/thing broke' \
     '  - another failure' \
     > "$E877_TDIR/mod.log"
-  python3 "$E877_TALLY" extract --shard modules-pin --log "$E877_TDIR/mod.log" --rc 1 --out "$E877_TDIR/t-mod" >/dev/null 2>&1
+  python3 "$E877_TALLY" extract --shard modules-pin --tier modules --log "$E877_TDIR/mod.log" --rc 1 --out "$E877_TDIR/t-mod" >/dev/null 2>&1
   assert_eq "#877 extract: a module group sums every per-module summary" "passed=101 failed=2" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-mod/summary")"
 
   # Crashed shard: rc nonzero, no summary → fail-closed synthetic failure.
   printf '%s\n' 'ERROR: a tally could not be established — refusing to render' > "$E877_TDIR/crash.log"
-  python3 "$E877_TALLY" extract --shard monolith --log "$E877_TDIR/crash.log" --rc 1 --out "$E877_TDIR/t-crash" >/dev/null 2>&1
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/crash.log" --rc 1 --out "$E877_TDIR/t-crash" >/dev/null 2>&1
   assert_eq "#877 extract: a crashed shard (rc!=0, no summary) records a fail-closed synthetic failure" "failed=1" \
+
+  # Tier isolation: with --tier monolith, a stray `Module <id>: …` line in a monolith
+  # log (e.g. a failing meta-test dumping a run-module subprocess's captured stdout)
+  # is NOT summed on top of run.sh's real summary — the count stays run.sh's alone.
+  printf '%s\n' \
+    'Module capability-profiles: 61 passed, 2 failed' \
+    '50 passed, 0 failed' \
+    > "$E877_TDIR/mono-collide.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono-collide.log" --rc 0 --out "$E877_TDIR/t-collide" >/dev/null 2>&1
+  assert_eq "#877 extract: --tier monolith ignores a stray Module line (no content-collision double-count)" "passed=50 failed=0" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-collide/summary")"
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-crash/summary")"
 
   # Combine a clean set: skip preserved, exit 0.

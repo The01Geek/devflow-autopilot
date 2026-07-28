@@ -52,33 +52,48 @@ _RECAP_BULLET = re.compile(r"^  - (.*)$")
 _TALLY_KEYS = ("shard", "passed", "failed", "skipped", "rc")
 
 
-def _parse_log(lines: list[str]) -> tuple[int, int, int, list[str], list[str], list[str]]:
+def _parse_log(
+    lines: list[str], tier: str = "auto"
+) -> tuple[int, int, int, list[str], list[str], list[str]]:
     """Return (passed, failed, skipped, skip_details, failure_names, warnings).
+
+    `tier` selects which summary contract to read, because run-shard.sh knows
+    unambiguously which it dispatched:
+      * "monolith" — read only run.sh's own summary (the LAST bare `N passed, M
+        failed[, K skipped]` line) and the skip itemization that follows it.
+      * "modules"  — read only the summed `Module <id>: N passed, M failed` lines.
+      * "auto"     — read both (the pre-tier behavior; kept for direct/manual use).
+    Passing the known tier is what stops a monolith log that merely *contains* a
+    `Module <id>: …` line (e.g. a failing meta-test dumping a run-module subprocess's
+    captured stdout) from summing that line ON TOP of run.sh's real summary and
+    inflating the aggregate count — the fail-closed accounting must not be defeatable
+    by log-content collision.
 
     Positional, not global, on purpose: run.sh drives summary.sh over fixtures, so
     its captured output contains many `N passed, M failed` and `  SKIP  ` lines that
     are NOT the real run. The real summary is the LAST bare-format line (the final
     devflow_render_test_summary call runs after every assertion); the real skip
-    itemization and failure recap are the lines that follow it. Module-group shards
-    carry no bare summary — their counts come from summing every `Module <id>:` line.
+    itemization and failure recap are the lines that follow it.
     """
     passed = failed = skipped = 0
     warnings: list[str] = []
 
     # Module tier: sum every per-module summary line (a group shard has >= 1).
     saw_module = False
-    for line in lines:
-        m = _MODULE_SUMMARY.match(line)
-        if m:
-            saw_module = True
-            passed += int(m.group(2))
-            failed += int(m.group(3))
+    if tier in ("modules", "auto"):
+        for line in lines:
+            m = _MODULE_SUMMARY.match(line)
+            if m:
+                saw_module = True
+                passed += int(m.group(2))
+                failed += int(m.group(3))
 
     # Monolith tier: the LAST bare-format summary line is the real run.sh summary.
     last_summary_idx = -1
-    for idx, line in enumerate(lines):
-        if _BARE_SUMMARY.match(line):
-            last_summary_idx = idx
+    if tier in ("monolith", "auto"):
+        for idx, line in enumerate(lines):
+            if _BARE_SUMMARY.match(line):
+                last_summary_idx = idx
     if last_summary_idx >= 0:
         m = _BARE_SUMMARY.match(lines[last_summary_idx])
         assert m is not None
@@ -151,15 +166,14 @@ def cmd_extract(args: argparse.Namespace) -> int:
     except OSError as error:
         # A missing/unreadable log is itself a shard failure — record it so combine
         # fails closed rather than silently dropping the shard's contribution.
-        raw = ""
-        lines: list[str] = []
         warnings = [f"could not read shard log {args.log}: {error}"]
         passed = failed = skipped = 0
         skip_details: list[str] = []
         failure_names: list[str] = []
     else:
-        lines = raw.splitlines()
-        passed, failed, skipped, skip_details, failure_names, warnings = _parse_log(lines)
+        passed, failed, skipped, skip_details, failure_names, warnings = _parse_log(
+            raw.splitlines(), args.tier
+        )
 
     rc = args.rc
 
@@ -263,10 +277,8 @@ def cmd_combine(args: argparse.Namespace) -> int:
             # rc-carried failure with no counted failure (belt-and-braces; extract
             # already synthesizes one, but a hand-authored/partial tally might not).
             problems.append(f"{values['shard']}: shard exited non-zero (rc={rc})")
-        for sk in (d / "skips").read_text(encoding="utf-8").splitlines():
-            all_skips.append(sk)
-        for nm in (d / "names").read_text(encoding="utf-8").splitlines():
-            all_names.append(nm)
+        all_skips.extend((d / "skips").read_text(encoding="utf-8").splitlines())
+        all_names.extend((d / "names").read_text(encoding="utf-8").splitlines())
 
     # Render the combined summary in the single-job format.
     if total_skip == 0:
@@ -311,6 +323,12 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--shard", required=True, help="shard name")
     ex.add_argument("--log", required=True, help="captured shard log path")
     ex.add_argument("--rc", type=int, required=True, help="shard process exit code")
+    ex.add_argument(
+        "--tier",
+        choices=("monolith", "modules", "auto"),
+        default="auto",
+        help="which summary contract to read (run-shard.sh passes the known tier)",
+    )
     ex.add_argument("--out", required=True, help="output tally directory")
     ex.set_defaults(func=cmd_extract)
 

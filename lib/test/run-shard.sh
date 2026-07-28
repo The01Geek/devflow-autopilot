@@ -50,11 +50,10 @@ _shard_modules() { # shard-name -> prints module ids (empty for monolith)
 }
 
 _is_known_shard() { # shard-name -> rc 0 when known
-  local s
-  for s in $SHARD_NAMES; do
-    [ "$s" = "$1" ] && return 0
-  done
-  return 1
+  # _shard_modules is the single source of truth for the shard set: it returns rc 2
+  # for an unknown shard and rc 0 (printing the group, empty for monolith) for a
+  # known one, so membership derives from it rather than a second enumeration.
+  _shard_modules "$1" >/dev/null 2>&1
 }
 
 # ── Query modes (used by the CI matrix and by run.sh's coupling assertions) ───
@@ -94,10 +93,12 @@ MODS="$(_shard_modules "$SHARD")"
 if [ -z "$MODS" ]; then
   # Monolith shard: the whole suite minus the module tier (dedup) so it never
   # re-runs the modules the module shards own.
+  TIER=monolith
   printf 'run-shard.sh: monolith shard — bash lib/test/run.sh (DEVFLOW_SKIP_SUITE_MODULES=1)\n'
   DEVFLOW_SKIP_SUITE_MODULES=1 bash "$SCRIPT_DIR/run.sh" >> "$LOG_FILE" 2>&1 || shard_rc=$?
 else
   # Module shard: run each module in the group; any module failure fails the shard.
+  TIER=modules
   for mid in $MODS; do
     printf 'run-shard.sh: module %s — bash lib/test/run-module.sh %s\n' "$mid" "$mid"
     bash "$SCRIPT_DIR/run-module.sh" "$mid" >> "$LOG_FILE" 2>&1 || shard_rc=1
@@ -110,7 +111,7 @@ cat "$LOG_FILE" || true
 # Extract the tally. shard-tally.py fails closed: a non-zero shard_rc with no
 # parsed failure still records a failure, so a crashed shard never recombines green.
 python3 "$SCRIPT_DIR/shard-tally.py" extract \
-  --shard "$SHARD" --log "$LOG_FILE" --rc "$shard_rc" --out "$TALLY_DIR"
+  --shard "$SHARD" --tier "$TIER" --log "$LOG_FILE" --rc "$shard_rc" --out "$TALLY_DIR"
 extract_rc=$?
 
 exit "$extract_rc"
