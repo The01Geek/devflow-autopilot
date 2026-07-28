@@ -126,10 +126,14 @@ devflow_render_report() {
         _rr_emit patterns '
             (.patterns // [] | map(select(type == "object")))
             | sort_by(-((.occurrence_count | numbers) // 0))[]
-            | "- `\(.tag // .slug // "(unnamed)")` — \((.occurrence_count | numbers) // 0)× (status: \((.status | strings) // "open"))"
-              + (if ((.filing_outcome | strings) // "") != "" then " — \(.filing_outcome)" else "" end)
-              + (if ((.withheld_by | strings) // "") != "" then " — withheld by `\(.withheld_by)`" else "" end)
-              + (if (.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
+            | . as $p
+            | (($p.tag // $p.slug // "") | strings) as $key
+            | (($p.category | strings) // "") as $cat
+            | "- `\($p.tag // $p.slug // "(unnamed)")` — \(($p.occurrence_count | numbers) // 0)× (status: \(($p.status | strings) // "open"))"
+              + (if $cat != "" and $cat != ($key // "") then " (category: `\($cat)`)" else "" end)
+              + (if (($p.filing_outcome | strings) // "") != "" then " — \($p.filing_outcome)" else "" end)
+              + (if (($p.withheld_by | strings) // "") != "" then " — withheld by `\($p.withheld_by)`" else "" end)
+              + (if ($p.cooldown_active // false) then " — cooldown, skipped this run" else "" end)'
     fi
 
     # Liveness (issue #788) — when actionable-patterns.sh emitted a `liveness:` line

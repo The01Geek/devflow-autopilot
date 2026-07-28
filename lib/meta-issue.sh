@@ -18,8 +18,14 @@
 #
 # Usage:
 #   meta-issue.sh --tag <theme-tag> --slug <sanitized-tag> \
+#                 --category <category-slug> \
 #                 --title <issue-title> --body-file <path> \
 #                 --overrides <path> [--dry-run]
+#
+# --category (issue #891): the fixed-vocabulary category the filed pattern belongs
+# to, written as the lifecycle record's `category` field so the record's key can be
+# an opaque filing key. Validated against the slug grammar [a-z0-9-]+ (narrower
+# than --tag/--slug), required, before any GitHub call.
 set -euo pipefail
 
 # jq binary: resolved once via the sourced sibling resolver (issue #247);
@@ -34,6 +40,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ── Argument parsing ─────────────────────────────────────────────────────────
 TAG=
 SLUG=
+CATEGORY=
 TITLE=
 BODY_FILE=
 OVERRIDES=
@@ -43,6 +50,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --tag)        TAG="$2";       shift 2 ;;
         --slug)       SLUG="$2";      shift 2 ;;
+        --category)   CATEGORY="$2";  shift 2 ;;
         --title)      TITLE="$2";     shift 2 ;;
         --body-file)  BODY_FILE="$2"; shift 2 ;;
         --overrides)  OVERRIDES="$2"; shift 2 ;;
@@ -51,7 +59,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-for var in TAG SLUG TITLE BODY_FILE OVERRIDES; do
+for var in TAG SLUG CATEGORY TITLE BODY_FILE OVERRIDES; do
     if [[ -z "${!var}" ]]; then
         echo "meta-issue: missing required argument --${var,,}" >&2
         exit 1
@@ -75,6 +83,24 @@ esac
 case "$SLUG" in
     *[!A-Za-z0-9_-]*|'')
         echo "meta-issue: invalid --slug '${SLUG}' (expected [A-Za-z0-9_-]+)" >&2
+        exit 1 ;;
+esac
+
+# Validate CATEGORY against the SLUG GRAMMAR `[a-z0-9-]+` (issue #891) —
+# deliberately NARROWER than the `[A-Za-z0-9_-]+` grammar applied to --tag/--slug
+# above. The category is written to the record's `category` field and read back by
+# compute-patterns.jq (which canonicalizes stored categories through slugify) and
+# by the dismissed{} lookup and the per-category cap sum, all of which key on
+# slugify-produced values. A value outside the slug alphabet (an uppercase letter,
+# an underscore) cannot match a slugify-produced corpus category, a slugify-ed
+# dismissed{} key, or another record's canonicalized category, so reject it at the
+# boundary — BEFORE any GitHub call — rather than write a category that can never
+# attribute. Runs after the required-argument loop above (which already rejects an
+# absent --category), so both the absent and the malformed cases fail before the
+# de-dupe lookup contacts GitHub.
+case "$CATEGORY" in
+    *[!a-z0-9-]*|'')
+        echo "meta-issue: invalid --category '${CATEGORY}' (expected the slug grammar [a-z0-9-]+)" >&2
         exit 1 ;;
 esac
 
@@ -211,7 +237,7 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     RECORD_WRITTEN=0
     NOW=""
     if [[ ! -f "$OVERRIDES" ]] || [[ ! -s "$OVERRIDES" ]]; then
-        printf '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$OVERRIDES" || {
+        printf '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$OVERRIDES" || {
             echo "::error::meta-issue: issue WAS filed (${URL}) but the overrides file ${OVERRIDES} could not be initialized — de-dupe will prevent a duplicate next run" >&2
             printf '%s\n' "$URL"
             exit 0
@@ -219,18 +245,20 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     fi
 
     # Refuse to record into a file this helper is not the migrator for. The jq
-    # below sets `.schema_version = 2` and performs NO v1 conversion, so stamping
-    # an unmigrated v1 file would claim a migration that never happened — and
-    # pattern-state.sh's `_migrate` gates on `schema_version == 1`, so it would
-    # then never run. Every loop-written v1 `dismissed{}` entry would be frozen as
-    # a human-owned PERMANENT suppression: the unclearable-dismissal failure this
-    # whole issue exists to end, arriving through the loop's own writer. Decline
-    # the record instead and route to the issue-WAS-filed recovery below, so the
-    # filing is still reported and de-dupe still prevents a duplicate next run.
-    # (`// 1` mirrors _migrate's own read, so an absent key reads as v1 there too.)
+    # below sets `.schema_version = 3` and performs NO migration, so stamping an
+    # unmigrated (v1/v2) file would claim a migration that never happened — and
+    # pattern-state.sh's `_migrate` dispatches on the stored version, so a v3 stamp
+    # written here would make it treat the file as current and never run. Every
+    # loop-written pre-v3 record (a v1 `dismissed{}` entry, or a v2 record still
+    # lacking a `category`) would be frozen in a half-migrated shape: the
+    # unclearable-dismissal / miscategorized-record failure this lifecycle exists to
+    # end, arriving through the loop's own writer. Decline the record instead and
+    # route to the issue-WAS-filed recovery below, so the filing is still reported
+    # and de-dupe still prevents a duplicate next run. (`// 1` mirrors _migrate's
+    # own read, so an absent key reads as v1 there too.)
     _MI_SCHEMA="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$OVERRIDES" 2>/dev/null)" || _MI_SCHEMA=""
-    if [ "$_MI_SCHEMA" != "2" ]; then
-        echo "::error::meta-issue: issue WAS filed (${URL}) but ${OVERRIDES} reports schema_version '${_MI_SCHEMA:-unreadable}', not 2 — refusing to stamp a v2 lifecycle record onto a file this helper does not migrate (run 'pattern-state.sh migrate ${OVERRIDES}' first); de-dupe will prevent a duplicate next run" >&2
+    if [ "$_MI_SCHEMA" != "3" ]; then
+        echo "::error::meta-issue: issue WAS filed (${URL}) but ${OVERRIDES} reports schema_version '${_MI_SCHEMA:-unreadable}', not 3 — refusing to stamp a v3 lifecycle record onto a file this helper does not migrate (run 'pattern-state.sh migrate ${OVERRIDES}' first); de-dupe will prevent a duplicate next run" >&2
         printf '%s\n' "$URL"
         exit 0
     fi
@@ -287,14 +315,16 @@ if [[ "$DRY_RUN" -eq 0 ]]; then
     # inconsistent shape until the next reconcile happened to clear it.
     if [ -n "$OVERRIDES_TMP" ] && "$DEVFLOW_JQ" \
         --arg slug "$SLUG" \
+        --arg category "$CATEGORY" \
         --arg now "$NOW" \
         --arg url "$URL" \
         --argjson num "$ISSUE_NUM" \
-        '.schema_version = 2
+        '.schema_version = 3
          | .patterns = (.patterns // {})
          | .dismissed = (.dismissed // {})
          | .patterns[$slug] = (
-             (.patterns[$slug] // {state:"filed", fixed_at:null, provenance:$now, meta_issues:[]})
+             (.patterns[$slug] // {category:$category, state:"filed", fixed_at:null, provenance:$now, meta_issues:[]})
+             | .category = $category
              | .provenance = (.provenance // $now)
              | .meta_issues = (
                  (.meta_issues // []) as $e
