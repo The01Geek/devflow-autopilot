@@ -246,27 +246,31 @@ round→kind labelling, the per-round scope and the per-finding quoted draft lin
 every degraded state-file shape yields `unestablished` figures with a stderr breadcrumb, never a
 number and never a crash), reports the per-kind auditor-cost medians and a per-run per-round
 breakdown carrying each round's recorded kind, and accepts a `--before`/`--after` operand pair with
-paired deltas (attributed auditor cost, total peak context, round count, finding count — **never
-latency**). Wall-clock is **not** a measured axis on this tier — it is reported `unestablished`,
+paired deltas — every one a corpus-wide total, so its name says so: total attributed auditor cost,
+total peak context, total round count, and finding count (**never latency**, and every sum-based
+delta reads `unestablished` when either corpus is empty or under-counted). Wall-clock is **not** a measured axis on this tier — it is reported `unestablished`,
 citing the local-tier row in [`docs/efficiency-trace.md`](efficiency-trace.md), rather than
 asserted as something the orchestrator observes; and no cost figure is sourced from a value the
 orchestrator volunteers (the harness emits the same `usage` data deterministically). The
 main-thread context figures are a **secondary** axis and are never the sole basis of the reduction
 claim.
 
-**Two of the three escaped-defect proxies are reportable today; the third is not, and the
-instrument says so rather than reporting a number.** The `record-reopen` count is derived from the
-transcript and is reportable; the post-filing class is a *declared* class the instrument reports
-`unestablished` by construction (an escaped defect found after the issue is filed is outside any
-transcript or state file it reads). The **scope-escape** proxy needs two draft-space coordinates,
+**Only one of the three escaped-defect proxies yields a measured number today, and the instrument
+says so rather than reporting one it cannot establish.** The `record-reopen` count is derived from
+the transcript and is genuinely measured. The post-filing class is a *declared* class the instrument
+reports `unestablished` by construction (an escaped defect found after the issue is filed is outside
+any transcript or state file it reads). The **scope-escape** proxy needs two draft-space coordinates,
 and only one of them has a producer: the per-finding `quoted_draft_line` is ingested from the
 ledger's optional `<status>@<n>: <summary>` line and persisted by `scripts/issue-audit-state.py`,
 but no writer in this repository records a `draft_lines` span on a targeted round's `scope` —
 `record-dispatch` composes `{basis_digest, sections, claim_ids}`, and `sections` holds heading
-strings. So on every real state file the proxy reports `unestablished`, **not** the `0` that would
-read as "no defects escaped scope". Recording the span at dispatch time is tracked follow-up work;
-until it lands this row of the record above is filled with `unestablished`, and that is the honest
-value, not a placeholder.
+strings. So on a state file carrying **at least one targeted round** the proxy reports
+`unestablished`, **not** the `0` that would read as "no defects escaped scope"; a state carrying
+**no targeted round at all** is a different case and reports a genuine, established `0` — nothing
+can escape a scope that was never dispatched. Recording the span at dispatch time is tracked
+follow-up work; until it lands the scope-escape row of the record above is filled with
+`unestablished` on any run that dispatched a targeted round, and that is the honest value, not a
+placeholder.
 
 `lib/test/test_create_issue_context_eval.py` asserts the reduction **live** from the committed
 synthetic before/after fixtures under `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`

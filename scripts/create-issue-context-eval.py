@@ -20,13 +20,15 @@ the audit state file **best-effort**: every degraded state-file shape yields
 `unestablished` per-kind figures with a stderr breadcrumb, never a number and never
 a crash.
 
-One of the three escaped-defect proxies is NOT reportable against any state file this
+One of the three escaped-defect proxies is not fillable against any state file this
 repository writes today: the scope-escape proxy needs a `scope.draft_lines` span on a
 targeted round, and `scripts/issue-audit-state.py`'s `record-dispatch` records no such
-key (see `_scope_draft_span`). It therefore reports `unestablished` on every real
-state file rather than the `0` that would read as "no defects escaped scope". The
-other two proxies — the `record-reopen` count and the declared post-filing class —
-are unaffected.
+key (see `_scope_draft_span`). So on a state file carrying **at least one targeted
+round** the proxy reports `unestablished` rather than the `0` that would read as "no
+defects escaped scope"; a state carrying **no targeted round at all** is a different
+case and reports a genuine, established `0` — nothing can escape a scope that was
+never dispatched. The other two proxies — the `record-reopen` count and the declared
+post-filing class — are unaffected.
 
 A "run" is bounded by `attributionSkill == "devflow:create-issue"` on
 `type == "assistant"` records. A **main-thread** (non-`isSidechain`) attributed
@@ -35,7 +37,22 @@ assistant record measures the ORCHESTRATOR's main-thread context — reported as
 attributed assistant record is the auditor's own turn; its total token cost is
 attributed to the round the most recent `record-dispatch --round N` marker opened.
 One session JSONL file that contains at least one main-thread attributed assistant
-record yields one run.
+record yields one run — so a run that RESUMES into a separate session file is reported
+as its own run (cross-session merging is out of scope, a disclosed proxy). That
+disclosure matters more since #889 than before it: a resumed run splits its
+`round_auditor_cost` across two run records, and `_paired_delta`'s round count sums
+`dispatch_rounds` per run, so a resumed before-corpus inflates the round-count delta.
+
+UNVERIFIED ASSUMPTION, disclosed rather than assumed away: that the harness stamps
+`attributionSkill` on an `isSidechain` assistant record at all. Nothing in this
+repository establishes it — the synthetic fixtures assert the attribution logic, not
+the harness's real emit shape. If the harness omits the field on sidechain records,
+`_observe_sidechain` returns early for every auditor turn and the whole auditor-cost
+axis reads a silent `0` that is indistinguishable from a genuinely free audit. The
+first real-corpus run is what settles it: read `total_unrounded_auditor_cost` and the
+per-round tallies together, and treat an all-zero auditor axis on a corpus that
+demonstrably ran audit rounds (`dispatch_rounds` non-empty) as evidence of this
+assumption failing, not as a measurement.
 
 Per-record token usage is read from `message.usage.{input_tokens,
 cache_read_input_tokens, cache_creation_input_tokens, output_tokens}`. Per-turn
@@ -114,13 +131,20 @@ _ABSENT_KIND_DEFAULT = "discovery"
 # the sole round-boundary source (the state file carries no clock to join on).
 #
 # Anchored on the state-owner script name so the marker is a CONTRACT rather than a
-# substring: a `grep record-dispatch`, an `echo`, or a `cat` of this skill reference in
-# a main-thread Bash block no longer opens a spurious round boundary or inflates the
-# reopen tally. The round value is accepted quoted or bare because the skill's rendered
-# fence writes `--round "<round>"` (quoted) while the fixtures write it bare — a regex
-# that required a bare digit derived NO round boundary on a faithful real transcript.
+# bare substring: a `grep record-dispatch`, an `echo record-reopen`, or a `cat` of this
+# skill reference no longer opens a spurious round boundary or inflates the reopen
+# tally. ACCEPTED RESIDUAL, stated so the claim is not read wider than it is: the anchor
+# is the script NAME, not command position, so an `echo` or `grep` whose text quotes a
+# FULL command line (`… issue-audit-state.py record-dispatch --round 2 …`) still
+# matches. The round value is accepted quoted or bare because the skill's rendered fence
+# writes `--round "<round>"` (quoted) while the fixtures write it bare — a regex that
+# required a bare digit derived NO round boundary on a faithful real transcript.
+# The intervening span may not cross a further state-owner invocation, so a
+# `record-dispatch` carrying no `--round` of its own cannot borrow the `--round` of a
+# LATER command on the same line and open a boundary that command never opened.
 _DISPATCH_ROUND_RE = re.compile(
-    r"issue-audit-state\.py\s+record-dispatch\b[^\n]*?--round\s+[\"']?(\d+)")
+    r"issue-audit-state\.py\s+record-dispatch\b"
+    r"(?:(?!issue-audit-state\.py)[^\n])*?--round\s+[\"']?(\d+)")
 _REOPEN_RE = re.compile(r"issue-audit-state\.py\s+record-reopen\b")
 
 
@@ -167,7 +191,12 @@ def _usage_field(usage, key):
 
 
 def _context_tokens(usage):
-    """Main-thread context = input + cache_read + cache_creation (no output)."""
+    """Residency tokens = input + cache_read + cache_creation (no output).
+
+    The main-thread/sidechain distinction belongs to the callers: `observe_assistant`
+    reads this as the ORCHESTRATOR's main-thread context, `_auditor_cost` reads it as
+    the inner term of a sidechain turn's total spend.
+    """
     return (
         _usage_field(usage, "input_tokens")
         + _usage_field(usage, "cache_read_input_tokens")
@@ -252,6 +281,12 @@ class RunAccumulator:
         self.dispatch_rounds = set()         # rounds seen (deduped; order is irrelevant)
         self.round_auditor_cost = {}         # round_num -> total auditor token cost
         self.unrounded_auditor_cost = 0      # sidechain cost before any dispatch marker
+        # Every sidechain assistant record seen, WHETHER OR NOT it carried the
+        # attribution — the operand that makes the module docstring's unverified
+        # `attributionSkill`-on-sidechain assumption falsifiable from the emitted
+        # report rather than only from a human remembering the docstring.
+        self.sidechain_records_seen = 0
+        self.sidechain_records_attributed = 0
         self.record_reopen_count = 0         # escaped-defect proxy 1
         # tool_use_id -> file_path for pending Read calls awaiting their result.
         self._pending_reads = {}
@@ -305,8 +340,10 @@ class RunAccumulator:
         `turn_count`, and never touches the residency (context) axis — it feeds only
         the round-attributed auditor-cost tally.
         """
+        self.sidechain_records_seen += 1
         if record.get("attributionSkill") != ATTRIBUTION:
             return
+        self.sidechain_records_attributed += 1
         message = record.get("message")
         if not isinstance(message, dict):
             message = {}
@@ -321,19 +358,23 @@ class RunAccumulator:
             )
 
     def _observe_markers(self, block_input):
-        """Scan one main-thread Bash tool_use for round-boundary / reopen markers."""
+        """Scan one main-thread Bash tool_use for round-boundary / reopen markers.
+
+        Every occurrence is counted, not just the first: a compound command carrying
+        two `record-reopen` invocations spends two reopens, and a `search`-based tally
+        would silently under-report escaped-defect proxy 1 by one. Likewise the round
+        boundary the command leaves open is its LAST dispatch marker, not its first.
+        """
         if not isinstance(block_input, dict):
             return
         command = block_input.get("command")
         if not isinstance(command, str):
             return
-        m = _DISPATCH_ROUND_RE.search(command)
-        if m is not None:
+        for m in _DISPATCH_ROUND_RE.finditer(command):
             rnd = int(m.group(1))
             self.current_round = rnd
             self.dispatch_rounds.add(rnd)
-        if _REOPEN_RE.search(command):
-            self.record_reopen_count += 1
+        self.record_reopen_count += sum(1 for _ in _REOPEN_RE.finditer(command))
 
     def observe_assistant(self, record):
         if record.get("isSidechain") is True:
@@ -404,6 +445,8 @@ class RunAccumulator:
             # Round-attributed auditor cost (PRIMARY axis, issue #889).
             "round_auditor_cost": round_cost,
             "unrounded_auditor_cost": self.unrounded_auditor_cost,
+            "sidechain_records_seen": self.sidechain_records_seen,
+            "sidechain_records_attributed": self.sidechain_records_attributed,
             "attributed_auditor_cost": sum(round_cost.values()) + self.unrounded_auditor_cost,
             "dispatch_rounds": sorted(self.dispatch_rounds),
             "record_reopen_count": self.record_reopen_count,
@@ -603,6 +646,15 @@ def read_state(state_path):
         if not isinstance(num, int) or isinstance(num, bool):
             return _degraded_state(
                 state_path, "a round carries no integer round number")
+        if num in by_num:
+            # Last-wins would silently DISCARD a round record. That is not a lossy
+            # nicety: the scope-escape proxy keys its whole fail-closed design on "is
+            # there any targeted round?", so a duplicated number whose first record is
+            # `targeted` and whose second is `discovery` loses the targeted scope and
+            # the proxy then reports an established `0` — the value that reads as "no
+            # defects escaped scope" about a comparison that never ran.
+            return _degraded_state(
+                state_path, "round {} is recorded more than once".format(num))
         kind = rnd.get("kind")
         if kind is None:
             kind = _ABSENT_KIND_DEFAULT
@@ -613,7 +665,19 @@ def read_state(state_path):
                 state_path,
                 "round {} names the unrecognized kind {!r}".format(num, kind))
         scope = rnd.get("scope") if isinstance(rnd.get("scope"), dict) else None
-        findings = rnd.get("findings") if isinstance(rnd.get("findings"), list) else []
+        # A PRESENT-but-non-list `findings` is a corrupt container, not an empty one.
+        # Coercing it to `[]` would make `finding_count` publish a real `0` ("the audit
+        # recorded no findings") about a ledger that was never read, with
+        # `state_established` reporting True and no breadcrumb — the exact
+        # unknown-collapsed-onto-zero shape every sibling arm here refuses. An ABSENT
+        # `findings` stays legal-and-empty: `scripts/issue-audit-state.py` writes the key
+        # only once a round records a ledger, so a round with none genuinely has none.
+        findings = rnd.get("findings")
+        if findings is None:
+            findings = []
+        elif not isinstance(findings, list):
+            return _degraded_state(
+                state_path, "round {} `findings` is not a list".format(num))
         by_num[num] = {"kind": kind, "scope": scope, "findings": findings}
     return by_num
 
@@ -628,11 +692,13 @@ def _scope_draft_span(scope):
     KNOWN GAP, disclosed rather than papered over: no producer in this repository
     writes `scope.draft_lines` today. `scripts/issue-audit-state.py`'s `record-dispatch`
     composes a targeted round's scope as `{basis_digest, sections, claim_ids}`, and
-    `sections` holds heading strings, not line spans. Every caller therefore reaches the
-    `None` return on a real state file — which is exactly why `scope_escape_proxy`
-    reports `unestablished` rather than a confident `0` in that case. Adding the
-    producer is tracked as follow-up work; until it lands the proxy is honest about
-    being unfillable instead of reporting the value that reads as "nothing escaped".
+    `sections` holds heading strings, not line spans. So on a real state file every
+    call reaching this function returns `None` — which is exactly why
+    `scope_escape_proxy` reports `unestablished` rather than a confident `0` for a
+    state carrying a targeted round. (A state with no targeted round never calls this
+    at all, and its established `0` is correct.) Adding the producer is tracked as
+    follow-up work; until it lands the proxy is honest about being unfillable instead
+    of reporting the value that reads as "nothing escaped".
     """
     if not isinstance(scope, dict):
         return None
@@ -662,11 +728,20 @@ def _finding_draft_line(finding):
 
 
 # The ledger status a must-revise finding carries while it is still outstanding. AC9
-# scopes the scope-escape proxy to must-revise findings, and a `resolved`/`invalidated`/
-# `superseded` entry in a later round is a settled one — counting it would report a
-# scope escape that the round itself already disposed of, and would also inflate the
-# unattributable denominator. Mirrors `_LEDGER_STATUSES` in scripts/issue-audit-state.py.
+# scopes the scope-escape proxy to must-revise findings, and every other member of the
+# vocabulary is a SETTLED status — counting one would report a scope escape the round
+# itself already disposed of, and would also inflate the unattributable denominator.
+#
+# Mirrors `_LEDGER_STATUSES` in scripts/issue-audit-state.py, and — like `ROUND_KINDS`
+# above — the mirror is RECONCILED by the test named in
+# `LEDGER_STATUS_COUPLING_ASSERTED_BY`, not merely asserted here: without that, a fifth
+# status added to the owner would be read as outstanding by `_is_outstanding_must_revise`
+# and would silently inflate both the escape count and its denominator. The settled set
+# is derived as the owner's vocabulary MINUS this member, never re-listed here — a
+# hand-copied enumeration is the drift this reconciliation exists to stop.
 _UNRESOLVED_STATUS = "unresolved"
+LEDGER_STATUS_COUPLING_ASSERTED_BY = (
+    "lib/test/test_create_issue_context_eval.py::RoundKindCouplingTest")
 
 
 def _is_outstanding_must_revise(finding):
@@ -698,9 +773,9 @@ def scope_escape_proxy(state):
         return {"count": UNESTABLISHED, "unattributable": UNESTABLISHED}
     targeted = []  # (round_num, start, end)
     for num, rnd in state.items():
-        if rnd["kind"] != "targeted":
+        if rnd.get("kind") != "targeted":
             continue
-        span = _scope_draft_span(rnd["scope"])
+        span = _scope_draft_span(rnd.get("scope"))
         if span is None:
             # A targeted round whose span is absent, wrong-typed or inverted makes the
             # whole comparison partial. Fail the WHOLE proxy to unestablished rather
@@ -713,7 +788,7 @@ def scope_escape_proxy(state):
         earlier_targeted = [(s, e) for t_num, s, e in targeted if t_num < num]
         if not earlier_targeted:
             continue  # not a "later round" relative to any targeted scope
-        for finding in rnd["findings"]:
+        for finding in rnd.get("findings") or []:
             if not _is_outstanding_must_revise(finding):
                 continue
             line = _finding_draft_line(finding)
@@ -731,6 +806,15 @@ def per_kind_medians(runs, state):
     A round contributes its attributed cost to its kind's population only when the
     state file established that kind; with no state (or a degraded one) every per-kind
     figure reads `unestablished`.
+
+    A transcript round the state file does not label makes EVERY per-kind median
+    `unestablished` — never a confident median over the labelled subset. Dropping such
+    a round silently would publish a real number computed from a knowingly-partial
+    population: a state covering only round 1 of a three-round corpus would move the
+    discovery median from the true 94500 to 139000, with nothing in the report saying
+    the other two rounds were never labelled. `_join_round_kinds` already marks those
+    rounds `unestablished` on the per-run breakdown; this is the aggregate acting on
+    the same fact instead of averaging past it.
     """
     if state is None:
         return {k: UNESTABLISHED for k in ROUND_KINDS}
@@ -738,8 +822,9 @@ def per_kind_medians(runs, state):
     for run in runs:
         for rnum, cost in run["round_auditor_cost"].items():
             rnd = state.get(rnum)
-            if rnd is not None and rnd["kind"] in buckets:
-                buckets[rnd["kind"]].append(cost)
+            if rnd is None or rnd.get("kind") not in buckets:
+                return {k: UNESTABLISHED for k in ROUND_KINDS}
+            buckets[rnd["kind"]].append(cost)
     return {k: _median_or_unestablished(buckets[k]) for k in ROUND_KINDS}
 
 
@@ -748,34 +833,68 @@ def aggregate(runs, state=None):
 
     `state` (issue #889) supplies the round→kind labelling the per-kind medians need;
     absent or degraded state makes those figures `unestablished` (never a number).
+
+    **One convention across every field.** On an EMPTY run population every aggregate
+    figure reads `unestablished`, secondary residency axis included — a reader of one
+    summary object must never have to know which field they are looking at to tell
+    "measured zero" from "no population". `state_established` and `finding_count` live
+    here rather than beside the summary so the canonical-field-order completeness
+    property (and the renderer that iterates it) covers them too, and so
+    `state_established` is DERIVED from the sentinel rather than re-answered from the
+    same operand a second way.
     """
     peaks = [r["peak_context"] for r in runs]
     medians = per_kind_medians(runs, state)
     escape = scope_escape_proxy(state)
+    finding_count = _finding_count(state)
     return {
         "run_count": len(runs),
+        # Whether the state file was established at all — derived from the sentinel the
+        # one reader already produced, never re-answered from `state` independently.
+        "state_established": finding_count is not UNESTABLISHED,
+        # Total ledger entries across the state's rounds (state-derived axis).
+        "finding_count": finding_count,
         # Secondary residency axis.
-        "median_peak_context": _median(peaks),
-        "max_peak_context": max(peaks) if peaks else 0,
-        "runs_over_200k": sum(1 for p in peaks if p > BUCKET_200K),
-        "runs_over_400k": sum(1 for p in peaks if p > BUCKET_400K),
-        "median_repeated_read_count": _median([r["repeated_read_count"] for r in runs]),
-        "median_reemission_count": _median([r["reemission_count"] for r in runs]),
+        "median_peak_context": _median_or_unestablished(peaks),
+        "max_peak_context": max(peaks) if peaks else UNESTABLISHED,
+        "runs_over_200k": (sum(1 for p in peaks if p > BUCKET_200K)
+                           if peaks else UNESTABLISHED),
+        "runs_over_400k": (sum(1 for p in peaks if p > BUCKET_400K)
+                           if peaks else UNESTABLISHED),
+        "median_repeated_read_count": _median_or_unestablished(
+            [r["repeated_read_count"] for r in runs]),
+        "median_reemission_count": _median_or_unestablished(
+            [r["reemission_count"] for r in runs]),
         # Primary round-attributed auditor-cost axis (issue #889). An empty run
         # population reads `unestablished`, never `0` — "the auditor cost nothing" is a
         # real value this instrument must not publish about a corpus it never measured.
         "median_attributed_auditor_cost": _median_or_unestablished(
             [r["attributed_auditor_cost"] for r in runs]),
         # How much of that primary axis is sidechain cost NO round boundary could key.
-        # `attributed_auditor_cost` folds it in, so publishing it beside the median is
-        # what keeps a wholly-unattributed total from reading as a round-attributed one.
-        "total_unrounded_auditor_cost": sum(
-            r["unrounded_auditor_cost"] for r in runs),
+        # `attributed_auditor_cost` folds it in, so a run whose every dispatch marker
+        # failed to match still reports a full, confident "attributed" total that is
+        # 100% unattributed. Both a MEDIAN (comparable with the median above) and a
+        # corpus-wide TOTAL are published, because the sum alone is not comparable with
+        # a median — a reader of an N-run corpus could not recover the unattributed
+        # fraction from a median-vs-sum pairing.
+        "median_unrounded_auditor_cost": _median_or_unestablished(
+            [r["unrounded_auditor_cost"] for r in runs]),
+        "total_unrounded_auditor_cost": (sum(
+            r["unrounded_auditor_cost"] for r in runs) if runs else UNESTABLISHED),
         "median_auditor_cost_discovery": medians["discovery"],
         "median_auditor_cost_targeted": medians["targeted"],
+        # The falsifiability operands for the docstring's unverified assumption that the
+        # harness stamps `attributionSkill` on a sidechain record. `0 attributed` beside
+        # a non-zero `total_record_reopen` or a non-empty per-run `dispatch_rounds` is
+        # evidence the assumption failed, NOT a measurement of a free audit.
+        "total_sidechain_records_seen": (sum(
+            r["sidechain_records_seen"] for r in runs) if runs else UNESTABLISHED),
+        "total_sidechain_records_attributed": (sum(
+            r["sidechain_records_attributed"] for r in runs) if runs else UNESTABLISHED),
         # Escaped-defect axis proxies. Flattened into two scalars so every summary field
         # renders as a scalar in the text report rather than one raw dict repr.
-        "total_record_reopen": sum(r["record_reopen_count"] for r in runs),
+        "total_record_reopen": (sum(r["record_reopen_count"] for r in runs)
+                                if runs else UNESTABLISHED),
         "scope_escape_count": escape["count"],
         "scope_escape_unattributable": escape["unattributable"],
         # A declared post-filing class the instrument reports unestablished, never a
@@ -816,31 +935,57 @@ def build_report(corpus_root, state_path=None, large_block_chars=LARGE_BLOCK_MIN
     runs, skipped = eval_corpus(corpus_root, large_block_chars)
     state = read_state(state_path)
     _join_round_kinds(runs, state)
+    summary = aggregate(runs, state)
     return {
         "runs": runs,
-        "summary": aggregate(runs, state),
+        "summary": summary,
         "skipped": skipped,
-        "state_established": state is not None,
-        # Finding count comes from the state we already read here — the paired path
-        # reuses this rather than re-parsing the state file (single-corpus reports
-        # carry it too, so both modes share one report shape).
-        "finding_count": _finding_count(state),
+        # `state_established` and `finding_count` are READ BACK from the summary, never
+        # re-derived from `state` a second way: three parallel encodings of "the state
+        # was not established" (a `None` reader return, the `UNESTABLISHED` sentinel,
+        # and a boolean) can disagree, and the paired delta then has to defend against
+        # whichever one reached it. One producer, two aliases.
+        "state_established": summary["state_established"],
+        "finding_count": summary["finding_count"],
     }
 
 
 def _paired_delta(before, after):
     """The after-minus-before paired deltas (AC7).
 
-    Reports the deltas the tier can measure: attributed auditor cost, total peak context
-    (secondary), round count, and finding count. Latency is NOT here — the wall-clock
-    axis reads `unestablished`, so a paired latency delta would present a number the
-    tier never measured.
+    Reports the deltas the tier can measure: total attributed auditor cost, total peak
+    context (secondary), total round count, and finding count. Latency is NOT here — the
+    wall-clock axis reads `unestablished`, so a paired latency delta would present a
+    number the tier never measured.
+
+    **Every key is a CORPUS-WIDE total, and every name says so.** Under the old
+    `per_run_context` name a 3-run before corpus against a 1-run after corpus reported a
+    large "context reduction" that was pure population difference — and the other two
+    sums, computed identically one line away, carried the same confound under
+    population-neutral-sounding names. Each side's `run_count` is on its own summary for
+    the reader to divide by.
+
+    **An empty or unreadable run population makes every sum-based delta
+    `unestablished`.** A side with no runs sums to `0`, so subtracting would assert a
+    measured regression against a corpus whose own summary already reads `unestablished`
+    — the report would contradict itself inside one document.
     """
+    def _degraded(report):
+        # No runs at all, or a corpus knowingly under-counted because a session file
+        # could not be read: either way the sums below are not a measurement.
+        return (not report["runs"]
+                or report["skipped"].get("unreadable_file", 0) > 0)
+
+    degraded = _degraded(before) or _degraded(after)
+
     def _sum(report, key):
         return sum(r[key] for r in report["runs"])
 
     def _rounds(report):
         return sum(len(r["dispatch_rounds"]) for r in report["runs"])
+
+    def _delta(fn):
+        return UNESTABLISHED if degraded else fn(after) - fn(before)
 
     def _findings_delta():
         # Finding count is a state-file axis: the total ledger entries across rounds.
@@ -853,14 +998,10 @@ def _paired_delta(before, after):
         return a - b
 
     return {
-        "attributed_auditor_cost": _sum(after, "attributed_auditor_cost")
-        - _sum(before, "attributed_auditor_cost"),
-        # Named for what it is: a CORPUS-WIDE sum of per-run peaks, not a per-run figure.
-        # Under the old `per_run_context` name a 3-run before corpus against a 1-run
-        # after corpus reported a large "context reduction" that was pure population
-        # difference. The run counts are on each side's summary for the reader to divide.
-        "total_peak_context": _sum(after, "peak_context") - _sum(before, "peak_context"),
-        "round_count": _rounds(after) - _rounds(before),
+        "total_attributed_auditor_cost": _delta(
+            lambda rep: _sum(rep, "attributed_auditor_cost")),
+        "total_peak_context": _delta(lambda rep: _sum(rep, "peak_context")),
+        "total_round_count": _delta(_rounds),
         "finding_count": _findings_delta(),
     }
 
@@ -874,7 +1015,7 @@ def _finding_count(state):
     """
     if state is None:
         return UNESTABLISHED
-    return sum(len(rnd["findings"]) for rnd in state.values())
+    return sum(len(rnd.get("findings") or []) for rnd in state.values())
 
 
 def build_paired_report(before_dir, after_dir, before_state=None, after_state=None,
@@ -907,7 +1048,7 @@ def _render_run_line(r):
     return "".join(parts)
 
 
-def render_text(runs, summary, skipped, state_established=None):
+def render_text(runs, summary, skipped):
     lines = []
     lines.append("# create-issue runtime main-thread context eval")
     lines.append("")
@@ -920,12 +1061,12 @@ def render_text(runs, summary, skipped, state_established=None):
     lines.append("## Aggregate summary")
     # aggregate() builds this dict in the canonical field order, so iterating it
     # renders every field once with no per-field literal to keep in sync.
+    # `state_established` and `finding_count` are summary members, so this one loop
+    # renders them too — text and JSON mode are field-equivalent by construction, and
+    # the renderer test's "every summary field appears" property covers them without a
+    # per-field literal here to keep in sync.
     for key, value in summary.items():
         lines.append("- {}: {}".format(key, value))
-    if state_established is not None:
-        # Whether the state file was established at all decides how every
-        # `unestablished` figure above should be read, so it is part of the report.
-        lines.append("- state_established: {}".format(state_established))
     lines.append("")
     total_skipped = sum(skipped.values())
     lines.append("## Skipped records: {}".format(total_skipped))
@@ -940,8 +1081,7 @@ def render_paired_text(report):
     for label in ("before", "after"):
         side = report[label]
         lines.append("## {}".format(label.capitalize()))
-        lines.append(render_text(side["runs"], side["summary"], side["skipped"],
-                                 side.get("state_established")))
+        lines.append(render_text(side["runs"], side["summary"], side["skipped"]))
         lines.append("")
     lines.append("## Paired deltas (after - before)")
     for key, value in report["delta"].items():
@@ -1043,16 +1183,13 @@ def main(argv=None):
         # Sort keys for byte-stable, deterministic output.
         sys.stdout.write(
             json.dumps(
-                {"runs": runs, "summary": summary, "skipped": skipped,
-                 "state_established": report["state_established"],
-                 "finding_count": report["finding_count"]},
+                {"runs": runs, "summary": summary, "skipped": skipped},
                 indent=2, sort_keys=True,
             )
             + "\n"
         )
     else:
-        sys.stdout.write(
-            render_text(runs, summary, skipped, report["state_established"]) + "\n")
+        sys.stdout.write(render_text(runs, summary, skipped) + "\n")
     return 0
 
 

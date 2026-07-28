@@ -128,10 +128,15 @@ class HappyPathTest(unittest.TestCase):
             # (never a number). The run population is non-empty and each run's
             # sidechain cost is a measured 0, so the auditor-cost median IS 0 here —
             # the empty-population case is asserted separately as `unestablished`.
+            "state_established": False,
+            "finding_count": "unestablished",
             "median_attributed_auditor_cost": 0,
+            "median_unrounded_auditor_cost": 0,
             "total_unrounded_auditor_cost": 0,
             "median_auditor_cost_discovery": "unestablished",
             "median_auditor_cost_targeted": "unestablished",
+            "total_sidechain_records_seen": 0,
+            "total_sidechain_records_attributed": 0,
             "total_record_reopen": 0,
             "scope_escape_count": "unestablished",
             "scope_escape_unattributable": "unestablished",
@@ -580,6 +585,42 @@ class RoundAttributionTest(_SingleSessionMixin, unittest.TestCase):
         # Held as unrounded rather than dropped — the cost was still spent.
         self.assertEqual(runs[0]["unrounded_auditor_cost"], 9)
 
+    def test_every_marker_occurrence_is_counted_not_just_the_first(self):
+        """A compound command spending two reopens must tally two, not one.
+
+        And the boundary a command leaves open is its LAST dispatch marker.
+        """
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"scripts/issue-audit-state.py record-reopen --round 2 '
+            '--finding 1.1 && scripts/issue-audit-state.py record-reopen --round 2 '
+            '--finding 1.2 && scripts/issue-audit-state.py record-dispatch --round 1 '
+            '--kind discovery && scripts/issue-audit-state.py record-dispatch '
+            '--round 4 --kind targeted"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":11}}}',
+        ])
+        self.assertEqual(runs[0]["record_reopen_count"], 2)
+        self.assertEqual(runs[0]["dispatch_rounds"], [1, 4])
+        self.assertEqual(runs[0]["round_auditor_cost"], {4: 11})
+
+    def test_a_round_less_dispatch_cannot_borrow_a_later_commands_round(self):
+        """The intervening span may not cross a further state-owner invocation."""
+        runs, _ = self._run_one([
+            '{"type":"assistant","attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":1},"content":['
+            '{"type":"tool_use","name":"Bash","id":"b1",'
+            '"input":{"command":"scripts/issue-audit-state.py record-dispatch --arm file'
+            ' ; scripts/issue-audit-state.py record-reopen --round 5"}}]}}',
+            '{"type":"assistant","isSidechain":true,"attributionSkill":"devflow:create-issue",'
+            '"message":{"usage":{"input_tokens":6}}}',
+        ])
+        self.assertEqual(runs[0]["dispatch_rounds"], [])
+        self.assertEqual(runs[0]["unrounded_auditor_cost"], 6)
+        self.assertEqual(runs[0]["record_reopen_count"], 1)
+
     def test_record_reopen_counted(self):
         runs, _ = self._run_one([
             '{"type":"assistant","attributionSkill":"devflow:create-issue",'
@@ -633,6 +674,16 @@ class StateReaderBestEffortTest(unittest.TestCase):
             '{"rounds": [ {"round": true, "kind": "discovery"} ]}',  # bool round num
             '{"rounds": [ {"round": "x", "kind": "discovery"} ]}',  # non-int round num, valid kind
             '{"rounds": [ {"kind": "discovery"} ]}',  # missing round num, valid kind
+            # A PRESENT-but-non-list `findings` container is corrupt, never empty:
+            # coercing it to [] would publish a measured `finding_count: 0` and an
+            # established scope-escape `0` about a ledger that was never read.
+            '{"rounds": [ {"round": 1, "kind": "discovery", "findings": "nope"} ]}',
+            '{"rounds": [ {"round": 1, "kind": "discovery", "findings": {"a": 1}} ]}',
+            '{"rounds": [ {"round": 1, "kind": "discovery", "findings": 3} ]}',
+            # A duplicated round number is last-wins otherwise, and DISCARDING a
+            # targeted round makes the scope-escape proxy report an established 0.
+            '{"rounds": [ {"round": 1, "kind": "targeted"},'
+            '             {"round": 1, "kind": "discovery"} ]}',
         ]
         for payload in degraded:
             path = self._state(payload)
@@ -667,6 +718,42 @@ class StateReaderBestEffortTest(unittest.TestCase):
         with contextlib.redirect_stderr(quiet):
             self.assertIsNone(CICE.read_state(None))
         self.assertEqual(quiet.getvalue(), "")
+
+    def test_absent_findings_stays_legal_and_empty(self):
+        """Positive control for the wrong-typed-`findings` rows above.
+
+        Absent is legal (a round that recorded no ledger genuinely has none), so the
+        degradations above are attributable to the wrong TYPE, not to the key being
+        consulted at all.
+        """
+        state = CICE.read_state(self._state(
+            '{"rounds": [{"round": 1, "kind": "discovery"}]}'))
+        self.assertIsNotNone(state)
+        self.assertEqual(state[1]["findings"], [])
+        self.assertEqual(CICE._finding_count(state), 0)
+
+    def test_corrupt_findings_never_publishes_a_measured_zero(self):
+        """The whole point of the degradation: no confident number reaches the report."""
+        path = self._state(
+            '{"rounds": [{"round": 1, "kind": "targeted",'
+            ' "scope": {"draft_lines": [1, 9]}, "findings": "nope"},'
+            ' {"round": 2, "kind": "discovery", "findings": []}]}')
+        report = CICE.build_report(os.path.join(_FIX, "after-rounds"), path)
+        self.assertFalse(report["summary"]["state_established"])
+        self.assertEqual(report["summary"]["finding_count"], "unestablished")
+        self.assertEqual(report["summary"]["scope_escape_count"], "unestablished")
+
+    def test_duplicate_round_never_discards_a_targeted_scope(self):
+        """Last-wins would drop the targeted round and report an established 0."""
+        path = self._state(
+            '{"rounds": [{"round": 1, "kind": "targeted",'
+            ' "scope": {"draft_lines": [1, 5]}, "findings": []},'
+            ' {"round": 1, "kind": "discovery", "findings":'
+            ' [{"status": "unresolved", "quoted_draft_line": 3}]}]}')
+        self.assertIsNone(CICE.read_state(path))
+        self.assertEqual(
+            CICE.aggregate([], CICE.read_state(path))["scope_escape_count"],
+            "unestablished")
 
     def test_absent_kind_defaults_to_discovery_not_whole_state_collapse(self):
         """A pre-#793 round carries no `kind`; the state owner's readers default it.
@@ -706,14 +793,42 @@ class RoundKindCouplingTest(unittest.TestCase):
     every real state file this reader sees.
     """
 
+    _OWNER = os.path.join(_REPO, "scripts", "issue-audit-state.py")
+    _SELF = "lib/test/test_create_issue_context_eval.py::RoundKindCouplingTest"
+
+    def _owner(self):
+        return _load_module("issue_audit_state_for_coupling", self._OWNER)
+
     def test_round_kinds_mirror_the_state_owner(self):
-        owner = _load_module(
-            "issue_audit_state_for_coupling",
-            os.path.join(_REPO, "scripts", "issue-audit-state.py"))
-        self.assertEqual(set(CICE.ROUND_KINDS), set(owner._ROUND_KINDS))
+        self.assertEqual(set(CICE.ROUND_KINDS), set(self._owner()._ROUND_KINDS))
 
     def test_absent_kind_default_is_in_the_vocabulary(self):
         self.assertIn(CICE._ABSENT_KIND_DEFAULT, CICE.ROUND_KINDS)
+
+    def test_unresolved_status_mirrors_the_owners_ledger_vocabulary(self):
+        """The settled set is the owner's vocabulary minus the one outstanding member.
+
+        A fifth status added to the owner would otherwise be read as outstanding by
+        `_is_outstanding_must_revise` and would silently inflate both the escape count
+        and its unattributable denominator.
+        """
+        owner_statuses = set(self._owner()._LEDGER_STATUSES)
+        self.assertIn(CICE._UNRESOLVED_STATUS, owner_statuses)
+        # Every other member is settled — assert the complement is exactly what the
+        # proxy treats as settled, by driving the predicate over the whole vocabulary.
+        for status in owner_statuses:
+            outstanding = CICE._is_outstanding_must_revise({"status": status})
+            self.assertEqual(outstanding, status == CICE._UNRESOLVED_STATUS,
+                             "status {!r} classified wrongly".format(status))
+
+    def test_the_pointer_constants_name_this_test(self):
+        """A hand-written test path rots silently; assert it resolves to THIS class."""
+        for const in (CICE.ROUND_KINDS_COUPLING_ASSERTED_BY,
+                      CICE.LEDGER_STATUS_COUPLING_ASSERTED_BY):
+            self.assertEqual(const, self._SELF)
+        path, _, cls = self._SELF.partition("::")
+        self.assertTrue(os.path.isfile(os.path.join(_REPO, path)))
+        self.assertEqual(cls, type(self).__name__)
 
 
 class PerKindAndProxyTest(unittest.TestCase):
@@ -745,7 +860,7 @@ class PerKindAndProxyTest(unittest.TestCase):
         self.assertEqual(summary["scope_escape_unattributable"], 1)
 
     def test_settled_later_round_entries_are_excluded(self):
-        """Directly: flip the two settled entries to `unresolved` and both figures move.
+        """Directly: flip every settled entry to `unresolved` and both figures move.
 
         Without this the status filter could be deleted and every committed assertion
         would keep passing, because every fixture finding used to be `unresolved`.
@@ -817,9 +932,32 @@ class PerKindAndProxyTest(unittest.TestCase):
         self.assertEqual(CICE.scope_escape_proxy(state),
                          {"count": 0, "unattributable": 2})
 
-    def test_empty_corpus_primary_axis_is_unestablished_not_zero(self):
+    def test_empty_corpus_reads_unestablished_on_EVERY_axis_not_zero(self):
+        """One convention across the whole summary — no field says `0` for "no runs".
+
+        A reader must never have to know which field they are looking at to tell a
+        measured zero from an empty population.
+        """
         summary = CICE.aggregate([], None)
-        self.assertEqual(summary["median_attributed_auditor_cost"], "unestablished")
+        numeric_axes = [k for k in summary
+                        if k not in ("run_count", "state_established")]
+        self.assertTrue(numeric_axes)
+        for key in numeric_axes:
+            self.assertEqual(summary[key], "unestablished",
+                             "{} collapsed an empty population onto a value".format(key))
+        self.assertEqual(summary["run_count"], 0)
+
+    def test_partially_labelled_state_makes_every_per_kind_median_unestablished(self):
+        """A state covering only round 1 must not publish a median over that subset."""
+        runs, _ = CICE.eval_corpus(os.path.join(_FIX, "after-rounds"))
+        partial = {1: {"kind": "discovery", "scope": None, "findings": []}}
+        medians = CICE.per_kind_medians(runs, partial)
+        self.assertEqual(medians, {"discovery": "unestablished",
+                                   "targeted": "unestablished"})
+        # Positive control: the FULL state over the same runs does yield numbers, so
+        # the sentinels above are attributable to the missing labels.
+        full = CICE.read_state(os.path.join(_FIX, "states", "after-state.json"))
+        self.assertEqual(CICE.per_kind_medians(runs, full)["discovery"], 94500)
 
     def test_per_run_breakdown_carries_each_rounds_recorded_kind(self):
         """AC6: the kind lives on the per-run breakdown, not only in the aggregate."""
@@ -863,14 +1001,24 @@ class PairedDeltaTest(unittest.TestCase):
         report = self._paired()
         delta = report["delta"]
         self.assertEqual(set(delta), {
-            "attributed_auditor_cost", "total_peak_context", "round_count",
+            "total_attributed_auditor_cost", "total_peak_context", "total_round_count",
             "finding_count",
         })
         # Latency is deliberately NOT a delta field (wall-clock is unestablished).
         self.assertNotIn("latency", delta)
-        self.assertLess(delta["attributed_auditor_cost"], 0)
-        # after 8 ledger entries - before 4.
-        self.assertEqual(delta["finding_count"], 4)
+        self.assertLess(delta["total_attributed_auditor_cost"], 0)
+        # The after corpus's ledger carries strictly more entries than the before's;
+        # the exact figure is re-derived live from the two committed state fixtures
+        # rather than transcribed, so a fixture edit moves it without leaving a stale
+        # count behind in this comment.
+        before_state = CICE.read_state(
+            os.path.join(_FIX, "states", "before-state.json"))
+        after_state = CICE.read_state(
+            os.path.join(_FIX, "states", "after-state.json"))
+        self.assertEqual(
+            delta["finding_count"],
+            CICE._finding_count(after_state) - CICE._finding_count(before_state))
+        self.assertGreater(delta["finding_count"], 0)
 
     def test_paired_delta_omits_latency_even_in_json(self):
         """Serializes for real: the name has to be absent from the emitted bytes."""
@@ -891,7 +1039,28 @@ class PairedDeltaTest(unittest.TestCase):
             self.assertEqual(report["delta"]["finding_count"], "unestablished")
         # Positive control: with BOTH states supplied the same call yields a number,
         # so the sentinel above is attributable to the degraded side.
-        self.assertEqual(self._paired()["delta"]["finding_count"], 4)
+        self.assertIsInstance(self._paired()["delta"]["finding_count"], int)
+
+    def test_sum_deltas_are_unestablished_when_a_side_has_no_runs(self):
+        """A side with no runs sums to 0; subtracting would assert a measured change.
+
+        Without this the report contradicts itself in one document: the before side
+        declares its primary axis `unestablished` while the delta block beside it
+        asserts a large regression.
+        """
+        with tempfile.TemporaryDirectory() as empty:
+            report = CICE.build_paired_report(
+                empty, os.path.join(_FIX, "after-rounds"),
+                None, os.path.join(_FIX, "states", "after-state.json"))
+            self.assertEqual(report["before"]["summary"]["run_count"], 0)
+            for key in ("total_attributed_auditor_cost", "total_peak_context",
+                        "total_round_count"):
+                self.assertEqual(report["delta"][key], "unestablished",
+                                 "{} was measured against an empty corpus".format(key))
+        # Positive control: both corpora populated -> the same three keys are numbers.
+        for key in ("total_attributed_auditor_cost", "total_peak_context",
+                    "total_round_count"):
+            self.assertIsInstance(self._paired()["delta"][key], int)
 
     def test_finding_count_is_unestablished_not_zero_on_a_degraded_state(self):
         self.assertEqual(CICE._finding_count(None), "unestablished")
@@ -916,8 +1085,7 @@ class RendererTest(unittest.TestCase):
         report = CICE.build_report(
             os.path.join(_FIX, "after-rounds"),
             os.path.join(_FIX, "states", "after-state.json"))
-        out = CICE.render_text(report["runs"], report["summary"], report["skipped"],
-                               report["state_established"])
+        out = CICE.render_text(report["runs"], report["summary"], report["skipped"])
         for key in report["summary"]:
             self.assertIn("- {}: ".format(key), out)
         # No raw dict/list repr leaks into the report.
@@ -930,6 +1098,7 @@ class RendererTest(unittest.TestCase):
         self.assertIn("## After", out)
         self.assertIn("## Paired deltas (after - before)", out)
         self.assertIn("- total_peak_context: ", out)
+        self.assertIn("- total_attributed_auditor_cost: ", out)
         self.assertNotIn("per_run_context", out)
 
 
@@ -979,13 +1148,32 @@ class MainCliTest(unittest.TestCase):
         rc, _out, err = self._run([self._AFTER, "--before-state", self._BSTATE])
         self.assertEqual(rc, 2)
         self.assertIn("--before-state is a paired-mode flag", err)
+        # A positional transcript dir supplied alongside --before/--after is the third
+        # mismatched-input arm: silently discarding it would make the operator read the
+        # paired report as if it covered the corpus they named.
+        rc, _out, err = self._run(
+            ["--before", self._BEFORE, "--after", self._AFTER, self._AFTER])
+        self.assertEqual(rc, 2)
+        self.assertIn("positional transcript directory", err)
+
+    def test_single_corpus_missing_state_file_returns_two_naming_the_flag(self):
+        """Sibling of the paired --after-state check; without it a typo'd path falls
+        through to read_state and reads as an honest data disclosure."""
+        rc, _out, err = self._run(
+            [self._AFTER, "--state-file", "/no/such/state.json"])
+        self.assertEqual(rc, 2)
+        self.assertIn("--state-file file not found", err)
+        # Positive control: the same invocation with a real state file succeeds, so the
+        # rc 2 above is attributable to the missing path and not to the corpus operand.
+        rc, _out, _err = self._run([self._AFTER, "--state-file", self._ASTATE])
+        self.assertEqual(rc, 0)
 
     def test_paired_json_and_text_both_succeed(self):
         argv = ["--before", self._BEFORE, "--after", self._AFTER,
                 "--before-state", self._BSTATE, "--after-state", self._ASTATE]
         rc, out, _err = self._run(argv + ["--format", "json"])
         self.assertEqual(rc, 0)
-        self.assertEqual(json.loads(out)["delta"]["finding_count"], 4)
+        self.assertIsInstance(json.loads(out)["delta"]["finding_count"], int)
         rc, out, _err = self._run(argv)
         self.assertEqual(rc, 0)
         self.assertIn("## Paired deltas (after - before)", out)
@@ -995,7 +1183,11 @@ class MainCliTest(unittest.TestCase):
             [self._AFTER, "--state-file", self._ASTATE, "--format", "json"])
         self.assertEqual(rc, 0)
         doc = json.loads(out)
-        self.assertTrue(doc["state_established"])
+        # The disclosure lives in the summary, so the JSON and text modes carry an
+        # identical field set — a reader of either can tell how to read every
+        # `unestablished` figure beside it.
+        self.assertTrue(doc["summary"]["state_established"])
+        self.assertIsInstance(doc["summary"]["finding_count"], int)
         self.assertEqual(doc["summary"]["scope_escape_count"], 1)
 
 

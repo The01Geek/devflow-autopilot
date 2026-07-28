@@ -11540,6 +11540,39 @@ def _row2d(r):
 _with_run603(_row2d)
 
 
+# issue #889 — the `@<n>` ledger coordinate's PREFIX-ORDERING contract. The parser matches
+# the plain status prefix before the `@<n>` form, so a summary that itself begins `@12: `
+# must be stored verbatim and capture no coordinate. Without a driver the ordering claim
+# in the parser's own comment is untested, and a reordered candidate list would silently
+# eat the first token of such a summary.
+def _row889_at_prefix(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: @12: a summary starting with @n\n')
+    _f = issue_audit_state.load_state(r.slug, root=r.tmp)['rounds'][0]['findings'][0]
+    assert_eq("#889: a summary beginning `@n: ` is stored verbatim, capturing no coordinate",
+              ('@12: a summary starting with @n', False),
+              (_f['summary'], 'quoted_draft_line' in _f))
+
+
+_with_run603(_row889_at_prefix)
+
+
+# Positive control for the row above, on an independent run: the real `<status>@<n>:`
+# form DOES capture, so the absence above is attributable to the prefix ordering rather
+# than to a dead ingest path.
+def _row889_at_capture(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved@12: a summary\n')
+    _f = issue_audit_state.load_state(r.slug, root=r.tmp)['rounds'][0]['findings'][0]
+    assert_eq("#889: ... while the real `<status>@<n>:` form does capture the coordinate",
+              ('a summary', 12),
+              (_f['summary'], _f.get('quoted_draft_line')))
+
+
+_with_run603(_row889_at_capture)
+
+
+
 # Row 3 — the validation matrix for the three post-close mutations, plus AC9/AC21.
 def _row3(r):
     r.open_round(1, 'REVISE', 2)

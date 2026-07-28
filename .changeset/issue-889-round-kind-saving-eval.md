@@ -11,15 +11,18 @@ bump: patch
   state-file shape yields `unestablished` figures with a stderr breadcrumb naming the
   path, never a number and never a crash). It reports a per-run per-round breakdown
   carrying each round's recorded kind, per-kind auditor-cost medians, and a
-  `--before`/`--after` paired-delta mode (attributed auditor cost, total peak context,
-  round count, finding count — never latency). Of the three escaped-defect proxies, the
-  `record-reopen` count is reportable and the declared post-filing class is reported
+  `--before`/`--after` paired-delta mode whose four keys are each a corpus-wide total
+  named as one (total attributed auditor cost, total peak context, total round count,
+  finding count — never latency, and `unestablished` rather than a measured-looking
+  number when either corpus is empty or under-counted). Of the three escaped-defect proxies, the
+  `record-reopen` count is measured and the declared post-filing class is reported
   `unestablished` by construction; the scope-escape count and its unattributable
-  denominator also read `unestablished` on every state file this repository writes
-  today, because no producer records a `draft_lines` span on a targeted round's scope —
-  the instrument reports that gap rather than the `0` that would read as "no defects
-  escaped scope". Wall-clock is reported `unestablished` on this tier, and the
-  main-thread context figures are a secondary axis.
+  denominator read `unestablished` on any state file carrying a targeted round, because
+  no producer records a `draft_lines` span on a targeted round's scope — the instrument
+  reports that gap rather than the `0` that would read as "no defects escaped scope"
+  (a state carrying no targeted round at all reports a genuine, established `0`).
+  Wall-clock is reported `unestablished` on this tier, and the main-thread context
+  figures are a secondary axis.
 
 ### Added
 

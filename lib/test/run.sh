@@ -43306,6 +43306,28 @@ LEDGER-EOF
     IAS889_RC=0
     PATH="$RESTRICTED" python3 -c 'import json,sys; d=json.load(open(".devflow/tmp/issue-audit-state-rt.json")); f=[r for r in d["rounds"] if r["round"]==1][0]["findings"]; sys.exit(0 if f[0].get("quoted_draft_line")==12 and "quoted_draft_line" not in f[1] else 1)' || IAS889_RC=$?
     assert_eq "issue #889: ledger records the per-finding quoted_draft_line coordinate" "0" "$IAS889_RC"
+    # issue #889: the PRODUCER round-trip. Every committed states/ fixture is
+    # hand-authored, so a field rename on the writer side would leave the eval's own
+    # unit tests green while `read_state` silently returned None/empty on every real
+    # file — the unverified-assumption class. This drives the state file the state owner
+    # itself just wrote through the eval's reader and asserts the joint field names
+    # (`rounds[].round` / `.kind` / `.findings[].status` / `.quoted_draft_line`) resolve.
+    IAS889RT_RC=0
+    PATH="$RESTRICTED" python3 -c '
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cice", os.path.join(sys.argv[1], "scripts", "create-issue-context-eval.py"))
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+st = m.read_state(".devflow/tmp/issue-audit-state-rt.json")
+if st is None: sys.exit(2)                                   # the reader rejected a real producer file
+if st[1]["kind"] != "discovery": sys.exit(3)                 # round->kind labelling resolved
+f = st[1]["findings"]
+if len(f) != 2: sys.exit(4)                                  # the ledger resolved
+if m._finding_draft_line(f[0]) != 12: sys.exit(5)            # the draft-line coordinate resolved
+if m._finding_draft_line(f[1]) is not None: sys.exit(6)      # absent stays unattributable
+if not m._is_outstanding_must_revise(f[0]): sys.exit(7)      # the status field resolved
+if m._finding_count(st) != 2: sys.exit(8)                    # never the UNESTABLISHED sentinel
+' "$LIB/.." || IAS889RT_RC=$?
+    assert_eq "issue #889: the eval's read_state resolves a state file the state owner really wrote" "0" "$IAS889RT_RC"
     PATH="$RESTRICTED" python3 "$IAS" query-triggers rt --nonce "$NONCE" > .rt-trig
     PATH="$RESTRICTED" python3 "$IAS" query-convergence rt --nonce "$NONCE" > .rt-conv-revise
 

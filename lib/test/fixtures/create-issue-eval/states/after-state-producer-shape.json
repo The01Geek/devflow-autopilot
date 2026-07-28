@@ -1,5 +1,5 @@
 {
-  "_note": "The scope shape scripts/issue-audit-state.py record-dispatch ACTUALLY writes for a targeted round: {basis_digest, sections, claim_ids} and no draft_lines span. Its sibling after-state.json carries a hand-authored draft_lines span that no producer emits, so it exercises the proxy's arithmetic; THIS fixture is the real producer shape, and the suite asserts the proxy reads `unestablished` against it rather than a confident 0.",
+  "_note": "The scope shape scripts/issue-audit-state.py record-dispatch ACTUALLY writes for a targeted round: {basis_digest, sections, claim_ids} and no draft_lines span. Its sibling after-state.json carries a hand-authored draft_lines span that no producer emits, so it exercises the proxy's arithmetic; THIS fixture carries the real producer SCOPE shape, and the suite asserts the proxy reads `unestablished` against it rather than a confident 0. Scoped deliberately: this document as a whole is NOT one issue-audit-state.py would accept at its own read boundary (it carries no schema_version, attempts or outcome), so it models the scope key set the writer emits, not a whole valid state file.",
   "rounds": [
     {
       "round": 1,
