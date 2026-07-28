@@ -32,7 +32,10 @@
 # STDOUT carries the fully-formed workflow-command lines (`::warning::` / `::notice::`)
 # and nothing else, so the caller re-emits nothing and selects nothing — the branch
 # selection this helper exists to own cannot leak back into the YAML. STDERR carries
-# only the usage errors below, which exit 2; no runtime arm writes to it.
+# only the usage errors below, which exit 2; no runtime arm writes an intentional
+# diagnostic to it. One residual: a per-name redirect that cannot be opened at all
+# (a directory at $dest) is reported by the shell on the real stderr before the
+# read's own `2>/dev/null` applies — that is the shell's message, not this helper's.
 #
 # Exit codes:
 #   0  every runtime condition — the four per-name arms of the branch table below and
@@ -47,8 +50,11 @@
 # read is a DIRECT REDIRECT. The `_floor_raw=$(git show …)` + `printf '%s\n' "$VAR"`
 # shape used by every other trusted-closure materialization in devflow-runner.yml
 # strips all trailing newlines and re-adds exactly one, which would silently corrupt
-# an extension carrying no trailing newline. lib/test/run.sh compares both shapes
-# with `cmp`, so a regression here turns the suite RED rather than shipping.
+# an extension carrying no trailing newline. lib/test/run.sh `cmp`s the materialized
+# file against the base-ref source over a no-trailing-newline fixture and a UTF-8-BOM
+# fixture, so a regression to that shape turns the suite RED rather than shipping.
+# (Those arms compare source-to-materialized, not the two write shapes against each
+# other — the protection is that the sibling shape cannot satisfy them.)
 #
 # THE ABSENCE RULE — `git show` exits 128 for a path absent at the ref AND for a
 # corrupt object, an unresolvable FETCH_HEAD, and a dubious-ownership refusal, so
@@ -129,6 +135,19 @@ for name in "${NAMES[@]}"; do
 
     src=".devflow/prompt-extensions/${name}.md"
     dest="$TARGET/${name}.md"
+
+    # A TREE at this path is not an extension. `git show` exits 0 on one and prints a
+    # tree listing, which would land non-extension text in the closure for the loader
+    # to `cat` into the reviewing agent's prompt — the loader's own non-regular-file
+    # guard covers this shape on the filesystem side, and this is its object-side
+    # counterpart. Gated on the object POSITIVELY EXISTING at a resolvable ref, so an
+    # absent object and an unresolvable ref still fall through to the read/absence
+    # discrimination below rather than being misreported as a wrong-type object.
+    if [ "$FETCH_HEAD_RESOLVES" = yes ] && git cat-file -e "FETCH_HEAD:$src" 2>/dev/null \
+        && [ "$(git cat-file -t "FETCH_HEAD:$src" 2>/dev/null || printf 'unknown')" != blob ]; then
+        printf '%s\n' "::warning::devflow trusted prompt-extension '$name' exists on the trusted base ref '$BASE_REF' but is not a regular file (blob); nothing was materialized for it and the reviewing agent runs with no extension text for it"
+        continue
+    fi
 
     # Direct redirect — see THE BYTE-IDENTITY RULE above.
     if git show "FETCH_HEAD:$src" > "$dest" 2>/dev/null; then

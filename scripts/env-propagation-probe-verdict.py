@@ -4,9 +4,9 @@
 verdict from a `claude-code-action` execution file (issue #874).
 
 Why a helper rather than inline Python in matcher-probe.yml: this verdict is a
-branch-selecting core (a four-way BOTH_HOPS / ORCHESTRATOR_ONLY / NEITHER_HOP /
-INCONCLUSIVE selection plus the record/do-not-record decision a maintainer transcribes
-into docs/cloud-allowlist.md). Inline-in-YAML it cannot be unit-tested, so a regressed
+branch-selecting core (a BOTH_HOPS / ORCHESTRATOR_ONLY / NEITHER_HOP / INCONCLUSIVE
+selection, plus the suspect DISPATCHED_TASK_ONLY inversion, plus the
+record/do-not-record decision a maintainer transcribes into docs/cloud-allowlist.md). Inline-in-YAML it cannot be unit-tested, so a regressed
 arm would silently misfire while the workflow still "runs" — the same rationale as
 scripts/background-tasks-probe-verdict.py (#812), scripts/schedulewakeup-probe-verdict.py
 (#415), and scripts/describe-denial-count.sh (PR #367).

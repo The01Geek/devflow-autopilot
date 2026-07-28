@@ -23735,6 +23735,25 @@ assert_eq "#874 helper: a second consecutive run emits the same (empty) output" 
 assert_eq "#874 helper: a second consecutive run leaves review.md byte-identical" "yes" \
   "$(cmp -s "$MTE_TMP/a7base/.devflow/prompt-extensions/review.md" "$MTE_TMP/a7closure/review.md" && echo yes || echo no)"
 
+# ── Arm 8b: a protected path that exists on the base ref as a TREE, not a blob.
+# `git show` exits 0 on a tree and prints its listing, so without an object-side type
+# guard that listing lands in the closure and the loader cats it into the reviewing
+# agent's prompt. The loader guards this shape on the filesystem side; this is its
+# object-side counterpart.
+devflow_mte_seed "$MTE_TMP/a8bbase"
+mkdir -p "$MTE_TMP/a8bbase/.devflow/prompt-extensions/review.md"
+printf 'inner\n' > "$MTE_TMP/a8bbase/.devflow/prompt-extensions/review.md/inner.txt"
+git -C "$MTE_TMP/a8bbase" add -A >/dev/null 2>&1
+git -C "$MTE_TMP/a8bbase" -c user.email=t@example.invalid -c user.name=t commit -q -m tree >/dev/null 2>&1
+devflow_mte_workspace "$MTE_TMP/a8bws" "$MTE_TMP/a8bbase"
+mkdir -p "$MTE_TMP/a8bclosure"
+MTE_A8B_OUT="$( cd "$MTE_TMP/a8bws" && bash "$MTE" --base-ref main --target "$MTE_TMP/a8bclosure" review 2>&1 )"; MTE_A8B_RC=$?
+assert_eq "#874 helper: a TREE at a protected path → exit 0" "0" "$MTE_A8B_RC"
+assert_eq "#874 helper: a TREE at a protected path → nothing materialized" "yes" \
+  "$([ -e "$MTE_TMP/a8bclosure/review.md" ] && echo no || echo yes)"
+assert_eq "#874 helper: a TREE at a protected path → warning names the not-a-blob reason" "yes" \
+  "$(printf '%s' "$MTE_A8B_OUT" | grep -qF 'is not a regular file (blob)' && echo yes || echo no)"
+
 # ── Arm 9: the helper's own containment guard. The workflow passes literals, but a
 # name carrying '/' or '..' would compose a path outside the closure, so the helper
 # refuses it rather than trusting its caller.
@@ -23910,8 +23929,9 @@ assert_eq "#874 promptext: both truncated paths are published for the grounding 
      && printf '%s' "$MTE_WF_A" | grep -qF '.devflow/prompt-extensions/requesting-code-review.md' \
      && echo yes || echo no)"
 # Arm B: a checkout with NO .devflow/prompt-extensions/ directory at all — the shape
-# that aborts the job today, because install.sh creates no such directory and a
-# redirect into a missing one fails under the default `bash -e` step shell.
+# that aborts the job today: git does not track an empty directory, so a consumer
+# checkout can lack .devflow/prompt-extensions/ even after install.sh created it,
+# and a redirect into a missing one fails under the default `bash -e` step shell.
 mkdir -p "$MTE_WF/wsB"
 # Arms B and C are checked through their filesystem effect and recorded rc, not
 # through the published path list, so the run's stdout is discarded here.
@@ -23933,6 +23953,28 @@ assert_eq "#874 promptext: an unprotected sibling extension is left untouched" "
 MTE_WF_A2="$(devflow_mte_run_promptext "$MTE_WF/wsA")"
 assert_eq "#874 promptext: a second run over an already-truncated workspace is a no-op" "0" "$(devflow_mte_promptext_rc)"
 assert_eq "#874 promptext: a second run publishes the same path list" "$MTE_WF_A" "$MTE_WF_A2"
+
+# ── #874: the truncation must UNLINK, never write through a PR-controlled symlink.
+# This step runs first against the PULL REQUEST's checkout, so `: > path` following a
+# committed symlink would let the PR pick any file in the tree for the review job to
+# empty — silently, exit 0, before ci_summary and harden_hooks read it.
+mkdir -p "$MTE_WF/wsSym/.devflow/prompt-extensions" "$MTE_WF/wsSym/scripts"
+printf 'SENTINEL TARGET CONTENT\n' > "$MTE_WF/wsSym/scripts/victim.sh"
+ln -s ../../scripts/victim.sh "$MTE_WF/wsSym/.devflow/prompt-extensions/review.md"
+printf 'PR-HEAD HOSTILE BYTES\n' > "$MTE_WF/wsSym/.devflow/prompt-extensions/requesting-code-review.md"
+devflow_mte_run_promptext "$MTE_WF/wsSym" >/dev/null
+assert_eq "#874 promptext: a symlinked protected extension → exit 0" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: the symlink's TARGET is left intact (never truncated through)" "SENTINEL TARGET CONTENT" \
+  "$(cat "$MTE_WF/wsSym/scripts/victim.sh")"
+assert_eq "#874 promptext: the symlink itself is replaced by an empty regular file" "yes" \
+  "$([ -f "$MTE_WF/wsSym/.devflow/prompt-extensions/review.md" ] && [ ! -L "$MTE_WF/wsSym/.devflow/prompt-extensions/review.md" ] && [ ! -s "$MTE_WF/wsSym/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
+# A DIRECTORY at a protected path is the other non-regular shape `: >` cannot handle.
+mkdir -p "$MTE_WF/wsDir/.devflow/prompt-extensions/review.md"
+printf 'x\n' > "$MTE_WF/wsDir/.devflow/prompt-extensions/review.md/inner"
+devflow_mte_run_promptext "$MTE_WF/wsDir" >/dev/null
+assert_eq "#874 promptext: a DIRECTORY at a protected path → exit 0 (not a dead job)" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: the directory is replaced by an empty regular file" "yes" \
+  "$([ -f "$MTE_WF/wsDir/.devflow/prompt-extensions/review.md" ] && [ ! -s "$MTE_WF/wsDir/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
 
 # ── EXECUTE the displaced-path join. The arm that matters is the one the single
 # producer binding could not express: harden_hooks published EMPTY (its relevance-gate
@@ -23959,6 +24001,31 @@ MTE_JOIN_NONE="$(devflow_mte_run_join '' '')"
 assert_eq "#874 join: both producers empty → an empty value, not a blank line" "" "$MTE_JOIN_NONE"
 rm -rf "$MTE_WF"
 unset -f devflow_mte_run_promptext devflow_mte_run_join devflow_mte_promptext_rc devflow_mte_promptext_env
+
+# ── #874: the never-established arms are ::notice::, not ::warning::. The distinction is
+# the acceptance criterion's own ("a distinct notice … never a reason-naming warning"),
+# and the helper's sibling arm already uses ::notice:: — a drift between the two halves
+# of one closed-set classification is otherwise invisible to the suite.
+assert_eq "#874 workflow: all three never-established arms emit ::notice::" "3" \
+  "$(grep -c '::notice::devflow trusted prompt-extension materialization was not attempted' "$RUNNER" || true)"
+assert_eq "#874 workflow: no never-established arm emits ::warning::" "0" \
+  "$(grep -c '::warning::devflow trusted prompt-extension materialization was not attempted' "$RUNNER" || true)"
+# ── #874: the trusted-source ladder carries the vendor_source==fetch rank every sibling
+# closure has. Without it a THIN install — install.sh's default, where the vendored tree
+# is gitignored and the base ref is not the plugin repo — misses both other ranks, so the
+# closure is never populated and a warning fires on every consumer review run.
+assert_eq "#874 workflow: the materialization ladder carries the vendor_source==fetch rank" "1" \
+  "$(grep -cF 'VENDOR_SOURCE:-}" = "fetch" ] \' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+assert_eq "#874 workflow: the fetch rank points at the runtime-vendored materialization helper" "1" \
+  "$(grep -c 'devflow/scripts/materialize-trusted-prompt-extensions.sh" \]' "$RUNNER" | awk '{print ($1>=1)?1:0}')"
+assert_eq "#874 workflow: baseprovision receives vendor_source so the third rank has an operand" "1" \
+  "$(grep -c 'VENDOR_SOURCE: \${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" | awk '{print ($1>=3)?1:0}')"
+# The helper's non-zero (usage-defect) exit is annotated rather than swallowed.
+assert_eq "#874 workflow: a non-zero helper exit is annotated, not swallowed by || true" "1" \
+  "$(grep -c 'materialization helper (source=' "$RUNNER" || true)"
+# The closure path is written at two sites; nothing else ties them together.
+assert_eq "#874 workflow: both closure-path sites resolve to the same directory" "2" \
+  "$(grep -cF 'RUNNER_TEMP/devflow-trusted-prompt-ext"' "$RUNNER" || true)"
 
 # ── #874 drift guard: the protected set must equal the skill names the review tier
 # actually loads. The protected set has ONE declaration site — the job-level
