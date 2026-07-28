@@ -18738,6 +18738,56 @@ with tempfile.TemporaryDirectory() as _t793b:
               (True, True),
               (_r.returncode != 0, 'staged-digest-mismatch' in _r.stderr))
 
+# ── issue #793: the identity-data floor and the withheld-field suppression ────────────
+# Driven from a ledger fixture in which EVERY withheld field is PRESENT in the input, so
+# each absence below is the suppression working rather than an input that never had them.
+
+_793_rich = {'id': 1, 'summary': 'the AC omits its operand', 'status': 'unresolved',
+             'ingested_status': 'unresolved',
+             'severity': 'SENTINEL-SEVERITY-CRITICAL',
+             'disposition': 'SENTINEL-DISPOSITION',
+             'fix_decision': 'SENTINEL-PRIOR-VERDICT',
+             'rationale': 'SENTINEL-RATIONALE',
+             'evidence': {'locator': 'SENTINEL-EVIDENCE'}}
+_793_scope_bytes = _m793.render_dispatch_scope(
+    'a' * 40, ['## Acceptance Criteria'],
+    _m793._enumerated_claims(_793_state(
+        rounds=[_793_round(findings=[_793_rich])])))
+
+assert_eq("#793: the dispatch-scope file carries the claim id and summary",
+          True,
+          b'- 1.1 \xe2\x80\x94 the AC omits its operand' in _793_scope_bytes)
+
+for _w in (b'SENTINEL-SEVERITY-CRITICAL', b'SENTINEL-DISPOSITION',
+           b'SENTINEL-PRIOR-VERDICT', b'SENTINEL-RATIONALE', b'SENTINEL-EVIDENCE'):
+    assert_eq(f"#793: the dispatch-scope file withholds {_w.decode()} though the input "
+              "ledger entry carries it",
+              False, _w in _793_scope_bytes)
+
+assert_eq("#793: the scope file records the basis digest the changed-section set was "
+          "computed from",
+          True, b'basis_digest: ' + b'a' * 40 in _793_scope_bytes)
+
+assert_raises("#793: a claim summary forging a protocol token is refused at the single "
+              "write site, before it can reach the renderer",
+              _m793._DigestError,
+              lambda: _m793.render_dispatch_scope('a' * 40, ['## A'],
+                                                  [('1.1', 'see next_call=none for detail')]))
+
+assert_raises("#793: a claim summary carrying a record-splitting byte is refused there too",
+              _m793._DigestError,
+              lambda: _m793.render_dispatch_scope('a' * 40, ['## A'],
+                                                  [('1.1', 'line one\nline two')]))
+
+assert_eq("#793: the scope file round-trips through the state owner's own reader",
+          ('a' * 40, ['## Acceptance Criteria'],
+           [('1.1', 'the AC omits its operand')]),
+          _m793.parse_dispatch_scope(_793_scope_bytes))
+
+assert_raises("#793: a scope file that does not open with its format marker is refused",
+              _m793._DigestError,
+              lambda: _m793.parse_dispatch_scope(b'not a scope file\n'))
+
 assert_eq("#793: a resolved claim is not enumerated — only live claims are re-checked",
           ('discovery', 'empty-claim-set'),
           (lambda a: (a['kind'], a['reason']))(

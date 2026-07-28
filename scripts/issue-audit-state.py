@@ -569,6 +569,8 @@ _PROTOCOL_TOKENS = (
     # ...and the tokens the round-kind query and the dispatch-scope writer emit. `kind`
     # and `digest` were already registered above, so only these five are new.
     'claim_ids', 'sections', 'basis_digest', 'scope_path', 'scope_digest',
+    # ...and the two counts record-return prints for a targeted round's per-claim sweep.
+    'addressed', 'not_addressed',
 )
 
 
