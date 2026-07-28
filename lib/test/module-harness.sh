@@ -376,10 +376,13 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # devflow_run_full_suite_module) carry a pointer here, not a second copy.
 #   full  — the default, applied when the argument is absent OR empty, so a caller that
 #           says nothing (or forwards an unset variable) always gets every test.
-#   smoke — enumerate only the FIRST test of each test CLASS. The enumerate → dispatch →
-#           collect → fold path is exercised in full and every class is still loaded and
-#           entered; only the per-test fixture cost drops to once per class. It exists for
-#           a caller that drives a file purely to prove the driver drives it.
+#   smoke — enumerate only the FIRST test of each test CLASS that the loader produced a test
+#           for. The enumerate → dispatch → collect → fold path is exercised in full and one
+#           test of each such class runs; only the per-test repetition drops. It exists for a
+#           caller that drives a file purely to prove the driver drives it. Note what this
+#           does NOT claim: a class the loader yields no test for (no `test_`-prefixed
+#           methods) contributes nothing to enumerate in either mode, so `smoke` does not
+#           reach it — the bound is over the loader's output, not over the file's classes.
 #   anything else — fails CLOSED: nothing is enumerated, nothing runs, and the call records
 #           a FAIL naming the bad value, so a typo can never read as a bounded pass.
 devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [full|smoke]
@@ -394,8 +397,8 @@ devflow_run_sharded_python_test() { # assertion-name script-path capture-dir [fu
     full) ;;
     smoke) bound_note=", BOUNDED smoke subset — the full population did NOT run" ;;
     *)
-      # Refuse before enumeration or dispatch, using the same `devflow shard driver:`
-      # report shape every other failure arm in this function uses.
+      # Refuse before enumeration or dispatch, carrying the `devflow shard driver:` prefix
+      # this function's terminal failure report also uses.
       printf '    devflow shard driver: unrecognized population mode %s (expected full or smoke)\n' \
         "$mode"
       assert_eq "$assertion_name" "" \
