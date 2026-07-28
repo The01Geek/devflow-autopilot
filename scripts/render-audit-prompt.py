@@ -762,9 +762,14 @@ def parse_scope(scope_text: str) -> tuple[list[str], list[tuple[str, str]]]:
         raise RenderError("the dispatch-scope file does not open with its format marker")
     sections: list[str] = []
     claims: list[tuple[str, str]] = []
+    basis = None
     mode = None
     for line in lines[1:]:
         if line.startswith("basis_digest: "):
+            # Required, not merely tolerated. Skipping it let this module render a scope
+            # file the STATE OWNER's own parser refuses — an asymmetry that would put a
+            # prompt in front of an auditor over an artifact the tool would not accept.
+            basis = line[len("basis_digest: "):].strip()
             continue
         if line == "sections:":
             mode = "sections"
@@ -777,6 +782,11 @@ def parse_scope(scope_text: str) -> tuple[list[str], list[tuple[str, str]]]:
             claims.append((cid, summary))
         elif line.strip():
             raise RenderError(f"unrecognized dispatch-scope line: {line!r}")
+    if not basis:
+        raise RenderError(
+            "the dispatch-scope file records no basis digest (scope-basis-missing); the "
+            "state owner's own parser requires it, so rendering without it would put a "
+            "prompt in front of an auditor over an artifact the tool would refuse")
     if not claims:
         # The vacuous-pass refusal. A scoped round over an empty claim set would return
         # "every claim addressed" having checked nothing, and that answer then selects a
@@ -785,6 +795,14 @@ def parse_scope(scope_text: str) -> tuple[list[str], list[tuple[str, str]]]:
         raise RenderError(
             "the dispatch-scope file enumerates no claims; a targeted round over an empty "
             "claim set would pass vacuously (empty-claim-set)")
+    if not sections:
+        # An empty section set renders a prompt telling the auditor to inspect the changed
+        # sections and then listing none. It is unreachable from the writer (an empty delta
+        # selects `discovery`), so reaching it means a hand-made or reordered file — the
+        # exact shape this parser exists to refuse.
+        raise RenderError(
+            "the dispatch-scope file enumerates no changed sections (scope-sections-empty); "
+            "a scoped prompt with no sections points the auditor at nothing")
     return sections, claims
 
 
@@ -799,8 +817,10 @@ def _render_scope_slots(sections: list[str], claims: list[tuple[str, str]]) -> d
     """
     return {
         "{SCOPE_CLAIMS}": "\n".join(f"- {cid} — {summary}" for cid, summary in claims),
-        "{SCOPE_SECTIONS}": (
-            "\n".join(f"- {s}" for s in sections) if sections else "- (none recorded)"),
+        # No empty-set fallback: `parse_scope` refuses an empty section set outright,
+        # so a "(none recorded)" placeholder here would only ever paper over a shape that
+        # must not render at all.
+        "{SCOPE_SECTIONS}": "\n".join(f"- {s}" for s in sections),
     }
 
 

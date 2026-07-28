@@ -1730,6 +1730,63 @@ class TargetedRoundRender(unittest.TestCase):
             self.assertEqual(self._render(root, scope).stdout,
                              self._render(root, scope).stdout)
 
+    def test_T10_the_malformed_scope_shape_matrix(self):
+        """The remaining mandated malformed-shape rows for this agent-mutable artifact.
+
+        The scope file is machine-written, but it is on-disk text between two processes, so
+        the render path is a best-effort parser over mutable input and takes the matrix the
+        repo requires of that class. Every row must REFUSE — never render a partial prompt,
+        which would hash cleanly while carrying less than the round froze.
+        """
+        shapes = {
+            "truncated after the marker": self.SCOPE_MARKER + "\n",
+            "truncated mid-section": (
+                self.SCOPE_MARKER + "\nbasis_digest: " + "a" * 40 + "\nsections:\n"),
+            "a bullet before any mode header": (
+                self.SCOPE_MARKER + "\nbasis_digest: " + "a" * 40 + "\n- stray\n"),
+            "an unrecognized line": (
+                self.SCOPE_MARKER + "\nbasis_digest: " + "a" * 40
+                + "\nsections:\n- ## A\nclaims:\n- 1.1 — d\nrogue: value\n"),
+            "no basis digest": (
+                self.SCOPE_MARKER + "\nsections:\n- ## A\nclaims:\n- 1.1 — d\n"),
+        }
+        for name, body in shapes.items():
+            with self.subTest(shape=name), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                bad = root / "scope.md"
+                bad.write_text(body, encoding="utf-8")
+                got = self._render(root, bad)
+                self.assertNotEqual(got.returncode, 0, f"{name} was not refused")
+                self.assertEqual(got.stdout, "", f"{name} rendered output anyway")
+                self.assertTrue(got.stderr.strip(), f"{name} refused with no breadcrumb")
+
+    def test_T11_a_reordered_layout_loses_no_payload(self):
+        """A `claims:`-before-`sections:` file parses to the SAME payload, not a partial one.
+
+        Refusing on block ORDER would be over-strict and, more importantly, would not be
+        the guard that matters: the parser is mode-switched, so a reordered file populates
+        both lists correctly and renders identically. What actually rejects a hand-made or
+        substituted scope file is the DIGEST FREEZE — its content digest is recorded on the
+        dispatch attempt, so a reordered file cannot pass as the round's frozen payload
+        however well it parses. This row therefore asserts the property that IS true and
+        load-bearing: no silent partial parse.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            canonical = self._scope(root, claims=(("1.1", "d"),),
+                                    sections=("## A",))
+            reordered = root / "reordered.md"
+            reordered.write_text(self.SCOPE_MARKER + "\nbasis_digest: " + "a" * 40
+                                 + "\nclaims:\n- 1.1 — d\nsections:\n- ## A\n",
+                                 encoding="utf-8")
+            a = self._render(root, canonical)
+            b = self._render(root, reordered)
+            self.assertEqual(a.returncode, 0, a.stderr)
+            self.assertEqual(b.returncode, 0, b.stderr)
+            self.assertEqual(a.stdout, b.stdout)
+            self.assertIn("## A", b.stdout)
+            self.assertIn("1.1", b.stdout)
+
     def test_T9_a_malformed_scope_file_is_refused_not_rendered(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
