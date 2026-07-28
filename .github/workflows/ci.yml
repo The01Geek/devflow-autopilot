@@ -78,9 +78,11 @@ jobs:
       # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
       # that validation DESCENDS into the skills/ and agents/ trees rather than stopping
       # at the manifest: a malformed-YAML, absent, or empty frontmatter block exits 1.
-      # That is asserted executably, not by hand — lib/test/run.sh drives those three
-      # mutations plus a positive control against a synthetic plugin tree, so the claim
-      # is a test that can fail rather than a comment that can rot.
+      # That is asserted executably, not by hand — lib/test/run.sh drives each of those
+      # frontmatter shapes against both component trees, each arm preceded by its own
+      # positive control, so the claim is a test that can fail rather than a comment
+      # that can rot. (Deliberately count-free: an arm count here rots the next time an
+      # arm is added — the self-referential-ordinal class CLAUDE.md names.)
       # Validation is auth-free. Measured while authoring this step, on a bench, not a
       # description of this job's configuration: with ANTHROPIC_API_KEY and
       # CLAUDE_CODE_OAUTH_TOKEN unset and HOME redirected to an empty dir, validation
@@ -100,7 +102,7 @@ jobs:
       # step below asserts the version actually landed.
       #
       # The gate lives in lib/test/run.sh (the `monolith` shard), but the CLI is
-      # installed on EVERY shard uniformly — the same reasoning as fetch-depth: 0
+      # installed on EVERY shard uniformly — the same reasoning as the checkout depth
       # above — so a gate that later moves into a module shard does not quietly revert
       # to self-skipping. That uniformity has a real cost worth stating: it puts four
       # network installs behind a REQUIRED check, so a claude.ai outage can redden
@@ -128,17 +130,25 @@ jobs:
       # Asserts the version rather than merely printing it, so the pin above is
       # self-verifying: the pin's whole mechanism is one positional argument to a
       # third-party installer, and an installer that ignored or renamed it would
-      # otherwise hand us an unpinned CLI while this step still passed. Also the
+      # otherwise hand us an unpinned CLI while this step still passed. The assertion
+      # is only as good as the variable, so it checks the variable is non-empty first
+      # and compares the version field exactly. Also the
       # load-bearing detector that the install landed on PATH at all (GITHUB_PATH only
       # takes effect in LATER steps, so this cannot be folded into the step above).
       - name: Verify the claude CLI resolves on PATH at the pinned version
         run: |
+          # Fail closed on an empty pin. These run: blocks set pipefail but not `set -u`,
+          # so a dropped or renamed job-level env: key would expand empty and make BOTH
+          # halves vacuous at once — `bash -s ""` installs whatever the installer
+          # defaults to, and the comparison below would accept any version. That is the
+          # silent-disarm class this whole step exists to close, one level up.
+          [ -n "$CLAUDE_CLI_VERSION" ] || { echo "::error::CLAUDE_CLI_VERSION is unset or empty; the version pin would be vacuous"; exit 1; }
           v="$(claude --version)"
           echo "$v"
-          case "$v" in
-            *"$CLAUDE_CLI_VERSION"*) ;;
-            *) echo "::error::expected claude $CLAUDE_CLI_VERSION on PATH, got: $v"; exit 1 ;;
-          esac
+          # Compare the version FIELD exactly, not as a substring: an unanchored
+          # `*"$CLAUDE_CLI_VERSION"*` accepts 2.1.2120 for a 2.1.212 pin.
+          got="${v%% *}"
+          [ "$got" = "$CLAUDE_CLI_VERSION" ] || { echo "::error::expected claude $CLAUDE_CLI_VERSION on PATH, got: $v"; exit 1; }
 
       - name: Run shard (${{ matrix.shard }})
         env:

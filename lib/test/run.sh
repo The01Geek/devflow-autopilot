@@ -25359,13 +25359,19 @@ if command -v claude >/dev/null 2>&1; then
   # step makes to justify itself, so it is asserted executably here instead of by hand.
   # A SYNTHETIC minimal tree is used, not the real one: it keeps each mutation hermetic and
   # one-line, and the real tree is already covered by the assertion above.
-  # Each arm is a negative test, so each carries a POSITIVE CONTROL — the unmutated fixture
-  # must pass first. Without it, a fixture rejected for some unrelated reason (a bad manifest,
-  # a stray file) would read as a passing negative test while proving nothing about descent.
+  # Each arm is a negative test, so each carries its OWN positive control — the unmutated
+  # fixture must validate clean immediately before that arm's mutation. Without it, a fixture
+  # rejected for some unrelated reason (a bad manifest, a failed rebuild) would read as a
+  # passing negative test while proving nothing about descent.
   PKG_DESC="$(mktemp -d)"
+  [ -n "$PKG_DESC" ] && [ -d "$PKG_DESC" ] || { printf 'FATAL: mktemp -d failed for the #671 descent fixture\n' >&2; exit 1; }
   devflow_pkg_fixture() {  # rebuild the valid synthetic plugin tree from scratch
     rm -rf "${PKG_DESC:?}/tree"
-    mkdir -p "$PKG_DESC/tree/.claude-plugin" "$PKG_DESC/tree/skills/probe" "$PKG_DESC/tree/agents"
+    # Fail CLOSED on a rebuild failure. A silently half-built fixture is rejected by the
+    # validator for the wrong reason, which is exactly what the per-arm control exists to
+    # catch — but only if the rebuild itself cannot fail unnoticed.
+    mkdir -p "$PKG_DESC/tree/.claude-plugin" "$PKG_DESC/tree/skills/probe" "$PKG_DESC/tree/agents" \
+      || { printf 'FATAL: #671 descent fixture rebuild failed (mkdir)\n' >&2; exit 1; }
     # `author` is required for a --strict pass: its absence is a warning, and --strict
     # promotes warnings to errors. Omitting it made the positive control fail and every
     # mutation arm below "pass" for that unrelated reason — the exact masquerade the
@@ -25379,39 +25385,37 @@ if command -v claude >/dev/null 2>&1; then
   }
   devflow_pkg_validate_rc() { claude plugin validate --strict "$PKG_DESC/tree" >/dev/null 2>&1; echo $?; }
 
-  # Positive control: the unmutated synthetic fixture validates clean. Every arm below
-  # rebuilds from this same fixture, so a non-zero here would invalidate all of them.
-  devflow_pkg_fixture
-  assert_eq "#671 descent positive control: the unmutated synthetic plugin tree validates clean" "0" \
-    "$(devflow_pkg_validate_rc)"
+  # Drive one arm: rebuild the fixture, assert it is VALID (per-arm positive control),
+  # apply the mutation, then assert rejection. The per-arm control is the point — a
+  # single control before the whole block cannot catch a fixture that degrades midway
+  # (a full disk, a failed rebuild), which would otherwise yield green negative arms
+  # that prove nothing. Args: <label> <path-under-tree> <mutation-line>...
+  devflow_pkg_descent_arm() {
+    local _label="$1" _rel="$2"; shift 2
+    devflow_pkg_fixture
+    assert_eq "#671 descent positive control ($_label): fixture is valid BEFORE the mutation" "0" \
+      "$(devflow_pkg_validate_rc)"
+    if [ "$#" -eq 0 ]; then : > "$PKG_DESC/tree/$_rel"; else printf '%s\n' "$@" > "$PKG_DESC/tree/$_rel"; fi
+    assert_eq "#671 descent: $_label is rejected (exit 1)" "1" "$(devflow_pkg_validate_rc)"
+  }
 
-  # Malformed YAML frontmatter in a SKILL → rejected.
-  devflow_pkg_fixture
-  printf '%s\n' '---' 'name: [unclosed' 'description: "x' '---' 'body' > "$PKG_DESC/tree/skills/probe/SKILL.md"
-  assert_eq "#671 descent: malformed YAML frontmatter in a skill is rejected (exit 1)" "1" \
-    "$(devflow_pkg_validate_rc)"
-
-  # No frontmatter block at all in a SKILL → rejected.
-  devflow_pkg_fixture
-  printf '%s\n' 'no frontmatter at all' > "$PKG_DESC/tree/skills/probe/SKILL.md"
-  assert_eq "#671 descent: a skill with no frontmatter block is rejected (exit 1)" "1" \
-    "$(devflow_pkg_validate_rc)"
-
-  # Empty SKILL.md → rejected.
-  devflow_pkg_fixture
-  : > "$PKG_DESC/tree/skills/probe/SKILL.md"
-  assert_eq "#671 descent: an empty SKILL.md is rejected (exit 1)" "1" \
-    "$(devflow_pkg_validate_rc)"
-
-  # Malformed YAML frontmatter in an AGENT → rejected (the agents tree is walked too, not
-  # just skills; this is the arm that would silently lapse if only skills were descended).
-  devflow_pkg_fixture
-  printf '%s\n' '---' 'name: [unclosed' '---' 'body' > "$PKG_DESC/tree/agents/probe-agent.md"
-  assert_eq "#671 descent: malformed YAML frontmatter in an agent is rejected (exit 1)" "1" \
-    "$(devflow_pkg_validate_rc)"
+  # The matrix is deliberately SYMMETRIC across both component trees: each of the three
+  # frontmatter shapes is driven against a skill AND against an agent. An asymmetric
+  # matrix (the earlier shape: skills×3, agents×1) leaves a regression that opens agent
+  # files but checks only YAML-parseability — never presence or emptiness — fully green.
+  devflow_pkg_descent_arm "malformed YAML frontmatter in a skill" "skills/probe/SKILL.md" \
+    '---' 'name: [unclosed' 'description: "x' '---' 'body'
+  devflow_pkg_descent_arm "a skill with no frontmatter block" "skills/probe/SKILL.md" \
+    'no frontmatter at all'
+  devflow_pkg_descent_arm "an empty SKILL.md" "skills/probe/SKILL.md"
+  devflow_pkg_descent_arm "malformed YAML frontmatter in an agent" "agents/probe-agent.md" \
+    '---' 'name: [unclosed' '---' 'body'
+  devflow_pkg_descent_arm "an agent with no frontmatter block" "agents/probe-agent.md" \
+    'no frontmatter at all'
+  devflow_pkg_descent_arm "an empty agent file" "agents/probe-agent.md"
 
   rm -rf "$PKG_DESC"
-  unset -f devflow_pkg_fixture devflow_pkg_validate_rc
+  unset -f devflow_pkg_fixture devflow_pkg_validate_rc devflow_pkg_descent_arm
 else
   skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
 fi
@@ -39483,13 +39487,21 @@ assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()"
 # still prints `yes` while the step no longer runs — precisely the silent disarm these
 # pins exist to catch. The matcher therefore skips comment lines, and the negative
 # controls below drive that arm rather than trusting it.
+# Fails CLOSED to a distinct `unreadable`/`awk-failed` token rather than to `no`. `no` is
+# an assertion-satisfying value for the negative controls below, so an empty file, an
+# absent one, or a broken `awk` (not a lib/preflight.sh-guaranteed tool) would otherwise
+# satisfy every "expect no" assertion while proving nothing — the guard-class-2 shape
+# CLAUDE.md names, where a SELECTION is derived through a non-preflight PATH tool.
 devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
-  awk -v pat="$1" '
+  local _f="${2:-$LIB/../.github/workflows/ci.yml}" _out
+  [ -s "$_f" ] || { printf 'unreadable'; return; }
+  _out="$(awk -v pat="$1" '
     /^  shard:/{ins=1; next}
     /^  [a-z]/{ins=0}
     ins && /^[[:space:]]*#/{next}
     ins && $0 ~ pat {f=1}
-    END{print (f?"yes":"no")}' "${2:-$LIB/../.github/workflows/ci.yml}"
+    END{print (f?"yes":"no")}' "$_f")" || { printf 'awk-failed'; return; }
+  printf '%s' "$_out"
 }
 # ci.yml: the shard job's checkout sets fetch-depth: 0 so origin/main resolves. The
 # #434 stale-prose self-scan runs in the `monolith` shard (issue #877 split the single
@@ -39512,26 +39524,68 @@ assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
 # these rather than the step names keeps a renamed step passing.
 assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
   "$(devflow_ci_shard_has 'claude\.ai/install\.sh')"
+# The fuller shape, not a bare `GITHUB_PATH`: that token alone would be satisfied forever
+# by any future unrelated append in this job, so the pin would outlive the thing it guards.
 assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "yes" \
-  "$(devflow_ci_shard_has 'GITHUB_PATH')"
-# Negative controls — mutation-checked, not assumed. Each comments out one pinned line in
-# a COPY of ci.yml and asserts the matcher flips to `no`, so a matcher that silently
-# reverted to a comment-blind substring scan turns this block RED. The positive controls
-# are the three assertions above, which run against the real unmutated file.
+  "$(devflow_ci_shard_has '\.local/bin.*GITHUB_PATH')"
+# Negative controls — mutation-checked, not assumed. Each arm copies ci.yml, comments out
+# every UNCOMMENTED occurrence of one pinned line, and asserts the matcher flips to `no`,
+# so a matcher that silently reverted to a comment-blind substring scan turns this block
+# RED. (Already-commented occurrences are left alone: `fetch-depth: 0` also appears in
+# prose, and prefixing a second `#` would misdescribe what the arm mutates.)
+#
+# Each arm carries its OWN positive control over the COPY, asserted before the mutation.
+# That is not ceremony: `no` is the value the arm's assertion accepts, so without it a
+# failed `mktemp -d`, a full $TMPDIR, or a truncated write would produce an empty copy
+# that satisfies every arm while proving nothing — the same masquerade the descent
+# block's per-arm control exists to expose. The fail-closed `unreadable` token in the
+# matcher is the second, independent layer against exactly that case.
 CI671_TMP="$(mktemp -d)"
+[ -n "$CI671_TMP" ] && [ -d "$CI671_TMP" ] || { printf 'FATAL: mktemp -d failed for the #671 ci.yml pin controls\n' >&2; exit 1; }
 for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'echo "$HOME/.local/bin"'; do
-  # Comment out the one line, byte-for-byte, leaving every other line untouched.
-  awk -v target="$ci671_pat" '{ if (index($0, target)) print "#" $0; else print }' \
-    "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
   case "$ci671_pat" in
     'fetch-depth: 0')  ci671_probe='fetch-depth: 0' ;;
     *install.sh)       ci671_probe='claude\.ai/install\.sh' ;;
-    *)                 ci671_probe='GITHUB_PATH' ;;
+    *)                 ci671_probe='\.local/bin.*GITHUB_PATH' ;;
   esac
+  cp "$LIB/../.github/workflows/ci.yml" "$CI671_TMP/ci.yml"
+  assert_eq "#671 ci.yml pin control ($ci671_pat): the UNMUTATED copy still yields yes" "yes" \
+    "$(devflow_ci_shard_has "$ci671_probe" "$CI671_TMP/ci.yml")"
+  awk -v target="$ci671_pat" '{ if (index($0, target) && $0 !~ /^[[:space:]]*#/) print "#" $0; else print }' \
+    "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
   assert_eq "#671 ci.yml pin is comment-aware: commenting out '$ci671_pat' flips the matcher to no" "no" \
     "$(devflow_ci_shard_has "$ci671_probe" "$CI671_TMP/ci.yml")"
 done
+# The matcher's OTHER limb — job scoping — needs its own control: the arms above drive
+# only comment-skipping. Move the CLI's PATH export out of `shard:` into the `test:` job
+# and the pin must stop seeing it, which exercises both the `/^  shard:/` anchor and the
+# `/^  [a-z]/` reset. Without this, a matcher that scanned the whole file would stay green.
+awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
+     ins && index($0, "echo \"$HOME/.local/bin\""){next}
+     {print}
+     /^  test:/{print "    steps:"; print "      - run: echo \"$HOME/.local/bin\" >> \"$GITHUB_PATH\""}' \
+  "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
+assert_eq "#671 ci.yml pin is job-scoped: the same line under the test: job does NOT satisfy it" "no" \
+  "$(devflow_ci_shard_has '\.local/bin.*GITHUB_PATH' "$CI671_TMP/ci.yml")"
+# ...and its positive control: the line must still EXIST in that fixture, just outside the
+# shard job. Without this the arm above would also pass if the mutation simply deleted the
+# line, which would prove nothing about job scoping. (The fixture is only ever read
+# line-wise by the matcher, never parsed as YAML, so its duplicate `steps:` key is inert.)
+assert_eq "#671 ci.yml job-scoping control: the moved line is still present in the fixture" "yes" \
+  "$(awk '/^[[:space:]]*#/{next} /\.local\/bin.*GITHUB_PATH/{f=1} END{print (f?"yes":"no")}' "$CI671_TMP/ci.yml")"
+# Fail-closed controls for the matcher itself: an empty or absent file must NOT read as
+# a clean `no`, or every negative control above could pass on a copy that never landed.
+: > "$CI671_TMP/empty.yml"
+assert_eq "#671 ci.yml matcher fails closed on an empty file (never a bare 'no')" "unreadable" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$CI671_TMP/empty.yml")"
+assert_eq "#671 ci.yml matcher fails closed on an absent file (never a bare 'no')" "unreadable" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$CI671_TMP/no-such-file.yml")"
 rm -rf "$CI671_TMP"
+# The pinned CLI version literal: an empty CLAUDE_CLI_VERSION makes both the install and
+# the verify step vacuous at once (`bash -s ""` installs the default; the version `case`
+# degenerates to a match-anything glob), so its removal must be caught here too.
+assert_eq "#671 ci.yml: the CLI version literal is declared in the shard job" "yes" \
+  "$(devflow_ci_shard_has 'CLAUDE_CLI_VERSION:')"
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
