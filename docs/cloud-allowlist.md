@@ -557,23 +557,39 @@ independently-updated artifacts** whose skew silently **re-denies the applies**,
 `lib/test/extract-command-shapes.py` turns a denied-shape review fence RED **at the
 desk**; a runtime consumer makes that desk lint *incomplete* — it does not stop the
 engine re-emitting a denied shape live. `scripts/pretooluse-shape-guard.py` is that
-runtime consumer: a `PreToolUse` hook (review tier, registered through the action's
-`settings` input and hardened from the trusted base ref via the `#458` `HOOK_TARGETS`
-closure) that **denies** a Bash command whose any statement matches a probe-proven
-denied **arm** and returns a `permissionDecisionReason` naming the permitted
-alternative, at the moment of the offending call. It resolves through
-`extract-command-shapes.py`'s arm-level `classify_arms()` because the deny set is
-defined over **arms**, not rule ids (`classify()` collapses R3's two arms onto one
-token).
+runtime consumer: a `PreToolUse` hook for the review tier that **denies** a Bash command
+whose any statement matches a probe-proven denied **arm** and returns a
+`permissionDecisionReason` naming the permitted alternative, at the moment of the
+offending call. It resolves through `extract-command-shapes.py`'s arm-level
+`classify_arms()` because the deny set is defined over **arms**, not rule ids
+(`classify()` collapses R3's two arms onto one token).
+
+**Registration is not yet wired — the guard is inert at this revision.** What is shipped
+is the guard body, its unit coverage, and its hardening from the trusted base ref via the
+`#458` `HOOK_TARGETS` closure (its path is in both `HOOK_ENTRY_TARGETS` and
+`HOOK_TARGETS`). What is **not** shipped is either registration channel: no `PreToolUse`
+key in the committed `.claude/settings.json`, and no `settings` input on
+`devflow-runner.yml`'s review-tier action step. Both are required and must land together
+— the committed settings entry is what arms the `#458` relevance gate (`--wired-check`
+matches `HOOK_ENTRY_TARGETS` against the *trusted base* settings), while the `settings`
+input is what makes the guard effective in a run; registering through `settings` alone
+would execute PR-editable guard code in a secrets-bearing job. Until both land, every
+runtime behavior described below is the guard's implemented contract, not observed
+behavior.
 
 ### The deny set and each arm's permitted alternative (authoritative)
 
 This table is the **authoritative** record of each denied arm's permitted alternative;
 `scripts/pretooluse-shape-guard.py`'s `REMEDIATION` table is its **mirror**, and a
-`lib/test/run.sh` assertion ties each guard remediation string to the alternative
-recorded here, so a change to a recorded alternative reconciles the guard in the same
-commit (the same coupled-mirror discipline the closure literals carry, applied to a
-`scripts/`-to-`docs/` pair).
+`lib/test/run.sh` assertion pairs each arm's row here with the guard's row for the same
+arm, so a change on one side reconciles the other in the same commit (the same
+coupled-mirror discipline the closure literals carry, applied to a `scripts/`-to-`docs/`
+pair). **The join literal differs by arm.** `R1` joins on `VAR=$(cmd)` and `R3-tmp` on
+`.devflow/tmp/` — both permitted alternatives, so editing either alternative cell alone
+turns the suite RED. `R4` joins on its **denied-shape** token `python3/python/node`
+instead, because its alternative is a whitespace-bearing English phrase that the
+issue-810 boundary classifies as markdown prose and so may not be pinned; editing the
+`R4` alternative cell alone does **not** turn the suite RED — reconcile it by hand.
 
 | Arm | Denied shape | Permitted alternative (the join key is the arm id) |
 | --- | --- | --- |
@@ -588,10 +604,12 @@ discipline, not a probe result). The guard **defers** these.
 
 ### PreToolUse probe evidence (Part 1)
 
-`.github/workflows/matcher-probe.yml`'s `pretooluse-probe` arm establishes, by
-observation, whether a `PreToolUse` hook fires under `claude-code-action`
-(`FIRED`/`NOT-FIRED`) and whether its `permissionDecisionReason` reaches the engine
-transcript (`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
+**The probe arm is not yet authored.** `.github/workflows/matcher-probe.yml` carries no
+`pretooluse-probe` arm at this revision — it is to be added alongside the registration
+above. Once added it will establish, by observation, whether a `PreToolUse` hook fires
+under `claude-code-action` (`FIRED`/`NOT-FIRED`) and whether its
+`permissionDecisionReason` reaches the engine transcript
+(`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
 resolved from the workflow definition and is **not** observable inside the implementing
 pull request's own run, so the probe is dispatched **after merge** and its run id +
 three-way result, plus one review run's per-arm denial counts against the

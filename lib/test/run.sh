@@ -22278,7 +22278,8 @@ HSH="$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
   "$([ -f "$HSH" ] && echo yes || echo no)"
 # HOOK_TARGETS is the authoritative single-line mirror of the FULL transitive
-# source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
+# source/exec closure of the .claude/settings.json Stop hooks plus the #805 PreToolUse
+# guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
 HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
@@ -22299,13 +22300,22 @@ assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop h
   "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
 assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
   "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
-# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the ENTRY-target
-# count (3) — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
-# would execute from the PR-head checkout untouched.
-assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_ENTRY_TARGETS)" "3" \
+# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the count of `.sh`
+# ENTRY targets — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
+# would execute from the PR-head checkout untouched. The comparand is deliberately the
+# `.sh` SUBSET of HOOK_ENTRY_TARGETS, not the whole list: since #805 that list also
+# carries the PreToolUse guard, a `.py` entry that is NOT a Stop hook and so has no
+# settings.json `Stop` row to pair with. Because a subset comparand alone would let the
+# entry list grow unnoticed, the TOTAL membership is pinned separately immediately below.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== the .sh HOOK_ENTRY_TARGETS subset)" "3" \
   "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
-assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+assert_eq "#458 coupling: HOOK_ENTRY_TARGETS carries exactly 3 .sh Stop-hook entries (== settings.json Stop-hook count)" "3" \
   "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+# TOTAL entry membership (issue #805): the `.sh` subset check above cannot see a `.py`
+# entry, so pin the whole list too — a new entry target of either language now has to
+# come through this assertion, restoring the bound the subset comparand gave up.
+assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .sh Stop hooks + the .py PreToolUse guard)" "4" \
+  "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
@@ -22339,6 +22349,16 @@ assert_eq "#460 walker gap backstop: no .py closure member spawns a LITERAL-path
 # stale-and-green, un-materialized and (on the fail-closed arm) un-stubbed.
 assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGETS (full closure)" "1" \
   "$(grep -cF "TARGETS=\"$HSH_CLOSURE_LIT\"" "$RUNNER" || true)"
+# IMPORTANT-2 (issue #805): the workflow's inline ENTRY_TARGETS is the relevance gate's
+# FALLBACK selector when no trusted helper resolved, while the helper's --wired-check scans
+# HOOK_ENTRY_TARGETS. An entry present in one list and not the other makes the two selectors
+# reach different verdicts on the same settings file — the gate would report "nothing to
+# harden" on one path and harden on the other. Pin them byte-equal.
+HSH_ENTRY_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'
+assert_eq "#805 coupling: devflow-runner.yml inline ENTRY_TARGETS == helper HOOK_ENTRY_TARGETS" "1" \
+  "$(grep -cF "ENTRY_TARGETS=\"$HSH_ENTRY_LIT\"" "$RUNNER" || true)"
+assert_eq "#805 coupling: the helper's HOOK_ENTRY_TARGETS carries that same literal" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='$HSH_ENTRY_LIT'" "$HSH" || true)"
 
 # DRIFT-GUARD (issue #458 REJECT): statically walk every source/`.`/exec/`python3 <path>`
 # edge in each closure file and assert every referenced repo .sh/.py is itself in the
@@ -22507,6 +22527,38 @@ HSH_805_DROP2="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -v 'extract-command-heads
 HSH_805_OUT2="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_805_DROP2" python3 "$HSH_EDGES")"
 assert_eq "#805 drift-guard: the shapes->heads importlib edge is detected + required (fail-closed)" "1" \
   "$(printf '%s\n' "$HSH_805_OUT2" | grep -c 'extract-command-shapes.py -> extract-command-heads.py' || true)"
+# UNRESOLVABLE-IMPORT arm: a .py member that demonstrably performs a spec_from_file_location
+# load whose target path neither capture form resolves must be reported, NOT returned clean.
+# Reporting clean there is the fail-OPEN direction — the walker would certify a closure
+# containing an in-process edge it cannot see, which is how PR-head-editable Python reaches
+# the secrets-bearing review job. Drive it on a synthetic member (no closure file has this
+# shape today, so a positive control is the only way to exercise the arm), and pair it with
+# the _HAS_SPEC negative control: an os.path.join of a .py in a NON-importing member must
+# invent no edge at all.
+if HSH_UI_DIR="$(mktemp -d 2>/dev/null)" && [ -d "$HSH_UI_DIR" ]; then
+  mkdir -p "$HSH_UI_DIR/scripts"
+  printf '%s\n' \
+    'import importlib.util' \
+    'from pathlib import Path' \
+    'p = Path(__file__).parent / dep_name' \
+    'spec = importlib.util.spec_from_file_location("x", p)' \
+    > "$HSH_UI_DIR/scripts/unresolvable.py"
+  printf '%s\n' \
+    'import os' \
+    'DATA = os.path.join(os.path.dirname(__file__), "not-an-edge.py")' \
+    > "$HSH_UI_DIR/scripts/nonimporter.py"
+  HSH_UI_OUT="$(REPO_ROOT="$HSH_UI_DIR" CLOSURE="scripts/unresolvable.py" python3 "$HSH_EDGES")"
+  assert_eq "#805 drift-guard: an UNRESOLVABLE spec_from_file_location target is reported (fail-closed, not silently clean)" "1" \
+    "$(printf '%s\n' "$HSH_UI_OUT" | grep -c 'UNRESOLVABLE-IMPORT' || true)"
+  HSH_NI_OUT="$(REPO_ROOT="$HSH_UI_DIR" CLOSURE="scripts/nonimporter.py" python3 "$HSH_EDGES")"
+  assert_eq "#805 drift-guard: _HAS_SPEC negative control — an os.path.join in a NON-importing member invents no edge" "" \
+    "$(printf '%s' "$HSH_NI_OUT")"
+  rm -rf "$HSH_UI_DIR"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  record_fail "#805 drift-guard: mktemp -d failed"
+  printf '  FAIL  #805 drift-guard: mktemp -d failed (UNRESOLVABLE-IMPORT arm not exercised; not a vacuous skip)\n' >&2
+fi
 # Remediation mirror (issue #805): each deny-set arm's permitted-alternative phrase appears
 # in BOTH the guard's REMEDIATION table and docs/cloud-allowlist.md's authoritative record,
 # so the scripts/-to-docs/ coupled mirror cannot drift silently. This is a machine-consumed
@@ -22556,6 +22608,52 @@ assert_eq "#805 extract-execution-shape emits a permission_denials_commands line
 assert_eq "#805 extract-execution-shape carries the denied command text" "1" \
   "$(printf '%s\n' "$EES_805_OUT" | grep -c 'echo a > /tmp/f' || true)"
 rm -f "$EES_805_FIX"
+# JSONL ENCODING (the encoding the un-slurped first cut got wrong). Un-slurped, jq ran the
+# filter once per RECORD: the labeled line carried the first record's empty result — a
+# published `total: 0` for a run that DID deny — and each later record's object landed as
+# an extra unlabeled line, breaking the single-line/$GITHUB_OUTPUT contract. Drive the
+# jsonl encoding directly and pin BOTH properties: exactly one emitted line, and the real
+# count. (An array-only fixture cannot see this: it has a single top-level record.)
+EES_805_JL="$(mktemp)"
+printf '%s\n' \
+  '{"type":"assistant"}' \
+  '{"type":"result","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo a > /tmp/f"}}],"permission_denials_count":1}' \
+  > "$EES_805_JL"
+EES_805_JL_OUT="$(bash "$EES_805" "$EES_805_JL" 2>/dev/null)"
+assert_eq "#805 jsonl: exactly ONE permission_denials_commands line is emitted" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '^permission_denials_commands: ' || true)"
+assert_eq "#805 jsonl: no stray unlabeled JSON object line follows it" "0" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '^{"commands"' || true)"
+assert_eq "#805 jsonl: the denial is COUNTED, not published as total 0" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '"total":1' || true)"
+assert_eq "#805 jsonl: the denied command text survives the slurped pass" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c 'echo a > /tmp/f' || true)"
+rm -f "$EES_805_JL"
+# BOUNDS. This field is the one disclosed exception to leaf redaction, so its per-command
+# and total caps are the only thing bounding attacker-influencable text: assert each cap
+# fires with its truncation marker, rather than trusting the jq program by inspection.
+EES_805_CAP="$(mktemp)"
+python3 - "$EES_805_CAP" <<'CAPEOF'
+import json, sys
+long_cmd = "A" * 900
+denials = [{"tool_name": "Bash", "tool_input": {"command": long_cmd}}]
+denials += [{"tool_name": "Bash", "tool_input": {"command": f"cmd{i}"}} for i in range(50)]
+doc = [{"type": "assistant"},
+       {"type": "result", "permission_denials": denials,
+        "permission_denials_count": len(denials)}]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    json.dump(doc, fh)
+CAPEOF
+EES_805_CAP_OUT="$(bash "$EES_805" "$EES_805_CAP" 2>/dev/null | grep '^permission_denials_commands: ' || true)"
+assert_eq "#805 bounds: a >500-char denied command carries the per-command truncation marker" "1" \
+  "$(printf '%s\n' "$EES_805_CAP_OUT" | grep -c 'per-command-truncated' || true)"
+assert_eq "#805 bounds: the total cap is applied (commands list holds 40)" "40" \
+  "$(printf '%s' "$EES_805_CAP_OUT" | sed -E 's/^permission_denials_commands: //' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["commands"]))' 2>/dev/null || echo BAD)"
+assert_eq "#805 bounds: total reports every extracted denial, not the capped slice" "51" \
+  "$(printf '%s' "$EES_805_CAP_OUT" | sed -E 's/^permission_denials_commands: //' | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo BAD)"
+assert_eq "#805 bounds: truncated flags the total-cap overflow" "1" \
+  "$(printf '%s\n' "$EES_805_CAP_OUT" | grep -c '"truncated":true' || true)"
+rm -f "$EES_805_CAP"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
@@ -23026,7 +23124,8 @@ raise SystemExit("harden_hooks step not found")
 PY
   HH_FIX="$(git_sandbox '#460 errexit fixture')"
   # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
-  # Stop hooks), the vendored helper, and all ten closure targets — the same shapes
+  # Stop hooks), the vendored helper, and every closure target in $HSH_CLOSURE_LIT (the
+  # loop below iterates that literal, so no count is transcribed here) — the same shapes
   # main carries — and deliberately does NOT track .claude/settings.local.json.
   mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
   cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null

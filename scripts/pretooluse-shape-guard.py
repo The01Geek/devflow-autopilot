@@ -7,14 +7,21 @@ A DevFlow cloud review run that emits a command in a shape the harness matcher d
 gets a terse refusal and re-emits variants of the same denied shape instead of
 switching (review run 30138268273: five `/tmp`-redirect denials, the last 228 events
 after the first). Advisory prompt prose against exactly this has already been measured
-failing. This guard is the compensating control that is NOT more prose: registered as a
-`PreToolUse` hook on the review tier through the action's `settings` input, it reads the
-Bash tool payload on stdin and, for a command any of whose statements matches a
-probe-proven denied shape, returns a `deny` decision whose `permissionDecisionReason`
-names the permitted alternative for that shape — delivered at the moment of the
-offending call, through the same tool-result channel the harness's own refusal uses
-(`permissionDecisionReason` is "shown to Claude in the tool result", per
-https://code.claude.com/docs/en/hooks).
+failing. This guard is the compensating control that is NOT more prose: run as a
+`PreToolUse` hook on the review tier, it reads the Bash tool payload on stdin and, for a
+command any of whose statements matches a probe-proven denied shape, returns a `deny`
+decision whose `permissionDecisionReason` names the permitted alternative for that shape
+— delivered at the moment of the offending call, through the same tool-result channel
+the harness's own refusal uses (`permissionDecisionReason` is "shown to Claude in the
+tool result", per https://code.claude.com/docs/en/hooks).
+
+REGISTRATION IS NOT YET WIRED (scope of this change). This change ships the guard BODY,
+its unit coverage, and its trusted-source hardening only. Nothing in the tree registers
+it: `.claude/settings.json` carries no `PreToolUse` key, and
+`.github/workflows/devflow-runner.yml` passes no `settings` input to the action. Until
+both land the guard never executes, so every runtime behavior described below is the
+contract this file implements, not behavior observable at this HEAD. Registration is
+where the two channels below become live.
 
 DENY SET (arms, not rule ids). The guard denies exactly `R1`, the `/tmp`-target arm of
 R3 (`R3-tmp`), and `R4` — every `lib/test/extract-command-shapes.py` `REVIEW_RULES` arm
@@ -38,16 +45,26 @@ that denied everything would stall a run — the `defer` majority path is what b
 REPEAT BOUND. The load-bearing assumption (a per-call remediation changes behavior where
 generic refusal did not) may fail, so the guard also carries a control: a second denial
 of the same arm within one run escalates the remediation to name the abandonment rule
-explicitly. The per-arm counts live in a run-keyed store (each hook invocation is a
-separate process) written under an exclusive lock, so parallel subagent invocations
-cannot interleave and undercount.
+explicitly. The per-arm counts live in a WORKSPACE-scoped store under `.devflow/tmp/`
+(each hook invocation is a separate process) written under an exclusive lock, so
+parallel subagent invocations cannot interleave and undercount. It is per-RUN only
+because the cloud tier gets a fresh workspace each run; the store carries no run key, so
+on a persistent local checkout the counts accumulate across sessions and the escalation
+can fire on a later session's first denial of an arm.
 
-TRUST BOUNDARY. This file is inert unless its path is in the trusted-base HOOK_TARGETS:
-the hook command the `settings` input registers points at a path the #458 harden step
-has already displaced-or-stubbed from the base ref, so a pull-request-head guard body
-never executes in the secrets-bearing review job. The committed `.claude/settings.json`
-entry arms the #458 relevance gate; the action's `settings` input makes the guard
-effective in the run. See scripts/harden-stop-hooks.sh and docs/cloud-allowlist.md.
+TRUST BOUNDARY (the contract registration must satisfy). This file is inert unless its
+path is in the trusted-base HOOK_TARGETS: the hook command a `settings` input would
+register points at a path the #458 harden step has already displaced-or-stubbed from the
+base ref, so a pull-request-head guard body never executes in the secrets-bearing review
+job. That half IS shipped here — the path is in `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`.
+The two registration channels are not, and each has a distinct job: a committed
+`.claude/settings.json` `PreToolUse` entry is what would ARM the #458 relevance gate
+(`--wired-check` substring-matches `HOOK_ENTRY_TARGETS` against the trusted base
+settings, so a guard registered only through the action's `settings` input leaves that
+gate unarmed), while the action's `settings` input is what would make the guard
+EFFECTIVE in a run. Registering through `settings` alone would run pull-request-editable
+guard code in a secrets-bearing job; both channels must land together. See
+scripts/harden-stop-hooks.sh and docs/cloud-allowlist.md.
 """
 
 from __future__ import annotations
@@ -69,9 +86,14 @@ DENY_ARMS = ("R1", "R3-tmp", "R4")
 # This table is the guard's own named table; NO remediation text is composed at runtime,
 # and it carries NO entry for an excluded arm (R2, R3-heredoc). docs/cloud-allowlist.md
 # is the AUTHORITATIVE record of each arm's permitted alternative and this table is its
-# mirror — a lib/test/run.sh assertion ties each string below to the alternative that
-# document records for its arm, so the two cannot drift apart silently (the same coupled-
-# mirror discipline the closure literals carry, applied to a scripts/-to-docs/ pair).
+# mirror — a lib/test/run.sh assertion ties each arm's row to that document's row for the
+# same arm, so the two cannot drift apart silently (the same coupled-mirror discipline the
+# closure literals carry, applied to a scripts/-to-docs/ pair). The JOIN LITERAL differs by
+# arm and is not uniformly the alternative: R1 joins on `VAR=$(cmd)` and R3-tmp on
+# `.devflow/tmp/` (both permitted alternatives), while R4 joins on the DENIED-SHAPE token
+# `python3/python/node`, because R4's alternative is a whitespace-bearing English phrase
+# that the issue-810 boundary classifies as markdown prose on the docs side. So an edit to
+# R4's alternative cell alone does not turn the suite RED; reconcile it by hand.
 REMEDIATION = {
     "R1": (
         "devflow shape guard (R1): a leading VAR=value assignment or env-prefix "
@@ -198,8 +220,9 @@ def _read_command(payload) -> str | None:
 
 
 def _bump_counts(tmp: str, arm: str, tool_use_id: str | None) -> tuple[bool, bool]:
-    """Under an exclusive lock, record one denial of `arm` in the run-keyed store and
-    return `(escalated, incremented)`.
+    """Under an exclusive lock, record one denial of `arm` in the workspace-scoped store
+    (see the module docstring's REPEAT BOUND note: no run key is carried) and return
+    `(escalated, incremented)`.
 
     - Idempotent across duplicate registration: a `tool_use_id` already recorded returns
       its stored `escalated` verdict WITHOUT incrementing the per-arm counter a second
@@ -262,9 +285,21 @@ def _bump_counts(tmp: str, arm: str, tool_use_id: str | None) -> tuple[bool, boo
 
 
 def _run() -> None:
+    # BOOKKEEPING NEVER DECIDES. The heartbeat and the counter store are telemetry; a
+    # failure in either must not change the decision. Un-guarded, an unwritable
+    # .devflow/tmp raised here — BEFORE any classification — and main()'s blanket handler
+    # turned it into a `defer`, silently disarming the guard for the whole run. So the
+    # store is best-effort and `tmp is None` simply means "classify, do not count".
     root = _repo_root()
-    tmp = _tmp_dir(root)
-    _write_heartbeat(tmp)  # every invocation, including a defer — the never-fired signal
+    try:
+        tmp = _tmp_dir(root)
+        _write_heartbeat(tmp)  # every invocation, incl. a defer — the never-fired signal
+    except Exception as exc:  # noqa: BLE001 - telemetry must never decide
+        sys.stderr.write(
+            "devflow: pretooluse-shape-guard: heartbeat/store unavailable "
+            f"({type(exc).__name__}: {exc}); classifying anyway, denials go uncounted\n"
+        )
+        tmp = None
 
     raw = sys.stdin.buffer.read()
     try:
@@ -298,7 +333,19 @@ def _run() -> None:
 
     # Deterministic tie-break: the first-sorting matched deny-set arm.
     arm = sorted(matched)[0]
-    escalated, _incremented = _bump_counts(tmp, arm, tool_use_id)
+    # The deny is already decided; counting it is telemetry. A store write that raises
+    # must cost the ESCALATION, never the decision — an obstructed counts file used to
+    # revoke an established deny and emit `defer` with no signal at all.
+    escalated = False
+    if tmp is not None:
+        try:
+            escalated, _incremented = _bump_counts(tmp, arm, tool_use_id)
+        except Exception as exc:  # noqa: BLE001 - telemetry must never decide
+            sys.stderr.write(
+                "devflow: pretooluse-shape-guard: denial counter write failed "
+                f"({type(exc).__name__}: {exc}); emitting the base remediation for "
+                f"{arm} without escalation\n"
+            )
     reason = REMEDIATION[arm]
     if escalated:
         reason = reason + _ABANDON.format(arm=arm)
@@ -312,7 +359,19 @@ def main() -> int:
     # that ran. The heartbeat is best-effort inside _run and is itself covered here.
     try:
         _run()
-    except BaseException:
+    except BaseException as exc:
+        # Name the failure on stderr. Without it a fully disarmed guard (a bash-stubbed
+        # importlib dependency raising SyntaxError, a renamed shapes symbol, a wrong
+        # repo root) is byte-identical on stdout to a clean run that matched nothing,
+        # and the heartbeat says "fired" for both — so the only signal the operator
+        # would have is the denied shapes reappearing.
+        try:
+            sys.stderr.write(
+                "devflow: pretooluse-shape-guard: failed open to defer "
+                f"({type(exc).__name__}: {exc}) — this command was NOT classified\n"
+            )
+        except Exception:
+            pass
         try:
             _emit(_decision_object("defer", None))
         except Exception:

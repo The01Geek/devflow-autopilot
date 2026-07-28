@@ -84,7 +84,8 @@
 # So the executed script is either the base-branch version or a stub that does
 # nothing; the PR-head version never runs. (An unedited PR yields byte-identical base
 # copy CONTENTS; the unconditional `chmod +x` may still surface a mode-only delta on a
-# target tracked non-executable — lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644 —
+# target tracked non-executable — lib/resolve-jq.sh, lib/resolve-bin.sh, lib/telemetry-branch.sh
+# and, since #805, lib/test/extract-command-shapes.py + lib/test/extract-command-heads.py are 100644 —
 # under core.fileMode=true. That delta is inert: the review job is read-only, so it is
 # never committed, and the exec bit is not load-bearing anyway — entries run as
 # `bash <path>`, libs are `source`d, Python deps run as `python3 <path>`.)
@@ -130,8 +131,9 @@
 set -u
 
 # ── The full transitive source/exec closure (repo-relative). ─────────────────────
-# Entry hooks — the three .claude/settings.json Stop-hook script paths. A stub here
-# is SAFE (skipping the hook is safe).
+# Entry hooks — the .claude/settings.json Stop-hook script paths plus, since #805, the
+# PreToolUse guard. A stub here is SAFE (skipping the hook is safe). COUPLED mirror of
+# devflow-runner.yml's inline ENTRY_TARGETS fallback (pinned equal in lib/test/run.sh).
 HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'
 # Libraries SOURCED INLINE (`.`/`source`) into an entry, directly or transitively. A
 # stub here would exit the SOURCING entry mid-run, so a MISSING trusted copy of one of
@@ -157,7 +159,8 @@ TRUSTED_DIR="${TRUSTED_DIR:-}"
 # the trusted-materialized helper instead of a hand-copied inline `case`, so the branch
 # selection is driven by lib/test/run.sh — the repo's "extract branch-selecting inline
 # workflow shell into a helper" convention). Given the TRUSTED base .claude/settings.json
-# on stdin or as $2, decide whether it wires any of the three entry Stop hooks.
+# on stdin or as $2, decide whether it wires any HOOK_ENTRY_TARGETS entry hook (the
+# Stop-hook entries and, since #805, the PreToolUse guard).
 #   usage : harden-stop-hooks.sh --wired-check [<settings-file>]   (stdin if no file)
 #   exit  : 0 = wired (at least one entry hook referenced) — HARDEN
 #           1 = a CLEAN "not wired" verdict (or the file is unreadable/absent) — nothing
@@ -196,9 +199,11 @@ STUB=$'#!/usr/bin/env bash\n# Installed by scripts/harden-stop-hooks.sh (#458): 
 # first Python ENTRY hook; writing the bash STUB above into a file the harness runs as a
 # Python hook raises SyntaxError on `exit 0`, failing the hook on every call instead of
 # the intended benign no-op. This Python stub emits a `defer` decision (the documented
-# non-approving default the hook contract wants) and exits 0 — but ONLY under __main__,
-# so a stubbed .py that is IMPORTED as a closure exec dep (a spec_from_file_location load
-# of extract-command-shapes.py) is an inert empty module rather than one whose top-level
+# non-approving default the hook contract wants) and exits 0 — but ONLY under __main__.
+# That guard is DEFENSIVE, not a description of any current routing: `write_stub` below
+# installs STUB_PY for a .py ENTRY target only, and every .py EXEC dep keeps the bash
+# STUB, so no file the closure imports can carry STUB_PY today. It keeps the stub inert
+# should a future .py entry target also be imported — without it a top-level
 # `sys.exit(0)` would raise SystemExit into the importer.
 STUB_PY=$'#!/usr/bin/env python3\n# Installed by scripts/harden-stop-hooks.sh (#458/#805): no trusted base copy of this\n# Python hook target was available, so it is neutralized rather than run from the PR-head\n# checkout. Fail-closed: emit a benign defer decision and exit 0, never a PR-controlled\n# body.\nimport json, sys\nif __name__ == "__main__":\n    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "defer", "permissionDecisionReason": "devflow: stubbed hook (no trusted base copy)"}}))\n    sys.exit(0)'
 

@@ -1414,8 +1414,8 @@ jobs:
           set +e
           set -uo pipefail
           # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS — the FULL
-          # transitive source/exec closure of the three .claude/settings.json Stop-hook
-          # scripts, not just the entry points (issue #458 REJECT). Byte-identical to the
+          # transitive source/exec closure of the .claude/settings.json Stop-hook scripts
+          # plus the #805 PreToolUse guard, not just the entry points (issue #458 REJECT). Byte-identical to the
           # helper's HOOK_TARGETS and pinned equal in lib/test/run.sh. Used both to
           # materialize the trusted base copies AND, on the fail-closed arm, to stub
           # every target inline. A file dropped here silently leaves that PR-head script
@@ -1425,9 +1425,14 @@ jobs:
           TRUSTED_DIR=""
           HELPER=""
           SKIP_HARDEN=0
-          # The three ENTRY hooks whose presence in the TRUSTED base .claude/settings.json
-          # is what makes this hardening relevant at all (issue #460 review, FP1).
-          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
+          # The ENTRY hooks whose presence in the TRUSTED base .claude/settings.json is
+          # what makes this hardening relevant at all (issue #460 review, FP1). COUPLED
+          # mirror of harden-stop-hooks.sh's HOOK_ENTRY_TARGETS (pinned in lib/test/run.sh)
+          # — this is the INLINE FALLBACK the gate uses when no trusted helper resolved, so
+          # a member the helper's --wired-check scans and this list omits makes the two
+          # selectors disagree on the same settings file. Since #805 the list carries the
+          # PreToolUse guard alongside the three Stop-hook entries.
+          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py"
           # Rank 1: materialize the trusted hook copies AND the trusted helper from
           # the base ref. `origin` is the upstream repo, so the base tip is the
           # maintainer-controlled tree, not the PR head. Only inside this fetch-

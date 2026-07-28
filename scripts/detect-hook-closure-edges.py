@@ -42,13 +42,16 @@ NOT through a shell spawn but through an in-process `importlib.util.spec_from_fi
 load (the idiom modules with hyphenated filenames use — scripts/pretooluse-shape-guard.py
 loads lib/test/extract-command-shapes.py this way, which loads extract-command-heads.py in
 turn). That edge runs PR-head-editable Python inside the sourcing process, so it is exactly
-as trust-sensitive as a `source`/`exec`, yet the shell-syntax regexes above cannot see it.
-`pyimport_re` matches a `spec_from_file_location(..., <path-with-a-repo-file>)` load and adds
-the referenced basename to the edge set, so the guard's own dependency edge is auditable and
-the closure the trusted-source floor certifies is one the walker can actually inspect. Its
-`.py` capture requires the path literal carry a `/` and a `.py` suffix; a fully variable-
-assembled path is not statically resolvable (the same limit `assign_var_re` documents for
-the shell forms).
+as trust-sensitive as a `source`/`exec`, yet the shell-syntax regexes above cannot see it. Three objects model
+it: `_HAS_SPEC` gates a file on containing a `spec_from_file_location` call ANYWHERE in it
+(not on the same line), and only then are that file's candidates counted; `pyjoin_re`
+captures a quoted `.py`/`.sh` BASENAME inside an `os.path.join(...)` call — the dominant
+form, since the basename normally sits on the join line rather than the spec line, and it
+requires no `/`; and `specarg_re` captures a path passed as a literal directly to
+`spec_from_file_location(...)`, and it alone requires the literal carry a `/`. So the
+guard's own dependency edge is auditable and the closure the trusted-source floor certifies
+is one the walker can actually inspect. A fully variable-assembled path is not statically
+resolvable (the same limit `assign_var_re` documents for the shell forms).
 
 Known granularity limits (documented, not silently assumed — none occur in the current
 closure; all are conservative gaps a maintainer widening the closure should keep in
@@ -64,11 +67,13 @@ mind):
     assembled dynamically (e.g. built from `$1`, a loop, or command output) the edge
     escapes. `assign_var_re` widens the common `VAR="$DIR/name.sh"` shape into scope,
     but a fully-dynamic indirection is not statically resolvable.
-  - **Python-internal spawns.** The regexes are shell-syntax-only, so a `.py` closure
-    member's `subprocess.run(["bash", "scripts/new.sh"])` (or `os.system`) spawn of a
-    repo script is NOT matched — a `.py` member is audited only for the shell-form edge
-    syntaxes above and the `importlib` load form below, not for Python-mediated
-    subprocess spawns.
+  - **Python-internal spawns, and the .py/.sh scan split.** A `.py` member is audited
+    **only** for the `importlib` load form below — the shell-form edge syntaxes above are
+    deliberately NOT run over it (they would match shell-looking tokens inside Python
+    docstrings and string literals, which are not live edges; see `refs_in`'s `is_py`
+    branch). So a `.py` closure member's `subprocess.run(["bash", "scripts/new.sh"])` (or
+    `os.system`) spawn of a repo script is NOT matched, and neither is a shell-form edge
+    that a `.py` file somehow really carried.
   - **Line-continuation source/exec.** Matching is line-based: `src_re`/`slashsh_re` and
     the exec regexes require the keyword and the path on the SAME line, so a
     backslash-continued source (a `.`/`source` whose path sits on the next physical line
@@ -104,6 +109,10 @@ assign_var_re = re.compile(
 # data file in a non-importing member is not misread as a code edge. A path passed as a
 # literal directly to `spec_from_file_location(...)` is captured too.
 _HAS_SPEC = re.compile(r'\bspec_from_file_location\b')
+# Sentinel edge returned when a `.py` member performs a `spec_from_file_location` load
+# whose target path neither capture form resolves. It is not a basename, so it can never
+# collide with a real closure member and is always reported as a violation.
+_UNRESOLVABLE_IMPORT = "UNRESOLVABLE-IMPORT (spec_from_file_location target not statically resolvable)"
 # `.*?` (non-greedy, line-scoped) so a nested call inside the join —
 # `os.path.join(os.path.dirname(os.path.abspath(__file__)), "x.py")` — does not truncate
 # the scan at its inner `)`; it stops at the FIRST quoted `.py`/`.sh` literal on the line.
@@ -180,6 +189,16 @@ def refs_in(path):
     # basename candidates are added to the edge set only then (fail toward NOT inventing an
     # edge for a data-file join in a non-importing member).
     if is_py and has_spec:
+        if not py_import_candidates:
+            # FAIL CLOSED, like the UNREADABLE arm. The file demonstrably performs a
+            # `spec_from_file_location` load — it executes some other repo file in-process
+            # — but neither capture form resolved its path (a `Path(__file__).parent /
+            # name` join, an f-string, a variable basename, a multi-line join). Returning
+            # an empty set here would report the member CLEAN precisely when the walker
+            # cannot see the edge it exists to audit, which is how an unmodelled import
+            # leaves PR-head-editable Python running inside the floor. Surface it as a
+            # violation the caller reports instead.
+            return {_UNRESOLVABLE_IMPORT}
         out |= py_import_candidates
     return out
 

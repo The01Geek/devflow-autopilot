@@ -300,14 +300,32 @@ fi
 # and parse the 2.4 MB execution artifact by hand. The commands are the engine's OWN
 # emitted Bash, not arbitrary prompt/repo content, but they can still carry injected text,
 # so this layer only bounds them (per-command cap + a total cap, each with an explicit
-# truncation marker) and emits a compact SINGLE-LINE JSON object; the ::-workflow-command
-# and fence-breaking-backtick neutralization and the fenced rendering happen at the
-# devflow-review.yml consumer. Single-line so devflow-runner.yml can carry it through
-# $GITHUB_OUTPUT as one JSON-encoded value with no delimiter-injection surface.
+# truncation marker) and emits a compact SINGLE-LINE JSON object. Single-line so a
+# workflow can carry it through $GITHUB_OUTPUT as one JSON-encoded value with no
+# delimiter-injection surface.
+#   NO NEUTRALIZING CONSUMER SHIPS YET. The ::-workflow-command and fence-breaking-
+#   backtick neutralization and the fenced rendering are the RENDERING layer's job, and
+#   the devflow-runner.yml producer + devflow-review.yml check-run consumer that would
+#   perform them are NOT in the tree at this revision (grep: this file and lib/test/run.sh
+#   are the only mentions of permission_denials_commands). So this field currently carries
+#   un-neutralized text, and any consumer added later MUST neutralize before rendering.
+#   Treat that as a precondition on the consumer, not a property of this output.
+#   NOTE the redaction consequence: docs/execution-file-shape.md's AC2 statement that
+#   every string leaf is dropped now has exactly this one disclosed exception.
 #   present  -> {"commands":[...], "total":N, "truncated":bool}
 #   absent   -> {"commands":[], "total":0, "truncated":false}  (a run that denied nothing)
 #   unavailable -> the literal `unavailable` (jq failed / file unreadable)
-DENIED_COMMANDS="$("$DEVFLOW_JQ" -c '
+# SLURP (`-s`) like every other pass in this helper. Without it, jq runs the filter ONCE
+# PER RECORD on the `jsonl` encoding — which this helper explicitly detects — emitting one
+# object per record: the labeled line then carries the FIRST record's (usually empty)
+# result, publishing `total: 0` for a run that denied commands, and every later record's
+# object lands as an extra unlabeled line, defeating the single-line/$GITHUB_OUTPUT
+# contract above. Slurped, `..` walks the whole array and all three encodings agree.
+# rc is read by the `if !` itself (never a captured status a later statement reads): jq
+# exits non-zero on a truncated or corrupt file AFTER printing the records it did parse,
+# so a bare `|| true` would publish a PARTIAL extraction that looks complete. An
+# unestablished extraction is `unavailable`, never a plausible-looking short list.
+if ! DENIED_COMMANDS="$("$DEVFLOW_JQ" -cs '
     def cap: if (type == "string") and (length > 500)
              then (.[0:500] + " …[per-command-truncated]") else . end;
     [ .. | objects | (.permission_denials? // empty)
@@ -317,7 +335,16 @@ DENIED_COMMANDS="$("$DEVFLOW_JQ" -c '
     | { commands: ($all[0:40]),
         total: ($all | length),
         truncated: (($all | length) > 40) }
-  ' "$FILE" 2>/dev/null || true)"
+  ' "$FILE" 2>/dev/null)"; then
+  DENIED_COMMANDS="unavailable"
+fi
+# A multi-line value would break the single-line contract even if jq exited 0, so treat
+# anything but exactly one line as unestablished rather than emitting it. Compared with a
+# bash builtin (a $'\n' literal in a `case` pattern) — never a `tr`/`wc` pipeline, since
+# this value decides what is EMITTED and a missing PATH tool must not change it.
+case "$DENIED_COMMANDS" in
+  *$'\n'*) DENIED_COMMANDS="unavailable" ;;
+esac
 [ -n "$DENIED_COMMANDS" ] || DENIED_COMMANDS="unavailable"
 
 printf '%s\n' "$_HEADER"
