@@ -319,9 +319,12 @@ echo "#810 pin-corpus wording-only authoring gate"
 # issue-#870 baseline (CI run 30295235589, post-#866 tree), this file was the single
 # largest serial block in the required CI check, and its heaviest class pays a
 # git-init-and-commit corpus fixture per test. What makes sharding safe here is the
-# tests' mutual independence — no shared filesystem or process-global state; every
-# filesystem-touching test allocates its own temp dir and passes an explicit cwd — a
-# property test_pin_corpus_lint.py's own docstring states as a requirement.
+# tests' mutual independence — no shared filesystem state; every filesystem-touching
+# test allocates its own temp dir and passes an explicit cwd — a property
+# test_pin_corpus_lint.py's own docstring states as a requirement. The modules those
+# tests drive do hold process-global parse memos, which that docstring covers in the
+# same place: they are keyed on source name and text alone, so a shard's ordering
+# cannot change an outcome. Keep the two statements together.
 _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
   return 1
