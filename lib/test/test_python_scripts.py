@@ -8477,7 +8477,6 @@ _sc_planted = {
     "R2": "cd /tmp",
     "R3": "printf hi > /tmp/devflow-678.txt",
     "R4": "python3 -c pass",
-    "R5": 'if WP=$(.devflow/vendor/devflow/scripts/workpad.py id 1); then :; fi',
     "IR1": 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR2": 'while read -r n; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR3": 'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)',

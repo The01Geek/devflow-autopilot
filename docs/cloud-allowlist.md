@@ -116,27 +116,31 @@ from the action's execution file (`permission_denials` + recorded `tool_use`
 calls) and on-disk side-effect files. **The model's own text output is never the
 measurement.**
 
-The abstract review-tier rule set is R1–R5 (leading-assignment / leading-`cd` /
-`/tmp`-redirect / heredoc-write / interpreter-head families, plus **R5**, an
-`if`/`elif` command-substitution *condition* — issue #857), enforced by
-`extract-command-shapes.py`. R5 is a **discipline-only** rule, not probe-backed
-when it lands (the same posture as the implement-tier IR3): the review engine's
-old live-progress-comment seed branched on `elif WP=$(workpad.py id …); then`
-inside a `case`/`if`/`elif` compound, and the cloud review matcher refused that
-compound outright — **measured 8/8 refusals across 6 PRs** (issue #857), each with
-the harness string `Contains shell syntax (string) that cannot be statically
-analyzed`. The fix moved that find-or-create decision into the bundled helper
+The abstract review-tier rule set is R1–R4 (leading-assignment / leading-`cd` /
+`/tmp`-redirect / heredoc-write / interpreter-head families), enforced by
+`extract-command-shapes.py`. A fifth rule, **R5** — an `if`/`elif`
+command-substitution *condition* (issue #857) — shipped as a **discipline-only**
+rule (not probe-backed when it landed, the same posture as the implement-tier IR3)
+and was **retired in issue #869**: the review engine's old live-progress-comment
+seed branched on `elif WP=$(workpad.py id …); then` inside a `case`/`if`/`elif`
+compound, and the cloud review matcher refused that compound outright —
+**measured 8/8 refusals across 6 PRs** (issue #857), each with the harness string
+`Contains shell syntax (string) that cannot be statically analyzed`. The fix moved
+that find-or-create decision into the bundled helper
 `scripts/seed-review-progress.sh` (a single leading-token statement the matcher
-permits), and R5 guards against reintroducing the *bare* `if VAR=$(…)` /
-`elif VAR=$(…)` condition-substitution spelling. Two sibling spellings are outside
-its anchored pattern and are stated as such in the helper's own NON-GOALS block —
-the negated `if ! VAR=$(…)` (exempt by decision: it is the repo's #284-mandated
-idiom, and no rule reports it) and a condition behind a preceding test
-(`elif [ … ] && VAR=$(…)`, a coverage limit) — so R5 is not a complete guard
-against every condition-substitution spelling, only against the measured one. Four new `matcher-probe.yml` review rows (a `;`-joined multi-statement
-command, a multi-line `if`/`else`/`fi`, an `if VAR=$(granted-helper …)` condition,
-and a `printf` with a double-quoted expansion) will, on a PERMITTED result for the
-`if VAR=$(…)` row, retire R5 in a follow-up. Notable recorded verdicts:
+permits), and R5 guarded against reintroducing the *bare* `if VAR=$(…)` /
+`elif VAR=$(…)` condition-substitution spelling as a stop-gap until the shape
+could be measured in isolation. Four `matcher-probe.yml` review rows added in
+PR #864 (a `;`-joined multi-statement command, a multi-line `if`/`else`/`fi`, an
+`if VAR=$(granted-helper …)` condition — **Shape 18** — and a `printf` with a
+double-quoted expansion) supplied that measurement. Shape 18 recorded
+**PERMITTED** (review `probe` job, run **30310938175**, 2026-07-27): the condition
+shape is cloud-permitted, so R5 — the finder, its `REVIEW_RULES` membership, its
+planted control, and its `run.sh` assertions — was removed (issue #869). The
+retirement does **not** re-permit the shape in `skills/review/**`: the seed no
+longer uses it (the helper extraction stands on its own merits), and the removed
+rule only ever guarded a stop-gap idiom the engine had already abandoned. Notable
+recorded verdicts:
 
 | Candidate | Verdict | Note |
 | --- | --- | --- |
@@ -144,6 +148,7 @@ and a `printf` with a double-quoted expansion) will, on a PERMITTED result for t
 | `Write(/tmp/**)` | DENIED | Genuine out-of-workspace denial. |
 | `Bash(scripts/*.sh:*)` (trailing-extension glob, issue #412) | DENIED — run **29135163829** (PR #413) | Even with the glob granted, `scripts/config-get.sh …` was refused (same DENIED as the ungranted control) → the trailing-extension glob does **not** match a repo-root leading token; the implement profile keeps the enumerated `*/<basename>.sh` helper globs; **no migration to `scripts/*.sh`**. |
 | `Write(.devflow/tmp/**)` | PERMITTED | Landed as a grant from the probe's **first run, 29111394360**. |
+| Shape 18 — `if VAR=$(granted-helper …)` condition-substitution (issue #857) | PERMITTED — run **30310938175** (review `probe` job, 2026-07-27) | The `if`/`elif` command-substitution condition shape is cloud-permitted → **retired desk-lint rule R5** (issue #869). Does not re-permit the shape in `skills/review/**` (the seed is already helper-extracted). |
 
 Positive-control note (issue #477): the review verdict counts a
 `permission_denials` match as DENIED **ahead of** `tool_use`, so an unrelated
@@ -184,7 +189,7 @@ The read-write `devflow-implement` profile is a **separate allowlist** with its
 **own** probed denied shapes — **a shape proven on the review tier is unproven
 here** — so the `implement-probe` job in `matcher-probe.yml` covers it
 independently. Its abstract rule set is IR1 / IR2 / IR3 (distinct from review's
-R1–R5), enforced by `lib/test/extract-command-shapes.py --profile implement`
+R1–R4), enforced by `lib/test/extract-command-shapes.py --profile implement`
 against `skills/implement/SKILL.md`, `skills/implement/phases/*.md`, and
 `skills/implement/references/*.md`.
 
