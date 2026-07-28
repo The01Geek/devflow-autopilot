@@ -18617,6 +18617,51 @@ with tempfile.TemporaryDirectory() as _cvp_td:
     assert_eq("#868 helper: an unreadable body file exits 3 (unestablished), never 0",
               3, _cvp_rc)
 
+# --- an EMPTY body is unestablished, never a vacuous "no premises" pass ------
+# `total=0` on an empty read would say "this issue asserts no premises" about a body
+# nothing was ever read from — the two measurements must not collapse.
+_cvp_rc, _cvp_out = _cvp_run('   \n\n  \n', _CVP_TREE)
+assert_eq("#868 helper: an empty/whitespace-only body exits 3, not a total=0 clean pass",
+          3, _cvp_rc)
+assert_eq("#868 helper: the empty-body arm names its own cause rather than reusing the "
+          "unreadable one",
+          True, 'reason=body-empty' in _cvp_out)
+
+# --- a cited path escaping the repository root is REFUSED, not adjudicated ---
+# The path comes from third-party text. `Path(root) / "/etc/passwd"` discards root
+# entirely under pathlib join semantics, and `../..` walks out of it — either would
+# turn the helper into a read oracle over files outside the tree.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `/etc/passwd` — *"root:x:0:0:root:/root"*\n', _CVP_TREE)
+assert_eq("#868 helper: an ABSOLUTE cited path is not treated as a repository path at "
+          "all (pathlib join would discard the repo root entirely)",
+          True, 'handle=quote' in _cvp_out and 'state=unestablished' in _cvp_out)
+
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `../../../etc/passwd` — *"root:x:0:0:root:/root"*\n', _CVP_TREE)
+assert_eq("#868 helper: a traversing cited path is REFUSED rather than adjudicated — "
+          "the helper never opens a file outside the tree it was pointed at",
+          True, 'state=unestablished' in _cvp_out
+          and 'resolves outside the repository' in _cvp_out)
+assert_eq("#868 helper: a refused traversing path is not reported as a holding premise",
+          False, 'state=holds' in _cvp_out)
+
+# --- a bad invocation is UNESTABLISHED, never a refutation ------------------
+# argparse's own failure exit is 2, which is this helper's "a premise was REFUTED"
+# code — a caller mistyping a flag would otherwise be told the issue carries a stale
+# premise the helper never looked at.
+try:
+    with contextlib.redirect_stderr(io.StringIO()) as _cvp_err:
+        check_verified_premises.main(['--not-a-real-flag'])
+    _cvp_rc = 0
+except SystemExit as _cvp_exc:
+    _cvp_rc = _cvp_exc.code
+assert_eq("#868 helper: a bad invocation exits 3 (unestablished), never 2 — it must not "
+          "be mistakable for a refuted premise",
+          3, _cvp_rc)
+assert_eq("#868 helper: the bad-invocation exit names its own cause",
+          True, 'reason=bad-invocation' in _cvp_err.getvalue())
+
 # --- a mixed body reports every bullet, and refuted dominates the exit -------
 _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `docs/notes.md` — *"The gate exited 2 with exactly that message."*\n'

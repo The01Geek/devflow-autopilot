@@ -668,3 +668,33 @@ Route by capability (the deferral arms below are the **cloud-tier, `DEVFLOW_APP_
 - **Cloud tier, `DEVFLOW_APP_ID` empty, every in-scope AC is workflow-resident** → there is no shippable subset, so take the Phase 1 Blocked path instead of opening a near-empty PR: `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "issue-claim audit (execution-capability): every in-scope acceptance criterion requires editing .github/workflows/, which this cloud run's GITHUB_TOKEN fallback (no workflow-capable App token; DEVFLOW_APP_ID unset) cannot push — this issue must be implemented by a workflows-capable run (a human/PAT, or a cloud run with the DevFlow App configured). Re-dispatch there; no PR opened"`, then emit the 👎 outcome reaction (see *Outcome reaction* in the Workpad Reference) and stop the run.
 
 **Boundary-assumption caveat (state it in the note).** The deferral fires on the two observable signals `GITHUB_ACTIONS=true` + empty `DEVFLOW_APP_ID`, which the pass reads as the `GITHUB_TOKEN` fallback (github-actions[bot], no `workflows` scope) — it cannot see the actual credential, only those signals. A consumer whose cloud run *does* carry that scope but does **not** set `DEVFLOW_APP_ID` (a bespoke PAT-seeded checkout) is **spuriously deferred**: this pass keys the deferral on `GITHUB_ACTIONS=true` + an empty `DEVFLOW_APP_ID` and **cannot observe the PAT's actual scope**, so such a run presents identically to the `GITHUB_TOKEN` fallback and takes the *defer* arm even though its credential *can* push `.github/workflows/`. A consumer in that position **suppresses** the spurious deferral by overriding this pass via `.devflow/prompt-extensions/implement.md` (the sanctioned additive surface) — the override forces the *proceed* arm; do **not** add a config key for it. Conversely, a consumer that sets `DEVFLOW_APP_ID` for an App **without** the `workflows` scope would *not* defer here and its workflow push would then fail at push time — a consumer-misconfiguration whose failure is loud and recoverable (the pass's own stated safe direction), not a silent split. Name the observed `DEVFLOW_APP_ID`/tier signals in the cloud-tier note so the deferral reads as an auditable plan-time decision, not a silent split.
+
+#### Pass 6 — Verified-premise re-check
+
+A `Verified:` bullet is the single most load-bearing line in a DevFlow issue: it is what licenses this run to *skip its own investigation*. Those bullets were true when the issue was drafted, and before this pass existed nothing re-checked them at implement time — so a premise that has since become false silently converts "go and check" into "this was already checked", and the run builds confidently on top of it. Issue #857 is the worked case: three of its premises were false by the time #864 implemented it and two acceptance criteria were literally unimplementable, costing two review rounds.
+
+**Scope: every `Verified:` bullet in the issue body**, not only the ones the plan expects to lean on. That is a deliberate decision, not an oversight — the run cannot know in advance which premise a later phase will rest on.
+
+**Mechanism.** Run the bundled helper over the §1.1 cache — no re-fetch (issue #693):
+
+```bash
+DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/check-verified-premises.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ISSUE_NUMBER.md"
+```
+
+On the degraded arm where §1.1 wrote no cache, write the body you fetched in §1.1's degraded fallback to a file and pass that path instead. On a local runner that refuses the direct helper path, use the documented fallback `python3 <resolved helper path> --body-file …`.
+
+The helper prints one `bullet=<n> handle=<path-quote|path|quote|command|none> state=<holds|refuted|unestablished> detail=…` line per bullet, then a `VERIFIED_PREMISES total=… holds=… refuted=… unestablished=…` summary. Exit **0** = nothing refuted (this includes a body with no bullets, and a body whose bullets are merely unestablished); exit **2** = at least one premise REFUTED; exit **3** = the measurement could not be established — the body could not be read, it was empty, or the invocation was bad.
+
+Route by outcome:
+
+- **Exit 0 with `total=0`** → record the falsifiable zero-findings note: `--note "issue-claim audit (verified-premise): no Verified: bullets found in the issue body — pass complete"`.
+- **Exit 0** → record the clean confirmation naming the tallies: `--note "issue-claim audit (verified-premise): re-checked {N} Verified: bullet(s) at HEAD — {H} hold, {U} unestablished; no premise refuted"`.
+- **Exit 2 (a REFUTED premise)** → the issue's claim was wrong, so this is issue-accuracy feedback, not a hard stop: `--reflection-kind issue-accuracy --reflection "issue-claim audit (verified-premise): bullet {n} is REFUTED at HEAD ({detail}) — discarding that premise and investigating the surface directly"`. **Discard the refuted premise** and investigate that surface yourself from Phase 2 onward; never build on it. This arm does **not** Block the run — a stale premise is recoverable by investigation, and blocking here would stop far more runs than it saves.
+- **Exit 3, a refusal, or no output at all** → the measurement was never established, so fail closed to ordinary investigation: `--reflection-kind note --reflection "issue-claim audit (verified-premise): the re-check could not be established ({cause}) — every Verified: bullet is treated as unverified and its premise re-investigated from first principles"`. Never read an unestablished measurement as a clean pass.
+
+**`handle=none` / `state=unestablished` bullets are undecided, not refuted.** They restore exactly the state the run would have been in had the bullet never existed — go and check. That is the fail-closed direction.
+
+**Security boundary.** The helper never executes a command drawn from the issue body (third-party text), so a `handle=command` bullet is *reported* for you to re-run under your own judgment.
+
+This pass reads the tree to adjudicate a claim, so it obeys §1.6's **Fresh-tree verification** rules above (the read-target rule and the cross-pass-coherence rule) exactly like every other pass here — in particular, a bullet must never be reported as refuted off a stale checkout, the #322→#325 false-refutation shape.

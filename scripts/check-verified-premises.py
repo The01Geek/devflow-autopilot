@@ -61,8 +61,10 @@ Exit codes:
      bullets at all, and a body whose bullets are merely unestablished)
   2  at least one premise was REFUTED — one refutation dominates the exit code
      even when other bullets hold
-  3  the measurement could not be established at all (the body file could not
-     be read); never conflated with a clean pass
+  3  the measurement could not be established at all — the body file could not
+     be read, it was empty, or the invocation itself was bad. Never conflated
+     with a clean pass, and deliberately distinct from 2: a caller who could
+     not run the check has not thereby discovered a stale premise.
 """
 
 import argparse
@@ -123,12 +125,33 @@ def _looks_like_path(span: str) -> bool:
     Requires no whitespace plus either a directory separator or a file
     extension, which excludes the flags, identifiers and literals that make up
     the overwhelming majority of backticked spans in an issue body.
+
+    An **absolute** path is rejected here rather than adjudicated. The span is
+    third-party text, and `Path(root) / "/etc/passwd"` discards `root` entirely
+    under pathlib's join semantics — so an absolute span would silently point
+    the read outside the tree. It is not a repository path, so it is not a
+    handle. `_resolves_inside` closes the traversal half of the same hole.
     """
     if not span or any(c.isspace() for c in span):
         return False
-    if span.startswith('-'):
+    if span.startswith('-') or span.startswith('/') or span.startswith('~'):
         return False
     return '/' in span or re.search(r'\.[A-Za-z0-9]{1,6}$', span) is not None
+
+
+def _resolves_inside(root: Path, rel: str) -> bool:
+    """True when `rel` stays inside `root` once `..` segments are resolved.
+
+    The cited path comes from the issue body, so `../../../etc/passwd` is an
+    input this helper must expect rather than trust. Escaping reads are
+    refused outright: a premise about a file outside the repository is not a
+    premise about the tree this run builds on.
+    """
+    try:
+        candidate = (root / rel).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return candidate == root or root in candidate.parents
 
 
 def _is_command(span: str) -> bool:
@@ -187,6 +210,15 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             'none': 'no re-derivation handle in the bullet',
         }[handle]
 
+    escaping = [p for p in paths if not _resolves_inside(root, p)]
+    if escaping:
+        # Not refuted — refused. A premise pointing outside the repository is
+        # not a premise about the tree this run builds on, and the helper
+        # declines to read it rather than answering about a file it should
+        # never have opened.
+        return 'unestablished', ('cited path resolves outside the repository, '
+                                 'refused: ' + ','.join(escaping))
+
     missing = [p for p in paths if not (root / p).is_file()]
     if missing:
         return 'refuted', 'cited path absent from the tree: ' + ','.join(missing)
@@ -211,8 +243,23 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
                        + ','.join(paths))
 
 
+class _ArgParser(argparse.ArgumentParser):
+    """An argument parser that fails as UNESTABLISHED, not as a refutation.
+
+    `argparse` exits **2** on a bad invocation, and 2 is this helper's
+    "a premise was REFUTED" code — so a caller that mistypes a flag would be
+    told the issue contains a stale premise it never looked at. A bad
+    invocation is a measurement that never happened, which is exactly what
+    exit 3 means here.
+    """
+
+    def error(self, message):
+        self.exit(3, f'VERIFIED_PREMISES unavailable reason=bad-invocation '
+                     f'detail={message}\n')
+
+
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
+    parser = _ArgParser(
         description='Re-check an issue body\'s Verified: premises against the tree.')
     parser.add_argument('--body-file', required=True,
                         help='path to the issue body (the Phase 1.1 cache)')
@@ -227,6 +274,15 @@ def main(argv=None) -> int:
         # Unestablished, never a clean pass: a body that could not be read is
         # not a body with no stale premises in it.
         print(f'VERIFIED_PREMISES unavailable reason=body-unreadable detail={exc}')
+        return 3
+
+    if not body.strip():
+        # An empty body and a body carrying no bullets are NOT the same
+        # measurement, and collapsing them is the fail-open this guard exists
+        # to stop: `total=0` would read as "this issue asserts no premises"
+        # when in fact nothing was ever read.
+        print('VERIFIED_PREMISES unavailable reason=body-empty '
+              'detail=the body file is empty or whitespace-only')
         return 3
 
     root = Path(args.repo_root).resolve() if args.repo_root else _default_root()
