@@ -236,17 +236,36 @@ def _path_strength(span: str) -> str:
     outside the tree (`_resolves_inside` closes the traversal half of the same
     hole). A `-` prefix is flag-shaped and a `~` prefix is home-relative;
     neither is a repository path. A **glob** span names a set rather than a
-    path and so is not adjudicable by an existence check at all.
+    path and so is not adjudicable by an existence check at all. A span
+    carrying a **URL scheme** (`https://…`) is likewise not a repository path,
+    and its slashes would otherwise read as the strongest possible path claim.
+
+    A slash alone is not enough for `strong`. Issue bodies carry slash-bearing
+    NON-path tokens routinely — a git ref (`origin/main`, `feature/x`) most of
+    all — and adjudicating one as a strong path sends a premise that still
+    holds to the missing-strong-path arm, which **refutes**: the run discards a
+    true premise and files inaccuracy feedback against the issue, the exact
+    harm this whole asymmetry exists to prevent. So `strong` additionally
+    requires the span to look like a path at its tail: a filename-shaped final
+    segment (a dotted extension) or an explicit trailing `/` marking a
+    directory. Everything else slash-bearing degrades to `weak`, which can
+    still be read and adjudicated but can never refute. The cost is that a
+    genuinely-deleted extensionless directory cited without a trailing slash
+    now resolves `unestablished` rather than `refuted` — the deliberate
+    direction of this module's asymmetry, where an unrefuted true premise is
+    always preferred to a refuted one that holds.
     """
     if not span or any(c.isspace() for c in span):
         return 'no'
     if span.startswith('-') or span.startswith('/') or span.startswith('~'):
         return 'no'
-    if _GLOBBY.search(span):
+    if _GLOBBY.search(span) or '://' in span:
         return 'no'
     bare, _ = _split_locator(span)
     if '/' in bare:
-        return 'strong'
+        if bare.endswith('/') or _EXTENSION.search(bare.rsplit('/', 1)[-1]):
+            return 'strong'
+        return 'weak'
     return 'weak' if _EXTENSION.search(bare) else 'no'
 
 
@@ -374,8 +393,9 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         if strong:
             return 'refuted', 'cited path absent from the tree: ' + ','.join(strong)
         return 'unestablished', (
-            'cited span looks filename-shaped but names no directory, so its '
-            'absence is not evidence of a stale premise: '
+            'no cited span is a strong path claim (each is filename-shaped '
+            'without a directory, or slash-bearing without a path-shaped '
+            'tail), so its absence is not evidence of a stale premise: '
             + ','.join(p for _, p in missing))
 
     located = [p for _, p, suffix in paths if suffix]
@@ -424,12 +444,21 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             'no cited path could be read to re-derive the quotation from: '
             + ','.join(skipped))
 
-    unresolved, elided_unresolved = [], []
+    unresolved, elided_unresolved, unadjudicable = [], [], []
     for quote in quotes:
         elided = _ELISION.search(quote) is not None
         fragments = [f for f in (normalize(part)
                                  for part in _ELISION.split(quote)) if f]
         if not fragments:
+            # A quotation long enough to clear `_QUOTED`'s floor but composed
+            # ONLY of markdown emphasis and whitespace (`"********"`) normalizes
+            # to nothing, so there is no text to search for. Skipping it would
+            # drop the quote dimension silently and — when it is the bullet's
+            # only quotation — let a present path alone mint `holds`: a FALSE
+            # CLEAN from a quotation carrying no adjudicable content, the same
+            # harm the short-fragment floor below is guarded against. It
+            # adjudicates nothing, so it decides nothing.
+            unadjudicable.append(quote)
             continue
         if elided and any(len(f) < _MIN_FRAGMENT for f in fragments):
             # An elided quotation is adjudicated fragment by fragment, and a
@@ -465,7 +494,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         # only the elided whole did not.)
         (elided_unresolved if elided else unresolved).append(quote)
 
-    if not unresolved and not elided_unresolved:
+    if not unresolved and not elided_unresolved and not unadjudicable:
         if located:
             # The file is present and every quotation resolves, but the bullet
             # also cited a location inside the file (a node id, an anchor, a
@@ -481,10 +510,18 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         return 'holds', detail
 
     if not unresolved:
-        return 'unestablished', (
-            'an ELIDED quotation did not resolve as a whole; an elided quote is '
-            'not verbatim, so this is not evidence of a stale premise: '
-            + ' | '.join(elided_unresolved))
+        reasons = []
+        if elided_unresolved:
+            reasons.append(
+                'an ELIDED quotation did not resolve as a whole; an elided '
+                'quote is not verbatim, so this is not evidence of a stale '
+                'premise: ' + ' | '.join(elided_unresolved))
+        if unadjudicable:
+            reasons.append(
+                'a quotation carried no adjudicable text once markdown '
+                'emphasis and whitespace were normalized away, so it was '
+                'never searched for: ' + ' | '.join(unadjudicable))
+        return 'unestablished', '; '.join(reasons)
 
     # Same asymmetry as the missing-path arm: a quotation that fails to resolve
     # in a STRONG path is a refutation, but in a weak one it is only evidence
@@ -502,6 +539,12 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     if adjudicated_strong:
         detail = ('quoted sentence no longer occurs in ' + ','.join(readable)
                   + ': ' + ' | '.join(unresolved))
+        if unadjudicable:
+            # The refutation rests on the quotation that MISSED, not on the one
+            # that carried no adjudicable text — disclose the latter rather
+            # than letting the verdict read as a complete adjudication.
+            detail += ('; not adjudicated (no searchable text): '
+                       + ' | '.join(unadjudicable))
         if skipped:
             # Symmetric with the `holds` arm: a verdict reached over only part
             # of the citation set says so, rather than reading as a complete
@@ -519,8 +562,8 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             detail += '; not adjudicated: ' + ','.join(skipped)
         return 'unestablished', detail
     return 'unestablished', (
-        'quoted sentence does not occur in the filename-shaped span cited, '
-        'which names no directory: ' + ','.join(readable))
+        'quoted sentence does not occur in the cited span(s), none of which is '
+        'a strong path claim: ' + ','.join(readable))
 
 
 class _ArgParser(argparse.ArgumentParser):

@@ -39,9 +39,10 @@ bullet against the tree the run will build on.
   adjudicated claim refutes — a strongly-cited repository path absent from the tree, or a quoted
   sentence that no longer occurs in the file it cites. Everything the helper would have to guess at
   resolves to `unestablished` instead: a cited directory, a glob, a `::`/anchor/line locator, a
-  filename-shaped identifier that names no directory, an elided quotation whose fragments do not
-  resolve, an unreadable cited file, and a path resolving outside the repository (refused, not
-  refuted). A `path` handle never reports `holds` either — the path's presence is checkable, but
+  span that is not a strong path claim (a filename-shaped identifier naming no directory, or a
+  slash-bearing token such as a git ref whose tail is not path-shaped), a URL, an elided quotation
+  whose fragments do not resolve, a quotation carrying no adjudicable text at all, an unreadable
+  cited file, and a path resolving outside the repository (refused, not refuted). A `path` handle never reports `holds` either — the path's presence is checkable, but
   presence is not the premise.
 - **Routing (four arms).** Exit **0** with zero bullets records the falsifiable zero-findings
   `## Progress` note; exit **0** with bullets records the clean confirmation naming the tallies;

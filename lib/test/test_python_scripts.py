@@ -18716,7 +18716,7 @@ for _cvp_weak in ('spec.loader', 'p.name'):
     assert_eq(f"#868 helper: {_cvp_weak} takes the weak-span arm by its own detail, and "
               "is never REFUTED for naming no file",
               True, 'state=unestablished' in _cvp_out
-              and 'names no directory' in _cvp_out)
+              and 'strong path claim' in _cvp_out)
     assert_eq(f"#868 helper: {_cvp_weak} does not force a non-clean exit", 0, _cvp_rc)
 
 # The same asymmetry governs the QUOTE arm, on a weak span that DOES exist.
@@ -18724,7 +18724,7 @@ _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `config.json` — *"a sentence nobody ever wrote"*\n')
 assert_eq("#868 helper: a quote that misses inside a directory-less filename-shaped "
           "span is unestablished by its own detail, not refuted",
-          True, 'state=unestablished' in _cvp_out and 'names no directory' in _cvp_out)
+          True, 'state=unestablished' in _cvp_out and 'strong path claim' in _cvp_out)
 assert_eq("#868 helper: the weak quote-arm miss does not force a non-clean exit",
           0, _cvp_rc)
 
@@ -18741,7 +18741,7 @@ assert_eq("#868 helper: a directory-bearing path that names no file still REFUTE
 # refute a miss in a co-cited WEAK span — refuting on a citation that
 # adjudicated nothing, the harm the weak-span arm above exists to prevent.
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `lib/test` and `config.json` — *"a sentence nobody wrote"*\n')
+    '**Verified:** `lib/test/` and `config.json` — *"a sentence nobody wrote"*\n')
 assert_eq("#868 helper: a quote miss in a WEAK co-cited file is not refuted just "
           "because a cited DIRECTORY classified as strong — a skipped path "
           "adjudicated nothing",
@@ -18751,6 +18751,105 @@ assert_eq("#868 helper: the skipped-strong quote miss does not force a non-clean
           0, _cvp_rc)
 assert_eq("#868 helper: that verdict still discloses the citation it could not "
           "adjudicate", True, 'not adjudicated' in _cvp_out and '(directory)' in _cvp_out)
+
+# --- a slash alone does not make a strong path claim -------------------------
+# Issue bodies carry slash-bearing NON-path tokens routinely. Classifying one as
+# strong sent a premise that still holds to the missing-strong-path arm, which
+# REFUTES — telling the run to discard a true premise and file inaccuracy
+# feedback against the issue. The assertions pin the discriminating weak-arm
+# detail, not merely the absence of `refuted`.
+for _cvp_ref in ('origin/main', 'feature/some-branch',
+                 'https://example.com/docs/readme.md'):
+    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_ref}` was the base.\n')
+    assert_eq(f"#868 helper: the slash-bearing non-path token {_cvp_ref} is never "
+              "REFUTED for being absent from the tree",
+              True, 'state=refuted' not in _cvp_out)
+    assert_eq(f"#868 helper: {_cvp_ref} does not force a non-clean exit", 0, _cvp_rc)
+# A git ref is still adjudicated as a (weak) path claim, so it takes the weak
+# arm by its own detail rather than falling out of path detection entirely.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `origin/main` — *"a sentence nobody ever wrote"*\n')
+assert_eq("#868 helper: a git ref takes the weak-span arm by its own detail",
+          True, 'handle=path-quote' in _cvp_out
+          and 'state=unestablished' in _cvp_out
+          and 'strong path claim' in _cvp_out)
+# ...while a URL is refused as a path claim outright — its slashes would
+# otherwise read as the strongest possible path claim.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `https://example.com/a/gone.md` — *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a URL span mints no path handle at all",
+          True, 'handle=quote' in _cvp_out and 'handle=path' not in _cvp_out)
+# The positive controls: a filename-shaped tail and an explicit trailing slash
+# both still earn `strong`, so the tightening is a scoped narrowing rather than
+# a switch that disarmed the missing-path guard.
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `lib/test/gone.py` is intact.\n')
+assert_eq("#868 helper: a slash span with a filename-shaped tail is still strong "
+          "and still refutes when absent", 2, _cvp_rc)
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `lib/gone/` still holds the pins.\n')
+assert_eq("#868 helper: a slash span with an explicit trailing slash is still strong "
+          "and still refutes when absent", 2, _cvp_rc)
+
+# --- a quotation with no adjudicable text decides nothing --------------------
+# A span long enough to clear `_QUOTED`'s floor but composed only of markdown
+# emphasis and whitespace normalizes to ZERO fragments. Skipping it silently
+# dropped the quote dimension and — when it was the bullet's only quotation —
+# let a present path alone mint `holds`: a FALSE CLEAN from a quotation
+# carrying nothing to search for.
+for _cvp_empty in ('********', '*  *  * *'):
+    _cvp_rc, _cvp_out = _cvp_run(
+        f'**Verified:** `docs/notes.md` — *"{_cvp_empty}"*\n')
+    assert_eq(f"#868 helper: the content-free quotation \"{_cvp_empty}\" never mints "
+              "holds off the co-cited path's mere presence",
+              True, 'state=holds' not in _cvp_out
+              and 'state=unestablished' in _cvp_out
+              and 'no adjudicable text' in _cvp_out)
+    assert_eq(f"#868 helper: the content-free quotation \"{_cvp_empty}\" is not a "
+              "refutation either", True, _cvp_rc != 2)
+# A REAL quote miss alongside a content-free one still refutes on the miss, and
+# discloses the un-adjudicated quotation rather than reading as complete.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"********"* and *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a content-free quotation does not suppress a genuine "
+          "strong-path refutation, and is disclosed in its detail",
+          True, 'state=refuted' in _cvp_out
+          and 'not adjudicated (no searchable text)' in _cvp_out)
+
+# --- the remaining _path_strength reject prefixes ---------------------------
+# The absolute-path arm is pinned above; `-` (flag-shaped) and `~`
+# (home-relative) are the other two documented rejects.
+for _cvp_reject in ('--body-file', '~/notes.md'):
+    _cvp_rc, _cvp_out = _cvp_run(
+        f'**Verified:** `{_cvp_reject}` — *"a sentence nobody ever wrote"*\n')
+    assert_eq(f"#868 helper: the rejected span {_cvp_reject} is not treated as a "
+              "repository path at all",
+              True, 'handle=quote' in _cvp_out and 'handle=path' not in _cvp_out)
+    assert_eq(f"#868 helper: the rejected span {_cvp_reject} never refutes",
+              True, _cvp_rc != 2)
+
+# --- a line-RANGE locator suffix is a location, not part of the filename -----
+# `_LOCATOR_SUFFIX` admits `:42-58` as well as `:42`; adjudicating the range as
+# part of the filename would refute an ordinary citation.
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `docs/notes.md:3-5` is intact.\n')
+assert_eq("#868 helper: a line-RANGE locator suffix is stripped for the presence "
+          "check, so the citation is not refuted for naming no such file",
+          True, 'state=refuted' not in _cvp_out)
+assert_eq("#868 helper: the line-range citation does not force a non-clean exit",
+          0, _cvp_rc)
+
+# --- a body that is not valid UTF-8 is unreadable, never a mass refutation ---
+# A distinct except-arm from the missing-file OSError case: the read raises
+# UnicodeDecodeError, and treating the body as empty would report a total=0
+# clean pass over an issue whose premises were never looked at.
+with tempfile.TemporaryDirectory() as _cvp_td:
+    _cvp_bad = Path(_cvp_td) / 'body.md'
+    _cvp_bad.write_bytes(b'**Verified:** `docs/notes.md` \xff\xfe is intact.\n')
+    _cvp_buf = io.StringIO()
+    with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+        _cvp_rc = check_verified_premises.main(
+            ['--body-file', str(_cvp_bad), '--repo-root', _cvp_td])
+assert_eq("#868 helper: a body file that is not valid UTF-8 exits 3 (unestablished) "
+          "by the body-unreadable reason, never 0 and never the refuted code 2",
+          True, _cvp_rc == 3 and 'reason=body-unreadable' in _cvp_buf.getvalue())
 # Positive control on the same shape: a strong path that WAS read still refutes,
 # so the narrowing is a scoped fix rather than a hole that disarms the arm.
 _cvp_rc, _cvp_out = _cvp_run(
