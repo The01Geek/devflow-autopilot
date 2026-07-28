@@ -35,6 +35,11 @@ cache_creation_input_tokens`; the auditor's per-round cost is the full token tot
 (context sub-fields + output). Compaction is observed as
 `type == "system", subtype == "compact_boundary"` and only counted.
 
+Two redundant-addition metrics are also reported (pre-#889, retained): repeated-Read
+(a `Read` re-fetching bytes already resident for that path — fail-closed on a
+truncated/errored/absent tool_result) and re-emission (a large assistant text block
+whose exact bytes were already produced earlier in the run).
+
 Wall-clock is deliberately NOT claimed as a measured axis on this tier: it is
 reported `unestablished`, citing docs/efficiency-trace.md's local-tier row, rather
 than asserted as something the orchestrator observes. No cost figure is sourced
@@ -78,6 +83,11 @@ BUCKET_400K = 400_000
 UNESTABLISHED = "unestablished"
 # The closed round-kind vocabulary #793 records on each round. A round whose stored
 # kind is neither of these contributes to no per-kind median (it reads unestablished).
+# Coupled with `_ROUND_KINDS` in scripts/issue-audit-state.py — the closed,
+# complete round-kind vocabulary that module owns (issue #793). This is a deliberate
+# duplicated literal (the eval is a standalone stdlib-only instrument that imports
+# nothing from the state owner); a new kind added there must be mirrored here in the
+# same change, else `read_state` would drop a round carrying it to `unestablished`.
 ROUND_KINDS = ("discovery", "targeted")
 # The `record-dispatch --round N` marker the state owner writes on the main thread —
 # the sole round-boundary source (the state file carries no clock to join on).
@@ -210,7 +220,7 @@ class RunAccumulator:
         # markers (issue #889): the most recent `--round N` marker names the round a
         # subsequent sidechain (auditor) turn is attributed to.
         self.current_round = None
-        self.dispatch_rounds = []            # rounds seen, in first-observed order
+        self.dispatch_rounds = set()         # rounds seen (deduped; order is irrelevant)
         self.round_auditor_cost = {}         # round_num -> total auditor token cost
         self.unrounded_auditor_cost = 0      # sidechain cost before any dispatch marker
         self.record_reopen_count = 0         # escaped-defect proxy 1
@@ -292,8 +302,7 @@ class RunAccumulator:
         if m is not None:
             rnd = int(m.group(1))
             self.current_round = rnd
-            if rnd not in self.dispatch_rounds:
-                self.dispatch_rounds.append(rnd)
+            self.dispatch_rounds.add(rnd)
         if _REOPEN_RE.search(command):
             self.record_reopen_count += 1
 
@@ -367,7 +376,7 @@ class RunAccumulator:
             "round_auditor_cost": round_cost,
             "unrounded_auditor_cost": self.unrounded_auditor_cost,
             "attributed_auditor_cost": sum(round_cost.values()) + self.unrounded_auditor_cost,
-            "dispatch_rounds": sorted(set(self.dispatch_rounds)),
+            "dispatch_rounds": sorted(self.dispatch_rounds),
             "record_reopen_count": self.record_reopen_count,
         }
 
@@ -668,6 +677,10 @@ def build_report(corpus_root, state_path=None, large_block_chars=LARGE_BLOCK_MIN
         "summary": aggregate(runs, state),
         "skipped": skipped,
         "state_established": state is not None,
+        # Finding count comes from the state we already read here — the paired path
+        # reuses this rather than re-parsing the state file (single-corpus reports
+        # carry it too, so both modes share one report shape).
+        "finding_count": _finding_count(state),
     }
 
 
@@ -709,8 +722,6 @@ def build_paired_report(before_dir, after_dir, before_state=None, after_state=No
     """A before/after paired report with the AC7 deltas."""
     before = build_report(before_dir, before_state, large_block_chars)
     after = build_report(after_dir, after_state, large_block_chars)
-    before["finding_count"] = _finding_count(read_state(before_state))
-    after["finding_count"] = _finding_count(read_state(after_state))
     return {
         "before": before,
         "after": after,
