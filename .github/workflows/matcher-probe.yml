@@ -1327,3 +1327,91 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/background-tasks-probe-verdict.py "${EXECUTION_FILE}"
+
+  # ── Step-level `env:` propagation (issue #874) ─────────────────────────────
+  # Issue #874 publishes DEVFLOW_PROMPT_EXTENSION_ROOT to the review job through
+  # $GITHUB_ENV so scripts/load-prompt-extension.sh reads the trusted base-ref closure
+  # instead of the PR-head checkout. Whether a job-scoped environment value is visible
+  # to a command the AGENT runs was never established: every other `env:` entry on the
+  # action step is consumed by the CLI process itself. The two protected loads sit at
+  # different depths — `review` in the orchestrator's own shell, `requesting-code-review`
+  # inside a dispatched general-purpose Task — so this job measures both.
+  #
+  # The design's failure direction is safe at either hop (an unpropagated variable makes
+  # the loader resolve the repo-root path, find the workflow's truncated file, and print
+  # nothing), so this measures a feature, not the boundary. It is maintainer-dispatched:
+  # the implementing run adds the job and does not run it.
+  env-propagation-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (step-level env propagation probe)
+        id: claude
+        env:
+          # The premise under test. A sentinel rather than a plausible path, so a match
+          # in the execution file cannot be an incidental mention of a real directory.
+          DEVFLOW_PROMPT_EXTENSION_ROOT: DEVFLOW_ENVPROBE_SENTINEL_874
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same rationale as the sibling jobs: this diagnostic is same-repo only and
+          # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are an ENVIRONMENT-PROPAGATION PROBE. Do EXACTLY the five numbered
+            actions below, in order, each exactly once, and nothing else.
+
+            Your text output is not measured. Only the harness record of your tool
+            calls is measured — so every marker line MUST be produced through a Bash
+            tool call, not merely written in your reply.
+
+            Action 1 (positive control, BEFORE) — run this Bash command once:
+            printf '%s\n' 'ENVPROBE_CONTROL_BEFORE'
+
+            Action 2 (hop one — your own shell) — run this Bash command once, exactly
+            as written, so the shell itself expands the variable and you never
+            transcribe a value by hand:
+            printf 'ENVPROBE_HOP1 %s\n' "${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}"
+
+            Action 3 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            subagent_type `general-purpose` and this exact prompt:
+            "Run this Bash command once and make its output your ENTIRE final response,
+            one line and nothing else:
+            printf 'ENVPROBE_HOP2 %s\n' \"${DEVFLOW_PROMPT_EXTENSION_ROOT:-UNSET}\""
+            Dispatch it once. Do not retry it and do not dispatch a second one.
+
+            Action 4 (hop two) — take the single line the subagent returned and echo it
+            back through a Bash command of your own, once:
+            printf '%s\n' '<paste the subagent's returned line here verbatim>'
+            If the subagent returned nothing usable, run this instead:
+            printf '%s\n' 'ENVPROBE_HOP2 NO_RESULT'
+
+            Action 5 (positive control, AFTER — proves you reached and passed Actions 2
+            through 4) — run this Bash command once:
+            printf '%s\n' 'ENVPROBE_CONTROL_AFTER'
+
+            After all five, STOP and reply with the single word DONE.
+
+          # No plugin_marketplaces/plugins: this probe exercises only Bash printf and the
+          # harness's own dispatch tool. Task and Agent are both granted so the allowlist
+          # can never be the thing that prevents the dispatch — an inconclusive verdict is
+          # then attributable to the harness, not to an allowlist omission.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(printf:*),Task,Agent"
+
+      # Deterministic verdict from the execution file only — same measurement core as the
+      # sibling probes. always() so the verdict is produced even if the engine errored.
+      - name: Compute env-propagation verdict
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          python3 scripts/env-propagation-probe-verdict.py "${EXECUTION_FILE}"

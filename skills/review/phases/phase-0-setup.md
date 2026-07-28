@@ -10,7 +10,7 @@ git status --porcelain
 
 If there is output, warn: "You have uncommitted changes that will not be included in this review."
 
-**#504 displaced-path attribution.** If the run's engine-ground-truth block lists #458-displaced paths, attribute any such path's `git status --porcelain` output — content delta OR mode-only delta (the `chmod +x` floor flips `100644`→`100755` on the three non-executable closure members every run, even when the PR touches none) — to the Stop-hook trusted-source floor: expected displacement, NOT a PR defect or an uncommitted change to flag. Remaining paths keep the warning sentence above verbatim. With no displaced list (local tier, manual `devflow.yml` path, consumer skip) all paths keep today's warning.
+**#504 displaced-path attribution.** If the run's engine-ground-truth block lists #458-displaced paths, attribute any such path's `git status --porcelain` output — content delta, mode-only delta (the `chmod +x` floor flips `100644`→`100755` on the three non-executable closure members every run, even when the PR touches none), OR untracked delta (a protected prompt-extension name the checkout never carried is *created* empty by the workflow's truncation step, so the path is reported as `??` rather than ` M`) — to the Stop-hook trusted-source floor: expected displacement, NOT a PR defect or an uncommitted change to flag. All three delta kinds take that attribution, so an untracked displaced path draws no warning either. Remaining paths keep the warning sentence above verbatim. With no displaced list (local tier, manual `devflow.yml` path, consumer skip) all paths keep today's warning.
 
 ### 0.1.5 Persist the displaced-path list (compaction survival)
 

@@ -24015,6 +24015,99 @@ assert_eq "#874 drift guard positive control: an out-of-set invocation makes the
   "differs" "$MTE_DRIFT_PC"
 rm -rf "$MTE_DRIFT_TMP"
 
+# ── #874 env-propagation probe verdict helper. The probe itself is dispatched by a
+# maintainer, but its VERDICT is a branch-selecting core, so every arm is driven here —
+# a regressed arm would otherwise misreport a security-adjacent measurement while the
+# workflow still "runs". The degraded arms come first in the helper deliberately: a
+# measurement that could not run must never read as one that came back negative.
+EPV="$LIB/../scripts/env-propagation-probe-verdict.py"
+EPV_TMP="$(mktemp -d)"
+# The fixture is built by python3 rather than by shell concatenation: command
+# substitution strips trailing newlines, so joining pre-rendered JSONL records in the
+# shell collapses them onto one unparseable line — which the helper would correctly
+# report as INCONCLUSIVE, silently testing the degraded arm instead of the intended one.
+devflow_epv() {  # args: one recorded Bash tool_use per marker text; 'ABSENT' = no file
+  if [ "${1:-}" = ABSENT ]; then
+    python3 "$EPV" "$EPV_TMP/no-such-file.jsonl" 2>/dev/null
+    return
+  fi
+  if [ "${1:-}" = RAW ]; then
+    shift; printf '%s' "${1:-}" > "$EPV_TMP/exec.jsonl"
+  else
+    python3 - "$EPV_TMP/exec.jsonl" "$@" <<'PY_EPV'
+import json, sys
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    for marker in sys.argv[2:]:
+        fh.write(json.dumps({"type": "tool_use", "name": "Bash",
+                             "input": {"command": "printf %s " + marker}}) + "\n")
+PY_EPV
+  fi
+  python3 "$EPV" "$EPV_TMP/exec.jsonl" 2>/dev/null
+}
+EPV_SENT='DEVFLOW_ENVPROBE_SENTINEL_874'
+EPV_CB=ENVPROBE_CONTROL_BEFORE
+EPV_CA=ENVPROBE_CONTROL_AFTER
+# Pure parameter expansion — no tr/sed/cut/head. This value decides whether each arm
+# above passes, and a missing non-preflight PATH tool would empty it and make every
+# comparison fail for a reason unrelated to the helper (CLAUDE.md guard-class 2).
+devflow_epv_verdict() {
+  local _v="$1"
+  case "$_v" in
+    *'**Verdict: `'*) _v="${_v#*'**Verdict: `'}"; printf '%s' "${_v%%'`**'*}" ;;
+    *) printf 'NO_VERDICT_LINE' ;;
+  esac
+}
+# Both hops saw the sentinel.
+EPV_BOTH="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT" "ENVPROBE_HOP2 $EPV_SENT")"
+assert_eq "#874 env-probe verdict: both hops saw the sentinel → BOTH_HOPS" "BOTH_HOPS" "$(devflow_epv_verdict "$EPV_BOTH")"
+assert_eq "#874 env-probe verdict: BOTH_HOPS is recordable" "yes" \
+  "$(printf '%s' "$EPV_BOTH" | grep -qF '**Record this run**' && echo yes || echo no)"
+# Hop one only — the shape that would leave the Phase-3 dispatched load unprotected.
+EPV_H1="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT" "ENVPROBE_HOP2 UNSET")"
+assert_eq "#874 env-probe verdict: hop one only → ORCHESTRATOR_ONLY" "ORCHESTRATOR_ONLY" "$(devflow_epv_verdict "$EPV_H1")"
+# Neither hop — a real negative, distinguishable from a measurement that never ran.
+EPV_NONE="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 UNSET" "ENVPROBE_HOP2 UNSET")"
+assert_eq "#874 env-probe verdict: neither hop saw it → NEITHER_HOP" "NEITHER_HOP" "$(devflow_epv_verdict "$EPV_NONE")"
+# The inversion is treated as suspect rather than reported as a clean measurement.
+EPV_INV="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 UNSET" "ENVPROBE_HOP2 $EPV_SENT")"
+assert_eq "#874 env-probe verdict: hop two only → DISPATCHED_TASK_ONLY (suspect)" "DISPATCHED_TASK_ONLY" "$(devflow_epv_verdict "$EPV_INV")"
+assert_eq "#874 env-probe verdict: the suspect inversion is NOT recordable" "yes" \
+  "$(printf '%s' "$EPV_INV" | grep -qF '**Do NOT record this run**' && echo yes || echo no)"
+# Degraded arms. Each must reach INCONCLUSIVE, never a negative verdict.
+assert_eq "#874 env-probe verdict: an absent execution file → INCONCLUSIVE" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$(devflow_epv ABSENT)")"
+assert_eq "#874 env-probe verdict: an unparseable execution file → INCONCLUSIVE" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$(devflow_epv RAW 'not json at all')")"
+assert_eq "#874 env-probe verdict: no tool_use entries → INCONCLUSIVE" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$(devflow_epv RAW '{"type":"text","text":"hello"}')")"
+# A missing positive control means the session may never have reached the measured
+# actions — the arm that stops "it did not propagate" from being asserted about a run
+# that never looked.
+EPV_NOCTL="$(devflow_epv "$EPV_CB" "ENVPROBE_HOP1 UNSET" "ENVPROBE_HOP2 UNSET")"
+assert_eq "#874 env-probe verdict: a missing positive control → INCONCLUSIVE, never NEITHER_HOP" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$EPV_NOCTL")"
+# A hop that reported nothing at all is unestablished, not negative.
+EPV_SILENT="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT")"
+assert_eq "#874 env-probe verdict: a silent hop → INCONCLUSIVE, never a negative" "INCONCLUSIVE" \
+  "$(devflow_epv_verdict "$EPV_SILENT")"
+# Co-occurrence: the sentinel must appear in the SAME recorded entry as the hop marker,
+# so it cannot leak in from the other hop's entry and credit a hop that never saw it.
+EPV_LEAK="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT" "ENVPROBE_HOP2 UNSET" "a stray mention of $EPV_SENT")"
+assert_eq "#874 env-probe verdict: a stray sentinel elsewhere does not credit the silent hop" "ORCHESTRATOR_ONLY" \
+  "$(devflow_epv_verdict "$EPV_LEAK")"
+# The helper never raises through its always-exit-0 contract.
+python3 "$EPV" "$EPV_TMP/no-such-file.jsonl" >/dev/null 2>&1
+assert_eq "#874 env-probe verdict: exits 0 even on an absent execution file" "0" "$?"
+rm -rf "$EPV_TMP"
+unset -f devflow_epv devflow_epv_verdict
+
+# The probe job exists in matcher-probe.yml and is maintainer-dispatched — the
+# implementing run adds it and does not run it.
+assert_eq "#874 matcher-probe: the env-propagation job is declared" "yes" \
+  "$(python3 -c "import yaml,sys; print('yes' if 'env-propagation-probe' in yaml.safe_load(open(sys.argv[1]))['jobs'] else 'no')" "$LIB/../.github/workflows/matcher-probe.yml" 2>/dev/null || echo no)"
+assert_eq "#874 matcher-probe: the env-propagation job sets the sentinel as a step-level env: entry" "1" \
+  "$(grep -c 'DEVFLOW_PROMPT_EXTENSION_ROOT: DEVFLOW_ENVPROBE_SENTINEL_874' "$LIB/../.github/workflows/matcher-probe.yml" || true)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
 # ────────────────────────────────────────────────────────────────────────────
