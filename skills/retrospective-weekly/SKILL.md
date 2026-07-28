@@ -542,7 +542,11 @@ blockers=()              # will hold strings
 # Step 9 slurps both of these. Declaring them here rather than relying on the
 # first append means a run where nothing is filed and nothing is withheld still
 # has an array to slurp, instead of a name Step 9 discovers is unset.
-filed_slugs=()           # will hold composed filing-key strings — one per filed finding (issue #893)
+filed_slugs=()           # will hold COARSE pattern tags — one per pattern that filed at
+                         # least one issue. Coarse, not composed: Step 9's
+                         # devflow_annotate_patterns keys on the pattern's own
+                         # `.tag // .slug`, and a `<category>-<subslug>` key never
+                         # matches it. Per-issue detail lives in intervention_issues.
 withheld=()              # will hold {tag, cap} objects — one per pattern a cap held back
 ```
 
@@ -567,32 +571,41 @@ serially.
 
 #### 8a — Gather occurrence bundles
 
-First, write each pattern's object to its own file on disk with the **Write tool**
-(`.devflow/tmp/pattern-${SLUG}.json`) — the enriched pattern object now carries every
-occurrence's `summary`/`descriptors`/`suggested_interventions` (issue #893), and the
-largest category has ~199 occurrences, so — beyond the single scalar read that names
-its own file (`SLUG`, below) — it must **not** travel through a herestring, and never
-through an inline prompt interpolation. Derive the occurrence PR list from **that file
-on disk**, not from a herestring over the whole enriched object:
+The enriched pattern object now carries every occurrence's
+`summary`/`descriptors`/`suggested_interventions` (issue #893), and the largest
+category has ~199 occurrences, so — beyond the single scalar read that names its own
+file (`SLUG`, step 1 below) — it must **not** travel through a herestring, and never
+through an inline prompt interpolation.
+
+**The order below is load-bearing: `SLUG` names the file every later step reads, so it
+is derived before that file is written.** Per pattern:
+
+1. **`SLUG`** — `$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"`. The **one**
+   sanctioned herestring over the enriched object. It is not the only place `SLUG`
+   exists on disk — `.devflow/tmp/patterns.json`, written back in Step 6, carries
+   `.slug` on every record — but selecting *this* iteration's record out of that file
+   needs the very key we are deriving, and `$pattern` is the element already in hand.
+   The exception is scoped to this one scalar and licenses no second read.
+2. **Write** that pattern's object to `.devflow/tmp/pattern-${SLUG}.json` with the
+   **Write tool**.
+3. **`TAG`** (`$LIB/../scripts/run-jq.sh -r .tag ".devflow/tmp/pattern-${SLUG}.json"`)
+   and **`CATEGORY`**
+   (`$LIB/../scripts/run-jq.sh -r .category ".devflow/tmp/pattern-${SLUG}.json"` — the
+   attribution category the opaque filing key belongs to, issue #891). Now that the
+   file exists these come **from it**: a second and third herestring over the whole
+   enriched object is exactly what the rule above forbids.
+4. Record also the JSON array of absolute bundle paths and the **absolute path**
+   `.devflow/tmp/pattern-${SLUG}.json` (Step 8b hands that path to the subagent,
+   matching the bundle-path handoff).
+
+Then derive the occurrence PR list from **that file on disk**, not from a herestring
+over the whole enriched object:
 
 ```bash
 for n in $($LIB/../scripts/run-jq.sh -r '.occurrences[].pr' ".devflow/tmp/pattern-${SLUG}.json"); do
     [ -f ".devflow/tmp/pr-${n}.context.json" ] || bash $LIB/fetch-pr-context.sh "$n" >/dev/null
 done
 ```
-
-Record, per pattern: `SLUG` (`$LIB/../scripts/run-jq.sh -r .slug <<< "$pattern"` — the
-**one** sanctioned herestring over the enriched object, and only because it *names* the
-file: the path is `.devflow/tmp/pattern-${SLUG}.json`, so `SLUG` has to be in hand
-before that file exists and cannot be read back out of it), `TAG`
-(`$LIB/../scripts/run-jq.sh -r .tag ".devflow/tmp/pattern-${SLUG}.json"`), `CATEGORY`
-(`$LIB/../scripts/run-jq.sh -r .category ".devflow/tmp/pattern-${SLUG}.json"` — the
-attribution category the opaque filing key belongs to, issue #891), the JSON array of
-absolute bundle paths, and the **absolute path** `.devflow/tmp/pattern-${SLUG}.json` to
-the pattern object on disk (Step 8b hands this path to the subagent, matching the
-bundle-path handoff). Once the file exists, `TAG` and `CATEGORY` come **from it** — a
-second and third herestring over the whole enriched object is exactly what the rule
-above forbids.
 
 #### 8b — Dispatch all Stage B subagents concurrently
 
@@ -817,6 +830,8 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
             _fi=0
+            _pattern_filed=0   # reset PER PATTERN — a stale 1 from the previous pattern
+                               # would annotate this one as filed on a run that filed nothing
             while [ "$_fi" -lt "$FINDINGS_N" ]; do
                 # $KEY is the composed (or aliased) opaque filing key; it passes as
                 # BOTH --tag and --slug (they share the [A-Za-z0-9_-]+ grammar the key
@@ -827,12 +842,29 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 if ISSUE_URL="$(bash $LIB/meta-issue.sh --tag "$KEY" --slug "$KEY" --category "$CATEGORY" --title "$F_TITLE" --body-file ".devflow/tmp/issue-body-${KEY}.md" --overrides .devflow/learnings/overrides.json)"; then
                     intervention_issues+=("$($LIB/../scripts/run-jq.sh -nc --arg key "$KEY" --arg cat "$CATEGORY" --arg url "$ISSUE_URL" '{key:$key,category:$cat,url:$url}')")
                     filed_this_run=$((filed_this_run + 1))
-                    filed_slugs+=("$KEY")
+                    _pattern_filed=1
                 else
                     blockers+=("Finding ${KEY} (category ${CATEGORY}): meta-issue.sh failed to file the issue — not filed")
                 fi
                 _fi=$((_fi + 1))
             done
+            # `filed_slugs` feeds Step 9's `devflow_annotate_patterns`, whose jq keys on
+            # the PATTERN's coarse `.tag // .slug` — the attribution category. A composed
+            # `<category>-<subslug>` key can never equal that, so pushing composed keys
+            # here would annotate every pattern this path filed as "not filed". Push the
+            # coarse $SLUG once per pattern instead; the composed keys are already the
+            # report's per-issue surface via `intervention_issues`.
+            [ "${_pattern_filed:-0}" -eq 1 ] && filed_slugs+=("$SLUG")
+            # Same domain mismatch on the withheld side: the per-finding {tag, cap}
+            # entries folded above carry composed keys and render correctly in the
+            # "withheld by a filing cap" section, but `$wmap` is looked up by the coarse
+            # tag. When a cap held back EVERY finding of this pattern, add one
+            # coarse-tag entry so the pattern row still renders `withheld_by`, exactly
+            # as the legacy path's single per-pattern entry does.
+            if [ "${_pattern_filed:-0}" -ne 1 ] && [ -s ".devflow/tmp/withheld-${SLUG}.json" ]; then
+                _FIRST_CAP="$($LIB/../scripts/run-jq.sh -r '.[0].cap // empty' < ".devflow/tmp/withheld-${SLUG}.json")"
+                [ -n "$_FIRST_CAP" ] && withheld+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$SLUG" --arg cap "$_FIRST_CAP" '{tag:$tag,cap:$cap}')")
+            fi
         else
             blockers+=("Pattern ${SLUG}: select-findings.sh withheld every finding (cap owner unsourceable, or overrides unreadable/unmigrated — see its ::error:: breadcrumb) — nothing filed")
         fi

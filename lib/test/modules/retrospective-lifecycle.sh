@@ -2427,7 +2427,7 @@ RL_SF_CL="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-collide-f.j
 assert_eq "#763B select: a subslug sharing a token with its category does NOT alias onto the existing record" "tooling-gap-gap-slow" \
   "$(printf '%s' "$RL_SF_CL" | jq -r '.[0].key')"
 assert_eq "#763B select: the category-prefix collision emits no alias breadcrumb" "false" \
-  "$(grep -qF 'aliased finding' "$TMP_SF/sf-cl.err" && echo true || echo false)"  # structural-pin-ok: helper-contract -- absence assertion over devflow_select_findings' captured stderr in this run's scratch dir; it pins that the non-aliasing path stays silent
+  "$(grep -qF 'aliased finding' "$TMP_SF/sf-cl.err" && echo true || echo false)"
 
 # A record whose key does NOT carry the canonical `<category>-` prefix (a bare-category
 # legacy filing) is not comparable by subslug and is never aliased onto.
@@ -2446,7 +2446,7 @@ RL_SF_BK="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-badkey-f.js
 assert_eq "#763B select: an aliased-onto key outside the grammar is dropped, not emitted" "0" \
   "$(printf '%s' "$RL_SF_BK" | jq 'length')"
 assert_eq "#763B select: the illegal aliased key drop names the grammar" "true" \
-  "$(grep -qF 'falls outside the [A-Za-z0-9_-]+ grammar' "$TMP_SF/sf-bk.err" && echo true || echo false)"  # structural-pin-ok: helper-contract -- executable assertion over devflow_select_findings' captured stderr in this run's scratch dir; it pins the shipped helper's illegal-aliased-key drop breadcrumb
+  "$(grep -qF 'falls outside the [A-Za-z0-9_-]+ grammar' "$TMP_SF/sf-bk.err" && echo true || echo false)"
 
 # --dropped-file: the top-three truncation's drop count reaches a STRUCTURED channel,
 # not only stderr — the orchestrator captures stdout, so a stderr-only notice can
