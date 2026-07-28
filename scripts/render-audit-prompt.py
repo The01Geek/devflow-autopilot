@@ -19,9 +19,12 @@ Contract (issue #600):
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
   in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
-  draft file, read solely to lift its ``# `` title heading; and — on a
-  ``targeted`` round only (issue #793) — the round's FROZEN dispatch-scope file,
-  named on this module's command line and never discovered. That last read is a
+  draft file, read solely to lift its ``# `` title heading; and — when the state
+  owner supplies one, which it does only on a ``targeted`` round (issue #793) —
+  the round's FROZEN dispatch-scope file, named on this module's command line and
+  never discovered. This module has no notion of a round kind: the
+  targeted-round-only restriction is enforced by the state owner's own
+  ``--kind``/``--scope-file`` cross-checks, not by a check here. That last read is a
   deliberate, disclosed NARROWING of "reads no run state", stated here rather
   than cited as still-intact: the scope file is written by the state owner and
   its path AND content digest are both recorded on the dispatch attempt, so the

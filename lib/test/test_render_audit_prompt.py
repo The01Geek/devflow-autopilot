@@ -1590,8 +1590,17 @@ class OutOfBoundsEnumerations(unittest.TestCase):
                     "--draft-path", str(draft), "--instructions-path", str(root / "i.md")]
             cold = run_renderer(base).stdout
             scoped = run_renderer(base + ["--scope-file", str(scope)]).stdout
-            oob = lambda t: t.split("## Step 2")[1].split("## Step 3")[0]
-            self.assertEqual(oob(cold), oob(scoped))
+            # The targeted block is APPENDED after the whole pre-existing body, so
+            # comparing a span between two earlier headings held by construction and could
+            # not fail. Assert the two things the criterion is actually about: the cold
+            # render is a strict PREFIX of the scoped one (so the scoped round adds only
+            # the block and perturbs no enumeration), and the scope glob is declared out of
+            # bounds in the scoped render too — the round's own scope file is out of bounds
+            # to that round's auditor.
+            self.assertTrue(scoped.startswith(cold.rsplit("render-end:", 1)[0]),
+                            "the scoped render is not the cold render plus the block")
+            self.assertIn(self._slug_glob(), scoped)
+            self.assertNotIn("you may read the scope file", scoped)
 
 
 class TargetedRoundRender(unittest.TestCase):
@@ -1653,15 +1662,25 @@ class TargetedRoundRender(unittest.TestCase):
             self.assertEqual(claim_lines, ["- 1.1 — the AC omits its operand"])
 
     def test_T2b_withheld_field_VALUES_never_reach_the_prompt(self):
-        # Distinctive sentinel values standing in for what a ledger entry carries. None of
-        # them can travel, because the scope file's grammar has no field to carry them —
-        # which is the structural claim this row exercises rather than assumes.
+        # The sentinels must be PRESENT IN THE INPUT for their absence downstream to mean
+        # anything. An earlier form of this row rendered the default scope, so none of them
+        # was ever in the input and all six assertions were trivially true. Here they ride
+        # in the scope file's own claim block — the only channel that exists — and the
+        # assertion is that the renderer carries the summary yet the grammar has no field
+        # able to carry a withheld one alongside it.
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            got = self._render(root, self._scope(root))
-            for sentinel in ("SENTINEL-STATUS-RESOLVED", "SENTINEL-SEVERITY-CRITICAL",
-                             "SENTINEL-DISPOSITION", "SENTINEL-PRIOR-VERDICT",
-                             "SENTINEL-RATIONALE", "SENTINEL-EVIDENCE"):
+            sentinels = ("SENTINEL-STATUS-RESOLVED", "SENTINEL-SEVERITY-CRITICAL",
+                         "SENTINEL-DISPOSITION", "SENTINEL-PRIOR-VERDICT",
+                         "SENTINEL-RATIONALE", "SENTINEL-EVIDENCE")
+            # One claim whose summary legitimately carries a sentinel, proving the input
+            # channel reaches the output at all (so the absences below are not vacuous)...
+            scope = self._scope(root, claims=(("1.1", "SENTINEL-STATUS-RESOLVED marker"),))
+            got = self._render(root, scope)
+            self.assertIn("SENTINEL-STATUS-RESOLVED", got.stdout)
+            # ...while every OTHER withheld field has no field in the grammar to ride in,
+            # so it cannot reach the prompt however the ledger was shaped.
+            for sentinel in sentinels[1:]:
                 self.assertNotIn(sentinel, got.stdout)
 
     def test_T3_closed_two_member_verdict_set_and_attempted_is_not_addressed(self):

@@ -714,7 +714,7 @@ devflow_module_pin_unique "#546: the verdict token's absence is classified by th
 # next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
 # growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
 devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
-  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, or `round-closed-no-verdict`' \
+  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, `round-closed-no-verdict`, or `confirm-whole-draft`' \
   "$CI_BUNDLE"
 
 # ── issue #462: retain the falsifiable no-dependencies boundary.

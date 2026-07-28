@@ -18558,7 +18558,7 @@ def _793_select(doc, before=b'# T\n\n## A\n\nold\n', after=b'# T\n\n## A\n\nnew\
     return _m793.select_round_kind(doc, str(canonical))
 
 
-# --- the five `targeted` conditions, each driven to failure in isolation --------------
+# --- each `targeted` condition, driven to failure in isolation -----------------------
 
 assert_eq("#793: no completed round selects discovery, naming the condition",
           ('discovery', 'no-completed-round'),
@@ -18910,13 +18910,23 @@ assert_eq("#793: ... funded from its OWN counter, leaving the shared automatic p
 # pool. Asserting `_MAX_AUTOMATIC_REAUDITS == _MAX_AUTOMATIC_REAUDITS` would be a tautology
 # that grades nothing, so assert the SEPARATION instead: two distinct counters, both funding
 # rounds, with the confirming one bounded on its own constant.
-assert_eq("#793: the confirming round is funded from a counter DISTINCT from the shared "
-          "automatic pool, and both are funding budgets",
-          (True, True, True),
+# The separation that can actually FAIL: they are two distinct counter KEYS, both funding
+# rounds, and _funded_rounds sums both — so spending one leaves the other's headroom
+# intact. An identity comparison of the two ceilings graded nothing (both are 1, and small
+# ints are interned, so `is not` was already False — with an `or`-tautology behind it).
+assert_eq("#793: the confirming counter is a DISTINCT funding key from the shared "
+          "automatic pool, and both are summed by _funded_rounds",
+          (True, True, 3),
           ('confirming_rounds_used' in _m793._ROUND_BUDGETS,
            'automatic_reaudits_used' in _m793._ROUND_BUDGETS,
-           _m793._MAX_CONFIRMING_ROUNDS is not _m793._MAX_AUTOMATIC_REAUDITS
-           or _m793._MAX_CONFIRMING_ROUNDS == _m793._MAX_CONFIRMING_ROUNDS))
+           _m793._funded_rounds({'automatic_reaudits_used': 1,
+                                 'confirming_rounds_used': 1})))
+
+assert_eq("#793: spending the confirming counter leaves the shared automatic pool's "
+          "headroom untouched (the two never compete)",
+          (2, 2),
+          (_m793._funded_rounds({'confirming_rounds_used': 1}),
+           _m793._funded_rounds({'automatic_reaudits_used': 1})))
 
 assert_eq("#793: next_action still keys its revise-and-reaudit / revise-then-evaluate-offer "
           "split on the SHARED constant — the second reader that is why it was left alone",
@@ -18944,6 +18954,52 @@ with tempfile.TemporaryDirectory() as _t793c:
 
 # ── the decided per-reader kind treatment ─────────────────────────────────────────────
 
+# ── the embed/inline degradation path: --draft-file is OPTIONAL off the file arm ──────
+# Found by the Phase 3 silent-failure review. select_round_kind was called unconditionally
+# from cmd_record_dispatch, so a dispatch with no --draft-file reached Path(None) and died
+# with a raw TypeError — on exactly the arm the run falls back to when the canonical write
+# has already failed. The selector's own docstring promised every unestablished input
+# selects `discovery`; there it selected nothing.
+def _793_absent_path():
+    """Every earlier condition satisfied; ONLY the canonical path is absent.
+
+    Isolated for the same reason `_793_delta_error` is: an empty byte history would fail
+    condition 3 first and the row would grade the wrong arm.
+    """
+    d = Path(tempfile.mkdtemp())
+    before = b'# T\n\n## A\n\nold\n'
+    dig = _m793.hash_bytes(before)
+    art = d / f'issue-draft-s.n.{dig}.staged.md'
+    art.write_bytes(before)
+    return _m793.select_round_kind(
+        _793_state(rounds=[_793_round(digest=dig, findings=[_793_entry(1)])],
+                   revisions=[{'ordinal': 1, 'after_round': 1}],
+                   staged_paths=[{'path': str(art), 'digest': dig}]), None)
+
+
+assert_eq("#793: an absent canonical path selects discovery — the selector's fail-closed "
+          "direction holds with no draft file at all",
+          ('discovery', 'delta-error'), _793_kr(_793_absent_path()))
+
+with tempfile.TemporaryDirectory() as _t793e:
+    _re = _Run603(_t793e, slug='s793e')
+    Path(_t793e, 'd.md').write_text('draft\n', encoding='utf-8')
+    _re.open_round(1, 'REVISE')
+    _emb = _re('record-dispatch', '--kind', 'discovery', _re.slug, '--round', '2',
+               '--arm', 'embed', '--marker', 'write-failed', nonce=True,
+               stdin='body bytes\n')
+    assert_eq("#793: an embed-arm dispatch with no --draft-file records cleanly — never a "
+              "raw traceback out of a mutation command",
+              (0, False), (_emb.returncode, 'Traceback' in _emb.stderr))
+
+assert_eq("#793: a targeted dispatch is refused off the file arm — a scoped round has no "
+          "instruction file to splice its payload into",
+          (True, True),
+          (lambda r: (r.returncode != 0, 'targeted-requires-file-arm' in r.stderr))(
+              _793_run('record-dispatch', '--kind', 'targeted', _793_run.slug, '--round',
+                       '9', '--arm', 'embed', '--marker', 'write-failed', nonce=True,
+                       stdin='b\n')))
+
 assert_eq("#793: _last_discovery_round skips a targeted round — it is not whole-draft "
           "evidence",
           2,
@@ -18965,13 +19021,67 @@ assert_eq("#793: an unusable targeted return never schedules the confirming roun
           _m793._targeted_all_addressed({'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
                                          'claim_verdicts': {}}))
 
-assert_eq("#793: a claim returned outside the closed set is recorded not-addressed",
+# Driven through the real ingestion producer: `_targeted_all_addressed` over a
+# hand-built `{'1.1': 'partially'}` asserted a property of a state `_validate` REFUSES to
+# load, and named it as the recording behavior, which lives in _ingest_targeted_verdicts.
+def _793_ingest(verdict_text, dispatched=('1.1',)):
+    doc = _793_state(rounds=[{'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
+                              'attempts': [{'arm': 'file'}],
+                              'scope': {'claim_ids': list(dispatched)}}])
+    rnd = doc['rounds'][0]
+    _m793._ingest_targeted_verdicts(
+        doc, rnd, types.SimpleNamespace(claim_verdicts=verdict_text))
+    return rnd.get('claim_verdicts'), rnd.get('targeted_return_unusable')
+
+
+assert_eq("#793: a claim returned outside the closed set is RECORDED not-addressed",
+          ({'1.1': 'not-addressed'}, None), _793_ingest('1.1 partially'))
+
+assert_eq("#793: a dispatched claim absent from the return is recorded not-addressed",
+          ({'1.1': 'not-addressed'}, None), _793_ingest('2.9 addressed'))
+
+# The fail-open the Phase 3 review reproduced: a dict assignment is last-wins, so a return
+# saying not-addressed and THEN addressed for one id recorded addressed — scheduling the
+# confirming round and converging on a claim the auditor had just rejected.
+assert_eq("#793: a DUPLICATE verdict for one claim id fails closed to not-addressed, "
+          "whichever order the return states them in",
+          ({'1.1': 'not-addressed'}, {'1.1': 'not-addressed'}),
+          (_793_ingest('1.1 not-addressed\n1.1 addressed')[0],
+           _793_ingest('1.1 addressed\n1.1 not-addressed')[0]))
+
+assert_eq("#793: a return carrying NO per-claim block is recorded UNUSABLE — it reopens "
+          "nothing and is not a sweep of not-addressed verdicts",
+          ({}, True), _793_ingest(None))
+
+assert_eq("#793: ... and an unusable targeted round never reads as a clean sweep",
           False,
           _m793._targeted_all_addressed({'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
-                                         'claim_verdicts': {'1.1': 'partially'}}))
+                                         'claim_verdicts': {}}))
 
-assert_eq("#793: the five kind-blind readers stay kind-blind — last_completed still "
-          "answers the newest completed round whatever its kind",
+assert_eq("#793: an unusable targeted return selects the confirming whole-draft round, "
+          "never `proceed` on scoped-only evidence",
+          'confirm-whole-draft',
+          _m793.next_action({'rounds': [{'round': 2, 'outcome': 'FILE',
+                                         'kind': 'targeted', 'claim_verdicts': {}}],
+                             'confirming_rounds_used': 0}, 2))
+
+assert_eq("#793: a duplicate-heading draft keeps BOTH sections in the delta — an edit to "
+          "the first must not vanish behind a later same-named heading",
+          ['## A', '## B'],
+          _m793._changed_sections(b'## A\nx\n## B\nq\n## A\nz\n',
+                                  b'## A\nEDITED\n## B\nCHANGED\n## A\nz\n'))
+
+assert_eq("#793: the rendered record-dispatch suggestion carries --kind FILLED and names "
+          "--scope-file in needs= (the forgotten-flag class #795 removed)",
+          (True, True),
+          (lambda line: ('--kind targeted' in line, '--scope-file' in line.split('needs=')[1]))(
+              _m793._dispatch_next_call(
+                  'query-next-action', 'sl', 'n', 'dispatch-embed-retry',
+                  state={'rounds': [{'round': 1, 'outcome': None, 'kind': 'targeted',
+                                     'attempts': [{'arm': 'file'}]}], 'nonce': 'n'})))
+
+assert_eq("#793: last_completed stays kind-blind — it answers the newest completed "
+          "round whatever its kind",
           3,
           _m793.last_completed(
               {'rounds': [{'round': 2, 'outcome': 'FILE', 'kind': 'discovery'},
