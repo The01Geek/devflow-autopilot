@@ -177,12 +177,75 @@ executable behavioral test over a static presence pin. Reviving a retired wordin
 literal requires both deliberate revival authorization and a genuine declared
 structural boundary; a new boundary row alone does not make the revival valid.
 
-**Retiring existence-only pins (issue #798).** Use the frozen census in
-`.devflow/logs/pin-corpus-inventory.tsv` when removing an existence-only pin. If the
-pin's literal appears in two or more counted homes, remove the pin only in the same
-change that removes at least one of those copies; a pin-only removal is not an
-accepted disposition because it leaves the duplicated prose without its divergence
-check. Refresh it with a two-commit, inventory-free snapshot protocol: preserve the
+**Retiring existence-only pins (issue #798, restated by #876).** What decides the
+disposition is **whether the pin was buying a divergence check** — whether anything
+depends on two or more homes agreeing. Find the pin's row in the frozen census
+`.devflow/logs/pin-corpus-inventory.tsv` and walk these arms **in order, first match
+wins**. Only arm 2 authorizes a *pin-only* removal; arm 1 permits removal solely
+alongside a copy deletion, and arms 0 and 3 retain outright — so an unanswered
+question always retains:
+
+0. **No row** — the census is a **frozen snapshot**, not a live index, so a pin added
+   since its `# revision:` line has none. This is the normal state between refreshes,
+   and it means the census *cannot answer*, **never** that the answer is "no".
+   Either regenerate the census (below) and re-read, or **retain the pin**. Do not
+   hand-count: the deciding number excludes the census's own
+   `# counted-file-exclusions` set (`lib/test/`, `.devflow/learnings/`,
+   `.devflow/logs/`, `.changeset/`, `CHANGELOG.md`), so a `git grep` over-counts.
+1. **`counted_occurrences >= 2`** — remove the pin only in the same change that
+   removes at least one of those copies; a pin-only removal is not an accepted
+   disposition, because it leaves the duplicated content without its divergence
+   check. This is the unchanged #798 rule. **Read `counted_occurrences`, not
+   `homes`:** `homes` is the full home list *including* the excluded paths above, so
+   the two columns routinely differ, and on a large minority of rows they select
+   *different arms* — measured at revision `7b45285a`, 636 of 897 rows read
+   `len(homes) >= 2` while `counted_occurrences < 2` (a past-time snapshot; the
+   columns differed numerically on 848 of those rows). `homes` is not the deciding
+   operand.
+2. **`counted_occurrences < 2` AND the row's `bucket_final` is a prose bucket**
+   (`prose-sole-copy` / `prose-multi-copy`) — the target is agent-executed prose no
+   tool reads, the class `CLAUDE.md`'s *Recorded decision* bullet for issue #843
+   governs. Then **a pin-only removal IS the accepted disposition**: retirement owes
+   no copy deletion, because there was no second copy to protect. The compensating
+   control is the review pass that reads the prose. **Before taking this arm, confirm
+   the literal has no *wrapped* home:** `counted_occurrences` is derived by
+   `pin-corpus-classifier.py`'s `_homes()`, a contiguous-byte substring test, so a
+   home that carries the literal as wrapped adjacent string fragments is invisible to
+   it exactly as it is to a `git grep`. That blind spot under-counts in the one
+   direction that wrongly authorizes removal, so an unconfirmed literal retains.
+3. **`counted_occurrences < 2` and any other `bucket_final`** — including `boundary`,
+   the value every row currently carries. A tool or consumer reads the target (a
+   marker a tool parses, a routing-table row a module reconciles, a
+   generated-artifact identity, a typed executable boundary), so **retain** the pin
+   under the `# structural-pin-ok:` rule above.
+
+Adjudications are *read* from the inventory but *changed* in
+`lib/test/pin-corpus-adjudications.tsv` (the delta-gated table), then regenerated;
+never hand-edit the generated inventory.
+
+**Worked cases — the `#291` boundaries, which split across two arms.** Two of the
+three `#291` sites (`291(AC1)` and the `291(AC4)` severity-calibrated-eval pin) carry
+`counted_occurrences: 1` and take **arm 3**: review-and-fix Step 2.6 consumes the
+cap's *consequence*, so they are retained even though the cap's applicability limbs
+are read by nobody but the agent. The third (`291(AC4)`, the
+`Decide-outcome-2 promotion` pin) carries `counted_occurrences: 2` and takes **arm
+1** instead — same retention, different reason and a coupled copy-removal
+requirement. Do not generalize one `#291` pin's arm to the others.
+
+**Current state — arm 2 is authorized but selects nothing today.** Every site in the
+shipped census is adjudicated `bucket_final: boundary`, so arm 3 catches every
+single-home pin and arm 2 is currently unreachable. That is why arm 2's condition
+reads the recorded `bucket_final` rather than an in-the-moment judgment about who
+reads the prose: the re-adjudication pass that moves sites into a prose bucket is
+separate, still-open work, and until it lands no pin may be retired on the strength
+of this rule. **That state is not merely descriptive — it is asserted.**
+`test_final_inventory_is_a_canonical_boundary_only_realization` in
+`lib/test/test_residual_prose_retirement_manifest.py` asserts the shipped census's
+`bucket_final` set is exactly `{"boundary"}`, so the first change that adjudicates a
+site into a prose bucket in order to *use* arm 2 must move that assertion in the same
+change or ship CI-red. It is arm 2's coupled site.
+
+Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;
 generate the replacement against that exact inventory-free commit; and commit the
 generated artifact separately. The source/retirement commit is intentionally
