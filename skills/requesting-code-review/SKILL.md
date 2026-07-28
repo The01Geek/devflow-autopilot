@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: Use when a DevFlow run needs its final-pass reviewer - the review engine's last check, a completed implement phase, a major feature, or before merging - to verify work meets requirements
+description: DevFlow's final-pass review requester, dispatched by the review engine and available directly. Use when completing tasks, implementing major features, or before merging to verify work meets requirements
 ---
 
 # Requesting Code Review

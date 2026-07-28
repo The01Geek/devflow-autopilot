@@ -1,6 +1,6 @@
 ---
 name: receiving-code-review
-description: Use when receiving code review feedback in a DevFlow run - a DevFlow review verdict, the review-and-fix loop's findings, or reviewer comments on a DevFlow-opened PR - before implementing suggestions, especially if feedback seems unclear or technically questionable; requires technical rigor and verification, not performative agreement or blind implementation
+description: DevFlow's code-review reception skill, used by the review-and-fix loop and available directly. Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
 ---
 
 # Code Review Reception
