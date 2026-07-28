@@ -184,7 +184,6 @@ literal:3978d38dd3e4aade96bd722b64fe712b39bc40b311bffe77ea2fc81442652345	boundar
 literal:39ad3945bd6e5a763b40568b9a4155d20f3bcf594d3a4090f0a7b3b1cc2cdde8	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Pins the fix-commit-fused workpad write.
 literal:39d9db9a35f3c7020629953459fbec332e5db0e2a86105c276bc77223f86b0d3	boundary	Retain exact schema/sentinel contract: #603/AC9: the write-once refusal breadcrumb is named.
 literal:3a2b6f0d9719c95fe6409e287ae8f183c7f8208b000f848bf860962501f604d7	boundary	maintainer adjudication: review-and-fix SECURITY_BOUNDARY: Forbids all listed shadow steering channels.
-literal:3a44f8f3a8a8ad7e4819eb01ee6c4db7749e19a08f2b360013c16fec5fad7216	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: file-arm skill-prose out-of-bounds names exactly the 6 paths (Step 1 evidence added)
 literal:3a7a564b20713a3ae066651065a93ae8ffc6ce3c04e49b0f7105648e4f6939be	boundary	maintainer adjudication: review GT: engine-ground-truth security boundary: #363 skill: every check NAME inside the CI fence is untrusted data
 literal:3bb319ebbece3c622d04a1722b309b2092dd50d0277615cdbc0e56f5878c07e3	boundary	maintainer adjudication: declared security or interface boundary
 literal:3bc4cf12f8773f1ba9c6ab8ebf126f25b2c909bb7d70de823d702b4325e5e569	boundary	maintainer adjudication: review-and-fix WRITE_MECHANISM: Pins the durable Write-tool persistence mechanism.
@@ -378,7 +377,6 @@ literal:823e1f400c80c15c5f586753add268dea6b0494f59f278cbd98bf6181762a7e2	boundar
 literal:827a7dc5efcff82873a8b16f5143ef5f23bd2c4f766cd9cbe0f218604b481564	boundary	maintainer adjudication: final-modules vendored-routing: Keeps workflow dedupe routed through the vendored shared detector.
 literal:82cd0d38479aab4208cdc24bd465ffe200bbc16bea0e39b5489383c95146fec2	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the revise-and-recover sequence records a resolution
 literal:82e23cf8fd86b7e68f660d5d22042e8e3545c3498f8ffc3320c0864484072f54	boundary	maintainer adjudication: review BR: blocker-recheck producer/consumer boundary: 347(AC3/producer): the fast path records the checklist-not-run sentinel tally
-literal:8383be0ad6dacc92544be8acc35e8f8fc872a8aafa412b734a5abe537c106f4e	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: audit-prompt template out-of-bounds names the reasoning artifacts and the staged draft
 literal:83aa404bf9c269037052f054eae02984f4ef43cf01def346f9c9e8dde8e57606	boundary	maintainer adjudication: review VC: verification/checklist interface boundary: #556 T-6a(AC7a): bad-input arm one re-Write and re-invoke
 literal:842d48afe3a03f6c33c753d88eeecadc7c4e6689c1463da0fa51c985aa8235c7	boundary	Severity-dependent routing transition.
 literal:84839b6cd76d3bafa51af8e15b4b47ad749ff073d129c7bebd95a67da0d398f0	boundary	maintainer adjudication: runtime state-routing: Executable provenance arm distinguishes post-shadow parked records.
@@ -466,7 +464,6 @@ literal:a3982c4cbff03caacea5ee9396b562e8377733fc522bbab52ea186399143a9b6	boundar
 literal:a3b89c53de7e3fe1ec63cf9f9a0c03c498605730aef0d0d64d6b1666b68ede73	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:a466053e64746ea60632a49d65016883956d11856c80c7c7fd345ba1d7790c1b	boundary	Verifier input schema field with a provenance-conditioned requirement.
 literal:a4909675459ca1e025c4bc26b837d04481630e9680be36cbe4f85a83ed0ec501	boundary	maintainer adjudication: review-and-fix PRODUCER_CONSUMER: Defines the durable join to the parked finding record.
-literal:a494e789c7a1a19cbb1a3f0dc13d93aa1cf9af8fad4fd8e57d7daa4bd5de2297	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the file-arm dispatch-recording sentence shows --round
 literal:a49d26ae45f7e10568d338244aa137b060dadd917260e40b980885d60eaa03da	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: audit-prompt template instructs the auditor to return a git hash-object digest
 literal:a4a108b59a1523bc9b614db29f3983a8149ecdad8c1c684d793bfe4be4ae05d2	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:a4d3c64780e2dfd53cf9ca1a3d65f46b8d3ecbf2f58f20a87a39179734575854	boundary	maintainer adjudication: prompt-extensions cross-file-heading: The receiving-code-review extension cites this exact review-and-fix heading; the producer-side pin prevents a dangling cross-phase reference while the mutation pin guards the citing side.
@@ -570,7 +567,6 @@ literal:c6e026121a612b8ca1175c51444d7e96a501abd4b79b6baa03ab2348abc83f39	boundar
 literal:c6f46c5b66a8e45331224508e7b0f6b54c41c67f7eac2a0f9a133b9262d2fee8	boundary	maintainer adjudication: review-and-fix AUDIT_TRAIL: Restates mandatory per-iteration persistence.
 literal:c71ef0a82b5f0ea4391a9ecc722ba8c423eb00ef626b86e25c68976cd86c299c	boundary	Retain operative cross-surface contract: mutation-check: implement skill test-writing phase references the discipline.
 literal:c720fb8d32c2498d2437bf7de96d3a9bcc63735056ef6e963f6824027e84fd91	boundary	maintainer adjudication: declared security or interface boundary
-literal:c75a95d80e6f38913c228343ee4c1412bc905f925d5f36b2533326bab84de647	boundary	maintainer adjudication: create-issue AB: audit information-diet or artifact boundary: embed arm out-of-bounds names exactly the 7 files (Step 1 evidence added)
 literal:c7b4281f6deebb83d59ec6d8e54c0c4f063b27a87f46de466bad92354440aad9	boundary	maintainer adjudication: create-issue LG: per-finding ledger read/write, reconciliation, or post-close state contract: the read-back, never recollection, is the classification input
 literal:c7c61af975b840c850647f65692133afccb69f92b95f2c87ed109a9dd816044e	boundary	maintainer adjudication: resume discriminator is a cross-phase protocol boundary
 literal:c828cfb2a5d62e21ae258dff2504261716015b13de93e04036863b819c649ca6	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the landed check is exit-zero plus a non-empty file
