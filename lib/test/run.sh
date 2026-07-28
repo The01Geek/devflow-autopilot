@@ -45715,6 +45715,32 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   assert_eq "#877 extract: a module group sums every per-module summary" "passed=101 failed=2" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-mod/summary")"
 
+  # #887: a module-tier host-capability skip is carried into the combined tally and its
+  # itemized SKIP line, exactly as the monolith tier does. The summary line's optional
+  # `, K skipped` clause is read, and the `  SKIP  ` lines that immediately follow a
+  # module summary are collected — so a modules-* shard that folds a host-capability skip
+  # reports it rather than laundering it into a clean pass (issue #456).
+  printf '%s\n' \
+    'Module regenerate-artifacts: 40 passed, 0 failed, 1 skipped' \
+    '  SKIP  #619 symlink arm [host-capability] — cannot create a symlink here' \
+    'Module review-stall-backstop: 61 passed, 0 failed' \
+    > "$E877_TDIR/modskip.log"
+  python3 "$E877_TALLY" extract --shard modules-a --tier modules --log "$E877_TDIR/modskip.log" --rc 0 --out "$E877_TDIR/t-modskip" >/dev/null 2>&1
+  assert_eq "#887 extract: a module-tier skip is carried into the tally" "passed=101 failed=0 skipped=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s skipped=%s"%(d["passed"],d["failed"],d["skipped"]))' "$E877_TDIR/t-modskip/summary")"
+  assert_eq "#887 extract: the module-tier SKIP line is itemized" "1" \
+    "$(grep -c . "$E877_TDIR/t-modskip/skips" || true)"
+  mkdir -p "$E877_TDIR/modskip-clean/a"; cp -R "$E877_TDIR/t-modskip/." "$E877_TDIR/modskip-clean/a"
+  assert_eq "#887 combine: a module-tier skip surfaces in the recombined summary (never a clean pass)" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/modskip-clean" --expect 1 2>/dev/null | grep -qF '1 skipped' && echo yes || echo no)"
+  # The #456 disagreement check covers the module tier: a module summary announcing a skip
+  # with NO itemized SKIP line fails closed, just as the monolith skew case above does.
+  printf '%s\n' 'Module regenerate-artifacts: 40 passed, 0 failed, 1 skipped' > "$E877_TDIR/modskew.log"
+  python3 "$E877_TALLY" extract --shard modules-b --tier modules --log "$E877_TDIR/modskew.log" --rc 0 --out "$E877_TDIR/t-modskew" >/dev/null 2>&1
+  mkdir -p "$E877_TDIR/modskew/a"; cp -R "$E877_TDIR/t-modskew/." "$E877_TDIR/modskew/a"
+  assert_eq "#887 combine: a module-tier skip tally/detail disagreement fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/modskew" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
   # Crashed shard: rc nonzero, no summary → fail-closed synthetic failure.
   printf '%s\n' 'ERROR: a tally could not be established — refusing to render' > "$E877_TDIR/crash.log"
   python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/crash.log" --rc 1 --out "$E877_TDIR/t-crash" >/dev/null 2>&1

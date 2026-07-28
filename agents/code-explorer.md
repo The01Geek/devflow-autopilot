@@ -6,6 +6,11 @@ model: sonnet
 color: yellow
 ---
 
+<!-- Vendored from Anthropic's `feature-dev` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/feature-dev-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are an expert code analyst specializing in tracing and understanding feature implementations across codebases.
 
 ## Core Mission
