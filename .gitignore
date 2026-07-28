@@ -43,6 +43,16 @@ __pycache__/
 .venv/
 venv/
 
+# Per-shard tally output. `.github/workflows/ci.yml` points DEVFLOW_SHARD_TALLY_DIR at
+# <workspace>/shard-tally-out so the aggregator can upload it as an artifact, which puts
+# it INSIDE the working tree rather than at run-shard.sh's own default (.devflow/tmp/,
+# already ignored above). run-shard.sh creates the directory and truncates its log BEFORE
+# invoking the suite, so without this entry `git status --porcelain` reports
+# `?? shard-tally-out/` and the #434 stale-prose self-scan — which grades committed HEAD
+# and therefore skips on a dirty tree — took its `blocking-gate` skip on every CI run.
+# That is a gate disarmed silently by a path choice, the same failure class #671 had.
+/shard-tally-out/
+
 # OS / editor
 .DS_Store
 *.swp
