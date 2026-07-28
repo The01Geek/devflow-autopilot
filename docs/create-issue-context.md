@@ -238,13 +238,60 @@ obligation reads.
 > - after:  run `<id>`, captured `<date>`, rounds `<N'>`, attributed auditor tokens/round `<T'>`, findings `<F'>`  (`T'` must be strictly lower on the scoped rounds)
 > - escaped-defect proxies: `record-reopen` count `<R>`; later-round must-revise findings whose quoted draft line falls inside an earlier scoped round's recorded scope `<S>` (with its unattributable denominator `<D>`); post-filing class — reported `unestablished`, never a number
 
-**The instrument that produces these figures is not yet built.** Acceptance criteria 48–59 of
-issue #793 — sidechain attribution, round-boundary derivation from the transcript's own
-`record-dispatch` records, the best-effort state-file reader, the before/after operands, the
-per-kind medians and the three escaped-defect proxies — were deferred to **issue #889**, because
-each of them reads a round kind the mechanism had to record first. Until that follow-up lands, this row
-cannot be filled by any existing tooling, and saying so here is what keeps the gap inspectable
-rather than silent.
+**The instrument that produces these figures is built (issue #889).**
+`scripts/create-issue-context-eval.py` now attributes the auditor's own `isSidechain`
+`usage` records to rounds, derives round boundaries from the transcript's own
+`issue-audit-state.py record-dispatch --round N` records (the state file supplies only the
+round→kind labelling, the per-round scope and the per-finding quoted draft line, best-effort —
+every degraded state-file shape yields `unestablished` figures with a stderr breadcrumb, never a
+number and never a crash), reports the per-kind auditor-cost medians and a per-run per-round
+breakdown carrying each round's recorded kind, and accepts a `--before`/`--after` operand pair with
+paired deltas: three corpus-wide sums, each named `total_` for that reason — total attributed
+auditor cost, total peak context, total round count — plus `mean_peak_context_per_run`, the
+**per-run-normalized** context axis (each side's sum divided by its own `run_count`, so a
+population difference between the two corpora cannot enter it) and `finding_count`, which is a
+**state-file** axis rather than a corpus sum (it totals one state file's ledger entries, independent
+of either corpus's run count) and so carries no `total_` marker (**never latency**). Each of the three sum-based
+deltas reads `unestablished` when either corpus is empty **or under-counted on any loss channel** —
+an unwalkable directory, an escaped or unreadable session file, a session file carrying only auditor
+sidechain records, or a malformed record inside a counted run — because each of those deflates the
+sums, and `finding_count` reads `unestablished` when either side's state file could not be read.
+Wall-clock is **not** a measured axis on this tier — it is reported `unestablished`,
+citing the local-tier row in [`docs/efficiency-trace.md`](efficiency-trace.md), rather than
+asserted as something the orchestrator observes; and no cost figure is sourced from a value the
+orchestrator volunteers (the harness emits the same `usage` data deterministically). The
+main-thread context figures are a **secondary** axis and are never the sole basis of the reduction
+claim.
+
+**Only one of the three escaped-defect proxies yields a measured number today, and the instrument
+says so rather than reporting one it cannot establish.** The `record-reopen` count is derived from
+the transcript and is genuinely measured. The post-filing class is a *declared* class the instrument
+reports `unestablished` by construction (an escaped defect found after the issue is filed is outside
+any transcript or state file it reads). The **scope-escape** proxy needs two draft-space coordinates,
+and only one of them has a producer: the per-finding `quoted_draft_line` is ingested from the
+ledger's optional `<status>@<n>: <summary>` line and persisted by `scripts/issue-audit-state.py`,
+but no writer in this repository records a `draft_lines` span on a targeted round's `scope` —
+`record-dispatch` composes `{basis_digest, sections, claim_ids}`, and `sections` holds heading
+strings. The proxy's predicate is therefore about the **span, not the round**: it reports
+`unestablished` — **not** the `0` that would read as "no defects escaped scope" — on a state file
+carrying **any targeted round whose recorded scope yields no usable `draft_lines` span**. Because no
+writer records that span, that is every targeted round on every *real* state file today; a synthetic
+state file that supplies the span (as
+`lib/test/fixtures/create-issue-eval/states/after-state.json` does) is compared normally and yields a
+real count, which is what lets the committed test drive the proxy at all. A state carrying **no
+targeted round at all** is a third case and reports a genuine, established `0` — nothing can escape a
+scope that was never dispatched. Recording the span at dispatch time is tracked follow-up work; until
+it lands the scope-escape row of the record above is filled with `unestablished` on any real run that
+dispatched a targeted round, and that is the honest value, not a placeholder.
+
+`lib/test/test_create_issue_context_eval.py` asserts the reduction **live** from the committed
+synthetic before/after fixtures under `lib/test/fixtures/create-issue-eval/{before,after}-rounds/`
+(plus their `states/` labelling) with a **strict inequality**, so a modeled reduction the
+instrument can detect is CI-reconcilable — distinct from the real-corpus figures below, which
+remain a **maintainer measurement obligation** because capturing an after-corpus requires running
+the instrument over real transcripts produced by the merged change, which no command granted during
+implementation can do. The obligation is still the guard: a real-corpus measurement showing no
+decrease means the change is reverted or deferred, never shipped as a reduction.
 
 ### Step 3.6 state-owner round-trips (issue #795)
 

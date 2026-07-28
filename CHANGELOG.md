@@ -4,6 +4,66 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.2] — 2026-07-28
+
+### Changed
+### Changed
+
+- `scripts/create-issue-context-eval.py` now attributes the Step 3.6 auditor's own
+  `isSidechain` `usage` records to audit rounds, deriving round boundaries from the
+  transcript's own `issue-audit-state.py record-dispatch --round N` records and reading
+  the round→kind labelling from the audit state file best-effort (every degraded
+  state-file shape yields `unestablished` figures with a stderr breadcrumb naming the
+  path, never a number and never a crash). It reports a per-run per-round breakdown
+  carrying each round's recorded kind, per-kind auditor-cost medians, and a
+  `--before`/`--after` paired-delta mode emitting three corpus-wide sums, each named
+  `total_` for that reason (total attributed auditor cost, total peak context, total
+  round count), plus `mean_peak_context_per_run` — the per-run-normalized context axis,
+  each side divided by its own run count so a population difference between the two
+  corpora cannot enter it — and `finding_count`, a state-file axis rather than a corpus
+  sum. Never latency. Each sum-based delta reads `unestablished` rather than a measured-looking
+  number when either corpus is empty or under-counted on any loss channel the skip tally
+  records. Of the three escaped-defect proxies, the
+  `record-reopen` count is measured and the declared post-filing class is reported
+  `unestablished` by construction; the scope-escape count and its unattributable
+  denominator read `unestablished` on any state file carrying a targeted round whose
+  recorded scope yields no usable `draft_lines` span — which, since no producer records
+  that span, is every targeted round on a real state file — so the instrument
+  reports that gap rather than the `0` that would read as "no defects escaped scope"
+  (a state carrying no targeted round at all reports a genuine, established `0`).
+  Wall-clock is reported `unestablished` on this tier, and the main-thread context
+  figures are a secondary axis.
+
+### Added
+
+- `scripts/issue-audit-state.py` per-finding ledger entries now record an optional
+  `quoted_draft_line` draft-space coordinate, ingested via the `<status>@<n>: <summary>`
+  ledger line that `skills/create-issue/references/step-3-6-audit.md` now documents and
+  validated at the read boundary — the finding-side coordinate the scope-escape proxy
+  needs. The scope-side coordinate (a targeted round's draft-line span) is not yet
+  recorded, so the proxy stays `unestablished` until it is.
+
+## [2.24.1] — 2026-07-28
+
+### Changed
+### Added
+
+- CI now installs a pinned Claude Code CLI, arming the `#671` `claude plugin validate --strict`
+  gate that previously self-skipped on every run. The gate validates the plugin manifest and
+  descends into the shipped `skills/` and `agents/` trees, so a frontmatter block that is
+  malformed, absent, empty, or merely missing a required key now fails CI in any of them
+  instead of passing unnoticed.
+- `scripts/assert-cli-version.sh` and `scripts/retry-with-backoff.sh`: small helpers extracted
+  from the workflow so their branches are covered by the test suite rather than being inline
+  workflow shell that nothing drives. When every retry is exhausted, `retry-with-backoff.sh`
+  names the last observed exit code in its `::error::`, so a deterministic failure (a version
+  pin that 404s) is distinguishable from a transient one without re-running the job.
+
+## [2.24.0] — 2026-07-28
+
+### Added
+- **Bound the retrospective loop's Stage B occurrence-bundle fetch, and surface regressions and the filing-queue state in the run report.** A new `.devflow_retrospective.audit_bundle_cap` config key (default `10`) caps the number of occurrence bundles Stage B fetches per pattern, most-recent-first by occurrence timestamp — replacing an unbounded fetch that scaled with each pattern's cumulative occurrence history. The new sourced helper `lib/audit-bundle-selection.sh` owns the cap validation, the most-recent-N selection, and the no-dispatch floor. When the cap (or a fetch failure) leaves a dispatched pattern with fewer bundles than it has occurrences, the run records a truncation entry that the report surfaces under a dedicated section. A pattern whose occurrence selection fails, or whose every selected bundle fails to fetch, has its `dispatch` carrier cleared by `devflow_audit_dispatch_ok`: it is dispatched to no Stage B subagent and files nothing, and is reported through its blocker rather than as truncated evidence, so no evidence-free issue is filed. The weekly report now also renders a `Regressed patterns` section (every pattern whose cumulative status is `regressed`) and an aggregate `filing queue: N/M open` line (` — at capacity` when the open filed-issue count has reached `max_open_issues`), so a full filing queue on a quiet week is no longer indistinguishable from nothing to do. (#894)
+
 ## [2.23.12] — 2026-07-28
 
 ### Changed
