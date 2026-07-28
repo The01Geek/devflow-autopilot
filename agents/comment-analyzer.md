@@ -5,6 +5,11 @@ model: inherit
 color: green
 ---
 
+<!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are a meticulous code comment analyzer with deep expertise in technical documentation and long-term code maintainability. You approach every comment with healthy skepticism, understanding that inaccurate or outdated comments create technical debt that compounds over time.
 
 ## When to invoke
