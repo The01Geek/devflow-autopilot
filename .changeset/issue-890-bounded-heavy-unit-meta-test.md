@@ -11,4 +11,7 @@ type: Changed
   anything else), and the meta-test passes `smoke` so that one unit runs a single test per
   class. The meta-test proves what it proved before — a real `run-module.sh` invocation,
   exit 0, and an emitted tally equal to the module's registry floor — and the full population
-  still runs exactly once per CI run, in `modules-pin`. (#896)
+  still runs exactly once per CI run, in `modules-pin`. A bounded run is never silent: the
+  runner prints a notice naming the requested mode, and it now **fails** a run whose module
+  bounded a heavy unit that `--heavy-units` did not ask for, so a reduction can never land as
+  a green tally. (#896)
