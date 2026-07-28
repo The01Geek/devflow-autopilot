@@ -14783,6 +14783,115 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   assert_eq "Patterns section present"        "true" "$(echo "$REPORT2" | grep -q '## Patterns this run' && echo true || echo false)"
   assert_eq "Patterns sorted by count desc"   "true" "$(echo "$REPORT2" | grep -A2 '## Patterns this run' | grep -q 'old-pattern.*3×' && echo true || echo false)"
   assert_eq "cooldown pattern annotated"      "true" "$(echo "$REPORT2" | grep -q 'old-pattern.*cooldown, skipped this run' && echo true || echo false)"
+
+  # ── #894 old-summary rendering: section presence + the one stated exception ──
+  # An old-shaped summary (NONE of the new #894 keys) is rendered and its SECTION
+  # PRESENCE is asserted heading by heading. These are presence assertions, not a
+  # byte comparison: they establish that the pre-existing headings still render and
+  # that the two new gated sections stay omitted, and they deliberately do NOT
+  # establish section ordering, blank-line structure, or any pre-existing section's
+  # body bytes. The byte-level claim is established separately below, by rendering
+  # the same fixture through the PRE-CHANGE renderer at the merge-base and diffing
+  # the two outputs.
+  #
+  # The fixture is deliberately given a `status: regressed` pattern, so the one
+  # stated exception — a regressed entry in an old summary now also surfacing the
+  # Regressed-patterns section — is EXERCISED rather than dodged. The pre-existing
+  # fixtures use `status: open` throughout, which would make this exception pass
+  # vacuously. Because the summary carries neither `filing_queue_open`/
+  # `filing_queue_max` nor `truncations`, the Filing-queue line and the truncation
+  # section must both be OMITTED (the old-orchestrator shape).
+  # (Assertion names intentionally carry no `#894` token: label 894 is owned wholly
+  # by the retrospective-lifecycle module's coverage, and coverage_map_guard.py
+  # attributes a label by where its assertions live.)
+  SUM894='{"prs_scanned":2,"clean_count":0,"analyzed_count":1,"patterns":[{"tag":"reg-old","slug":"reg-old","occurrence_count":4,"status":"regressed","cooldown_active":false},{"tag":"open-old","slug":"open-old","occurrence_count":2,"status":"open","cooldown_active":false}],"intervention_issues":[],"blockers":[],"state_pr":810}'
+  REPORT894="$(devflow_render_report "$SUM894")"
+  assert_eq "audit-cap old summary: still renders the Patterns this run heading" "true" \
+    "$(echo "$REPORT894" | grep -q '## Patterns this run' && echo true || echo false)"
+  assert_eq "audit-cap old summary: a regressed entry surfaces Regressed patterns (the one stated exception)" "true" \
+    "$(echo "$REPORT894" | grep -q '## Regressed patterns' && echo true || echo false)"
+  assert_eq "audit-cap old summary: no new operand key → the Filing queue line is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q '## Filing queue' && echo true || echo false)"
+  assert_eq "audit-cap old summary: no truncations key → the truncation section is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q 'Stage B evidence truncated' && echo true || echo false)"
+
+  # ── #894 REAL byte-identity, against the pre-change renderer ────────────────
+  # The assertions above are presence probes; this one is the byte claim. Render the
+  # SAME old-shaped fixture through lib/render-report.sh as it stood at the merge-base
+  # with origin/main, and compare the two outputs BYTE FOR BYTE — so a reordered
+  # section, a changed blank-line structure, or a reworded body in any pre-existing
+  # section fails here even though every presence probe above still passes.
+  #
+  # Two normalisations, applied IDENTICALLY to both sides by one bash-builtin line
+  # filter (never `sed`/`awk` — a non-preflight PATH tool must not decide a SELECTION,
+  # and an absent one would empty the comparand and pass vacuously):
+  #   1. the `**Run finished:**` line, whose value is the wall clock at render time —
+  #      the two renders can straddle a second boundary, and a load-sensitive
+  #      assertion is a defect in the assertion, not a tolerable flake;
+  #   2. the `## Regressed patterns` block — its heading through the last line before
+  #      the next `## ` heading, which absorbs the section's own trailing blank while
+  #      leaving the blank that PRECEDED its heading to serve as the separator before
+  #      the following heading, exactly as in the base output. It is the one stated
+  #      exception, itself asserted by the presence probe above, so removing it here
+  #      does not weaken the claim.
+  # Everything else is compared verbatim.
+  #
+  # SCOPE: this is a ONE-SHOT PRE-MERGE gate, not a standing guarantee. It is
+  # meaningful only while the #894 change is unmerged, because its base side is the
+  # merge-base with origin/main; the tautology guard below detects the post-merge
+  # state and self-skips rather than passing vacuously.
+  #
+  # Self-skips when the base renderer cannot be materialised (a shallow clone, no
+  # origin/main, a `git show` failure) — a blocking-gate skip, never a silent pass.
+  rr_normalize() {  # stdin -> stdout; drops the timestamp line and the Regressed block
+    local rr_line rr_out="" rr_in_reg=0
+    while IFS= read -r rr_line; do
+      case "$rr_line" in
+        '**Run finished:**'*) continue ;;
+        '## Regressed patterns') rr_in_reg=1; continue ;;
+        '## '*) rr_in_reg=0 ;;
+      esac
+      [ "$rr_in_reg" -eq 1 ] && continue
+      rr_out="${rr_out}${rr_line}"$'\n'
+    done
+    printf '%s' "$rr_out"
+  }
+  RR_BASE_REF="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+  RR_BASE_SRC=""
+  if [ -n "$RR_BASE_REF" ]; then
+    RR_BASE_SRC="$(git show "$RR_BASE_REF:lib/render-report.sh" 2>/dev/null || true)"
+  fi
+  RR_BASE_OUT=""
+  RR_BASE_DIR=""
+  if [ -n "$RR_BASE_SRC" ]; then
+    RR_BASE_DIR="$(mktemp -d)"
+    printf '%s\n' "$RR_BASE_SRC" > "$RR_BASE_DIR/render-report.sh"
+    # The base renderer sources resolve-jq.sh from beside ITSELF, so give it siblings.
+    cp "$LIB/resolve-jq.sh" "$RR_BASE_DIR/resolve-jq.sh" 2>/dev/null || true
+    cp "$LIB/resolve-bin.sh" "$RR_BASE_DIR/resolve-bin.sh" 2>/dev/null || true
+    RR_BASE_OUT="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$RR_BASE_DIR" "$SUM894" 2>/dev/null || true)"
+    rm -rf "$RR_BASE_DIR"
+  fi
+  # TAUTOLOGY GUARD. `git merge-base origin/main HEAD` resolves to a PRE-change
+  # renderer only while this work is unmerged. Once it lands, every branch's
+  # merge-base already carries the #894 sections, and this harness renders the
+  # current renderer against ITSELF — passing by construction while guarding
+  # nothing, with no signal that it stopped guarding. Detect that state from the
+  # base SOURCE (the marker the change introduced) and self-skip naming it, so the
+  # harness announces its own retirement instead of silently going vacuous.
+  RR_BASE_IS_POST=false
+  case "$RR_BASE_SRC" in *'## Filing queue'*) RR_BASE_IS_POST=true ;; esac
+  if [ "$RR_BASE_IS_POST" = true ]; then
+    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
+      "the merge-base renderer already carries the #894 sections, so this comparison would render the current renderer against itself — it is a ONE-SHOT PRE-MERGE gate and has now retired; re-anchor it to a checked-in golden fixture if a standing guarantee is wanted"
+  elif [ -z "$RR_BASE_OUT" ]; then
+    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
+      "could not render lib/render-report.sh from the merge-base with origin/main (no merge-base, git show failed, or the base renderer produced no output in isolation)"
+  else
+    assert_eq "audit-cap byte-identity: an old summary renders byte-identically to the pre-change renderer (timestamp + the Regressed section excepted)" \
+      "$(printf '%s\n' "$RR_BASE_OUT" | rr_normalize)" \
+      "$(printf '%s\n' "$REPORT894" | rr_normalize)"
+  fi
 )
 OSPR="$(bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --dry-run 2>/dev/null)"
 assert_eq "open-state-pr dry-run echoes DRYRUN" "true" "$(echo "$OSPR" | grep -q 'DRYRUN' && echo true || echo false)"
