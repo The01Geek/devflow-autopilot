@@ -271,7 +271,10 @@ wherever the execution file records parent chains at all. The **denial** side ca
 same filename requirement as its twin: a refused `Write` carrying only the payload and not
 the tier's side-effect filename was a write to some *other* path, so it routes to its own
 named `unestablished` reason rather than publishing a `DENIED` about a target whose
-permission was never attempted. A multi-entry denial list holding both a dispatch refusal
+permission was never attempted — and so does a refused `Write` naming **neither** the
+side-effect filename nor the payload, the entry shape the helper records as not yet
+observed: its text establishes nothing about what was refused, so the run says exactly that
+instead of falling through to a claim that no write was attempted. A multi-entry denial list holding both a dispatch refusal
 and a genuine `Write` denial still reports `DENIED` **provided a dispatch is also recorded
 in the file** — that conjunct is what the verdict requires, and with no recorded dispatch
 there is no dispatchee to attribute the denial to, so such a list reports `unestablished`.
@@ -295,6 +298,10 @@ by-construction to measured. Commit the job's machine output beside
 
 This verdict is version-dependent and establishes nothing for a differently-defined
 subagent type or a later `claude-code-action` version: **re-probe** after any upgrade.
+**Scope caveat, carried in the emitted record itself:** the run uses
+`--permission-mode acceptEdits`, so a `PERMITTED` answers *"did the dispatched subagent's
+`Write` land under that permission mode?"* — it does not isolate the allowlist from the
+permission mode as the sole reason the write was allowed.
 
 | Tier | Verdict | Run id | Job id | Head commit | Ref |
 | --- | --- | --- | --- | --- | --- |

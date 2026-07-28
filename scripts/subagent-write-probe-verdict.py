@@ -85,8 +85,14 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   Task/Agent, or — with no tool_name recorded — it carries the quoted
                   `"subagent_type"` key or the `general-purpose` type name), otherwise a
                   WRITE denial (its own tool_name is Write and it names the side-effect
-                  filename or the payload, or — with no tool_name recorded — it names the
-                  side-effect filename), otherwise neither. Per-entry classification is what lets a
+                  filename, or — with no tool_name recorded — it names the side-effect
+                  filename), otherwise a FOREIGN write denial (a `Write`, or an entry
+                  recording no tool_name, carrying the PAYLOAD but naming another path),
+                  otherwise an UNATTRIBUTABLE `Write` refusal (its own tool_name is Write and
+                  it names neither), otherwise neither. Only the WRITE-denial bucket can
+                  produce DENIED; the two buckets after it route to their own named
+                  `unestablished` reasons, so no denial entry is silently dropped.
+                  Per-entry classification is what lets a
                   multi-entry list holding BOTH a dispatch refusal and a real Write denial
                   resolve DENIED, while a lone dispatch refusal whose recorded input echoes
                   the subagent prompt verbatim (naming the path and the payload) still routes
@@ -97,9 +103,12 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   side-effect path is read as the write denial — the per-entry shape is not
                   yet recorded, so no narrower attribution is available for it.
   unestablished   EVERY other state, each with its own named reason (never DENIED):
-                  upstream tier job did not complete (consumed allowlist empty/absent),
-                  execution file absent/unreadable/unparseable, an execution file that
-                  parsed cleanly but holds NO records at all (an empty container — the
+                  the consumed upstream allowlist was empty/absent/unresolved (the upstream
+                  tier job, or the step composing its literal, did not complete),
+                  execution file absent/unreadable/unparseable/nested too deeply to walk,
+                  an execution file that
+                  read cleanly but holds NO records at all (zero bytes, or a cleanly-parsed
+                  empty container — the
                   session recorded nothing, which is what an engine failure before the
                   first record looks like; this helper reads no engine-error field, so it
                   reports the emptiness it can observe and never the cause it cannot),
@@ -113,15 +122,22 @@ model's prose is NEVER read — only harness-recorded `tool_use` inputs, their
                   orchestrator-issued Write naming the same file (the single-author premise
                   is falsified), a `Write` denial naming only the PAYLOAD and not the tier's
                   side-effect filename (a denied write to some OTHER path — reporting it as
-                  the probe's write denial would be a false statement about the run),
+                  the probe's write denial would be a false statement about the run), a
+                  `Write` denial naming NEITHER the side-effect filename NOR the payload
+                  (the entry shape does not establish what was refused, so the run must not
+                  instead assert that no write was attempted),
                   dispatch refused
                   (cause NOT named — the entry shape does not establish it), no dispatch
                   recorded,
                   no subagent-issued call recorded at all, subagent calls recorded but not
                   chain-attributable, a Write recorded but not chain-attributable to this
                   job's dispatch, a chain-attributable subagent call recorded but the write
-                  neither recorded nor denied (the subagent ran but did not attempt it), or a
-                  chain-attributable Write with no corroborating on-disk file.
+                  neither recorded nor denied (the subagent ran but did not attempt it), a
+                  chain-attributable Write with no corroborating on-disk file, a derived
+                  verdict string outside this closed vocabulary (the fail-closed guard at the
+                  end of compute()), or an unexpected exception anywhere in the derivation
+                  (main()'s always-exit-0 catch-all). The enumeration is exhaustive over the
+                  arms this file ships; every one of them names its own reason.
 
 Markers, kept in lockstep with matcher-probe.yml's subagent-write probe prompts:
   SUBWRITE_CONTROL_BEFORE   positive control, before the write attempt
@@ -145,9 +161,12 @@ Usage: subagent-write-probe-verdict.py [EXECUTION_FILE] --tier {review|implement
                        naming it and routes the run to `unestablished`.
   --side-effect-file   the tier's `.devflow/tmp/subwrite-<tier>.txt`; its on-disk presence
                        corroborates a PERMITTED. Absent -> no corroboration.
-  --upstream-tools-empty  the consumed upstream allowlist output was empty/absent because
-                       the upstream tier job did not complete -> unestablished (never a
-                       skipped job silently emitting no verdict).
+  --upstream-tools-empty  the consumed upstream allowlist output was empty, absent or
+                       unresolved (the upstream tier job did not complete, or the step that
+                       composes its literal did not) -> unestablished (never a skipped job
+                       silently emitting no verdict). The workflow passes it on every state
+                       that is not an affirmative "resolved", so an unset output fails closed
+                       onto this arm rather than onto a parse note about a file no run made.
   --allowlist / --permission-mode / --model / --effort / --ref / --head-commit
                        recorded verbatim in the emitted table so the measured condition and
                        every permission-decision parameter travels with the verdict.
@@ -187,12 +206,21 @@ _ABSENT = object()
 # "Always exits 0" contract exactly when it fired.
 _VERDICTS = ("PERMITTED", "DENIED", "unestablished")
 
+# Internal sentinel returned by parse_execution_file for a file that READ cleanly but holds
+# no records at all (zero bytes / whitespace only). It is not a parse note — render() routes
+# it to the records_note arm rather than to the "could not be read cleanly" prefix, so an
+# engine death before the first record is never reported as a corrupt file.
+RECORDS_EMPTY = object()
+
 VERSION_CAVEAT = (
     "This verdict is a dated observation of one `claude-code-action` version and one "
     "subagent definition (the built-in general-purpose type dispatched by the probe's own "
     "prompt under the tier's generated baseline at the recorded commit) — not a platform "
     "contract, and it establishes nothing for a differently-defined subagent type or a "
-    "later claude-code-action version. Re-probe (dispatch matcher-probe.yml, or push to a "
+    "later claude-code-action version. SCOPE: the run carries `--permission-mode "
+    "acceptEdits`, so a `PERMITTED` answers \"did the dispatched subagent's Write land "
+    "under that permission mode?\" — it does not isolate the allowlist from the permission "
+    "mode as the sole reason the write was allowed. Re-probe (dispatch matcher-probe.yml, or push to a "
     "same-repo PR touching it) after a claude-code-action / CLI upgrade before trusting it."
 )
 
@@ -208,6 +236,14 @@ def parse_execution_file(exec_file):
             raw = fh.read()
     except OSError as e:
         return [], "execution file present but unreadable (%s)" % e.__class__.__name__
+    if not raw.strip():
+        # A ZERO-BYTE (or whitespace-only) file is the most likely product of a
+        # claude-code-action step dying before it wrote the first record — the session
+        # recorded nothing. It read perfectly; calling it "present but unparseable" blames
+        # the read and steers the maintainer at a corruption that did not happen. The
+        # RECORDS_EMPTY sentinel routes it to render()'s records_note arm — the arm added
+        # precisely so a session that recorded nothing is not described as a read failure.
+        return [], RECORDS_EMPTY
     try:
         doc = json.loads(raw)
     except Exception:
@@ -390,14 +426,33 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     # A denied `Write` carrying the probe's payload but NOT the tier's side-effect filename:
     # a real write attempt, refused, to a path the probe never asked about. Its own arm
     # rather than the "neither" bucket, so the emitted reason describes what the file shows.
+    # `tool_name` "" is accepted alongside "write" for the SAME disclosed reason the write
+    # classifier accepts it: the per-entry denial shape is not recorded, so an entry may omit
+    # the field entirely. Requiring `== "write"` here left a payload-carrying, name-less
+    # denial in no bucket at all, and the run then asserted "the subagent ran but did not
+    # attempt the write" about a write it demonstrably tried.
     def _is_foreign_write_denial(d):
-        return d["tool_name"] == "write" and _PAYLOAD_L in d["text"].lower()
+        return d["tool_name"] in ("write", "") and _PAYLOAD_L in d["text"].lower()
+
+    # A denied `Write` naming NEITHER the side-effect filename NOR the payload — e.g.
+    # `{"tool_name": "Write", "tool_input": {}}`, or a message-only entry. Reached only after
+    # the three classifiers above have all declined, so by construction it is a `Write`
+    # refusal whose recorded text establishes nothing about its target. Without this bucket
+    # the entry was silently dropped and the verdict fell through to the trailing arm, which
+    # positively asserts "the subagent ran but did not attempt the write" about a run in
+    # which a Write WAS attempted and refused — the arm-misattribution class
+    # describe-denial-count.sh was extracted to prevent, on the very entry shape this file
+    # elsewhere records as not yet observed. It gets its own named `unestablished` reason
+    # instead: unknown is not zero, and it is emphatically not "no write was attempted".
+    def _is_unclassified_write_denial(d):
+        return d["tool_name"] == "write"
 
     # One pass, one bucket per entry — never an identity/equality lookup back into a list,
     # which would misroute the second of two byte-identical entries.
     dispatch_denials = []
     write_denials = []
     foreign_write_denials = []
+    unclassified_write_denials = []
     for _d in denials:
         if _is_dispatch_denial(_d):
             dispatch_denials.append(_d)
@@ -405,9 +460,12 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
             write_denials.append(_d)
         elif _is_foreign_write_denial(_d):
             foreign_write_denials.append(_d)
+        elif _is_unclassified_write_denial(_d):
+            unclassified_write_denials.append(_d)
     dispatch_denied = bool(dispatch_denials)
     write_denied = bool(write_denials)
     foreign_write_denied = bool(foreign_write_denials)
+    unclassified_write_denied = bool(unclassified_write_denials)
     # NOTE — no cause discriminator. An earlier revision split the refusal reason into
     # "unknown subagent type" vs "dispatch head not granted" by scanning the denial text for
     # `"subagent_type"` / `general-purpose`. That cannot separate the two causes: a refusal of
@@ -504,8 +562,10 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     # one that came back negative — the unknown-is-not-zero collapse this ordering stops).
     if upstream_empty:
         verdict, reason = "unestablished", (
-            "the consumed upstream allowlist output was empty or absent because the upstream "
-            "tier job did not complete (fail/cancel/skip) — nothing was measured"
+            "the consumed upstream allowlist output was empty, absent or unresolved — the "
+            "upstream tier job did not complete (fail/cancel/skip), or the step that "
+            "composes its literal did not — so the engine step never ran and nothing was "
+            "measured"
         )
     elif tier_note:
         # Its OWN arm, never folded into note_top's "could not be read cleanly" prefix: the
@@ -640,6 +700,18 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
             "path, so it establishes nothing about the write this probe measures and is "
             "not reported as its denial" % side_path
         )
+    elif unclassified_write_denied:
+        # Same placement rationale as the arm above, for the entry shape that names neither
+        # the side-effect filename nor the payload: a Write WAS refused, so the arm below
+        # would state a falsehood about this run. The reason reports exactly what the entry
+        # establishes — that a Write refusal was recorded and that its text does not say
+        # what was refused — and never a permission finding about the probe's target.
+        verdict, reason = "unestablished", (
+            "a permission_denials entry recording tool_name `Write` was recorded, but its "
+            "text names neither %s nor the probe's payload marker — the per-entry denial "
+            "shape is not established, so this refusal can be neither attributed to nor "
+            "ruled out of the write this probe measures" % side_path
+        )
     elif not write_recorded:
         verdict, reason = "unestablished", (
             "a chain-attributable subagent call was recorded but the write was neither "
@@ -707,6 +779,12 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     side_present = bool(side_effect_file) and os.path.isfile(side_effect_file)
 
     parsed, parse_note = parse_execution_file(exec_file)
+    # The zero-byte sentinel is neither a read failure nor a parsed container: normalize it
+    # to "no parse note, empty container" so the single records_note derivation below owns
+    # both no-records shapes (zero-byte file and cleanly-parsed empty container).
+    file_was_empty = parse_note is RECORDS_EMPTY
+    if file_was_empty:
+        parse_note = ""
     if parse_note:
         notes.append(parse_note)
     # A cleanly-parsed but EMPTY container is not a read failure (nothing to append to
@@ -714,7 +792,13 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     # either — it gets its own reason in compute(). Only meaningful when the parse itself
     # succeeded: on a failure path parse_execution_file already returns [] with a note.
     records_note = ""
-    if not parse_note and isinstance(parsed, (list, dict)) and len(parsed) == 0:
+    if file_was_empty:
+        records_note = (
+            "the execution file read cleanly but holds no records at all (it is empty) — "
+            "the session recorded nothing, so neither the dispatch nor the write is "
+            "established; this helper reads no engine-error field, so the cause is not named"
+        )
+    elif not parse_note and isinstance(parsed, (list, dict)) and len(parsed) == 0:
         records_note = (
             "the execution file parsed cleanly but holds no records at all (an empty %s) — "
             "the session recorded nothing, so neither the dispatch nor the write is "
@@ -852,11 +936,34 @@ def main():
             else:
                 params[flag_keys[a]] = val
             i += consumed
+        elif a.startswith("--"):
+            # An UNRECOGNISED flag is never silently dropped. A workflow typo such as
+            # `--side-effect-fil <path>` would otherwise leave side_effect_file empty and the
+            # run would render `unestablished` with the reason "the on-disk side-effect file
+            # is absent" about a file that is present — a positively-stated falsehood about
+            # the run. The same swallow would drop --allowlist/--model from a record whose
+            # whole purpose is that every permission-decision parameter travels with the
+            # verdict. Breadcrumb and continue: the always-exit-0 contract still holds, and
+            # the operator can see which flag the helper did not understand.
+            sys.stderr.write(
+                "subagent-write-probe-verdict: unrecognised argument %r was ignored "
+                "(recognised flags: %s, --upstream-tools-empty)\n"
+                % (a, ", ".join(sorted(flag_keys)))
+            )
+            i += 1
         else:
             positional.append(a)
             i += 1
     if positional:
         exec_file = positional[0]
+        if len(positional) > 1:
+            # Only the FIRST positional is the execution file. Extra positionals are usually
+            # a value that lost its flag; dropping them silently hides that.
+            sys.stderr.write(
+                "subagent-write-probe-verdict: %d extra positional argument(s) after the "
+                "execution file were ignored: %s\n"
+                % (len(positional) - 1, ", ".join(repr(p) for p in positional[1:]))
+            )
     if not exec_file:
         exec_file = os.environ.get("EXECUTION_FILE", "") or ""
 

@@ -1492,6 +1492,14 @@ jobs:
       # output (upstream `probe` failed/cancelled/skipped) sets upstream_empty=true and
       # emits an empty tools string, which skips the action step below and routes the
       # verdict to the unestablished upstream arm.
+      #
+      # `Agent` is already present in the consumed baseline, so the appended `,Task,Agent`
+      # leaves a DUPLICATE `Agent` token in the resolved string. That is deliberate and must
+      # NOT be "cleaned up": the recorded literal is the measured condition, reproduced
+      # byte-for-byte, and de-duplicating it here would make the record diverge from the
+      # string the matcher was actually handed. Both heads are named unconditionally so the
+      # grant is legible at this call site rather than depending on what the baseline
+      # happens to contain at some later commit.
       - name: Compose allowed-tools (consumed review literal + Task,Agent)
         id: compose
         env:
@@ -1514,7 +1522,12 @@ jobs:
 
       - name: Run Claude Code (subagent-write review probe)
         id: claude
-        if: steps.compose.outputs.upstream_empty != 'true'
+        # `== 'false'` and not `!= 'true'`: if the compose step itself FAILS, the output is
+        # unset, and `!= 'true'` fails OPEN — it would run the paid engine step with an
+        # empty --allowed-tools. Only an affirmative `false` (compose ran and resolved a
+        # non-empty upstream literal) runs the engine; every other state, including unset,
+        # routes to the verdict step's upstream-empty arm below.
+        if: steps.compose.outputs.upstream_empty == 'false'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -1572,7 +1585,12 @@ jobs:
         run: |
           set -euo pipefail
           EXTRA=()
-          if [ "${UPSTREAM_EMPTY}" = "true" ]; then
+          # Anything other than an affirmative "false" — including the UNSET value a failed
+          # compose step leaves behind — is treated as upstream-empty. Testing for "true"
+          # instead let a compose failure fall through to the helper's parse arm, which then
+          # blamed an execution file the run never produced; the dedicated upstream arm
+          # exists for exactly this class of non-run.
+          if [ "${UPSTREAM_EMPTY}" != "false" ]; then
             EXTRA+=(--upstream-tools-empty)
           fi
           python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
@@ -1597,6 +1615,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # The duplicate `Agent` token in the appended `,Task,Agent` is deliberate here for the
+      # same reason as the review job above: the recorded literal is the measured condition,
+      # reproduced byte-for-byte, so it is not de-duplicated.
       - name: Compose allowed-tools (consumed implement literal + Task,Agent)
         id: compose
         env:
@@ -1619,7 +1640,12 @@ jobs:
 
       - name: Run Claude Code (subagent-write implement probe)
         id: claude
-        if: steps.compose.outputs.upstream_empty != 'true'
+        # `== 'false'` and not `!= 'true'`: if the compose step itself FAILS, the output is
+        # unset, and `!= 'true'` fails OPEN — it would run the paid engine step with an
+        # empty --allowed-tools. Only an affirmative `false` (compose ran and resolved a
+        # non-empty upstream literal) runs the engine; every other state, including unset,
+        # routes to the verdict step's upstream-empty arm below.
+        if: steps.compose.outputs.upstream_empty == 'false'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -1667,7 +1693,12 @@ jobs:
         run: |
           set -euo pipefail
           EXTRA=()
-          if [ "${UPSTREAM_EMPTY}" = "true" ]; then
+          # Anything other than an affirmative "false" — including the UNSET value a failed
+          # compose step leaves behind — is treated as upstream-empty. Testing for "true"
+          # instead let a compose failure fall through to the helper's parse arm, which then
+          # blamed an execution file the run never produced; the dedicated upstream arm
+          # exists for exactly this class of non-run.
+          if [ "${UPSTREAM_EMPTY}" != "false" ]; then
             EXTRA+=(--upstream-tools-empty)
           fi
           python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
