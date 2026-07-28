@@ -9,9 +9,9 @@ type: Changed
   plugins installed listed two similarly-described skills with no basis to pick the DevFlow
   fork. Each description now opens by naming the DevFlow surface the skill serves (the
   review-and-fix loop; the review engine's final pass) before its original, unchanged
-  triggering conditions — the same prepend-a-role-
-  sentence shape the agent descriptions below use, so neither skill's non-DevFlow trigger
-  surface is narrowed and both stay repo-agnostic for consumer installs. The only body
+  triggering conditions — the same prepend-a-role-sentence shape the agent descriptions
+  below use, so each skill's original trigger conditions are preserved verbatim and both
+  stay repo-agnostic for consumer installs. The only body
   change in either skill is the provenance sentence covered by the next bullet (and the
   clause it was grammatically joined to).
 - **Corrected the provenance sentence shipped in `receiving-code-review`.** It read "vendored
@@ -33,4 +33,4 @@ type: Changed
   call it directly" while still appearing in the skill menu as invocable. Both now carry
   `disable-model-invocation: true`, matching `init`. `/devflow:retrospective-weekly` is
   unaffected — it dispatches each stage by instructing the subagent to read that stage's
-  `SKILL.md`, never through the Skill tool.
+  `SKILL.md`, never through the Skill tool. (#911)
