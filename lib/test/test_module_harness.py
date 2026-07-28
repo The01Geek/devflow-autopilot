@@ -1976,6 +1976,46 @@ rm -f "$RESULTS_FILE" "$RESULTS_FILE.names" "$MODULE_FAILURES_FILE" "$SKIPS_FILE
             self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
             self.assertGreater(peak, 1, "the queue never ran two units concurrently")
 
+    def test_concurrency_survives_a_failing_unit(self):
+        # The all-green concurrency test above cannot see this: a `wait -n`-based gate
+        # returns the reaped unit's exit status, so one FAILING unit drained the whole
+        # pool and every later unit ran serially — the win silently disappeared on
+        # exactly the runs that fail. Every unit here exits nonzero, so a gate that
+        # degrades on failure shows a peak of 1.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._write_suite(
+                tmp,
+                source=(
+                    "import os\nimport time\nimport unittest\n\n\n"
+                    "MARK = os.environ['DEVFLOW_870_MARK']\n\n\n"
+                    "class AlphaTests(unittest.TestCase):\n"
+                    + "".join(
+                        f"    def test_f{i}(self):\n"
+                        "        with open(MARK, 'a') as fh:\n"
+                        "            fh.write('+\\n')\n"
+                        "        time.sleep(0.3)\n"
+                        "        with open(MARK, 'a') as fh:\n"
+                        "            fh.write('-\\n')\n"
+                        "        raise AssertionError('planted')\n\n"
+                        for i in range(6)
+                    )
+                    + '\nif __name__ == "__main__":\n    unittest.main()\n'
+                ),
+            )
+            mark = Path(tmp) / "marks.txt"
+            verdict, output = self._drive(
+                suite, width="2", env_extra=f'export DEVFLOW_870_MARK="{mark}"\n'
+            )
+            self.assertEqual(verdict, "VERDICT pass:0 fail:1", output)
+            peak = inflight = 0
+            for token in mark.read_text().split():
+                inflight += 1 if token == "+" else -1
+                peak = max(peak, inflight)
+            self.assertLessEqual(peak, 2, f"peak in-flight {peak} exceeded width 2")
+            self.assertGreater(
+                peak, 1, "a failing unit collapsed the pool to serial execution"
+            )
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["--signal-matrix-capability"]:
         capability_reason = signal_matrix_capability_skip_reason(

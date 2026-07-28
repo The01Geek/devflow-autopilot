@@ -352,11 +352,18 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   local assertion_name="$1" script_path="$2" capture_dir="$3"
   local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
-  local width total dispatched=0 executed=0 launched=0 failure=""
+  local width total dispatched=0 executed=0 launched=0 reaped=0 reap_any failure=""
   local plan_out plan_err index unit_rc unit_ran num cap
-  local -a ids=()
+  local -a ids=() pids=()
 
   width="$(_devflow_pool_resolve_width)"
+  # `wait -n` (reap any one job) exists from bash 4.3. BASH_VERSINFO is a shell builtin,
+  # so this decides the reaping strategy without a non-preflight PATH tool.
+  reap_any=""
+  if [ "${BASH_VERSINFO[0]:-0}" -gt 4 ] ||
+     { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -ge 3 ]; }; then
+    reap_any=1
+  fi
   plan_out="$capture_dir/unit-plan.out"
   plan_err="$capture_dir/unit-plan.err"
 
@@ -435,8 +442,23 @@ DEVFLOW_SHARD_ENUM
     # its unit by file rather than by racing to match a pid against `wait`'s return.
     for ((index = 0; index < total; index++)); do
       if [ -n "${DEVFLOW_TEST_SHARD_DROP_ONE:-}" ] && [ "$index" -eq 0 ]; then continue; fi
+      # Reap ONE unit per freed slot, ignoring its exit status — a unit's authoritative
+      # status is the one it wrote to its own .rc file, which the collection loop below
+      # reads. Two spellings are deliberately NOT used here. `wait -n || wait` reaps the
+      # whole pool whenever the reaped unit exited non-zero (because `wait -n` returns
+      # that status), which still bounds concurrency but schedules in batched waves
+      # instead of a rolling queue. A bare `wait -n` fails open instead: the builtin
+      # arrived in bash 4.3, and on an older shell it reaps NOTHING, so the gate would
+      # never block and the fan-out would be unbounded. Hence the version check, with a
+      # specific-pid wait as the pre-4.3 fallback — bounded, at the cost of head-of-line
+      # blocking behind a slow unit.
       while [ "$launched" -ge "$width" ]; do
-        wait -n 2>/dev/null || wait
+        if [ -n "$reap_any" ]; then
+          wait -n 2>/dev/null || true
+        else
+          wait "${pids[reaped]}" 2>/dev/null || true
+          reaped=$((reaped + 1))
+        fi
         launched=$((launched - 1))
       done
       cap="$capture_dir/unit-$index.out"
@@ -444,6 +466,7 @@ DEVFLOW_SHARD_ENUM
         PYTHON_COLORS=0 "$unit_python" "$script_path" "${ids[index]}" > "$cap" 2>&1
         printf '%s\n' "$?" > "$cap.rc"
       ) &
+      pids[dispatched]=$!
       launched=$((launched + 1))
       dispatched=$((dispatched + 1))
     done
