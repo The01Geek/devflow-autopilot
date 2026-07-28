@@ -884,7 +884,7 @@
         },
         "max_open_per_category": {
           "type": "integer",
-          "description": "Filing back-pressure: file nothing for a pattern whose own lifecycle record already holds this many `filed` meta-issue entries (issue #788).",
+          "description": "Filing back-pressure: file nothing for a pattern once the count of `filed` meta-issue entries summed across every lifecycle record whose stored `category` equals this pattern's category reaches this (issue #891; the count is per-category, not per-record). A `regressed` pattern still honours this per-category ceiling (issue #788).",
           "default": 2
         },
         "max_prs_per_run": {

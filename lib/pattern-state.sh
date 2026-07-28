@@ -5,11 +5,15 @@
 # .devflow/learnings/overrides.json.
 #
 # It owns two operations against the overrides file:
-#   migrate    — rewrite a schema_version:1 file in place to v2, converting ONLY
-#                the loop's own `dismissed{}` entries (dismissed_by ==
-#                "retrospective-weekly") into machine-owned `patterns{}` lifecycle
-#                records, and preserving every hand-written `dismissed{}` entry
-#                verbatim so a maintainer's escape valve survives.
+#   migrate    — bring the overrides file up to schema_version:3 in place. A v1
+#                file is first converted to v2, converting ONLY the loop's own
+#                `dismissed{}` entries (dismissed_by == "retrospective-weekly")
+#                into machine-owned `patterns{}` lifecycle records and preserving
+#                every hand-written `dismissed{}` entry verbatim; then (issue #891)
+#                each lifecycle record is stamped with an explicit `category`
+#                field — its existing valid `category` when present, else its own
+#                key canonicalized through `slugify` — and the version moved to 3.
+#                A v2 file runs only the v3 stamp; a v3 file is a no-op.
 #   reconcile  — for every meta-issue entry of every lifecycle record, resolve the
 #                live GitHub issue state (one `--label Retrospective` prefetch plus
 #                a per-number `gh issue view` fallback) and apply the transition
@@ -18,11 +22,13 @@
 #                on the next edit, and the last row applies NO transition.)
 # `run` does migrate then reconcile (the SKILL's normal invocation).
 #
-# The v2 shape:
+# The v3 shape (issue #891 — the key is an OPAQUE filing key; the `category`
+# field, not the key, names the fixed-vocabulary category the record belongs to):
 #   {
-#     "schema_version": 2,
+#     "schema_version": 3,
 #     "patterns": {                       # machine-owned lifecycle map
-#       "<slug>": {
+#       "<opaque-filing-key>": {
+#         "category": "<category-slug>",  # attribution category (issue #891)
 #         "state": "filed|fixed|declined",
 #         "fixed_at": "<iso8601|null>",   # the fix/closure timestamp compute-patterns.jq reads
 #         "provenance": "<iso8601|null>", # carried from the v1 dismissed_at
@@ -141,7 +147,7 @@ _migrate() {  # $1 = overrides path
         stub_dir="$(_dir_of "$ov")"
         [ -d "$stub_dir" ] || mkdir -p "$stub_dir" \
           || { echo "::error::pattern-state: could not create ${stub_dir} for the first-run overrides stub" >&2; return 1; }
-        printf '{"schema_version":2,"patterns":{},"dismissed":{}}\n' > "$ov" \
+        printf '{"schema_version":3,"patterns":{},"dismissed":{}}\n' > "$ov" \
           || { echo "::error::pattern-state: could not write the first-run overrides stub at ${ov}" >&2; return 1; }
         return 0
     fi
@@ -149,9 +155,17 @@ _migrate() {  # $1 = overrides path
     local ver
     ver="$("$DEVFLOW_JQ" -r '.schema_version // 1' "$ov" 2>/dev/null)" \
       || { echo "::error::pattern-state: ${ov} does not parse as JSON — migration aborted" >&2; return 1; }
-    # Only v1 migrates; anything else (v2, or already-shaped) is a no-op so a
-    # second run over a v2 file changes no byte.
-    [ "$ver" = "1" ] || return 0
+    # Dispatch over the STORED version (issue #891): a v3 file is already current
+    # (a second run over it changes no byte — the idempotency invariant); a v2 file
+    # runs the v3 category stamp alone; a v1 file runs the existing v1-to-v2
+    # conversion below and THEN the v3 stamp; any other/future version is left
+    # unchanged.
+    case "$ver" in
+        3) return 0 ;;
+        2) _stamp_v3 "$ov" || return 1 ; return 0 ;;
+        1) : ;;   # fall through to the v1-to-v2 conversion, then _stamp_v3 below
+        *) return 0 ;;
+    esac
 
     local tmp
     # Staged beside the destination for the same reason _atomic_write is: the
@@ -202,6 +216,58 @@ _migrate() {  # $1 = overrides path
           }' "$ov" > "$tmp"; then
         rm -f "$tmp"
         echo "::error::pattern-state: migration jq transform failed for ${ov}" >&2
+        return 1
+    fi
+    _atomic_write "$ov" "$tmp" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+    # The file is now v2-shaped; stamp the v3 `category` field and move to v3.
+    _stamp_v3 "$ov" || return 1
+    return 0
+}
+
+# ── v3 stamp: give every lifecycle record an explicit `category` (issue #891) ──
+# Runs over a v2-shaped file (either an on-disk v2 file, or the just-converted v1
+# file). Sets each record's `category` to its existing valid category (a non-empty
+# string), else its own key canonicalized through slugify, and moves the document
+# to schema_version 3. Emits a per-record ::warning:: for any record whose category
+# is absent, empty, or not a string (the record it had to synthesize a category
+# for). Keys, state, fixed_at, provenance, meta_issues, and dismissed{} are left
+# byte-unchanged. slugify is included from the shared module (issue #891) via -L so
+# this file carries no second copy of the definition.
+_stamp_v3() {  # $1 = overrides path (v2-shaped)
+    local ov="$1"
+    # Warn (per record) for any record lacking a usable category — the record a
+    # category is being synthesized for. A jq failure here is non-fatal: the
+    # transform below is the load-bearing step, and a lost warning must not abort a
+    # migration. (No apostrophes in these jq programs: they sit inside bash single
+    # quotes.)
+    "$DEVFLOW_JQ" -r '
+        (.patterns // {}) | to_entries[]
+        | select((.value | type) == "object")
+        | select(((( .value.category // "") | strings) // "") == "")
+        | "::warning::pattern-state: record " + .key + " had no usable category field — stamping category equal to its own key (slugified)"' "$ov" 1>&2 \
+      || echo "::warning::pattern-state: could not enumerate records missing a category during the v3 stamp (jq exited non-zero) — the stamp below still applies" >&2
+
+    local tmp
+    tmp="$(mktemp "$(_dir_of "$ov")/.overrides-v3.XXXXXX")" \
+      || { echo "::error::pattern-state: could not create a temp file beside ${ov} during the v3 stamp" >&2; return 1; }
+    if ! "$DEVFLOW_JQ" -L "$HERE" 'include "slugify";
+        .schema_version = 3
+        | .patterns = (
+            (.patterns // {}) | to_entries
+            | map(
+                if (.value | type) == "object"
+                then .value.category = (
+                    ((( .value.category // "") | strings) // "") as $c
+                    | if $c != "" then $c else (.key | slugify) end
+                  )
+                else . end
+              )
+            | from_entries
+          )
+        | .dismissed = (.dismissed // {})' "$ov" > "$tmp"; then
+        rm -f "$tmp"
+        echo "::error::pattern-state: the v3 category stamp jq transform failed for ${ov}" >&2
         return 1
     fi
     _atomic_write "$ov" "$tmp" || { rm -f "$tmp"; return 1; }

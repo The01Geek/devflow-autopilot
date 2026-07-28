@@ -19,7 +19,7 @@ trap 'rm -rf "$RL_TMP"' RETURN
 # cp_run <entries-jsonl> <overrides-json> -> the compute-patterns view on stdout
 rl_cp() {
   printf '%s\n' "$1" \
-  | jq -s --slurpfile overrides <(printf '%s' "$2") -f "$RL_CP"
+  | jq -s -L "$REPO_ROOT/lib" --slurpfile overrides <(printf '%s' "$2") -f "$RL_CP"
 }
 
 # ── Migration ────────────────────────────────────────────────────────────────
@@ -27,7 +27,8 @@ rl_cp() {
 # and one hand-written entry (a different dismissed_by, no meta_issue).
 printf '%s' '{"schema_version":1,"dismissed":{"tooling-gap":{"dismissed_at":"2026-06-03T00:00:00Z","dismissed_by":"retrospective-weekly","reason":"meta-plugin-issue","meta_issue":"https://github.com/o/r/issues/113"},"my-hand-key":{"dismissed_at":"2026-01-01T00:00:00Z","dismissed_by":"a-human"}}}' > "$RL_TMP/mig.json"
 bash "$RL_PS" migrate "$RL_TMP/mig.json" >/dev/null 2>&1
-assert_eq "#788 migrate: schema_version becomes 2" "2" "$(jq -r '.schema_version' "$RL_TMP/mig.json")"
+assert_eq "#891 migrate: schema_version becomes 3 (v1 lands directly at v3)" "3" "$(jq -r '.schema_version' "$RL_TMP/mig.json")"
+assert_eq "#891 migrate: v1-converted record is stamped with category = its key" "tooling-gap" "$(jq -r '.patterns["tooling-gap"].category' "$RL_TMP/mig.json")"
 assert_eq "#788 migrate: loop-written key becomes a lifecycle record (state filed)" "filed" "$(jq -r '.patterns["tooling-gap"].state' "$RL_TMP/mig.json")"
 assert_eq "#788 migrate: lifecycle record carries the v1 meta_issue url" "https://github.com/o/r/issues/113" "$(jq -r '.patterns["tooling-gap"].meta_issues[0].url' "$RL_TMP/mig.json")"
 assert_eq "#788 migrate: lifecycle record carries v1 dismissed_at as provenance" "2026-06-03T00:00:00Z" "$(jq -r '.patterns["tooling-gap"].provenance' "$RL_TMP/mig.json")"
@@ -62,8 +63,8 @@ exit 1
 STUB
 chmod +x "$RL_TMP/gh-view.sh"
 
-rl_record() { # slug number
-  printf '{"schema_version":2,"patterns":{"%s":{"state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":%s,"url":"https://o/r/issues/%s","state":"filed","closedAt":null}]}},"dismissed":{}}' "$1" "$2" "$2"
+rl_record() { # slug number  (issue #891: v3 fixture, category == the bare key)
+  printf '{"schema_version":3,"patterns":{"%s":{"category":"%s","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":%s,"url":"https://o/r/issues/%s","state":"filed","closedAt":null}]}},"dismissed":{}}' "$1" "$1" "$2" "$2"
 }
 printf '%s' "$(rl_record completed-slug 501)" > "$RL_TMP/t1.json"
 DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/t1.json" >/dev/null 2>&1
@@ -316,7 +317,7 @@ assert_eq "#788 non-canonical lifecycle key canonicalized (no phantom, reports f
   "$(rl_cp '{"schema_version":2,"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}' "$CANON_OV" | jq -r '.["doc-accuracy"].status')"
 
 # ── meta-issue.sh number-keyed lifecycle write ───────────────────────────────
-printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi.json"
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi.json"
 printf 'body\n' > "$RL_TMP/mi-body.md"
 cat > "$RL_TMP/gh-mi.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -329,12 +330,13 @@ case "$*" in
 esac
 STUB
 chmod +x "$RL_TMP/gh-mi.sh"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag lenient-verdict --slug lenient-verdict --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag lenient-verdict --slug lenient-verdict --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag lenient-verdict --slug lenient-verdict --category lenient-verdict --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag lenient-verdict --slug lenient-verdict --category lenient-verdict --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1
 assert_eq "#788 meta-issue two filings of same number keep one entry" "1" "$(jq -r '.patterns["lenient-verdict"].meta_issues | length' "$RL_TMP/mi.json")"
 assert_eq "#788 meta-issue writes state=filed, no dismissed entry" "filed" "$(jq -r '.patterns["lenient-verdict"].state' "$RL_TMP/mi.json")"
+assert_eq "#891 meta-issue writes the record's category field" "lenient-verdict" "$(jq -r '.patterns["lenient-verdict"].category' "$RL_TMP/mi.json")"
 # --slug grammar validation
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'bad slug' --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1; RL_SLUG_RC=$?
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'bad slug' --category ok --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1; RL_SLUG_RC=$?
 assert_eq "#788 meta-issue rejects a non-slug --slug (non-zero exit)" "true" "$([ "$RL_SLUG_RC" -ne 0 ] && echo true || echo false)"
 # The --slug grammar is [A-Za-z0-9_-]+. Each rejected variant is a shape that
 # would otherwise become a non-canonical patterns{} key (a path segment, a search
@@ -342,7 +344,7 @@ assert_eq "#788 meta-issue rejects a non-slug --slug (non-zero exit)" "true" "$(
 # its own message — the tag guard above it rejects on the same grammar, so an
 # exit code alone could not tell the two apart.
 for _rl_bad in 'a/b' 'foo:bar' ''; do
-  DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug "$_rl_bad" --title T \
+  DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug "$_rl_bad" --category ok --title T \
     --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>"$RL_TMP/slug.err"; _rl_rc=$?
   assert_eq "#788 meta-issue rejects --slug '${_rl_bad:-<empty>}' (non-zero exit)" "true" \
     "$([ "$_rl_rc" -ne 0 ] && echo true || echo false)"
@@ -358,9 +360,44 @@ for _rl_bad in 'a/b' 'foo:bar' ''; do
 done
 # Positive control on the same invocation shape: a well-formed slug is accepted,
 # so the rejections above are the guards firing and not a broken fixture.
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'good-slug_9' --title T \
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug 'good-slug_9' --category ok --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>&1; _rl_rc=$?
 assert_eq "#788 meta-issue: a well-formed --slug is accepted (positive control)" "0" "$_rl_rc"
+
+# ── #891 meta-issue --category grammar + schema-version-3 refusal ─────────────
+# --category uses the NARROWER slug grammar [a-z0-9-]+ (no uppercase, no _).
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug ok --category 'Bad_Cat' --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>"$RL_TMP/cat.err"; _rl_cat_rc=$?
+assert_eq "#891 meta-issue rejects a --category outside [a-z0-9-]+ (non-zero exit)" "true" "$([ "$_rl_cat_rc" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 meta-issue: the --category rejection is attributed to the category grammar" "true" \
+  "$(grep -q "invalid --category 'Bad_Cat'" "$RL_TMP/cat.err" && echo true || echo false)"
+# The rejection happens BEFORE any GitHub call: the stub's create marker never fires.
+assert_eq "#891 meta-issue: a bad --category is rejected before contacting GitHub" "false" \
+  "$(grep -q 'issues/777' "$RL_TMP/cat.err" && echo true || echo false)"
+# An absent --category is rejected by the required-argument check, before GitHub.
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug ok --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi.json" >/dev/null 2>"$RL_TMP/nocat.err"; _rl_nocat_rc=$?
+assert_eq "#891 meta-issue: an absent --category exits non-zero" "true" "$([ "$_rl_nocat_rc" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 meta-issue: the absent --category names the argument" "true" \
+  "$(grep -q -- '--category' "$RL_TMP/nocat.err" && echo true || echo false)"
+# An in-grammar category OUTSIDE the twelve-value vocabulary is accepted and written.
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi-vocab.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug ok --category 'not-a-vocab-category' --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-vocab.json" >/dev/null 2>&1; _rl_voc_rc=$?
+assert_eq "#891 meta-issue: an in-grammar category outside the vocabulary is accepted" "0" "$_rl_voc_rc"
+assert_eq "#891 meta-issue: the out-of-vocabulary category is written verbatim" "not-a-vocab-category" \
+  "$(jq -r '.patterns["ok"].category' "$RL_TMP/mi-vocab.json")"
+# A non-3 schema_version file is REFUSED for the lifecycle write: URL on stdout,
+# ::error:: naming 'not 3', exit 0, and NO record written.
+printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi-v2.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok --slug ok --category ok --title T \
+  --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v2.json" >"$RL_TMP/miv2.out" 2>"$RL_TMP/miv2.err"; _rl_v2_rc=$?
+assert_eq "#891 meta-issue: a non-3 schema_version still exits 0" "0" "$_rl_v2_rc"
+assert_eq "#891 meta-issue: a non-3 schema_version prints the issue URL on stdout" "https://github.com/o/r/issues/777" "$(cat "$RL_TMP/miv2.out")"
+assert_eq "#891 meta-issue: the refusal breadcrumb says 'not 3'" "true" \
+  "$(grep -q 'not 3' "$RL_TMP/miv2.err" && echo true || echo false)"
+assert_eq "#891 meta-issue: no lifecycle record is written to a non-3 file" "false" \
+  "$(jq -e '.patterns | has("ok")' "$RL_TMP/mi-v2.json" >/dev/null 2>&1 && echo true || echo false)"
 
 # ── actionable-patterns regressed bypass + liveness ──────────────────────────
 # A regressed pattern with occurrence_count BELOW min_occurrences is still
@@ -539,7 +576,7 @@ assert_eq "#788 real-corpus derived: fabricated-claim → fixed" "fixed" "$(prin
 cp_run() {
   local entries="$1" overrides="$2"
   printf '%s\n' "$entries" \
-  | jq -s --slurpfile overrides <(printf '%s' "$overrides") \
+  | jq -s -L "$LIB" --slurpfile overrides <(printf '%s' "$overrides") \
       -f "$LIB/compute-patterns.jq"
 }
 
@@ -675,7 +712,7 @@ assert_eq "missing merged_at does not poison first_seen" \
 # surface, not repo source — so renaming this variable to a non-prefixed form would put
 # them in scope and fail the gate with no source-presence pin actually present.
 TMP_MI="$(mktemp -d)"
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov.json"
 # #152: the body is the Stage-B-authored issue spec, filed VERBATIM. Use a body
 # with backticks, $, and newlines to prove it round-trips unmangled (written to a
 # file, never inlined into shell) and is NOT wrapped in any prepend/append.
@@ -703,7 +740,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --title "audit(devflow): x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
+URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag review-reject-bypassed --slug review-reject-bypassed --category review-reject-bypassed --title "audit(devflow): x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
 assert_eq "meta-issue returns the new URL" "https://github.com/acme/example-repo/issues/4242" "$URL"
 # Created title must keep the de-dup key prefix (Step-1 search matches it) AND
 # carry the caller's --title (regression: --title was previously discarded).
@@ -743,7 +780,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-URL2="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
+URL2="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag t-existing --slug t-existing --category t-existing --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov.json" 2>/dev/null)"
 assert_eq "meta-issue reuses existing URL" "https://github.com/acme/example-repo/issues/99" "$URL2"
 assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/labels)" "true" \
   "$(grep -qF -- 'issues/99/labels' "$TMP_MI/edit-args" && echo true || echo false)"
@@ -753,7 +790,7 @@ assert_eq "meta-issue stamps labels on the existing issue #99 (REST issues/99/la
 # an issue that never existed (the "never report unfiled as filed" invariant). The
 # guard must exit non-zero so the orchestrator records a blocker, and must NOT have
 # written a dismissal for the slug.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov2.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov2.json"
 cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -763,7 +800,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag empty-url --slug empty-url --category empty-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; EMPTY_RC=$?
 assert_eq "meta-issue fails closed on empty create URL (non-zero exit)" "true" \
   "$([ "$EMPTY_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "meta-issue wrote NO lifecycle record on empty create URL" "false" \
@@ -778,7 +815,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag garbage-url --slug garbage-url --category garbage-url --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; GARBAGE_RC=$?
 assert_eq "meta-issue fails closed on garbage create stdout (non-zero exit)" "true" \
   "$([ "$GARBAGE_RC" -ne 0 ] && echo true || echo false)"
 # de-dup lookup failure (gh issue list non-zero) → exit 1 (orchestrator blocker trigger)
@@ -790,7 +827,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag lookup-fail --slug lookup-fail --category lookup-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; LOOKUP_RC=$?
 assert_eq "meta-issue fails closed on de-dup lookup error (non-zero exit)" "true" \
   "$([ "$LOOKUP_RC" -ne 0 ] && echo true || echo false)"
 # #152: de-dup lookup that exits 0 with a NON-JSON body (auth/upgrade warning on
@@ -805,11 +842,11 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag nonjson-lookup --slug nonjson-lookup --category nonjson-lookup --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; NONJSON_RC=$?
 assert_eq "meta-issue fails closed on a non-JSON de-dup body (non-zero exit)" "true" \
   "$([ "$NONJSON_RC" -ne 0 ] && echo true || echo false)"
 # --dry-run: records the DRYRUN sentinel, invokes NO issue create / issue edit
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov3.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov3.json"
 cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 D="$(dirname "$0")"
@@ -822,7 +859,7 @@ esac
 STUB
 chmod +x "$TMP_MI/gh"
 rm -f "$TMP_MI/calls"
-DRY_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov3.json" 2>/dev/null)"
+DRY_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry --slug dry --category dry --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov3.json" 2>/dev/null)"
 assert_eq "meta-issue --dry-run prints the DRYRUN sentinel" "https://example.invalid/issues/DRYRUN" "$DRY_URL"
 assert_eq "meta-issue --dry-run invokes no gh create/edit" "true" \
   "$([ ! -f "$TMP_MI/calls" ] && echo true || echo false)"
@@ -836,7 +873,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag dedup-null --slug dedup-null --category dedup-null --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov2.json" >/dev/null 2>&1; DEDUP_RC=$?
 assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" \
   "$([ "$DEDUP_RC" -ne 0 ] && echo true || echo false)"
 # #152: the tokenized GitHub --search can surface an issue whose title does NOT
@@ -845,7 +882,7 @@ assert_eq "meta-issue fails closed on a de-dup hit with null url/number" "true" 
 # rather than commenting on / pinning the cooldown to the wrong issue. Here the
 # only open issue's slug is `widget-foobar`; the requested tag is `widget` →
 # no exact match → create path (returns the freshly created URL, not #88).
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-loose.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-loose.json"
 cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -857,7 +894,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-LOOSE_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-loose.json" 2>/dev/null)"
+LOOSE_URL="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag widget --slug widget --category widget --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-loose.json" 2>/dev/null)"
 assert_eq "meta-issue strict-rejects a loose --search slug match (files new, not #88)" "https://github.com/acme/example-repo/issues/4343" "$LOOSE_URL"
 # #152: overrides-write failure AFTER a successful create reports FILED, not
 # blocked — a corrupt overrides file makes the jq cooldown write fail, but the
@@ -877,7 +914,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-OVFAIL_OUT="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-corrupt.json" 2>"$TMP_MI/ov-fail.err")"; OVFAIL_RC=$?
+OVFAIL_OUT="$(DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag ov-fail --slug ov-fail --category ov-fail --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-corrupt.json" 2>"$TMP_MI/ov-fail.err")"; OVFAIL_RC=$?
 assert_eq "meta-issue reports FILED on a cooldown-write failure (exit 0)" "true" \
   "$([ "$OVFAIL_RC" -eq 0 ] && echo true || echo false)"
 assert_eq "meta-issue still prints the filed URL on a cooldown-write failure" "https://github.com/acme/example-repo/issues/7777" "$OVFAIL_OUT"
@@ -887,7 +924,7 @@ assert_eq "meta-issue leaves a 'WAS filed' breadcrumb on a cooldown-write failur
 # #152/#788: --dry-run must NOT mutate the real overrides.json — a dry run that
 # records the DRYRUN sentinel as a lifecycle entry would make a later live run skip
 # the real filing. The patterns map must stay empty after a dry run.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-dry.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-dry.json"
 cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -896,14 +933,14 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --dry-run --tag dry-ov --slug dry-ov --category dry-ov --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1
 assert_eq "meta-issue --dry-run writes NO lifecycle record to overrides" "false" \
   "$(jq -e '.patterns | has("dry-ov")' "$TMP_MI/ov-dry.json" >/dev/null 2>&1 && echo true || echo false)"
 
 # #152: TAG carrying a GitHub search qualifier / whitespace is rejected at
 # arg-parse (before it reaches the de-dupe --search), so a drift fails loud
 # instead of mis-routing the lookup and re-filing a duplicate.
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag 'foo in:body' --slug foo --category foo --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-dry.json" >/dev/null 2>&1; BADTAG_RC=$?
 assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
   "$([ "$BADTAG_RC" -ne 0 ] && echo true || echo false)"
 # #788: on a recurrence the Step-1 de-dupe hits the SAME open issue and re-runs the
@@ -911,7 +948,7 @@ assert_eq "meta-issue rejects a non-slug --tag (non-zero exit)" "true" \
 # still hold exactly ONE meta-issue entry (no duplicate append that would exhaust
 # max_open_per_category against one issue), and the record's `provenance` (first
 # filing) must be PRESERVED rather than bumped forward.
-printf '%s' '{"schema_version":2,"patterns":{"recur":{"state":"filed","fixed_at":null,"provenance":"2020-01-01T00:00:00Z","meta_issues":[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_MI/ov-recur.json"
+printf '%s' '{"schema_version":3,"patterns":{"recur":{"category":"recur","state":"filed","fixed_at":null,"provenance":"2020-01-01T00:00:00Z","meta_issues":[{"number":55,"url":"https://github.com/acme/example-repo/issues/55","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_MI/ov-recur.json"
 cat > "$TMP_MI/gh" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
@@ -923,7 +960,7 @@ case "$*" in
 esac
 STUB
 chmod +x "$TMP_MI/gh"
-DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-recur.json" >/dev/null 2>&1
+DEVFLOW_GH="$TMP_MI/gh" bash "$LIB/meta-issue.sh" --tag recur --slug recur --category recur --title "x" --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-recur.json" >/dev/null 2>&1
 assert_eq "meta-issue recurrence keeps exactly one number-keyed entry" "1" \
   "$(jq -r '.patterns["recur"].meta_issues | length' "$TMP_MI/ov-recur.json")"
 assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-01-01T00:00:00Z" \
@@ -940,7 +977,7 @@ assert_eq "meta-issue preserves the original provenance on a recurrence" "2020-0
 # own per-user temp dir and ignores it. So on CI this assertion goes RED against
 # a $TMPDIR-staged write; at a macOS desk it holds the write's success as an
 # ordinary regression guard on this path.
-echo '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-tmpdir.json"
+echo '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_MI/ov-tmpdir.json"
 # Its own create-path stub: the shared $TMP_MI/gh above is rewritten by each
 # preceding case, and the one left in effect is not the create path.
 cat > "$TMP_MI/gh-create" <<'STUB'
@@ -953,7 +990,7 @@ esac
 STUB
 chmod +x "$TMP_MI/gh-create"
 TMPDIR="$TMP_MI/no-such-tmpdir" DEVFLOW_GH="$TMP_MI/gh-create" bash "$LIB/meta-issue.sh" \
-  --tag tmpdir-free --slug tmpdir-free --title "audit(devflow): x" \
+  --tag tmpdir-free --slug tmpdir-free --category tmpdir-free --title "audit(devflow): x" \
   --body-file "$TMP_MI/body.md" --overrides "$TMP_MI/ov-tmpdir.json" >/dev/null 2>&1
 assert_eq "#788 meta-issue: the lifecycle record is written with an unusable \$TMPDIR" "filed" \
   "$(jq -r '.patterns["tmpdir-free"].state' "$TMP_MI/ov-tmpdir.json")"
@@ -1241,16 +1278,16 @@ assert_eq "#788 prefetch miss + unavailable fallback → no transition (control)
 # `patterns` map) would leave the first run of a fresh consumer writing lifecycle
 # entries into a file the migrator would later re-migrate.
 rm -f "$RL_TMP/stub-absent.json"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --title T \
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --category stubbed --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stub-absent.json" >/dev/null 2>&1
-assert_eq "#788 first-run stub: meta-issue stubs an ABSENT overrides file at v2" "2" \
+assert_eq "#891 first-run stub: meta-issue stubs an ABSENT overrides file at v3" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/stub-absent.json")"
 assert_eq "#788 first-run stub: the meta-issue stub carries a patterns map (not the v1 shape)" "object" \
   "$(jq -r '.patterns | type' "$RL_TMP/stub-absent.json")"
 : > "$RL_TMP/stub-empty.json"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --title T \
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stubbed --slug stubbed --category stubbed --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stub-empty.json" >/dev/null 2>&1
-assert_eq "#788 first-run stub: meta-issue stubs an EMPTY overrides file at v2" "2" \
+assert_eq "#891 first-run stub: meta-issue stubs an EMPTY overrides file at v3" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/stub-empty.json")"
 assert_eq "#788 first-run stub: the empty-file stub carries a dismissed map" "object" \
   "$(jq -r '.dismissed | type' "$RL_TMP/stub-empty.json")"
@@ -1333,9 +1370,9 @@ assert_eq "#788 atomic write: the same fixture DOES change without the failing m
 # before Step 3 would report a real issue as unfiled — the one misstatement this
 # loop must never make — so the rename is guarded and routes into the recovery
 # branch, which exits 0 with the URL and an ::error:: naming the overrides file.
-printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mv-fail.json"
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/mv-fail.json"
 RL_MVOUT="$(PATH="$RL_TMP/shim:$PATH" DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" \
-  --tag mvfail --slug mvfail --title T --body-file "$RL_TMP/mi-body.md" \
+  --tag mvfail --slug mvfail --category mvfail --title T --body-file "$RL_TMP/mi-body.md" \
   --overrides "$RL_TMP/mv-fail.json" 2>"$RL_TMP/mv-fail.err")"; RL_MV_RC=$?
 assert_eq "#788 meta-issue: a failed record rename still exits 0" "0" "$RL_MV_RC"
 assert_eq "#788 meta-issue: a failed record rename still prints the filed issue URL" "https://github.com/o/r/issues/777" "$RL_MVOUT"
@@ -1348,8 +1385,8 @@ assert_eq "#788 meta-issue: the failed record write reports 'issue WAS filed'" "
 # field set pattern-state.sh's OPEN transition writes. Left behind, a `filed`
 # entry would carry a closure timestamp until a later reconcile happened to
 # clear it, and any reader keying off those fields would see a closed entry.
-printf '%s' '{"schema_version":2,"patterns":{"stale-close":{"state":"fixed","fixed_at":"2026-06-01T00:00:00Z","provenance":"p","meta_issues":[{"number":777,"url":"https://github.com/o/r/issues/777","state":"fixed","closedAt":"2026-06-01T00:00:00Z","fixed_at":"2026-06-01T00:00:00Z","state_reason":"COMPLETED"}]}},"dismissed":{}}' > "$RL_TMP/stale.json"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stale-close --slug stale-close --title T \
+printf '%s' '{"schema_version":3,"patterns":{"stale-close":{"category":"stale-close","state":"fixed","fixed_at":"2026-06-01T00:00:00Z","provenance":"p","meta_issues":[{"number":777,"url":"https://github.com/o/r/issues/777","state":"fixed","closedAt":"2026-06-01T00:00:00Z","fixed_at":"2026-06-01T00:00:00Z","state_reason":"COMPLETED"}]}},"dismissed":{}}' > "$RL_TMP/stale.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag stale-close --slug stale-close --category stale-close --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/stale.json" >/dev/null 2>&1
 assert_eq "#788 meta-issue in-place: the re-filed entry is marked filed" "filed" \
   "$(jq -r '.patterns["stale-close"].meta_issues[0].state' "$RL_TMP/stale.json")"
@@ -1378,8 +1415,8 @@ case "$*" in
 esac
 STUB
 chmod +x "$RL_TMP/gh-nolabel.sh"
-printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/nolabel.json"
-DEVFLOW_GH="$RL_TMP/gh-nolabel.sh" bash "$RL_MI" --tag nolabel --slug nolabel --title T \
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/nolabel.json"
+DEVFLOW_GH="$RL_TMP/gh-nolabel.sh" bash "$RL_MI" --tag nolabel --slug nolabel --category nolabel --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/nolabel.json" >/dev/null 2>&1; RL_NL_RC=$?
 assert_eq "#788 label failure: the filing still exits 0" "0" "$RL_NL_RC"
 assert_eq "#788 label failure: the lifecycle entry the caps count is still written" "1" \
@@ -1443,22 +1480,22 @@ assert_eq "#788 fixed_at: a real older timestamp DOES derive regressed (control)
 printf '%s' '{"schema_version":1,"dismissed":{"legacy-slug":{"dismissed_by":"retrospective-weekly","meta_issue":"https://github.com/o/r/issues/5"}}}' \
   > "$RL_TMP/mi-v1.json"
 cp "$RL_TMP/mi-v1.json" "$RL_TMP/mi-v1-before.json"
-RL_MIV1_OUT="$(DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag legacy-slug --slug legacy-slug \
+RL_MIV1_OUT="$(DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag legacy-slug --slug legacy-slug --category legacy-slug \
   --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v1.json" 2>"$RL_TMP/mi-v1.err")"; RL_MIV1_RC=$?
 assert_eq "#788 meta-issue: a v1 overrides file still exits 0 (the issue WAS filed)" "0" "$RL_MIV1_RC"
 assert_eq "#788 meta-issue: a v1 overrides file still prints the filed issue URL" "true" \
   "$(case "$RL_MIV1_OUT" in *"/issues/"*) echo true ;; *) echo false ;; esac)"
-assert_eq "#788 meta-issue: it leaves the v1 file BYTE-unchanged, never stamped v2" "true" \
+assert_eq "#891 meta-issue: it leaves the non-v3 file BYTE-unchanged, never stamped" "true" \
   "$(cmp -s "$RL_TMP/mi-v1.json" "$RL_TMP/mi-v1-before.json" && echo true || echo false)"
 assert_eq "#788 meta-issue: the refusal names the unmigrated schema as the cause" "true" \
   "$(grep -q 'schema_version' "$RL_TMP/mi-v1.err" && echo true || echo false)"
-# Control on the same invocation shape: a v2 file DOES get the lifecycle record,
+# Control on the same invocation shape: a v3 file DOES get the lifecycle record,
 # so the three assertions above pin the schema guard and not a broken fixture.
-printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi-v2.json"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok-slug --slug ok-slug \
-  --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v2.json" >/dev/null 2>&1
-assert_eq "#788 meta-issue: a v2 file still receives its lifecycle record (control)" "filed" \
-  "$(jq -r '.patterns["ok-slug"].state // "MISSING"' "$RL_TMP/mi-v2.json")"
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/mi-v3.json"
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag ok-slug --slug ok-slug --category ok-slug \
+  --title T --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/mi-v3.json" >/dev/null 2>&1
+assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (control)" "filed" \
+  "$(jq -r '.patterns["ok-slug"].state // "MISSING"' "$RL_TMP/mi-v3.json")"
 
 # ── the three cap keys, swept over the adversarial config-shape matrix ───────
 # CLAUDE.md's best-effort-parser rule governs every config value that turns into
@@ -1776,7 +1813,7 @@ assert_eq "#788 resolver: the resolvable entry still transitioned (control)" "fi
 # shape neither version defines.
 printf '%s' '{"schema_version":1,"dismissed":{"tooling-gap":{"dismissed_at":"2026-06-03T00:00:00Z","dismissed_by":"retrospective-weekly","meta_issue":"https://github.com/o/r/issues/504"}}}' > "$RL_TMP/recon-v1.json"
 DEVFLOW_GH="$RL_TMP/gh-view.sh" bash "$RL_PS" reconcile "$RL_TMP/recon-v1.json" >/dev/null 2>&1
-assert_eq "#788 reconcile: a v1 file is migrated at reconcile start" "2" \
+assert_eq "#891 reconcile: a v1 file is migrated at reconcile start (to v3)" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/recon-v1.json")"
 assert_eq "#788 reconcile: the migrated record is then reconciled (504 is OPEN)" "filed" \
   "$(jq -r '.patterns["tooling-gap"].state' "$RL_TMP/recon-v1.json")"
@@ -1797,8 +1834,8 @@ case "$*" in
 esac
 STUB
 chmod +x "$RL_TMP/gh-badurl.sh"
-printf '%s' '{"schema_version":2,"patterns":{},"dismissed":{}}' > "$RL_TMP/badurl.json"
-DEVFLOW_GH="$RL_TMP/gh-badurl.sh" bash "$RL_MI" --tag badurl --slug badurl --title T \
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/badurl.json"
+DEVFLOW_GH="$RL_TMP/gh-badurl.sh" bash "$RL_MI" --tag badurl --slug badurl --category badurl --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/badurl.json" >/dev/null 2>"$RL_TMP/badurl.err"; RL_BU_RC=$?
 assert_eq "#788 meta-issue: a non-numeric URL tail exits non-zero" "true" \
   "$([ "$RL_BU_RC" -ne 0 ] && echo true || echo false)"
@@ -1839,7 +1876,7 @@ assert_eq "#788 slurp guard: a document that did not load exits non-zero" "true"
   "$([ "$RL_SG_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "#788 slurp guard: the human-owned dismissed{} map survives byte-for-byte" "true" \
   "$(diff -q "$RL_TMP/slurp-before.json" "$RL_TMP/slurp.json" >/dev/null 2>&1 && echo true || echo false)"
-assert_eq "#788 slurp guard: the overrides file was NOT replaced by a {patterns:{}} stub" "2" \
+assert_eq "#788 slurp guard: the overrides file was NOT replaced by a {patterns:{}} stub" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/slurp.json")"
 
 # ── actionable-patterns.sh rejects an unrecognized third argument ─────────────
@@ -1931,9 +1968,9 @@ assert_eq "#788 dedup: that fixture is NOT inferred a systemic resolver failure"
 # create the file, and repeat that forever.
 rm -rf "$RL_TMP/fresh"; mkdir -p "$RL_TMP/fresh"
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" bash "$RL_PS" run "$RL_TMP/fresh/overrides.json" >/dev/null 2>&1
-assert_eq "#788 first run: the v2 stub is materialized at the real overrides path" "true" \
+assert_eq "#788 first run: the stub is materialized at the real overrides path" "true" \
   "$([ -f "$RL_TMP/fresh/overrides.json" ] && echo true || echo false)"
-assert_eq "#788 first run: the materialized stub is v2" "2" \
+assert_eq "#891 first run: the materialized stub is v3" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/fresh/overrides.json" 2>/dev/null)"
 (
   set +e
@@ -1949,7 +1986,7 @@ assert_eq "#788 first run: the materialized stub is v2" "2" \
 # An EMPTY file takes the same arm as an absent one.
 : > "$RL_TMP/fresh/empty.json"
 DEVFLOW_GH="$RL_TMP/gh-ap.sh" bash "$RL_PS" run "$RL_TMP/fresh/empty.json" >/dev/null 2>&1
-assert_eq "#788 first run: an EMPTY overrides file is stubbed to v2 too" "2" \
+assert_eq "#891 first run: an EMPTY overrides file is stubbed to v3 too" "3" \
   "$(jq -r '.schema_version' "$RL_TMP/fresh/empty.json" 2>/dev/null)"
 
 # ── Hand-corruptible input: wrong-shaped JSON must not abort the run ─────────
@@ -1988,7 +2025,7 @@ assert_eq "#788 shape: a well-formed record still derives its status (control)" 
 # Under `set -euo pipefail` an unguarded failure there aborts before Step 3
 # prints the URL, so the orchestrator records a real issue as NOT filed.
 mkdir -p "$RL_TMP/robase"
-DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag bootfail --slug bootfail --title T \
+DEVFLOW_GH="$RL_TMP/gh-mi.sh" bash "$RL_MI" --tag bootfail --slug bootfail --category bootfail --title T \
   --body-file "$RL_TMP/mi-body.md" --overrides "$RL_TMP/robase/nodir/overrides.json" \
   >"$RL_TMP/boot.out" 2>"$RL_TMP/boot.err"; RL_BOOT_RC=$?
 assert_eq "#788 bootstrap: a failed stub write still exits 0" "0" "$RL_BOOT_RC"
@@ -2010,6 +2047,291 @@ assert_eq "#788 bootstrap: the breadcrumb says the issue WAS filed" "true" \
 # description and the diffstat. A durable guard, if one is ever wanted, must be a
 # checked-in CEILING pin (the issue-#656 enforcement-constant exception), never a
 # comparison against a moving base ref.
+
+# ════════════════════════════════════════════════════════════════════════════
+# #891 — opaque filing key: category on the record, compose-filing-key.sh, and
+# the per-category cap sum.
+# ════════════════════════════════════════════════════════════════════════════
+RL_CK="$REPO_ROOT/lib/compose-filing-key.sh"
+
+# ── compose-filing-key.sh ────────────────────────────────────────────────────
+# A short composition fits whole and is byte-identical to its own slugify pass.
+RL_CK_SHORT="$(bash "$RL_CK" tooling-gap slow-suite 2>/dev/null)"
+assert_eq "#891 compose: a short composition is joined with a single dash" "tooling-gap-slow-suite" "$RL_CK_SHORT"
+assert_eq "#891 compose: the output is slugify-stable (equals its own canonicalization)" "$RL_CK_SHORT" \
+  "$(printf '%s' "$RL_CK_SHORT" | jq -R -L "$LIB" 'include "slugify"; slugify' -r)"
+assert_eq "#891 compose: the output is at most 40 chars and matches [a-z0-9-]+" "true" \
+  "$([ "${#RL_CK_SHORT}" -le 40 ] && printf '%s' "$RL_CK_SHORT" | grep -qE '^[a-z0-9-]+$' && echo true || echo false)"
+# Distinct subslugs (same category) → distinct keys.
+assert_eq "#891 compose: distinct subslugs give distinct keys" "false" \
+  "$([ "$(bash "$RL_CK" tooling-gap slow-suite)" = "$(bash "$RL_CK" tooling-gap flaky-order)" ] && echo true || echo false)"
+# Non-canonical arguments are canonicalized separately, then joined.
+assert_eq "#891 compose: arguments are canonicalized (mixed case / spaces)" "tooling-gap-slow-suite" \
+  "$(bash "$RL_CK" 'Tooling Gap' 'Slow Suite' 2>/dev/null)"
+# An over-long composition is truncated with a deterministic digest suffix.
+RL_CK_LONG="$(bash "$RL_CK" tooling-gap 'this-is-a-very-long-subslug-that-easily-exceeds-the-forty-char-ceiling' 2>/dev/null)"
+assert_eq "#891 compose: an over-long composition is at most 40 chars" "true" \
+  "$([ "${#RL_CK_LONG}" -le 40 ] && echo true || echo false)"
+assert_eq "#891 compose: the truncated key still matches [a-z0-9-]+" "true" \
+  "$(printf '%s' "$RL_CK_LONG" | grep -qE '^[a-z0-9-]+$' && echo true || echo false)"
+assert_eq "#891 compose: the digest suffix is deterministic (same args → same key)" "$RL_CK_LONG" \
+  "$(bash "$RL_CK" tooling-gap 'this-is-a-very-long-subslug-that-easily-exceeds-the-forty-char-ceiling' 2>/dev/null)"
+# The digest comes from python3/hashlib: poison sha256sum/shasum/md5/cksum on PATH
+# (make them exit non-zero) and the SAME key is still produced.
+mkdir -p "$RL_TMP/poison"
+for _h in sha256sum shasum md5 cksum; do printf '#!/usr/bin/env bash\nexit 1\n' > "$RL_TMP/poison/$_h"; chmod +x "$RL_TMP/poison/$_h"; done
+assert_eq "#891 compose: the digest survives a PATH with sha256sum/shasum/md5/cksum poisoned" "$RL_CK_LONG" \
+  "$(PATH="$RL_TMP/poison:$PATH" bash "$RL_CK" tooling-gap 'this-is-a-very-long-subslug-that-easily-exceeds-the-forty-char-ceiling' 2>/dev/null)"
+# An absent / empty / canonicalizes-to-empty argument exits non-zero with NO stdout.
+RL_CK_MISS="$(bash "$RL_CK" tooling-gap 2>/dev/null)"; RL_CK_MISS_RC=$?
+assert_eq "#891 compose: a missing second argument exits non-zero" "true" "$([ "$RL_CK_MISS_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: a missing second argument prints nothing on stdout" "" "$RL_CK_MISS"
+RL_CK_EMPTY="$(bash "$RL_CK" tooling-gap '' 2>/dev/null)"; RL_CK_EMPTY_RC=$?
+assert_eq "#891 compose: an empty argument exits non-zero" "true" "$([ "$RL_CK_EMPTY_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: an empty argument prints nothing" "" "$RL_CK_EMPTY"
+RL_CK_CANON="$(bash "$RL_CK" '///' slow-suite 2>/dev/null)"; RL_CK_CANON_RC=$?
+assert_eq "#891 compose: an argument canonicalizing to empty exits non-zero" "true" "$([ "$RL_CK_CANON_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: the canonicalizes-to-empty case prints nothing" "" "$RL_CK_CANON"
+# Regression: the SECOND argument canonicalizing to empty must also fail closed —
+# a two-line jq capture would collapse trailing newlines and yield a bogus <cat>-<cat>
+# key (the fail-open the per-argument canonicalization fixes).
+RL_CK_SUBEMPTY="$(bash "$RL_CK" tooling-gap '###' 2>/dev/null)"; RL_CK_SUBEMPTY_RC=$?
+assert_eq "#891 compose: a SECOND argument canonicalizing to empty exits non-zero" "true" "$([ "$RL_CK_SUBEMPTY_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: the second-arg-empty case prints nothing (no bogus cat-cat key)" "" "$RL_CK_SUBEMPTY"
+# A category whose OWN canonical form exceeds the ceiling exits non-zero, no stdout.
+RL_CK_BIGCAT="$(bash "$RL_CK" 'this-category-name-is-far-too-long-to-fit-inside-the-forty-character-ceiling' sub 2>/dev/null)"; RL_CK_BIGCAT_RC=$?
+assert_eq "#891 compose: an over-long category exits non-zero" "true" "$([ "$RL_CK_BIGCAT_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#891 compose: an over-long category prints nothing" "" "$RL_CK_BIGCAT"
+# The digest arm's DISTINGUISHING property: two long compositions that share the
+# truncated 31-char prefix but differ in the tail must produce DISTINCT keys — the
+# whole reason the digest exists. An empty/constant digest would collapse them and
+# still pass the ≤40/grammar/determinism checks above, so assert distinctness here.
+RL_CK_L1="$(bash "$RL_CK" tooling-gap 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail-one' 2>/dev/null)"
+RL_CK_L2="$(bash "$RL_CK" tooling-gap 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-tail-two' 2>/dev/null)"
+assert_eq "#891 compose: two long inputs sharing a prefix give DISTINCT keys (digest present)" "false" \
+  "$([ "$RL_CK_L1" = "$RL_CK_L2" ] && echo true || echo false)"
+assert_eq "#891 compose: the truncated key ends in an 8-hex-char digest suffix" "true" \
+  "$(printf '%s' "$RL_CK_L1" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
+# Ceiling boundary (arm-1 vs arm-2 selection): a composition canonicalizing to
+# exactly 40 chars is printed whole (no digest); one at 41 is truncated+digested.
+# category 'cat' (3) + '-' (1) → subslug of 36 non-hex 'z' = 40 → whole; 37 = 41 →
+# arm 2. Generate the subslugs by length (never hand-counted) so the boundary is
+# exact; 'z' is non-hex so the digest-suffix grep can never false-match a whole key.
+RL_CK_SUB36="$(printf 'z%.0s' $(seq 1 36))"
+RL_CK_SUB37="$(printf 'z%.0s' $(seq 1 37))"
+RL_CK_40="$(bash "$RL_CK" cat "$RL_CK_SUB36" 2>/dev/null)"
+assert_eq "#891 compose: a 40-char composition is exactly 40 chars" "40" "${#RL_CK_40}"
+assert_eq "#891 compose: a 40-char composition is printed WHOLE (no digest suffix)" "false" \
+  "$(printf '%s' "$RL_CK_40" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
+RL_CK_41="$(bash "$RL_CK" cat "$RL_CK_SUB37" 2>/dev/null)"
+assert_eq "#891 compose: a 41-char composition is truncated with a digest (arm 2)" "true" \
+  "$([ "${#RL_CK_41}" -le 40 ] && printf '%s' "$RL_CK_41" | grep -qE -- '-[0-9a-f]{8}$' && echo true || echo false)"
+
+# ── slugify module: compute-patterns.jq and compose-filing-key.sh share ONE def.
+# Behavioral parity: compose's output canonicalized through the module (the same
+# def compute-patterns.jq includes) is unchanged.
+assert_eq "#891 slugify-module: compose output round-trips through the shared def unchanged" "$RL_CK_SHORT" \
+  "$(printf '%s' "$RL_CK_SHORT" | jq -R -L "$LIB" 'include "slugify"; slugify' -r)"
+# The single-source contract is exercised behaviorally: both readers `include
+# "slugify"` from lib/slugify.jq via -L, and every rl_cp assertion above (which
+# fails at compile time if the include cannot resolve the def) plus this compose
+# round-trip pass — so both resolve slugify from the shared module.
+
+# ── compute-patterns.jq: attribution by stored category (opaque key) ─────────
+RL_SUB_ENTRIES='{"kind":"implementation","pr":1,"merged_at":"2026-07-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}
+{"kind":"implementation","pr":2,"merged_at":"2026-07-20T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}'
+# A record keyed differently from its category, state fixed, with a post-fix occ → regressed.
+RL_SUB_OV='{"schema_version":3,"patterns":{"tooling-gap--slow-suite":{"category":"tooling-gap","state":"fixed","fixed_at":"2026-07-05T00:00:00Z","provenance":"x","meta_issues":[{"number":900,"url":"u","state":"fixed","closedAt":"2026-07-05T00:00:00Z"}]}},"dismissed":{}}'
+RL_SUB_VIEW="$(rl_cp "$RL_SUB_ENTRIES" "$RL_SUB_OV")"
+assert_eq "#891 derive: a differently-keyed record attributes its category occurrences" "2" \
+  "$(printf '%s' "$RL_SUB_VIEW" | jq -r '.["tooling-gap-slow-suite"].occurrence_count')"
+assert_eq "#891 derive: the entry carries its attribution category" "tooling-gap" \
+  "$(printf '%s' "$RL_SUB_VIEW" | jq -r '.["tooling-gap-slow-suite"].category')"
+assert_eq "#891 derive: a differently-keyed fixed record regresses on a post-fix occurrence" "regressed" \
+  "$(printf '%s' "$RL_SUB_VIEW" | jq -r '.["tooling-gap-slow-suite"].status')"
+assert_eq "#891 derive: the corpus category claimed by the sub-pattern is suppressed" "false" \
+  "$(printf '%s' "$RL_SUB_VIEW" | jq -e 'has("tooling-gap")' >/dev/null 2>&1 && echo true || echo false)"
+# A differently-keyed FILED record does not duplicate its category's entry.
+RL_FILED_OV='{"schema_version":3,"patterns":{"tooling-gap--slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":901,"url":"u","state":"filed","closedAt":null}]}},"dismissed":{}}'
+RL_FILED_VIEW="$(rl_cp "$RL_SUB_ENTRIES" "$RL_FILED_OV")"
+assert_eq "#891 derive: a differently-keyed filed record derives filed" "filed" \
+  "$(printf '%s' "$RL_FILED_VIEW" | jq -r '.["tooling-gap-slow-suite"].status')"
+assert_eq "#891 derive: filed sub-pattern leaves exactly one entry for its category" "1" \
+  "$(printf '%s' "$RL_FILED_VIEW" | jq -r '[to_entries[] | select(.value.category=="tooling-gap")] | length')"
+# A bare-category record keeps its own entry even when a sub-pattern shares the category.
+RL_BOTH_OV='{"schema_version":3,"patterns":{"tooling-gap":{"category":"tooling-gap","state":"fixed","fixed_at":"2026-07-05T00:00:00Z","provenance":"x","meta_issues":[]},"tooling-gap--slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":902,"url":"u","state":"filed","closedAt":null}]}},"dismissed":{}}'
+RL_BOTH_VIEW="$(rl_cp "$RL_SUB_ENTRIES" "$RL_BOTH_OV")"
+assert_eq "#891 derive: a bare-category record keeps its own entry beside a sub-pattern" "true" \
+  "$(printf '%s' "$RL_BOTH_VIEW" | jq -e 'has("tooling-gap") and has("tooling-gap-slow-suite")' >/dev/null 2>&1 && echo true || echo false)"
+# A category no record claims still produces its own corpus entry.
+RL_UNCLAIMED_OV='{"schema_version":3,"patterns":{},"dismissed":{}}'
+assert_eq "#891 derive: an unclaimed category still produces its own entry" "2" \
+  "$(rl_cp "$RL_SUB_ENTRIES" "$RL_UNCLAIMED_OV" | jq -r '.["tooling-gap"].occurrence_count')"
+# A record whose stored category is a dismissed{} key derives dismissed, regardless of key.
+RL_DIS_OV='{"schema_version":3,"patterns":{"tooling-gap--slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{"tooling-gap":{"dismissed_by":"a-human"}}}'
+assert_eq "#891 derive: a record whose category is dismissed derives dismissed regardless of key" "dismissed" \
+  "$(rl_cp "$RL_SUB_ENTRIES" "$RL_DIS_OV" | jq -r '.["tooling-gap-slow-suite"].status')"
+# A present record with an unrecognized state derives open (unchanged fall-through).
+RL_WEIRD_OV='{"schema_version":3,"patterns":{"tooling-gap--slow-suite":{"category":"tooling-gap","state":"weird","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{}}'
+assert_eq "#891 derive: a present record with an unrecognized state derives open" "open" \
+  "$(rl_cp "$RL_SUB_ENTRIES" "$RL_WEIRD_OV" | jq -r '.["tooling-gap-slow-suite"].status')"
+
+# ── derivation parity: a v2 fixture and its migrated-to-v3 form agree ─────────
+RL_PAR_ENTRIES='{"kind":"implementation","pr":1,"merged_at":"2026-04-01T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}
+{"kind":"implementation","pr":2,"merged_at":"2026-04-10T00:00:00Z","verdict":"imperfect","categories":["doc-accuracy"]}'
+printf '%s' '{"schema_version":2,"patterns":{"doc-accuracy":{"state":"filed","fixed_at":null,"provenance":"x","meta_issues":[{"number":9,"url":"u","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$RL_TMP/par-v2.json"
+RL_PAR_V2VIEW="$(rl_cp "$RL_PAR_ENTRIES" "$(cat "$RL_TMP/par-v2.json")")"
+cp "$RL_TMP/par-v2.json" "$RL_TMP/par-v3.json"
+bash "$RL_PS" migrate "$RL_TMP/par-v3.json" >/dev/null 2>&1
+RL_PAR_V3VIEW="$(rl_cp "$RL_PAR_ENTRIES" "$(cat "$RL_TMP/par-v3.json")")"
+for _f in occurrence_count status first_seen last_seen; do
+  assert_eq "#891 parity: doc-accuracy ${_f} matches pre/post migration" \
+    "$(printf '%s' "$RL_PAR_V2VIEW" | jq -r ".[\"doc-accuracy\"].${_f}")" \
+    "$(printf '%s' "$RL_PAR_V3VIEW" | jq -r ".[\"doc-accuracy\"].${_f}")"
+done
+
+# ── pattern-state migrate v2→v3 specifics ────────────────────────────────────
+printf '%s' '{"schema_version":2,"patterns":{"tooling-gap":{"state":"declined","fixed_at":"2026-06-28T21:24:43Z","provenance":"2026-06-03T21:39:06Z","meta_issues":[{"number":113,"url":"u","state":"declined","closedAt":"2026-06-28T21:24:43Z"}]}},"dismissed":{"keepme":{"dismissed_by":"a-human"}}}' > "$RL_TMP/v2v3.json"
+bash "$RL_PS" migrate "$RL_TMP/v2v3.json" >/dev/null 2>&1
+assert_eq "#891 migrate v2→v3: schema_version becomes 3" "3" "$(jq -r '.schema_version' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: category equals the (canonical) key" "tooling-gap" "$(jq -r '.patterns["tooling-gap"].category' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: state is byte-unchanged" "declined" "$(jq -r '.patterns["tooling-gap"].state' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: fixed_at is byte-unchanged" "2026-06-28T21:24:43Z" "$(jq -r '.patterns["tooling-gap"].fixed_at' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: provenance is byte-unchanged" "2026-06-03T21:39:06Z" "$(jq -r '.patterns["tooling-gap"].provenance' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: meta_issues[0].number is byte-unchanged" "113" "$(jq -r '.patterns["tooling-gap"].meta_issues[0].number' "$RL_TMP/v2v3.json")"
+assert_eq "#891 migrate v2→v3: the human dismissed{} entry survives byte-for-byte" "a-human" "$(jq -r '.dismissed["keepme"].dismissed_by' "$RL_TMP/v2v3.json")"
+# Idempotent at v3.
+cp "$RL_TMP/v2v3.json" "$RL_TMP/v2v3-before.json"
+bash "$RL_PS" migrate "$RL_TMP/v2v3.json" >/dev/null 2>&1
+assert_eq "#891 migrate: a second run over a v3 file is byte-identical" "true" \
+  "$(cmp -s "$RL_TMP/v2v3-before.json" "$RL_TMP/v2v3.json" && echo true || echo false)"
+# A NON-CANONICAL key → category is its slugified form.
+printf '%s' '{"schema_version":2,"patterns":{"Tooling Gap":{"state":"fixed","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{}}' > "$RL_TMP/noncanon.json"
+bash "$RL_PS" migrate "$RL_TMP/noncanon.json" >/dev/null 2>&1
+assert_eq "#891 migrate: a non-canonical key is stamped as its slugified category" "tooling-gap" \
+  "$(jq -r '.patterns["Tooling Gap"].category' "$RL_TMP/noncanon.json")"
+# A non-string category on a v2 record is repaired to the key AND warned (a v3
+# file would be a migrate no-op, so the repair path is exercised from v2).
+printf '%s' '{"schema_version":2,"patterns":{"rec-a":{"category":42,"state":"fixed","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{}}' > "$RL_TMP/badcat2.json"
+bash "$RL_PS" migrate "$RL_TMP/badcat2.json" 2>"$RL_TMP/badcat.err" >/dev/null
+assert_eq "#891 migrate: a non-string category is repaired to the record key" "rec-a" \
+  "$(jq -r '.patterns["rec-a"].category' "$RL_TMP/badcat2.json")"
+# An explicit empty-string category takes the same repair-to-key + warning path.
+printf '%s' '{"schema_version":2,"patterns":{"rec-b":{"category":"","state":"fixed","fixed_at":null,"provenance":"x","meta_issues":[]}},"dismissed":{}}' > "$RL_TMP/emptycat.json"
+bash "$RL_PS" migrate "$RL_TMP/emptycat.json" 2>"$RL_TMP/emptycat.err" >/dev/null
+assert_eq "#891 migrate: an empty-string category is repaired to the record key" "rec-b" \
+  "$(jq -r '.patterns["rec-b"].category' "$RL_TMP/emptycat.json")"
+assert_eq "#891 migrate: repairing an empty-string category also warns naming the record" "true" \
+  "$(grep -q 'rec-b' "$RL_TMP/emptycat.err" && grep -q '::warning::' "$RL_TMP/emptycat.err" && echo true || echo false)"
+assert_eq "#891 migrate: repairing a bad category emits a ::warning:: naming the record" "true" \
+  "$(grep -q 'rec-a' "$RL_TMP/badcat.err" && grep -q '::warning::' "$RL_TMP/badcat.err" && echo true || echo false)"
+# migrate over an absent / empty overrides path materializes a v3 stub.
+bash "$RL_PS" migrate "$RL_TMP/absent-ov.json" >/dev/null 2>&1
+assert_eq "#891 migrate: an absent path materializes a v3 stub" "3" "$(jq -r '.schema_version' "$RL_TMP/absent-ov.json")"
+assert_eq "#891 migrate: the v3 stub has empty patterns{} and dismissed{}" "true" \
+  "$(jq -e '(.patterns|length==0) and (.dismissed|length==0)' "$RL_TMP/absent-ov.json" >/dev/null 2>&1 && echo true || echo false)"
+
+# ── filing-decisions: devflow_open_filed_for_category sums across records ─────
+(
+  set +e
+  # shellcheck source=../../filing-decisions.sh
+  . "$REPO_ROOT/lib/filing-decisions.sh"
+  printf '%s' '{"schema_version":3,"patterns":{"tooling-gap--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tooling-gap--b":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]},"other":{"category":"other","state":"filed","meta_issues":[{"number":3,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat.json"
+  assert_eq "#891 for_category: sums filed entries across every record sharing the category" "2" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat.json" tooling-gap 2>/dev/null)"
+  assert_eq "#891 for_category: an unclaimed category counts 0" "0" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat.json" nonesuch 2>/dev/null)"
+  # The `state == "filed"` FILTER is load-bearing: a same-category record whose
+  # meta-issue entry is `fixed` (a closed issue) must NOT consume a cap slot, so a
+  # category with one filed + one fixed entry counts 1, not 2. (Without a non-filed
+  # entry in the fixture a defect counting every state would pass vacuously.)
+  printf '%s' '{"schema_version":3,"patterns":{"tg--open":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--closed":{"category":"tooling-gap","state":"fixed","meta_issues":[{"number":2,"state":"fixed"}]}},"dismissed":{}}' > "$RL_TMP/percat-mixed.json"
+  assert_eq "#891 for_category: only FILED entries count; a fixed entry does not consume a slot" "1" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-mixed.json" tooling-gap 2>/dev/null)"
+  # A wrong-shaped record for an UNRELATED category unestablishes the requested count.
+  printf '%s' '{"schema_version":3,"patterns":{"tooling-gap--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"broken":"not-an-object"},"dismissed":{}}' > "$RL_TMP/percat-broken.json"
+  assert_eq "#891 for_category: a wrong-shaped unrelated record unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-broken.json" tooling-gap 2>/dev/null)"
+  assert_eq "#891 for_category: a missing overrides file prints nothing (fail closed)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/no-such.json" tooling-gap 2>/dev/null)"
+
+  # ── malformed-shape matrix (issue #891 review, finding 3) ──────────────────
+  # This helper is a best-effort parser over a config JSON a human can hand-corrupt
+  # and it DECIDES an emitted result (the max_open_per_category comparand), so the
+  # CLAUDE.md convention requires the whole shape matrix be swept, not just the one
+  # record-non-object arm above. Every row asserts the SAME fail-closed contract as
+  # the arms above: empty stdout (UNESTABLISHED), never a laundered `0` and never an
+  # under-count. Each fixture that can carry a legitimately-matching record does so,
+  # so a defect that merely skipped the bad record would emit `1` and be caught.
+  #
+  # meta_issues is not an array.
+  printf '%s' '{"schema_version":3,"patterns":{"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":"nope"}},"dismissed":{}}' > "$RL_TMP/percat-mi-nonarray.json"
+  assert_eq "#891 for_category: a non-array meta_issues unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-mi-nonarray.json" tooling-gap 2>/dev/null)"
+  # A meta_issues ENTRY is not an object.
+  printf '%s' '{"schema_version":3,"patterns":{"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":["not-an-object"]}},"dismissed":{}}' > "$RL_TMP/percat-entry-nonobj.json"
+  assert_eq "#891 for_category: a non-object meta_issues entry unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-entry-nonobj.json" tooling-gap 2>/dev/null)"
+  # patterns{} is not an object.
+  printf '%s' '{"schema_version":3,"patterns":[1,2],"dismissed":{}}' > "$RL_TMP/percat-patterns-nonobj.json"
+  assert_eq "#891 for_category: a non-object patterns{} unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-patterns-nonobj.json" tooling-gap 2>/dev/null)"
+  # The whole document is not an object (array form, and scalar form).
+  printf '%s' '[1,2,3]' > "$RL_TMP/percat-top-array.json"
+  assert_eq "#891 for_category: a top-level array unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-top-array.json" tooling-gap 2>/dev/null)"
+  printf '%s' '"hello"' > "$RL_TMP/percat-top-scalar.json"
+  assert_eq "#891 for_category: a top-level scalar unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-top-scalar.json" tooling-gap 2>/dev/null)"
+  # An empty (truncated) file.
+  : > "$RL_TMP/percat-empty.json"
+  assert_eq "#891 for_category: an empty overrides file unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-empty.json" tooling-gap 2>/dev/null)"
+  # Unparseable (not JSON at all).
+  printf '%s' '{not json' > "$RL_TMP/percat-nonjson.json"
+  assert_eq "#891 for_category: an unparseable overrides file unestablishes the count (empty, never 0)" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-nonjson.json" tooling-gap 2>/dev/null)"
+  # A NON-STRING `category` on a structurally-valid record. Before the guard this
+  # record passed every shape check and was then silently dropped by the select,
+  # LOWERING the sum to 1 (an under-count files straight past the cap) instead of
+  # unestablishing it. The fixture pairs the corrupt record with a legitimately
+  # matching one precisely so the under-count is observable: without the guard this
+  # arm reads `1`, with it, empty.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"category":42,"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-number.json"
+  assert_eq "#891 for_category: a numeric category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-number.json" tooling-gap 2>/dev/null)"
+  # A null `category` takes the same arm.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"category":null,"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-null.json"
+  assert_eq "#891 for_category: a null category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-null.json" tooling-gap 2>/dev/null)"
+  # An ABSENT `category` (a half-migrated v2 record) takes the same arm.
+  printf '%s' '{"schema_version":3,"patterns":{"bad":{"state":"filed","meta_issues":[{"number":1,"state":"filed"}]},"tg--a":{"category":"tooling-gap","state":"filed","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$RL_TMP/percat-cat-absent.json"
+  assert_eq "#891 for_category: an absent category unestablishes the count rather than under-counting" "" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat-cat-absent.json" tooling-gap 2>/dev/null)"
+  # The guard must not fire on the HAPPY path: an all-string-category document still
+  # counts (otherwise the arms above would pass vacuously against a helper that
+  # unestablishes everything).
+  assert_eq "#891 for_category: the category-is-string guard does not fire on a well-formed document" "2" \
+    "$(devflow_open_filed_for_category "$RL_TMP/percat.json" tooling-gap 2>/dev/null)"
+)
+
+# ── actionable-patterns emits the attribution category ───────────────────────
+printf '%s\n' '{"kind":"implementation","pr":1,"merged_at":"2026-05-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"]}' > "$RL_TMP/cat-r.jsonl"
+printf '%s' "$RL_SUB_OV" > "$RL_TMP/cat-ov.json"
+RL_CATOUT="$(DEVFLOW_GH="$RL_TMP/gh-ap.sh" DEVFLOW_CONFIG_FILE="$REPO_ROOT/lib/test/fixtures/config.json" bash "$RL_AP" "$RL_TMP/cat-r.jsonl" "$RL_TMP/cat-ov.json" --full 2>/dev/null)"
+assert_eq "#891 actionable: each emitted pattern object carries its attribution category" "tooling-gap" \
+  "$(printf '%s' "$RL_CATOUT" | jq -r '.[] | select(.tag=="tooling-gap-slow-suite") | .category')"
+
+# ── render-report: a differing key/category renders both; equal renders one ──
+# Source render-report.sh inside the command-substitution subshell so its
+# `set -euo pipefail` never leaks into this module shell (same discipline as the
+# filing-decisions `( set +e; . )` blocks above).
+RL_REND_DIFF="$( . "$REPO_ROOT/lib/render-report.sh"; devflow_render_report '{"patterns":[{"tag":"tooling-gap-slow-suite","category":"tooling-gap","occurrence_count":2,"status":"regressed"}]}' )"
+assert_eq "#891 render: a row whose key differs from its category names both" "true" \
+  "$(printf '%s' "$RL_REND_DIFF" | grep -qF '(category: `tooling-gap`)' && echo true || echo false)"
+RL_REND_SAME="$( . "$REPO_ROOT/lib/render-report.sh"; devflow_render_report '{"patterns":[{"tag":"tooling-gap","category":"tooling-gap","occurrence_count":2,"status":"open"}]}' )"
+assert_eq "#891 render: an equal key/category renders the single-name row (no category clause)" "false" \
+  "$(printf '%s' "$RL_REND_SAME" | grep -qF '(category:' && echo true || echo false)"
 
 rm -rf "$RL_TMP"
 trap - RETURN

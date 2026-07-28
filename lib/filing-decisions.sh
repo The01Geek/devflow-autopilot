@@ -20,7 +20,11 @@
 #   devflow_annotate_patterns   — per-pattern filing_outcome / withheld_by on the
 #                                 unfiltered view the report renders
 #   devflow_open_filed_total    — the max_open_issues comparand
-#   devflow_open_filed_in_category — the max_open_per_category comparand
+#   devflow_open_filed_in_category — the max_open_per_category comparand keyed by a
+#                                 single record's KEY (retained; pre-#891 shape)
+#   devflow_open_filed_for_category — the max_open_per_category comparand summed
+#                                 across every record whose stored `category`
+#                                 equals the requested category (issue #891)
 #
 # Pure: no gh calls, no file writes, no tree side effects. stdout carries the
 # result; stderr carries breadcrumbs only (see the jq-stderr note below).
@@ -305,6 +309,57 @@ devflow_open_filed_in_category() {
           end
       ' "$ov" || {
         echo "::error::filing-decisions: could not derive the per-category open-filed count for '${slug}' from ${ov} — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
+        return 0
+    }
+}
+
+# devflow_open_filed_for_category <overrides-path> <category>
+#
+# The max_open_per_category comparand under the opaque-key model (issue #891): the
+# count of `filed` meta-issue entries summed across EVERY lifecycle record whose
+# stored `category` equals the requested category — not one record keyed by the
+# category, because a category can now be spread across several sub-pattern records
+# under distinct opaque keys. Same fail-closed-but-loud contract as
+# devflow_open_filed_total: prints NOTHING (not `0`) on a missing/unreadable/malformed
+# overrides file or any jq failure, so devflow_filing_cap_verdict rejects the empty
+# operand as `invalid-operand` and withholds rather than filing past the cap on a
+# laundered zero.
+#
+# Deliberately WIDER fail-closed blast radius than devflow_open_filed_in_category:
+# because the sum walks every record rather than one, the shape validation walks
+# every record too — a wrong-shaped record belonging to an UNRELATED category makes
+# the requested category's comparand UNESTABLISHED. That is chosen on purpose: a
+# partially-readable map cannot support a trustworthy count, and an under-count
+# (skipping the wrong-shaped record) would file straight past the cap.
+devflow_open_filed_for_category() {
+    local ov="${1:-}" category="${2:-}"
+    if [ -z "$ov" ] || [ ! -r "$ov" ] || [ -z "$category" ]; then
+        echo "::error::filing-decisions: cannot derive the per-category open-filed count (overrides='${ov}', category='${category}') — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
+        return 0
+    fi
+    # Walk EVERY record: assert each is an object, its meta_issues an array, and each
+    # entry an object — erroring (jq exits non-zero, the helper prints nothing) on
+    # any wrong shape, whether or not that record belongs to the requested category.
+    # Then keep only records whose stored `category` equals the requested one and
+    # count their `filed` entries.
+    "$DEVFLOW_JQ" -r --arg cat "$category" '
+        if (.patterns // {} | type) != "object" then error("patterns is not an object") else . end
+        | [ (.patterns // {}) | to_entries[]
+            | (if (.value | type) != "object" then error("record \(.key) is not an object") else . end)
+            | .key as $k | .value as $rec
+            | (if ($rec.meta_issues // [] | type) != "array" then error("meta_issues of \($k) is not an array") else (.value.meta_issues // []) end)
+            | [ .[] | (if type != "object" then error("a meta_issues entry is not an object") else . end) ] as $entries
+            # The stored `category` must be a STRING on EVERY record, not merely on
+            # the ones that match. An absent or non-string category would otherwise
+            # slip past the select below and silently LOWER the sum — an under-count
+            # that files straight past the cap, the exact fail-open this helper
+            # widens its blast radius to prevent (issue #891 review).
+            | (if ($rec.category | type) != "string" then error("category of \($k) is not a string") else . end)
+            | select($rec.category == $cat)
+            | $entries[]
+            | select(.state == "filed") ] | length
+      ' "$ov" || {
+        echo "::error::filing-decisions: could not derive the per-category open-filed count for category '${category}' from ${ov} — the max_open_per_category comparand is UNESTABLISHED, so this pattern will be withheld as invalid-operand" >&2
         return 0
     }
 }
