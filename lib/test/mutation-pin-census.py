@@ -184,8 +184,11 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # repeatedly re-presents unchanged source text each time, so a cache turns the
 # re-derivation into a hit. The bound keeps the retained decompositions
 # proportional to the sources one census holds rather than to the number of
-# censuses the process performs.
-_SOURCE_PARSE_CACHE_SIZE = 24
+# censuses the process performs. The bound is deliberately near the number of
+# shell sources one census visits rather than generous: a decomposition retains
+# the source text and its per-line records, so slack beyond the live set is
+# spent holding superseded images of whichever source the caller keeps editing.
+_SOURCE_PARSE_CACHE_SIZE = 16
 
 
 @functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
@@ -226,16 +229,6 @@ def _logical_lines(text: str, path: str) -> tuple[_LogicalLine, ...]:
     return tuple(output)
 
 
-# Bound on the per-segment memos below. A census walks a source once to count
-# definitions and, where that source is also audited, again to extract rows;
-# over that overlap the second walk splits and scans segments the first already
-# did. The bound is sized to hold one large source's segments rather than the
-# whole corpus, which is what makes the overlap a hit without letting the memo
-# grow with the number of censuses.
-_SEGMENT_PARSE_CACHE_SIZE = 131072
-
-
-@functools.lru_cache(maxsize=_SEGMENT_PARSE_CACHE_SIZE)
 def _shell_segments(text: str) -> tuple[str, ...]:
     """Split an already joined line at unquoted shell command separators."""
     segments: list[str] = []
@@ -292,7 +285,6 @@ def _shell_segments(text: str) -> tuple[str, ...]:
     return tuple(segment for segment in segments if segment.strip())
 
 
-@functools.lru_cache(maxsize=_SEGMENT_PARSE_CACHE_SIZE)
 def _unquoted_shell_tokens(segment: str) -> tuple[str, ...]:
     visible: list[str] = []
     quote: str | None = None

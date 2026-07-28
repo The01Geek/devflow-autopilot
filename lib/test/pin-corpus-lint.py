@@ -1762,13 +1762,14 @@ _POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
 _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
 
 
-# Bound on the per-source parse memos below. A changed source is parsed for
-# both its merge-base image and its worktree image, and a process that scans
-# repeatedly re-presents the unchanged image each time, so a small cache turns
-# those repeats into hits. The bound keeps the retained text and its derived
-# spans proportional to the sources one scan holds rather than to the number of
-# scans the process performs.
-_SOURCE_PARSE_CACHE_SIZE = 6
+# Bound on the per-source parse memos below, sized to the two images a scan
+# holds for the source it is extracting: its merge-base image and its worktree
+# image. That covers both repeats these memos exist to catch — the two
+# derivations taken from one image during a single extraction, and the
+# unchanged merge-base image re-presented by a later scan in the same process.
+# Slack beyond those two buys nothing and is spent retaining superseded copies
+# of a multi-megabyte source.
+_SOURCE_PARSE_CACHE_SIZE = 2
 
 
 def _newline_offsets(text):
