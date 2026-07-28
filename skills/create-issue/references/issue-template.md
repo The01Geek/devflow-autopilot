@@ -184,6 +184,20 @@ pull-request occurrences, a tally over an evidence bundle), cite the specific ev
 consulted — the query output, the source rows — **record-by-record**. Neither arm accepts a count
 from recall.
 
+**Every "Verified:" bullet carries a self-contained re-derivation handle.** A bullet is true when
+you write it and nothing re-checks it afterwards, so the reader who matters is an implementing run
+weeks later, deciding whether it may skip its own investigation on the strength of your sentence.
+Give that reader the means to re-derive the premise **mechanically**, in the bullet itself: the
+**repository path in backticks plus the sentence quoted verbatim** from it, or the **exact command**
+whose output grounded the claim. A bullet that merely *asserts* a premise in prose — no path, no
+quotation, no command — hands the reader nothing to re-run, and a stale one of those is strictly
+worse than no bullet at all, because it converts "go and check" into "this was already checked".
+Issue #857 is the worked case: three of its handle-less premises were false by the time #864
+implemented it, and two acceptance criteria were unimplementable as prescribed. The handle is what
+`scripts/check-verified-premises.py` reads — Step 3.5 runs it over the assembled draft, and an
+implementing run re-checks the filed issue with it — so a bullet written without one is not
+re-checkable by either.
+
 **Load-bearing claims record the repository baseline they were grounded against.** The claim
 classes are enumerated **first**, and each takes the baseline representation *its own* drift mode
 needs — no single universal identity is imposed across them:
@@ -531,6 +545,7 @@ incomplete issues.
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
 - [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors it never asserts as claims) are each resolved with a cited probe or an implementer-obligation AC
 - [ ] Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search (cited as a "Verified:" bullet with the command and its hit list) where the tier grants one, else by the specific evidence records consulted record-by-record — never assembled from recall
+- [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it, or the exact command whose output grounded the claim — so an implementing run can re-check the premise mechanically rather than re-investigating it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
 - [ ] A designed LLM/semantic-judgment surface over third-party text (issue bodies, PR comments, commit messages, external API responses) carries the input-is-data guard AC paired with a hostile-input Testing Strategy case that asserts instruction-shaped input is not obeyed — or cites the existing already-guarded judgment path it reuses; a draft with no such surface adds nothing here
 - [ ] Every enumerated test/case/example list inside an AC declares its form — the `at minimum` floor marker or an explicit closed-set exhaustiveness statement — and each floor-marked list has had Move 2's coverage sweep (state, case variants, multiplicity, absence) written back as additional closed AC items
