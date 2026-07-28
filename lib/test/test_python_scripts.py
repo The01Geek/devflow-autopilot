@@ -18734,6 +18734,82 @@ _cvp_rc, _cvp_out = _cvp_run('**Verified:** `lib/test/gone.py` — *"anything at
 assert_eq("#868 helper: a directory-bearing path that names no file still REFUTES, so "
           "the weak-span concession did not disarm the guard", 2, _cvp_rc)
 
+# --- a SKIPPED strong path never licenses a refutation over a weak file ------
+# A cited directory classifies as strong but holds no searchable text, so it is
+# skipped and the quotation is only ever searched against the co-cited files.
+# Deciding refute-eligibility over EVERY cited path let that skipped directory
+# refute a miss in a co-cited WEAK span — refuting on a citation that
+# adjudicated nothing, the harm the weak-span arm above exists to prevent.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` and `config.json` — *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a quote miss in a WEAK co-cited file is not refuted just "
+          "because a cited DIRECTORY classified as strong — a skipped path "
+          "adjudicated nothing",
+          True, 'state=unestablished' in _cvp_out
+          and 'no strong cited path was searchable' in _cvp_out)
+assert_eq("#868 helper: the skipped-strong quote miss does not force a non-clean exit",
+          0, _cvp_rc)
+assert_eq("#868 helper: that verdict still discloses the citation it could not "
+          "adjudicate", True, 'not adjudicated' in _cvp_out and '(directory)' in _cvp_out)
+# Positive control on the same shape: a strong path that WAS read still refutes,
+# so the narrowing is a scoped fix rather than a hole that disarms the arm.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` and `docs/notes.md` — *"a sentence nobody wrote"*\n')
+assert_eq("#868 helper: a co-cited directory does not suppress a refutation earned by a "
+          "strong path that was actually READ", 2, _cvp_rc)
+
+# --- the 8-character quotation floor: a short span mints no quote handle -----
+# `_QUOTED`'s floor is the quote dimension's guess-never-refutes guard: a span
+# of a few characters occurs in almost any file, so admitting one would let a
+# `holds` be minted on noise and a miss be refuted on noise. Below the floor the
+# bullet degrades to a bare path claim, which is unestablished by construction.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"1234567"*\n')
+assert_eq("#868 helper: a quotation below the 8-character floor mints no quote handle "
+          "and degrades to an unestablished bare path claim",
+          True, 'handle=path' in _cvp_out and 'handle=path-quote' not in _cvp_out
+          and 'state=unestablished' in _cvp_out)
+assert_eq("#868 helper: a below-floor quotation never refutes", 0, _cvp_rc)
+# The positive control one character above the floor, so the guard is a floor
+# rather than a switch that disabled the quote dimension entirely.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"12345678"*\n')
+assert_eq("#868 helper: a quotation AT the 8-character floor is adjudicated as a quote "
+          "and still refutes when it misses in a strong path",
+          True, 'handle=path-quote' in _cvp_out and 'state=refuted' in _cvp_out)
+assert_eq("#868 helper: the at-floor quotation miss exits 2", 2, _cvp_rc)
+
+# --- single-quoted spans are excluded from the quote dimension ---------------
+# Issue bodies quote shell fragments with apostrophes constantly (`grep -c
+# '^tombstone:'`), and mining those as premise quotations would refute a bullet
+# over a command line it merely displayed.
+_cvp_rc, _cvp_out = _cvp_run(
+    "**Verified:** `docs/notes.md` — 'a sentence nobody ever wrote'\n")
+assert_eq("#868 helper: a SINGLE-quoted span mints no quote handle, so a shell fragment "
+          "in a bullet is never adjudicated as the premise's quotation",
+          True, 'handle=path' in _cvp_out and 'handle=path-quote' not in _cvp_out)
+assert_eq("#868 helper: a single-quoted span never refutes", 0, _cvp_rc)
+
+# --- an unexpected internal failure is unestablished, never a refutation -----
+# Without the catch-all the traceback exits 1 — a code neither consumer routes —
+# after an arbitrary number of per-bullet lines had already printed, which reads
+# as a partial clean pass.
+_cvp_prev_run = check_verified_premises._run
+try:
+    def _cvp_boom(_args):
+        raise RuntimeError('injected failure')
+    check_verified_premises._run = _cvp_boom
+    _cvp_buf = io.StringIO()
+    with contextlib.redirect_stdout(_cvp_buf), contextlib.redirect_stderr(io.StringIO()):
+        _cvp_rc = check_verified_premises.main(['--body-file', '/nonexistent'])
+finally:
+    check_verified_premises._run = _cvp_prev_run
+assert_eq("#868 helper: an unexpected internal failure exits 3 (unestablished) and names "
+          "itself, never 1 and never the refuted code 2",
+          True, _cvp_rc == 3
+          and 'reason=internal-error' in _cvp_buf.getvalue()
+          and 'injected failure' in _cvp_buf.getvalue())
+
 # --- absolute and traversing citations are refused, never adjudicated -------
 _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `/etc/passwd` — *"root:x:0:0:root:/root"*\n')

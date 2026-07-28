@@ -489,7 +489,17 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
     # Same asymmetry as the missing-path arm: a quotation that fails to resolve
     # in a STRONG path is a refutation, but in a weak one it is only evidence
     # that the guess was wrong about which file was meant.
-    if any(s == 'strong' for s, _, _ in paths):
+    #
+    # Refute-eligibility is narrowed to strong paths that were actually READ,
+    # exactly as the missing-path arm narrows to the specific missing strong
+    # entries. A strong citation the loop above SKIPPED adjudicated nothing —
+    # a directory holds no searchable text, so the quotation was only ever
+    # searched against the co-cited files — and letting it license a refutation
+    # over a miss in a co-cited WEAK file refutes on a guess, the harm the
+    # weak-path, unread-file and elision arms all exist to close.
+    adjudicated_strong = [p for s, p, _ in paths
+                          if s == 'strong' and p in readable]
+    if adjudicated_strong:
         detail = ('quoted sentence no longer occurs in ' + ','.join(readable)
                   + ': ' + ' | '.join(unresolved))
         if skipped:
@@ -498,6 +508,16 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             # adjudication of everything the bullet cited.
             detail += '; not adjudicated: ' + ','.join(skipped)
         return 'refuted', detail
+    if any(s == 'strong' for s, _, _ in paths):
+        # A strong path WAS cited, but none of them reached `readable`, so the
+        # miss says nothing about it. Reusing the weak-span wording below would
+        # be a documented falsehood here: a directory-bearing span was cited.
+        detail = ('quoted sentence does not occur in ' + ','.join(readable)
+                  + ', and no strong cited path was searchable, so the miss is '
+                    'not evidence of a stale premise: ' + ' | '.join(unresolved))
+        if skipped:
+            detail += '; not adjudicated: ' + ','.join(skipped)
+        return 'unestablished', detail
     return 'unestablished', (
         'quoted sentence does not occur in the filename-shaped span cited, '
         'which names no directory: ' + ','.join(readable))
