@@ -15,8 +15,8 @@ literally unimplementable.
 This helper is the mechanical half of the fix (issue #868). It has two
 consumers, both of which read the same output:
 
-  * `/devflow:create-issue` Step 3.5 (drafting side) — does every load-bearing
-    bullet carry a self-contained *re-derivation handle*, so that re-checking is
+  * `/devflow:create-issue` (drafting side) — does every load-bearing bullet
+    carry a self-contained *re-derivation handle*, so that re-checking is
     mechanical rather than a re-investigation? A `handle=none` bullet is the
     drafting defect.
   * `/devflow:implement` Phase 1.6 Pass 6 (implement side) — does each premise
@@ -30,11 +30,20 @@ handle is a command is *reported* so the caller can re-run it under its own
 judgment; the helper declines to decide it. That is why the module imports no
 `subprocess`.
 
+**The asymmetry that governs every arm below.** Refuting a premise is the one
+verdict this helper is least entitled to assert cheaply: on a refutation the
+implementing run *discards* the premise and records issue-accuracy feedback
+against the issue. So a refutation requires a claim the helper positively
+adjudicated, and everything it merely guessed at resolves to `unestablished`,
+which costs only an investigation the run would have done anyway.
+
 Handle classes (the label printed as `handle=`):
 
   path-quote  a cited repository path AND a quoted sentence — the strongest
-              handle, and the only one this helper can fully adjudicate
-  path        a cited path with no quoted sentence — existence is checkable
+              handle, and the only one whose *content* is adjudicated rather
+              than merely the path's presence
+  path        a cited path with no quoted sentence — presence is checkable, but
+              presence is not the premise, so this never reports `holds`
   quote       a quoted sentence naming no path — no domain to search, so the
               helper reports it rather than guessing
   command     a backticked command — reported, never executed
@@ -44,10 +53,11 @@ Handle classes (the label printed as `handle=`):
 States (`state=`):
 
   holds          the premise re-derives against the tree right now
-  refuted        the cited path is gone, or the quoted sentence no longer
-                 occurs in it — discard the premise and investigate
-  unestablished  the helper could not decide (no handle, or a handle it
-                 declines to execute) — fall back to ordinary investigation
+  refuted        a cited file is gone, or a quoted sentence no longer occurs in
+                 it — discard the premise and investigate
+  unestablished  the helper could not decide — no handle, a handle it declines
+                 to execute, or a claim it can only guess at; fall back to
+                 ordinary investigation
 
 `unestablished` is deliberately NOT an error: unknown is not zero, and it is
 also not a failure. It downgrades the bullet to "go and check", which is the
@@ -62,9 +72,14 @@ Exit codes:
   2  at least one premise was REFUTED — one refutation dominates the exit code
      even when other bullets hold
   3  the measurement could not be established at all — the body file could not
-     be read, it was empty, or the invocation itself was bad. Never conflated
+     be read, it was empty, the repository root was unusable, the invocation
+     itself was bad, or an unexpected internal error occurred. Never conflated
      with a clean pass, and deliberately distinct from 2: a caller who could
      not run the check has not thereby discovered a stale premise.
+
+Every terminating path prints a `VERIFIED_PREMISES ` line, so a caller may
+treat that line's ABSENCE as "this did not run" rather than inferring anything
+from the exit code alone.
 """
 
 import argparse
@@ -72,25 +87,66 @@ import re
 import sys
 from pathlib import Path
 
-# Both spellings occur in the wild: `**Verified:**` is the form the create-issue
-# template prescribes, and `**Verified** —` is what several filed issues carry
-# (issue #868's own body among them). A parser keyed on the colon alone finds
-# zero bullets in those and reports a vacuous clean pass, so both are matched.
-_MARKER = re.compile(r'\*\*Verified:?\*\*:?')
+# The `Verified` marker, in the shapes filed DevFlow issues actually carry.
+# Matching only `**Verified:**` finds zero bullets in bodies using any other
+# spelling and reports a vacuous clean pass — the exact fail-open this helper
+# exists to close — so three shapes are matched: an emphasised run whose first
+# word is `Verified` (covering `**Verified:**`, `**Verified** —`, the
+# backtick-inside-bold `**`Verified:` …**`, and `**Verified baseline**`), a
+# backticked `` `Verified:` ``, and a list item opening with `Verified:`.
+# It is deliberately NOT widened to the bare word `Verified` in running prose,
+# which would mint phantom bullets out of ordinary sentences. The recognised set
+# is a floor, not a closed set — an unrecognised spelling is invisible here, and
+# the consumers state that residual rather than claiming exhaustiveness.
+_MARKER = re.compile(
+    r'\*\*[`\s]*Verified\b[^*\n]*\*\*:?'
+    r'|`Verified:?`'
+    r'|(?m:^[-*]\s+Verified\b:?)')
 
-# A backticked span. Handles are always backticked — that is the drafting
-# convention the template mandates — so an unquoted path mentioned in prose is
-# deliberately not mined: it would produce false handles from ordinary sentences.
+# A backticked span. The template mandates backticks for the *path* handle, and
+# a command handle is conventionally backticked too; an unbackticked path
+# mentioned in running prose is deliberately not mined, because doing so would
+# manufacture handles out of ordinary sentences. The cost is that a bullet whose
+# command is written bare classifies as `none` — a drafting nit the consumers
+# surface rather than a silent miss.
 _BACKTICKED = re.compile(r'`([^`\n]+)`')
 
 # A double-quoted sentence, in either the ASCII or the typographic form. Single
 # quotes are excluded on purpose: they occur inside shell commands
 # (`grep -c '^tombstone:'`) far more often than they delimit a quoted premise.
+# The 8-character floor keeps short quoted words from being adjudicated as
+# premises; a bullet whose only quotation is shorter degrades to `handle=path`,
+# which no longer reports `holds`.
 _QUOTED = re.compile(r'["“]([^"“”]{8,})["”]')
 
 # A file extension, used only as the WEAK arm of path detection — see
 # `_path_strength`.
 _EXTENSION = re.compile(r'\.[A-Za-z0-9]{1,6}$')
+
+# A shell/glob metacharacter. A span carrying one names a SET of paths, not a
+# path, so it is not adjudicable by a single existence check — and adjudicating
+# it as one produced false refutations against real issue bodies, which cite
+# `.devflow/prompt-extensions/*.md`-style patterns routinely.
+_GLOBBY = re.compile(r'[*?\[\]]')
+
+# The start of the next markdown list item. A bullet's span must stop here as
+# well as at a blank line: filed issues put consecutive `Verified:` bullets on
+# adjacent list-item lines with no blank line between them, so a span bounded
+# only by the next MARKER runs past its own item and into the following item's
+# leading prose — mining that item's cited paths as if this bullet had cited
+# them, and then refuting this bullet's quotation against the wrong file.
+_NEXT_ITEM = re.compile(r'\n[ \t]*(?:[-*+]|\d+[.)])\s')
+
+# An ellipsis inside a quotation: the author elided text. Such a quotation is
+# not verbatim, so it is adjudicated fragment-by-fragment and a miss on it can
+# never refute — see `recheck`.
+_ELISION = re.compile(r'\s*(?:…|\.\.\.)\s*')
+
+# A locator suffix appended to a path: a pytest node id (`::test_name`), a
+# markdown/URL anchor (`#section`), or a line reference (`:42`). The FILE part
+# is adjudicable; the suffix is not, so it is stripped for the presence check
+# and its presence downgrades the verdict — see `_split_locator`.
+_LOCATOR_SUFFIX = re.compile(r'(::.+|#.+|:\d+(?:-\d+)?)$')
 
 # Why the undecidable handles cannot be adjudicated, keyed by handle. Module
 # level so the vocabulary sits beside the patterns that produce it, and so the
@@ -123,6 +179,21 @@ def normalize(text: str) -> str:
     return ' '.join(stripped.split())
 
 
+def _split_locator(span: str) -> tuple:
+    """Split a cited span into `(path_part, suffix)`.
+
+    A path cited with a pytest node id, an anchor, or a line number names a
+    file plus a location *inside* it. The file part is adjudicable by an
+    existence check; the location is not — so the suffix is stripped here and
+    its presence is carried into the verdict, because a present file whose
+    cited symbol may have moved is not evidence the premise drifted.
+    """
+    match = _LOCATOR_SUFFIX.search(span)
+    if not match or match.start() == 0:
+        return span, ''
+    return span[:match.start()], match.group(0)
+
+
 def _path_strength(span: str) -> str:
     """Classify a backticked span as a `strong` path, a `weak` one, or `no`.
 
@@ -130,25 +201,30 @@ def _path_strength(span: str) -> str:
     span carrying a directory separator is a **strong** path claim: little else
     in an issue body looks like `lib/test/run.sh`. A span that merely ends in a
     dotted tail is **weak**, because so do the identifiers this repo's own
-    issues are full of — `devflow_review.stale_prose.enabled`, `tally.refuted`,
-    `_MARKER.finditer`. Reporting "no such file" about one of those as
-    `refuted` would tell the run to discard a true premise and record false
-    issue-accuracy feedback against the issue, so a missing *weak* path
-    resolves to `unestablished` instead (see `recheck`).
+    issues are full of — `spec.loader`, `p.name`, `config.json`. Reporting "no
+    such file" about one of those as `refuted` would tell the run to discard a
+    true premise and record false issue-accuracy feedback against the issue, so
+    a missing *weak* path resolves to `unestablished` instead (see `recheck`).
 
-    An **absolute** path is rejected outright rather than adjudicated. The span
-    is third-party text, and `Path(root) / "/etc/passwd"` discards `root`
-    entirely under pathlib's join semantics, so an absolute span would silently
-    point the read outside the tree. It is not a repository path, so it is not
-    a handle. `_resolves_inside` closes the traversal half of the same hole.
+    Three prefixes are rejected outright rather than adjudicated. An
+    **absolute** path (`/`) is the load-bearing one: the span is third-party
+    text, and `Path(root) / "/etc/passwd"` discards `root` entirely under
+    pathlib's join semantics, so an absolute span would silently point the read
+    outside the tree (`_resolves_inside` closes the traversal half of the same
+    hole). A `-` prefix is flag-shaped and a `~` prefix is home-relative;
+    neither is a repository path. A **glob** span names a set rather than a
+    path and so is not adjudicable by an existence check at all.
     """
     if not span or any(c.isspace() for c in span):
         return 'no'
     if span.startswith('-') or span.startswith('/') or span.startswith('~'):
         return 'no'
-    if '/' in span:
+    if _GLOBBY.search(span):
+        return 'no'
+    bare, _ = _split_locator(span)
+    if '/' in bare:
         return 'strong'
-    return 'weak' if _EXTENSION.search(span) else 'no'
+    return 'weak' if _EXTENSION.search(bare) else 'no'
 
 
 def _resolves_inside(root: Path, rel: str) -> bool:
@@ -186,15 +262,22 @@ def parse_bullets(body: str) -> list:
     """Return one text span per `Verified:` bullet, in document order.
 
     A bullet's span runs from its marker to whichever comes first: the next
-    marker, or a blank line. Terminating at a blank line keeps a bullet from
-    swallowing the paragraphs that follow it — several filed issues place the
-    marker mid-sentence inside a longer paragraph.
+    marker, a blank line, or the start of the next list item. All three bounds
+    are load-bearing, and each closes the same failure — a span that runs past
+    its own bullet mines the *following* text's backticked paths as if this
+    bullet had cited them, and then refutes this bullet's quotation against a
+    file it never named. Several filed issues place the marker mid-sentence
+    inside a longer paragraph (the blank-line bound), and place consecutive
+    bullets on adjacent list-item lines with no blank line between them (the
+    list-item bound, observed on issue #857).
     """
     spans = []
     for match in _MARKER.finditer(body):
         rest = body[match.end():]
-        next_marker = _MARKER.search(rest)
-        limit = next_marker.start() if next_marker else len(rest)
+        limit = len(rest)
+        for bound in (_MARKER.search(rest), _NEXT_ITEM.search(rest)):
+            if bound is not None:
+                limit = min(limit, bound.start())
         blank = rest.find('\n\n')
         if blank != -1:
             limit = min(limit, blank)
@@ -205,8 +288,9 @@ def parse_bullets(body: str) -> list:
 def classify(span: str) -> tuple:
     """Return `(handle, paths, quotes)` for one bullet span.
 
-    `paths` carries each cited path with its strength, as `(strength, span)`
-    pairs, so `recheck` can tell a confident path claim from a guess.
+    `paths` carries each cited path as a `(strength, bare_path, suffix)` triple,
+    so `recheck` can tell a confident path claim from a guess and can tell a
+    whole-file citation from one naming a location inside the file.
     """
     paths, commands = [], []
     for backticked in _BACKTICKED.findall(span):
@@ -219,7 +303,8 @@ def classify(span: str) -> tuple:
             continue
         strength = _path_strength(backticked)
         if strength != 'no':
-            paths.append((strength, backticked))
+            bare, suffix = _split_locator(backticked)
+            paths.append((strength, bare, suffix))
     quotes = _QUOTED.findall(span)
     if paths and quotes:
         handle = 'path-quote'
@@ -242,7 +327,7 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         # caller to ordinary investigation.
         return 'unestablished', _UNDECIDABLE_REASONS[handle]
 
-    escaping = [p for _, p in paths if not _resolves_inside(root, p)]
+    escaping = [p for _, p, _ in paths if not _resolves_inside(root, p)]
     if escaping:
         # Not refuted — refused. A premise pointing outside the repository is
         # not a premise about the tree this run builds on, and the helper
@@ -251,7 +336,11 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
         return 'unestablished', ('cited path resolves outside the repository, '
                                  'refused: ' + ','.join(escaping))
 
-    missing = [(s, p) for s, p in paths if not (root / p).is_file()]
+    # Presence, not file-ness. A directory citation (`skills/review/phases/`) is
+    # a strong span that exists, and testing `is_file()` reported it absent —
+    # a false refutation against a shape this repo's own issue bodies use
+    # constantly.
+    missing = [(s, p) for s, p, _ in paths if not (root / p).exists()]
     if missing:
         # Only a STRONG path claim earns a refutation. A weak one — a dotted
         # identifier that merely looks filename-shaped — is a guess, and
@@ -266,32 +355,82 @@ def recheck(handle: str, paths: list, quotes: list, root: Path) -> tuple:
             'absence is not evidence of a stale premise: '
             + ','.join(p for _, p in missing))
 
+    located = [p for _, p, suffix in paths if suffix]
     if handle == 'path':
-        return 'holds', 'cited path present: ' + ','.join(p for _, p in paths)
+        # Presence is NOT the premise. A bullet citing `lib/scan.sh` is
+        # asserting something about that file's contents, and confirming the
+        # file still exists re-derives none of it — reporting `holds` here
+        # would reproduce the very "this was already checked" reading the pass
+        # exists to withdraw. `unestablished` costs only the investigation the
+        # run would otherwise have done.
+        return 'unestablished', (
+            'cited path present but the bullet carries no quotation to '
+            're-derive the premise from: ' + ','.join(p for _, p, _ in paths))
 
     readable = {}
-    for _, rel in paths:
+    for _, rel, _suffix in paths:
+        target = root / rel
+        if target.is_dir():
+            # A directory has no text to search. The citation is intact, but
+            # the quotation cannot be adjudicated against it.
+            return 'unestablished', (
+                f'cited path {rel} is a directory, so the quoted sentence '
+                'cannot be re-derived from it')
         try:
-            readable[rel] = normalize((root / rel).read_text(
+            readable[rel] = normalize(target.read_text(
                 encoding='utf-8', errors='replace'))
         except OSError as exc:
             return 'unestablished', f'cited path {rel} could not be read: {exc}'
 
+    # EVERY quotation must resolve, not merely the first. Returning `holds` on
+    # the first match let a multi-clause bullet — exactly #857's shape — launder
+    # a partially-stale premise into a clean one, which is the defect class this
+    # helper exists to prevent.
+    unresolved, elided_unresolved = [], []
     for quote in quotes:
-        needle = normalize(quote)
-        for rel, haystack in readable.items():
-            if needle and needle in haystack:
-                return 'holds', f'quote resolves in {rel}'
+        fragments = [f for f in (normalize(part)
+                                 for part in _ELISION.split(quote)) if f]
+        if not fragments:
+            continue
+        resolved = any(
+            all(fragment in haystack for fragment in fragments)
+            for haystack in readable.values())
+        if resolved:
+            continue
+        # An ELIDED quotation is not verbatim — the author cut text out of it
+        # with an ellipsis — so a miss is not evidence the premise drifted, and
+        # refuting on one is the same guess-becomes-refutation defect the weak
+        # path arm exists to prevent. (Both remaining false refutations against
+        # issue #857's real body were exactly this: every fragment resolved,
+        # only the elided whole did not.)
+        (elided_unresolved if len(fragments) > 1 else unresolved).append(quote)
+
+    if not unresolved and not elided_unresolved:
+        if located:
+            # The file is present and every quotation resolves, but the bullet
+            # also cited a location inside the file (a node id, an anchor, a
+            # line number) that this helper cannot adjudicate.
+            return 'unestablished', (
+                'quoted sentence(s) resolve, but the bullet cites a location '
+                'inside the file that was not adjudicated: ' + ','.join(located))
+        return 'holds', 'every quoted sentence resolves in ' + ','.join(readable)
+
+    if not unresolved:
+        return 'unestablished', (
+            'an ELIDED quotation did not resolve as a whole; an elided quote is '
+            'not verbatim, so this is not evidence of a stale premise: '
+            + ' | '.join(elided_unresolved))
 
     # Same asymmetry as the missing-path arm: a quotation that fails to resolve
     # in a STRONG path is a refutation, but in a weak one it is only evidence
     # that the guess was wrong about which file was meant.
-    if any(s == 'strong' for s, _ in paths):
+    if any(s == 'strong' for s, _, _ in paths):
         return 'refuted', ('quoted sentence no longer occurs in '
-                           + ','.join(p for _, p in paths))
+                           + ','.join(readable) + ': '
+                           + ' | '.join(unresolved))
     return 'unestablished', (
         'quoted sentence does not occur in the filename-shaped span cited, '
-        'which names no directory: ' + ','.join(p for _, p in paths))
+        'which names no directory: ' + ','.join(readable))
 
 
 class _ArgParser(argparse.ArgumentParser):
@@ -320,8 +459,20 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        return _run(args)
+    except Exception as exc:  # noqa: BLE001 — see the comment below.
+        # Any unexpected failure is an unestablished measurement, not a
+        # refutation. Without this the traceback would exit 1 — a code neither
+        # consumer routes — after an arbitrary number of per-bullet lines had
+        # already been printed, which reads as a partial clean pass.
+        print(f'VERIFIED_PREMISES unavailable reason=internal-error detail={exc!r}')
+        return 3
+
+
+def _run(args) -> int:
+    try:
         body = Path(args.body_file).read_text(encoding='utf-8')
-    except (OSError, UnicodeDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
         # Unestablished, never a clean pass: a body that could not be read is
         # not a body with no stale premises in it.
         print(f'VERIFIED_PREMISES unavailable reason=body-unreadable detail={exc}')
@@ -337,6 +488,13 @@ def main(argv=None) -> int:
         return 3
 
     root = Path(args.repo_root).resolve() if args.repo_root else _default_root()
+    if not root.is_dir():
+        # An unusable root makes every cited path miss, which would render as a
+        # whole-body mass REFUTATION — an unestablished measurement dressed as
+        # a hard verdict, and the mirror image of "unknown is not zero".
+        print('VERIFIED_PREMISES unavailable reason=repo-root-unusable '
+              f'detail={root} is not an existing directory')
+        return 3
 
     tally = {'holds': 0, 'refuted': 0, 'unestablished': 0}
     for index, span in enumerate(parse_bullets(body), start=1):
@@ -355,12 +513,20 @@ def _default_root() -> Path:
     """Nearest enclosing git working tree, falling back to the current directory.
 
     Resolved by walking for a `.git` entry rather than by shelling out to `git
-    rev-parse`, so this module keeps its no-subprocess property.
+    rev-parse`, so this module keeps its no-subprocess property. `.exists()` is
+    deliberate rather than `.is_dir()`: in a linked worktree — this repo's own
+    working mode — `.git` is a regular *file* holding a gitdir pointer.
+
+    A tree with no `.git` anywhere above it falls back to the current directory
+    with a stderr breadcrumb, mirroring the repo-root contract's rule that a
+    no-git-root tree says so rather than silently defaulting.
     """
     here = Path.cwd().resolve()
     for candidate in (here, *here.parents):
         if (candidate / '.git').exists():
             return candidate
+    print('check-verified-premises: no .git found above the current directory; '
+          'adjudicating against the current directory instead', file=sys.stderr)
     return here
 
 

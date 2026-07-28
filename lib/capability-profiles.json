@@ -1,5 +1,5 @@
 {
-  "manifest_version": 11,
+  "manifest_version": 12,
   "readme": [
     "This manifest is the single source of truth for DevFlow's cloud capability policy:",
     "which tools/commands each execution tier (review, implement, command) may run.",
@@ -325,6 +325,7 @@
       "Bash(.devflow/vendor/devflow/scripts/reception-record.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*)",
+      "Bash(.devflow/vendor/devflow/scripts/check-verified-premises.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*)",
       "Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*)",
       "Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*)",

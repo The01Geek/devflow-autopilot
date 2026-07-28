@@ -1152,7 +1152,7 @@ jobs:
           # lib/test/run.sh #484 guard deliberately audits all shared fenced source,
           # including standalone-only Phase 4.4, so every audited head is granted or
           # withheld with rationale even when normal inline control flow cannot reach it.
-          # devflow-capability-manifest: region=implement manifest_version=11 sha256=814ddc5f555915e333f65b67e86d982b0bd1be9e793dea55f572694b0294786f
+          # devflow-capability-manifest: region=implement manifest_version=12 sha256=814ddc5f555915e333f65b67e86d982b0bd1be9e793dea55f572694b0294786f
           claude_args: >-
             ${{ steps.cargs.outputs.args }}
             --allowed-tools

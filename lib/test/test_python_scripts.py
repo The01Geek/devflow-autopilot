@@ -18478,30 +18478,54 @@ assert_eq("#795 checker: over an unmutated tree every arm passes (the rows above
 # investigation, so a stale one is strictly worse than no bullet at all. These
 # assertions drive the helper at its CLI boundary (`main()` over a real body
 # file and a real tree), because that is the surface both consumers use: the
-# create-issue Step 3.5 steelman (does every bullet carry a re-derivation
-# handle?) and the implement Phase 1.6 Pass 6 re-check (does each premise still
-# hold?). They are ordinary behavioural tests — no wording or documentation
-# presence is asserted anywhere below.
+# create-issue drafting check (does every bullet carry a re-derivation handle?)
+# and the implement Phase 1.6 Pass 6 re-check (does each premise still hold?).
+# They are ordinary behavioural tests — no wording or documentation presence is
+# asserted anywhere below.
+#
+# The governing asymmetry, which most arms below exist to pin: a REFUTATION
+# makes the implementing run discard the premise and file issue-accuracy
+# feedback, so anything the helper merely guessed at must resolve to
+# `unestablished` instead. Each concession is pinned in BOTH directions — the
+# guess does not refute, AND a positively-adjudicated claim still does — so a
+# concession can never quietly disarm the whole guard.
 # ---------------------------------------------------------------------------
 
 check_verified_premises = _load(
     'check_verified_premises', SCRIPTS / 'check-verified-premises.py')
 
 
-def _cvp_run(body: str, tree: dict) -> tuple:
-    """Run the helper over `body` against a throwaway tree; return (rc, stdout)."""
+def _cvp_run(body, tree=None, repo_root=True, cwd=None):
+    """Run the helper over `body` against a throwaway tree; return (rc, stdout).
+
+    `body=None` creates no body file at all (the unreadable-body arm).
+    `repo_root=False` omits --repo-root, exercising the production invocation
+    shape, which passes only --body-file.
+    """
     with tempfile.TemporaryDirectory() as td:
-        root = Path(td)
-        for rel, content in tree.items():
+        root = Path(td).resolve()
+        for rel, content in (tree if tree is not None else _CVP_TREE).items():
             dest = root / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding='utf-8')
+            if content is None:
+                dest.mkdir(parents=True, exist_ok=True)
+            else:
+                dest.write_text(content, encoding='utf-8')
         body_path = root / '_body.md'
-        body_path.write_text(body, encoding='utf-8')
+        if body is not None:
+            body_path.write_text(body, encoding='utf-8')
+        argv = ['--body-file', str(body_path)]
+        if repo_root:
+            argv += ['--repo-root', str(root)]
+        prev_cwd = os.getcwd()
+        if cwd is not None:
+            os.chdir(root / cwd)
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            rc = check_verified_premises.main(
-                ['--body-file', str(body_path), '--repo-root', str(root)])
+        try:
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                rc = check_verified_premises.main(argv)
+        finally:
+            os.chdir(prev_cwd)
         return rc, buf.getvalue()
 
 
@@ -18514,178 +18538,290 @@ _CVP_TREE = {
         '             since merge base"\n'
         '        )\n'),
     'docs/notes.md': 'The gate exited 2 with exactly that message.\n',
+    'config.json': '{}\n',
 }
 
 # --- the holds arm: a path+quote bullet whose sentence still resolves --------
+# The fixture sentence is wrapped across two source lines, so this arm also
+# proves the comparison is whitespace-normalized: without that folding this
+# TRUE premise would read as refuted.
 _cvp_rc, _cvp_out = _cvp_run(
     '## Current Behavior\n\n'
     '**Verified:** `lib/test/pin-corpus-lint.py` — '
-    '*"historical retirement manifest changed since merge base"*\n',
-    _CVP_TREE)
+    '*"historical retirement manifest changed since merge base"*\n')
 assert_eq("#868 helper: a path+quote bullet whose sentence still resolves in the named "
-          "file reports state=holds",
-          True, 'state=holds' in _cvp_out)
-assert_eq("#868 helper: a body whose every bullet holds exits 0",
-          0, _cvp_rc)
-assert_eq("#868 helper: the holds bullet is classified as carrying a path+quote handle",
-          True, 'handle=path-quote' in _cvp_out)
-
-# --- a WEAK (filename-shaped, directory-less) span never earns a refutation --
-# `devflow_review.stale_prose.enabled` and `_MARKER.finditer` pass any "ends in a
-# dotted tail" test, and this repo's own issues are full of them. Refuting a premise
-# because such a span names no file would tell the run to discard a TRUE premise and
-# record false issue-accuracy feedback against the issue.
-for _cvp_weak in ('spec.loader', 'p.name', 'config.json'):
-    _cvp_rc, _cvp_out = _cvp_run(
-        f'**Verified:** `{_cvp_weak}` — *"a sentence nobody ever wrote"*\n', _CVP_TREE)
-    assert_eq(f"#868 helper: the dotted identifier {_cvp_weak} is never REFUTED for "
-              "naming no file — a guess must not become a refutation",
-              True, 'state=refuted' not in _cvp_out)
-    assert_eq(f"#868 helper: {_cvp_weak} does not force a non-clean exit",
-              0, _cvp_rc)
-
-# The same asymmetry governs the QUOTE arm, not only the missing-path arm: a
-# quotation that fails to resolve inside a directory-less filename-shaped span is
-# evidence the guess picked the wrong file, not that the premise drifted.
-_cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `config.json` — *"a sentence nobody ever wrote"*\n',
-    dict(_CVP_TREE, **{'config.json': '{}\n'}))
-assert_eq("#868 helper: a quote that misses inside a directory-less filename-shaped "
-          "span is unestablished, not refuted",
-          True, 'state=unestablished' in _cvp_out and _cvp_rc == 0)
-
-# ...while a STRONG span — one carrying a directory separator — still refutes, so the
-# asymmetry above is a scoped concession, not a hole that swallows the whole guard.
-_cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `lib/test/gone.py` — *"anything"*\n', _CVP_TREE)
-assert_eq("#868 helper: a directory-bearing path that names no file still REFUTES, so "
-          "the weak-span concession did not disarm the guard",
-          2, _cvp_rc)
-
-# --- a command handle is recognized structurally, not by a tool-name list ---
-# A hardcoded set of tool names rots worst in consumer repos, whose toolchain is not
-# this one: their best-grounded bullets would report handle=none and Step 3.5 would
-# instruct a pointless rewrite.
-for _cvp_cmd in ('npm test -- --coverage', 'cargo test --all',
-                 'pytest -k verified lib/', 'shellcheck -e SC1091 x.sh'):
-    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_cmd}` reports zero.\n',
-                                 _CVP_TREE)
-    assert_eq(f"#868 helper: `{_cvp_cmd}` is recognized as a command handle without "
-              "appearing in any tool-name list",
-              True, 'handle=command' in _cvp_out)
+          "file reports state=holds, matching across a source-line wrap",
+          True, 'state=holds' in _cvp_out and 'handle=path-quote' in _cvp_out)
+assert_eq("#868 helper: a body whose every bullet holds exits 0", 0, _cvp_rc)
 
 # --- the refuted arm: the quote is gone from a file that still exists --------
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `docs/notes.md` — *"a sentence nobody ever wrote"*\n',
-    _CVP_TREE)
+    '**Verified:** `docs/notes.md` — *"a sentence nobody ever wrote"*\n')
 assert_eq("#868 helper: a quote that no longer occurs in the named file reports "
-          "state=refuted",
-          True, 'state=refuted' in _cvp_out)
-assert_eq("#868 helper: a body carrying a refuted premise exits 2",
-          2, _cvp_rc)
+          "state=refuted and names the unresolved sentence",
+          True, 'state=refuted' in _cvp_out and 'a sentence nobody ever wrote' in _cvp_out)
+assert_eq("#868 helper: a body carrying a refuted premise exits 2", 2, _cvp_rc)
 
 # --- the refuted arm: the cited path itself is gone --------------------------
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `lib/test/deleted-file.py` — *"anything at all"*\n',
-    _CVP_TREE)
+    '**Verified:** `lib/test/deleted-file.py` — *"anything at all"*\n')
 assert_eq("#868 helper: a bullet citing a path absent from the tree reports "
           "state=refuted",
           True, 'state=refuted' in _cvp_out)
 assert_eq("#868 helper: an absent cited path exits 2, the same non-clean measurement "
-          "as a vanished quote",
-          2, _cvp_rc)
+          "as a vanished quote", 2, _cvp_rc)
+
+# --- EVERY quotation must resolve, not merely the first ---------------------
+# A multi-clause bullet is exactly #857's shape. Returning `holds` on the first
+# match laundered a partially-stale premise into a clean one — the defect class
+# this helper exists to prevent.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"The gate exited 2 with exactly that message."* '
+    'and *"a second clause nobody ever wrote"*\n')
+assert_eq("#868 helper: a bullet whose SECOND quotation no longer resolves is refuted, "
+          "not laundered into holds by the first",
+          True, 'state=refuted' in _cvp_out
+          and 'a second clause nobody ever wrote' in _cvp_out)
+assert_eq("#868 helper: a partially-stale multi-clause bullet exits 2", 2, _cvp_rc)
+
+# --- a cited DIRECTORY is intact, never refuted -----------------------------
+# Issue bodies cite directories constantly (`skills/review/phases/`). Testing
+# file-ness reported those absent, so a TRUE premise was refuted and the run was
+# told to discard it and file inaccuracy feedback against the issue.
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `lib/test` still holds the pins.\n')
+assert_eq("#868 helper: a cited directory that exists is never reported refuted",
+          True, 'state=refuted' not in _cvp_out)
+assert_eq("#868 helper: a cited directory does not force a non-clean exit", 0, _cvp_rc)
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `lib/test` — *"a sentence nobody ever wrote"*\n')
+assert_eq("#868 helper: a quotation cited against a DIRECTORY is unestablished (a "
+          "directory has no text to search), never refuted",
+          True, 'state=unestablished' in _cvp_out and 'is a directory' in _cvp_out)
+
+# --- a path cited with a locator suffix is not refuted on the suffix --------
+# `path.py::test_name`, `doc.md#anchor` and `file.py:42` are ordinary in filed
+# issues; adjudicating the whole string as a filename refuted every one of them.
+for _cvp_loc in ('lib/test/pin-corpus-lint.py::test_something',
+                 'docs/notes.md#the-section', 'docs/notes.md:3'):
+    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_loc}` is intact.\n')
+    assert_eq(f"#868 helper: the locator-suffixed citation {_cvp_loc} is not refuted "
+              "for naming a file-plus-location rather than a bare filename",
+              True, 'state=refuted' not in _cvp_out)
+
+# ...and when the file and quotation both resolve, an un-adjudicated location
+# inside the file downgrades the verdict rather than claiming the whole premise.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md#the-section` — '
+    '*"The gate exited 2 with exactly that message."*\n')
+assert_eq("#868 helper: a resolved quotation whose bullet also cites an un-adjudicated "
+          "location inside the file is unestablished, not holds",
+          True, 'state=unestablished' in _cvp_out
+          and 'location inside the file' in _cvp_out)
+
+# --- a glob span names a SET of paths and is not adjudicable ----------------
+for _cvp_glob in ('.devflow/prompt-extensions/*.md', 'lib/test/test_*.py'):
+    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_glob}` all carry the header.\n')
+    assert_eq(f"#868 helper: the glob citation {_cvp_glob} is never refuted — it names "
+              "a set, which one existence check cannot adjudicate",
+              True, 'state=refuted' not in _cvp_out)
+
+# --- presence is NOT the premise: handle=path never reports holds -----------
+# A bullet citing `lib/scan.sh` asserts something about that file's CONTENTS.
+# Confirming the file still exists re-derives none of it, so reporting `holds`
+# would reproduce the "this was already checked" reading the pass withdraws.
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `docs/notes.md` still selects by label.\n')
+assert_eq("#868 helper: a path-only bullet is classified handle=path",
+          True, 'handle=path ' in _cvp_out)
+assert_eq("#868 helper: a path-only bullet whose file EXISTS is unestablished, never "
+          "holds — presence is not the premise",
+          True, 'state=unestablished' in _cvp_out and 'no quotation' in _cvp_out)
+assert_eq("#868 helper: a path-only bullet does not force a non-clean exit", 0, _cvp_rc)
 
 # --- the unhandled arm: prose with no re-derivation handle -------------------
-# This is exactly the shape of #857's three false premises, which is why it must be
-# reported rather than silently passing: the run has to fall back to investigation.
+# This is exactly the shape of #857's three false premises, which is why it must
+# be reported rather than silently passing.
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified** — deletion is barred because a frozen-prefix test requires it.\n',
-    _CVP_TREE)
+    '**Verified** — deletion is barred because a frozen-prefix test requires it.\n')
 assert_eq("#868 helper: a prose bullet carrying no path, quote or command reports "
-          "handle=none",
-          True, 'handle=none' in _cvp_out)
-assert_eq("#868 helper: an unhandled bullet is unestablished, never silently holds",
-          True, 'state=unestablished' in _cvp_out)
+          "handle=none and is unestablished, never silently holds",
+          True, 'handle=none' in _cvp_out and 'state=unestablished' in _cvp_out)
 assert_eq("#868 helper: an unhandled bullet does NOT force a non-clean exit — it "
-          "downgrades to investigation rather than failing the run",
-          0, _cvp_rc)
+          "downgrades to investigation rather than failing the run", 0, _cvp_rc)
 
-# --- the `**Verified**` (no colon) spelling is recognized --------------------
-# Issue #868's own body uses this form; a parser keyed on the colon would find zero
-# bullets in it and report a vacuous clean pass.
-assert_eq("#868 helper: the colon-free `**Verified**` spelling is parsed as a bullet",
-          True, 'bullet=1' in _cvp_out)
+# --- marker spellings: the recognized set is a floor, and it is a WIDE one --
+# Matching only `**Verified:**` found zero bullets in bodies using any other
+# spelling and reported a vacuous clean pass. Each spelling below appears in
+# this repo's own filed issues.
+for _cvp_spelling in ('**Verified:** `docs/notes.md` claim.',
+                      '**Verified** — `docs/notes.md` claim.',
+                      '**`Verified:` the file `docs/notes.md` is intact**',
+                      '**Verified baseline** `docs/notes.md` claim.',
+                      '- Verified: `docs/notes.md` claim.'):
+    _cvp_rc, _cvp_out = _cvp_run(_cvp_spelling + '\n')
+    assert_eq(f"#868 helper: the marker spelling {_cvp_spelling[:28]!r} is parsed as a "
+              "bullet rather than reported as a vacuous total=0 clean pass",
+              True, 'total=1' in _cvp_out)
+
+# The bare word in running prose must NOT mint a phantom bullet.
+_cvp_rc, _cvp_out = _cvp_run('We Verified the behaviour by hand last week.\n')
+assert_eq("#868 helper: the bare word Verified in running prose does not mint a "
+          "phantom bullet", True, 'total=0' in _cvp_out)
 
 # --- a command handle is reported but NEVER executed ------------------------
-# The issue body is third-party text; executing a command drawn from it would make
-# the helper an arbitrary-execution sink. It classifies and defers instead.
+# The issue body is third-party text; executing a command drawn from it would
+# make the helper an arbitrary-execution sink. It classifies and defers instead.
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `grep -c \'^tombstone:\' lib/test/adjudications.tsv` returns 0.\n',
-    _CVP_TREE)
+    '**Verified:** `grep -c \'^tombstone:\' lib/test/adjudications.tsv` returns 0.\n')
 assert_eq("#868 helper: a command handle is reported for the caller to re-run, and the "
           "helper never executes it (so it cannot decide, and says so)",
-          True, 'state=unestablished' in _cvp_out)
+          True, 'handle=command' in _cvp_out and 'state=unestablished' in _cvp_out)
+
+# Command recognition is STRUCTURAL, not a tool-name list: a hardcoded set rots
+# worst in consumer repos, whose toolchain is not this one.
+for _cvp_cmd in ('npm test -- --coverage', 'cargo test --all',
+                 'pytest -k verified lib/', 'shellcheck -e SC1091 x.sh'):
+    _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_cmd}` reports zero.\n')
+    assert_eq(f"#868 helper: `{_cvp_cmd}` is recognized as a command handle without "
+              "appearing in any tool-name list",
+              True, 'handle=command' in _cvp_out)
+
+# --- the helper cannot become an arbitrary-execution sink -------------------
 _cvp_imports = set()
+_cvp_calls = set()
 for _cvp_node in ast.walk(ast.parse(inspect.getsource(check_verified_premises))):
     if isinstance(_cvp_node, ast.Import):
         _cvp_imports.update(a.name.split('.')[0] for a in _cvp_node.names)
     elif isinstance(_cvp_node, ast.ImportFrom) and _cvp_node.module:
         _cvp_imports.add(_cvp_node.module.split('.')[0])
-assert_eq("#868 helper: the helper imports no execution or network module, so it cannot "
-          "become an arbitrary-execution sink for issue-supplied text",
+    elif isinstance(_cvp_node, ast.Call) and isinstance(_cvp_node.func, ast.Name):
+        _cvp_calls.add(_cvp_node.func.id)
+assert_eq("#868 helper: the helper imports no execution or network module",
           set(), _cvp_imports & {'subprocess', 'os', 'shutil', 'socket',
                                  'urllib', 'http', 'requests', 'pty', 'popen2'})
+assert_eq("#868 helper: the helper calls no dynamic-execution builtin either, so the "
+          "import check cannot be walked around",
+          set(), _cvp_calls & {'eval', 'exec', '__import__', 'compile'})
 
-# --- zero bullets is a decided clean pass, not a crash ----------------------
-_cvp_rc, _cvp_out = _cvp_run('## Problem Statement\n\nNo evidence bullets here.\n',
-                             _CVP_TREE)
-assert_eq("#868 helper: a body with no Verified bullets exits 0",
-          0, _cvp_rc)
-assert_eq("#868 helper: a zero-bullet body reports total=0 rather than printing nothing",
-          True, 'total=0' in _cvp_out)
+# --- weak spans: a guess never becomes a refutation -------------------------
+# `spec.loader` and `p.name` pass any "ends in a dotted tail" test, and this
+# repo's issues are full of them. The assertions pin the DISCRIMINATING detail
+# and handle, not merely the absence of `refuted` — `unestablished` is reachable
+# from several branches, so an absence-only assertion would stay green even if
+# these spans stopped being classified as paths at all.
+for _cvp_weak in ('spec.loader', 'p.name'):
+    _cvp_rc, _cvp_out = _cvp_run(
+        f'**Verified:** `{_cvp_weak}` — *"a sentence nobody ever wrote"*\n')
+    assert_eq(f"#868 helper: the dotted identifier {_cvp_weak} is still classified as a "
+              "path claim (the positive control for the arm below)",
+              True, 'handle=path-quote' in _cvp_out)
+    assert_eq(f"#868 helper: {_cvp_weak} takes the weak-span arm by its own detail, and "
+              "is never REFUTED for naming no file",
+              True, 'state=unestablished' in _cvp_out
+              and 'names no directory' in _cvp_out)
+    assert_eq(f"#868 helper: {_cvp_weak} does not force a non-clean exit", 0, _cvp_rc)
 
-# --- an unreadable body is an unestablished measurement, never a clean pass --
-with tempfile.TemporaryDirectory() as _cvp_td:
-    _cvp_buf = io.StringIO()
-    with contextlib.redirect_stdout(_cvp_buf):
-        _cvp_rc = check_verified_premises.main(
-            ['--body-file', str(Path(_cvp_td) / 'nope.md'), '--repo-root', _cvp_td])
-    assert_eq("#868 helper: an unreadable body file exits 3 (unestablished), never 0",
-              3, _cvp_rc)
-
-# --- an EMPTY body is unestablished, never a vacuous "no premises" pass ------
-# `total=0` on an empty read would say "this issue asserts no premises" about a body
-# nothing was ever read from — the two measurements must not collapse.
-_cvp_rc, _cvp_out = _cvp_run('   \n\n  \n', _CVP_TREE)
-assert_eq("#868 helper: an empty/whitespace-only body exits 3, not a total=0 clean pass",
-          3, _cvp_rc)
-assert_eq("#868 helper: the empty-body arm names its own cause rather than reusing the "
-          "unreadable one",
-          True, 'reason=body-empty' in _cvp_out)
-
-# --- a cited path escaping the repository root is REFUSED, not adjudicated ---
-# The path comes from third-party text. `Path(root) / "/etc/passwd"` discards root
-# entirely under pathlib join semantics, and `../..` walks out of it — either would
-# turn the helper into a read oracle over files outside the tree.
+# The same asymmetry governs the QUOTE arm, on a weak span that DOES exist.
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `/etc/passwd` — *"root:x:0:0:root:/root"*\n', _CVP_TREE)
+    '**Verified:** `config.json` — *"a sentence nobody ever wrote"*\n')
+assert_eq("#868 helper: a quote that misses inside a directory-less filename-shaped "
+          "span is unestablished by its own detail, not refuted",
+          True, 'state=unestablished' in _cvp_out and 'names no directory' in _cvp_out)
+assert_eq("#868 helper: the weak quote-arm miss does not force a non-clean exit",
+          0, _cvp_rc)
+
+# ...while a STRONG span still refutes, so the concession above is a scoped
+# carve-out, not a hole that swallows the whole guard.
+_cvp_rc, _cvp_out = _cvp_run('**Verified:** `lib/test/gone.py` — *"anything at all"*\n')
+assert_eq("#868 helper: a directory-bearing path that names no file still REFUTES, so "
+          "the weak-span concession did not disarm the guard", 2, _cvp_rc)
+
+# --- absolute and traversing citations are refused, never adjudicated -------
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `/etc/passwd` — *"root:x:0:0:root:/root"*\n')
 assert_eq("#868 helper: an ABSOLUTE cited path is not treated as a repository path at "
           "all (pathlib join would discard the repo root entirely)",
           True, 'handle=quote' in _cvp_out and 'state=unestablished' in _cvp_out)
 
 _cvp_rc, _cvp_out = _cvp_run(
-    '**Verified:** `../../../etc/passwd` — *"root:x:0:0:root:/root"*\n', _CVP_TREE)
+    '**Verified:** `../../../etc/passwd` — *"root:x:0:0:root:/root"*\n')
 assert_eq("#868 helper: a traversing cited path is REFUSED rather than adjudicated — "
           "the helper never opens a file outside the tree it was pointed at",
           True, 'state=unestablished' in _cvp_out
           and 'resolves outside the repository' in _cvp_out)
-assert_eq("#868 helper: a refused traversing path is not reported as a holding premise",
-          False, 'state=holds' in _cvp_out)
 
-# --- a bad invocation is UNESTABLISHED, never a refutation ------------------
-# argparse's own failure exit is 2, which is this helper's "a premise was REFUTED"
-# code — a caller mistyping a flag would otherwise be told the issue carries a stale
-# premise the helper never looked at.
+# --- a bullet stops at a blank line and does not absorb the next paragraph --
+# Without that boundary, a backticked path in the FOLLOWING paragraph is mined
+# as if this bullet had cited it — and can refute a bullet that never made the
+# claim.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — '
+    '*"The gate exited 2 with exactly that message."*\n'
+    '\n'
+    'Unrelated paragraph mentioning `lib/test/gone.py`.\n')
+assert_eq("#868 helper: a bullet terminates at a blank line and does not mine the next "
+          "paragraph's paths into itself",
+          True, 'total=1' in _cvp_out and 'state=holds' in _cvp_out)
+assert_eq("#868 helper: the following paragraph's absent path does not refute the "
+          "preceding bullet", 0, _cvp_rc)
+
+# --- a bullet stops at the next LIST ITEM, not just the next marker ---------
+# Filed issues put consecutive bullets on adjacent list-item lines with no blank
+# line between them. A span bounded only by the next marker ran past its own
+# item into the following item's leading prose, mined that item's path, and then
+# refuted this bullet's quotation against a file it never cited. Observed on
+# issue #857's real body.
+_cvp_rc, _cvp_out = _cvp_run(
+    '- **Verified:** *"The gate exited 2 with exactly that message."* in `docs/notes.md`.\n'
+    '- `lib/test/gone.py` has no unconfounded row. **Verified:** *"anything at all"*\n')
+assert_eq("#868 helper: a bullet does not absorb the NEXT list item's cited path and "
+          "refute its own quotation against it",
+          True, 'bullet=1 handle=path-quote state=holds' in _cvp_out)
+
+# --- an ELIDED quotation can never refute -----------------------------------
+# An author's `…` means the quote is not verbatim, so a whole-string miss is not
+# evidence the premise drifted. Both remaining false refutations against issue
+# #857's real body were exactly this shape: every fragment resolved, only the
+# elided whole did not.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"The gate exited 2 … that message."*\n')
+assert_eq("#868 helper: an elided quotation resolves when every fragment resolves",
+          True, 'state=holds' in _cvp_out)
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"The gate exited 2 … nobody ever wrote this."*\n')
+assert_eq("#868 helper: an elided quotation whose fragment does NOT resolve is "
+          "unestablished, never refuted — an elided quote is not verbatim",
+          True, 'state=unestablished' in _cvp_out and 'ELIDED' in _cvp_out)
+assert_eq("#868 helper: a failed elided quotation does not force a non-clean exit",
+          0, _cvp_rc)
+# ...while a non-elided quotation on the same file still refutes, so the elision
+# concession is scoped rather than a blanket amnesty.
+_cvp_rc, _cvp_out = _cvp_run(
+    '**Verified:** `docs/notes.md` — *"nobody ever wrote this sentence"*\n')
+assert_eq("#868 helper: a verbatim (non-elided) quotation that misses still REFUTES",
+          2, _cvp_rc)
+
+# --- unestablished measurements, each named by its own cause ----------------
+_cvp_rc, _cvp_out = _cvp_run('   \n\n  \n')
+assert_eq("#868 helper: an empty/whitespace-only body exits 3, not a total=0 clean pass",
+          True, _cvp_rc == 3 and 'reason=body-empty' in _cvp_out)
+
+_cvp_rc, _cvp_out = _cvp_run(None)
+assert_eq("#868 helper: an unreadable body file exits 3 (unestablished), never 0",
+          True, _cvp_rc == 3 and 'reason=body-unreadable' in _cvp_out)
+
+# A bad --repo-root made every cited path miss, rendering an unestablished
+# measurement as a whole-body mass REFUTATION.
+_cvp_buf = io.StringIO()
+with contextlib.redirect_stdout(_cvp_buf):
+    _cvp_rc = check_verified_premises.main(
+        ['--body-file', str(SCRIPTS / 'check-verified-premises.py'),
+         '--repo-root', '/no/such/directory/anywhere'])
+assert_eq("#868 helper: an unusable --repo-root exits 3 rather than mass-refuting every "
+          "bullet against a tree that was never there",
+          True, _cvp_rc == 3 and 'reason=repo-root-unusable' in _cvp_buf.getvalue())
+
+# argparse's own failure exit is 2 — this helper's REFUTED code — so a caller
+# mistyping a flag would be told the issue carries a stale premise.
 try:
     with contextlib.redirect_stderr(io.StringIO()) as _cvp_err:
         check_verified_premises.main(['--not-a-real-flag'])
@@ -18694,35 +18830,52 @@ except SystemExit as _cvp_exc:
     _cvp_rc = _cvp_exc.code
 assert_eq("#868 helper: a bad invocation exits 3 (unestablished), never 2 — it must not "
           "be mistakable for a refuted premise",
-          3, _cvp_rc)
-assert_eq("#868 helper: the bad-invocation exit names its own cause",
-          True, 'reason=bad-invocation' in _cvp_err.getvalue())
+          True, _cvp_rc == 3 and 'reason=bad-invocation' in _cvp_err.getvalue())
+
+# Every terminating path prints a summary line, so its ABSENCE is what a caller
+# reads as "this did not run" — the exit code alone is not the signal.
+_cvp_rc, _cvp_out = _cvp_run('## Problem Statement\n\nNo evidence bullets here.\n')
+assert_eq("#868 helper: a body with no Verified bullets exits 0 and reports total=0 "
+          "rather than printing nothing",
+          True, _cvp_rc == 0 and 'VERIFIED_PREMISES total=0' in _cvp_out)
+
+# --- the PRODUCTION invocation shape: no --repo-root, cwd in a subdirectory --
+# Pass 6 passes only --body-file, so `_default_root` is what adjudicates every
+# real run. Both git layouts must resolve to the repo root, not the cwd: in a
+# linked worktree — this repo's own working mode — `.git` is a regular FILE.
+for _cvp_gitform, _cvp_gitval in (('worktree .git file', 'gitdir: /elsewhere\n'),
+                                  ('ordinary .git directory', None)):
+    _cvp_rc, _cvp_out = _cvp_run(
+        '**Verified:** `docs/notes.md` — '
+        '*"The gate exited 2 with exactly that message."*\n',
+        tree=dict(_CVP_TREE, **{'.git': _cvp_gitval, 'sub/dir': None}),
+        repo_root=False, cwd='sub/dir')
+    assert_eq(f"#868 helper: with no --repo-root and cwd in a subdirectory, a "
+              f"{_cvp_gitform} resolves the repo root so repo-relative citations still "
+              "hold (the production invocation shape)",
+              True, 'state=holds' in _cvp_out and _cvp_rc == 0)
 
 # --- a mixed body reports every bullet, and refuted dominates the exit -------
 _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `docs/notes.md` — *"The gate exited 2 with exactly that message."*\n'
     '**Verified:** `docs/notes.md` — *"a sentence nobody ever wrote"*\n'
-    '**Verified** — an unhandled prose premise.\n',
-    _CVP_TREE)
+    '**Verified** — an unhandled prose premise.\n')
 assert_eq("#868 helper: every bullet in the body is enumerated, not just the first "
-          "(the user-decided scope is every bullet)",
+          "(the user-decided scope is every bullet the marker recognizes)",
           True, 'bullet=3' in _cvp_out)
 assert_eq("#868 helper: a mixed body's summary tallies each state separately",
           True, 'holds=1' in _cvp_out and 'refuted=1' in _cvp_out
           and 'unestablished=1' in _cvp_out)
 assert_eq("#868 helper: one refuted premise dominates the exit code even when other "
-          "bullets hold",
-          2, _cvp_rc)
+          "bullets hold", 2, _cvp_rc)
 
 # --- typographic quotes are normalized to the ASCII form --------------------
 _cvp_rc, _cvp_out = _cvp_run(
     '**Verified:** `docs/notes.md` — “The gate exited 2 with exactly that '
-    'message.”\n',
-    _CVP_TREE)
+    'message.”\n')
 assert_eq("#868 helper: a bullet using typographic quotes still resolves its quote "
           "(GitHub and editors substitute them freely)",
           True, 'state=holds' in _cvp_out)
-
 
 print()
 print(f"{PASS} passed, {FAIL} failed")
