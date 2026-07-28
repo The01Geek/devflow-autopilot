@@ -273,7 +273,12 @@ _devflow_valid_result_count() {
 # was not part of this change.)
 _devflow_echo_capture() {  # path
   local _devflow_line
-  [ -r "$1" ] || return 0
+  if [ ! -r "$1" ]; then
+    # Never silent: an empty diagnostic body would leave the reader unable to tell "the
+    # check printed nothing" from "the capture vanished".
+    printf '    (no captured output: %s is missing or unreadable)\n' "$1"
+    return 0
+  fi
   while IFS= read -r _devflow_line || [ -n "$_devflow_line" ]; do
     printf '    %s\n' "$_devflow_line"
   done < "$1"
@@ -342,13 +347,17 @@ devflow_run_focused_python_test() { # assertion-name script-path output-path
 # Workers are launched WITHOUT a new process group (no `set -m`, no setsid) so they stay
 # in the module worker's group and _devflow_terminate_process_group's group-wide signal
 # delivery reaches them. Each unit's exit status is recorded by the unit itself into its
-# own `.rc` file rather than inferred from a bare `wait`, whose last-job-only status
-# would discard every earlier failure.
+# own `.rc` file rather than inferred from a bare `wait`, which returns 0 regardless of
+# what its children did and so surfaces no failure at all.
 #
 # DEVFLOW_TEST_SHARD_PYTHON substitutes the interpreter used for the UNIT launches only
 # (never the enumeration), and DEVFLOW_TEST_SHARD_DROP_ONE skips dispatching one unit.
 # Both exist so lib/test/test_module_harness.py can drive the spawn-failure and
 # lossy-schedule arms, which are otherwise unreachable from a test.
+# PRECONDITION: capture-dir must be a FRESH, exclusively-owned, writable directory. The
+# collection loop trusts every unit-<n>.out{,.err,.rc} it finds there, so a reused
+# directory feeds a prior call's results into this call's count and defeats the
+# executed-vs-enumerated check. The one shipped call site allocates a per-call `mktemp -d`.
 devflow_run_sharded_python_test() { # assertion-name script-path capture-dir
   local assertion_name="$1" script_path="$2" capture_dir="$3"
   local unit_python="${DEVFLOW_TEST_SHARD_PYTHON:-python3}"
@@ -463,7 +472,13 @@ DEVFLOW_SHARD_ENUM
       done
       cap="$capture_dir/unit-$index.out"
       (
-        PYTHON_COLORS=0 "$unit_python" "$script_path" "${ids[index]}" > "$cap" 2>&1
+        # stdout and stderr are captured SEPARATELY, and that separation is load-bearing:
+        # the count below is parsed from the stderr capture alone. A unit's stdout is
+        # block-buffered to a file and flushed at interpreter exit — i.e. AFTER unittest's
+        # unbuffered stderr summary — so a merged capture lets a test that prints a line
+        # of the runner's shape land last and win the parse, inflating the executed count
+        # in the one direction the aggregate comparison cannot catch.
+        PYTHON_COLORS=0 "$unit_python" "$script_path" "${ids[index]}" > "$cap" 2> "$cap.err"
         printf '%s\n' "$?" > "$cap.rc"
       ) &
       pids[dispatched]=$!
@@ -474,19 +489,26 @@ DEVFLOW_SHARD_ENUM
 
     for ((index = 0; index < total; index++)); do
       cap="$capture_dir/unit-$index.out"
-      [ -e "$cap.rc" ] || continue
+      if [ ! -e "$cap.rc" ]; then
+        # The unit's subshell died before recording its status (OOM, a group signal, a
+        # fork failure, an unwritable capture dir). Skipping it silently would leave the
+        # aggregate count as its only backstop, and that count is a sum — another unit
+        # over-reporting would mask this one entirely. Fail it by name instead.
+        [ -n "$failure" ] || failure="${ids[index]} recorded no exit status"
+        printf '    %s recorded no exit status (its worker died before writing one)\n' \
+          "${ids[index]}"
+        continue
+      fi
       unit_rc=""
       IFS= read -r unit_rc < "$cap.rc" || unit_rc=""
       case "$unit_rc" in
         ''|*[!0-9]*) unit_rc=1 ;;
       esac
-      # unittest's runner writes `Ran N test(s) in ...` to stderr as the LAST thing it
-      # emits, so the final match is the authoritative one: a test whose own output
-      # happens to print that shape is overtaken rather than believed. Even if such a
-      # line were counted, the executed-vs-enumerated comparison below fails CLOSED on
-      # the resulting mismatch — it can never inflate a short run into a green one.
+      # Parsed from the STDERR capture only (see the launch above for why), taking the
+      # last match: unittest emits this line near the end of its own stderr, followed by
+      # a blank line and OK/FAILED.
       unit_ran=""
-      if [ -r "$cap" ]; then
+      if [ -r "$cap.err" ]; then
         while IFS= read -r num || [ -n "$num" ]; do
           case "$num" in
             "Ran "*" test"*)
@@ -498,20 +520,22 @@ DEVFLOW_SHARD_ENUM
               esac
               ;;
           esac
-        done < "$cap"
+        done < "$cap.err"
       fi
       if [ "$unit_rc" -ne 0 ]; then
         [ -n "$failure" ] || failure="${ids[index]} exited $unit_rc"
         printf '    %s exited %s:\n' "${ids[index]}" "$unit_rc"
+        _devflow_echo_capture "$cap.err"
         _devflow_echo_capture "$cap"
       fi
-      if [ -z "$unit_ran" ]; then
-        # Distinct from the exit-status arm above: a unit can exit 0 having produced no
-        # parseable count (a truncated or absent capture), which must never be read as a
-        # unit that simply had nothing to run.
+      # Each unit runs exactly ONE selector, so its count is exactly 1 — asserted
+      # per-unit rather than only in the sum. A per-unit equality cannot be compensated
+      # by another unit over-reporting, which is the shape a sum-only check misses.
+      if [ "$unit_ran" != "1" ]; then
         [ -n "$failure" ] || \
-          failure="${ids[index]} produced no parseable 'Ran N test(s)' count"
-        printf '    %s produced no parseable test count\n' "${ids[index]}"
+          failure="${ids[index]} reported '${unit_ran:-no}' executed test(s), expected exactly 1"
+        printf '    %s reported %s executed test(s), expected exactly 1\n' \
+          "${ids[index]}" "${unit_ran:-no parseable count}"
       else
         executed=$((executed + unit_ran))
       fi
