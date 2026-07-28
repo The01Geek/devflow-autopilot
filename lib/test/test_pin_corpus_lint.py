@@ -20,8 +20,11 @@ additionally on the source's name, the linter memos on the text alone — and on
 ``repo_root`` and no filesystem state, so a hit returns a value derived from
 exactly the bytes the caller presented. ``_load_mutation_census_module`` is
 different: it takes no arguments at all and hands every caller one module
-object; it is safe because that module holds nothing mutable beyond those same
-key-pure memos, not because of its key.
+object; it is safe because nothing in that module is mutated after import beyond
+those same key-pure memos, not because of its key. Its other module-level
+objects — the compiled-regex dicts among them — are built once at import and
+never written to, so a shared instance cannot carry one caller's state to the
+next.
 
 The executable form of the first claim is the three
 ``StaticPinWorktreeCompositionTests.test_leaked_*_would_misclassify_a_sibling*``
@@ -292,11 +295,14 @@ class MemoizedParseContractTests(unittest.TestCase):
 
     def test_linter_image_memos_are_reused_within_one_extraction(self):
         # The census bound has a hit-count pin; the linter's two-image bound had
-        # none, so a bound lowered to 1 — or a key that stopped matching — would
-        # silently stop hitting with the whole suite still green. One extraction
-        # reaches _function_definitions_cached twice for the same image: once
-        # directly, and once through _function_bodies inside the helper-spec
-        # inference.
+        # none, so a key that stopped matching would silently stop hitting with
+        # the whole suite still green. One extraction reaches
+        # _function_definitions_cached twice for the same image: once directly,
+        # and once through _function_bodies inside the helper-spec inference.
+        #
+        # This covers key-match only. It cannot see the bound VALUE: one image
+        # is one live key, which stays resident at any maxsize >= 1. The bound
+        # is guarded by test_linter_image_memo_bound_retains_a_second_image.
         self.mod._function_definitions_cached.cache_clear()
         self.mod._helper_specs_for_source_cached.cache_clear()
         self.mod.extract_guard_sites(
@@ -308,9 +314,42 @@ class MemoizedParseContractTests(unittest.TestCase):
             1,
             "one extraction presents the same image to _function_definitions "
             "twice, so the memo should take at least one within-extraction hit; "
-            f"it took {info.hits} ({info}). If _IMAGE_PARSE_CACHE_SIZE in "
-            "pin-corpus-lint.py was lowered below the live image count, raise "
-            "it — the memo is buying nothing until you do.",
+            f"it took {info.hits} ({info}). The memo is keyed on the image text "
+            "alone — if that key stopped matching, the reuse is gone.",
+        )
+
+    def test_linter_image_memo_bound_retains_a_second_image(self):
+        # What _IMAGE_PARSE_CACHE_SIZE = 2 actually buys is CROSS-extraction
+        # reuse: the linter presents more than one image per process, and the
+        # bound is what keeps an earlier one resident while a later one is
+        # parsed. A within-extraction hit count cannot detect a bound lowered to
+        # 1, because a single live key never needs a second slot. Present two
+        # distinct images and then re-present the first: at a bound of 2 it is
+        # still resident and takes no new miss; at 1 the second evicted it and
+        # re-presenting it re-parses.
+        other = "b_helper() {\n  :\n}\n"
+        self.assertNotEqual(self.text, other, "the two images must differ")
+        self.mod._function_definitions_cached.cache_clear()
+        self.mod._helper_specs_for_source_cached.cache_clear()
+        self.mod.extract_guard_sites(
+            self.text, "lib/test/modules/harness-python-guards.sh", str(REPO_ROOT)
+        )
+        self.mod.extract_guard_sites(
+            other, "lib/test/modules/other-guards.sh", str(REPO_ROOT)
+        )
+        settled = self.mod._function_definitions_cached.cache_info().misses
+        self.mod.extract_guard_sites(
+            self.text, "lib/test/modules/harness-python-guards.sh", str(REPO_ROOT)
+        )
+        info = self.mod._function_definitions_cached.cache_info()
+        self.assertEqual(
+            settled,
+            info.misses,
+            "re-presenting the first image after a second one should take no "
+            f"new miss; misses went {settled} -> {info.misses} ({info}). "
+            "_IMAGE_PARSE_CACHE_SIZE in pin-corpus-lint.py no longer retains "
+            "two images, so the linter re-parses an image it already holds "
+            "every time it alternates between sources — raise the bound.",
         )
 
     def test_function_definition_line_numbers_match_a_counting_oracle(self):
@@ -328,21 +367,36 @@ class MemoizedParseContractTests(unittest.TestCase):
             "a() {\n  :\n}\nb() {\n  :\n  :\n}\n",  # consecutive definitions
             self.text,
         )
+        # A name or a body can occur more than once in a real source — a call
+        # site preceding its definition, or two helpers with byte-identical
+        # bodies. Anchoring on the FIRST occurrence would then compare against
+        # the wrong span and go RED on a correct derivation. So the oracle
+        # accepts the reported pair if ANY (header, body) occurrence yields it,
+        # pairing each body occurrence with the nearest preceding name. That
+        # still fails an off-by-one, which shifts every candidate at once.
         for text in texts:
             with self.subTest(text=text[:24]):
                 definitions = self.mod._function_definitions(text)
                 self.assertNotEqual({}, definitions)
                 for name, (body, start, end) in definitions.items():
-                    body_start = text.index(body)
-                    self.assertEqual(
-                        text.count("\n", 0, text.index(name + "(")) + 1,
-                        start,
-                        f"start line for {name} diverges from the counting oracle",
-                    )
-                    self.assertEqual(
-                        text.count("\n", 0, body_start + len(body)) + 1,
-                        end,
-                        f"end line for {name} diverges from the counting oracle",
+                    candidates = []
+                    body_start = text.find(body)
+                    while body_start >= 0:
+                        header = text.rfind(name, 0, body_start)
+                        if header >= 0:
+                            candidates.append(
+                                (
+                                    text.count("\n", 0, header) + 1,
+                                    text.count("\n", 0, body_start + len(body)) + 1,
+                                )
+                            )
+                        body_start = text.find(body, body_start + 1)
+                    self.assertIn(
+                        (start, end),
+                        candidates,
+                        f"the (start, end) lines reported for {name} match no "
+                        "occurrence of its header and body; the counting oracle "
+                        f"offers {sorted(set(candidates))}",
                     )
 
     def test_newline_offsets_are_the_ascending_newline_positions(self):

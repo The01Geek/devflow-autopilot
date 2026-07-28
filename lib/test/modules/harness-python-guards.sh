@@ -328,7 +328,9 @@ echo "#810 pin-corpus wording-only authoring gate"
 # linter memos on the text alone — and on no repo_root or filesystem state, so a hit
 # answers for exactly the source the caller presented. _load_mutation_census_module is
 # the second limb: it takes no arguments at all, so its safety rests not on its key but
-# on the module it returns holding nothing mutable beyond those same key-pure memos.
+# on the module it returns mutating nothing after import beyond those same key-pure
+# memos — its other module-level objects, the compiled-regex dicts among them, are
+# built once at import and never written to.
 # Either way a shard's ordering cannot change an outcome. Keep the statements together.
 _HPG_PIN_LINT_SHARDS="$(mktemp -d "$_hpg_tmp_root/pin-lint-shards.XXXXXX")" || {
   printf 'could not allocate the #810 pin-lint shard capture directory\n' >&2
