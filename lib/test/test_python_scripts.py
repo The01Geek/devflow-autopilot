@@ -19844,15 +19844,9 @@ assert_eq("#793: a round recorded before the kind field existed reads as discove
           "whole-draft treatment it actually had",
           'discovery', _m793._round_kind({'round': 1, 'outcome': 'FILE'}))
 
-assert_eq("#793: an unusable targeted return never schedules the confirming round "
-          "(fail-closed: only a positively-recorded full addressed sweep counts)",
-          False,
-          _m793._targeted_all_addressed({'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
-                                         'claim_verdicts': {}}))
-
-# Driven through the real ingestion producer: `_targeted_all_addressed` over a
-# hand-built `{'1.1': 'partially'}` asserted a property of a state `_validate` REFUSES to
-# load, and named it as the recording behavior, which lives in _ingest_targeted_verdicts.
+# Driven through the real ingestion producer: a hand-built `{'1.1': 'partially'}` map
+# asserted a property of a state `_validate` REFUSES to load, and named it as the
+# recording behavior, which lives in _ingest_targeted_verdicts.
 def _793_ingest(verdict_text, dispatched=('1.1',)):
     doc = _793_state(rounds=[{'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
                               'attempts': [{'arm': 'file'}],
@@ -19881,11 +19875,6 @@ assert_eq("#793: a DUPLICATE verdict for one claim id fails closed to not-addres
 assert_eq("#793: a return carrying NO per-claim block is recorded UNUSABLE — it reopens "
           "nothing and is not a sweep of not-addressed verdicts",
           ({}, True), _793_ingest(None))
-
-assert_eq("#793: ... and an unusable targeted round never reads as a clean sweep",
-          False,
-          _m793._targeted_all_addressed({'round': 2, 'outcome': 'FILE', 'kind': 'targeted',
-                                         'claim_verdicts': {}}))
 
 assert_eq("#793: an unusable targeted return selects the confirming whole-draft round, "
           "never `proceed` on scoped-only evidence",
@@ -20205,6 +20194,155 @@ assert_eq("#793/AC38: the unestablished branch carries the new field too, so the
 assert_eq("#793/AC38: scoped_round joins the closed protocol-token vocabulary, so an "
           "auditor-derived summary cannot forge the tool's own printed field",
           'scoped_round', _m793._forged_protocol_token('scoped_round=2'))
+
+# ── the UNUSABLE targeted return must not dead-end (review finding, PR #884) ──────────
+# `next_action` schedules `confirm-whole-draft` for ANY targeted round whose outcome is
+# FILE while the confirming budget remains — the unusable return included, precisely
+# because that round established nothing. The funding branch in `record-dispatch` must
+# therefore be gated on the SAME predicate; gating it on the narrower "all claims
+# addressed" made the scheduled round unfundable, so the run was told to open a round
+# the tool then refused as `not funded`. Driven end to end through the real CLI: the
+# unit-level predicate agreement is asserted below it, but only the CLI round-trip grades
+# the dead end itself.
+_r6, _scope6, _draft6 = _793_scoped_round(_793_tds)
+_d6 = _793_dispatch_scoped(_r6, _scope6, _draft6)
+_dig6 = _d6.stdout.split('digest=', 1)[1].split()[0]
+# A targeted return carrying NO per-claim block at all: outcome FILE, round UNUSABLE.
+_ret6 = _r6('record-return', _r6.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig6, nonce=True)
+_doc6 = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793: a targeted return with no per-claim block records outcome FILE and marks "
+          "the round UNUSABLE (the precondition the dead end needed)",
+          (0, 'FILE', True, {}),
+          (_ret6.returncode, _doc6['rounds'][1]['outcome'],
+           _doc6['rounds'][1].get('targeted_return_unusable'),
+           _doc6['rounds'][1].get('claim_verdicts')))
+
+_na6 = _r6('query-next-action', _r6.slug, '--round', '2', nonce=True)
+assert_eq("#793: ... and next_action still schedules the confirming whole-draft round on "
+          "the unusable return, exactly as its own contract states",
+          True, 'confirm-whole-draft' in _na6.stdout)
+
+_d6b = _r6('record-dispatch', '--kind', 'discovery', _r6.slug, '--round', '3',
+           '--arm', 'file', '--draft-file', str(_draft6.resolve()), nonce=True)
+_doc6b = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+                         f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793: ... and the round next_action scheduled is FUNDED — the confirming "
+          "counter is spent for it, so record-dispatch accepts instead of dead-ending "
+          "the error-recovery path on `not funded`",
+          (0, 1),
+          (_d6b.returncode, _doc6b.get('confirming_rounds_used')))
+
+# The unit-level statement of the same agreement: for every state `next_action` answers
+# `confirm-whole-draft` on, the funding predicate must hold. Asserted over both targeted
+# FILE sub-cases (clean sweep and unusable), so narrowing either side goes RED.
+for _kind_label, _verdicts, _unusable in (('a clean sweep', {'1.1': 'addressed'}, False),
+                                          ('an UNUSABLE return', {}, True)):
+    _st793 = {'rounds': [{'round': 1, 'outcome': 'FILE', 'kind': 'targeted',
+                          'claim_verdicts': _verdicts,
+                          'targeted_return_unusable': _unusable,
+                          'attempts': [{'arm': 'file'}]}],
+              'confirming_rounds_used': 0}
+    assert_eq(f"#793: {_kind_label} targeted FILE round schedules confirm-whole-draft, and "
+              f"the funding predicate record-dispatch gates on holds for the same state",
+              ('confirm-whole-draft', True),
+              (_m793.next_action(_st793, 1),
+               _m793._round_kind(_st793['rounds'][0]) == 'targeted'
+               and _st793['rounds'][0].get('outcome') == 'FILE'))
+
+# ── AC32 limb one: a targeted round NEVER grounds the clean scan ──────────────────────
+# The guard is a `continue` in evaluate_eligibility's reverse scan. Without it a clean
+# SCOPED round becomes the clean ground and a run resolves `eligible` on evidence that
+# never covered the whole draft — the fail-open the confirming round exists to close.
+_793_elig_targeted = _state([dict(_round(1, 'file', 'FILE', 'D1'), kind='targeted')])
+assert_eq("#793/AC32: a clean `targeted` round never grounds the clean scan — eligibility "
+          "refuses no-verdict-round rather than accepting scoped-only evidence",
+          ('not-eligible', 'unaudited-revision', None),
+          (lambda r: (r['answer'], r['reason'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(_793_elig_targeted, 'approve', 'D1')))
+
+# The companion that proves the row above is not vacuous: the SAME round, kind-blind,
+# is the clean ground. So the refusal is attributable to the kind guard alone.
+assert_eq("#793/AC32: ... while the byte-identical DISCOVERY round does ground it — the "
+          "refusal above is the kind guard, not some unrelated precondition",
+          ('eligible', 'file-identity'),
+          (lambda r: (r['answer'], r['ground']))(
+              issue_audit_state.evaluate_eligibility(
+                  _state([dict(_round(1, 'file', 'FILE', 'D1'), kind='discovery')]),
+                  'approve', 'D1')))
+
+# A targeted round must not REVOKE an older whole-draft clean verdict either — the guard
+# skips rather than breaks, which is the other direction AC32's first limb names.
+assert_eq("#793/AC32: a trailing `targeted` REVISE round does not revoke the earlier "
+          "whole-draft clean verdict (the guard skips, it does not break)",
+          'eligible',
+          issue_audit_state.evaluate_eligibility(
+              _state([_round(1, 'file', 'FILE', 'D1'),
+                      dict(_round(2, 'file', 'REVISE', 'D1'), kind='targeted')]),
+              'approve', 'D1')['answer'])
+
+# ── _convergence_basis: a targeted round never vouches whole-draft ────────────────────
+# `basis=adjudicated` claims an AUDITOR's whole-draft verdict vouches for the state.
+# `_last_discovery_round`'s targeted guard is what keeps a scoped round from making that
+# claim; driven here through _convergence_basis, the reader that publishes the token.
+
+
+def _793_basis_round(num, kind, outcome, adj):
+    return {'round': num, 'kind': kind, 'outcome': outcome,
+            'attempts': [{'arm': 'file', 'digest': 'd' * 40}],
+            'adjudicated_verdict': adj, 'final_byte_pass': False}
+
+
+assert_eq("#793: a trailing FILE-adjudicated `targeted` round does NOT answer "
+          "basis=adjudicated — a scoped round vouches for no whole draft",
+          'resolution',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'targeted', 'FILE', 'FILE')],
+               'revisions': [], 'overrides': []}, True))
+
+assert_eq("#793: ... while the byte-identical DISCOVERY round does answer "
+          "basis=adjudicated, so the row above is the kind guard alone",
+          'adjudicated',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'discovery', 'FILE', 'FILE')],
+               'revisions': [], 'overrides': []}, True))
+
+assert_eq("#793: a targeted round trailing a FILE-adjudicated whole-draft round is "
+          "SKIPPED, not treated as the latest adjudication — the basis survives it",
+          'adjudicated',
+          _m793._convergence_basis(
+              {'rounds': [_793_basis_round(1, 'discovery', 'FILE', 'FILE'),
+                          _793_basis_round(2, 'targeted', 'FILE', None)],
+               'revisions': [], 'overrides': []}, True))
+
+# ── AC18 positive arm: a clean scoped round ESTABLISHES steering ──────────────────────
+# The tampered arm above asserts `steering=not-established`. AC18 requires the verified
+# regeneration asserted DIRECTLY, so this arm drives an untouched scope file through the
+# same fixture and reads the established token and its canonical-match reason off the
+# record-return answer line — the same executable surface the negative control uses.
+_r7, _scope7, _draft7 = _793_scoped_round(_793_tds)
+_d7 = _793_dispatch_scoped(_r7, _scope7, _draft7)
+_dig7 = _d7.stdout.split('digest=', 1)[1].split()[0]
+_instr7 = Path(_r7.tmp, 'instructions.md')
+_ret7 = _r7('record-return', _r7.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig7,
+            '--instructions-object-id', _m793.hash_bytes(_instr7.read_bytes()),
+            '--extra-dispatch-content', 'no',
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793/AC18: an UNTAMPERED scope file regenerates to the recorded identity, so "
+          "the round records steering as ESTABLISHED with the canonical-match reason",
+          (0, True, False, False),
+          (_ret7.returncode,
+           'steering=established' in _ret7.stdout,
+           'scope-file-tampered' in _ret7.stdout,
+           'scope-file-unreadable' in _ret7.stdout))
+
+_doc7 = json.loads(Path(_r7.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r7.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, so a "
+          "later reader sees the verified regeneration rather than re-inferring it",
+          'established', (_doc7['rounds'][1].get('steering') or {}).get('state'))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

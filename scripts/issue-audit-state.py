@@ -2137,9 +2137,10 @@ def _validate(doc, slug):
                                      or not all(isinstance(c, str) for c in cids)):
                 raise StateError(f'round {num} scope claim_ids {cids!r} is not a list '
                                  'of strings')
-        # The per-claim verdict map. It is the SOLE gate on spending the confirming-round
-        # budget (via `_targeted_all_addressed`), so a corrupted map must fail closed here
-        # rather than reaching that spend as though every claim came back addressed.
+        # The per-claim verdict map. It decides which ledger entries a targeted return
+        # reopens and whether the round reads as a clean sweep, so a corrupted map must
+        # fail closed here rather than reaching those readers as though every claim came
+        # back addressed.
         cv = rnd.get('claim_verdicts')
         if cv is not None:
             if not isinstance(cv, dict):
@@ -3800,23 +3801,6 @@ def _round_kind(rnd):
     return kind if kind in _ROUND_KINDS else 'discovery'
 
 
-def _targeted_all_addressed(rnd):
-    """Did this `targeted` round return every enumerated claim `addressed`? (issue #793)
-
-    False for a discovery round, an open round, and a round whose return was unusable —
-    all three by construction, since only a completed `targeted` round records the verdict
-    map this reads. Fail-closed: anything that is not a positively-recorded full
-    `addressed` sweep answers False, so an unusable return can never schedule the
-    confirming round as though the scoped round had come back clean.
-    """
-    if _round_kind(rnd) != 'targeted' or rnd.get('outcome') is None:
-        return False
-    verdicts = rnd.get('claim_verdicts')
-    if not isinstance(verdicts, dict) or not verdicts:
-        return False
-    return all(v == 'addressed' for v in verdicts.values())
-
-
 def _checked_kind(token):
     """Fail closed on a round kind outside the canonical set (issue #793).
 
@@ -5459,15 +5443,20 @@ def cmd_record_dispatch(args):
         # issue #793 — the confirming whole-draft round's OWN spend, on its own counter,
         # leaving the predicate above and `_MAX_AUTOMATIC_REAUDITS` byte-untouched. It
         # fires on exactly the state `next_action` answers `confirm-whole-draft` for: the
-        # predecessor is a clean `targeted` round, and this round is the whole-draft one
-        # that confirms it. Guarded on `not final_byte_pass` for the same reason its
+        # predecessor is a `targeted` round whose outcome is FILE, and this round is the
+        # whole-draft one that confirms it. The predicate is deliberately the SAME one
+        # `next_action` schedules under, not the narrower all-claims-addressed sweep: a
+        # targeted round whose return was UNUSABLE also closes FILE and is also sent to
+        # `confirm-whole-draft` — precisely because it established nothing — so funding it
+        # only on a clean sweep left the scheduled round unfundable and dead-ended the
+        # error-recovery path on `not funded`. Guarded on `not final_byte_pass` for the
         # sibling is — an accepted final-byte pass would otherwise increment two counters
         # and hand the run a phantom round the widened funding test then admits with no
         # offer behind it.
         elif (not final_byte_pass
                 and prev is not None
                 and _round_kind(prev) == 'targeted'
-                and _targeted_all_addressed(prev)
+                and prev.get('outcome') == 'FILE'
                 and doc.get('confirming_rounds_used', 0) < _MAX_CONFIRMING_ROUNDS):
             doc['confirming_rounds_used'] = doc.get('confirming_rounds_used', 0) + 1
         # Round funding: every round past the initial one is funded by the automatic
