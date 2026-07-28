@@ -25,17 +25,28 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: lib + python tests
+  # The suite is split across concurrent SHARD jobs (issue #877) so wall-clock is
+  # bounded by the slowest shard rather than the sum. Each shard runs a subset via
+  # lib/test/run-shard.sh — the `monolith` shard runs lib/test/run.sh with the module
+  # tier skipped (DEVFLOW_SKIP_SUITE_MODULES=1), and each `modules-*` shard runs its
+  # group of registered test modules. The union of the module groups is exactly the
+  # registered module set, so NO test is dropped (lib/test/run.sh asserts this against
+  # the registry). Each shard writes a small tally directory (passed/failed/skipped +
+  # skip detail + failure names) and uploads it; the `lib + python tests` aggregator
+  # below downloads them, recombines the accounting, and is the REQUIRED status check.
+  shard:
+    name: shard (${{ matrix.shard }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [monolith, modules-pin, modules-large, modules-rest]
     steps:
       # fetch-depth: 0 (all history for all branches) so refs/remotes/origin/main resolves
       # in the checkout — actions/checkout fetches a single commit by default, under which
       # origin/main does NOT exist, so the #434 stale-prose self-scan in lib/test/run.sh
-      # silently self-skipped on every CI run (issue #456). With full history the gate runs
-      # live here, which is the only place it grades a clean committed tree. Deliberate
-      # trade-off: history is fetched unconditionally — negligible cost at this repo's size,
-      # and a conditional fetch would reintroduce the silent self-skip on the runs it skips.
+      # silently self-skipped on every CI run (issue #456). It runs in the monolith shard;
+      # history is fetched on every shard uniformly so the checkout config is single-form.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -51,8 +62,55 @@ jobs:
       - name: Preflight (dependency check)
         run: bash lib/preflight.sh
 
-      - name: Run test suite (jq filters, shell helpers, python scripts)
-        run: bash lib/test/run.sh
+      - name: Run shard (${{ matrix.shard }})
+        env:
+          DEVFLOW_SHARD_TALLY_DIR: ${{ github.workspace }}/shard-tally-out
+        run: bash lib/test/run-shard.sh "${{ matrix.shard }}"
+
+      - name: Upload shard tally
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tally-${{ matrix.shard }}
+          path: ${{ github.workspace }}/shard-tally-out
+          if-no-files-found: warn
+
+  # The REQUIRED merge-gate status check. Its name (`lib + python tests`) is the exact
+  # branch-protection contract — renaming or dropping it silently un-gates merges — so it
+  # is preserved here as the aggregator. `if: always()` + the shard-result gate mean a
+  # failed, cancelled, or skipped shard fails this job (a skipped required check that
+  # auto-passes is the classic un-gating trap). The combine step recombines the aggregate
+  # passed/failed/skipped accounting and surfaces the full skip population (issue #456: a
+  # skipped check is never laundered into a clean pass), failing closed if a shard's tally
+  # is missing or malformed.
+  test:
+    name: lib + python tests
+    needs: [shard]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Download shard tallies
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tally-*
+          path: shard-tallies
+
+      - name: Recombine shard tallies (aggregate pass/fail/skip accounting)
+        run: python3 lib/test/shard-tally.py combine --scan shard-tallies --expect 4
+
+      # The branch selection and its user-facing message live in the helper, not
+      # inline here, so lib/test/run.sh can drive every arm (success / failure /
+      # cancelled / skipped / unestablished) rather than grep-pinning a literal.
+      - name: Gate on shard results
+        run: bash lib/test/gate-shard-result.sh "${{ needs.shard.result }}"
 
   lint:
     name: lint (shellcheck + actionlint + ruff)
@@ -118,6 +176,7 @@ jobs:
           # they are added explicitly rather than shipping unlinted.
           shellcheck --severity=warning -e SC1091 \
             lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh \
+            lib/test/run-shard.sh lib/test/gate-shard-result.sh \
             lib/test/modules/workflow-flight-recorder.sh \
             lib/test/modules/review-and-fix-contract.sh \
             lib/test/modules/create-issue-contract.sh \
