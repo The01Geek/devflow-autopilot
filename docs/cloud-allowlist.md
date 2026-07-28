@@ -167,6 +167,49 @@ The Phase-3 final-pass reviewer dispatch (`skills/review/phases/phase-3-agents.m
 command, so the dispatched path runs a granted shape on every tier and needs **no**
 wildcard on any tier — the change adds **zero** grants.
 
+**The grant's risk framing changed with issue #874 — it is no longer only "the
+extension fails to load".** On the review tier the loader's bytes previously came
+from the PR-head checkout, so the directory-agnostic grant also admitted a command
+whose *output became the merge-gating reviewer's own appended prompt*. That channel
+is now closed at the environment rather than at the grant: the review job exports
+`DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at a `$RUNNER_TEMP` closure populated from
+the trusted base ref, and truncates the workspace copies unconditionally. The grant
+itself is **unchanged** — the variable arrives through the step's `env:` rather than
+a command prefix (a leading `VAR=value` is a denied matcher shape), and the new
+`scripts/materialize-trusted-prompt-extensions.sh` runs as a workflow step rather
+than an agent command — so `lib/review-profile.tokens` is byte-identical and
+`lib/generate-capability-profiles.py --check` stays green.
+
+### Step-level `env:` propagation — PENDING a maintainer-dispatched run (issue #874)
+
+`.github/workflows/matcher-probe.yml` carries an **`env-propagation-probe`** job that
+measures whether a step-level `env:` entry on a `claude-code-action` step is visible
+to a command the **agent** runs — at two depths, because the two protected extension
+loads sit at different ones: the `review` load runs in the orchestrator's own shell
+(hop one) and the `requesting-code-review` load runs inside a dispatched
+`general-purpose` Task (hop two). Every other `env:` entry on that step is consumed by
+the CLI process itself, so no existing evidence covers a value an agent-run command
+must read back — and this repository's own comment beside
+`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` records that even the CLI-level effect was
+measured rather than assumed.
+
+The job sets the sentinel `DEVFLOW_ENVPROBE_SENTINEL_874`, has the session echo what
+each hop read through its own Bash calls, and derives a four-way verdict
+(`BOTH_HOPS` / `ORCHESTRATOR_ONLY` / `NEITHER_HOP` / `INCONCLUSIVE`, plus a suspect
+`DISPATCHED_TASK_ONLY` inversion) with `scripts/env-propagation-probe-verdict.py`,
+whose five verdict arms and four degraded arms `lib/test/run.sh` drives.
+
+**This measurement is PENDING.** The implementing run added the job and the
+documentation entry and deliberately did **not** dispatch the probe, so no verdict is
+recorded here yet. Until one is, the claim that a consumer's committed base-ref
+extension keeps working is an **expectation, not a guarantee**. The failure direction
+is safe either way — an unpropagated variable makes the loader resolve the repo-root
+path, find the workflow's truncated file, and print nothing — so a propagation failure
+costs the feature, never the boundary; the loader's resolved-root breadcrumb, surfaced
+at hop two through the `EXTENSION-STATUS: … resolved-root=…` field, is what makes such
+a failure observable rather than silent. Dispatch the job from the Actions tab and
+record the run id and verdict here.
+
 The review-tier verdicts for the probe job's **five helper-invocation-form rows** —
 the control row (shape 11), the repo-relative vendored-literal row (shape 12), the
 absolute-path row (shape 13), the repo-root `scripts/…` row (shape 14), and the

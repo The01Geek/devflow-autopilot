@@ -521,4 +521,116 @@ LPE_TRAV="$(cd "$LPE_SEC_DIR" && bash "$LPE" ../config --section '## Alpha' 2>/d
 assert_eq "lpe --section: path-traversal name guard still fires with --section present" "2" "$LPE_TRAV_RC"
 assert_eq "lpe --section: path-traversal name guard with --section → empty stdout" "" "$LPE_TRAV"
 rm -rf "$LPE_SEC_DIR"
+
+# ── DEVFLOW_PROMPT_EXTENSION_ROOT trusted-root override (issue #874) ────────
+# The review tier checks out the PR head, so the extension bytes the reviewing
+# agent appends to its own prompt were PR-author-editable. The workflow now
+# materializes them from the trusted base ref into a $RUNNER_TEMP closure and
+# points the loader at it through this variable. The override composes
+# "${DEVFLOW_PROMPT_EXTENSION_ROOT}/${SKILL_NAME}.md" directly — the variable
+# names the extensions DIRECTORY, not a repo root, so no
+# '.devflow/prompt-extensions/' segment is appended to it.
+#
+# The variable follows the DEVFLOW_GH / DEVFLOW_JQ / DEVFLOW_BASH convention:
+# honored at top precedence when set and NON-EMPTY, inert when unset, and inert
+# when set to the empty string. The input-shape matrix below is closed by
+# construction — the product of the variable's presence states and the target's
+# filesystem states the resolution branch distinguishes.
+LPE_ENV_DIR="$(mktemp -d)"
+mkdir -p "$LPE_ENV_DIR/repo/.devflow/prompt-extensions" "$LPE_ENV_DIR/trusted" "$LPE_ENV_DIR/emptydir"
+# The two fixtures hold DIFFERENT bytes, which is what makes "the repo-root copy
+# was demonstrably not read" an observation rather than an assumption.
+printf 'REPO-HEAD BYTES\n' > "$LPE_ENV_DIR/repo/.devflow/prompt-extensions/review.md"
+printf 'TRUSTED BASE-REF BYTES no-trailing-newline' > "$LPE_ENV_DIR/trusted/review.md"
+: > "$LPE_ENV_DIR/trusted/docs.md"
+printf 'not a directory\n' > "$LPE_ENV_DIR/regular-file"
+
+# (1) unset → repo-root resolution, stdout byte-identical to today, and NO
+# trusted-root breadcrumb. The variable is published only in the review job, so
+# the skills/*/SKILL.md load sites outside the review tier observe unchanged
+# output; this change edits none of them.
+LPE_E1="$(cd "$LPE_ENV_DIR/repo" && bash "$LPE" review 2>"$LPE_ENV_DIR/err-e1")"; LPE_E1_RC=$?
+assert_eq "lpe env: unset → repo-root bytes" "REPO-HEAD BYTES" "$LPE_E1"
+assert_eq "lpe env: unset → exit 0" "0" "$LPE_E1_RC"
+assert_eq "lpe env: unset → no trusted-root breadcrumb on stderr" "yes" \
+  "$(grep -qF 'DEVFLOW_PROMPT_EXTENSION_ROOT' "$LPE_ENV_DIR/err-e1" && echo no || echo yes)"
+
+# (2) set to the EMPTY STRING → inert, exactly as unset (the DEVFLOW_GH ':='
+# convention: an empty override never selects the override branch).
+LPE_E2="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT='' bash "$LPE" review 2>"$LPE_ENV_DIR/err-e2")"; LPE_E2_RC=$?
+assert_eq "lpe env: empty string → repo-root bytes (override inert)" "REPO-HEAD BYTES" "$LPE_E2"
+assert_eq "lpe env: empty string → exit 0" "0" "$LPE_E2_RC"
+assert_eq "lpe env: empty string → no trusted-root breadcrumb on stderr" "yes" \
+  "$(grep -qF 'DEVFLOW_PROMPT_EXTENSION_ROOT' "$LPE_ENV_DIR/err-e2" && echo no || echo yes)"
+
+# (3) whitespace only → a directory NAME made of spaces, not a sentinel: the
+# file is absent under it, so this is the ordinary no-op, never a fallback to
+# the repo root (which would silently reinstate the PR-head bytes).
+LPE_E3="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT='   ' bash "$LPE" review 2>/dev/null)"; LPE_E3_RC=$?
+assert_eq "lpe env: whitespace-only root → empty stdout (never the repo-root copy)" "" "$LPE_E3"
+assert_eq "lpe env: whitespace-only root → exit 0" "0" "$LPE_E3_RC"
+
+# (4) non-existent directory → absent file, exit 0, empty stdout.
+LPE_E4="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/no-such-dir" bash "$LPE" review 2>/dev/null)"; LPE_E4_RC=$?
+assert_eq "lpe env: non-existent root → empty stdout" "" "$LPE_E4"
+assert_eq "lpe env: non-existent root → exit 0" "0" "$LPE_E4_RC"
+
+# (5) a REGULAR FILE where a directory is expected → the composed path is not a
+# file, so absent; exit 0, empty stdout, and still no repo-root fallback.
+LPE_E5="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/regular-file" bash "$LPE" review 2>/dev/null)"; LPE_E5_RC=$?
+assert_eq "lpe env: root is a regular file → empty stdout" "" "$LPE_E5"
+assert_eq "lpe env: root is a regular file → exit 0" "0" "$LPE_E5_RC"
+
+# (6) an existing directory holding no <skill>.md → the ordinary
+# extension-less-consumer no-op the closure produces when the base ref carries
+# no such file.
+LPE_E6="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/emptydir" bash "$LPE" review 2>/dev/null)"; LPE_E6_RC=$?
+assert_eq "lpe env: existing root without <skill>.md → empty stdout" "" "$LPE_E6"
+assert_eq "lpe env: existing root without <skill>.md → exit 0" "0" "$LPE_E6_RC"
+
+# (7) an existing directory holding <skill>.md → those bytes verbatim, compared
+# with cmp for byte exactness, AND the repo-root copy demonstrably not read.
+( cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" review 2>/dev/null ) > "$LPE_ENV_DIR/out-e7.bin"
+assert_eq "lpe env: trusted root → byte-exact copy of the trusted file (cmp)" "yes" \
+  "$(cmp -s "$LPE_ENV_DIR/trusted/review.md" "$LPE_ENV_DIR/out-e7.bin" && echo yes || echo no)"
+assert_eq "lpe env: trusted root → the repo-root copy is NOT read" "yes" \
+  "$(grep -qF 'REPO-HEAD BYTES' "$LPE_ENV_DIR/out-e7.bin" && echo no || echo yes)"
+
+# (8) the SKILL_NAME guard still fires ahead of every read on the override
+# branch, so the trusted root is no more escapable than the repo root. The
+# sentinel below is the leak check: a name that escaped containment would reach
+# it, since it sits one level ABOVE the trusted root.
+printf 'ESCAPED-CONTAINMENT\n' > "$LPE_ENV_DIR/escape.md"
+LPE_E8A="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" ../escape 2>/dev/null)"; LPE_E8A_RC=$?
+assert_eq "lpe env: trusted root + '..' name → exit 2" "2" "$LPE_E8A_RC"
+assert_eq "lpe env: trusted root + '..' name → empty stdout (containment holds)" "" "$LPE_E8A"
+LPE_E8B="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" sub/review 2>/dev/null)"; LPE_E8B_RC=$?
+assert_eq "lpe env: trusted root + '/' name → exit 2" "2" "$LPE_E8B_RC"
+assert_eq "lpe env: trusted root + '/' name → empty stdout (containment holds)" "" "$LPE_E8B"
+
+# The breadcrumb: scoped to the override branch alone (cases 1 and 2 above pin
+# its absence on the repo-root branch), and it names both the resolved directory
+# and which branch selected it — the observable that turns an unpropagated
+# variable from a silent feature loss into a diagnosable one, surfaced at the
+# prompt layer through the EXTENSION-STATUS resolved-root field.
+( cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" review 2>"$LPE_ENV_DIR/err-crumb" >/dev/null )
+# The breadcrumb is matched with `case` over the CAPTURED STDERR rather than with
+# grep: this is a runtime-output assertion, and reading it into a shell variable and
+# matching with a builtin keeps the decisive value off any non-preflight PATH tool.
+LPE_CRUMB="$(cat "$LPE_ENV_DIR/err-crumb")"
+assert_eq "lpe env: override branch → breadcrumb names the resolved directory" "yes" \
+  "$(case "$LPE_CRUMB" in *"$LPE_ENV_DIR/trusted"*) echo yes ;; *) echo no ;; esac)"
+assert_eq "lpe env: override branch → breadcrumb names the selecting branch" "yes" \
+  "$(case "$LPE_CRUMB" in *DEVFLOW_PROMPT_EXTENSION_ROOT*) echo yes ;; *) echo no ;; esac)"
+# An EMPTY extension under the override branch still yields empty STDOUT even
+# though stderr now carries the breadcrumb. This is the operand the amended
+# EXTENSION-STATUS contract classifies on: a site still keyed on "printed text"
+# would read the breadcrumb as content and misreport loaded-with-content.
+LPE_E9="$(cd "$LPE_ENV_DIR/repo" && DEVFLOW_PROMPT_EXTENSION_ROOT="$LPE_ENV_DIR/trusted" bash "$LPE" docs 2>"$LPE_ENV_DIR/err-e9")"; LPE_E9_RC=$?
+assert_eq "lpe env: empty extension under the breadcrumb → empty stdout (loaded-empty)" "" "$LPE_E9"
+assert_eq "lpe env: empty extension under the breadcrumb → exit 0" "0" "$LPE_E9_RC"
+assert_eq "lpe env: empty extension → the breadcrumb is on stderr, not stdout" "yes" \
+  "$([ -s "$LPE_ENV_DIR/err-e9" ] && echo yes || echo no)"
+rm -rf "$LPE_ENV_DIR"
+
 rm -rf "$LPE_DIR"

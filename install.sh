@@ -352,6 +352,15 @@ cat > .claude-plugin/marketplace.json <<'JSON'
 }
 JSON
 
+# 2b. Prompt-extension directory. Created empty so a maintainer who wants to extend a
+# skill has somewhere to commit the file without hand-creating the path, and so the
+# review job's unconditional truncation step (issue #874) has a directory to write
+# into on a fresh consumer. That step creates the directory itself as well — this is
+# a convenience for the human, not the workflow's guarantee, which cannot depend on
+# install.sh having run.
+log "creating .devflow/prompt-extensions"
+mkdir -p .devflow/prompt-extensions
+
 # 3. Workflows (only those the primary repo actually ships).
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions

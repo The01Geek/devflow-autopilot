@@ -143,6 +143,18 @@ defaults:
 jobs:
   run:
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
+    env:
+      # The protected prompt-extension set (issue #874) — the skill names whose
+      # extension bytes reach a reviewing agent's own prompt inside this job. This
+      # is the SINGLE declaration site: the truncation step, the base-ref
+      # materialization call, and the drift guard in lib/test/run.sh all read this
+      # one value, so no two literals can silently disagree about what is protected.
+      # A job-level `env:` is what makes that possible — a per-step literal would be
+      # a copy, and the drift guard would then only prove one of them matches the
+      # skill tree. lib/test/run.sh derives the names actually reachable as
+      # `load-prompt-extension.sh <name>` from skills/review/ and fails when they
+      # differ from this list.
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS: "review requesting-code-review"
     outputs:
       engine_is_error: ${{ steps.engine.outputs.is_error }}
       # `|| 'unavailable'` is the load-bearing default: it covers EVERY path on which
@@ -186,18 +198,184 @@ jobs:
             echo "claude_model=$CLAUDE_MODEL"
             echo "allowed_bots=$ALLOWED_BOTS"
             echo "effort=$EFFORT"
-            # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
-            echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
+            # devflow_version is deliberately NOT read here. It is resolved from the
+            # trusted base ref by the `baseversion` step below (issue #874), because
+            # this step reads the PULL REQUEST's checkout — which would let a PR
+            # select the plugin commit, and therefore the loader, that reviews it.
           } >> "$GITHUB_OUTPUT"
+
+      # Resolve the pinned plugin ref from the TRUSTED base ref (issue #874), so a
+      # pull request no longer selects which plugin commit — and therefore which
+      # load-prompt-extension.sh — reviews it. This joins provision_env, the
+      # allowed_tools list, and the setup block on the base-ref trust boundary, and
+      # carries the same consequence the repository already documents for every
+      # trigger-time-resolved key: a PR that bumps devflow_version does NOT change
+      # its own review, only later ones.
+      #
+      # WHY ITS OWN STEP, DECLARED HERE. The value must be readable by `vendor`
+      # below, and `baseprovision` — which performs the job's other base-ref reads —
+      # is declared AFTER `vendor`. A `steps.baseprovision.outputs.*` reference
+      # inside `vendor` resolves to the empty string, and vendor-slice.sh then
+      # refuses an empty DEVFLOW_REF ("refusing to track mutable main"), killing the
+      # review job on a fetch-branch consumer while this repository's own `self`
+      # branch — which ignores DEVFLOW_REF — stays green. Step order is therefore
+      # the mechanism, not cosmetics; lib/test/run.sh pins it.
+      #
+      # This is a SECOND, independent fetch of the same base ref. baseprovision
+      # re-fetches inside its own success branch rather than relying on this one's
+      # FETCH_HEAD surviving: FETCH_HEAD is a repository file that does persist
+      # across steps, but reading it outside the branch that established it is
+      # exactly the misattribution the trust-rule comment below exists to prevent.
+      - name: Read trusted base-ref plugin version
+        id: baseversion
+        env:
+          # Same trusted derivation as baseprovision's BASE_REF — the PR's target
+          # branch, or the repo default for a trigger carrying no pull_request.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          # Fail-closed default: an unresolvable base ref, an unfetchable branch, a
+          # malformed base config, or an absent key all leave this EMPTY, which is
+          # the pre-existing degraded path — vendor-slice.sh refuses an empty ref on
+          # the fetch branch rather than silently tracking a mutable default.
+          DEVFLOW_VERSION=''
+          if [ -n "$BASE_REF" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
+              # Same object guard baseprovision uses: `jq -c '.'` succeeds on ANY
+              # valid JSON including a bare scalar, and indexing `.devflow_version`
+              # on one errors (jq exit 5) and would abort this step under set -e.
+              if BASE_JSON=$(printf '%s' "$RAW" | jq -ce 'if type=="object" then . else empty end' 2>/dev/null); then
+                # `strings` clamps the value to a scalar string: `jq -r` pretty-prints an
+                # object/array across MULTIPLE LINES, and a multi-line value appended to
+                # $GITHUB_OUTPUT without a heredoc delimiter corrupts the whole file
+                # (every later line is parsed as another output). A non-string leaf is
+                # dropped to empty, which is the same fail-closed value as an absent key.
+                DEVFLOW_VERSION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_version | strings | select(. != "")) catch empty')
+              else
+                echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .devflow/config.json; the pinned plugin version could not be read from the trusted base ref."
+              fi
+            else
+              # DISTINCT from the malformed arm above and from the legitimately-silent
+              # present-config-absent-key shape: the base ref carries no config at all.
+              # The most reachable instance is a repo adopting DevFlow through this very
+              # pull request, whose base ref predates it.
+              echo "::warning::Base ref '$BASE_REF' carries no .devflow/config.json, so no pinned plugin version could be read from it. See the fetch-branch consequence below."
+            fi
+          else
+            echo "::warning::Could not read the pinned plugin version from the trusted base ref '$BASE_REF' (fetch failed or the base ref is empty); the vendor step receives no pinned ref."
+          fi
+          # STATE THE CONSEQUENCE, not just the condition. An empty value is inert on the
+          # `committed`/`self` vendor branches (they ignore the ref), but on the `fetch`
+          # branch — install.sh's DEFAULT thin install — vendor-slice.sh refuses an empty
+          # DEVFLOW_REF and FAILS this job with "refusing to track mutable main", which
+          # names nothing about the base ref. Moving this read onto the base ref made two
+          # previously-degraded paths newly reachable (a transient base-ref fetch failure,
+          # and a repo adopting DevFlow through this PR), so the operator gets the
+          # diagnosis here rather than only vendor-slice's message.
+          if [ -z "$DEVFLOW_VERSION" ]; then
+            echo "::warning::devflow_version resolved EMPTY from the trusted base ref. On a thin (fetch-branch) install the vendor step will refuse an empty ref and fail this review job; on a committed/self vendor tree the ref is ignored and the review proceeds. Commit devflow_version to .devflow/config.json on '$BASE_REF' to resolve it."
+          fi
+          echo "devflow_version=$DEVFLOW_VERSION" >> "$GITHUB_OUTPUT"
+
+      # Establish the trusted prompt-extension closure and SUPPRESS the PR-head
+      # copies — unconditionally (issue #874). Everything in this step must hold on
+      # the arms where the base-ref materialization below never runs (a failed base-ref
+      # fetch, an empty base ref, no trusted source for the materialization helper),
+      # so it is its own step with no `if:` and no dependency on any earlier step
+      # resolving. Placing the truncation or the variable export inside a conditional
+      # reintroduces exactly the defect this change closes: on a fetch failure the
+      # PR-head workspace copy would survive and the loader would read it.
+      #
+      # The arms on which the closure is not populated — a failed base-ref fetch, an
+      # empty base ref, no trusted source for the materialization helper, a per-name read
+      # failure or unwritable target inside the helper, a helper usage defect (non-zero
+      # exit), a traversal-shaped protected name, and a non-blob object at a protected
+      # path — therefore each degrade to an EMPTY closure, rather than sending the loader
+      # back to the PR-head file. The truncation is the belt for the remaining case where
+      # the cooperating half is absent: a consumer whose base ref pins a devflow_version
+      # predating this change gets a loader that ignores the variable, resolves the
+      # repo-root path, finds the truncated file, and loads nothing.
+      - name: Establish the trusted prompt-extension closure
+        id: promptext
+        run: |
+          set -euo pipefail
+          CLOSURE="$RUNNER_TEMP/devflow-trusted-prompt-ext"
+          mkdir -p "$CLOSURE"
+          # A consumer checkout may not carry .devflow/prompt-extensions/ at all — git
+          # does not track an empty directory, so even a repo whose install.sh created
+          # it ships no such path until an extension is committed — and a redirect into
+          # a missing directory fails, which under the default `bash -e` step shell
+          # would kill the review job outright.
+          #
+          # UNLINK, NEVER TRUNCATE IN PLACE. This step runs against the PULL REQUEST's
+          # checkout and is the first thing to touch that tree, so every path here is
+          # PR-author-controlled. `: > path` FOLLOWS a symlink: a PR committing
+          # .devflow/prompt-extensions/review.md as a link to any other file would make
+          # this job empty that file instead — silently, exit 0 — before ci_summary and
+          # harden_hooks read the tree. `rm -f` unlinks the link itself and never its
+          # target, so the create that follows always makes a fresh regular file.
+          #
+          # The guard covers ANY non-directory at the directory path, not just a
+          # symlink: `mkdir -p` fails with "File exists" on a regular file, and under
+          # this step's `set -e` that aborts the job before `vendor`, `baseprovision`,
+          # `harden_hooks`, `compose` and the reviewer itself ever run — a PR-author-
+          # triggerable denial of the merge gate, since committing a plain file at
+          # `.devflow/prompt-extensions` is all it takes. Removing the offending entry
+          # keeps the step's own premise ("every path here is PR-author-controlled")
+          # true for the directory path as well as the leaves.
+          if [ -e .devflow/prompt-extensions ] && [ ! -d .devflow/prompt-extensions ]; then
+            echo "::warning::PR-head '.devflow/prompt-extensions' exists but is not a directory (symlink or regular file); removing it rather than writing through it."
+            rm -f .devflow/prompt-extensions
+          fi
+          mkdir -p .devflow/prompt-extensions
+          TRUNCATED=''
+          for _n in $DEVFLOW_PROTECTED_PROMPT_EXTENSIONS; do
+            # Same three-pattern name guard the materialization helper applies to its
+            # own NAME arguments. The workflow passes literals, so a hit means a caller
+            # defect in the job-level declaration — and here the operation that would
+            # follow is `rm -rf`, so an unguarded escape is a recursive delete OUTSIDE
+            # the extensions directory rather than the helper's warn-and-skip.
+            case "$_n" in
+              */* | *..* | '')
+                echo "::warning::devflow protected prompt-extension name '$_n' contains a path separator or '..', or is empty; skipping it rather than removing a path outside .devflow/prompt-extensions/."
+                continue
+                ;;
+            esac
+            _p=".devflow/prompt-extensions/${_n}.md"
+            if [ -L "$_p" ] || { [ -e "$_p" ] && [ ! -f "$_p" ]; }; then
+              echo "::warning::PR-head '$_p' is a symlink or a non-regular file; removing it rather than writing through it."
+            fi
+            rm -rf "$_p"
+            : > "$_p"
+            TRUNCATED="${TRUNCATED}${_p}"$'\n'
+          done
+          # The paths join harden_hooks' displaced_paths into the engine-ground-truth
+          # block, so Phase 0.1 attributes their working-tree delta (a CONTENT delta
+          # on a committed extension, an UNTRACKED delta on a name the checkout never
+          # carried) to the trusted-source floor rather than warning about them.
+          _d="EOF_$(date +%s%N)_$$"
+          {
+            printf 'truncated_paths<<%s\n' "$_d"
+            printf '%s' "$TRUNCATED"
+            printf '%s\n' "$_d"
+          } >> "$GITHUB_OUTPUT"
+          # $GITHUB_ENV is job-scoped, so this reaches every later step — including
+          # the commands the reviewing agent runs and the ones its dispatched Task
+          # runs. It arrives through the environment rather than a command prefix
+          # precisely because the cloud matcher denies a leading `VAR=value` shape.
+          echo "DEVFLOW_PROMPT_EXTENSION_ROOT=$CLOSURE" >> "$GITHUB_ENV"
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
       # loads it from .devflow/vendor/devflow/ and the reviewer's helper scripts
-      # resolve at the literal workspace path. Only `ref` is PR-influenced; the
-      # source repo is fixed, so a PR can at most select an official-repo commit.
+      # resolve at the literal workspace path. The `ref` is now resolved from the
+      # trusted base ref by the `baseversion` step above, so a PR can no longer
+      # select the plugin commit that reviews it (issue #874). The composite action
+      # itself is still resolved from the PR-head workspace — a residual this change
+      # records rather than closes.
       - uses: ./.github/actions/vendor-plugin
         id: vendor
         with:
-          ref: ${{ steps.extract.outputs.devflow_version }}
+          ref: ${{ steps.baseversion.outputs.devflow_version }}
 
       - name: Read trusted base-ref provisioning config
         id: baseprovision
@@ -222,6 +400,12 @@ jobs:
           # uniform repo-wide policy. The common pull_request /
           # pull_request_target paths always read the PR's true base ref.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          # Which vendor-slice branch materialized .devflow/vendor/devflow this run.
+          # `vendor` is declared BEFORE this step, so its output is available here.
+          # Only `fetch` (a fresh clone of the official repo at the pinned
+          # devflow_version) qualifies as a trusted source — `committed`/`self` are
+          # PR-head content.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set -euo pipefail
           # Default to read-only/no-provisioning: a missing base ref, an
@@ -447,9 +631,92 @@ jobs:
                   fi
                 fi
               fi
+              # Populate the trusted prompt-extension closure (issue #874). This is
+              # the ONLY place it is populated, and it sits inside this fetch-success
+              # branch for the reason the trust-rule comment above states: FETCH_HEAD
+              # elsewhere can point at the PR HEAD, and materializing from there would
+              # hand the reviewer's own appended prompt to the PR author.
+              #
+              # The helper is resolved through the same THREE-rank trusted-source
+              # ladder every sibling closure uses (filter-runner-tools.sh, the git-env
+              # helper, the plugin-compose helpers): the base ref's committed vendor
+              # copy, then this repository's own scripts/ copy gated on the
+              # plugin.json-name discriminator, then — the rank a two-rank ladder would
+              # omit — the RUNTIME-FETCHED vendored copy, accepted only when
+              # `vendor-plugin` reports it cloned the official repo fresh this run at
+              # the pinned devflow_version (`vendor_source == fetch`). That third rank
+              # is what serves a THIN install, which is install.sh's default: there the
+              # vendored tree is gitignored so it is not on the base ref, and the
+              # consumer's base ref is not the DevFlow plugin repo, so ranks 1 and 2
+              # both miss. Without it every thin-install review run would take the
+              # no-trusted-source arm — an empty closure and a ::warning:: on every run,
+              # in every consumer, including one that never committed an extension.
+              # A `committed` or `self` vendor tree is PR-head content and never
+              # qualifies. It is executed only from a trusted source because it decides
+              # what reaches a merge-gating prompt; a PR-head copy would be the
+              # issue-#404 rejection applied one level up.
+              #
+              # Because the closure already exists and DEVFLOW_PROMPT_EXTENSION_ROOT
+              # already points at it (the unconditional step above), an unresolvable
+              # helper degrades to an EMPTY closure rather than to PR-head bytes —
+              # which is why this arm warns and continues instead of failing the job.
+              _mtpe_raw=''
+              _mtpe_source='absent'
+              _mtpe_helper=''
+              _mtpe_repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+              if _mtpe_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
+                _mtpe_source='base-ref-vendored'
+              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq '"name"[[:space:]]*:[[:space:]]*"devflow"' \
+                && _mtpe_raw=$(git show "FETCH_HEAD:scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
+                _mtpe_source='base-ref-repo'
+              fi
+              # An EMPTY trusted read is not a trusted helper: `git show` succeeds on a
+              # zero-byte or truncated blob, and writing that out would produce a script
+              # that runs, does nothing, and exits 0 — a silently unprotected run.
+              [ -n "$_mtpe_raw" ] || _mtpe_source='absent'
+              if [ "$_mtpe_source" != 'absent' ] \
+                && mkdir -p "$RUNNER_TEMP/devflow-trusted-prompt-ext-helper" 2>/dev/null \
+                && printf '%s\n' "$_mtpe_raw" > "$RUNNER_TEMP/devflow-trusted-prompt-ext-helper/materialize-trusted-prompt-extensions.sh" 2>/dev/null; then
+                _mtpe_helper="$RUNNER_TEMP/devflow-trusted-prompt-ext-helper/materialize-trusted-prompt-extensions.sh"
+              elif [ "${VENDOR_SOURCE:-}" = "fetch" ] \
+                && [ -s "$_mtpe_repo_root/.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh" ]; then
+                _mtpe_source='vendored-fetch'
+                _mtpe_helper="$_mtpe_repo_root/.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh"
+              fi
+              if [ -n "$_mtpe_helper" ]; then
+                # The helper prints its own fully-formed ::warning:: / ::notice::
+                # lines on stdout, so this call site selects no branch and composes
+                # no message — that logic lives in the helper, where lib/test/run.sh
+                # drives the four per-name arms of its branch table plus the
+                # not-attempted arm. The protected set is expanded UNQUOTED on purpose:
+                # it is a space-separated list and each name must become its own argv
+                # entry, which is the one place word splitting is the intended behavior.
+                # The helper's runtime arms all exit 0 and annotate themselves; a
+                # NON-ZERO exit is its deliberate loud refusal of a CALLER defect
+                # (exit 2: no --target, no names, an unrecognized flag). Swallowing
+                # that with `|| true` would leave an unpopulated closure whose only
+                # trace is a raw stderr line, while every other non-population arm
+                # carries an annotation — so capture the status and annotate it too.
+                _mtpe_rc=0
+                bash "$_mtpe_helper" \
+                  --base-ref "$BASE_REF" \
+                  --target "$RUNNER_TEMP/devflow-trusted-prompt-ext" \
+                  $DEVFLOW_PROTECTED_PROMPT_EXTENSIONS || _mtpe_rc=$?
+                if [ "$_mtpe_rc" -ne 0 ]; then
+                  echo "::warning::devflow trusted prompt-extension materialization helper (source='$_mtpe_source') exited $_mtpe_rc — a caller/usage defect, not a runtime condition; the closure stays empty and the reviewing agent runs with no extension text."
+                fi
+              else
+                echo "::notice::devflow trusted prompt-extension materialization was not attempted (no TRUSTED source resolved for materialize-trusted-prompt-extensions.sh, or its trusted copy could not be written); the closure stays empty and the reviewing agent runs with no extension text."
+              fi
             else
               CONFIG_SOURCE='degraded'
               echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
+              # The base ref's content was never established, so this run cannot say
+              # whether an extension exists on it — a distinct NOTICE, never a
+              # reason-naming warning that would assert a fact never observed. All
+              # three never-established arms use ::notice:: for that reason, matching
+              # the helper's own empty-base-ref arm.
+              echo "::notice::devflow trusted prompt-extension materialization was not attempted (the base ref could not be fetched, so its content was never established); the reviewing agent runs with no extension text."
             fi
           else
             # An empty base ref means the trusted base ref could not even be
@@ -461,6 +728,10 @@ jobs:
             # configured" (the shadow-S2 misdirection contract this signal exists for).
             CONFIG_SOURCE='degraded'
             echo "::warning::Base ref could not be determined (empty base ref); defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
+            # Same not-attempted classification as the fetch-failure arm above
+            # (issue #874): with no base ref there is nothing to read, so the run
+            # cannot report whether an extension exists on it.
+            echo "::notice::devflow trusted prompt-extension materialization was not attempted (the base ref could not be determined, so its content was never established); the reviewing agent runs with no extension text."
           fi
           {
             echo "provision_env=$PROVISION"
@@ -590,8 +861,8 @@ jobs:
               # efficiency-trace.sh entries below are read-only-safe: workpad.py
               # authors the live progress comment via `gh api` (a comment edit, not a
               # tree write), config-get.sh reads config, load-prompt-extension.sh only
-              # `cat`s a consumer-owned .devflow/prompt-extensions/<skill>.md and
-              # prints it (the standardized preflight every skill — review and
+              # `cat`s one <skill>.md from the extension directory this job selected
+              # and prints it (the standardized preflight every skill — review and
               # review-and-fix included — now runs; without this entry the read-only
               # profile would SILENTLY DENY it, so the convention would be a no-op in
               # the cloud review tier), and efficiency-trace.sh --mode trace only reads
@@ -610,6 +881,24 @@ jobs:
               # telemetry artifacts" step below) and the workflow_run-triggered relay downloads,
               # validates, and pushes them — never this PR-head, secrets-bearing job. So the
               # grant stays read-only-safe.
+              # TREE NON-MUTATION IS NOT PROVENANCE (issue #874). "It only reads and
+              # prints" says nothing about WHOSE bytes it prints, and this job checks
+              # out the PULL REQUEST's head — so the printed text, which the calling
+              # skill appends to its own prompt, was PR-author-editable. The grant is
+              # safe on this tier because of what this job does BEFORE the agent
+              # starts, not because the helper is read-only: the `promptext` step
+              # unconditionally truncates the workspace copy of every protected
+              # extension and exports DEVFLOW_PROMPT_EXTENSION_ROOT pointing at a
+              # $RUNNER_TEMP closure, and `baseprovision` populates that closure from
+              # the TRUSTED base ref inside its fetch-success branch and nowhere else.
+              # The arms on which population does not happen — a failed base-ref
+              # fetch, an empty base ref, no trusted helper source, a per-name read
+              # failure or unwritable target, a helper usage defect, a traversal-shaped
+              # protected name, and a non-blob object at a protected path — each leave the
+              # closure empty rather than
+              # sending the loader back to the PR-head path. The residuals this does NOT close —
+              # the PR-selectable marketplace manifest and the PR-head composite
+              # actions under .github/actions/ — are filed separately.
               # Command heads the review skill actually invokes are pinned against this
               # string by lib/test/run.sh (issue #363): a head the skill runs but this
               # profile omits is silently DENIED at runtime, burning the run's budget and
@@ -1349,6 +1638,34 @@ jobs:
             printf '%s\n' "$_df_d"
           } >> "$GITHUB_OUTPUT"
 
+      # Join the two displaced-path producers (issue #874). HARDENED_PATHS used to
+      # bind a SINGLE step's output, and harden_hooks publishes that output EMPTY on
+      # its relevance-gate skip arm — so the truncated prompt-extension paths would
+      # vanish from the grounding block on exactly the consumer runs where the
+      # extensions are the only displacement. A join, not an assumed append: each
+      # producer's value stands alone and either may legitimately be empty.
+      #
+      # Pure concatenation with no branch selection and no user-facing message, so
+      # it stays inline rather than becoming a helper — the extraction rule governs
+      # branch-selecting and message-composing shell, and this is neither. It still
+      # gets its own step so it is name-addressable and lib/test/run.sh can drive it.
+      - name: Join displaced-path producers
+        id: displaced_join
+        env:
+          HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}
+          EXT_PATHS: ${{ steps.promptext.outputs.truncated_paths }}
+        run: |
+          set -euo pipefail
+          _j_d="JOINED_EOF_$(date +%s%N)_$$"
+          {
+            printf 'hardened_paths<<%s\n' "$_j_d"
+            # Each producer is emitted only when non-empty, so an empty one
+            # contributes no blank line the renderer would have to filter.
+            [ -n "$HOOK_PATHS" ] && printf '%s\n' "$HOOK_PATHS"
+            [ -n "$EXT_PATHS" ] && printf '%s\n' "$EXT_PATHS"
+            printf '%s\n' "$_j_d"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Compose review prompt
         id: compose
         env:
@@ -1358,12 +1675,13 @@ jobs:
           # AC5 (#504): CI_SUMMARY + HEAD_SHA are computed in the pre-displacement
           # ci_summary step (summarize-ci-checks.sh sources a HOOK_TARGETS closure
           # member, so it must run before harden_hooks stubs it). HARDENED_PATHS is
-          # the displaced-path set harden_hooks published this run (empty when the
-          # relevance gate skipped hardening); the renderer renders a displaced-paths
-          # ground-truth section only when it is non-empty.
+          # the JOINED displaced-path set from both producers — harden_hooks' Stop-hook
+          # displacement (empty when its relevance gate skipped hardening) and the
+          # truncated prompt-extension paths (issue #874); the renderer renders a
+          # displaced-paths ground-truth section only when it is non-empty.
           CI_SUMMARY: ${{ steps.ci_summary.outputs.CI_SUMMARY }}
           HEAD_SHA: ${{ steps.ci_summary.outputs.HEAD_SHA }}
-          HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}
+          HARDENED_PATHS: ${{ steps.displaced_join.outputs.hardened_paths }}
           # The job's own GITHUB_TOKEN, whose `permissions:` block declares the
           # `checks: read` + `actions: read` the CI queries need. The downscoped
           # DevFlow-Reviewer token is minted LATER (it posts the review), so it is
