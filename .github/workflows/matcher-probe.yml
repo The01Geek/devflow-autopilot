@@ -1362,8 +1362,9 @@ jobs:
           # mutates nothing, but claude-code-action otherwise refuses a bot-initiated run.
           allowed_bots: "*"
           prompt: |
-            You are an ENVIRONMENT-PROPAGATION PROBE. Do EXACTLY the five numbered
-            actions below, in order, each exactly once, and nothing else.
+            You are an ENVIRONMENT-PROPAGATION PROBE. Do EXACTLY the numbered
+            actions below, ALL of them, in order, each exactly once, and nothing
+            else.
 
             Your text output is not measured. Only the harness record of your tool
             calls is measured — so every marker line MUST be produced through a Bash
@@ -1406,7 +1407,7 @@ jobs:
             through 5) — run this Bash command once:
             printf '%s\n' 'ENVPROBE_CONTROL_AFTER'
 
-            After all six, STOP and reply with the single word DONE.
+            After the last numbered action, STOP and reply with the single word DONE.
 
           # No plugin_marketplaces/plugins: this probe exercises only Bash printf and the
           # harness's own dispatch tool. Task and Agent are both granted so the allowlist

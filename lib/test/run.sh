@@ -23785,6 +23785,40 @@ assert_eq "#874 helper: a traversal-shaped name → refused by name, nothing wri
 assert_eq "#874 helper: a traversal-shaped name → the warning names the invalid name" "yes" \
   "$(printf '%s' "$MTE_A9_OUT" | grep -qF 'invalid protected extension name' && echo yes || echo no)"
 
+# ── Arm U: USAGE errors exit 2 and materialize nothing. The helper's own exit-code
+# contract splits rc 0 (every runtime condition, degrading to an empty closure) from
+# rc 2 (a caller defect, refused loudly). Only the rc-0 side was driven, so a
+# regression that let a usage arm fall through to the rc-0 path would swap a loud
+# refusal for a silent empty closure — the one direction the contract says must NOT
+# be silent. Each arm asserts the CODE and that nothing was written, because an arm
+# that exited 2 after materializing would satisfy an rc-only assertion.
+mkdir -p "$MTE_TMP/usagclosure"
+devflow_mte_seed "$MTE_TMP/usagbase" 'review:BASE REVIEW BYTES\n'
+devflow_mte_workspace "$MTE_TMP/usagws" "$MTE_TMP/usagbase"
+# Each row: <label>|<expected diagnostic>|<space-separated argv>. The argv is
+# deliberately otherwise-valid so the ONLY reason for the refusal is the defect the
+# label names, and each row pins its OWN message: asserting a shared prefix would let
+# a reordered guard refuse for the wrong reason while every arm still exited 2 — the
+# arm-ordering gap scripts/describe-denial-count.sh exists to close.
+while IFS='|' read -r _mte_label _mte_msg _mte_argv; do
+  [ -n "$_mte_label" ] || continue
+  # shellcheck disable=SC2086 # the row's argv is a test-owned literal, split on purpose
+  MTE_A10_OUT="$( cd "$MTE_TMP/usagws" && bash "$MTE" $_mte_argv 2>&1 )"; MTE_A10_RC=$?
+  assert_eq "#874 helper: usage ($_mte_label) → exit 2, not the rc-0 runtime path" "2" "$MTE_A10_RC"
+  assert_eq "#874 helper: usage ($_mte_label) → refuses for ITS OWN reason" "yes" \
+    "$(printf '%s' "$MTE_A10_OUT" | grep -qF -- "$_mte_msg" && echo yes || echo no)"
+  assert_eq "#874 helper: usage ($_mte_label) → NOT a ::warning::/::notice:: runtime emit" "yes" \
+    "$(printf '%s' "$MTE_A10_OUT" | grep -qE '^::(warning|notice)::' && echo no || echo yes)"
+  assert_eq "#874 helper: usage ($_mte_label) → nothing materialized" "yes" \
+    "$([ -e "$MTE_TMP/usagclosure/review.md" ] && echo no || echo yes)"
+done <<MTE_USAGE_ROWS
+--base-ref with no value|--base-ref requires a value|--target $MTE_TMP/usagclosure --base-ref
+--target with no value|--target requires a value|--base-ref main --target
+unrecognized flag|unrecognized argument '--nope'|--base-ref main --target $MTE_TMP/usagclosure --nope review
+no --target|--target is required|--base-ref main review
+no names|at least one protected skill name is required|--base-ref main --target $MTE_TMP/usagclosure
+MTE_USAGE_ROWS
+
 # ── The named attack path (mirrors the existing `#404 attack: PR-head vendored
 # helper NOT executed` assertion). A PR-head review.md carrying instruction-shaped
 # text directing the reviewer to approve unconditionally, and a benign base-ref
@@ -24296,6 +24330,64 @@ assert_eq "#874 env-probe verdict: a stray sentinel elsewhere does not credit th
 # The helper never raises through its always-exit-0 contract.
 python3 "$EPV" "$EPV_TMP/no-such-file.jsonl" >/dev/null 2>&1
 assert_eq "#874 env-probe verdict: exits 0 even on an absent execution file" "0" "$?"
+
+# ── The two DEGRADED arms the always-exit-0 contract exists for. Both were undriven:
+# each is reached only when its own failure occurs, so neither is observable from any
+# success-path assertion, and a regression that let either raise would turn a
+# maintainer-dispatched probe into a job failure with no verdict at all.
+#
+# Arm A: an unappendable GITHUB_STEP_SUMMARY. Pointed at a DIRECTORY rather than a
+# chmod'd file on purpose — open(dir, "a") raises IsADirectoryError (an OSError) for
+# every uid, so this arm cannot self-skip on a host that ignores mode bits, unlike the
+# mode-bit arms elsewhere in this suite.
+# Rebuild a known-good fixture and confirm it, because the two summary arms below
+# REUSE the exec.jsonl this call leaves behind: without this the arms could pass while
+# asserting against whatever the previous case happened to write.
+EPV_OK="$(devflow_epv "$EPV_CB" "$EPV_CA" "ENVPROBE_HOP1 $EPV_SENT" "ENVPROBE_HOP2 $EPV_SENT")"
+assert_eq "#874 env-probe verdict: the summary arms' shared fixture is the both-hops case" "BOTH_HOPS" \
+  "$(devflow_epv_verdict "$EPV_OK")"
+mkdir -p "$EPV_TMP/summary-is-a-dir"
+EPV_SUM_OUT="$(GITHUB_STEP_SUMMARY="$EPV_TMP/summary-is-a-dir" python3 "$EPV" "$EPV_TMP/exec.jsonl" 2>"$EPV_TMP/sum.err")"
+assert_eq "#874 env-probe verdict: an unappendable GITHUB_STEP_SUMMARY still exits 0" "0" "$?"
+assert_eq "#874 env-probe verdict: the verdict still reaches stdout when the summary write fails" "yes" \
+  "$(printf '%s' "$EPV_SUM_OUT" | grep -qF 'Verdict: `BOTH_HOPS`' && echo yes || echo no)"
+# The captured stderr/summary are read into variables and matched from the pipe, the
+# same shape every other arm here uses. Grepping the FILE reads to the mutation-routing
+# gate as a raw source-presence pin needing a structural declaration — which would be
+# the wrong claim: nothing here pins a source literal, both match output this run just
+# produced.
+EPV_SUM_ERR="$(cat "$EPV_TMP/sum.err" 2>/dev/null)"
+assert_eq "#874 env-probe verdict: the failed summary write names itself on stderr" "yes" \
+  "$(printf '%s' "$EPV_SUM_ERR" | grep -qF -- 'could not append to GITHUB_STEP_SUMMARY' && echo yes || echo no)"
+# The same input with a WRITABLE summary must actually append — otherwise the arm above
+# would pass against a helper that never wrote a summary at all.
+: > "$EPV_TMP/summary.md"
+GITHUB_STEP_SUMMARY="$EPV_TMP/summary.md" python3 "$EPV" "$EPV_TMP/exec.jsonl" >/dev/null 2>&1
+EPV_SUM_WRITTEN="$(cat "$EPV_TMP/summary.md" 2>/dev/null)"
+assert_eq "#874 env-probe verdict positive control: a writable summary IS appended" "yes" \
+  "$(printf '%s' "$EPV_SUM_WRITTEN" | grep -qF -- 'Verdict: `BOTH_HOPS`' && echo yes || echo no)"
+
+# Arm B: an execution file nested past the interpreter's recursion limit. The walk
+# raises RecursionError, which the helper converts into a NOTE and an INCONCLUSIVE
+# verdict — never a crash, and never a negative measurement.
+# The fixture is emitted as RAW TEXT, never built by json.loads here: parsing it in
+# this generator would raise RecursionError in the generator itself. Depth is derived
+# from the interpreter's own limit rather than hardcoded, so the arm keeps reaching the
+# guard on a host configured with a different limit.
+python3 - "$EPV_TMP/deep.jsonl" <<'PY_EPV_DEEP'
+import sys
+depth = sys.getrecursionlimit() * 8
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    fh.write('{"type":"assistant","message":{"content":')
+    fh.write("[" * depth + "1" + "]" * depth)
+    fh.write("}}\n")
+PY_EPV_DEEP
+EPV_DEEP_OUT="$(python3 "$EPV" "$EPV_TMP/deep.jsonl" 2>/dev/null)"
+assert_eq "#874 env-probe verdict: a too-deeply-nested execution file still exits 0" "0" "$?"
+assert_eq "#874 env-probe verdict: excessive nesting is INCONCLUSIVE, never a negative result" "yes" \
+  "$(printf '%s' "$EPV_DEEP_OUT" | grep -qF 'Verdict: `INCONCLUSIVE`' && echo yes || echo no)"
+assert_eq "#874 env-probe verdict: the nesting NOTE names the depth cause" "yes" \
+  "$(printf '%s' "$EPV_DEEP_OUT" | grep -qF 'nested too deeply' && echo yes || echo no)"
 rm -rf "$EPV_TMP"
 unset -f devflow_epv devflow_epv_verdict
 
