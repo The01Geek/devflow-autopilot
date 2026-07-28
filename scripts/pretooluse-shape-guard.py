@@ -89,11 +89,13 @@ DENY_ARMS = ("R1", "R3-tmp", "R4")
 # mirror — a lib/test/run.sh assertion ties each arm's row to that document's row for the
 # same arm, so the two cannot drift apart silently (the same coupled-mirror discipline the
 # closure literals carry, applied to a scripts/-to-docs/ pair). The JOIN LITERAL differs by
-# arm and is not uniformly the alternative: R1 joins on `VAR=$(cmd)` and R3-tmp on
-# `.devflow/tmp/` (both permitted alternatives), while R4 joins on the DENIED-SHAPE token
-# `python3/python/node`, because R4's alternative is a whitespace-bearing English phrase
-# that the issue-810 boundary classifies as markdown prose on the docs side. So an edit to
-# R4's alternative cell alone does not turn the suite RED; reconcile it by hand.
+# arm and is NOT uniformly the alternative: R1 and R3-tmp each join on a whitespace-free
+# fragment of their own permitted alternative, while R4 joins on its DENIED-SHAPE token
+# instead, because R4's alternative is a whitespace-bearing English phrase that the
+# issue-810 boundary classifies as markdown prose on the docs side and so may not be
+# pinned. Consequence: editing R4's alternative cell alone does NOT turn the suite RED —
+# reconcile that one by hand. (The join fragments are deliberately not re-quoted here: they
+# are pinned uniquely elsewhere, and a second copy in this comment would collide.)
 REMEDIATION = {
     "R1": (
         "devflow shape guard (R1): a leading VAR=value assignment or env-prefix "

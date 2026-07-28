@@ -23033,8 +23033,11 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # (same trusted-ref read; the compose consumes only that materialized $RUNNER_TEMP path).
 assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "2" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
-assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
-  "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
+# The gate's fallback selector is the workflow's inline ENTRY_TARGETS. Assert it against the
+# SAME literal the helper-coupling pin above uses, rather than re-transcribing the member
+# list here — a second transcription is what let the two drift when #805 added a fourth entry.
+assert_eq "#460 workflow: relevance gate keys on the entry hooks (== helper HOOK_ENTRY_TARGETS)" "1" \
+  "$(grep -cF "ENTRY_TARGETS=\"$HSH_ENTRY_LIT\"" "$RUNNER" || true)"
 assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
   "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
 # CROSS-PIN (issue #460 SHADOW, FP-S2): the workflow's inline ENTRY_TARGETS (the gate's
