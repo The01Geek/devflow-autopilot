@@ -72,15 +72,23 @@ jobs:
       # gate ARMS instead of self-skipping. Until this step existed the CLI was on no
       # runner, so that gate took its `blocking-gate` skip branch on every CI run. It
       # was the only skip in the run cited here (run 30274021296 @ fb5256b7: "12523
-      # passed, 0 failed, 1 skipped") — a dated snapshot, NOT a standing invariant:
-      # arming this gate does not drive CI to zero skips, because the #434 stale-prose
-      # self-scan skips separately ("working tree dirty") and survives this change.
+      # passed, 0 failed, 1 skipped") — a dated snapshot, NOT a standing invariant.
       # A skip does not fail the suite (issue #456), so the gate was disarmed silently
       # while CI stayed green.
       #
+      # Arming this gate does NOT drive CI to zero skips, and nothing here should be read
+      # as promising that. The #434 stale-prose self-scan skips for its own, unrelated
+      # reason ("working tree dirty") and survives this change — measured, not assumed:
+      # `main` at 30399500061 reports 2 skips (#671 + #434), and this branch reports the
+      # remaining 1 (#434 alone). So the dirty-tree skip is pre-existing and orthogonal.
+      # Read the skip population off a run's own NOTE lines rather than from this comment,
+      # which is a dated observation like the figure above.
+      #
       # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
       # that validation DESCENDS into the skills/ and agents/ trees rather than stopping
-      # at the manifest: a malformed-YAML, absent, or empty frontmatter block exits 1.
+      # at the manifest: a malformed-YAML, absent, or empty frontmatter block exits 1 —
+      # and so does one that parses cleanly but omits a required key, which is the shape
+      # a validator that stopped at "is it valid YAML" would wave through.
       # That is asserted executably, not by hand — lib/test/run.sh drives each of those
       # frontmatter shapes against both component trees, each arm preceded by its own
       # positive control, so the claim is a test that can fail rather than a comment
@@ -123,11 +131,16 @@ jobs:
           # The retry/backoff/terminal-exit logic lives in scripts/retry-with-backoff.sh
           # so the suite can drive each arm; inline, nothing exercised them.
           #
-          # `set -o pipefail` inside the command string is load-bearing and NOT
-          # redundant: a step with no `shell:` key runs under `bash -e {0}`, which does
-          # not set it (only an explicit `shell: bash` gets `-eo pipefail`), and this
-          # workflow has no `defaults:` block. Without it a failed download feeds bash
-          # an empty script that exits 0, so the install would be recorded as a success.
+          # `set -o pipefail` inside the command string is load-bearing, and the reason is
+          # NOT this step's own shell: the pipeline is executed by `bash -c "$command"`
+          # inside retry-with-backoff.sh, and a fresh `bash -c` inherits no shell options
+          # from its parent. So the option has to be set inside the string, and it would
+          # stay load-bearing even if this step gained an explicit `shell: bash` (which is
+          # what supplies `-eo pipefail`; with no `shell:` key and no `defaults:` block the
+          # step runs under `bash -e {0}`, which sets only `-e`). Editing the step's shell
+          # is therefore not a substitute for this.
+          # Without it a failed download feeds bash an empty script that exits 0, so the
+          # install would be recorded as a success.
           # The verify step below would still redden the check, so pipefail is what
           # attributes the failure to the download rather than to a missing binary.
           bash scripts/retry-with-backoff.sh 3 2 \

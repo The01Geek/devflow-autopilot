@@ -25428,6 +25428,17 @@ if command -v claude >/dev/null 2>&1; then
   devflow_pkg_descent_arm "an agent with no frontmatter block" "agents/probe-agent.md" \
     'no frontmatter at all'
   devflow_pkg_descent_arm "an empty agent file" "agents/probe-agent.md"
+  # Frontmatter present, well-formed, and PARSEABLE but missing a required key. This is
+  # the shape most likely to regress in practice — a shipped component file losing its
+  # `description` while staying valid YAML — and none of the arms above reach it: each of
+  # those breaks parsing or presence, so a validator that opened the file, parsed it, and
+  # then checked nothing would pass all six. The fixture builder's own note above records
+  # a missing key as the case that actually bit, which is the argument for driving it
+  # rather than assuming --strict covers it.
+  devflow_pkg_descent_arm "a skill whose frontmatter parses but omits the required description" "skills/probe/SKILL.md" \
+    '---' 'name: probe' '---' 'body'
+  devflow_pkg_descent_arm "an agent whose frontmatter parses but omits the required description" "agents/probe-agent.md" \
+    '---' 'name: probe-agent' '---' 'body'
 
   rm -rf "$PKG_DESC"
   unset -f devflow_pkg_fixture devflow_pkg_validate_rc devflow_pkg_descent_arm
@@ -36505,10 +36516,20 @@ assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (
 # uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
 # than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
 # therefore records a visible SKIP (kind `blocking-gate`) instead of a false FAIL, and the
-# terminal summary re-lists it so the skip is never mistaken for a clean pass. CI's checkout
-# is clean, and (since #456) `.github/workflows/ci.yml`'s shard job sets `fetch-depth: 0` so
-# `origin/main` resolves — so BOTH skip arms are inert in CI and the assertion runs live
-# there. Before that fetch-depth change the origin/main arm skipped this gate on every CI run.
+# terminal summary re-lists it so the skip is never mistaken for a clean pass.
+#
+# The two arms behave DIFFERENTLY in CI, and it is worth being exact about which:
+#   - the origin/main arm IS inert there — (since #456) `.github/workflows/ci.yml`'s shard
+#     job sets `fetch-depth: 0`, so `origin/main` resolves. Before that fetch-depth change
+#     this arm skipped the gate on every CI run.
+#   - the DIRTY-TREE arm is NOT inert. The checkout starts clean, but the tree is dirty by
+#     the time this gate runs, so it takes its `blocking-gate` skip on every current CI run
+#     — observed on `main` as well as on feature branches, i.e. pre-existing rather than
+#     branch-specific. What dirties it is not yet diagnosed, and this comment deliberately
+#     does not guess.
+# So do NOT read this gate as executable coverage in CI today. Which arms actually ran is
+# read off the run's own NOTE lines, never assumed from here — that enumerate-don't-assume
+# habit is exactly the #456 skip accounting this gate is part of.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
   skip "#434 stale-prose self-scan" blocking-gate "origin/main not resolvable in this checkout"
 elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
@@ -39550,10 +39571,22 @@ assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
 # and the GITHUB_PATH append is what actually puts it on PATH for later steps — an
 # install whose PATH export was dropped leaves the gate skipping just as surely. Matching
 # these rather than the step names keeps a renamed step passing.
+#
+# Declaration note for every `devflow_ci_shard_has` pin below. These are NOT wording-only
+# pins: each literal is machine-consumed — GitHub Actions executes these lines, and their
+# absence DISARMS a suite gate rather than changing prose — so they sit inside the
+# `# structural-pin-ok:` regime rather than under the new-wording-pin prohibition, and
+# each carries its own declaration. Worth knowing why the declarations are documentary
+# here: pin-corpus-lint.py's classifier only scans call sites of the helpers it
+# recognizes, and these route through this file's own bespoke matcher, so the gate never
+# sees them either to demand or to validate a marker. They are written for the reader,
+# and so the sites are already declared if that extractor ever learns this helper.
+# structural-pin-ok: cross-file-phase-contract -- the workflow line that installs the CLI is what arms the #671 gate; its removal makes that gate self-skip while CI stays green
 assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
   "$(devflow_ci_shard_has 'claude[.]ai/install[.]sh')"
 # The fuller shape, not a bare `GITHUB_PATH`: that token alone would be satisfied forever
 # by any future unrelated append in this job, so the pin would outlive the thing it guards.
+# structural-pin-ok: cross-file-phase-contract -- the PATH export is the half that makes the installed binary visible to later steps; dropped, the gate self-skips exactly as if nothing were installed
 assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "yes" \
   "$(devflow_ci_shard_has '[.]local/bin.*GITHUB_PATH')"
 # Negative controls — mutation-checked, not assumed. Each arm copies ci.yml, comments out
@@ -39563,11 +39596,13 @@ assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "
 # prose, and prefixing a second `#` would misdescribe what the arm mutates.)
 #
 # Each arm carries its OWN positive control over the COPY, asserted before the mutation.
-# That is not ceremony: `no` is the value the arm's assertion accepts, so without it a
-# failed `mktemp -d`, a full $TMPDIR, or a truncated write would produce an empty copy
-# that satisfies every arm while proving nothing — the same masquerade the descent
-# block's per-arm control exists to expose. The fail-closed `unreadable` token in the
-# matcher is the second, independent layer against exactly that case.
+# That is not ceremony: `no` is the value the arm's assertion accepts, so a `cp` that
+# silently produced an unusable copy would satisfy every arm while proving nothing. That
+# is precisely and only what this control covers — the neighbouring failure modes are
+# already owned elsewhere, and claiming them here would misdescribe it: a failed
+# `mktemp -d` is fatal a few lines above, and a truncated MUTATED write is caught by the
+# separate "the mutated copy is otherwise intact" witness assertion inside the loop. The
+# fail-closed `unreadable` token in the matcher is the second, independent layer.
 CI671_TMP="$(mktemp -d)"
 [ -n "$CI671_TMP" ] && [ -d "$CI671_TMP" ] || { printf 'FATAL: mktemp -d failed for the #671 ci.yml pin controls\n' >&2; exit 1; }
 for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'echo "$HOME/.local/bin"'; do
@@ -39624,24 +39659,44 @@ assert_eq "#671 ci.yml matcher fails closed on an absent file (never a bare 'no'
 # without touching PATH (a PATH-shadowing fixture would be the heavier, flakier way).
 assert_eq "#671 ci.yml matcher fails closed when awk itself errors (malformed ERE)" "awk-failed" \
   "$(devflow_ci_shard_has '[' "$LIB/../.github/workflows/ci.yml" 2>/dev/null)"
+# The THIRD token needs its own arm, or the `case`'s `*)` branch can be deleted — or
+# collapsed into `no` — with this block still green, while the matcher's comment claims
+# the token set is exhaustive rather than merely the two shapes that were foreseen. The
+# state it names is an awk that exits 0 while printing nothing; the real program cannot
+# produce it (its END block always prints), so it is driven with a PATH shim rather than
+# left as an unreachable claim. The shim is confined to the one command substitution.
+mkdir -p "$CI671_TMP/bin"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$CI671_TMP/bin/awk"
+chmod +x "$CI671_TMP/bin/awk"
+assert_eq "#671 ci.yml matcher fails closed when awk exits 0 but prints nothing" "unexpected-output" \
+  "$(PATH="$CI671_TMP/bin:$PATH"; devflow_ci_shard_has 'GITHUB_PATH' "$LIB/../.github/workflows/ci.yml")"
+# ...and its positive control on the same fixture and pattern: with the shim off the PATH,
+# the same call must yield `yes`. Without it the arm above would also pass if the file or
+# the pattern were simply wrong, which would prove nothing about the token.
+assert_eq "#671 ci.yml matcher unexpected-output control: the same call without the shim yields yes" "yes" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$LIB/../.github/workflows/ci.yml")"
 rm -rf "$CI671_TMP"
 # The pinned CLI version. The VERIFY half fails closed on an empty pin on its own
 # (scripts/assert-cli-version.sh exits 2), but the INSTALL half does not: `bash -s ""`
 # silently takes whatever the installer defaults to. So a dropped or renamed env: key
 # would still leave an unpinned CLI installed, and this pin is what catches its removal.
+# structural-pin-ok: cross-file-phase-contract -- the env: key is the single source both the install and verify halves read; dropped or emptied, the install silently takes the installer's default version
 assert_eq "#671 ci.yml: the CLI version literal is declared in the shard job" "yes" \
   "$(devflow_ci_shard_has 'CLAUDE_CLI_VERSION:[[:space:]]*[0-9]')"
 # ...and ci.yml must actually CALL the extracted assertion. Pinning only the helper's
 # existence would leave a workflow that stopped invoking it entirely still green.
+# structural-pin-ok: cross-file-phase-contract -- pins that the workflow still invokes the extracted verifier; a helper that exists but is never called verifies nothing
 assert_eq "#671 ci.yml: the verify step calls the extracted version assertion" "yes" \
   "$(devflow_ci_shard_has 'assert-cli-version[.]sh')"
 # ...and the INSTALL half must actually be passed the pin. Matching only the installer
 # URL leaves `bash -s "$CLAUDE_CLI_VERSION"` free to be dropped, or replaced with a
 # hardcoded literal, with every assertion still green — the unguarded half of the pair.
+# structural-pin-ok: cross-file-phase-contract -- pins that the pin reaches the installer; without it the version argument can be dropped or hardcoded with every other assertion green
 assert_eq "#671 ci.yml: the installer is passed the pinned version" "yes" \
   "$(devflow_ci_shard_has 'bash -s "[$]CLAUDE_CLI_VERSION"')"
 # The retry wrapper must stay in the invocation path; without it the loop, the backoff
 # and the terminal exit are all bypassed while the install still appears to run.
+# structural-pin-ok: cross-file-phase-contract -- pins that the install still routes through the extracted retry wrapper; bypassed, the retry/backoff/terminal-exit arms drive code the workflow no longer runs
 assert_eq "#671 ci.yml: the install goes through the retry wrapper" "yes" \
   "$(devflow_ci_shard_has 'retry-with-backoff[.]sh')"
 #
@@ -39692,8 +39747,14 @@ assert_eq "#671 assert-cli-version: MULTI-LINE version output does not satisfy t
 #
 # ── scripts/retry-with-backoff.sh: every arm of the extracted install retry ──
 # Extracted from ci.yml's install step, where nothing drove the retry arms, the backoff
-# schedule or the terminal exit. Base delay is 0 in these arms so the schedule is
-# exercised without sleeping; the separate schedule arm asserts the growth explicitly.
+# schedule or the terminal exit.
+#
+# Wall-clock discipline, since these arms sit on a REQUIRED check: every arm passes base
+# delay 0, which exercises the retry path without sleeping at all. The ONE exception is
+# the schedule arm below, which has to pass a nonzero base to observe growth — it uses
+# the smallest base that does (1 → 1s, 3s), not a larger one. Keep new arms at 0 unless
+# they genuinely assert the schedule, and if a second schedule arm is ever needed, add a
+# no-sleep seam to the helper rather than paying the seconds twice.
 RWB="$LIB/../scripts/retry-with-backoff.sh"
 RWB_TMP="$(mktemp -d)"
 [ -n "$RWB_TMP" ] && [ -d "$RWB_TMP" ] || { printf 'FATAL: mktemp -d failed for the retry-with-backoff arms\n' >&2; exit 1; }
@@ -39718,15 +39779,53 @@ assert_eq "#671 retry: a widened attempt budget still fails closed when every at
   "$(devflow_rwb_rc 7 0 'false')"
 assert_eq "#671 retry: the exhaustion message names the attempt count" "yes" \
   "$(bash "$RWB" 2 0 'false' 2>&1 | grep -q 'failed after 2 attempt' && echo yes || echo no)"
+# ...and the LAST OBSERVED EXIT CODE. The helper's own exit stays a flat 1 (so it never
+# collides with the 2 that means "unusable arguments"), which makes the message the only
+# place a deterministic failure is distinguishable from a transient one — a mistyped
+# version pinning a 404 retries three times and must not report the same text as a
+# network flake. `exit 7` is chosen because it is not 1: a message that merely echoed the
+# helper's own exit would still pass against 1.
+assert_eq "#671 retry: the exhaustion message names the LAST observed exit code" "yes" \
+  "$(bash "$RWB" 2 0 'exit 7' 2>&1 | grep -q 'last exit 7' && echo yes || echo no)"
 # Backoff growth is asserted from the emitted schedule rather than by timing the run.
-RWB_SCHED="$(bash "$RWB" 3 2 'false' 2>&1 | grep -o 'retrying in [0-9]*s' | tr '\n' ' ')"
-assert_eq "#671 retry: the backoff grows exponentially (2s then 6s) and emits no dead third wait" \
-  "retrying in 2s retrying in 6s " "$RWB_SCHED"
+# Base 1 (not 2) is deliberate: it is the smallest base that still shows the x3 growth,
+# and this is the one arm in the block that sleeps for real — see the note above.
+RWB_SCHED="$(bash "$RWB" 3 1 'false' 2>&1 | grep -o 'retrying in [0-9]*s' | tr '\n' ' ')"
+assert_eq "#671 retry: the backoff grows exponentially (1s then 3s) and emits no dead third wait" \
+  "retrying in 1s retrying in 3s " "$RWB_SCHED"
+# The retried command is run by `bash -c` INSIDE the helper, so a single-quoted command
+# string (the shape ci.yml passes) has its variables expanded there, per attempt, from the
+# caller's exported environment. ci.yml depends on exactly this: `bash -s "$CLAUDE_CLI_VERSION"`
+# is single-quoted in the workflow, so nothing expands it until the helper runs it. A
+# hardening edit to `env -i bash -c` or `--noprofile` would silently install the
+# installer's DEFAULT version while every other arm here stayed green.
+export DEVFLOW_RWB_PROBE=inherited
+assert_eq "#671 retry: the retried command inherits the caller's exported environment" "0" \
+  "$(devflow_rwb_rc 1 0 '[ "$DEVFLOW_RWB_PROBE" = inherited ]')"
+# ...with its negative control on the same fixture, so the arm above cannot pass by the
+# command succeeding for some unrelated reason: with the variable gone the SAME command
+# must fail. Without this, a command string that never expanded anything would still be
+# green.
+unset DEVFLOW_RWB_PROBE
+assert_eq "#671 retry: ...and the control — with the variable unset the same command fails" "1" \
+  "$(devflow_rwb_rc 1 0 '[ "${DEVFLOW_RWB_PROBE-}" = inherited ]')"
 # Unusable arguments fail closed with their own code rather than retrying nothing.
 assert_eq "#671 retry: a non-numeric attempt count fails closed (exit 2)" "2" \
   "$(devflow_rwb_rc x 0 'true')"
 assert_eq "#671 retry: a zero attempt count fails closed (exit 2, never a silent no-op success)" "2" \
   "$(devflow_rwb_rc 0 0 'true')"
+# The BASE DELAY validation arm needs driving too — it is the one exit-2 guard whose
+# deletion stayed green. Without it `retry-with-backoff.sh 3 x 'false'` reaches
+# `[ "$delay" -gt 0 ]` with delay=x, which emits a bash integer-expression error per
+# attempt and proceeds with broken backoff instead of failing closed.
+assert_eq "#671 retry: a non-numeric BASE DELAY fails closed (exit 2)" "2" \
+  "$(devflow_rwb_rc 3 x 'true')"
+# ...attributed to the base-delay guard specifically. Three other guards also exit 2, so
+# a bare exit-code assertion cannot tell which one rejected this fixture — and the
+# fixture is otherwise valid (attempts 3, command 'true'), which the exit-0 arm at the
+# top of this block already establishes.
+assert_eq "#671 retry: ...and the rejection is attributed to the base-delay guard" "yes" \
+  "$(bash "$RWB" 3 x 'true' 2>&1 | grep -q "base delay must be a non-negative integer, got: 'x'" && echo yes || echo no)"
 assert_eq "#671 retry: an empty command fails closed (exit 2)" "2" \
   "$(devflow_rwb_rc 3 0 '')"
 rm -rf "$RWB_TMP"
