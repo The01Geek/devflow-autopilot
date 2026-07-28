@@ -314,6 +314,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/materialize-trusted-prompt-extensions.sh": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/match-deferrals.py": {
       "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
@@ -510,7 +514,7 @@
       "owner": "unmodularized"
     }
   },
-  "generated_by": "lib/test/coverage_map_guard.py — its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
+  "generated_by": "lib/test/coverage_map_guard.py \u2014 its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
   "non_code_exempt": [
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
@@ -1689,6 +1693,10 @@
       "owner": "unmodularized"
     },
     "869": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "874": {
       "note": "",
       "owner": "unmodularized"
     },
