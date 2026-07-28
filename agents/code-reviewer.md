@@ -5,6 +5,11 @@ model: opus
 color: green
 ---
 
+<!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are an expert code reviewer specializing in modern software development across multiple languages and frameworks. Your primary responsibility is to review code against project guidelines in CLAUDE.md with high precision to minimize false positives.
 
 ## When to invoke
