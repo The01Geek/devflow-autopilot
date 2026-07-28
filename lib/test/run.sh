@@ -14783,6 +14783,115 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   assert_eq "Patterns section present"        "true" "$(echo "$REPORT2" | grep -q '## Patterns this run' && echo true || echo false)"
   assert_eq "Patterns sorted by count desc"   "true" "$(echo "$REPORT2" | grep -A2 '## Patterns this run' | grep -q 'old-pattern.*3×' && echo true || echo false)"
   assert_eq "cooldown pattern annotated"      "true" "$(echo "$REPORT2" | grep -q 'old-pattern.*cooldown, skipped this run' && echo true || echo false)"
+
+  # ── #894 old-summary rendering: section presence + the one stated exception ──
+  # An old-shaped summary (NONE of the new #894 keys) is rendered and its SECTION
+  # PRESENCE is asserted heading by heading. These are presence assertions, not a
+  # byte comparison: they establish that the pre-existing headings still render and
+  # that the two new gated sections stay omitted, and they deliberately do NOT
+  # establish section ordering, blank-line structure, or any pre-existing section's
+  # body bytes. The byte-level claim is established separately below, by rendering
+  # the same fixture through the PRE-CHANGE renderer at the merge-base and diffing
+  # the two outputs.
+  #
+  # The fixture is deliberately given a `status: regressed` pattern, so the one
+  # stated exception — a regressed entry in an old summary now also surfacing the
+  # Regressed-patterns section — is EXERCISED rather than dodged. The pre-existing
+  # fixtures use `status: open` throughout, which would make this exception pass
+  # vacuously. Because the summary carries neither `filing_queue_open`/
+  # `filing_queue_max` nor `truncations`, the Filing-queue line and the truncation
+  # section must both be OMITTED (the old-orchestrator shape).
+  # (Assertion names intentionally carry no `#894` token: label 894 is owned wholly
+  # by the retrospective-lifecycle module's coverage, and coverage_map_guard.py
+  # attributes a label by where its assertions live.)
+  SUM894='{"prs_scanned":2,"clean_count":0,"analyzed_count":1,"patterns":[{"tag":"reg-old","slug":"reg-old","occurrence_count":4,"status":"regressed","cooldown_active":false},{"tag":"open-old","slug":"open-old","occurrence_count":2,"status":"open","cooldown_active":false}],"intervention_issues":[],"blockers":[],"state_pr":810}'
+  REPORT894="$(devflow_render_report "$SUM894")"
+  assert_eq "audit-cap old summary: still renders the Patterns this run heading" "true" \
+    "$(echo "$REPORT894" | grep -q '## Patterns this run' && echo true || echo false)"
+  assert_eq "audit-cap old summary: a regressed entry surfaces Regressed patterns (the one stated exception)" "true" \
+    "$(echo "$REPORT894" | grep -q '## Regressed patterns' && echo true || echo false)"
+  assert_eq "audit-cap old summary: no new operand key → the Filing queue line is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q '## Filing queue' && echo true || echo false)"
+  assert_eq "audit-cap old summary: no truncations key → the truncation section is omitted" "false" \
+    "$(echo "$REPORT894" | grep -q 'Stage B evidence truncated' && echo true || echo false)"
+
+  # ── #894 REAL byte-identity, against the pre-change renderer ────────────────
+  # The assertions above are presence probes; this one is the byte claim. Render the
+  # SAME old-shaped fixture through lib/render-report.sh as it stood at the merge-base
+  # with origin/main, and compare the two outputs BYTE FOR BYTE — so a reordered
+  # section, a changed blank-line structure, or a reworded body in any pre-existing
+  # section fails here even though every presence probe above still passes.
+  #
+  # Two normalisations, applied IDENTICALLY to both sides by one bash-builtin line
+  # filter (never `sed`/`awk` — a non-preflight PATH tool must not decide a SELECTION,
+  # and an absent one would empty the comparand and pass vacuously):
+  #   1. the `**Run finished:**` line, whose value is the wall clock at render time —
+  #      the two renders can straddle a second boundary, and a load-sensitive
+  #      assertion is a defect in the assertion, not a tolerable flake;
+  #   2. the `## Regressed patterns` block — its heading through the last line before
+  #      the next `## ` heading, which absorbs the section's own trailing blank while
+  #      leaving the blank that PRECEDED its heading to serve as the separator before
+  #      the following heading, exactly as in the base output. It is the one stated
+  #      exception, itself asserted by the presence probe above, so removing it here
+  #      does not weaken the claim.
+  # Everything else is compared verbatim.
+  #
+  # SCOPE: this is a ONE-SHOT PRE-MERGE gate, not a standing guarantee. It is
+  # meaningful only while the #894 change is unmerged, because its base side is the
+  # merge-base with origin/main; the tautology guard below detects the post-merge
+  # state and self-skips rather than passing vacuously.
+  #
+  # Self-skips when the base renderer cannot be materialised (a shallow clone, no
+  # origin/main, a `git show` failure) — a blocking-gate skip, never a silent pass.
+  rr_normalize() {  # stdin -> stdout; drops the timestamp line and the Regressed block
+    local rr_line rr_out="" rr_in_reg=0
+    while IFS= read -r rr_line; do
+      case "$rr_line" in
+        '**Run finished:**'*) continue ;;
+        '## Regressed patterns') rr_in_reg=1; continue ;;
+        '## '*) rr_in_reg=0 ;;
+      esac
+      [ "$rr_in_reg" -eq 1 ] && continue
+      rr_out="${rr_out}${rr_line}"$'\n'
+    done
+    printf '%s' "$rr_out"
+  }
+  RR_BASE_REF="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+  RR_BASE_SRC=""
+  if [ -n "$RR_BASE_REF" ]; then
+    RR_BASE_SRC="$(git show "$RR_BASE_REF:lib/render-report.sh" 2>/dev/null || true)"
+  fi
+  RR_BASE_OUT=""
+  RR_BASE_DIR=""
+  if [ -n "$RR_BASE_SRC" ]; then
+    RR_BASE_DIR="$(mktemp -d)"
+    printf '%s\n' "$RR_BASE_SRC" > "$RR_BASE_DIR/render-report.sh"
+    # The base renderer sources resolve-jq.sh from beside ITSELF, so give it siblings.
+    cp "$LIB/resolve-jq.sh" "$RR_BASE_DIR/resolve-jq.sh" 2>/dev/null || true
+    cp "$LIB/resolve-bin.sh" "$RR_BASE_DIR/resolve-bin.sh" 2>/dev/null || true
+    RR_BASE_OUT="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$RR_BASE_DIR" "$SUM894" 2>/dev/null || true)"
+    rm -rf "$RR_BASE_DIR"
+  fi
+  # TAUTOLOGY GUARD. `git merge-base origin/main HEAD` resolves to a PRE-change
+  # renderer only while this work is unmerged. Once it lands, every branch's
+  # merge-base already carries the #894 sections, and this harness renders the
+  # current renderer against ITSELF — passing by construction while guarding
+  # nothing, with no signal that it stopped guarding. Detect that state from the
+  # base SOURCE (the marker the change introduced) and self-skip naming it, so the
+  # harness announces its own retirement instead of silently going vacuous.
+  RR_BASE_IS_POST=false
+  case "$RR_BASE_SRC" in *'## Filing queue'*) RR_BASE_IS_POST=true ;; esac
+  if [ "$RR_BASE_IS_POST" = true ]; then
+    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
+      "the merge-base renderer already carries the #894 sections, so this comparison would render the current renderer against itself — it is a ONE-SHOT PRE-MERGE gate and has now retired; re-anchor it to a checked-in golden fixture if a standing guarantee is wanted"
+  elif [ -z "$RR_BASE_OUT" ]; then
+    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
+      "could not render lib/render-report.sh from the merge-base with origin/main (no merge-base, git show failed, or the base renderer produced no output in isolation)"
+  else
+    assert_eq "audit-cap byte-identity: an old summary renders byte-identically to the pre-change renderer (timestamp + the Regressed section excepted)" \
+      "$(printf '%s\n' "$RR_BASE_OUT" | rr_normalize)" \
+      "$(printf '%s\n' "$REPORT894" | rr_normalize)"
+  fi
 )
 OSPR="$(bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --dry-run 2>/dev/null)"
 assert_eq "open-state-pr dry-run echoes DRYRUN" "true" "$(echo "$OSPR" | grep -q 'DRYRUN' && echo true || echo false)"
@@ -26453,8 +26562,97 @@ if command -v claude >/dev/null 2>&1; then
   assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
     "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
   rm -rf "$PKG_STAGE"
+
+  # (3b) The gate above is only worth arming if strict validation actually DESCENDS into the
+  # component trees rather than stopping at the manifest — that is the claim ci.yml's install
+  # step makes to justify itself, so it is asserted executably here instead of by hand.
+  # A SYNTHETIC minimal tree is used, not the real one: it keeps each mutation hermetic and
+  # one-line, and the real tree is already covered by the assertion above.
+  # Each arm is a negative test, so each carries its OWN positive control — the unmutated
+  # fixture must validate clean immediately before that arm's mutation. Without it, a fixture
+  # rejected for some unrelated reason (a bad manifest, a failed rebuild) would read as a
+  # passing negative test while proving nothing about descent.
+  PKG_DESC="$(mktemp -d)"
+  [ -n "$PKG_DESC" ] && [ -d "$PKG_DESC" ] || { printf 'FATAL: mktemp -d failed for the #671 descent fixture\n' >&2; exit 1; }
+  devflow_pkg_fixture() {  # rebuild the valid synthetic plugin tree from scratch
+    rm -rf "${PKG_DESC:?}/tree"
+    # Fail CLOSED on a rebuild failure. A silently half-built fixture is rejected by the
+    # validator for the wrong reason, which is exactly what the per-arm control exists to
+    # catch — but only if the rebuild itself cannot fail unnoticed.
+    mkdir -p "$PKG_DESC/tree/.claude-plugin" "$PKG_DESC/tree/skills/probe" "$PKG_DESC/tree/agents" \
+      || { printf 'FATAL: #671 descent fixture rebuild failed (mkdir)\n' >&2; exit 1; }
+    # `author` is required for a --strict pass: its absence is a warning, and --strict
+    # promotes warnings to errors. Omitting it made the positive control fail and every
+    # mutation arm below "pass" for that unrelated reason — the exact masquerade the
+    # positive control exists to expose.
+    printf '%s\n' '{"name":"descent-probe","description":"synthetic fixture","version":"0.0.1","author":{"name":"DevFlow test fixture"}}' \
+      > "$PKG_DESC/tree/.claude-plugin/plugin.json" \
+      || { printf 'FATAL: #671 descent fixture rebuild failed (manifest write)\n' >&2; exit 1; }
+    printf '%s\n' '---' 'name: probe' 'description: synthetic probe skill' '---' 'body' \
+      > "$PKG_DESC/tree/skills/probe/SKILL.md" \
+      || { printf 'FATAL: #671 descent fixture rebuild failed (skill write)\n' >&2; exit 1; }
+    printf '%s\n' '---' 'name: probe-agent' 'description: synthetic probe agent' '---' 'body' \
+      > "$PKG_DESC/tree/agents/probe-agent.md" \
+      || { printf 'FATAL: #671 descent fixture rebuild failed (agent write)\n' >&2; exit 1; }
+  }
+  # Version asymmetry worth knowing when this block goes red: CI pins the CLI
+  # (CLAUDE_CLI_VERSION in ci.yml's shard job) because there the CLI *is* the validator,
+  # but at the desk these arms run against whatever `claude` the host has. So a future CLI
+  # that changes one of these exit codes reddens the LOCAL suite first, against a version
+  # CI never ran. The helper keeps the validator's own output and replays it on an
+  # UNEXPECTED rc, naming the observed CLI version, so the cause is not re-derived by hand.
+  devflow_pkg_validate_rc() {  # $1 = expected rc; output replayed only when rc differs
+    local _out _rc
+    _out="$(claude plugin validate --strict "$PKG_DESC/tree" 2>&1)"; _rc=$?
+    [ "$_rc" = "${1-}" ] || printf 'claude %s: validate rc=%s\n%s\n' \
+      "$(claude --version 2>/dev/null || echo '(version unavailable)')" "$_rc" "$_out" >&2
+    echo "$_rc"
+  }
+
+  # Drive one arm: rebuild the fixture, assert it is VALID (per-arm positive control),
+  # apply the mutation, then assert rejection. The per-arm control is the point — a
+  # single control before the whole block cannot catch a fixture that degrades midway
+  # (a full disk, a failed rebuild), which would otherwise yield green negative arms
+  # that prove nothing. Args: <label> <path-under-tree> <mutation-line>...
+  devflow_pkg_descent_arm() {
+    local _label="$1" _rel="$2"; shift 2
+    devflow_pkg_fixture
+    assert_eq "#671 descent positive control ($_label): fixture is valid BEFORE the mutation" "0" \
+      "$(devflow_pkg_validate_rc 0)"
+    if [ "$#" -eq 0 ]; then : > "$PKG_DESC/tree/$_rel"; else printf '%s\n' "$@" > "$PKG_DESC/tree/$_rel"; fi
+    assert_eq "#671 descent: $_label is rejected (exit 1)" "1" "$(devflow_pkg_validate_rc 1)"
+  }
+
+  # The matrix is deliberately SYMMETRIC across both component trees: each frontmatter
+  # shape is driven against a skill AND against an agent. An asymmetric
+  # matrix (the earlier shape: skills×3, agents×1) leaves a regression that opens agent
+  # files but checks only YAML-parseability — never presence or emptiness — fully green.
+  devflow_pkg_descent_arm "malformed YAML frontmatter in a skill" "skills/probe/SKILL.md" \
+    '---' 'name: [unclosed' 'description: "x' '---' 'body'
+  devflow_pkg_descent_arm "a skill with no frontmatter block" "skills/probe/SKILL.md" \
+    'no frontmatter at all'
+  devflow_pkg_descent_arm "an empty SKILL.md" "skills/probe/SKILL.md"
+  devflow_pkg_descent_arm "malformed YAML frontmatter in an agent" "agents/probe-agent.md" \
+    '---' 'name: [unclosed' '---' 'body'
+  devflow_pkg_descent_arm "an agent with no frontmatter block" "agents/probe-agent.md" \
+    'no frontmatter at all'
+  devflow_pkg_descent_arm "an empty agent file" "agents/probe-agent.md"
+  # Frontmatter present, well-formed, and PARSEABLE but missing a required key. This is
+  # the shape most likely to regress in practice — a shipped component file losing its
+  # `description` while staying valid YAML — and none of the arms above reach it: each of
+  # those breaks parsing or presence, so a validator that opened the file, parsed it, and
+  # then checked nothing would pass all six. The fixture builder's own note above records
+  # a missing key as the case that actually bit, which is the argument for driving it
+  # rather than assuming --strict covers it.
+  devflow_pkg_descent_arm "a skill whose frontmatter parses but omits the required description" "skills/probe/SKILL.md" \
+    '---' 'name: probe' '---' 'body'
+  devflow_pkg_descent_arm "an agent whose frontmatter parses but omits the required description" "agents/probe-agent.md" \
+    '---' 'name: probe-agent' '---' 'body'
+
+  rm -rf "$PKG_DESC"
+  unset -f devflow_pkg_fixture devflow_pkg_validate_rc devflow_pkg_descent_arm
 else
-  skip "#671 claude plugin validate --strict (plugin tree)" blocking-gate "claude CLI not on PATH — plugin-tree strict validation not run (a CI runner could install it; install the CLI to arm this gate)"
+  skip "#671 claude plugin validate --strict (plugin tree + descent matrix)" blocking-gate "claude CLI not on PATH — neither the plugin-tree strict validation NOR the frontmatter descent matrix (the executable backing for ci.yml's descent claim) was run (CI installs it, see the shard job in .github/workflows/ci.yml; install the CLI locally to arm this gate at the desk)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -37527,10 +37725,23 @@ assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (
 # uncommitted edits the two disagree, so a failure would be an artifact of that skew rather
 # than a real regression — a dirty tree (or an unresolvable base, e.g. a shallow checkout)
 # therefore records a visible SKIP (kind `blocking-gate`) instead of a false FAIL, and the
-# terminal summary re-lists it so the skip is never mistaken for a clean pass. CI's checkout
-# is clean, and (since #456) `.github/workflows/ci.yml`'s test job sets `fetch-depth: 0` so
-# `origin/main` resolves — so BOTH skip arms are inert in CI and the assertion runs live
-# there. Before that fetch-depth change the origin/main arm skipped this gate on every CI run.
+# terminal summary re-lists it so the skip is never mistaken for a clean pass.
+#
+# The two arms behave DIFFERENTLY in CI, and it is worth being exact about which:
+#   - the origin/main arm IS inert there — (since #456) `.github/workflows/ci.yml`'s shard
+#     job sets `fetch-depth: 0`, so `origin/main` resolves. Before that fetch-depth change
+#     this arm skipped the gate on every CI run.
+#   - the DIRTY-TREE arm was also NOT inert, for a reason worth recording because it was a
+#     gate disarmed by a path choice rather than by anything about this check: ci.yml sets
+#     DEVFLOW_SHARD_TALLY_DIR to <workspace>/shard-tally-out (so the aggregator can upload
+#     it), which is INSIDE the working tree rather than run-shard.sh's `.devflow/tmp/`
+#     default; run-shard.sh creates it before invoking the suite; and it matched no
+#     .gitignore rule. So `git status --porcelain` reported `?? shard-tally-out/` and this
+#     gate skipped on every CI run, on `main` as well as on branches. The .gitignore entry
+#     added alongside this comment closes that, which re-arms this arm in CI.
+# Which arms actually ran is still read off the run's own NOTE lines, never assumed from
+# here — that enumerate-don't-assume habit is exactly the #456 skip accounting this gate is
+# part of, and it is what surfaced the cause above.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
   skip "#434 stale-prose self-scan" blocking-gate "origin/main not resolvable in this checkout"
 elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
@@ -40517,13 +40728,330 @@ assert_eq "#456 the #423 T6b site is a host-capability skip through skip()" "1" 
 assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()" "2" \
   "$(grep -cF "$S456_434_CALL" "$SELF_SRC")"
 #
+# ── ci.yml shard-job settings whose ABSENCE disarms a suite gate rather than failing it ──
+# Both pins below guard that failure class, so both go through one matcher. A plain
+# substring scan of the job region fails OPEN on the most common way a step is disabled:
+# commenting it out leaves the matched literal intact inside the comment body, so the pin
+# still prints `yes` while the step no longer runs — precisely the silent disarm these
+# pins exist to catch. The matcher therefore skips comment lines, and the negative
+# controls below drive that arm rather than trusting it.
+# Fails CLOSED to a distinct token — never to `no`. `no` is an assertion-satisfying value
+# for the negative controls below, so an empty file, an absent one, or a broken `awk`
+# (not a lib/preflight.sh-guaranteed tool) would otherwise satisfy every "expect no"
+# assertion while proving nothing — the guard-class-2 shape CLAUDE.md names, where a
+# SELECTION is derived through a non-preflight PATH tool.
+#
+# Every non-`yes`/`no` outcome is mapped to a named token, including the one an
+# exit-status check alone misses: an `awk` that exits 0 while printing nothing. Gating on
+# rc only would return the empty string there — not `no`, so no assertion is satisfied,
+# but not diagnosable either. `unexpected-output` closes that third state by construction,
+# so the tokens named here are exhaustive rather than merely the two that were foreseen.
+# EREs reach `awk -v` through one round of escape processing, so a backslash escape like
+# `\.` is undefined there — gawk preserves it, mawk (Debian/Ubuntu's default awk, i.e.
+# CI's) strips it and leaves a wildcard. Call sites therefore use bracket classes (`[.]`),
+# which are escape-free and identical across every awk.
+devflow_ci_shard_has() {  # $1 = ERE, matched only against UNCOMMENTED lines of the shard job
+  local _f="${2:-$LIB/../.github/workflows/ci.yml}" _out
+  [ -s "$_f" ] || { printf 'unreadable'; return; }
+  _out="$(awk -v pat="$1" '
+    /^  shard:/{ins=1; next}
+    /^  [a-z]/{ins=0}
+    ins && /^[[:space:]]*#/{next}
+    ins && $0 ~ pat {f=1}
+    END{print (f?"yes":"no")}' "$_f")" || { printf 'awk-failed'; return; }
+  case "$_out" in
+    yes|no) printf '%s' "$_out" ;;
+    *)      printf 'unexpected-output' ;;
+  esac
+}
 # ci.yml: the shard job's checkout sets fetch-depth: 0 so origin/main resolves. The
 # #434 stale-prose self-scan runs in the `monolith` shard (issue #877 split the single
 # test job into a concurrent shard matrix + a `lib + python tests` aggregator); the
 # aggregator only recombines tallies and needs no history, so fetch-depth: 0 moved to
 # the shard job that actually runs lib/test/run.sh.
 assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
-  "$(awk '/^  shard:/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+  "$(devflow_ci_shard_has 'fetch-depth: 0')"
+#
+# ci.yml: the shard job installs the Claude Code CLI, which is what ARMS the #671
+# `claude plugin validate --strict` gate earlier in this file. Same failure class as the
+# fetch-depth: 0 pin above. With no CLI on PATH that gate takes its blocking-gate skip
+# branch, and a skip exits 0, so dropping this step would silently retire the CLI's
+# strict plugin-tree validation while CI stayed green. Scope note: the PyYAML frontmatter
+# and JSON manifest gates sit OUTSIDE that `command -v claude` branch and keep running
+# regardless — only the strict plugin-tree layer is disarmed.
+# Two lines are pinned because they fail independently: the installer fetches the binary,
+# and the GITHUB_PATH append is what actually puts it on PATH for later steps — an
+# install whose PATH export was dropped leaves the gate skipping just as surely. Matching
+# these rather than the step names keeps a renamed step passing.
+#
+# Declaration note for every `devflow_ci_shard_has` pin below. These are NOT wording-only
+# pins: each literal is machine-consumed — GitHub Actions executes these lines, and their
+# absence DISARMS a suite gate rather than changing prose — so they sit inside the
+# `# structural-pin-ok:` regime rather than under the new-wording-pin prohibition, and
+# each carries its own declaration. Worth knowing why the declarations are documentary
+# here: pin-corpus-lint.py's classifier only scans call sites of the helpers it
+# recognizes, and these route through this file's own bespoke matcher, so the gate never
+# sees them either to demand or to validate a marker. They are written for the reader,
+# and so the sites are already declared if that extractor ever learns this helper.
+# structural-pin-ok: cross-file-phase-contract -- the workflow line that installs the CLI is what arms the #671 gate; its removal makes that gate self-skip while CI stays green
+assert_eq "#671 ci.yml: the shard job installs the claude CLI (arms the plugin-validate gate)" "yes" \
+  "$(devflow_ci_shard_has 'claude[.]ai/install[.]sh')"
+# The fuller shape, not a bare `GITHUB_PATH`: that token alone would be satisfied forever
+# by any future unrelated append in this job, so the pin would outlive the thing it guards.
+# structural-pin-ok: cross-file-phase-contract -- the PATH export is the half that makes the installed binary visible to later steps; dropped, the gate self-skips exactly as if nothing were installed
+assert_eq "#671 ci.yml: the install exports the CLI onto PATH for later steps" "yes" \
+  "$(devflow_ci_shard_has '[.]local/bin.*GITHUB_PATH')"
+# Negative controls — mutation-checked, not assumed. Each arm copies ci.yml, comments out
+# every UNCOMMENTED occurrence of one pinned line, and asserts the matcher flips to `no`,
+# so a matcher that silently reverted to a comment-blind substring scan turns this block
+# RED. (Already-commented occurrences are left alone: `fetch-depth: 0` also appears in
+# prose, and prefixing a second `#` would misdescribe what the arm mutates.)
+#
+# Each arm carries its OWN positive control over the COPY, asserted before the mutation.
+# That is not ceremony: `no` is the value the arm's assertion accepts, so a `cp` that
+# silently produced an unusable copy would satisfy every arm while proving nothing. That
+# is precisely and only what this control covers — the neighbouring failure modes are
+# already owned elsewhere, and claiming them here would misdescribe it: a failed
+# `mktemp -d` is fatal a few lines above, and a truncated MUTATED write is caught by the
+# separate "the mutated copy is otherwise intact" witness assertion inside the loop. The
+# fail-closed `unreadable` token in the matcher is the second, independent layer.
+CI671_TMP="$(mktemp -d)"
+[ -n "$CI671_TMP" ] && [ -d "$CI671_TMP" ] || { printf 'FATAL: mktemp -d failed for the #671 ci.yml pin controls\n' >&2; exit 1; }
+for ci671_pat in 'fetch-depth: 0' 'curl -fsSL https://claude.ai/install.sh' 'echo "$HOME/.local/bin"'; do
+  case "$ci671_pat" in
+    'fetch-depth: 0')  ci671_probe='fetch-depth: 0' ;;
+    *install.sh)       ci671_probe='claude[.]ai/install[.]sh' ;;
+    *)                 ci671_probe='[.]local/bin.*GITHUB_PATH' ;;
+  esac
+  cp "$LIB/../.github/workflows/ci.yml" "$CI671_TMP/ci.yml"
+  assert_eq "#671 ci.yml pin control ($ci671_pat): the UNMUTATED copy still yields yes" "yes" \
+    "$(devflow_ci_shard_has "$ci671_probe" "$CI671_TMP/ci.yml")"
+  awk -v target="$ci671_pat" '{ if (index($0, target) && $0 !~ /^[[:space:]]*#/) print "#" $0; else print }' \
+    "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
+  ci671_mut_rc=$?
+  assert_eq "#671 ci.yml pin control ($ci671_pat): the mutating awk itself succeeded" "0" "$ci671_mut_rc"
+  # Integrity of the MUTATED copy, not just of the `cp` above: a truncated-but-nonempty
+  # write would yield a genuine `no` and a vacuously green arm. An unrelated pinned line
+  # must still be found in the mutated file, which is only true if the whole file landed.
+  case "$ci671_pat" in
+    'fetch-depth: 0') ci671_witness='claude[.]ai/install[.]sh' ;;
+    *)                ci671_witness='fetch-depth: 0' ;;
+  esac
+  assert_eq "#671 ci.yml pin control ($ci671_pat): the mutated copy is otherwise intact" "yes" \
+    "$(devflow_ci_shard_has "$ci671_witness" "$CI671_TMP/ci.yml")"
+  assert_eq "#671 ci.yml pin is comment-aware: commenting out '$ci671_pat' flips the matcher to no" "no" \
+    "$(devflow_ci_shard_has "$ci671_probe" "$CI671_TMP/ci.yml")"
+done
+# The matcher's OTHER limb — job scoping — needs its own control: the arms above drive
+# only comment-skipping. Move the CLI's PATH export out of `shard:` into the `test:` job
+# and the pin must stop seeing it, which exercises both the `/^  shard:/` anchor and the
+# `/^  [a-z]/` reset. Without this, a matcher that scanned the whole file would stay green.
+awk '/^  shard:/{ins=1} /^  [a-z]/{if (!/^  shard:/) ins=0}
+     ins && index($0, "echo \"$HOME/.local/bin\""){next}
+     {print}
+     /^  test:/{print "    steps:"; print "      - run: echo \"$HOME/.local/bin\" >> \"$GITHUB_PATH\""}' \
+  "$LIB/../.github/workflows/ci.yml" > "$CI671_TMP/ci.yml"
+assert_eq "#671 ci.yml pin is job-scoped: the same line under the test: job does NOT satisfy it" "no" \
+  "$(devflow_ci_shard_has '[.]local/bin.*GITHUB_PATH' "$CI671_TMP/ci.yml")"
+# ...and its positive control: the line must still EXIST in that fixture, just outside the
+# shard job. Without this the arm above would also pass if the mutation simply deleted the
+# line, which would prove nothing about job scoping. (The fixture is only ever read
+# line-wise by the matcher, never parsed as YAML, so its duplicate `steps:` key is inert.)
+assert_eq "#671 ci.yml job-scoping control: the moved line is still present in the fixture" "yes" \
+  "$(awk '/^[[:space:]]*#/{next} /\.local\/bin.*GITHUB_PATH/{f=1} END{print (f?"yes":"no")}' "$CI671_TMP/ci.yml")"
+# Fail-closed controls for the matcher itself: an empty or absent file must NOT read as
+# a clean `no`, or every negative control above could pass on a copy that never landed.
+: > "$CI671_TMP/empty.yml"
+assert_eq "#671 ci.yml matcher fails closed on an empty file (never a bare 'no')" "unreadable" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$CI671_TMP/empty.yml")"
+assert_eq "#671 ci.yml matcher fails closed on an absent file (never a bare 'no')" "unreadable" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$CI671_TMP/no-such-file.yml")"
+# The awk-failure limb needs its own arm too — it guards the guard-class-2 shape, so
+# dropping or reordering it must not stay green. A malformed ERE makes awk exit nonzero
+# without touching PATH (a PATH-shadowing fixture would be the heavier, flakier way).
+assert_eq "#671 ci.yml matcher fails closed when awk itself errors (malformed ERE)" "awk-failed" \
+  "$(devflow_ci_shard_has '[' "$LIB/../.github/workflows/ci.yml" 2>/dev/null)"
+# The THIRD token needs its own arm, or the `case`'s `*)` branch can be deleted — or
+# collapsed into `no` — with this block still green, while the matcher's comment claims
+# the token set is exhaustive rather than merely the two shapes that were foreseen. The
+# state it names is an awk that exits 0 while printing nothing; the real program cannot
+# produce it (its END block always prints), so it is driven with a PATH shim rather than
+# left as an unreachable claim. The shim is confined to the one command substitution.
+mkdir -p "$CI671_TMP/bin"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$CI671_TMP/bin/awk"
+chmod +x "$CI671_TMP/bin/awk"
+assert_eq "#671 ci.yml matcher fails closed when awk exits 0 but prints nothing" "unexpected-output" \
+  "$(PATH="$CI671_TMP/bin:$PATH"; devflow_ci_shard_has 'GITHUB_PATH' "$LIB/../.github/workflows/ci.yml")"
+# ...and its positive control on the same fixture and pattern: with the shim off the PATH,
+# the same call must yield `yes`. Without it the arm above would also pass if the file or
+# the pattern were simply wrong, which would prove nothing about the token.
+assert_eq "#671 ci.yml matcher unexpected-output control: the same call without the shim yields yes" "yes" \
+  "$(devflow_ci_shard_has 'GITHUB_PATH' "$LIB/../.github/workflows/ci.yml")"
+rm -rf "$CI671_TMP"
+# The pinned CLI version. The VERIFY half fails closed on an empty pin on its own
+# (scripts/assert-cli-version.sh exits 2), but the INSTALL half does not: `bash -s ""`
+# silently takes whatever the installer defaults to. So a dropped or renamed env: key
+# would still leave an unpinned CLI installed, and this pin is what catches its removal.
+# structural-pin-ok: cross-file-phase-contract -- the env: key is the single source both the install and verify halves read; dropped or emptied, the install silently takes the installer's default version
+assert_eq "#671 ci.yml: the CLI version literal is declared in the shard job" "yes" \
+  "$(devflow_ci_shard_has 'CLAUDE_CLI_VERSION:[[:space:]]*[0-9]')"
+# ...and ci.yml must actually CALL the extracted assertion. Pinning only the helper's
+# existence would leave a workflow that stopped invoking it entirely still green.
+# structural-pin-ok: cross-file-phase-contract -- pins that the workflow still invokes the extracted verifier; a helper that exists but is never called verifies nothing
+assert_eq "#671 ci.yml: the verify step calls the extracted version assertion" "yes" \
+  "$(devflow_ci_shard_has 'assert-cli-version[.]sh')"
+# ...and the INSTALL half must actually be passed the pin. Matching only the installer
+# URL leaves `bash -s "$CLAUDE_CLI_VERSION"` free to be dropped, or replaced with a
+# hardcoded literal, with every assertion still green — the unguarded half of the pair.
+# structural-pin-ok: cross-file-phase-contract -- pins that the pin reaches the installer; without it the version argument can be dropped or hardcoded with every other assertion green
+assert_eq "#671 ci.yml: the installer is passed the pinned version" "yes" \
+  "$(devflow_ci_shard_has 'bash -s "[$]CLAUDE_CLI_VERSION"')"
+# The retry wrapper must stay in the invocation path; without it the loop, the backoff
+# and the terminal exit are all bypassed while the install still appears to run.
+# structural-pin-ok: cross-file-phase-contract -- pins that the install still routes through the extracted retry wrapper; bypassed, the retry/backoff/terminal-exit arms drive code the workflow no longer runs
+assert_eq "#671 ci.yml: the install goes through the retry wrapper" "yes" \
+  "$(devflow_ci_shard_has 'retry-with-backoff[.]sh')"
+# ...and pipefail inside the command string, which was the one machine-consumed token of
+# that statement asserted by nothing but a comment. Dropping it restores precisely the
+# failure this whole gate exists to remove: a failed download feeds bash an empty script,
+# the install step exits 0, and the CLI is absent while CI stays green — a silent disarm.
+# Note this pin cannot be satisfied by the neighbouring comment that discusses the option,
+# because the matcher skips comment lines; it matches only the live command string.
+# structural-pin-ok: cross-file-phase-contract -- pipefail is what turns a failed download into a failed step; without it the install reports success and the #671 gate silently self-skips again
+assert_eq "#671 ci.yml: the install command string sets pipefail" "yes" \
+  "$(devflow_ci_shard_has 'set -o pipefail')"
+#
+# ── scripts/assert-cli-version.sh: every arm of the extracted version check ──
+# The decision this helper makes used to be inline workflow shell, which no assertion
+# could drive: the entire verify step could be deleted with the suite still green.
+# Each arm asserts the EXIT CODE, which is the helper's contract, and the empty-pin arm
+# is distinguished from the mismatch arm so a collapsed `exit 1` cannot pass as either.
+ACV="$LIB/../scripts/assert-cli-version.sh"
+devflow_acv_rc() { bash "$ACV" "$1" "$2" >/dev/null 2>&1; echo $?; }
+assert_eq "#671 assert-cli-version: exact match on the version field exits 0" "0" \
+  "$(devflow_acv_rc '2.1.212' '2.1.212 (Claude Code)')"
+assert_eq "#671 assert-cli-version: a longer version sharing the prefix is REJECTED (2.1.2120 vs 2.1.212)" "1" \
+  "$(devflow_acv_rc '2.1.212' '2.1.2120 (Claude Code)')"
+assert_eq "#671 assert-cli-version: a different version is rejected" "1" \
+  "$(devflow_acv_rc '2.1.212' '2.0.9 (Claude Code)')"
+# The empty pin fails CLOSED with its own distinct code — never 0, and never silently
+# folded into the mismatch arm, because an empty pin is a broken workflow config rather
+# than a wrong CLI, and the two want different remedies.
+assert_eq "#671 assert-cli-version: an EMPTY pin fails closed with its own exit code (2)" "2" \
+  "$(devflow_acv_rc '' '2.1.999 (Claude Code)')"
+assert_eq "#671 assert-cli-version: an empty pin never exits 0, whatever the version string" "2" \
+  "$(devflow_acv_rc '' '')"
+# Empty ACTUAL output (the CLI absent or printing nothing) must not satisfy a real pin.
+assert_eq "#671 assert-cli-version: empty version output does not satisfy a real pin" "1" \
+  "$(devflow_acv_rc '2.1.212' '')"
+assert_eq "#671 assert-cli-version: the empty-pin arm names the unset variable" "yes" \
+  "$(bash "$ACV" '' 'x' 2>&1 | grep -q 'CLAUDE_CLI_VERSION is unset or empty' && echo yes || echo no)"
+assert_eq "#671 assert-cli-version: the mismatch arm names both expected and observed" "yes" \
+  "$(bash "$ACV" '2.1.212' '2.0.9 (Claude Code)' 2>&1 | grep -q 'expected claude 2.1.212 on PATH, got: 2.0.9' && echo yes || echo no)"
+# Both message arms above merge stderr into stdout (2>&1) to READ the text, which cannot
+# distinguish a message written to stderr from one written to stdout. The helper emits both
+# ::error:: lines with an explicit >&2, so assert the ROUTING too: with stderr discarded
+# there must be nothing left on stdout. Without these, dropping the >&2 keeps them green.
+assert_eq "#671 assert-cli-version: the mismatch ::error:: goes to STDERR, not stdout" "" \
+  "$(bash "$ACV" '2.1.212' '2.0.9 (Claude Code)' 2>/dev/null)"
+assert_eq "#671 assert-cli-version: the empty-pin ::error:: goes to STDERR, not stdout" "" \
+  "$(bash "$ACV" '' 'x' 2>/dev/null)"
+# `got="${actual%% *}"` is a parser over externally-produced output (`claude --version`),
+# so it gets the boundary rows CLAUDE.md's best-effort-parser rule asks for. Both currently
+# fail CLOSED; the arms exist so a future "trim harder / be lenient" edit cannot silently
+# turn either into a false PASS.
+assert_eq "#671 assert-cli-version: LEADING WHITESPACE does not satisfy the pin (fails closed)" "1" \
+  "$(devflow_acv_rc '2.1.212' ' 2.1.212 (Claude Code)')"
+assert_eq "#671 assert-cli-version: MULTI-LINE version output does not satisfy the pin (fails closed)" "1" \
+  "$(devflow_acv_rc '2.1.212' 'warning: something
+2.1.212 (Claude Code)')"
+#
+# ── scripts/retry-with-backoff.sh: every arm of the extracted install retry ──
+# Extracted from ci.yml's install step, where nothing drove the retry arms, the backoff
+# schedule or the terminal exit.
+#
+# Wall-clock discipline, since these arms sit on a REQUIRED check: every arm passes base
+# delay 0, which exercises the retry path without sleeping at all. The ONE exception is
+# the schedule arm below, which has to pass a nonzero base to observe growth — it uses
+# the smallest base that does (1 → 1s, 3s), not a larger one. Keep new arms at 0 unless
+# they genuinely assert the schedule, and if a second schedule arm is ever needed, add a
+# no-sleep seam to the helper rather than paying the seconds twice.
+RWB="$LIB/../scripts/retry-with-backoff.sh"
+RWB_TMP="$(mktemp -d)"
+[ -n "$RWB_TMP" ] && [ -d "$RWB_TMP" ] || { printf 'FATAL: mktemp -d failed for the retry-with-backoff arms\n' >&2; exit 1; }
+devflow_rwb_rc() { bash "$RWB" "$@" >/dev/null 2>&1; echo $?; }
+assert_eq "#671 retry: a command that succeeds first time exits 0" "0" \
+  "$(devflow_rwb_rc 3 0 'true')"
+assert_eq "#671 retry: a command that never succeeds exhausts and exits 1" "1" \
+  "$(devflow_rwb_rc 3 0 'false')"
+# The success-after-failure path: the counter file makes the attempt count observable,
+# so this asserts the retry actually retried rather than merely returning 0.
+printf '0' > "$RWB_TMP/n"
+RWB_CMD="n=\$(cat '$RWB_TMP/n'); n=\$((n+1)); printf '%s' \"\$n\" > '$RWB_TMP/n'; [ \"\$n\" -ge 3 ]"
+assert_eq "#671 retry: a command that succeeds on the third attempt exits 0" "0" \
+  "$(devflow_rwb_rc 3 0 "$RWB_CMD")"
+assert_eq "#671 retry: ...and it genuinely took three attempts (not an early exit)" "3" \
+  "$(cat "$RWB_TMP/n")"
+# Exhaustion is decided by an explicit flag, not by comparing against a hand-transcribed
+# terminal literal — so WIDENING the attempt budget must still fail closed. A literal
+# coupled to the loop bound would silently stop firing here and report success.
+printf '0' > "$RWB_TMP/n"
+assert_eq "#671 retry: a widened attempt budget still fails closed when every attempt fails" "1" \
+  "$(devflow_rwb_rc 7 0 'false')"
+assert_eq "#671 retry: the exhaustion message names the attempt count" "yes" \
+  "$(bash "$RWB" 2 0 'false' 2>&1 | grep -q 'failed after 2 attempt' && echo yes || echo no)"
+# ...and the LAST OBSERVED EXIT CODE. The helper's own exit stays a flat 1 (so it never
+# collides with the 2 that means "unusable arguments"), which makes the message the only
+# place a deterministic failure is distinguishable from a transient one — a mistyped
+# version pinning a 404 retries three times and must not report the same text as a
+# network flake. `exit 7` is chosen because it is not 1: a message that merely echoed the
+# helper's own exit would still pass against 1.
+assert_eq "#671 retry: the exhaustion message names the LAST observed exit code" "yes" \
+  "$(bash "$RWB" 2 0 'exit 7' 2>&1 | grep -q 'last exit 7' && echo yes || echo no)"
+# Backoff growth is asserted from the emitted schedule rather than by timing the run.
+# Base 1 (not 2) is deliberate: it is the smallest base that still shows the x3 growth,
+# and this is the one arm in the block that sleeps for real — see the note above.
+RWB_SCHED="$(bash "$RWB" 3 1 'false' 2>&1 | grep -o 'retrying in [0-9]*s' | tr '\n' ' ')"
+assert_eq "#671 retry: the backoff grows exponentially (1s then 3s) and emits no dead third wait" \
+  "retrying in 1s retrying in 3s " "$RWB_SCHED"
+# The retried command is run by `bash -c` INSIDE the helper, so a single-quoted command
+# string (the shape ci.yml passes) has its variables expanded there, per attempt, from the
+# caller's exported environment. ci.yml depends on exactly this: `bash -s "$CLAUDE_CLI_VERSION"`
+# is single-quoted in the workflow, so nothing expands it until the helper runs it. A
+# hardening edit to `env -i bash -c` or `--noprofile` would silently install the
+# installer's DEFAULT version while every other arm here stayed green.
+export DEVFLOW_RWB_PROBE=inherited
+assert_eq "#671 retry: the retried command inherits the caller's exported environment" "0" \
+  "$(devflow_rwb_rc 1 0 '[ "$DEVFLOW_RWB_PROBE" = inherited ]')"
+# ...with its negative control on the same fixture, so the arm above cannot pass by the
+# command succeeding for some unrelated reason: with the variable gone the SAME command
+# must fail. Without this, a command string that never expanded anything would still be
+# green.
+unset DEVFLOW_RWB_PROBE
+assert_eq "#671 retry: ...and the control — with the variable unset the same command fails" "1" \
+  "$(devflow_rwb_rc 1 0 '[ "${DEVFLOW_RWB_PROBE-}" = inherited ]')"
+# Unusable arguments fail closed with their own code rather than retrying nothing.
+assert_eq "#671 retry: a non-numeric attempt count fails closed (exit 2)" "2" \
+  "$(devflow_rwb_rc x 0 'true')"
+assert_eq "#671 retry: a zero attempt count fails closed (exit 2, never a silent no-op success)" "2" \
+  "$(devflow_rwb_rc 0 0 'true')"
+# The BASE DELAY validation arm needs driving too — it is the one exit-2 guard whose
+# deletion stayed green. Without it `retry-with-backoff.sh 3 x 'false'` reaches
+# `[ "$delay" -gt 0 ]` with delay=x, which emits a bash integer-expression error per
+# attempt and proceeds with broken backoff instead of failing closed.
+assert_eq "#671 retry: a non-numeric BASE DELAY fails closed (exit 2)" "2" \
+  "$(devflow_rwb_rc 3 x 'true')"
+# ...attributed to the base-delay guard specifically. Three other guards also exit 2, so
+# a bare exit-code assertion cannot tell which one rejected this fixture — and the
+# fixture is otherwise valid (attempts 3, command 'true'), which the exit-0 arm at the
+# top of this block already establishes.
+assert_eq "#671 retry: ...and the rejection is attributed to the base-delay guard" "yes" \
+  "$(bash "$RWB" 3 x 'true' 2>&1 | grep -q "base delay must be a non-negative integer, got: 'x'" && echo yes || echo no)"
+assert_eq "#671 retry: an empty command fails closed (exit 2)" "2" \
+  "$(devflow_rwb_rc 3 0 '')"
+rm -rf "$RWB_TMP"
+unset -f devflow_rwb_rc
+unset -f devflow_acv_rc devflow_ci_shard_has
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"

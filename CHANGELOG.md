@@ -4,6 +4,27 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.24.1] — 2026-07-28
+
+### Changed
+### Added
+
+- CI now installs a pinned Claude Code CLI, arming the `#671` `claude plugin validate --strict`
+  gate that previously self-skipped on every run. The gate validates the plugin manifest and
+  descends into the shipped `skills/` and `agents/` trees, so a frontmatter block that is
+  malformed, absent, empty, or merely missing a required key now fails CI in any of them
+  instead of passing unnoticed.
+- `scripts/assert-cli-version.sh` and `scripts/retry-with-backoff.sh`: small helpers extracted
+  from the workflow so their branches are covered by the test suite rather than being inline
+  workflow shell that nothing drives. When every retry is exhausted, `retry-with-backoff.sh`
+  names the last observed exit code in its `::error::`, so a deterministic failure (a version
+  pin that 404s) is distinguishable from a transient one without re-running the job.
+
+## [2.24.0] — 2026-07-28
+
+### Added
+- **Bound the retrospective loop's Stage B occurrence-bundle fetch, and surface regressions and the filing-queue state in the run report.** A new `.devflow_retrospective.audit_bundle_cap` config key (default `10`) caps the number of occurrence bundles Stage B fetches per pattern, most-recent-first by occurrence timestamp — replacing an unbounded fetch that scaled with each pattern's cumulative occurrence history. The new sourced helper `lib/audit-bundle-selection.sh` owns the cap validation, the most-recent-N selection, and the no-dispatch floor. When the cap (or a fetch failure) leaves a dispatched pattern with fewer bundles than it has occurrences, the run records a truncation entry that the report surfaces under a dedicated section. A pattern whose occurrence selection fails, or whose every selected bundle fails to fetch, has its `dispatch` carrier cleared by `devflow_audit_dispatch_ok`: it is dispatched to no Stage B subagent and files nothing, and is reported through its blocker rather than as truncated evidence, so no evidence-free issue is filed. The weekly report now also renders a `Regressed patterns` section (every pattern whose cumulative status is `regressed`) and an aggregate `filing queue: N/M open` line (` — at capacity` when the open filed-issue count has reached `max_open_issues`), so a full filing queue on a quiet week is no longer indistinguishable from nothing to do. (#894)
+
 ## [2.23.12] — 2026-07-28
 
 ### Changed

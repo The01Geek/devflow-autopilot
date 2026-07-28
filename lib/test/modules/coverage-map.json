@@ -7,6 +7,10 @@
       "note": "issue #788 retrospective issue-closure lifecycle",
       "owner": "retrospective-lifecycle"
     },
+    "lib/audit-bundle-selection.sh": {
+      "note": "issue #894 Stage B occurrence-bundle cap validation + most-recent-N selection",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/cheap-gate.jq": {
       "note": "",
       "owner": "unmodularized"
@@ -142,6 +146,10 @@
     },
     "scripts/apply-labels.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/assert-cli-version.sh": {
+      "note": "issue #671 pinned-CLI version assertion extracted from ci.yml's verify step",
       "owner": "unmodularized"
     },
     "scripts/authorize-actor.sh": {
@@ -444,6 +452,10 @@
     "scripts/resolve-review-overrides.py": {
       "focused_test": "lib/test/test_python_scripts.py",
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/retry-with-backoff.sh": {
+      "note": "issue #671 bounded-retry/backoff wrapper extracted from ci.yml's CLI install step",
       "owner": "unmodularized"
     },
     "scripts/run-jq.sh": {
@@ -1746,6 +1758,10 @@
       "owner": "unmodularized"
     },
     "891": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
+    },
+    "894": {
       "note": "",
       "owner": "retrospective-lifecycle"
     },
