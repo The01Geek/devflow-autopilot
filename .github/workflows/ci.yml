@@ -76,13 +76,14 @@ jobs:
       # A skip does not fail the suite (issue #456), so the gate was disarmed silently
       # while CI stayed green.
       #
-      # Arming this gate does NOT drive CI to zero skips, and nothing here should be read
-      # as promising that. The #434 stale-prose self-scan skips for its own, unrelated
-      # reason ("working tree dirty") and survives this change — measured, not assumed:
-      # `main` at 30399500061 reports 2 skips (#671 + #434), and this branch reports the
-      # remaining 1 (#434 alone). So the dirty-tree skip is pre-existing and orthogonal.
-      # Read the skip population off a run's own NOTE lines rather than from this comment,
-      # which is a dated observation like the figure above.
+      # Arming this gate closes ONE skip, not the skip population — nothing here should be
+      # read as promising a particular total. Measured, not assumed: `main` at 30399500061
+      # reported 2 skips, this gate (#671, CLI absent) and the #434 stale-prose self-scan
+      # ("working tree dirty"). Those have different causes and different fixes. The second
+      # was a tally directory written inside the working tree with no .gitignore rule, and
+      # is closed by that .gitignore entry — not by installing a CLI. Read the skip
+      # population off a run's own NOTE lines rather than from this comment, which is a
+      # dated observation exactly like the figure above.
       #
       # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
       # that validation DESCENDS into the skills/ and agents/ trees rather than stopping
@@ -131,14 +132,16 @@ jobs:
           # The retry/backoff/terminal-exit logic lives in scripts/retry-with-backoff.sh
           # so the suite can drive each arm; inline, nothing exercised them.
           #
-          # `set -o pipefail` inside the command string is load-bearing, and the reason is
-          # NOT this step's own shell: the pipeline is executed by `bash -c "$command"`
-          # inside retry-with-backoff.sh, and a fresh `bash -c` inherits no shell options
-          # from its parent. So the option has to be set inside the string, and it would
-          # stay load-bearing even if this step gained an explicit `shell: bash` (which is
-          # what supplies `-eo pipefail`; with no `shell:` key and no `defaults:` block the
-          # step runs under `bash -e {0}`, which sets only `-e`). Editing the step's shell
-          # is therefore not a substitute for this.
+          # `set -o pipefail` inside the command string is load-bearing, and NOT because of
+          # this step's own shell. Two facts decide it, and neither is a claim about what a
+          # child shell inherits. First, this step does not run the pipeline at all:
+          # retry-with-backoff.sh runs it, through `bash -c "$command_string"`, one process
+          # removed from here. Second, `pipefail` is never set anywhere up that chain — with
+          # no `shell:` key and no `defaults:` block this step runs under `bash -e {0}`,
+          # which sets `-e` only. So giving this step an explicit `shell: bash` — the thing
+          # that would supply `-eo pipefail` — still would not reach the pipeline. The
+          # option has to be set inside the string; do not "simplify" this by editing the
+          # step's shell.
           # Without it a failed download feeds bash an empty script that exits 0, so the
           # install would be recorded as a success.
           # The verify step below would still redden the check, so pipefail is what

@@ -36522,14 +36522,17 @@ assert_eq "#672 the predicate is a root-anchored PREFIX, not a substring match (
 #   - the origin/main arm IS inert there — (since #456) `.github/workflows/ci.yml`'s shard
 #     job sets `fetch-depth: 0`, so `origin/main` resolves. Before that fetch-depth change
 #     this arm skipped the gate on every CI run.
-#   - the DIRTY-TREE arm is NOT inert. The checkout starts clean, but the tree is dirty by
-#     the time this gate runs, so it takes its `blocking-gate` skip on every current CI run
-#     — observed on `main` as well as on feature branches, i.e. pre-existing rather than
-#     branch-specific. What dirties it is not yet diagnosed, and this comment deliberately
-#     does not guess.
-# So do NOT read this gate as executable coverage in CI today. Which arms actually ran is
-# read off the run's own NOTE lines, never assumed from here — that enumerate-don't-assume
-# habit is exactly the #456 skip accounting this gate is part of.
+#   - the DIRTY-TREE arm was also NOT inert, for a reason worth recording because it was a
+#     gate disarmed by a path choice rather than by anything about this check: ci.yml sets
+#     DEVFLOW_SHARD_TALLY_DIR to <workspace>/shard-tally-out (so the aggregator can upload
+#     it), which is INSIDE the working tree rather than run-shard.sh's `.devflow/tmp/`
+#     default; run-shard.sh creates it before invoking the suite; and it matched no
+#     .gitignore rule. So `git status --porcelain` reported `?? shard-tally-out/` and this
+#     gate skipped on every CI run, on `main` as well as on branches. The .gitignore entry
+#     added alongside this comment closes that, which re-arms this arm in CI.
+# Which arms actually ran is still read off the run's own NOTE lines, never assumed from
+# here — that enumerate-don't-assume habit is exactly the #456 skip accounting this gate is
+# part of, and it is what surfaced the cause above.
 if ! git -C "$LIB/.." rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
   skip "#434 stale-prose self-scan" blocking-gate "origin/main not resolvable in this checkout"
 elif [ -n "$(git -C "$LIB/.." status --porcelain 2>/dev/null)" ]; then
@@ -39699,6 +39702,15 @@ assert_eq "#671 ci.yml: the installer is passed the pinned version" "yes" \
 # structural-pin-ok: cross-file-phase-contract -- pins that the install still routes through the extracted retry wrapper; bypassed, the retry/backoff/terminal-exit arms drive code the workflow no longer runs
 assert_eq "#671 ci.yml: the install goes through the retry wrapper" "yes" \
   "$(devflow_ci_shard_has 'retry-with-backoff[.]sh')"
+# ...and pipefail inside the command string, which was the one machine-consumed token of
+# that statement asserted by nothing but a comment. Dropping it restores precisely the
+# failure this whole gate exists to remove: a failed download feeds bash an empty script,
+# the install step exits 0, and the CLI is absent while CI stays green — a silent disarm.
+# Note this pin cannot be satisfied by the neighbouring comment that discusses the option,
+# because the matcher skips comment lines; it matches only the live command string.
+# structural-pin-ok: cross-file-phase-contract -- pipefail is what turns a failed download into a failed step; without it the install reports success and the #671 gate silently self-skips again
+assert_eq "#671 ci.yml: the install command string sets pipefail" "yes" \
+  "$(devflow_ci_shard_has 'set -o pipefail')"
 #
 # ── scripts/assert-cli-version.sh: every arm of the extracted version check ──
 # The decision this helper makes used to be inline workflow shell, which no assertion
