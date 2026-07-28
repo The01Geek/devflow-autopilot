@@ -329,7 +329,12 @@ def collect(parsed):
                         # Lowered once here so the per-entry marker matches below never
                         # re-lower the same string two-to-four times.
                         "text_lower": text.lower(),
-                        "name": str(o.get("name", "")).lower(),
+                        # NON-STRING NORMALIZES TO THE EMPTY SENTINEL, never to str()'s
+                        # rendering of it. `str(None).lower()` is "none" — a THIRD value that
+                        # is neither a recorded name nor the empty "not recorded" sentinel the
+                        # classifiers below are built on, so a null-named node would decline
+                        # every bucket and read as a tool literally called "none".
+                        "name": o.get("name", "").lower() if isinstance(o.get("name"), str) else "",
                         "id": o.get("id") if isinstance(o.get("id"), str) else "",
                         "parent": here,
                     }
@@ -354,12 +359,34 @@ def collect(parsed):
                     # payload) and a denied THIRD TOOL are both kept off the write bucket.
                     # A non-object entry records no name, which is the disclosed residual the
                     # write classifier attributes by the side-effect path alone.
-                    tn = str(d.get("tool_name", "")).lower() if isinstance(d, dict) else ""
+                    #
+                    # A NON-STRING tool_name (JSON null, a number) normalizes to that SAME
+                    # empty sentinel — never to `str()`'s rendering of it. `str(None).lower()`
+                    # is "none", a third value that is neither a recorded name nor "not
+                    # recorded", so every classifier below would decline it and the entry
+                    # would leave no signal at all: the run would then reach the trailing arm
+                    # and positively assert the write was never attempted, about a run whose
+                    # Write was recorded as refused. JSON null is the likeliest spelling of an
+                    # unrecorded field in a shape this file records as not yet observed, so
+                    # this is the wrong-type row of the external-format shape matrix, not a
+                    # contrived input.
+                    _tn = d.get("tool_name") if isinstance(d, dict) else None
+                    tn = _tn.lower() if isinstance(_tn, str) else ""
                     denials.append({"text": json.dumps(d), "tool_name": tn})
             # `here`, not `inherited`: the envelope's own parent_tool_use_id must reach the
             # tool_use blocks nested under `message.content[]`, which is the whole point of
             # threading it. Dropping it here would leave every real record parent-less.
-            for v in o.values():
+            #
+            # `permission_denials` is EXCLUDED from the descent: its entries were harvested
+            # above, and an entry that embeds the refused call (a `tool_use` block inside the
+            # denial) would otherwise be walked into `tool_uses` and become indistinguishable
+            # from a call the harness ALLOWED. That fails open toward "something was recorded"
+            # — recorded_at_all, the two controls, and write_recorded could all be satisfied by
+            # refusals alone, so the control facts the record calls the attributable
+            # measurement would describe calls that never ran.
+            for k, v in o.items():
+                if k == "permission_denials":
+                    continue
                 walk(v, here)
         elif isinstance(o, list):
             for it in o:
@@ -444,8 +471,18 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     # describe-denial-count.sh was extracted to prevent, on the very entry shape this file
     # elsewhere records as not yet observed. It gets its own named `unestablished` reason
     # instead: unknown is not zero, and it is emphatically not "no write was attempted".
+    #
+    # This is the RESIDUAL bucket, so it accepts a name-less entry (`tool_name` "") alongside
+    # `"write"` — the same acceptance `_is_write_denial` and `_is_foreign_write_denial` already
+    # make, and for the same disclosed reason: the per-entry denial shape is not recorded, so
+    # an entry may omit the field entirely. Requiring `== "write"` here left the shape the
+    # helper considers MOST likely in production — a name-less entry naming neither marker,
+    # e.g. `{"message": "Permission to use the tool was denied", "rule": "Write"}` — in no
+    # bucket at all, defeating this very arm on its most probable input. Because the three
+    # narrower classifiers have already declined, accepting "" here cannot steal an entry from
+    # them; it only stops one falling through to the trailing arm's false claim.
     def _is_unclassified_write_denial(d):
-        return d["tool_name"] == "write"
+        return d["tool_name"] in ("write", "")
 
     # One pass, one bucket per entry — never an identity/equality lookup back into a list,
     # which would misroute the second of two byte-identical entries.
@@ -706,11 +743,15 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
         # would state a falsehood about this run. The reason reports exactly what the entry
         # establishes — that a Write refusal was recorded and that its text does not say
         # what was refused — and never a permission finding about the probe's target.
+        # The wording says "a Write refusal" rather than "recording tool_name `Write`":
+        # this residual bucket also accepts an entry recording NO tool_name, so naming the
+        # field would be false about exactly the shape the helper considers most likely.
         verdict, reason = "unestablished", (
-            "a permission_denials entry recording tool_name `Write` was recorded, but its "
-            "text names neither %s nor the probe's payload marker — the per-entry denial "
-            "shape is not established, so this refusal can be neither attributed to nor "
-            "ruled out of the write this probe measures" % side_path
+            "a permission_denials entry was recorded that the three narrower classifiers "
+            "all declined — it names neither %s nor the probe's payload marker, and it is "
+            "not attributable to the dispatch — so the per-entry denial shape leaves it "
+            "neither attributable to nor ruled out of the write this probe measures"
+            % side_path
         )
     elif not write_recorded:
         verdict, reason = "unestablished", (
@@ -776,7 +817,28 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
         )
         tier = "unknown"
     side_path = "subwrite-%s.txt" % tier
-    side_present = bool(side_effect_file) and os.path.isfile(side_effect_file)
+    # VERIFY THE OUTCOME, NOT THE PRECONDITION. `isfile` proves a path exists; it proves
+    # nothing about whether the subagent's write LANDED — which is the corroboration the
+    # PERMITTED reason rests on. A zero-byte file, a truncated write, or a file authored by
+    # anything else all satisfy mere existence, so the one place this helper accepts an
+    # outcome on trust would be the place a false PERMITTED enters. The prompt fixes the
+    # file's content, so the payload marker is checkable: require it. A present-but-wrong
+    # content file is NOT corroboration and is NOT silently absent either — it gets its own
+    # named reason below (`side_effect_state`), because unknown is not zero.
+    side_state = "absent"
+    if side_effect_file and os.path.isfile(side_effect_file):
+        try:
+            with open(side_effect_file, encoding="utf-8", errors="replace") as _fh:
+                side_state = "corroborated" if PAYLOAD.lower() in _fh.read().lower() else "wrong-content"
+        except OSError as exc:
+            # Present but unreadable: an established file whose content could not be checked
+            # is unknown, never corroboration — and never silently "absent" either.
+            side_state = "unreadable"
+            notes.append(
+                "the on-disk side-effect file %s is present but could not be read (%s), so "
+                "its content could not corroborate the write" % (side_effect_file, exc)
+            )
+    side_present = side_state == "corroborated"
 
     parsed, parse_note = parse_execution_file(exec_file)
     # The zero-byte sentinel is neither a read failure nor a parsed container: normalize it
@@ -850,7 +912,12 @@ def render(exec_file, tier, side_effect_file, upstream_empty, params):
     out.append("| control_after | %s |" % ("yes" if r["control_after"] else "no"))
     out.append("| write_outcome | %s |" % r["write_outcome"])
     out.append("| write_chain_ok | %s |" % ("yes" if r["write_chain_ok"] else "no"))
-    out.append("| side_effect_present | %s |" % ("yes" if r["side_present"] else "no"))
+    # Four-valued, not a yes/no: `absent` (no file), `corroborated` (present AND carrying the
+    # payload), `wrong-content` (present but NOT carrying it — an established negative, never
+    # laundered into "absent"), `unreadable` (present, content unestablished). Collapsing the
+    # last three onto "no" would report an established wrong-content file and an unmeasurable
+    # one as the same thing as no file at all.
+    out.append("| side_effect_state | %s |" % side_state)
     out.append("")
     # Every permission-decision parameter travels with the verdict — the resolved literal
     # verbatim, not a prose summary of the composition.

@@ -1582,6 +1582,17 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           RESOLVED_TOOLS: ${{ steps.compose.outputs.tools }}
           UPSTREAM_EMPTY: ${{ steps.compose.outputs.upstream_empty }}
+          # The PR HEAD ref and commit, never GITHUB_REF/GITHUB_SHA. On a `pull_request`
+          # event GitHub documents GITHUB_REF as `refs/pull/<n>/merge` and GITHUB_SHA as the
+          # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
+          # neither the head this record must name nor a commit that survives the merge, so
+          # a record built from them is unre-verifiable the moment the PR lands. That
+          # `pull_request` path is the ONLY pre-merge trigger these jobs have (workflow_dispatch
+          # exists only once the job is on the default branch), so it is the path the record is
+          # actually produced on. The `||` fallbacks keep workflow_dispatch on
+          # GITHUB_REF/GITHUB_SHA, which are correct there. Same idiom as devflow-review.yml.
+          PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
+          PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           EXTRA=()
@@ -1600,8 +1611,8 @@ jobs:
             --permission-mode acceptEdits \
             --model claude-haiku-4-5-20251001 \
             --effort low \
-            --ref "${GITHUB_REF}" \
-            --head-commit "${GITHUB_SHA}" \
+            --ref "${PROBE_REF}" \
+            --head-commit "${PROBE_SHA}" \
             "${EXTRA[@]}"
 
   # issue #858 — the implement-tier twin. A shape proven on the review tier is unproven on
@@ -1690,6 +1701,17 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
           RESOLVED_TOOLS: ${{ steps.compose.outputs.tools }}
           UPSTREAM_EMPTY: ${{ steps.compose.outputs.upstream_empty }}
+          # The PR HEAD ref and commit, never GITHUB_REF/GITHUB_SHA. On a `pull_request`
+          # event GitHub documents GITHUB_REF as `refs/pull/<n>/merge` and GITHUB_SHA as the
+          # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
+          # neither the head this record must name nor a commit that survives the merge, so
+          # a record built from them is unre-verifiable the moment the PR lands. That
+          # `pull_request` path is the ONLY pre-merge trigger these jobs have (workflow_dispatch
+          # exists only once the job is on the default branch), so it is the path the record is
+          # actually produced on. The `||` fallbacks keep workflow_dispatch on
+          # GITHUB_REF/GITHUB_SHA, which are correct there. Same idiom as devflow-review.yml.
+          PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
+          PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           EXTRA=()
@@ -1708,6 +1730,6 @@ jobs:
             --permission-mode acceptEdits \
             --model claude-haiku-4-5-20251001 \
             --effort low \
-            --ref "${GITHUB_REF}" \
-            --head-commit "${GITHUB_SHA}" \
+            --ref "${PROBE_REF}" \
+            --head-commit "${PROBE_SHA}" \
             "${EXTRA[@]}"

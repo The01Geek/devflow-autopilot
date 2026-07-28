@@ -224,7 +224,7 @@ on no profile, so the run is not an acceptance criterion of the change that adde
 this note). Until then, a refusal of the dispatched vendored-literal command is
 handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — review tier — PENDING a maintainer-dispatched run (issue #858)
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — review tier — PENDING the first PR-triggered run (issue #858)
 
 `.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
 that measures whether a **dispatched subagent's** `Write` into `.devflow/tmp/**`
@@ -283,8 +283,10 @@ there is no dispatchee to attribute the denial to, so such a list reports `unest
 deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo
 `pull_request` scoped to the workflow's own path — so pushing this change to the
 implementing PR *does* fire it — and `gh workflow run` is granted on no profile). Record
-the verdict here from the **final pre-merge head commit** (a later push re-fires the
-workflow and invalidates a recorded head), naming the **ref** (the implementing branch —
+the verdict here from the **final pre-merge head commit** (a later push *that touches
+`matcher-probe.yml`* re-fires the workflow and invalidates a recorded head; the `paths:`
+filter means a push touching only other files — including the commit that records this
+very verdict — does not), naming the **ref** (the implementing branch —
 the job does not exist on the default branch until this merges), the **run id**, the
 **job id**, the **head commit**, and the **resolved `--allowed-tools` literal verbatim**
 alongside `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001`, and
@@ -427,7 +429,7 @@ direct leading token so the *same* command works on the local and cloud tiers. H
 the probe come back DENIED, the cloud tier would have kept the full-suite default
 and those tiers would have stayed local-only.
 
-### Dispatched-subagent `Write` into `.devflow/tmp/**` — implement tier — PENDING a maintainer-dispatched run (issue #858)
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — implement tier — PENDING the first PR-triggered run (issue #858)
 
 `matcher-probe.yml` also carries a **`subagent-write-implement-probe`** job that measures
 the same dispatched-subagent `Write` fact on the **implement** tier — because a shape
