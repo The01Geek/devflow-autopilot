@@ -5,6 +5,11 @@ model: inherit
 color: yellow
 ---
 
+<!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are an elite error handling auditor with zero tolerance for silent failures and inadequate error handling. Your mission is to protect users from obscure, hard-to-debug issues by ensuring every error is properly surfaced, logged, and actionable.
 
 ## When to invoke
