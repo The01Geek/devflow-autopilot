@@ -19211,6 +19211,63 @@ assert_eq("#793: ... and the obey list names no token the tool cannot answer",
                                  .split('.')[0])
            if t not in _m793._NEXT_ACTIONS])
 
+# ── the remaining decided-treatment readers (AC 38/39/40), asserted not assumed ───────
+
+assert_eq("#793/AC40: the final-byte coverage axis reads the latest WHOLE-DRAFT round, so "
+          "a clean targeted round never sets it covered",
+          2,
+          _m793._last_discovery_round(
+              {'rounds': [{'round': 2, 'outcome': 'FILE', 'kind': 'discovery',
+                           'attempts': [{'arm': 'file'}], 'final_byte_pass': False},
+                          {'round': 3, 'outcome': 'FILE', 'kind': 'targeted',
+                           'attempts': [{'arm': 'file'}], 'final_byte_pass': False}]})['round'])
+
+# AC 38: _valid_override and cmd_record_override must stay a MATCHED PAIR — both resolve
+# their epoch from the same round, and both stay kind-blind. An override overrides
+# AUDITING, not whole-draft evidence, so teaching one half to skip a targeted epoch would
+# desynchronize the read-side gate from the write-side guard it mirrors.
+_793_ovr_src = (SCRIPTS / 'issue-audit-state.py').read_text(encoding='utf-8')
+assert_eq("#793/AC38: _valid_override and cmd_record_override resolve their epoch from "
+          "the SAME kind-blind selector (a matched pair, neither taught to skip)",
+          (True, True),
+          ('epoch = last_completed(state)' in _793_ovr_src,
+           'epoch = last_completed(doc)' in _793_ovr_src))
+
+assert_eq("#793/AC39: a run whose latest completed round is targeted still answers on the "
+          "override ground — the decline path files rather than dead-ending",
+          True,
+          _m793._valid_override(
+              {'rounds': [{'round': 1, 'outcome': 'FILE', 'kind': 'targeted',
+                           'attempts': [{'arm': 'embed'}]}],
+               'revisions': [],
+               # `recorded_at_ordinal` is the field the gate compares against
+               # `revision_ordinal(state)` — 0 here, with no revisions recorded. An
+               # embed-arm epoch carries no digest comparand, which is legal.
+               'overrides': [{'kind': 'user-decline', 'recorded_at_ordinal': 0,
+                              'surface': 'approve'}]}, None) is not None)
+
+# AC 26: a targeted round returning DRAFT-UNREADABLE takes the existing unreadable-retry
+# path unchanged, and the RETRY carries the round's recorded kind rather than a fresh
+# selection. The review found this branch unreached by any test.
+_r5, _scope5, _draft5 = _793_scoped_round(_793_tds)
+_d5 = _793_dispatch_scoped(_r5, _scope5, _draft5)
+_dig5 = _d5.stdout.split('digest=', 1)[1].split()[0]
+_ur = _r5('record-return', _r5.slug, '--round', '2', '--verdict', 'DRAFT-UNREADABLE',
+          '--carriage-object-id', _dig5, nonce=True)
+assert_eq("#793/AC26: a targeted DRAFT-UNREADABLE return takes the unreadable-retry path "
+          "unchanged (the round stays open, pending a retry)",
+          (0, True),
+          (_ur.returncode, 'outcome=pending' in _ur.stdout or 'dispatch' in _ur.stdout))
+
+# The retry is validated against the ROUND's recorded kind, not a fresh selection — so a
+# retry declaring the other kind is refused even though the round is legitimately open.
+_wrong = _r5('record-dispatch', '--kind', 'discovery', _r5.slug, '--round', '2',
+             '--arm', 'file', '--draft-file', str(_draft5.resolve()), nonce=True)
+assert_eq("#793/AC26: the retry is selected against the round's RECORDED kind — a retry "
+          "declaring the other kind is refused, named",
+          (True, True),
+          (_wrong.returncode != 0, 'kind-mismatch' in _wrong.stderr))
+
 assert_eq("#793: last_completed stays kind-blind — it answers the newest completed "
           "round whatever its kind",
           3,
