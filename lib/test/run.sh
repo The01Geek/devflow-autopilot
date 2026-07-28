@@ -44774,21 +44774,36 @@ printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' \
 # triple would silently stop probing a newly added shard, and the assertion below would
 # stay green for it. The monolith sentinel is excluded by its own empty module group, so
 # the exclusion is derived too.
-E890_FLAGS=""
+E890_FLAGGED=""
 E890_UNOBSERVED=""
 for _s in $(bash "$E877_RUNSHARD" --list-shards 2>/dev/null); do
-  [ -n "$(bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null)" ] || continue
-  E890_OUT="$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
-    bash "$E890_SDIR/lib/test/run-shard.sh" "$_s" 2>/dev/null | grep '^STUB-ARGV ' || true)"
-  E890_FLAGS="$E890_FLAGS$(printf '%s' "$E890_OUT" | grep -o -- '--heavy-units' || true)"
-  # Per-shard, not aggregate: a shard that stopped reaching run-module.sh at all would
-  # contribute no argv, so the flag match above would stay vacuously empty for it while an
-  # aggregate control kept passing on some OTHER shard's output.
-  [ -n "$E890_OUT" ] || E890_UNOBSERVED="$E890_UNOBSERVED $_s"
+  E890_EXPECTED=0
+  while IFS= read -r _m || [ -n "$_m" ]; do
+    [ -z "$_m" ] || E890_EXPECTED=$((E890_EXPECTED + 1))
+  done <<< "$(bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null)"
+  [ "$E890_EXPECTED" -gt 0 ] || continue   # the monolith sentinel, excluded by its own empty group
+  # Count and scan with bash builtins only: both values decide an emitted assert_eq operand,
+  # and a non-preflight PATH tool would let a missing or erroring `grep` yield "no flag
+  # found" — a vacuous pass in the coverage-reducing direction (guard-class 2).
+  E890_SEEN=0
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      'STUB-ARGV '*)
+        E890_SEEN=$((E890_SEEN + 1))
+        case "$_line" in *--heavy-units*) E890_FLAGGED="$E890_FLAGGED $_s" ;; esac
+        ;;
+    esac
+  done <<< "$(DEVFLOW_SHARD_TALLY_DIR="$E890_SDIR/tally-$_s" \
+    bash "$E890_SDIR/lib/test/run-shard.sh" "$_s" 2>/dev/null)"
+  # Per-MODULE, not per-shard: a dispatcher that stopped after a group's first module would
+  # leave the rest of that group's invocations unobserved, so the flag scan above would stay
+  # vacuously clean for them while a mere non-emptiness control kept passing.
+  [ "$E890_SEEN" -eq "$E890_EXPECTED" ] || \
+    E890_UNOBSERVED="$E890_UNOBSERVED $_s($E890_SEEN/$E890_EXPECTED)"
 done
 assert_eq "#890 no module shard passes a coverage-reducing --heavy-units flag" "" \
-  "$E890_FLAGS"
-assert_eq "#890 positive control: every module shard's dispatch was actually observed" "" \
+  "$E890_FLAGGED"
+assert_eq "#890 positive control: every module shard dispatched every module in its group" "" \
   "$E890_UNOBSERVED"
 rm -rf "$E890_SDIR"
 
