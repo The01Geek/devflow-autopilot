@@ -1,0 +1,219 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T04:14:23Z",
+  "fix_commit_sha": "3c93e40e",
+  "fix_files": [
+    "lib/test/pin-corpus-lint.py",
+    "lib/test/mutation-pin-census.py",
+    "lib/test/test_pin_corpus_lint.py"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": ["phase-2-implement.md"],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "failure"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Critical",
+      "description": "test_repository_mutations_do_not_leak_between_fixtures does not cover the memos its comment claims: four simulated memo-key regressions all left it green.",
+      "defect_signature": {"file": "lib/test/test_pin_corpus_lint.py", "line_range": [2788, 2831], "kind": "documented_falsehood"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "AC5 is not discharged by an executed test: only filesystem isolation is demonstrated, which predates the change.",
+      "defect_signature": {"file": "lib/test/test_pin_corpus_lint.py", "line_range": [2788, 2831], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "The census cache-bound comment states 'a census sweeps its sources in order and never revisits one', which is false: _logical_lines takes 13 intra-census hits from the definition sweep then the row extraction.",
+      "defect_signature": {"file": "lib/test/mutation-pin-census.py", "line_range": [183, 200], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "_branch captures git stderr under check=True, so CalledProcessError reports only an exit status and git's own diagnosis is lost.",
+      "defect_signature": {"file": "lib/test/test_pin_corpus_lint.py", "line_range": [2833, 2841], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Both defensive-copy guards are invisible to the suite: deleting them left it green.",
+      "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [1804, 1812], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The MappingProxyType read-only contract is asserted only in prose.",
+      "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [351, 385], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_SOURCE_PARSE_CACHE_SIZE is documented as 'the audited set plus headroom' but hardcoded, so the claim can silently go false.",
+      "defect_signature": {"file": "lib/test/mutation-pin-census.py", "line_range": [190, 201], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The frozen measured figures carry no provenance anchor (no date or host).",
+      "defect_signature": {"file": "lib/test/mutation-pin-census.py", "line_range": [198, 200], "kind": "comment_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "The _IMAGE_PARSE_CACHE_SIZE comment generalizes one memo's within-extraction repeat to both memos.",
+      "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [1784, 1791], "kind": "comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "_load_mutation_census_module leaves a half-executed module in sys.modules on the failure path; the new memo makes that lifetime process-long.",
+      "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [3386, 3412], "kind": "api_misuse"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The file's sharding docstring premise now rests on shared lru_cache stores it does not mention.",
+      "defect_signature": {"file": "lib/test/test_pin_corpus_lint.py", "line_range": [4, 14], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "AC6 and AC7 carry no evidence: the PR body is the Phase 3.1 placeholder.",
+      "defect_signature": {"file": "lib/test/modules/harness-python-guards.sh", "line_range": null, "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "Peak-RSS interaction with the shard driver is unmeasured for the lint side.",
+      "defect_signature": {"file": "lib/test/pin-corpus-lint.py", "line_range": [2928, 2944], "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-4", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-5", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-6", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-7", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-8", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-9", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-10", "decision": "applied", "commit": "3c93e40e"},
+    {"finding_id": "F-11", "decision": "applied", "commit": "3c93e40e"},
+    {
+      "finding_id": "F-12",
+      "decision": "deferred",
+      "source_file": "lib/test/modules/harness-python-guards.sh",
+      "claim_text": "AC6 and AC7 carry no evidence in the PR body",
+      "skip_category": "out-of-scope",
+      "evidence": "the PR body is still the Phase 3.1 work-in-progress placeholder; Phase 4.2 authors the description and is where AC6/AC7 evidence lands",
+      "parking_evidence": {
+        "basis": "the deliverable is the PR description, which the implement run authors in Phase 4.2, after this review step",
+        "failing_input": "the Phase 3.1 placeholder PR body",
+        "source": "skills/implement/phases/phase-4-documentation.md section 4.2",
+        "finding_ref": {"iter": 1, "index": 11}
+      }
+    },
+    {"finding_id": "F-13", "decision": "applied", "commit": "3c93e40e"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 12,
+    "fix_diff_lines": 210,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "not_verified"},
+  "reference_reads": {
+    "fix_delta": {
+      "status": "not_verified",
+      "outcome": "clean",
+      "reason": "fix-delta-gate.md was not loaded; this run executed the engine's Phase 3 only"
+    }
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": "the Step 2.6 shadow pass was not run: this loop executed the engine's Phase 3 review fan-out only, without Phases 1-2 (checklist generation and verification) or the shadow re-run. Recorded not_verified, which prohibits a clean approve.",
+    "checklist_skipped": "failure",
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 20},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 2},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 5, "tokens": 561960, "wall_clock_s": 685},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0, "webfetches": 0},
+    "step_2_6": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}
