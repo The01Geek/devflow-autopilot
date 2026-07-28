@@ -64,8 +64,9 @@ while [ "$#" -gt 0 ]; do
       # How much of a module's heaviest unit to run (issue #890) — see
       # devflow_run_sharded_python_test in lib/test/module-harness.sh for what each mode
       # means. `full` is the default, and no shard or suite runner passes this flag at all
-      # (asserted by the #890 argv probe in lib/test/run.sh). Its only CONSUMING call site
-      # is the pooled real-runner meta-test in lib/test/test_module_runner.py, which passes
+      # (asserted by the #890 argv probe in lib/test/run.sh). Where it is passed to make a
+      # module actually bound something, that is the pooled real-runner meta-test in
+      # lib/test/test_module_runner.py, which passes
       # `smoke` because it drives a module end-to-end purely to prove the runner drives it,
       # and must not pay that module's whole population a second time in the same CI run;
       # the flag's own behavior tests in that same file drive it against a fixture module.

@@ -212,8 +212,9 @@ class ModuleRunnerTests(unittest.TestCase):
         """The one channel that CAN select the bounded population is the explicit flag,
         which is what makes the choice visible at the call site that made it.
 
-        The two further assertions pin the runner's own reduced-run accounting. The notice
-        is the only signal a bounded run leaves in the artifact a shard log preserves — the
+        The further assertions below pin the runner's own reduced-run accounting. The
+        notice is the only signal a bounded run leaves in the artifact a shard log
+        preserves — the
         summary line above it cannot carry one, because its shape is machine-consumed — and
         the child-process probe pins the `export -n`, without which the runner's own
         `--heavy-units smoke` would propagate to every process launched underneath it. Both
@@ -1490,8 +1491,8 @@ class ModuleRunnerTests(unittest.TestCase):
         asks for three things: invoke lib/test/run-module.sh against the module id, read
         the `minimum_assertions` floor from the registry rather than hard-coding a second
         copy, and assert the emitted summary equals `Module <id>: {floor} passed, 0
-        failed`. All three still hold below (the exit-0 assertion is an additional
-        property this test has always carried, not one of step 8's three), and none is
+        failed`. Each still holds below (the exit-0 assertion is an additional property
+        this test has always carried, not something step 8 asks for), and none is
         weakened by the bounded unit, because the bound changes how many Python tests one
         assertion covers and not how many assertions the module emits. The full population
         still runs exactly once per CI run, in `modules-pin`, which passes no flag and
