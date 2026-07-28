@@ -24367,13 +24367,29 @@ EPV_SUM_WRITTEN="$(cat "$EPV_TMP/summary.md" 2>/dev/null)"
 assert_eq "#874 env-probe verdict positive control: a writable summary IS appended" "yes" \
   "$(printf '%s' "$EPV_SUM_WRITTEN" | grep -qF -- 'Verdict: `BOTH_HOPS`' && echo yes || echo no)"
 
-# Arm B: an execution file nested past the interpreter's recursion limit. The walk
-# raises RecursionError, which the helper converts into a NOTE and an INCONCLUSIVE
-# verdict — never a crash, and never a negative measurement.
+# Arm B: an execution file nested past the interpreter's recursion limit.
+#
+# WHICH guard catches it is PLATFORM-DEPENDENT, so this arm deliberately asserts the
+# CONTRACT rather than the arm. Two guards serve the same contract: parse_execution_file
+# catches bare Exception (and RecursionError is one, via RuntimeError), and render()
+# catches RecursionError around collect(). Whether json.loads or the Python walk hits its
+# limit first depends on the interpreter's JSON parser — measured, not assumed: on macOS
+# the parse SUCCEEDS at this depth and the walk raises ("nested too deeply to walk"),
+# while on Linux/CI the parse raises first and the note reads "unparseable". Asserting
+# either specific note pins one host's behavior and goes RED on the other, which is how
+# this arm was first written and what CI caught.
+#
+# So: the note must be NON-EMPTY and name a degraded cause. That still fails a helper
+# that reports a clean measurement or a NEGATIVE one from an unreadable file — the
+# fail-open this ordering exists to stop — while surviving either guard firing.
+# Consequence worth stating rather than glossing: on a host whose parser is the stricter
+# of the two, render()'s RecursionError arm is unreachable through a FILE fixture and
+# this arm does not cover it there.
+#
 # The fixture is emitted as RAW TEXT, never built by json.loads here: parsing it in
 # this generator would raise RecursionError in the generator itself. Depth is derived
-# from the interpreter's own limit rather than hardcoded, so the arm keeps reaching the
-# guard on a host configured with a different limit.
+# from the interpreter's own limit rather than hardcoded, so the arm keeps exceeding it
+# on a host configured with a different limit.
 python3 - "$EPV_TMP/deep.jsonl" <<'PY_EPV_DEEP'
 import sys
 depth = sys.getrecursionlimit() * 8
@@ -24386,8 +24402,14 @@ EPV_DEEP_OUT="$(python3 "$EPV" "$EPV_TMP/deep.jsonl" 2>/dev/null)"
 assert_eq "#874 env-probe verdict: a too-deeply-nested execution file still exits 0" "0" "$?"
 assert_eq "#874 env-probe verdict: excessive nesting is INCONCLUSIVE, never a negative result" "yes" \
   "$(printf '%s' "$EPV_DEEP_OUT" | grep -qF 'Verdict: `INCONCLUSIVE`' && echo yes || echo no)"
-assert_eq "#874 env-probe verdict: the nesting NOTE names the depth cause" "yes" \
-  "$(printf '%s' "$EPV_DEEP_OUT" | grep -qF 'nested too deeply' && echo yes || echo no)"
+# Either degraded cause is correct; a clean or silent note is not. Both literals are the
+# helper's own runtime output, matched from the pipe.
+assert_eq "#874 env-probe verdict: the nesting NOTE names a degraded cause (walk depth or parse)" "yes" \
+  "$(printf '%s' "$EPV_DEEP_OUT" | grep -qE 'nested too deeply|unparseable' && echo yes || echo no)"
+# Negative control: the same helper on a GOOD file must NOT claim a degraded cause, so
+# the alternation above cannot pass vacuously against a helper that always says so.
+assert_eq "#874 env-probe verdict negative control: a well-formed file names no degraded cause" "yes" \
+  "$(printf '%s' "$EPV_OK" | grep -qE 'nested too deeply|unparseable' && echo no || echo yes)"
 rm -rf "$EPV_TMP"
 unset -f devflow_epv devflow_epv_verdict
 
