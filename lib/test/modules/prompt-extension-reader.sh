@@ -546,8 +546,9 @@ printf 'TRUSTED BASE-REF BYTES no-trailing-newline' > "$LPE_ENV_DIR/trusted/revi
 printf 'not a directory\n' > "$LPE_ENV_DIR/regular-file"
 
 # (1) unset → repo-root resolution, stdout byte-identical to today, and NO
-# trusted-root breadcrumb, so every caller outside the review tier observes
-# unchanged output.
+# trusted-root breadcrumb. The variable is published only in the review job, so
+# the fifteen other skills/*/SKILL.md load sites — enumerated over the tracked
+# tree, none of them edited by this change — observe unchanged output.
 LPE_E1="$(cd "$LPE_ENV_DIR/repo" && bash "$LPE" review 2>"$LPE_ENV_DIR/err-e1")"; LPE_E1_RC=$?
 assert_eq "lpe env: unset → repo-root bytes" "REPO-HEAD BYTES" "$LPE_E1"
 assert_eq "lpe env: unset → exit 0" "0" "$LPE_E1_RC"

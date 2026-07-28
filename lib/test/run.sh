@@ -34244,7 +34244,14 @@ assert_pin_unique "#504 AC1 harden publishes disposition=skipped" "disposition=s
 assert_pin_unique "#504 AC1 harden publishes displaced_paths heredoc" "displaced_paths<<" "$RUNNER_YML"
 # AC5 side-effect: summarize is called in exactly one step now (ci_summary), not compose.
 assert_pin_unique "#504 AC5 summarize called in exactly one step (ci_summary, removed from compose)" 'CI_SUMMARY=$(HEAD_SHA="$HEAD_SHA" bash "$SCC")' "$RUNNER_YML"
-assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from harden" 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
+# Re-anchored by issue #874: HARDENED_PATHS became a TWO-producer join, so compose now
+# forwards the join's output and the join reads harden's. The #504 regression this pin
+# guards — that harden's displaced paths reach the grounding block — is unchanged; only
+# the hop it travels through moved, so the pin follows it to the join's input rather than
+# being deleted. The join's own behavior (including the arm where harden publishes empty)
+# is driven executably by the #874 block above.
+assert_pin_unique "#504 AC5 compose forwards HARDENED_PATHS from the displaced-path join" 'HARDENED_PATHS: ${{ steps.displaced_join.outputs.hardened_paths }}' "$RUNNER_YML"
+assert_pin_unique "#504 AC5 the displaced-path join reads harden's displaced_paths" 'HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER_YML"
 
 # ── #504 AC6 claim-verification routing boundaries.
 assert_pin_unique "#504 AC6 SKILL Phase 2.1a lite-probe routing" "grep the \`git show <head>:<path>\` output" "$REVIEW_BUNDLE"

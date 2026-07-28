@@ -34,10 +34,11 @@
 # selection this helper exists to own cannot leak back into the YAML. STDERR is unused.
 #
 # Exit codes:
-#   0  every runtime condition, including every failure arm. Populating is the only
-#      thing this script does, so its failures degrade to an EMPTY closure, which is
-#      already the safe state the caller established unconditionally — there is no
-#      fail-open direction a non-zero exit would need to escalate against.
+#   0  every runtime condition — the four per-name arms of the branch table below and
+#      the not-attempted arm alike. Populating is the only thing this script does, so
+#      its failures degrade to an EMPTY closure, which is already the safe state the
+#      caller established unconditionally — there is no fail-open direction a non-zero
+#      exit would need to escalate against.
 #   2  a usage error (a missing or unrecognized flag, no --target, no names). That is
 #      a caller defect, not a runtime condition, so it is refused loudly.
 #

@@ -197,7 +197,7 @@ The job sets the sentinel `DEVFLOW_ENVPROBE_SENTINEL_874`, has the session echo 
 each hop read through its own Bash calls, and derives a four-way verdict
 (`BOTH_HOPS` / `ORCHESTRATOR_ONLY` / `NEITHER_HOP` / `INCONCLUSIVE`, plus a suspect
 `DISPATCHED_TASK_ONLY` inversion) with `scripts/env-propagation-probe-verdict.py`,
-whose every arm `lib/test/run.sh` drives.
+whose five verdict arms and four degraded arms `lib/test/run.sh` drives.
 
 **This measurement is PENDING.** The implementing run added the job and the
 documentation entry and deliberately did **not** dispatch the probe, so no verdict is

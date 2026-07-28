@@ -217,7 +217,7 @@ jobs:
       # is declared AFTER `vendor`. A `steps.baseprovision.outputs.*` reference
       # inside `vendor` resolves to the empty string, and vendor-slice.sh then
       # refuses an empty DEVFLOW_REF ("refusing to track mutable main"), killing the
-      # review job on every fetch-branch consumer while this repository's own `self`
+      # review job on a fetch-branch consumer while this repository's own `self`
       # branch — which ignores DEVFLOW_REF — stays green. Step order is therefore
       # the mechanism, not cosmetics; lib/test/run.sh pins it.
       #
@@ -264,8 +264,10 @@ jobs:
       # reintroduces exactly the defect this change closes: on a fetch failure the
       # PR-head workspace copy would survive and the loader would read it.
       #
-      # Every failure therefore degrades to an EMPTY closure — never to the repo-root
-      # path being taken. The truncation is the belt for the remaining case where the
+      # The four arms on which the closure is not populated — a failed base-ref fetch, an
+      # empty base ref, no trusted source for the materialization helper, and a per-name
+      # read failure or unwritable target inside the helper — therefore each degrade to an
+      # EMPTY closure, never to the repo-root path being taken. The truncation is the belt for the remaining case where the
       # cooperating half is absent: a consumer whose base ref pins a devflow_version
       # predating this change gets a loader that ignores the variable, resolves the
       # repo-root path, finds the truncated file, and loads nothing.
@@ -593,7 +595,8 @@ jobs:
                 # The helper prints its own fully-formed ::warning:: / ::notice::
                 # lines on stdout, so this call site selects no branch and composes
                 # no message — that logic lives in the helper, where lib/test/run.sh
-                # drives every arm. shellcheck disable is unnecessary: the word split
+                # drives the four per-name arms of its branch table plus the
+                # not-attempted arm. shellcheck disable is unnecessary: the word split
                 # of the protected set is intended (it is a space-separated list).
                 # shellcheck disable=SC2086
                 bash "$RUNNER_TEMP/devflow-trusted-prompt-ext-helper/materialize-trusted-prompt-extensions.sh" \
@@ -784,8 +787,10 @@ jobs:
               # extension and exports DEVFLOW_PROMPT_EXTENSION_ROOT pointing at a
               # $RUNNER_TEMP closure, and `baseprovision` populates that closure from
               # the TRUSTED base ref inside its fetch-success branch and nowhere else.
-              # Every failure arm leaves the closure empty rather than sending the
-              # loader back to the PR-head path. The residuals this does NOT close —
+              # The four arms on which population does not happen — a failed base-ref
+              # fetch, an empty base ref, no trusted helper source, and a per-name read
+              # failure or unwritable target — each leave the closure empty rather than
+              # sending the loader back to the PR-head path. The residuals this does NOT close —
               # the PR-selectable marketplace manifest and the PR-head composite
               # actions under .github/actions/ — are filed separately.
               # Command heads the review skill actually invokes are pinned against this
