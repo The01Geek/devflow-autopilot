@@ -2372,6 +2372,7 @@ assert_eq "#763B enrich: a wrong-typed summary leaves the occurrence present (co
 printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$RL_TMP/sf-ov.json"
 # rl_sf <args...> — source select-findings inside a subshell (no set -e leak) and
 # call devflow_select_findings; stdout is captured, stderr routed to $RL_TMP/sf.err.
+# shellcheck disable=SC1090  # $RL_SF is the select-findings.sh path under test
 rl_sf() { ( . "$RL_SF"; devflow_select_findings "$@" ); }
 
 # select: compose + descending evidence order + truncate top 3
@@ -2431,6 +2432,7 @@ assert_eq "#763B select: an unmigrated overrides file returns non-zero" "true" "
 assert_eq "#763B select: an unmigrated overrides file emits nothing on stdout" "" "$RL_SF_V2"
 RL_SF_ABS="$(rl_sf --category tooling-gap --findings-file "$RL_TMP/sf-f4.json" --overrides "$RL_TMP/does-not-exist.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_ABS_RC=$?
 assert_eq "#763B select: an absent overrides file withholds (non-zero, no key coined)" "true" "$([ "$RL_SF_ABS_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#763B select: an absent overrides file emits nothing on stdout" "" "$RL_SF_ABS"
 
 # select: an unsourceable cap owner withholds and returns non-zero, printing nothing
 # Copy select-findings WITHOUT filing-decisions.sh beside it → the source fails and
