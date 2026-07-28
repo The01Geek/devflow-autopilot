@@ -63,6 +63,16 @@ fi
 # variables, so assertions that run inside ( … ) subshells — the config-source.sh and
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
 # counted in the final tally too. Counting in-memory would silently drop them.
+# Module-tier selector (issue #877). The monolith CI shard invokes this suite as
+# `DEVFLOW_SKIP_SUITE_MODULES=1 bash lib/test/run.sh` so devflow_run_full_suite_module
+# no-ops (the module tier runs in its own shards — no double-count). It arrives as an
+# EXPORTED env var, but this suite spawns many child processes — including the
+# module-harness/runner python meta-tests that legitimately source module-harness.sh
+# and drive devflow_run_full_suite_module against fixtures. An inherited skip would make
+# those tests no-op and fail. `export -n` keeps the value readable in THIS shell — where
+# the real module-tier invocations run — while dropping the export attribute so no child
+# process inherits it. A no-op when the var is unset (the ordinary full run).
+export -n DEVFLOW_SKIP_SUITE_MODULES 2>/dev/null || true
 RESULTS_FILE="$(mktemp)"
 MODULE_FAILURES_FILE="$(mktemp)"
 # SKIPS_FILE is the skip tally's backing file (issue #456), the SKIP sibling of
@@ -39185,9 +39195,13 @@ assert_eq "#456 the #423 T6b site is a host-capability skip through skip()" "1" 
 assert_eq "#456 both #434 self-scan arms are blocking-gate skips through skip()" "2" \
   "$(grep -cF "$S456_434_CALL" "$SELF_SRC")"
 #
-# ci.yml: the lib+python test job's checkout sets fetch-depth: 0 so origin/main resolves.
-assert_eq "#456 ci.yml: the 'lib + python tests' job checkout sets fetch-depth: 0" "yes" \
-  "$(awk '/^    name: lib \+ python tests/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
+# ci.yml: the shard job's checkout sets fetch-depth: 0 so origin/main resolves. The
+# #434 stale-prose self-scan runs in the `monolith` shard (issue #877 split the single
+# test job into a concurrent shard matrix + a `lib + python tests` aggregator); the
+# aggregator only recombines tallies and needs no history, so fetch-depth: 0 moved to
+# the shard job that actually runs lib/test/run.sh.
+assert_eq "#456 ci.yml: the shard job checkout sets fetch-depth: 0" "yes" \
+  "$(awk '/^  shard:/{intest=1; next} /^  [a-z]/{intest=0} intest && /fetch-depth: 0/{f=1} END{print (f?"yes":"no")}' "$LIB/../.github/workflows/ci.yml")"
 assert_eq "#456 ci.yml: shipped lib/test orchestrators are added to shellcheck scope" "yes" \
   "$(grep -qF 'lib/test/module-harness.sh lib/test/run-module.sh lib/test/summary.sh' \
        "$LIB/../.github/workflows/ci.yml" && echo yes || echo no)"
@@ -45280,6 +45294,325 @@ if [ -n "$E783_BIGF" ] && [ "$E783_BIGF" != /dev/null ]; then
     "$(jq -n --slurpfile v "$E783_BIGF" '$v[0] | length' >/dev/null 2>&1 && echo zero || echo nonzero)"
   rm -f "$E783_BIGF"
 fi
+# ────────────────────────────────────────────────────────────────────────────
+# #877 concurrent CI job matrix: the single `lib + python tests` job is split into
+# a shard matrix + an aggregator that keeps that required name. This block covers
+# the three shipped mechanisms — the module-tier selector, the shard dispatcher's
+# coverage-preserving group map, and the tally recombination — plus the ci.yml
+# couplings that keep the split honest. These run in the monolith shard itself.
+echo "#877 concurrent CI job matrix: module-tier selector, shard map coverage, tally recombination"
+E877_HARNESS="$LIB/test/module-harness.sh"
+E877_RUNSHARD="$LIB/test/run-shard.sh"
+E877_TALLY="$LIB/test/shard-tally.py"
+E877_REGISTRY="$LIB/../scripts/workflow-flight-recorder-registry.json"
+E877_CI="$LIB/../.github/workflows/ci.yml"
+
+assert_eq "#877 run-shard.sh exists and is executable" "yes" \
+  "$([ -x "$E877_RUNSHARD" ] && echo yes || echo no)"
+assert_eq "#877 shard-tally.py exists and is executable" "yes" \
+  "$([ -x "$E877_TALLY" ] && echo yes || echo no)"
+
+# ── Module-tier selector (module-harness.sh) ──
+# DEVFLOW_SKIP_SUITE_MODULES=1 makes devflow_run_full_suite_module a no-op so the
+# monolith shard runs run.sh WITHOUT the module tier (no double-count across shards).
+# The gate must short-circuit BEFORE the missing-module check, so a bogus path with
+# the env records no failure (gated), and the identical call WITHOUT the env records
+# one (positive control) — proving the early return, not a coincidental pass.
+E877_GATE_PROBE="$(probe_tmp '#877 module-tier selector probe')"
+if [ -n "$E877_GATE_PROBE" ] && [ "$E877_GATE_PROBE" != /dev/null ]; then
+  cat > "$E877_GATE_PROBE" <<'E877SH'
+#!/usr/bin/env bash
+set -u
+. "$1" || { echo "source-fail"; exit 99; }
+rf="$(mktemp)"; mf="$(mktemp)"; sf="$(mktemp)"; : > "$rf"
+RESULTS_FILE="$rf" MODULE_FAILURES_FILE="$mf" SKIPS_FILE="$sf" \
+  devflow_run_full_suite_module /nonexistent/module.sh bogus 5 >/dev/null 2>&1
+rc=$?
+fails="$(grep -c . "$mf" 2>/dev/null || true)"; [ -n "$fails" ] || fails=0
+printf 'rc=%s fails=%s' "$rc" "$fails"
+rm -f "$rf" "$mf" "$sf"
+E877SH
+  assert_eq "#877 selector: DEVFLOW_SKIP_SUITE_MODULES=1 makes the module runner a no-op" "rc=0 fails=0" \
+    "$(DEVFLOW_SKIP_SUITE_MODULES=1 bash "$E877_GATE_PROBE" "$E877_HARNESS" 2>/dev/null)"
+  assert_eq "#877 selector positive control: without the env a missing module records a failure" "rc=0 fails=1" \
+    "$(DEVFLOW_SKIP_SUITE_MODULES='' bash "$E877_GATE_PROBE" "$E877_HARNESS" 2>/dev/null)"
+  rm -f "$E877_GATE_PROBE"
+fi
+
+# ── Shard dispatcher: coverage-preserving group map ──
+# The union of every module shard's group MUST equal the registered module set —
+# this is the "no test dropped, no coverage reduced" invariant. Derive both sides
+# and compare; a module added to the registry but to no shard group (or vice versa)
+# turns this RED.
+E877_SHARDS="$(bash "$E877_RUNSHARD" --list-shards 2>/dev/null | tr '\n' ' ')"
+assert_eq "#877 run-shard.sh lists the expected shard set" "monolith modules-pin modules-large modules-rest " \
+  "$E877_SHARDS"
+E877_UNION="$(for _s in monolith modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | sort -u)"
+E877_REGSET="$(python3 -c 'import json,sys; print("\n".join(sorted(json.load(open(sys.argv[1]))["test_modules"])))' "$E877_REGISTRY")"
+assert_eq "#877 shard map covers exactly the registered module set (no module dropped or duplicated)" \
+  "$E877_REGSET" "$E877_UNION"
+# The union above is built with `sort -u`, which COLLAPSES a module listed in two shard
+# groups before the comparison — so the set equality alone cannot see a duplicate, and
+# the "not duplicated" half of the assertion above would stay green while that module
+# ran twice (double-counting its assertions across shards). The raw, non-deduplicated
+# emission count is what closes that half: it equals the registry size only when every
+# module appears in exactly one group.
+E877_UNION_RAW="$(for _s in monolith modules-pin modules-large modules-rest; do bash "$E877_RUNSHARD" --modules-of "$_s" 2>/dev/null; done | grep -c .)"
+E877_REGCOUNT="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["test_modules"]))' "$E877_REGISTRY")"
+assert_eq "#877 no module is listed in two shard groups (raw emission count equals the registry size)" \
+  "$E877_REGCOUNT" "$E877_UNION_RAW"
+# The coverage argument above is registry-keyed on BOTH sides, so it is blind in one
+# direction this PR newly makes load-bearing: in CI the monolith shard skips the module
+# tier entirely, so a module is only ever RUN via a registry-derived shard group. A module
+# driven by run.sh but absent from the registry would therefore run locally and be silently
+# dropped in CI, while the union==registry assertion stayed green. Pin the registry against
+# the INDEPENDENT signal — the module ids run.sh actually drives — so the two cannot drift.
+E877_DRIVEN="$(python3 -c '
+import re, sys
+pat = re.compile(r"^if ! devflow_run_full_suite_module \"\$LIB/test/modules/([a-z0-9-]+)\.sh\"")
+seen = set()
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        m = pat.match(line)
+        if m:
+            seen.add(m.group(1))
+print("\n".join(sorted(seen)))
+' "$LIB/test/run.sh")"
+assert_eq "#877 the registry equals the module set run.sh actually drives (a module CI would silently drop)" \
+  "$E877_REGSET" "$E877_DRIVEN"
+assert_eq "#877 the monolith shard owns no modules (it runs run.sh minus the module tier)" "" \
+  "$(bash "$E877_RUNSHARD" --modules-of monolith 2>/dev/null)"
+assert_eq "#877 an unknown shard name is rejected" "nonzero" \
+  "$(bash "$E877_RUNSHARD" --modules-of not-a-shard >/dev/null 2>&1 && echo zero || echo nonzero)"
+
+# ── Tally recombination (shard-tally.py) ──
+E877_TDIR="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
+  # Monolith-style log: fixture-noise summaries first, then the REAL summary + skip.
+  # The parser must take the LAST bare summary and scope the skip lines to the tail.
+  printf '%s\n' \
+    '3 passed, 0 failed' \
+    '  SKIP  fixture-noise [host-capability] — before the real summary' \
+    '' \
+    '100 passed, 0 failed, 1 skipped' \
+    '  SKIP  #671 claude plugin validate --strict [blocking-gate] — claude CLI not on PATH' \
+    > "$E877_TDIR/mono.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono.log" --rc 0 --out "$E877_TDIR/t-mono" >/dev/null 2>&1
+  assert_eq "#877 extract: monolith takes the LAST summary and scopes skips to the tail" "passed=100 failed=0 skipped=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s skipped=%s"%(d["passed"],d["failed"],d["skipped"]))' "$E877_TDIR/t-mono/summary")"
+  assert_eq "#877 extract: the tail skip (not the fixture-noise one) is recorded" "1" \
+    "$(grep -c . "$E877_TDIR/t-mono/skips" || true)"
+
+  # Module-group log: two per-module summaries → summed; failures collected.
+  printf '%s\n' \
+    'Module harness-python-guards: 40 passed, 0 failed' \
+    'Module capability-profiles: 61 passed, 2 failed' \
+    'Failure recap:' \
+    '  - some/thing broke' \
+    '  - another failure' \
+    > "$E877_TDIR/mod.log"
+  python3 "$E877_TALLY" extract --shard modules-pin --tier modules --log "$E877_TDIR/mod.log" --rc 1 --out "$E877_TDIR/t-mod" >/dev/null 2>&1
+  assert_eq "#877 extract: a module group sums every per-module summary" "passed=101 failed=2" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-mod/summary")"
+
+  # Crashed shard: rc nonzero, no summary → fail-closed synthetic failure.
+  printf '%s\n' 'ERROR: a tally could not be established — refusing to render' > "$E877_TDIR/crash.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/crash.log" --rc 1 --out "$E877_TDIR/t-crash" >/dev/null 2>&1
+  assert_eq "#877 extract: a crashed shard (rc!=0, no summary) records a fail-closed synthetic failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-crash/summary")"
+
+  # A shard that exits 0 but emitted NO recognizable summary is also a fail-closed
+  # failure (a truncated/garbled log that still returned 0 must not read as clean).
+  printf '%s\n' 'some noise but no summary line at all' > "$E877_TDIR/nosum.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/nosum.log" --rc 0 --out "$E877_TDIR/t-nosum" >/dev/null 2>&1
+  assert_eq "#877 extract: rc=0 but no parseable summary records a fail-closed synthetic failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-nosum/summary")"
+
+  # Tier isolation: with --tier monolith, a stray `Module <id>: …` line in a monolith
+  # log (e.g. a failing meta-test dumping a run-module subprocess's captured stdout)
+  # is NOT summed on top of run.sh's real summary — the count stays run.sh's alone.
+  printf '%s\n' \
+    'Module capability-profiles: 61 passed, 2 failed' \
+    '50 passed, 0 failed' \
+    > "$E877_TDIR/mono-collide.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono-collide.log" --rc 0 --out "$E877_TDIR/t-collide" >/dev/null 2>&1
+  assert_eq "#877 extract: --tier monolith ignores a stray Module line (no content-collision double-count)" "passed=50 failed=0" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-collide/summary")"
+
+  # Combine a clean set: skip preserved, exit 0.
+  mkdir -p "$E877_TDIR/clean"
+  cp -R "$E877_TDIR/t-mono" "$E877_TDIR/clean/a"
+  assert_eq "#877 combine: a clean shard set exits 0 and preserves the skip population" "rc=0" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/clean" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 combine: the recombined summary surfaces the skipped check (never laundered to a clean pass)" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/clean" --expect 1 2>/dev/null | grep -qF '1 skipped' && echo yes || echo no)"
+
+  # Combine over a set containing the failing/crashed shards exits nonzero (gate red).
+  mkdir -p "$E877_TDIR/mixed"
+  cp -R "$E877_TDIR/t-mono" "$E877_TDIR/mixed/a"; cp -R "$E877_TDIR/t-crash" "$E877_TDIR/mixed/b"
+  assert_eq "#877 combine: a failing shard makes the aggregate exit nonzero" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/mixed" --expect 2 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # Fail-closed on a missing shard: --expect exceeds the tallies present → nonzero,
+  # so a shard that never uploaded its tally can never recombine as a green gate.
+  assert_eq "#877 combine: --expect fails closed when a shard tally is missing" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/clean" --expect 4 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # #456 heart: a summed skip count that disagrees with the itemized skip lines must
+  # surface the discrepancy AND fail closed — a skipped check must never silently
+  # vanish from the aggregate. Craft a tally whose summary says 2 skipped but whose
+  # skips file lists only 1.
+  mkdir -p "$E877_TDIR/skewskip/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'skipped	2' 'rc	0' > "$E877_TDIR/skewskip/a/summary"
+  printf '%s\n' 'only-one-skip [host-capability] — reason' > "$E877_TDIR/skewskip/a/skips"
+  : > "$E877_TDIR/skewskip/a/names"
+  assert_eq "#877 combine: a skip tally/detail disagreement fails closed (skip never silently vanishes)" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/skewskip" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # A present-but-malformed tally (missing key) fails closed — a truncated/garbled
+  # uploaded artifact must not recombine as a clean pass.
+  mkdir -p "$E877_TDIR/badkey/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'rc	0' > "$E877_TDIR/badkey/a/summary"
+  : > "$E877_TDIR/badkey/a/skips"; : > "$E877_TDIR/badkey/a/names"
+  assert_eq "#877 combine: a tally missing a required key fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/badkey" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # A present tally with a non-integer count fails closed.
+  mkdir -p "$E877_TDIR/badint/a"
+  printf '%s\n' 'shard	x' 'passed	NaN' 'failed	0' 'skipped	0' 'rc	0' > "$E877_TDIR/badint/a/summary"
+  : > "$E877_TDIR/badint/a/skips"; : > "$E877_TDIR/badint/a/names"
+  assert_eq "#877 combine: a tally with a non-integer count fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/badint" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # A tally carrying `summary` but missing its `skips`/`names` siblings (a partial
+  # upload, or a hand-authored tally) must route through the PROBLEM channel rather
+  # than raising an uncaught traceback. Both arms are asserted because the exit code
+  # alone cannot tell them apart — an uncaught OSError also exits non-zero, so a
+  # rc-only assertion would pass against the very defect this covers.
+  mkdir -p "$E877_TDIR/partial/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'skipped	0' 'rc	0' > "$E877_TDIR/partial/a/summary"
+  assert_eq "#877 combine: a tally missing its skip/name detail files fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 combine: that partial tally is diagnosed as a PROBLEM, not an uncaught traceback" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" --expect 1 2>&1 >/dev/null | grep -qF 'PROBLEM: ' && echo yes || echo no)"
+  assert_eq "#877 combine: the partial-tally diagnosis names no Python traceback" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/partial" --expect 1 2>&1 >/dev/null | grep -qF 'Traceback (most recent call last)' && echo no || echo yes)"
+
+  # #456 heart, the ZERO-tally direction: a tally announcing `skipped 0` beside a
+  # NON-empty skips file is the mirror image of the skew case above, and it used to
+  # be unguarded — the disagreement check sat inside the `total_skip != 0` arm, so
+  # this shape printed the plain "N passed, M failed" line, dropped the skip lines,
+  # recorded no PROBLEM, and exited 0. That is a skipped check laundered into a
+  # clean pass, the one outcome #456 exists to prevent. All three arms are asserted
+  # because rc alone cannot distinguish "guarded" from "guarded for another reason".
+  mkdir -p "$E877_TDIR/zeroskip/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'skipped	0' 'rc	0' > "$E877_TDIR/zeroskip/a/summary"
+  printf '%s\n' 'ghost-skip [host-capability] — announced tally said zero' > "$E877_TDIR/zeroskip/a/skips"
+  : > "$E877_TDIR/zeroskip/a/names"
+  assert_eq "#877 combine: a zero skip tally beside a non-empty skips file fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/zeroskip" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 combine: that dropped skip line is surfaced, not silently discarded" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/zeroskip" --expect 1 2>/dev/null | grep -qF 'ghost-skip' && echo yes || echo no)"
+  assert_eq "#877 combine: the zero-tally disagreement is diagnosed as a PROBLEM" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/zeroskip" --expect 1 2>&1 >/dev/null | grep -qF 'PROBLEM: skip tally/detail disagreement' && echo yes || echo no)"
+  # Positive control on the same fixture: identical tally with the skips file EMPTY is
+  # a genuine clean pass, so the rejection above is attributable to the ghost skip line
+  # and not to some unrelated precondition in the fixture.
+  mkdir -p "$E877_TDIR/zeroskip-ok/a"
+  cp "$E877_TDIR/zeroskip/a/summary" "$E877_TDIR/zeroskip-ok/a/summary"
+  : > "$E877_TDIR/zeroskip-ok/a/skips"; : > "$E877_TDIR/zeroskip-ok/a/names"
+  assert_eq "#877 combine positive control: the same tally with an empty skips file passes" "rc=0" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/zeroskip-ok" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # extract's unreadable-log arm: a shard whose captured log is missing (the capture
+  # step never ran, the artifact path is wrong) must record a fail-closed failure
+  # rather than an empty-but-clean tally. Both the count and the recorded reason are
+  # asserted — a `failed=1` alone could equally come from the no-summary arm.
+  # The reason is matched with a `case` glob over the captured stderr — a bash builtin,
+  # not a `grep <literal> <file>` presence scan, which is the shape the #810 declaration
+  # gate governs (this asserts a RUNTIME diagnostic, not a source literal).
+  E877_NOLOG_ERR="$(python3 "$E877_TALLY" extract --shard monolith --tier monolith \
+    --log "$E877_TDIR/definitely-not-here.log" --rc 0 --out "$E877_TDIR/t-nolog" 2>&1 >/dev/null)"
+  case "$E877_NOLOG_ERR" in
+    *'could not read shard log'*) E877_NOLOG_SEEN=yes ;;
+    *) E877_NOLOG_SEEN=no ;;
+  esac
+  assert_eq "#877 extract: the unreadable-log failure names the log it could not read" "yes" \
+    "$E877_NOLOG_SEEN"
+  assert_eq "#877 extract: an unreadable shard log records a fail-closed failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-nolog/summary")"
+
+  # combine's zero-dirs refusal: --scan over a directory holding no tallies must refuse
+  # rather than render "0 passed, 0 failed" as a green gate. --expect 0 is the explicit
+  # no-floor opt-out, so the shortfall guard cannot be what rejects it — this drives the
+  # zero-dirs arm specifically.
+  mkdir -p "$E877_TDIR/emptyscan"
+  assert_eq "#877 combine: zero shard tallies refuses a green gate" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/emptyscan" --expect 0 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 combine: the zero-tally refusal says so rather than rendering a summary" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/emptyscan" --expect 0 2>&1 >/dev/null | grep -qF 'refusing to report a green gate over zero shards' && echo yes || echo no)"
+
+  # combine's POSITIONAL dirs path (the aggregator uses --scan, but the positional form
+  # is a shipped interface and was unexercised).
+  assert_eq "#877 combine: positional tally directories are accepted" "rc=0" \
+    "$(python3 "$E877_TALLY" combine "$E877_TDIR/t-mono" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # --expect is REQUIRED, so the missing-shard guard cannot be silently disabled by
+  # omitting the flag (an omission that would look exactly like a green gate).
+  assert_eq "#877 combine: omitting --expect is refused (the missing-shard guard is not opt-in)" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/clean" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  rm -rf "$E877_TDIR"
+fi
+
+# ── ci.yml couplings (the split stays honest) ──
+# The required check NAME is the branch-protection contract — it must remain the
+# aggregator's job name (already a many-times-pinned literal in this suite).
+assert_eq "#877 ci.yml keeps the required 'lib + python tests' job name (the aggregator)" "yes" \
+  "$(grep -qE '^    name: lib \+ python tests$' "$E877_CI" && echo yes || echo no)"
+# The aggregator gates on the shard matrix result so a failed/cancelled/skipped shard
+# fails the required check (a skipped required check that auto-passes is the un-gating trap).
+assert_eq "#877 ci.yml aggregator gates on needs.shard.result (fails the required check when any shard does not succeed)" "yes" \
+  "$(grep -qF 'needs.shard.result' "$E877_CI" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the aggregator's needs.shard.result gate is the branch-protection contract that fails the required 'lib + python tests' check when any shard fails, cancels, or is skipped; removing it silently un-gates merges
+# Behavioral cross-check: the ci.yml matrix shard list is DERIVED and compared to
+# run-shard.sh's own shard set, so a matrix entry with no dispatcher case (or a
+# dispatcher shard missing from the matrix) turns this RED in either direction.
+E877_CI_SHARDS="$(awk -F'[][]' '/shard: \[/{gsub(/[[:space:]]/,"",$2); gsub(/,/," ",$2); print $2}' "$E877_CI")"
+E877_RS_SHARDS="$(bash "$E877_RUNSHARD" --list-shards | tr '\n' ' ' | sed 's/ *$//')"
+assert_eq "#877 ci.yml matrix names exactly the run-shard.sh shard set" "$E877_RS_SHARDS" "$E877_CI_SHARDS"
+# Behavioral cross-check: the combine --expect count equals the number of shards, so the
+# missing-shard fail-closed guard is armed with exactly the right ceiling.
+E877_CI_EXPECT="$(grep -oE -- '--expect [0-9]+' "$E877_CI" | grep -oE '[0-9]+' | head -1)"
+E877_SHARD_COUNT="$(bash "$E877_RUNSHARD" --list-shards | grep -c .)"
+assert_eq "#877 ci.yml combine --expect equals the shard count" "$E877_SHARD_COUNT" "$E877_CI_EXPECT"
+
+# ── Aggregator gate helper (lib/test/gate-shard-result.sh) ──
+# The gate that decides whether the REQUIRED `lib + python tests` check passes lives in
+# a helper rather than inline in ci.yml precisely so every arm can be DRIVEN here: a
+# grep-pin on the message literal is not coverage of the selection that emits it, and a
+# reordered/mistyped arm would un-gate merges while this suite stayed green.
+E877_GATE="$LIB/test/gate-shard-result.sh"
+assert_eq "#877 gate-shard-result.sh exists and is executable" "yes" \
+  "$([ -x "$E877_GATE" ] && echo yes || echo no)"
+assert_eq "#877 gate: ci.yml runs the helper with the shard-matrix result" "yes" \
+  "$(grep -qF 'bash lib/test/gate-shard-result.sh "${{ needs.shard.result }}"' "$E877_CI" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the aggregator's only gate on the shard matrix; an invocation that stops passing needs.shard.result silently passes the required check over an unobserved matrix outcome
+assert_eq "#877 gate: 'success' is the only result that passes the required check" "rc=0" \
+  "$(bash "$E877_GATE" success >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+for _r in failure cancelled skipped; do
+  assert_eq "#877 gate: a '$_r' shard matrix fails the required check" "rc=nonzero" \
+    "$(bash "$E877_GATE" "$_r" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  assert_eq "#877 gate: the '$_r' failure emits an ::error:: naming the observed result" "yes" \
+    "$(bash "$E877_GATE" "$_r" 2>&1 | grep -qF "::error::one or more test shards did not succeed ($_r)" && echo yes || echo no)"
+done
+# Unknown is not success: an EMPTY result (a renamed job, a dropped `needs:` edge, an
+# expression that resolved to nothing) must fail closed with its own distinct diagnosis
+# rather than fall through the generic arm or — worse — pass.
+assert_eq "#877 gate: an unestablished (empty) shard result fails closed" "rc=nonzero" \
+  "$(bash "$E877_GATE" "" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+assert_eq "#877 gate: the empty-result diagnosis is distinct from the did-not-succeed one" "yes" \
+  "$(bash "$E877_GATE" "" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
+assert_eq "#877 gate: a missing argument takes the same unestablished arm (no bare set -u abort)" "yes" \
+  "$(bash "$E877_GATE" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
 # ────────────────────────────────────────────────────────────────────────────
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
