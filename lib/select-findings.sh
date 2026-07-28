@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# select-findings.sh — the sole owner of WHICH Stage B findings become filings for
-# one pattern (issue #893). Sourced into the retrospective orchestrator's shell; it
+# select-findings.sh — the owner of WHICH Stage B findings become filings for one
+# pattern ON THE FINDINGS-ARRAY PATH (issue #893). The scope matters: the legacy
+# `{title, body}` coexistence path never reaches this helper — the orchestrator
+# files that shape under the bare category key and derives its own cap verdict — so
+# this is not the sole cap decision in the run, only the sole one for a findings
+# array. Sourced into the retrospective orchestrator's shell; it
 # composes and legality-checks each finding's filing key, collapses subslug churn
 # onto an existing lifecycle record by a deterministic token-set alias, ranks tight
 # clusters ahead of grab-bags (descending evidence-PR count), truncates to the top
@@ -54,11 +58,26 @@ if ! . "$_SF_HERE/filing-decisions.sh" 2>/dev/null; then
 fi
 
 # The deterministic token-set signature used for the alias is lowercase, split on
-# non-alphanumeric runs, drop empties, sort, de-duplicate — two strings differing by
-# ANY token get distinct signatures (the stopword set is EMPTY). It is defined ONCE,
-# as the `tokset` jq function inside the alias-lookup program below, and computed in
-# jq (never tr/sed/cut — this value decides a filing selection, and CLAUDE.md bars
+# non-alphanumeric runs, drop empties, sort, de-duplicate — the stopword set is
+# EMPTY, so no token is dropped before comparison. It is defined ONCE, as the
+# `tokset` jq function inside the alias-lookup program below, and computed in jq
+# (never tr/sed/cut — this value decides a filing selection, and CLAUDE.md bars
 # deriving a selection value through a non-preflight PATH tool).
+#
+# It is applied to the SUBSLUG alone, never to the composed key. Both sides of the
+# comparison share the category prefix, and `unique` collapses a subslug token the
+# category already contributes — so a full-key signature makes subslug `gap-slow`
+# collide with subslug `slow` under category `tooling-gap` (both reduce to the token
+# set {gap, slow, tooling}) and silently merges two distinct sub-patterns onto one
+# lifecycle record. The existing side's subslug is recovered by stripping the
+# canonical `<category>-` prefix from its stored key; a key that does NOT carry that
+# prefix (a bare-category legacy record, or a digest-suffixed key whose subslug the
+# truncation destroyed) is not comparable by subslug and is never aliased onto.
+#
+# `unique` also makes the signature a token SET, not a multiset: a subslug repeating
+# a token (`slow-slow`) shares a signature with one carrying it once (`slow`). That
+# is the intended collapse — subslug churn is exactly what the alias exists to
+# absorb — and it is stated here so the set-vs-multiset semantics are not inferred.
 
 # devflow_select_findings
 #   --category <cat>            attribution category (slug grammar) for these findings
@@ -69,13 +88,18 @@ fi
 #   --max-per-run <n>           .devflow_retrospective.max_issues_per_run
 #   --max-per-cat <n>           .devflow_retrospective.max_open_per_category
 #   --max-open <n>              .devflow_retrospective.max_open_issues
+#   --withheld-file <path>      optional: JSON array of {tag, cap}, one per cap withhold
+#   --dropped-file <path>       optional: JSON array carrying one
+#                               {category, total, kept, dropped} object when the
+#                               top-three truncation dropped findings, else empty
 #
 # Emits the to-file findings array on stdout; report lines on stderr. Returns 0 on a
 # clean selection (including an empty result), non-zero only on a withhold-everything
 # condition (unreadable/unmigrated overrides, unusable operands).
 devflow_select_findings() {
     local category="" findings_file="" overrides="" status="" \
-          filed_this_run="" max_per_run="" max_per_cat="" max_open="" withheld_file=""
+          filed_this_run="" max_per_run="" max_per_cat="" max_open="" withheld_file="" \
+          dropped_file=""
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --category)       category="$2";       shift 2 ;;
@@ -91,6 +115,13 @@ devflow_select_findings() {
             # the run report's "withheld by a filing cap" section (issue #788's
             # disclosure guarantee), not only in this helper's stderr breadcrumbs.
             --withheld-file)  withheld_file="$2";  shift 2 ;;
+            # Optional: a path this call writes a JSON array to, holding one
+            # {category, total, kept, dropped} object when the top-three truncation
+            # dropped findings (else an empty array). The truncation notice is
+            # otherwise stderr-only, and the orchestrator captures stdout — so
+            # without this channel the "N dropped" count can never reach the run
+            # report, leaving the >3-findings disclosure undischarged.
+            --dropped-file)   dropped_file="$2";   shift 2 ;;
             *) echo "::error::select-findings: unknown argument '$1'" >&2; return 2 ;;
         esac
     done
@@ -120,6 +151,19 @@ devflow_select_findings() {
         return 1
     fi
 
+    # ── Canonical category prefix for the subslug-recovery half of the alias ─────
+    # Derived through the SAME shared slugify module compose-filing-key.sh uses, so
+    # the prefix this strips is byte-identical to the one the composer wrote and the
+    # two cannot drift. It decides a filing SELECTION, so an unestablished value
+    # withholds rather than silently disabling every alias (which would open a
+    # duplicate issue per run — the exact failure the alias exists to prevent).
+    local _cat_canon
+    _cat_canon="$("$DEVFLOW_JQ" -r -n -L "$_SF_HERE" --arg c "$category" 'include "slugify"; $c | slug_kebab' 2>/dev/null)" || _cat_canon=""
+    if [ -z "$_cat_canon" ]; then
+        echo "::error::select-findings: could not canonicalize the category '${category}' through lib/slugify.jq — the alias lookup's category prefix is unestablished, so every finding is withheld for this pattern rather than filed past a record it should have aliased onto" >&2
+        return 1
+    fi
+
     # ── Rank by DESCENDING evidence-PR count, then truncate to the top three ─────
     # This is the single ordering in force: Stage B's dominant-first order is
     # advisory; the truncation and the caps consume THIS order. A malformed findings
@@ -132,9 +176,19 @@ devflow_select_findings() {
         | sort_by( -( (.evidence_prs | arrays // []) | length ) )' "$findings_file" 2>/dev/null)" \
       || { echo "::error::select-findings: could not read the findings array from '${findings_file}' (jq exited non-zero) — withholding every finding for this pattern" >&2; return 1; }
     _n_total="$("$DEVFLOW_JQ" 'length' <<<"$_ranked" 2>/dev/null)" || _n_total=0
+    local _dropped="[]"
     if [ "${_n_total:-0}" -gt 3 ]; then
         echo "select-findings: pattern category '${category}' returned ${_n_total} findings — keeping the top 3 by evidence-PR count and dropping $(( _n_total - 3 ))" >&2
+        # Publish the drop to the structured channel too — stderr alone never reaches
+        # the run report (the orchestrator captures stdout).
+        _dropped="$("$DEVFLOW_JQ" -nc --arg cat "$category" \
+            --argjson total "$_n_total" --argjson dropped "$(( _n_total - 3 ))" \
+            '[{category:$cat, total:$total, kept:3, dropped:$dropped}]')"
         _ranked="$("$DEVFLOW_JQ" -c '.[0:3]' <<<"$_ranked")"
+    fi
+    if [ -n "$dropped_file" ]; then
+        printf '%s' "$_dropped" > "$dropped_file" 2>/dev/null \
+          || echo "::warning::select-findings: could not write the dropped-findings file '${dropped_file}' — the truncation count for '${category}' will be absent from the report (it is still named on stderr)" >&2
     fi
     _n_kept="$("$DEVFLOW_JQ" 'length' <<<"$_ranked" 2>/dev/null)" || _n_kept=0
 
@@ -191,23 +245,37 @@ devflow_select_findings() {
         esac
 
         # Alias: collapse subslug churn onto an existing record of the SAME category
-        # whose key yields an EQUAL token set. Compare full-key signatures — both keys
-        # share the category prefix, so equal signatures ⟺ equal subslug token sets.
-        # `tokset` is defined once here and applied to BOTH the new key and each
-        # existing key in the same program, so the signature rule cannot drift.
+        # whose SUBSLUG yields an EQUAL token set. `tokset` is defined once here and
+        # applied to BOTH sides in the same program, so the signature rule cannot
+        # drift. The existing side's subslug is the stored key with its canonical
+        # `<category>-` prefix stripped; a record whose key does not carry that prefix
+        # is not comparable by subslug and is skipped rather than aliased onto.
         local _existing_key
-        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg key "$_key" '
+        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg pre "$_cat_canon" --arg sub "$_subslug" '
             def tokset: ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length>0)) | unique | join("-");
-            ($key | tokset) as $sig
+            ($pre + "-") as $prefix
+            | ($sub | tokset) as $sig
             | [ (.patterns // {}) | to_entries[]
               | select((.value | objects) != null)
               | select((.value.category // "") == $cat)
-              | select((.key | tokset) == $sig)
+              | select(.key | startswith($prefix))
+              | select(((.key | ltrimstr($prefix)) | tokset) == $sig)
               | .key ] | .[0] // ""' "$overrides" 2>/dev/null)" || _existing_key=""
         if [ -n "$_existing_key" ] && [ "$_existing_key" != "$_key" ]; then
-            echo "select-findings: aliased finding subslug '${_subslug}' (key '${_key}') onto the existing lifecycle record '${_existing_key}' of category '${category}' — equal token set, no second issue" >&2
+            echo "select-findings: aliased finding subslug '${_subslug}' (key '${_key}') onto the existing lifecycle record '${_existing_key}' of category '${category}' — equal subslug token set, no second issue" >&2
             _key="$_existing_key"
         fi
+
+        # Re-check the grammar on the FINAL key. The composed-key check above ran
+        # BEFORE the alias overwrote `_key`, so an existing overrides record whose key
+        # is illegal (hand-edited, or written by an older/looser writer) would
+        # otherwise be emitted verbatim — and lib/meta-issue.sh refuses it downstream,
+        # turning a silent alias into a failed filing. Drop it here, loudly.
+        case "$_key" in
+            ''|*[!A-Za-z0-9_-]*)
+                echo "select-findings: dropped a finding of category '${category}' — the aliased existing record key '${_key}' falls outside the [A-Za-z0-9_-]+ grammar (the record set holds an illegal key; the finding is withheld rather than filed against it)" >&2
+                i=$(( i + 1 )); continue ;;
+        esac
 
         # Cap decision — from the SHIPPED owner, no cap arm of our own. The comparands
         # grow with _filed_here (issues this call already accepted).

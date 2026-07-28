@@ -2411,10 +2411,58 @@ assert_eq "#763B inject: an instruction-shaped subslug yields a grammar-safe key
 printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":10,"url":"https://x/issues/10","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_SF/sf-alias-ov.json"
 printf '%s' '[{"subslug":"suite-slow","title":"Aliased","body":"b","evidence_prs":[1,2],"rationale":"r"}]' > "$TMP_SF/sf-alias-f.json"
 RL_SF_AL="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-alias-f.json" --overrides "$TMP_SF/sf-alias-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-al.err")"
-assert_eq "#763B select: equal token multisets alias onto the existing key" "tooling-gap-slow-suite" \
+assert_eq "#763B select: equal subslug token sets alias onto the existing key" "tooling-gap-slow-suite" \
   "$(printf '%s' "$RL_SF_AL" | jq -r '.[0].key')"
 assert_eq "#763B select: the alias is reported" "true" \
   "$(grep -qF 'aliased finding' "$TMP_SF/sf-al.err" && echo true || echo false)"
+
+# NEGATIVE CONTROL for the category-prefix collision: the alias signature is taken
+# over the SUBSLUG, never the composed key. A full-key signature would collapse the
+# category's own tokens into the comparison (`unique` drops the duplicate), making
+# subslug `gap-slow` collide with the existing `tooling-gap-slow` record and merging
+# two distinct sub-patterns onto one lifecycle record. It must coin its own key.
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-slow":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":11,"url":"https://x/issues/11","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_SF/sf-collide-ov.json"
+printf '%s' '[{"subslug":"gap-slow","title":"Distinct","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$TMP_SF/sf-collide-f.json"
+RL_SF_CL="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-collide-f.json" --overrides "$TMP_SF/sf-collide-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-cl.err")"
+assert_eq "#763B select: a subslug sharing a token with its category does NOT alias onto the existing record" "tooling-gap-gap-slow" \
+  "$(printf '%s' "$RL_SF_CL" | jq -r '.[0].key')"
+assert_eq "#763B select: the category-prefix collision emits no alias breadcrumb" "false" \
+  "$(grep -qF 'aliased finding' "$TMP_SF/sf-cl.err" && echo true || echo false)"  # structural-pin-ok: helper-contract -- absence assertion over devflow_select_findings' captured stderr in this run's scratch dir; it pins that the non-aliasing path stays silent
+
+# A record whose key does NOT carry the canonical `<category>-` prefix (a bare-category
+# legacy filing) is not comparable by subslug and is never aliased onto.
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[]}},"dismissed":{}}' > "$TMP_SF/sf-bare-ov.json"
+printf '%s' '[{"subslug":"tooling-gap","title":"X","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$TMP_SF/sf-bare-f.json"
+assert_eq "#763B select: a bare-category legacy record is never aliased onto" "tooling-gap-tooling-gap" \
+  "$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-bare-f.json" --overrides "$TMP_SF/sf-bare-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null | jq -r '.[0].key')"
+
+# The grammar check runs on the FINAL key, after the alias. An existing record whose
+# key is illegal (hand-edited, or an older/looser writer) must be DROPPED, not emitted
+# — lib/meta-issue.sh refuses such a key, so emitting it turns a silent alias into a
+# failed filing.
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-slow!!!x":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[]}},"dismissed":{}}' > "$TMP_SF/sf-badkey-ov.json"
+printf '%s' '[{"subslug":"slow-x","title":"X","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$TMP_SF/sf-badkey-f.json"
+RL_SF_BK="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-badkey-f.json" --overrides "$TMP_SF/sf-badkey-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-bk.err")"
+assert_eq "#763B select: an aliased-onto key outside the grammar is dropped, not emitted" "0" \
+  "$(printf '%s' "$RL_SF_BK" | jq 'length')"
+assert_eq "#763B select: the illegal aliased key drop names the grammar" "true" \
+  "$(grep -qF 'falls outside the [A-Za-z0-9_-]+ grammar' "$TMP_SF/sf-bk.err" && echo true || echo false)"  # structural-pin-ok: helper-contract -- executable assertion over devflow_select_findings' captured stderr in this run's scratch dir; it pins the shipped helper's illegal-aliased-key drop breadcrumb
+
+# --dropped-file: the top-three truncation's drop count reaches a STRUCTURED channel,
+# not only stderr — the orchestrator captures stdout, so a stderr-only notice can
+# never reach the run report (the >3-findings disclosure would be undischarged).
+rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 --dropped-file "$TMP_SF/sf-drop.json" >/dev/null 2>&1
+assert_eq "#763B select: the truncation drop count is published to --dropped-file" "1" \
+  "$(jq -r '.[0].dropped' "$TMP_SF/sf-drop.json" 2>/dev/null)"
+assert_eq "#763B select: the dropped-file record names the pattern category" "tooling-gap" \
+  "$(jq -r '.[0].category' "$TMP_SF/sf-drop.json" 2>/dev/null)"
+assert_eq "#763B select: the dropped-file record carries the pre-truncation total" "4" \
+  "$(jq -r '.[0].total' "$TMP_SF/sf-drop.json" 2>/dev/null)"
+# Negative control: with no truncation the file is written as an EMPTY array, so an
+# absent file is distinguishable from "nothing was dropped".
+rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-alias-f.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 --dropped-file "$TMP_SF/sf-drop2.json" >/dev/null 2>&1
+assert_eq "#763B select: no truncation writes an empty dropped-file array" "0" \
+  "$(jq 'length' "$TMP_SF/sf-drop2.json" 2>/dev/null)"
 
 # select: every cap decision comes from devflow_filing_cap_verdict (withhold on max_per_run 0)
 RL_SF_CAP="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 0 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-cap.err")"
