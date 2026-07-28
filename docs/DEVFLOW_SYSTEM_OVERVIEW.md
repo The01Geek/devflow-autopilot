@@ -819,7 +819,7 @@ The local tier needs **no config**. To customize, `/devflow:init` scaffolds `.de
 | Key | Purpose |
 |---|---|
 | `base_branch` | Review/merge base (default `main`). |
-| `claude_model` | Default model (default `claude-opus-4-8`). |
+| `claude_model` | Default model (default `claude-opus-5`). |
 | `providers.<name>` | Cloud-tier (opt-in): Anthropic-compatible third-party endpoints — `base_url`, `auth` (`bearer`\|`api_key`), `timeout_ms`, `effort_supported`, and an `env` map. The API credential is never named in config — it is always the fixed `DEVFLOW_PROVIDER_API_KEY` repo secret. See §14 / `docs/cloud-setup.md`. |
 | `devflow.provider` / `devflow_implement.provider` / `devflow_runner.provider` (+ each section's `claude_model`) | Cloud-tier (opt-in): route that workflow section through a named `providers` entry and/or override its model, independently per section. Unset → today's Anthropic-OAuth default. |
 | `devflow_version` | Cloud-tier: git ref the workflows fetch the plugin from (thin install). |

@@ -10845,7 +10845,7 @@ SC_BF_OUT="$(bash "$SC" "$SC_BF" 2>&1)"
 assert_eq "scaffold-backfill: nested missing key added (devflow_runner.provision_env)" \
   "false" "$(jq -r '.devflow_runner.provision_env' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: top-level missing key added (claude_model)" \
-  "claude-opus-4-8" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
+  "claude-opus-5" "$(jq -r '.claude_model' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing top-level value preserved (base_branch)" \
   "release" "$(jq -r '.base_branch' "$SC_BF/.devflow/config.json")"
 assert_eq "scaffold-backfill: existing nested value preserved (devflow_runner.effort)" \
@@ -10871,7 +10871,7 @@ assert_eq "scaffold-backfill: complete config is a byte-identical no-op" \
   "$SC_NOOP_BEFORE" "$(cat "$SC_NOOP/.devflow/config.json")"
 assert_eq "scaffold-backfill: no-op does NOT emit the backfill log line" "no" \
   "$(printf '%s' "$SC_NOOP_OUT" | grep -q 'backfilled newly-added keys' && echo yes || echo no)"
-# The shipped example pins Sonnet 4.6 (no Haiku override), so a fresh scaffold of
+# The shipped example pins Sonnet 5 (no Haiku override), so a fresh scaffold of
 # it must never emit the Haiku effort-cleanup log line — locks the clean path so
 # a regression that re-pins Haiku-with-effort in the example is caught.
 assert_eq "scaffold-migration: clean shipped example emits no Haiku cleanup log line" "no" \
@@ -11592,27 +11592,28 @@ assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
 assert_pin_unique "init-memory-nudge: never writes/edits any agent file (advisory)" 'never creates, writes, or edits' "$INIT_SKILL"
 assert_pin_unique "init-memory-nudge: never blocks or fails init" 'never blocks or fails init' "$INIT_SKILL"
 # ────────────────────────────────────────────────────────────────────────────
-echo "shipped agent_overrides: deduper pins Sonnet 4.6 w/ effort; no Haiku override carries effort"
+echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
-# The shipped checklist-deduper override pins Claude Sonnet 4.6 (which DOES
-# support `effort`) with effort "medium" — Sonnet 4.6's recommended default, and
-# effort must be set explicitly on Sonnet 4.6 to avoid unexpected latency. A
+# The shipped checklist-deduper override pins Claude Sonnet 5 (which DOES
+# support `effort`) with effort "medium" — a cost-saving step down from the API
+# default of "high"; set it explicitly to avoid unexpected latency. A
 # positive sentinel, not a bare has("effort"): a refactor that drops/renames the
 # entry, swaps the model, or strips the effort each FAIL loudly rather than
 # sailing through green. The entry must positively EXIST, be object-typed, pin
-# claude-sonnet-4-6, AND carry an `effort` key — so a dropped/renamed entry
-# ("missing-entry"), a model no longer Sonnet 4.6 ("not-sonnet"), or a removed
+# claude-sonnet-5, AND carry an `effort` key — so a dropped/renamed entry
+# ("missing-entry"), a model no longer Sonnet 5 ("not-sonnet"), or a removed
 # effort ("no-effort") each FAIL loudly.
-assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 4.6, and carries an effort key" \
+assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 5, and carries an effort key" \
   "ok" \
   "$(jq -r '
       (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
-        elif (($d.model // "") != "claude-sonnet-4-6") then "not-sonnet"
+        elif (($d.model // "") != "claude-sonnet-5") then "not-sonnet"
         elif ($d | has("effort") | not) then "no-effort"
         else "ok" end' "$TPL_DIR/config.example.json")"
-# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8 /
-# Sonnet 4.6). The shipped example no longer pins Haiku anywhere, but this guard
+# Claude Haiku rejects `effort` with HTTP 400 (supported only on Opus 4.5–4.8,
+# Opus 5, Sonnet 4.6, and Sonnet 5). The shipped example no longer pins Haiku
+# anywhere, but this guard
 # keeps the invariant the scaffold-config.sh cleanup protects: should any shipped
 # override ever pin a Haiku model, it must NOT also carry an `effort` key.
 assert_eq "agent_overrides: no shipped Haiku-pinned override carries an effort key" \
@@ -45909,6 +45910,32 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   python3 "$E877_TALLY" extract --shard modules-pin --tier modules --log "$E877_TDIR/mod.log" --rc 1 --out "$E877_TDIR/t-mod" >/dev/null 2>&1
   assert_eq "#877 extract: a module group sums every per-module summary" "passed=101 failed=2" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-mod/summary")"
+
+  # #887: a module-tier host-capability skip is carried into the combined tally and its
+  # itemized SKIP line, exactly as the monolith tier does. The summary line's optional
+  # `, K skipped` clause is read, and the `  SKIP  ` lines that immediately follow a
+  # module summary are collected — so a modules-* shard that folds a host-capability skip
+  # reports it rather than laundering it into a clean pass (issue #456).
+  printf '%s\n' \
+    'Module regenerate-artifacts: 40 passed, 0 failed, 1 skipped' \
+    '  SKIP  #619 symlink arm [host-capability] — cannot create a symlink here' \
+    'Module review-stall-backstop: 61 passed, 0 failed' \
+    > "$E877_TDIR/modskip.log"
+  python3 "$E877_TALLY" extract --shard modules-a --tier modules --log "$E877_TDIR/modskip.log" --rc 0 --out "$E877_TDIR/t-modskip" >/dev/null 2>&1
+  assert_eq "#887 extract: a module-tier skip is carried into the tally" "passed=101 failed=0 skipped=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s skipped=%s"%(d["passed"],d["failed"],d["skipped"]))' "$E877_TDIR/t-modskip/summary")"
+  assert_eq "#887 extract: the module-tier SKIP line is itemized" "1" \
+    "$(grep -c . "$E877_TDIR/t-modskip/skips" || true)"
+  mkdir -p "$E877_TDIR/modskip-clean/a"; cp -R "$E877_TDIR/t-modskip/." "$E877_TDIR/modskip-clean/a"
+  assert_eq "#887 combine: a module-tier skip surfaces in the recombined summary (never a clean pass)" "yes" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/modskip-clean" --expect 1 2>/dev/null | grep -qF '1 skipped' && echo yes || echo no)"
+  # The #456 disagreement check covers the module tier: a module summary announcing a skip
+  # with NO itemized SKIP line fails closed, just as the monolith skew case above does.
+  printf '%s\n' 'Module regenerate-artifacts: 40 passed, 0 failed, 1 skipped' > "$E877_TDIR/modskew.log"
+  python3 "$E877_TALLY" extract --shard modules-b --tier modules --log "$E877_TDIR/modskew.log" --rc 0 --out "$E877_TDIR/t-modskew" >/dev/null 2>&1
+  mkdir -p "$E877_TDIR/modskew/a"; cp -R "$E877_TDIR/t-modskew/." "$E877_TDIR/modskew/a"
+  assert_eq "#887 combine: a module-tier skip tally/detail disagreement fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/modskew" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
 
   # Crashed shard: rc nonzero, no summary → fail-closed synthetic failure.
   printf '%s\n' 'ERROR: a tally could not be established — refusing to render' > "$E877_TDIR/crash.log"

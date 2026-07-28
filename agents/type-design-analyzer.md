@@ -5,6 +5,11 @@ model: inherit
 color: pink
 ---
 
+<!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
+     licensed under the Apache License, Version 2.0 — full text at
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     Third-party component index: LICENSES/README.md. -->
+
 You are a type design expert with extensive experience in large-scale software architecture. Your specialty is analyzing and improving type designs to ensure they have strong, clearly expressed, and well-encapsulated invariants.
 
 ## When to invoke

@@ -294,7 +294,7 @@ else
             .devflow_review.agent_overrides |= with_entries(
               # Do NOT let the deep-merge GRAFT an effort from the example onto a
               # Haiku-pinned entry the user left effort-less. The shipped example
-              # pins the deduper to Sonnet 4.6 WITH effort; merged onto a config that
+              # pins the deduper to Sonnet 5 WITH effort; merged onto a config that
               # re-pins that key to a Haiku id, the merge would add the effort from
               # the example (Claude Haiku rejects effort with HTTP 400) and re-graft
               # it on every re-scaffold, fighting the cleanup below forever. Strip
@@ -332,7 +332,7 @@ fi
 # Repair model/effort combinations the model API rejects but the no-clobber
 # backfill above structurally cannot fix. The shipped example once pinned the
 # checklist-deduper to a Haiku id and carried an `effort` key on it; the example
-# now defaults that override to Sonnet 4.6, but a key *removal* never propagates
+# now defaults that override to Sonnet 5, but a key *removal* never propagates
 # through the backfill — it only ADDS keys, never deletes (see the
 # deletion-tracking note above). So an adopter who scaffolded earlier silently
 # keeps `effort` on a Haiku override (their own deduper pin, or any other agent
