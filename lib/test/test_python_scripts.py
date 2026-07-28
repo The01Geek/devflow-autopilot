@@ -11471,6 +11471,19 @@ def _row2(r):
         # query-findings' trailing summary= field and clobber the reconciliation surface.
         ('a summary carrying an interior carriage return', 1, '1',
          'unresolved: first half\rsecond half\n', 'ledger-summary-control-char'),
+        # issue #889: a non-positive quoted-draft-line coordinate. `@0` parses via
+        # `@(\d+)` but is not a 1-based line number, so it is refused at ingestion.
+        ('a non-positive draft-line coordinate', 1, '1', 'unresolved@0: a\n',
+         'ledger-draft-line-range'),
+        # issue #889: the accepted set is the UNPADDED decimal form. `@007` parses via
+        # `@(\d+)`; normalizing it to 7 would silently accept a coordinate the author
+        # did not write, so it is refused with its own distinct breadcrumb (distinct
+        # from `ledger-draft-line-range` above, so a test asserting one cannot be
+        # satisfied by the other firing).
+        ('a zero-padded draft-line coordinate', 1, '1', 'unresolved@007: a\n',
+         'ledger-draft-line-format'),
+        ('a zero-padded zero draft-line coordinate', 1, '1', 'unresolved@00: a\n',
+         'ledger-draft-line-format'),
     ):
         got = r.adjudicate(1, 'REVISE', k, u, payload)
         assert_eq(f"#603-2/AC1: {name} is refused with a named breadcrumb",
@@ -11534,6 +11547,39 @@ def _row2d(r):
 
 
 _with_run603(_row2d)
+
+
+# issue #889 — the `@<n>` ledger coordinate's PREFIX-ORDERING contract. The parser matches
+# the plain status prefix before the `@<n>` form, so a summary that itself begins `@12: `
+# must be stored verbatim and capture no coordinate. Without a driver the ordering claim
+# in the parser's own comment is untested, and a reordered candidate list would silently
+# eat the first token of such a summary.
+def _row889_at_prefix(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved: @12: a summary starting with @n\n')
+    _f = issue_audit_state.load_state(r.slug, root=r.tmp)['rounds'][0]['findings'][0]
+    assert_eq("#889: a summary beginning `@n: ` is stored verbatim, capturing no coordinate",
+              ('@12: a summary starting with @n', False),
+              (_f['summary'], 'quoted_draft_line' in _f))
+
+
+_with_run603(_row889_at_prefix)
+
+
+# Positive control for the row above, on an independent run: the real `<status>@<n>:`
+# form DOES capture, so the absence above is attributable to the prefix ordering rather
+# than to a dead ingest path.
+def _row889_at_capture(r):
+    r.open_round(1, 'REVISE', 1)
+    r.adjudicate(1, 'REVISE', 1, '1', 'unresolved@12: a summary\n')
+    _f = issue_audit_state.load_state(r.slug, root=r.tmp)['rounds'][0]['findings'][0]
+    assert_eq("#889: ... while the real `<status>@<n>:` form does capture the coordinate",
+              ('a summary', 12),
+              (_f['summary'], _f.get('quoted_draft_line')))
+
+
+_with_run603(_row889_at_capture)
+
 
 
 # Row 3 — the validation matrix for the three post-close mutations, plus AC9/AC21.
@@ -11963,6 +12009,18 @@ for _name, _mutate in (
                                             supersession_round=9)])),
     ('a resolution ordinal naming no recorded revision',
      lambda r: r.update(findings=[_entry603(1, 'a', 'resolved', resolution_ordinal=7)])),
+    # issue #889: the optional per-finding quoted_draft_line coordinate. Absent is
+    # legal (covered by the positive control above), present-but-wrong-shape is
+    # corrupt — a string, a non-positive int, and a JSON boolean each collapse to
+    # StateError at the read boundary.
+    ('a quoted_draft_line that is a string',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line='12')])),
+    ('a quoted_draft_line that is zero',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=0)])),
+    ('a quoted_draft_line that is negative',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=-3)])),
+    ('a quoted_draft_line that is a boolean (true is not a line number)',
+     lambda r: r.update(findings=[_entry603(1, 'a', quoted_draft_line=True)])),
 ):
     _corrupt = _state([_round603(1, unresolved=1, must_revise=1,
                                  ledger=[_entry603(1, 'a')])], revisions=(1,))
