@@ -1,6 +1,6 @@
 ---
 name: code-explorer
-description: Deeply analyzes existing codebase features by tracing execution paths, mapping architecture layers, understanding patterns and abstractions, and documenting dependencies to inform new development
+description: DevFlow's implement-phase discovery agent. Deeply analyzes existing codebase features by tracing execution paths, mapping architecture layers, understanding patterns and abstractions, and documenting dependencies to inform new development
 tools: Glob, Grep, LS, Read, NotebookRead, WebFetch, TodoWrite, WebSearch
 model: sonnet
 color: yellow
