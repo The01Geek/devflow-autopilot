@@ -69,9 +69,9 @@ fi
 # EXPORTED env var, but this suite spawns many child processes — including the
 # module-harness/runner python meta-tests that legitimately source module-harness.sh
 # and drive devflow_run_full_suite_module against fixtures. An inherited skip would make
-# those tests no-op and fail. `export -n` keeps the value readable in THIS shell (and its
-# `( … )` subshells, where the 12 real module invocations fork) while dropping the export
-# attribute so no child inherits it. A no-op when the var is unset (the ordinary full run).
+# those tests no-op and fail. `export -n` keeps the value readable in THIS shell — where
+# the real module-tier invocations run — while dropping the export attribute so no child
+# process inherits it. A no-op when the var is unset (the ordinary full run).
 export -n DEVFLOW_SKIP_SUITE_MODULES 2>/dev/null || true
 RESULTS_FILE="$(mktemp)"
 MODULE_FAILURES_FILE="$(mktemp)"
@@ -44756,6 +44756,14 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   printf '%s\n' 'ERROR: a tally could not be established — refusing to render' > "$E877_TDIR/crash.log"
   python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/crash.log" --rc 1 --out "$E877_TDIR/t-crash" >/dev/null 2>&1
   assert_eq "#877 extract: a crashed shard (rc!=0, no summary) records a fail-closed synthetic failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-crash/summary")"
+
+  # A shard that exits 0 but emitted NO recognizable summary is also a fail-closed
+  # failure (a truncated/garbled log that still returned 0 must not read as clean).
+  printf '%s\n' 'some noise but no summary line at all' > "$E877_TDIR/nosum.log"
+  python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/nosum.log" --rc 0 --out "$E877_TDIR/t-nosum" >/dev/null 2>&1
+  assert_eq "#877 extract: rc=0 but no parseable summary records a fail-closed synthetic failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-nosum/summary")"
 
   # Tier isolation: with --tier monolith, a stray `Module <id>: …` line in a monolith
   # log (e.g. a failing meta-test dumping a run-module subprocess's captured stdout)
@@ -44767,7 +44775,6 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono-collide.log" --rc 0 --out "$E877_TDIR/t-collide" >/dev/null 2>&1
   assert_eq "#877 extract: --tier monolith ignores a stray Module line (no content-collision double-count)" "passed=50 failed=0" \
     "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$E877_TDIR/t-collide/summary")"
-    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$E877_TDIR/t-crash/summary")"
 
   # Combine a clean set: skip preserved, exit 0.
   mkdir -p "$E877_TDIR/clean"
@@ -44787,6 +44794,32 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   # so a shard that never uploaded its tally can never recombine as a green gate.
   assert_eq "#877 combine: --expect fails closed when a shard tally is missing" "rc=nonzero" \
     "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/clean" --expect 4 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # #456 heart: a summed skip count that disagrees with the itemized skip lines must
+  # surface the discrepancy AND fail closed — a skipped check must never silently
+  # vanish from the aggregate. Craft a tally whose summary says 2 skipped but whose
+  # skips file lists only 1.
+  mkdir -p "$E877_TDIR/skewskip/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'skipped	2' 'rc	0' > "$E877_TDIR/skewskip/a/summary"
+  printf '%s\n' 'only-one-skip [host-capability] — reason' > "$E877_TDIR/skewskip/a/skips"
+  : > "$E877_TDIR/skewskip/a/names"
+  assert_eq "#877 combine: a skip tally/detail disagreement fails closed (skip never silently vanishes)" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/skewskip" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # A present-but-malformed tally (missing key) fails closed — a truncated/garbled
+  # uploaded artifact must not recombine as a clean pass.
+  mkdir -p "$E877_TDIR/badkey/a"
+  printf '%s\n' 'shard	x' 'passed	1' 'failed	0' 'rc	0' > "$E877_TDIR/badkey/a/summary"
+  : > "$E877_TDIR/badkey/a/skips"; : > "$E877_TDIR/badkey/a/names"
+  assert_eq "#877 combine: a tally missing a required key fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/badkey" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+
+  # A present tally with a non-integer count fails closed.
+  mkdir -p "$E877_TDIR/badint/a"
+  printf '%s\n' 'shard	x' 'passed	NaN' 'failed	0' 'skipped	0' 'rc	0' > "$E877_TDIR/badint/a/summary"
+  : > "$E877_TDIR/badint/a/skips"; : > "$E877_TDIR/badint/a/names"
+  assert_eq "#877 combine: a tally with a non-integer count fails closed" "rc=nonzero" \
+    "$(python3 "$E877_TALLY" combine --scan "$E877_TDIR/badint" >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
 
   rm -rf "$E877_TDIR"
 fi

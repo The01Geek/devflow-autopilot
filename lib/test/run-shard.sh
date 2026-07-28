@@ -5,7 +5,7 @@
 # Shard dispatcher for the concurrent CI job matrix (issue #877).
 #
 # The required merge-gate check `lib + python tests` used to be one sequential job
-# running `bash lib/test/run.sh` (~14 min). It is now satisfied by several shard
+# running `bash lib/test/run.sh`. It is now satisfied by several shard
 # jobs running concurrently, recombined by an aggregator job that keeps that exact
 # name. This script is what one shard job runs: it maps a shard name to its work,
 # captures the output, and writes a per-shard tally directory (via shard-tally.py)
