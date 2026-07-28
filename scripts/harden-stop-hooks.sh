@@ -250,12 +250,16 @@ write_stub() {
   # Unlink a symlink dest first (issue #460 review) so the stub is written AT the path,
   # not through the link into its resolved target.
   [ -L "$dest" ] && rm -f "$dest" 2>/dev/null
-  # Language-appropriate stub (issue #805): a .py target gets the Python stub (a bash
-  # `exit 0` in a file run as a Python hook raises SyntaxError); every other target gets
-  # the bash STUB. Pure suffix `case` — no PATH tool decides this SELECTION (guard-class 2).
+  # Language-appropriate stub (issue #805): a .py ENTRY hook gets the Python stub (a bash
+  # `exit 0` in a file the harness runs as a Python hook raises SyntaxError on `exit 0`).
+  # A .py EXEC dep (workpad.py, config_fingerprint.py, extract-command-*.py) keeps the bash
+  # STUB — it runs in a SUBPROCESS (`python3 <path>`) or is imported, so a bash stub just
+  # makes it a no-op/import-error and the caller degrades (the guard fails open to defer),
+  # the established exec-dep behavior. Pure suffix + membership `case`/`if` — no PATH tool
+  # decides this SELECTION (guard-class 2).
   local _stub
   case "$t" in
-    *.py) _stub="$STUB_PY" ;;
+    *.py) if _is_entry_target "$t"; then _stub="$STUB_PY"; else _stub="$STUB"; fi ;;
     *)    _stub="$STUB" ;;
   esac
   if mkdir -p "$destdir" 2>/dev/null && printf '%s\n' "$_stub" > "$dest" 2>/dev/null; then

@@ -22285,8 +22285,8 @@ assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure"
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
 # stub-vs-trusted-copy decision; pin each exact literal.
-assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
-  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus the #805 PreToolUse guard" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
