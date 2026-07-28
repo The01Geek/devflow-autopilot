@@ -4,12 +4,13 @@
 """Focused tests for the issue-810 pin-corpus authoring gate.
 
 SHARDING REQUIREMENT (issue #870). lib/test/modules/harness-python-guards.sh runs this
-file as several concurrent selector processes, which is only safe because every test here
-is independent of every other: no ``os.chdir``, no module-level mutable state, and each
-test allocating its own ``tempfile.TemporaryDirectory()`` and passing an explicit ``cwd=``
-to its subprocesses. A test added here that takes a process-global lock on the working
-directory, or shares mutable state across tests, breaks that property and makes the
-sharded run order-dependent. Keep new tests self-contained.
+file as several concurrent selector processes, which is only safe because no test here
+shares filesystem or process-global state with another. There is no ``os.chdir`` and no
+module-level mutable state, and every test that touches the filesystem allocates its own
+``tempfile.TemporaryDirectory()`` and passes an explicit ``cwd=`` to its subprocesses. A
+test added here that takes a process-global lock on the working directory, or shares
+mutable state across tests, breaks that property and makes the sharded run
+order-dependent. Keep new tests self-contained.
 """
 
 from __future__ import annotations

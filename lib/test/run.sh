@@ -31931,7 +31931,7 @@ assert_eq "#401 shape-lint exits 0 on the clean review skill" "0" \
 # by /devflow:implement Phase 3 (implement tier) and via the manual /devflow:review-and-fix
 # comment path (devflow.yml) — it is NEVER dispatched on the read-only cloud `review`
 # profile (devflow-runner.yml). The default profile of extract-command-shapes.py encodes
-# that read-only review-runner matcher (R1–R5), which legitimately denies leading-`VAR=…$(…)`
+# that read-only review-runner matcher (R1–R4), which legitimately denies leading-`VAR=…$(…)`
 # assignments (e.g. the loop-start `RUN_ID=`) and the unexpanded `${CLAUDE_SKILL_DIR:-…}`
 # anchor-as-leading-token + redirect — source forms review-and-fix relies on and that ARE
 # permitted on the tiers it actually runs on (the implement-profile lint below is clean).
@@ -32109,10 +32109,11 @@ assert_eq "#401 R1 flags a CHAINED env-prefix compound with a substitution-value
 printf '%s\n' '```bash' 'printf hi 2>/tmp/e.err' '```' > "$E363/s-r3d.md"
 assert_eq "#401 R3 flags a 2> stderr redirect to a /tmp target" "yes" \
   "$(python3 "$ECS" "$E363/s-r3d.md" | grep -q '  R3  ' && echo yes || echo no)"
-# ── Control-word stripping: a violation BEHIND a stripped control word still fires. (The
-# ── `elif WP=$(…)` condition-capture that used to be listed as permitted below is now R5's
-# ── own violation — issue #857 retired that idiom from Phase 0.3.5 in favour of the
-# ── single-leading-token seed helper, and the cloud matcher refused the compound anyway.)
+# ── Control-word stripping: a violation BEHIND a stripped control word still fires. (Issue
+# ── #857 retired the `elif WP=$(…)` condition-capture idiom from Phase 0.3.5 in favour of
+# ── the single-leading-token seed helper; the desk-lint rule that guarded that idiom — R5 —
+# ── was itself retired in issue #869 once matcher-probe Shape 18 recorded the shape
+# ── cloud-PERMITTED, so no assertion for it remains here.)
 printf '%s\n' '```bash' 'if M=x printf hi; then' 'echo y' 'fi' '```' > "$E363/s-r1e.md"
 assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)" "yes" \
   "$(python3 "$ECS" "$E363/s-r1e.md" | grep -q '  R1  ' && echo yes || echo no)"
@@ -32124,49 +32125,21 @@ assert_eq "#401 R1 still fires behind a stripped control word (if M=x cmd; then)
     'printf hi | tee f' 'VAR="$(gh pr view 2)"' 'cdrecord x' 'pythonize data' '```'; } > "$E363/s-ok.md"
 assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset, IFS= read, tee, pipe-tee, near-miss heads)" "" \
   "$(python3 "$ECS" "$E363/s-ok.md")"
-# ── R5 discrimination (#857): the BARE capture above stays clean, but the same capture in
-# ── `if`/`elif` CONDITION position is R5's violation — the seed fence's refused shape.
-printf '%s\n' '```bash' 'elif WP=$(gh pr view 3); then' '```' > "$E363/s-r5d.md"
-assert_eq "#401 R5 flags a command-substitution assignment in if/elif condition position" "yes" \
-  "$(python3 "$ECS" "$E363/s-r5d.md" | grep -q '  R5  ' && echo yes || echo no)"
-# ── R5 covers all FOUR substitution spellings symmetrically: bare/quoted x $()/backtick.
-# ── A quoted backtick must not evade a rule its bare sibling catches.
-printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=`gh pr view 2`; then' 'elif WP="`gh pr view 3`"; then' '```' > "$E363/s-r5e.md"
-assert_eq "#401 R5 flags all four condition-substitution spellings (bare/quoted x dollar-paren/backtick)" "3" \
-  "$(python3 "$ECS" "$E363/s-r5e.md" | grep -c '  R5  ')"
-# ── R5 NEGATIVE CONTROL for its documented scoping guarantee (#857): the statement
-# ── splitter FLATTENS a `case` compound, emitting each arm body with its `LABEL)` selector
-# ── stripped — so a `VAR=$(cmd)` inside a `case` arm is never decomposed into an if/elif
-# ── condition and R5 must NOT reach it. Without this row the docstring's "R5's reach is
-# ── exactly a statement whose own leading keyword is if/elif" survives a mutation widening
-# ── the pattern to any `VAR=$(…)`, because only the bare-capture and if/elif rows are driven.
-printf '%s\n' '```bash' 'case "$X" in' '  a) WP=$(gh pr view 4) ;;' 'esac' '```' > "$E363/s-r5f.md"
-assert_eq "#401/#857 R5 does NOT fire on a command substitution nested in a case arm (documented scoping guarantee)" "0" \
-  "$(python3 "$ECS" "$E363/s-r5f.md" | grep -c '  R5  ')"
-# ── Positive control on the SAME fixture shape: the identical capture in condition position
-# ── DOES fire, so the row above is R5's scoping, not a fixture the lint never parsed.
-printf '%s\n' '```bash' 'if WP=$(gh pr view 4); then' '```' > "$E363/s-r5g.md"
-assert_eq "#401/#857 R5 case-arm control is not vacuous — the same capture in condition position fires" "1" \
-  "$(python3 "$ECS" "$E363/s-r5g.md" | grep -c '  R5  ')"
-# ── R5's TWO documented condition-spelling exemptions (#857), each pinned so a later
-# ── widening of the anchored pattern is a deliberate edit that turns these RED rather than
-# ── a silent scope change. (1) The NEGATED form is the repo's own #284-mandated idiom —
-# ── four live sites in this very bundle — so R5 must NOT claim it; it is still reported,
-# ── under R1, which the second assertion pins so the exemption is never a silent green.
-printf '%s\n' '```bash' 'if ! BASE=$(.devflow/vendor/devflow/scripts/config-get.sh .base_branch main); then' '```' > "$E363/s-r5h.md"
-assert_eq "#401/#857 R5 does NOT claim the negated 'if ! VAR=\$(cmd)' idiom (the #284 form this bundle prescribes)" "0" \
-  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R5  ')"
-# The exemption's COST, pinned rather than glossed: NO rule reports the negated spelling
-# (R1 does not reach it either — after control-word stripping the leading token is `!`),
-# so it is desk-green. This row exists so that stays a disclosed, deliberate hole: a later
-# change that starts reporting it turns this RED and forces the NON-GOALS text to move too.
-assert_eq "#401/#857 the negated idiom is reported by NO rule — the disclosed silent gap, not an R1 fallback" "0" \
-  "$(python3 "$ECS" "$E363/s-r5h.md" | grep -c '  R[0-9]  ')"
-# ── (2) A condition with a PRECEDING test is outside the anchored pattern — a coverage
-# ── limit, not a decision. Pinned so the NON-GOALS statement of it stays true.
-printf '%s\n' '```bash' 'elif [ -n "$P" ] && ACS=$(gh pr view 5); then' '```' > "$E363/s-r5i.md"
-assert_eq "#401/#857 R5 does NOT reach a condition-substitution behind a preceding test (documented coverage limit)" "0" \
-  "$(python3 "$ECS" "$E363/s-r5i.md" | grep -c '  R5  ')"
+# ── (R5 retired, issue #869): the `if`/`elif` `VAR=$(…)` command-substitution CONDITION
+# ── shape the retired R5 rule flagged (#857) is now cloud-PERMITTED — this is exactly the
+# ── `$( )` spelling matcher-probe Shape 18 measured (`if HP=$(config-get.sh …)`, run
+# ── 30310938175), and the review-seed's own OLD `elif WP=$(workpad.py id …); then`. Its
+# ── permission now rests on the statement splitter (which splits at `;` into a pure
+# ── `elif VAR=$(…)` capture the R1 carve-out exempts), so this POSITIVE regression control
+# ── pins that the review profile reports NO rule on that spelling — a later edit to the
+# ── splitter or R1's control-word stripping that silently re-flagged it (turning the review
+# ── bundle desk-RED on a probe-PERMITTED shape) turns this row RED instead. (The BACKTICK
+# ── condition spellings are NOT asserted here: R1 flags them independently of R5 — its
+# ── capture carve-out only ever exempted `$( )`, not backticks — so they are outside this
+# ── retirement's scope.)
+printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=$(gh pr view 2); then' '```' > "$E363/s-r5-retired.md"
+assert_eq "#869 the retired \$()-condition-substitution shape stays desk-clean (reported by NO review rule now R5 is gone)" "0" \
+  "$(python3 "$ECS" "$E363/s-r5-retired.md" | grep -c '  R[0-9]  ')"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"
