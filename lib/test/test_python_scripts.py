@@ -19080,6 +19080,119 @@ assert_eq("#793: the rendered record-dispatch suggestion carries --kind FILLED a
                   state={'rounds': [{'round': 1, 'outcome': None, 'kind': 'targeted',
                                      'attempts': [{'arm': 'file'}]}], 'nonce': 'n'})))
 
+# ── the return-time regeneration arms, and the selection→dispatch window ──────────────
+# Named by the Phase 3 test-coverage review as wholly untested: the two named scope-file
+# steering reasons, the basis cross-check, and the discovery-arm refusal. Each is driven
+# through the real CLI so the reason token is read off the recorded state, not inferred.
+
+def _793_scoped_round(tmpdir_holder):
+    """Open a real targeted round and return (run, scope_path, dispatch_digest, draft)."""
+    td = tempfile.mkdtemp()
+    tmpdir_holder.append(td)
+    run = _Run603(td, slug='s793s')
+    draft = Path(td, 'd.md')
+    draft.write_text('# T\n\n## A\n\nold\n', encoding='utf-8')
+    dig = run._field(run('record-dispatch', '--kind', 'discovery', run.slug, '--round', '1',
+                         '--arm', 'file', '--draft-file', 'd.md', nonce=True),
+                     'digest=', 'record-dispatch')
+    run('record-return', run.slug, '--round', '1', '--verdict', 'REVISE',
+        '--findings-count', '1', '--carriage-object-id', dig, nonce=True)
+    run.adjudicate(1, 'REVISE', must=1, unresolved='1', ledger='unresolved: a defect\n')
+    _d, _p, _ = _sdw_stage(str(Path(td, '.devflow', 'tmp',
+                                    f'issue-draft-{run.slug}.N.staged.md')),
+                           b'# T\n\n## A\n\nold\n')
+    run('record-staged-write', run.slug, '--path', _p, '--digest', _d, nonce=True)
+    draft.write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
+    run('record-revision', run.slug, '--after-round', '1', '--stdin-digest',
+        stdin='# T\n\n## A\n\nrevised\n', nonce=True)
+    scope = str(Path(td, 'scope.md'))
+    run('write-dispatch-scope', run.slug, '--draft-file', str(draft), '--path', scope,
+        nonce=True)
+    return run, scope, draft
+
+
+def _793_dispatch_scoped(run, scope, draft, rnd='2'):
+    """Dispatch a targeted round WITH a recorded instruction file.
+
+    The instruction file is what makes the scope-file steering arms reachable at all:
+    without it `steering_state` short-circuits on `inputs-unrecorded` long before it
+    regenerates anything, so a fixture that omits it grades nothing about the scope arms.
+    """
+    instr = str(Path(run.tmp, 'instructions.md'))
+    rendered = _subprocess.run(
+        [sys.executable, str(SCRIPTS / 'render-audit-prompt.py'), 'dispatch-instructions',
+         '--slug', run.slug, '--draft-path', str(draft.resolve()),
+         '--instructions-path', instr, '--scope-file', str(Path(scope).resolve())],
+        capture_output=True, text=True)
+    Path(instr).write_text(rendered.stdout, encoding='utf-8')
+    return run('record-dispatch', '--kind', 'targeted', run.slug, '--round', rnd,
+               '--arm', 'file', '--draft-file', str(draft.resolve()),
+               '--scope-file', str(Path(scope).resolve()),
+               '--instructions-file', instr,
+               '--instructions-draft-path', str(draft.resolve()), nonce=True)
+
+
+_793_tds = []
+
+# AC: record-dispatch refuses a targeted dispatch whose scope basis no longer describes
+# the bytes it audits — the ONLY guard on the selection→dispatch window, which exists
+# because the skill re-runs the Step 3 gate in between.
+_r, _scope, _draft = _793_scoped_round(_793_tds)
+_draft.write_text('# T\n\n## A\n\nrevised AGAIN after the scope was frozen\n',
+                  encoding='utf-8')
+_bm = _r('record-dispatch', '--kind', 'targeted', _r.slug, '--round', '2', '--arm', 'file',
+         '--draft-file', 'd.md', '--scope-file', _scope, nonce=True)
+assert_eq("#793: a byte edit landing between selection and dispatch is refused, named "
+          "(the recorded changed-section set names superseded regions)",
+          (True, True), (_bm.returncode != 0, 'scope-basis-mismatch' in _bm.stderr))
+
+# AC: --scope-file is a targeted-round input; a discovery round carries no scoped payload.
+_dm = _r('record-dispatch', '--kind', 'discovery', _r.slug, '--round', '2', '--arm', 'file',
+         '--draft-file', 'd.md', '--scope-file', _scope, nonce=True)
+assert_eq("#793: --scope-file on a discovery round is refused, named",
+          (True, True), (_dm.returncode != 0, 'scope-file-on-discovery' in _dm.stderr))
+
+# AC: an ABSENT scope file at return time takes its OWN named reason, distinct from the
+# tampered arm, because the two send a reader to opposite remedies.
+_r2, _scope2, _draft2 = _793_scoped_round(_793_tds)
+_d2 = _793_dispatch_scoped(_r2, _scope2, _draft2)
+_dig2 = _d2.stdout.split('digest=', 1)[1].split()[0]
+os.unlink(_scope2)
+_ret2 = _r2('record-return', _r2.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig2,
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793: an ABSENT scope file at record-return records its own named reason",
+          True, 'scope-file-unreadable' in _ret2.stdout)
+
+# AC: a TAMPERED scope file records the tampered reason and withholds the clean ground.
+_r3, _scope3, _draft3 = _793_scoped_round(_793_tds)
+_d3 = _793_dispatch_scoped(_r3, _scope3, _draft3)
+_dig3 = _d3.stdout.split('digest=', 1)[1].split()[0]
+Path(_scope3).write_text(Path(_scope3).read_text(encoding='utf-8') + '- 9.9 — forged\n',
+                         encoding='utf-8')
+_ret3 = _r3('record-return', _r3.slug, '--round', '2', '--verdict', 'FILE',
+            '--findings-count', '0', '--carriage-object-id', _dig3,
+            '--claim-verdicts', '1.1 addressed', nonce=True)
+assert_eq("#793: a TAMPERED scope file records the tampered reason — distinct from the "
+          "absent arm, and steering is not established",
+          (True, True),
+          ('scope-file-tampered' in _ret3.stdout, 'steering=not-established' in _ret3.stdout))
+
+# AC 39: the seam's whole purpose — a targeted round records NO ledger of its own, so a
+# run whose every claim returns not-addressed does not double the run-wide count.
+_r4, _scope4, _draft4 = _793_scoped_round(_793_tds)
+_d4 = _793_dispatch_scoped(_r4, _scope4, _draft4)
+_dig4 = _d4.stdout.split('digest=', 1)[1].split()[0]
+_r4('record-return', _r4.slug, '--round', '2', '--verdict', 'REVISE',
+    '--findings-count', '1', '--carriage-object-id', _dig4,
+    '--claim-verdicts', '1.1 not-addressed', nonce=True)
+_doc4 = json.loads(Path(_r4.tmp, '.devflow', 'tmp',
+                        f'issue-audit-state-{_r4.slug}.json').read_text(encoding='utf-8'))
+assert_eq("#793/AC39: an all-not-addressed targeted round leaves the run-wide effective "
+          "unresolved count equal to the discovery round's, not doubled",
+          (1, None),
+          (_m793._effective_unresolved(_doc4), _doc4['rounds'][1].get('findings')))
+
 assert_eq("#793: last_completed stays kind-blind — it answers the newest completed "
           "round whatever its kind",
           3,

@@ -2600,7 +2600,12 @@ def _effective_unresolved(state):
     boundary is stated rather than silently widened here; re-auditing re-surfaces a
     genuinely unfixed defect onto a later ledgered round, which bounds the residual.
     """
-    last = last_completed(state)
+    # issue #793 — DECIDED treatment: the seed is the latest WHOLE-DRAFT round. A
+    # `targeted` round records no adjudication and no ledger of its own, so seeding from it
+    # made `_unresolved_int` answer None and the run-wide count read unestablished the
+    # moment a scoped round completed — turning a mechanism meant to reduce rounds into one
+    # that erased the count driving convergence.
+    last = _last_discovery_round(state)
     if last is None:
         return None
     frozen = _unresolved_int(last)
@@ -5075,6 +5080,12 @@ def _cross_check_kind(doc, args):
 def cmd_record_dispatch(args):
     doc = _load_for_mutation('record-dispatch', args.slug, args.nonce)
     _checked_kind(args.kind)
+    if args.kind != 'targeted' and args.scope_file:
+        # Structural, and hoisted above the cross-check for the same reason as the arm
+        # refusal: a kind-mismatch would otherwise pre-empt it and name the wrong cause.
+        _fail('record-dispatch',
+              '--scope-file is a targeted-round input; a discovery round audits the whole '
+              'draft and carries no scoped payload (scope-file-on-discovery)')
     if args.kind == 'targeted' and args.arm != 'file':
         # STRUCTURAL, so it precedes the kind cross-check: the scoped payload reaches the
         # auditor ONLY through the rendered instruction file, and that file exists only on
@@ -5115,10 +5126,6 @@ def cmd_record_dispatch(args):
                   '(scope-basis-mismatch): the draft changed between selection and '
                   'dispatch, so the recorded changed-section set names superseded regions '
                   '— re-run write-dispatch-scope against the current bytes')
-    elif args.scope_file:
-        _fail('record-dispatch',
-              '--scope-file is a targeted-round input; a discovery round audits the whole '
-              'draft and carries no scoped payload (scope-file-on-discovery)')
     if args.arm == 'file':
         if not args.draft_file:
             _fail('record-dispatch', '--draft-file is required on the file arm')
