@@ -144,6 +144,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/assert-cli-version.sh": {
+      "note": "issue #671 pinned-CLI version assertion extracted from ci.yml's verify step",
+      "owner": "unmodularized"
+    },
     "scripts/authorize-actor.sh": {
       "note": "",
       "owner": "unmodularized"
