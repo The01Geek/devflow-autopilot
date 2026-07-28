@@ -23479,7 +23479,8 @@ PY
   # this block. Drive the REAL step (extracted like baseprovision above, its own
   # unit surface because the parser is deliberately inline workflow YAML) over the
   # {object, array, scalar, valid-falsy, missing, wrong-type} config matrix plus the
-  # two no-config arms, asserting exit status, the SPECIFIC message, and the output.
+  # config-absent and fetch-failure/empty-base-ref arms, asserting exit status, the
+  # SPECIFIC message, and the output.
   BV_STEP=$(mktemp)
   python3 - "$RUNNER" >"$BV_STEP" <<'PY'
 import sys, yaml
@@ -23492,12 +23493,15 @@ for job in doc["jobs"].values():
 raise SystemExit("baseversion step not found")
 PY
   BVROOT=$(mktemp -d)
-  bv_run() {  # $1=base fixture dir, $2=step script → sets BV_RC; BV_OUT/BV_LOG globals
-    local work; work=$(mktemp -d); BV_OUT=$(mktemp); BV_LOG=$(mktemp)
+  bv_run() {  # $1=base fixture dir, $2=step script, $3=BASE_REF (default main) → sets BV_RC; BV_OUT/BV_LOG globals
+    # `${3-main}`, NOT `${3:-main}`: the empty-base-ref test passes an explicit "" as $3,
+    # and `:-` would collapse that to "main" (defaulting on empty as well as unset),
+    # silently testing a successful fetch instead of the empty-base-ref arm.
+    local work ref; work=$(mktemp -d); BV_OUT=$(mktemp); BV_LOG=$(mktemp); ref="${3-main}"
     git -C "$work" init -q
     git -C "$work" remote add origin "file://$1"
     # ::warning:: lines go to STDOUT (echo), so merge streams into BV_LOG.
-    ( cd "$work" && BASE_REF=main RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$BV_OUT" bash "$2" ) >"$BV_LOG" 2>&1
+    ( cd "$work" && BASE_REF="$ref" RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$BV_OUT" bash "$2" ) >"$BV_LOG" 2>&1
     BV_RC=$?
     rm -rf "$work"
   }
@@ -23552,6 +23556,24 @@ PY
   bv_run "$BVROOT/nocfg" "$BV_STEP"
   assert_eq "#898 baseversion(no config): selects the no-config message, NOT malformed" "1:0" \
     "$(bv_msg 'carries no .devflow/config.json'):$(bv_msg 'malformed or non-object')"
+  # (fetch failure / empty base ref) the OUTER `else` arm — distinct from every
+  # config-shape arm above (which all reach a successful fetch) and from the
+  # no-config arm (fetch succeeded, config absent). The `object` fixture fetches
+  # cleanly on `main`, so forcing the arm is done via BASE_REF, not the fixture: an
+  # EMPTY base ref (the trusted ref could not be determined) and a NON-EXISTENT ref
+  # (the fetch fails) both take it, emitting the single "fetch failed or the base
+  # ref is empty" diagnostic with empty output — and NOT the malformed/no-config
+  # messages. This is the most operationally reachable degraded path (a transient
+  # base-ref fetch failure), and its own message was untested before.
+  bv_run "$(bv_cfg okfetch '{"devflow_version":"7.7.7"}')" "$BV_STEP" ""
+  assert_eq "#898 baseversion(empty base ref): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(empty base ref): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(empty base ref): the fetch-failed/empty message, NOT malformed/no-config" "1:0:0" \
+    "$(bv_msg 'fetch failed or the base ref is empty'):$(bv_msg 'malformed or non-object'):$(bv_msg 'carries no')"
+  bv_run "$BVROOT/okfetch" "$BV_STEP" "no-such-branch"
+  assert_eq "#898 baseversion(fetch fails): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(fetch fails): selects the fetch-failed/empty message" "1" \
+    "$(bv_msg 'fetch failed or the base ref is empty')"
 
   # ── #898 AC2: the `strings` clamp and the `-e` object guard are load-bearing ──
   # Demonstrated by MUTATION on a COPY of the extracted step (never the working
@@ -23670,6 +23692,30 @@ STUB
   mkdir -p "$BPLROOT/e"; printf 'x' > "$BPLROOT/e/readme"; bp_mkbase "$BPLROOT/e"
   bpl_run "$BPLROOT/e" committed - "$BPL_STEP"
   assert_eq "#898 ladder(none): no trusted source → materialization not attempted" "1" "$(bpl_notattempted)"
+  # (F) EMPTY-BLOB rejection (security guard): a rank-1 source path EXISTS on the base
+  # ref but is a zero-byte blob. `git show` succeeds on it, so a naive ladder would set
+  # source=base-ref-vendored, write the empty script out, and RUN it — a script that
+  # does nothing and exits 0, i.e. a silently unprotected review run. The step's
+  # `[ -n "$_mtpe_raw" ] || _mtpe_source='absent'` guard rejects it: not attempted,
+  # helper never invoked (no argv-record written). Distinct from (E), which has no file.
+  mkdir -p "$BPLROOT/f/.devflow/vendor/devflow/scripts"
+  : > "$BPLROOT/f/.devflow/vendor/devflow/scripts/$BPL_MAT"   # zero-byte blob at the rank-1 path
+  printf 'x' > "$BPLROOT/f/readme"; bp_mkbase "$BPLROOT/f"; bpl_run "$BPLROOT/f" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(empty-blob): zero-byte rank-1 helper rejected → no rank recorded" "" "$(bpl_rank)"
+  assert_eq "#898 ladder(empty-blob): rejected → materialization not attempted" "1" "$(bpl_notattempted)"
+  assert_eq "#898 ladder(empty-blob): the empty helper was NEVER invoked (no argv-record)" "no" \
+    "$([ -e "$BPL_REC" ] && echo yes || echo no)"
+  # MUTATION: dropping the `[ -n "$_mtpe_raw" ]` empty-read guard makes the empty helper
+  # get written out and INVOKED — the not-attempted notice then disappears (count 1 → 0),
+  # proving the guard is load-bearing (the "silently unprotected run" it prevents).
+  BPL_MUT_EB=$(mktemp)
+  sed 's/\[ -n "\$_mtpe_raw" \] || _mtpe_source=.absent./true/' "$BPL_STEP" > "$BPL_MUT_EB"
+  assert_eq "#898 ladder(empty-blob AC): the guard-drop mutation actually applied" "applied" \
+    "$(cmp -s "$BPL_STEP" "$BPL_MUT_EB" && echo none || echo applied)"
+  bpl_run "$BPLROOT/f" committed - "$BPL_MUT_EB"
+  assert_eq "#898 ladder(empty-blob AC): dropping the empty-read guard writes+runs the empty helper (notice was 1)" "0" \
+    "$(bpl_notattempted)"
+  rm -f "$BPL_MUT_EB"
 
   # ── #898 AC4: the protected-set expansion at the call site must stay UNQUOTED ──
   # The baseline above proved the helper receives BOTH names as separate argv entries
