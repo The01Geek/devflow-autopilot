@@ -22490,6 +22490,65 @@ assert_eq "#460 drift-guard: a directory closure member is reported UNREADABLE (
   "$(printf '%s\n' "$HSH_UR_OUT2" | grep -c 'lib/is-a-dir.sh -> UNREADABLE' || true)"
 rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
 
+# ── #805 PreToolUse shape guard: closure edge fail-closed, remediation mirror, stub ──
+GUARD_PY="$LIB/../scripts/pretooluse-shape-guard.py"
+ALLOWLIST_DOC="$LIB/../docs/cloud-allowlist.md"
+# The guard's importlib edge to extract-command-shapes.py is a REAL, trust-sensitive edge
+# the walker must model — assert it is DETECTED and REQUIRED: dropping shapes from the
+# closure surfaces the guard->shapes violation (fail-closed), so an importlib-edge regex
+# regression that stops matching turns the closure assertion RED rather than silently
+# certifying a set it cannot inspect.
+HSH_805_DROP="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -v 'extract-command-shapes.py' | tr '\n' ' ')"
+HSH_805_OUT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_805_DROP" python3 "$HSH_EDGES")"
+assert_eq "#805 drift-guard: the guard's importlib edge to extract-command-shapes.py is detected + required (fail-closed)" "1" \
+  "$(printf '%s\n' "$HSH_805_OUT" | grep -c 'pretooluse-shape-guard.py -> extract-command-shapes.py' || true)"
+HSH_805_DROP2="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -v 'extract-command-heads.py' | tr '\n' ' ')"
+HSH_805_OUT2="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_805_DROP2" python3 "$HSH_EDGES")"
+assert_eq "#805 drift-guard: the shapes->heads importlib edge is detected + required (fail-closed)" "1" \
+  "$(printf '%s\n' "$HSH_805_OUT2" | grep -c 'extract-command-shapes.py -> extract-command-heads.py' || true)"
+# Remediation mirror (issue #805): each deny-set arm's permitted-alternative phrase appears
+# in BOTH the guard's REMEDIATION table and docs/cloud-allowlist.md's authoritative record,
+# so the scripts/-to-docs/ coupled mirror cannot drift silently. This is a machine-consumed
+# cross-file contract (the guard's remediation text is the emitted permissionDecisionReason),
+# not a prose-presence pin.
+for _pair in 'R1=VAR=$(cmd)' 'R3-tmp=.devflow/tmp/' 'R4=leading token'; do
+  # structural-pin-ok: cross-file-phase-contract -- guard REMEDIATION <-> docs/cloud-allowlist.md arm alternative
+  _arm="${_pair%%=*}"; _phrase="${_pair#*=}"
+  assert_eq "#805 remediation mirror: arm $_arm alternative is in the guard" "yes" \
+    "$(grep -qF "$_phrase" "$GUARD_PY" && echo yes || echo no)"
+  assert_eq "#805 remediation mirror: arm $_arm alternative is in docs/cloud-allowlist.md" "yes" \
+    "$(grep -qF "$_phrase" "$ALLOWLIST_DOC" && echo yes || echo no)"
+done
+# Language-appropriate stub (issue #805): drive harden-stop-hooks.sh with an EMPTY
+# TRUSTED_DIR so every target is stubbed, then assert the .py target's stub parses under
+# python3 and a .sh target's stub parses under bash — asserting the INSTALLED BYTES parse,
+# not merely that a stub was written.
+HSH_STUB_WS="$(mktemp -d)"
+WORKSPACE_ROOT="$HSH_STUB_WS" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1 || true
+assert_eq "#805 stub: the .py entry target's stub parses under python3" "0" \
+  "$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1; echo $?)"
+assert_eq "#805 stub: a .sh entry target's stub parses under bash" "0" \
+  "$(bash -n "$HSH_STUB_WS/lib/efficiency-trace.sh" 2>/dev/null; echo $?)"
+# The .py stub run as __main__ emits a benign defer decision and exits 0 (never a
+# SyntaxError-on-`exit 0` that would fail the hook on every call).
+HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null)"
+assert_eq "#805 stub: the .py stub emits a defer decision when run as a hook" "1" \
+  "$(printf '%s' "$HSH_STUB_OUT" | grep -c '"permissionDecision": "defer"' || true)"
+rm -rf "$HSH_STUB_WS"
+# Denied-command visibility (issue #805, Part 3): extract-execution-shape.sh emits the
+# denied commands the permission_denials array carries, alongside the existing token.
+EES_805="$LIB/../scripts/extract-execution-shape.sh"
+EES_805_FIX="$(mktemp)"
+cat > "$EES_805_FIX" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo a > /tmp/f"}},{"tool_name":"Bash","tool_input":{"command":"::error::x"}}],"permission_denials_count":2}]
+EESEOF
+EES_805_OUT="$(bash "$EES_805" "$EES_805_FIX" 2>/dev/null)"
+assert_eq "#805 extract-execution-shape emits a permission_denials_commands line" "1" \
+  "$(printf '%s\n' "$EES_805_OUT" | grep -c '^permission_denials_commands: ' || true)"
+assert_eq "#805 extract-execution-shape carries the denied command text" "1" \
+  "$(printf '%s\n' "$EES_805_OUT" | grep -c 'echo a > /tmp/f' || true)"
+rm -f "$EES_805_FIX"
+
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
 hsh_mk_ws() {  # $1 = ws root; every closure target carries a MALICIOUS marker
@@ -34599,6 +34658,15 @@ assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning names the closure (cou
 assert_eq "#504 AC10 run.sh #460 FP1 names the closure (count-free)" "2" \
   "$(pin_count 'DevFlow-layout closure paths over same-named' "$LIB/test/run.sh")"
 assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
+# #805: the grounding block names the three denied shapes no runtime guard catches, so
+# the engine self-polices them. Asserted on the RENDERED output (a shape name assembled
+# from adjacent string literals lives on no single source line).
+assert_eq "#805 grounding names the bash <path> wrapper shape" "yes" \
+  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'bash <path>' && echo yes || echo no)"
+assert_eq "#805 grounding names process substitution" "yes" \
+  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'process substitution' && echo yes || echo no)"
+assert_eq "#805 grounding names the simple_expansion shape" "yes" \
+  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'simple_expansion' && echo yes || echo no)"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \
