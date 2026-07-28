@@ -1,0 +1,48 @@
+{
+  "iter": 3,
+  "loop_role": "fix",
+  "fix_commit_sha": "875380d0af5bf2cc1593a94cefc026b69f3789dc",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "phase3_dispatched": [
+    "devflow:code-reviewer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": true,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied",
+      "commit": "875380d0af5bf2cc1593a94cefc026b69f3789dc"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": null,
+    "coverage": "not_verified",
+    "reason": "the convergence-time shadow fan-out was not run; iteration 3 re-reviewed the converged tree with a single agent instead of the full independent roster",
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}
