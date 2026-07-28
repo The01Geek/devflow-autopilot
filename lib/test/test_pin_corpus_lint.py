@@ -2775,6 +2775,56 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
 
+    def test_repository_mutations_do_not_leak_between_fixtures(self):
+        # Two fixtures alive at once, one mutated destructively, and the other
+        # then asserted pristine in both its bytes and its verdict. The bytes
+        # half covers the filesystem isolation the per-test temporary directory
+        # provides; the verdict half covers the content-keyed parse memos in
+        # pin-corpus-lint.py and mutation-pin-census.py, which would report the
+        # mutated repository's answer for the pristine one if a memo key ever
+        # stopped distinguishing the two sources.
+        with (
+            tempfile.TemporaryDirectory() as mutated_dir,
+            tempfile.TemporaryDirectory() as pristine_dir,
+        ):
+            mutated, pristine = Path(mutated_dir), Path(pristine_dir)
+            self._repo(mutated)
+            self._repo(pristine)
+            pristine_run_sh = (pristine / "lib/test/run.sh").read_bytes()
+
+            source = mutated / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'leak probe' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            (mutated / "lib/test/leaked-fixture.sh").write_text(
+                "LEAKED=1\n", encoding="utf-8"
+            )
+            subprocess.run(
+                ["git", "switch", "-qc", "topic"], cwd=mutated, check=True
+            )
+            rc, stdout, _ = self._public_rc(mutated)
+            self.assertEqual(3, rc)
+            self.assertIn("STATIC_PIN_FIXTURE=1", stdout)
+
+            self.assertEqual(
+                pristine_run_sh, (pristine / "lib/test/run.sh").read_bytes()
+            )
+            self.assertFalse((pristine / "lib/test/leaked-fixture.sh").exists())
+            self.assertEqual(
+                "main",
+                subprocess.run(
+                    ["git", "branch", "--show-current"],
+                    cwd=pristine,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+            )
+            self.assertEqual((0, "", ""), self._public_rc(pristine))
+
     def _audited_source_added_after_base(self, root, relative):
         """Rewind ``origin/main`` past ``relative`` so HEAD adds it, as a branch would."""
         (root / relative).unlink()

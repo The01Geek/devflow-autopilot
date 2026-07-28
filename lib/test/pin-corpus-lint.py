@@ -129,8 +129,10 @@ containing binary tracked files reports INCOMPLETE rather than ``deleted``.
 from __future__ import annotations
 
 import ast
+import bisect
 import csv
 import difflib
+import functools
 import hashlib
 import importlib.util
 import io
@@ -1760,9 +1762,42 @@ _POSITIONAL_RE = re.compile(r"^\$\{?([1-9][0-9]*)\}?$")
 _ALL_POSITIONAL_RE = re.compile(r"^\$\{?@\}?$")
 
 
+# Bound on the per-source parse memos below. A changed source is parsed for
+# both its merge-base image and its worktree image, and a process that scans
+# repeatedly re-presents the unchanged image each time, so a small cache turns
+# those repeats into hits. The bound keeps the retained text and its derived
+# spans proportional to the sources one scan holds rather than to the number of
+# scans the process performs.
+_SOURCE_PARSE_CACHE_SIZE = 6
+
+
+def _newline_offsets(text):
+    """Return the ascending offsets of every newline in ``text``."""
+    offsets = []
+    position = text.find("\n")
+    while position != -1:
+        offsets.append(position)
+        position = text.find("\n", position + 1)
+    return offsets
+
+
 def _function_definitions(text):
-    """Return quote-, comment-, escape-, and parameter-aware function spans."""
+    """Return quote-, comment-, escape-, and parameter-aware function spans.
+
+    The returned mapping is a fresh dict on every call: the underlying parse is
+    memoized on ``text``, so handing the cached object to a caller that mutated
+    it would corrupt every later hit.
+    """
+    return dict(_function_definitions_cached(text))
+
+
+@functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
+def _function_definitions_cached(text):
     definitions = {}
+    # Derived lazily: a source with no function definition never pays for it,
+    # and one with many amortizes a single pass over the whole text instead of
+    # rescanning the prefix per definition to derive its line number.
+    newline_offsets = None
     for match in _FUNCTION_START_RE.finditer(text):
         depth = 1
         parameter_depth = 0
@@ -1808,10 +1843,12 @@ def _function_definitions(text):
             elif char == "}":
                 depth -= 1
                 if depth == 0:
+                    if newline_offsets is None:
+                        newline_offsets = _newline_offsets(text)
                     definitions[match.group(1)] = (
                         text[body_start:index],
-                        text.count("\n", 0, match.start()) + 1,
-                        text.count("\n", 0, index) + 1,
+                        bisect.bisect_left(newline_offsets, match.start()) + 1,
+                        bisect.bisect_left(newline_offsets, index) + 1,
                     )
                     break
             index += 1
@@ -1916,6 +1953,26 @@ def helper_specs_for_source(
     ``$@`` forwarding forms to an already-known helper; conventional
     ``*_pin_*`` wrappers provide the small fallback needed for wrappers
     implemented via lower-level counters (for example ``_raf_pin_unique``).
+
+    Each returned mapping is a fresh dict on every call: the underlying
+    inference is memoized on ``text``, so handing a cached object to a caller
+    that mutated it would corrupt every later hit.
+    """
+    specs, families, origins = _helper_specs_for_source_cached(text)
+    if include_families and include_origins:
+        return dict(specs), dict(families), dict(origins)
+    if include_families:
+        return dict(specs), dict(families)
+    return dict(specs)
+
+
+@functools.lru_cache(maxsize=_SOURCE_PARSE_CACHE_SIZE)
+def _helper_specs_for_source_cached(text):
+    """Infer this source's helper specs, families, and wrapper origins.
+
+    The three mappings are always derived together — the inference that
+    produces the specs produces the other two as a by-product — so the memo key
+    is the source text alone and a caller's selection is applied above it.
     """
     specs = dict(HELPERS)
     families = {name: _helper_family(name) for name in HELPERS}
@@ -2011,11 +2068,7 @@ def helper_specs_for_source(
         if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
             specs[name] = (1, 2, None)
             families[name] = "static-helper"
-    if include_families and include_origins:
-        return specs, families, origins
-    if include_families:
-        return specs, families
-    return specs
+    return specs, families, origins
 
 
 def parse_structural_declaration(physical_lines):
@@ -2864,11 +2917,22 @@ def extract_guard_sites(text, source_path, repo_root):
         for name, (_, start, end) in definitions.items()
         for line in range(start, end + 1)
     }
+    # Tokenize each logical line once and share the result between the
+    # wrapper-invocation pass below and the site pass after it: both tokenize
+    # the same left-stripped text under the same options, so on a source of this
+    # size the second pass was a measurable duplicate of the first.
+    logical_lines = [
+        (lineno, logical_line, logical_line.lstrip())
+        for lineno, logical_line in join_logical_lines(text)
+    ]
+    tokens_by_index = [
+        tokenize(stripped, split_shell_operators=True)
+        for _, _, stripped in logical_lines
+    ]
     invoked_wrappers = set()
-    for invocation_line, invocation_text in join_logical_lines(text):
-        invocation_tokens = tokenize(
-            invocation_text.lstrip(), split_shell_operators=True
-        )
+    for (invocation_line, _, _), invocation_tokens in zip(
+        logical_lines, tokens_by_index
+    ):
         _, invocation_helper = _helper_call(invocation_tokens, helper_specs)
         if (
             invocation_helper in definitions
@@ -2883,13 +2947,13 @@ def extract_guard_sites(text, source_path, repo_root):
     maps_by_line = variable_maps_by_line(text, lib, {})
     physical = text.splitlines()
     sites = []
-    for lineno, logical_line in join_logical_lines(text):
-        stripped = logical_line.lstrip()
+    for (lineno, logical_line, stripped), toks in zip(
+        logical_lines, tokens_by_index
+    ):
         if not stripped or stripped.startswith("#"):
             continue
         path_vars, literal_vars = maps_by_line[lineno]
         lines = physical[lineno - 1 : _line_end(lineno, logical_line)]
-        toks = tokenize(stripped, split_shell_operators=True)
         helper_index, helper = _helper_call(toks, helper_specs)
         if helper is not None:
             args = toks[helper_index + 1 :]
