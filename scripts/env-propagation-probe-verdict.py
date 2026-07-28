@@ -59,11 +59,12 @@ CONTROL_AFTER = "ENVPROBE_CONTROL_AFTER"
 
 
 def parse_execution_file(exec_file):
-    """Return (parsed, note_top). parsed is a JSON value or None; note_top is a
-    non-empty diagnostic when the file was absent/empty/unparseable/partially
-    corrupt, which forces INCONCLUSIVE."""
+    """Return (parsed, note_top). parsed is a JSON value — an empty list on every
+    failure path, so callers need no None-guard — and note_top is a non-empty
+    diagnostic when the file was absent/empty/unparseable/partially corrupt, which
+    forces INCONCLUSIVE."""
     if not (exec_file and os.path.isfile(exec_file)):
-        return None, "execution file path absent or not a regular file at '%s'" % exec_file
+        return [], "execution file path absent or not a regular file at '%s'" % exec_file
     try:
         with open(exec_file, encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
@@ -112,8 +113,7 @@ def collect(parsed):
             for it in o:
                 walk(it)
 
-    if parsed is not None:
-        walk(parsed)
+    walk(parsed)
     return tool_uses
 
 

@@ -291,7 +291,7 @@ jobs:
           # block, so Phase 0.1 attributes their working-tree delta (a CONTENT delta
           # on a committed extension, an UNTRACKED delta on a name the checkout never
           # carried) to the trusted-source floor rather than warning about them.
-          _d="EOF_$$_$(date +%s)"
+          _d="EOF_$(date +%s%N)_$$"
           {
             printf 'truncated_paths<<%s\n' "$_d"
             printf '%s' "$TRUNCATED"

@@ -23789,16 +23789,34 @@ unset -f devflow_mte_seed devflow_mte_workspace
 # vendor-slice.sh then refuses an empty ref on the fetch branch — killing the review
 # job on every thin-install consumer while this repository's own `self` branch, which
 # ignores the ref, stays green. A reordering regression is invisible locally.
-MTE_STEP_ORDER="$(python3 - "$RUNNER" <<'PY'
+# ONE parse of the workflow serves every structural assertion below: the five step
+# indices, vendor's `ref:` source, and promptext's `if:`. Three separate heredocs each
+# re-loading a 2k-line YAML was three interpreter starts and three quoting surfaces for
+# one question about one document.
+MTE_WF_FACTS="$(python3 - "$RUNNER" <<'PY'
 import sys, yaml
 steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
 ids = [s.get("id") or "" for s in steps]
 def idx(i):
     return ids.index(i) if i in ids else -1
+def step(i):
+    return steps[ids.index(i)] if i in ids else {}
 print("%d %d %d %d %d" % (idx("baseversion"), idx("promptext"), idx("vendor"),
                           idx("harden_hooks"), idx("displaced_join")))
+print(str(step("vendor").get("with", {}).get("ref", "")).strip())
+print(str(step("promptext").get("if", "")))
 PY
-)" || MTE_STEP_ORDER=''
+)" || MTE_WF_FACTS=''
+MTE_STEP_ORDER="$(printf '%s\n' "$MTE_WF_FACTS" | sed -n 1p)"
+MTE_VENDOR_REF="$(printf '%s\n' "$MTE_WF_FACTS" | sed -n 2p)"
+# An unreadable parse must not look like a step that genuinely carries no `if:` — the
+# empty string is the PASSING value for that assertion, so a failed read gets the
+# distinct UNREAD sentinel instead.
+if [ -n "$MTE_WF_FACTS" ]; then
+  MTE_PROMPTEXT_IF="$(printf '%s\n' "$MTE_WF_FACTS" | sed -n 3p)"
+else
+  MTE_PROMPTEXT_IF='UNREAD'
+fi
 # shellcheck disable=SC2086
 set -- $MTE_STEP_ORDER
 MTE_I_BASEVER="${1:--1}"; MTE_I_PROMPTEXT="${2:--1}"; MTE_I_VENDOR="${3:--1}"
@@ -23814,14 +23832,6 @@ assert_eq "#874 workflow: displaced_join is declared AFTER harden_hooks" "yes" \
 # The vendor step's ref comes from the TRUSTED base-ref step, never from `extract`,
 # which reads the PR-head checkout. This is the assertion that makes the loader
 # version a maintainer's pin rather than a pull request's choice.
-MTE_VENDOR_REF="$(python3 - "$RUNNER" <<'PY'
-import sys, yaml
-for s in yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]:
-    if s.get("id") == "vendor":
-        print(str(s.get("with", {}).get("ref", "")).strip())
-        break
-PY
-)" || MTE_VENDOR_REF=''
 assert_eq "#874 workflow: vendor consumes the base-ref devflow_version" \
   '${{ steps.baseversion.outputs.devflow_version }}' "$MTE_VENDOR_REF"
 assert_eq "#874 workflow: extract no longer emits a PR-head devflow_version" "0" \
@@ -23829,14 +23839,6 @@ assert_eq "#874 workflow: extract no longer emits a PR-head devflow_version" "0"
 # The unconditional step must carry NO step-level `if:`. A conditional here is the
 # exact defect this change closes: on a failed base-ref fetch the PR-head workspace
 # copy would survive and the loader would read it.
-MTE_PROMPTEXT_IF="$(python3 - "$RUNNER" <<'PY'
-import sys, yaml
-for s in yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]:
-    if s.get("id") == "promptext":
-        print(str(s.get("if", "")))
-        break
-PY
-)" || MTE_PROMPTEXT_IF='UNREAD'
 assert_eq "#874 workflow: the promptext step carries no step-level if:" "" "$MTE_PROMPTEXT_IF"
 # compose reads the JOINED value, not a single producer's output.
 assert_eq "#874 workflow: compose binds HARDENED_PATHS to the two-producer join" "1" \
@@ -23858,12 +23860,16 @@ assert_eq "#874 workflow: a no-trusted-source arm warns and leaves the closure e
 # precisely where a conditional-placement bug would still pass on the fetch-success
 # arm alone.
 MTE_WF="$(mktemp -d)"
-python3 - "$RUNNER" "$MTE_WF/promptext.sh" <<'PY'
+cat > "$MTE_WF/extract-step.py" <<'PY'
 import sys, yaml
-steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
-run = next(s["run"] for s in steps if s.get("id") == "promptext")
-open(sys.argv[2], "w").write("#!/usr/bin/env bash\nset -euo pipefail\n" + run)
+workflow, step_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
+steps = yaml.safe_load(open(workflow))["jobs"]["run"]["steps"]
+matches = [s for s in steps if s.get("id") == step_id]
+if len(matches) != 1:
+    sys.exit("extract-step: expected exactly one step with id %r, found %d" % (step_id, len(matches)))
+open(out, "w").write("#!/usr/bin/env bash\nset -euo pipefail\n" + matches[0]["run"])
 PY
+python3 "$MTE_WF/extract-step.py" "$RUNNER" promptext "$MTE_WF/promptext.sh"
 # Invoked through command substitution, so it runs in a SUBSHELL and cannot assign
 # the caller's variables. The exit status and the $GITHUB_ENV capture therefore
 # travel through files the caller reads back — the rc especially, because a crashed
@@ -23931,12 +23937,7 @@ assert_eq "#874 promptext: a second run publishes the same path list" "$MTE_WF_A
 # ── EXECUTE the displaced-path join. The arm that matters is the one the single
 # producer binding could not express: harden_hooks published EMPTY (its relevance-gate
 # skip arm), and the truncated extension paths must still reach the grounding block.
-python3 - "$RUNNER" "$MTE_WF/join.sh" <<'PY'
-import sys, yaml
-steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
-run = next(s["run"] for s in steps if s.get("id") == "displaced_join")
-open(sys.argv[2], "w").write("#!/usr/bin/env bash\nset -euo pipefail\n" + run)
-PY
+python3 "$MTE_WF/extract-step.py" "$RUNNER" displaced_join "$MTE_WF/join.sh"
 devflow_mte_run_join() {  # $1=HOOK_PATHS  $2=EXT_PATHS
   local _out="$MTE_WF/joino.$$"
   : > "$_out"
@@ -23966,7 +23967,13 @@ unset -f devflow_mte_run_promptext devflow_mte_run_join devflow_mte_promptext_rc
 # Derived through python3 (preflight-guaranteed) rather than a tr/sed/cut pipeline:
 # this value decides whether the guard fires, and a missing PATH tool would empty it
 # and make the comparison pass vacuously (CLAUDE.md guard-class 2).
-MTE_DRIFT="$(python3 - "$LIB/.." <<'PY'
+# ONE extractor, invoked twice. Copy-pasting it into its own positive control would
+# let the two diverge, and the control would then keep asserting `differs` against a
+# regex that is no longer the one under test — the control silently stops controlling
+# the thing it exists to validate. The script takes the root and prints both sets.
+MTE_DRIFT_DIR="$(mktemp -d)"
+MTE_DRIFT_PY="$MTE_DRIFT_DIR/drift.py"
+cat > "$MTE_DRIFT_PY" <<'PY'
 import os, re, sys, yaml
 root = sys.argv[1]
 declared = yaml.safe_load(open(os.path.join(root, ".github/workflows/devflow-runner.yml")))
@@ -23980,7 +23987,7 @@ declared = sorted(set(declared.split()))
 # as a protected skill name.
 pat = re.compile(r'^(?:"[^"]*"|\S)*?/load-prompt-extension\.sh\s+([A-Za-z0-9][A-Za-z0-9._-]*)')
 found = set()
-for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tree-walk-ok: a closed leaf subtree of the plugin's own skills/, unreachable from .claude/worktrees/ and from any dependency or build directory
+for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tree-walk-ok: a closed leaf subtree of the plugin's own skills/ (or, for the positive control, a throwaway mktemp copy holding only the planted file) — unreachable from .claude/worktrees/ and from any dependency or build directory
     for fn in files:
         if not fn.endswith(".md"):
             continue
@@ -23989,42 +23996,36 @@ for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tr
                 found.update(pat.findall(line.strip()))
 print("declared=%s reachable=%s" % (",".join(declared), ",".join(sorted(found))))
 PY
-)" || MTE_DRIFT='UNREAD'
+MTE_DRIFT="$(python3 "$MTE_DRIFT_PY" "$LIB/..")" || MTE_DRIFT='UNREAD'
 MTE_DRIFT_DECL="${MTE_DRIFT%% reachable=*}"; MTE_DRIFT_DECL="${MTE_DRIFT_DECL#declared=}"
 MTE_DRIFT_REACH="${MTE_DRIFT#*reachable=}"
 assert_eq "#874 drift guard: the declared protected set equals the names skills/review/ actually loads" \
   "$MTE_DRIFT_REACH" "$MTE_DRIFT_DECL"
 assert_eq "#874 drift guard: the protected set is non-empty (the comparison is not vacuous)" "yes" \
   "$([ -n "$MTE_DRIFT_DECL" ] && echo yes || echo no)"
-# Positive control: plant an invocation for a name outside the protected set in a
-# throwaway copy of the tree and confirm the guard reports the difference. Without
-# this the equality above could pass because the extractor matches nothing at all.
+# Positive control: plant an invocation for a name outside the protected set and
+# confirm the SAME extractor reports the difference. Without it the equality above
+# could pass because the extractor matches nothing at all. The fixture holds only the
+# planted file — copying the real skills/review/ tree would add nothing the assertion
+# reads, since a difference from the declared set is what is being demonstrated.
 MTE_DRIFT_TMP="$(mktemp -d)"
 mkdir -p "$MTE_DRIFT_TMP/skills/review" "$MTE_DRIFT_TMP/.github/workflows"
 cp "$RUNNER" "$MTE_DRIFT_TMP/.github/workflows/devflow-runner.yml"
-cp -R "$LIB/../skills/review/." "$MTE_DRIFT_TMP/skills/review/"
 printf 'scripts/load-prompt-extension.sh not-a-protected-name\n' \
   > "$MTE_DRIFT_TMP/skills/review/planted.md"
-MTE_DRIFT_PC="$(python3 - "$MTE_DRIFT_TMP" <<'PY'
-import os, re, sys, yaml
-root = sys.argv[1]
-declared = yaml.safe_load(open(os.path.join(root, ".github/workflows/devflow-runner.yml")))
-declared = declared["jobs"]["run"].get("env", {}).get("DEVFLOW_PROTECTED_PROMPT_EXTENSIONS", "")
-declared = sorted(set(declared.split()))
-pat = re.compile(r'^(?:"[^"]*"|\S)*?/load-prompt-extension\.sh\s+([A-Za-z0-9][A-Za-z0-9._-]*)')
-found = set()
-for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tree-walk-ok: the positive control's throwaway mktemp copy, which contains only the files this assertion planted
-    for fn in files:
-        if fn.endswith(".md"):
-            with open(os.path.join(dirpath, fn), encoding="utf-8") as fh:
-                for line in fh:
-                    found.update(pat.findall(line.strip()))
-print("same" if sorted(found) == declared else "differs")
-PY
-)" || MTE_DRIFT_PC='UNREAD'
+MTE_DRIFT_PC="$(python3 "$MTE_DRIFT_PY" "$MTE_DRIFT_TMP")" || MTE_DRIFT_PC='UNREAD'
+MTE_DRIFT_PC_DECL="${MTE_DRIFT_PC%% reachable=*}"; MTE_DRIFT_PC_DECL="${MTE_DRIFT_PC_DECL#declared=}"
+MTE_DRIFT_PC_REACH="${MTE_DRIFT_PC#*reachable=}"
 assert_eq "#874 drift guard positive control: an out-of-set invocation makes the guard report a difference" \
-  "differs" "$MTE_DRIFT_PC"
-rm -rf "$MTE_DRIFT_TMP"
+  "differs" \
+  "$([ "$MTE_DRIFT_PC" != UNREAD ] && [ "$MTE_DRIFT_PC_DECL" != "$MTE_DRIFT_PC_REACH" ] && echo differs || echo same)"
+# ... and the difference must come from the extractor actually MATCHING the planted
+# line, not from it matching nothing. A broken regex yields an empty reachable set,
+# which also differs from the declared set — so the row above alone would pass
+# vacuously on exactly the defect it exists to catch.
+assert_eq "#874 drift guard positive control: the planted name is what the extractor reached" \
+  "not-a-protected-name" "$MTE_DRIFT_PC_REACH"
+rm -rf "$MTE_DRIFT_TMP" "$MTE_DRIFT_DIR"
 
 # ── #874 env-propagation probe verdict helper. The probe itself is dispatched by a
 # maintainer, but its VERDICT is a branch-selecting core, so every arm is driven here —

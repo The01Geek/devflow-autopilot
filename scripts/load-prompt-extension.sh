@@ -281,7 +281,7 @@ esac
 # already refuses a name carrying '/' or '..', which is what keeps the composed path
 # inside the selected root on both branches.
 if [ -n "${DEVFLOW_PROMPT_EXTENSION_ROOT:-}" ]; then
-    ext_file="${DEVFLOW_PROMPT_EXTENSION_ROOT}/${skill}.md"
+    ext_dir="$DEVFLOW_PROMPT_EXTENSION_ROOT"
     # Scoped to this branch alone. A caller that leaves the variable unset (every
     # skill load site outside the review tier, and every local or interactive run)
     # observes byte-identical output, which is why no sibling breadcrumb is written on
@@ -309,8 +309,12 @@ else
         fi
     fi
 
-    ext_file="${_devflow_root}/.devflow/prompt-extensions/${skill}.md"
+    ext_dir="${_devflow_root}/.devflow/prompt-extensions"
 fi
+
+# Composed once, after the branch: each arm selects only the DIRECTORY, so the
+# "<skill>.md" filename convention lives in exactly one place.
+ext_file="${ext_dir}/${skill}.md"
 
 # Refuse every "present but undeliverable" shape loudly (exit 2 + a specific
 # breadcrumb) instead of letting it fall through to the silent empty no-op the
