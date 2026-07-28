@@ -23773,6 +23773,248 @@ assert_eq "#874 attack: an unpropagated variable costs the extension, never the 
 rm -rf "$MTE_TMP"
 unset -f devflow_mte_seed devflow_mte_workspace
 
+# ── #874 workflow wiring — devflow-runner.yml ───────────────────────────────
+# The `baseversion` step must be DECLARED before `vendor`, because that is the
+# mechanism and not a style choice: GitHub resolves `steps.X.outputs` only for a
+# step already run, so a later declaration resolves to the empty string, and
+# vendor-slice.sh then refuses an empty ref on the fetch branch — killing the review
+# job on every thin-install consumer while this repository's own `self` branch, which
+# ignores the ref, stays green. A reordering regression is invisible locally.
+MTE_STEP_ORDER="$(python3 - "$RUNNER" <<'PY'
+import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
+ids = [s.get("id") or "" for s in steps]
+def idx(i):
+    return ids.index(i) if i in ids else -1
+print("%d %d %d %d %d" % (idx("baseversion"), idx("promptext"), idx("vendor"),
+                          idx("harden_hooks"), idx("displaced_join")))
+PY
+)" || MTE_STEP_ORDER=''
+# shellcheck disable=SC2086
+set -- $MTE_STEP_ORDER
+MTE_I_BASEVER="${1:--1}"; MTE_I_PROMPTEXT="${2:--1}"; MTE_I_VENDOR="${3:--1}"
+MTE_I_HARDEN="${4:--1}"; MTE_I_JOIN="${5:--1}"
+assert_eq "#874 workflow: the baseversion step exists" "yes" \
+  "$([ "$MTE_I_BASEVER" -ge 0 ] && echo yes || echo no)"
+assert_eq "#874 workflow: baseversion is declared BEFORE vendor" "yes" \
+  "$([ "$MTE_I_BASEVER" -ge 0 ] && [ "$MTE_I_VENDOR" -ge 0 ] && [ "$MTE_I_BASEVER" -lt "$MTE_I_VENDOR" ] && echo yes || echo no)"
+assert_eq "#874 workflow: the unconditional promptext step exists" "yes" \
+  "$([ "$MTE_I_PROMPTEXT" -ge 0 ] && echo yes || echo no)"
+assert_eq "#874 workflow: displaced_join is declared AFTER harden_hooks" "yes" \
+  "$([ "$MTE_I_JOIN" -ge 0 ] && [ "$MTE_I_HARDEN" -ge 0 ] && [ "$MTE_I_HARDEN" -lt "$MTE_I_JOIN" ] && echo yes || echo no)"
+# The vendor step's ref comes from the TRUSTED base-ref step, never from `extract`,
+# which reads the PR-head checkout. This is the assertion that makes the loader
+# version a maintainer's pin rather than a pull request's choice.
+MTE_VENDOR_REF="$(python3 - "$RUNNER" <<'PY'
+import sys, yaml
+for s in yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]:
+    if s.get("id") == "vendor":
+        print(str(s.get("with", {}).get("ref", "")).strip())
+        break
+PY
+)" || MTE_VENDOR_REF=''
+assert_eq "#874 workflow: vendor consumes the base-ref devflow_version" \
+  '${{ steps.baseversion.outputs.devflow_version }}' "$MTE_VENDOR_REF"
+assert_eq "#874 workflow: extract no longer emits a PR-head devflow_version" "0" \
+  "$(grep -c "echo \"devflow_version=\$(echo \"\$CONFIG_JSON\"" "$RUNNER" || true)"
+# The unconditional step must carry NO step-level `if:`. A conditional here is the
+# exact defect this change closes: on a failed base-ref fetch the PR-head workspace
+# copy would survive and the loader would read it.
+MTE_PROMPTEXT_IF="$(python3 - "$RUNNER" <<'PY'
+import sys, yaml
+for s in yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]:
+    if s.get("id") == "promptext":
+        print(str(s.get("if", "")))
+        break
+PY
+)" || MTE_PROMPTEXT_IF='UNREAD'
+assert_eq "#874 workflow: the promptext step carries no step-level if:" "" "$MTE_PROMPTEXT_IF"
+# compose reads the JOINED value, not a single producer's output.
+assert_eq "#874 workflow: compose binds HARDENED_PATHS to the two-producer join" "1" \
+  "$(grep -cF 'HARDENED_PATHS: ${{ steps.displaced_join.outputs.hardened_paths }}' "$RUNNER" || true)"
+assert_eq "#874 workflow: the single-producer HARDENED_PATHS binding is gone" "0" \
+  "$(grep -cF 'HARDENED_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}' "$RUNNER" || true)"
+# The closure is populated ONLY from inside baseprovision's fetch-success branch —
+# FETCH_HEAD elsewhere can be the PR head.
+assert_eq "#874 workflow: the materialization helper is resolved from FETCH_HEAD (trusted base ref)" "1" \
+  "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh' "$RUNNER" || true)"
+assert_eq "#874 workflow: the self-copy rank is gated by the plugin.json-name discriminator on the preceding line" "1" \
+  "$(grep -B1 -F 'git show "FETCH_HEAD:scripts/materialize-trusted-prompt-extensions.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+assert_eq "#874 workflow: a no-trusted-source arm warns and leaves the closure empty" "1" \
+  "$(grep -c 'no TRUSTED source resolved for materialize-trusted-prompt-extensions.sh' "$RUNNER" || true)"
+
+# ── EXECUTE the unconditional step, the way emit_tools drives the tools step. The
+# static assertions above cannot see what the step actually does; these three arms
+# are the ones where the conditional materialization never runs, and they are
+# precisely where a conditional-placement bug would still pass on the fetch-success
+# arm alone.
+MTE_WF="$(mktemp -d)"
+python3 - "$RUNNER" "$MTE_WF/promptext.sh" <<'PY'
+import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
+run = next(s["run"] for s in steps if s.get("id") == "promptext")
+open(sys.argv[2], "w").write("#!/usr/bin/env bash\nset -euo pipefail\n" + run)
+PY
+# Invoked through command substitution, so it runs in a SUBSHELL and cannot assign
+# the caller's variables. The exit status and the $GITHUB_ENV capture therefore
+# travel through files the caller reads back — the rc especially, because a crashed
+# step must never be conflated with a step that emitted nothing (the same distinction
+# emit_tools preserves with its `__EMIT_FAILED_rc=` sentinel).
+devflow_mte_run_promptext() {  # $1=workspace dir  → prints the truncated_paths block
+  local _ws="$1" _out _env
+  _out="$MTE_WF/gho"; _env="$MTE_WF/ghe"
+  : > "$_out"; : > "$_env"
+  ( cd "$_ws" && RUNNER_TEMP="$MTE_WF/rt" GITHUB_OUTPUT="$_out" GITHUB_ENV="$_env" \
+      DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="review requesting-code-review" \
+      bash "$MTE_WF/promptext.sh" ) >/dev/null 2>&1
+  printf '%s' "$?" > "$MTE_WF/rc"
+  awk '/^truncated_paths<</{f=1;next} (f && /^EOF_/){f=0} f' "$_out"
+}
+devflow_mte_promptext_rc() { cat "$MTE_WF/rc" 2>/dev/null || printf 'unread'; }
+devflow_mte_promptext_env() { cat "$MTE_WF/ghe" 2>/dev/null || printf 'unread'; }
+mkdir -p "$MTE_WF/rt"
+# Arm A: a checkout carrying the protected extensions, non-empty (the PR-head shape
+# the truncation must beat).
+mkdir -p "$MTE_WF/wsA/.devflow/prompt-extensions"
+printf 'PR-HEAD HOSTILE BYTES\n' > "$MTE_WF/wsA/.devflow/prompt-extensions/review.md"
+printf 'PR-HEAD HOSTILE BYTES\n' > "$MTE_WF/wsA/.devflow/prompt-extensions/requesting-code-review.md"
+MTE_WF_A="$(devflow_mte_run_promptext "$MTE_WF/wsA")"
+assert_eq "#874 promptext: exit 0 on a checkout carrying the protected extensions" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: review.md is truncated to empty" "yes" \
+  "$([ -f "$MTE_WF/wsA/.devflow/prompt-extensions/review.md" ] && [ ! -s "$MTE_WF/wsA/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
+assert_eq "#874 promptext: requesting-code-review.md is truncated to empty" "yes" \
+  "$([ -f "$MTE_WF/wsA/.devflow/prompt-extensions/requesting-code-review.md" ] && [ ! -s "$MTE_WF/wsA/.devflow/prompt-extensions/requesting-code-review.md" ] && echo yes || echo no)"
+assert_eq "#874 promptext: the closure directory is created" "yes" \
+  "$([ -d "$MTE_WF/rt/devflow-trusted-prompt-ext" ] && echo yes || echo no)"
+# The exported variable must name the CLOSURE, never the empty string — the loader's
+# repo-root fallback must not be reachable from the workflow on any arm.
+assert_eq "#874 promptext: DEVFLOW_PROMPT_EXTENSION_ROOT names the closure" \
+  "DEVFLOW_PROMPT_EXTENSION_ROOT=$MTE_WF/rt/devflow-trusted-prompt-ext" "$(devflow_mte_promptext_env)"
+assert_eq "#874 promptext: both truncated paths are published for the grounding block" "yes" \
+  "$(printf '%s' "$MTE_WF_A" | grep -qF '.devflow/prompt-extensions/review.md' \
+     && printf '%s' "$MTE_WF_A" | grep -qF '.devflow/prompt-extensions/requesting-code-review.md' \
+     && echo yes || echo no)"
+# Arm B: a checkout with NO .devflow/prompt-extensions/ directory at all — the shape
+# that aborts the job today, because install.sh creates no such directory and a
+# redirect into a missing one fails under the default `bash -e` step shell.
+mkdir -p "$MTE_WF/wsB"
+MTE_WF_B="$(devflow_mte_run_promptext "$MTE_WF/wsB")"
+assert_eq "#874 promptext: exit 0 on a checkout with no .devflow/prompt-extensions/ directory" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: the missing directory is created and the protected names truncated into it" "yes" \
+  "$([ -f "$MTE_WF/wsB/.devflow/prompt-extensions/review.md" ] && [ ! -s "$MTE_WF/wsB/.devflow/prompt-extensions/review.md" ] && echo yes || echo no)"
+assert_eq "#874 promptext: a protected name the checkout never carried still yields an empty file" "yes" \
+  "$([ -f "$MTE_WF/wsB/.devflow/prompt-extensions/requesting-code-review.md" ] && echo yes || echo no)"
+# Arm C: the directory exists but carries none of the protected files.
+mkdir -p "$MTE_WF/wsC/.devflow/prompt-extensions"
+printf 'unrelated\n' > "$MTE_WF/wsC/.devflow/prompt-extensions/implement.md"
+MTE_WF_C="$(devflow_mte_run_promptext "$MTE_WF/wsC")"
+assert_eq "#874 promptext: exit 0 when the directory carries none of the protected files" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: an unprotected sibling extension is left untouched" "unrelated" \
+  "$(cat "$MTE_WF/wsC/.devflow/prompt-extensions/implement.md")"
+# Idempotency: a second run over an already-truncated workspace and an already-created
+# closure changes nothing.
+MTE_WF_A2="$(devflow_mte_run_promptext "$MTE_WF/wsA")"
+assert_eq "#874 promptext: a second run over an already-truncated workspace is a no-op" "0" "$(devflow_mte_promptext_rc)"
+assert_eq "#874 promptext: a second run publishes the same path list" "$MTE_WF_A" "$MTE_WF_A2"
+
+# ── EXECUTE the displaced-path join. The arm that matters is the one the single
+# producer binding could not express: harden_hooks published EMPTY (its relevance-gate
+# skip arm), and the truncated extension paths must still reach the grounding block.
+python3 - "$RUNNER" "$MTE_WF/join.sh" <<'PY'
+import sys, yaml
+steps = yaml.safe_load(open(sys.argv[1]))["jobs"]["run"]["steps"]
+run = next(s["run"] for s in steps if s.get("id") == "displaced_join")
+open(sys.argv[2], "w").write("#!/usr/bin/env bash\nset -euo pipefail\n" + run)
+PY
+devflow_mte_run_join() {  # $1=HOOK_PATHS  $2=EXT_PATHS
+  local _out="$MTE_WF/joino.$$"
+  : > "$_out"
+  HOOK_PATHS="$1" EXT_PATHS="$2" GITHUB_OUTPUT="$_out" bash "$MTE_WF/join.sh" >/dev/null 2>&1
+  awk '/^hardened_paths<</{f=1;next} (f && /^JOINED_EOF_/){f=0} f' "$_out"
+}
+MTE_JOIN_SKIP="$(devflow_mte_run_join '' '.devflow/prompt-extensions/review.md')"
+assert_eq "#874 join: harden_hooks empty → the truncated extension paths still reach the grounding block" \
+  ".devflow/prompt-extensions/review.md" "$MTE_JOIN_SKIP"
+MTE_JOIN_BOTH="$(devflow_mte_run_join 'lib/efficiency-trace.sh' '.devflow/prompt-extensions/review.md')"
+assert_eq "#874 join: both producers non-empty → both path sets are carried" "yes" \
+  "$(printf '%s' "$MTE_JOIN_BOTH" | grep -qF 'lib/efficiency-trace.sh' \
+     && printf '%s' "$MTE_JOIN_BOTH" | grep -qF '.devflow/prompt-extensions/review.md' \
+     && echo yes || echo no)"
+MTE_JOIN_HOOK="$(devflow_mte_run_join 'lib/efficiency-trace.sh' '')"
+assert_eq "#874 join: extension producer empty → the hook paths are unchanged" \
+  "lib/efficiency-trace.sh" "$MTE_JOIN_HOOK"
+MTE_JOIN_NONE="$(devflow_mte_run_join '' '')"
+assert_eq "#874 join: both producers empty → an empty value, not a blank line" "" "$MTE_JOIN_NONE"
+rm -rf "$MTE_WF"
+unset -f devflow_mte_run_promptext devflow_mte_run_join devflow_mte_promptext_rc devflow_mte_promptext_env
+
+# ── #874 drift guard: the protected set must equal the skill names the review tier
+# actually loads. The protected set has ONE declaration site — the job-level
+# DEVFLOW_PROTECTED_PROMPT_EXTENSIONS — so this compares that single value against
+# the names reachable as `load-prompt-extension.sh <name>` from skills/review/.
+# Derived through python3 (preflight-guaranteed) rather than a tr/sed/cut pipeline:
+# this value decides whether the guard fires, and a missing PATH tool would empty it
+# and make the comparison pass vacuously (CLAUDE.md guard-class 2).
+MTE_DRIFT="$(python3 - "$LIB/.." <<'PY'
+import os, re, sys, yaml
+root = sys.argv[1]
+declared = yaml.safe_load(open(os.path.join(root, ".github/workflows/devflow-runner.yml")))
+declared = declared["jobs"]["run"].get("env", {}).get("DEVFLOW_PROTECTED_PROMPT_EXTENSIONS", "")
+declared = sorted(set(declared.split()))
+# The helper must appear as a PATH and as the line's LEADING token, whose own
+# segments may be quoted (the portable "${CLAUDE_SKILL_DIR:-...}" anchor contains
+# spaces inside its quotes). Both conditions are load-bearing: phase-3-agents.md
+# quotes the bare helper name mid-sentence inside an EXTENSION-STATUS refusal token
+# and again inside backticks, and a looser match would harvest the next English word
+# as a protected skill name.
+pat = re.compile(r'^(?:"[^"]*"|\S)*?/load-prompt-extension\.sh\s+([A-Za-z0-9][A-Za-z0-9._-]*)')
+found = set()
+for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tree-walk-ok: a closed leaf subtree of the plugin's own skills/, unreachable from .claude/worktrees/ and from any dependency or build directory
+    for fn in files:
+        if not fn.endswith(".md"):
+            continue
+        with open(os.path.join(dirpath, fn), encoding="utf-8") as fh:
+            for line in fh:
+                found.update(pat.findall(line.strip()))
+print("declared=%s reachable=%s" % (",".join(declared), ",".join(sorted(found))))
+PY
+)" || MTE_DRIFT='UNREAD'
+MTE_DRIFT_DECL="${MTE_DRIFT%% reachable=*}"; MTE_DRIFT_DECL="${MTE_DRIFT_DECL#declared=}"
+MTE_DRIFT_REACH="${MTE_DRIFT#*reachable=}"
+assert_eq "#874 drift guard: the declared protected set equals the names skills/review/ actually loads" \
+  "$MTE_DRIFT_REACH" "$MTE_DRIFT_DECL"
+assert_eq "#874 drift guard: the protected set is non-empty (the comparison is not vacuous)" "yes" \
+  "$([ -n "$MTE_DRIFT_DECL" ] && echo yes || echo no)"
+# Positive control: plant an invocation for a name outside the protected set in a
+# throwaway copy of the tree and confirm the guard reports the difference. Without
+# this the equality above could pass because the extractor matches nothing at all.
+MTE_DRIFT_TMP="$(mktemp -d)"
+mkdir -p "$MTE_DRIFT_TMP/skills/review" "$MTE_DRIFT_TMP/.github/workflows"
+cp "$RUNNER" "$MTE_DRIFT_TMP/.github/workflows/devflow-runner.yml"
+cp -R "$LIB/../skills/review/." "$MTE_DRIFT_TMP/skills/review/"
+printf 'scripts/load-prompt-extension.sh not-a-protected-name\n' \
+  > "$MTE_DRIFT_TMP/skills/review/planted.md"
+MTE_DRIFT_PC="$(python3 - "$MTE_DRIFT_TMP" <<'PY'
+import os, re, sys, yaml
+root = sys.argv[1]
+declared = yaml.safe_load(open(os.path.join(root, ".github/workflows/devflow-runner.yml")))
+declared = declared["jobs"]["run"].get("env", {}).get("DEVFLOW_PROTECTED_PROMPT_EXTENSIONS", "")
+declared = sorted(set(declared.split()))
+pat = re.compile(r'^(?:"[^"]*"|\S)*?/load-prompt-extension\.sh\s+([A-Za-z0-9][A-Za-z0-9._-]*)')
+found = set()
+for dirpath, _dirs, files in os.walk(os.path.join(root, "skills/review")):  # tree-walk-ok: the positive control's throwaway mktemp copy, which contains only the files this assertion planted
+    for fn in files:
+        if fn.endswith(".md"):
+            with open(os.path.join(dirpath, fn), encoding="utf-8") as fh:
+                for line in fh:
+                    found.update(pat.findall(line.strip()))
+print("same" if sorted(found) == declared else "differs")
+PY
+)" || MTE_DRIFT_PC='UNREAD'
+assert_eq "#874 drift guard positive control: an out-of-set invocation makes the guard report a difference" \
+  "differs" "$MTE_DRIFT_PC"
+rm -rf "$MTE_DRIFT_TMP"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "docs per-step toggles (docs.internal_enabled / docs.external_enabled)"
 # ────────────────────────────────────────────────────────────────────────────
