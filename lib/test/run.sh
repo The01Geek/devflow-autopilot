@@ -14255,11 +14255,12 @@ assert_eq "#97 pin: config.example.json docs.labels reverted to Documented" "Doc
   "$(jq -r '.docs.labels' "$LIB/../.devflow/config.example.json")"
 
 # ── #152: propose-not-dispose contract pins (grep) ───────────────────────────
-# Stage B (retrospective-audit) is now a pure {title, body} spec generator: zero
-# worktrees, zero edits, no two-form excluded/targets contract.
+# Stage B (retrospective-audit) is a pure spec generator (zero worktrees, zero edits,
+# no two-form excluded/targets contract) that since issue #893 returns a ranked
+# `findings` array of one-to-three sub-patterns rather than a single {title, body}.
 RA_SKILL="$LIB/../skills/retrospective-audit/SKILL.md"
-assert_eq "#152: Stage B emits the {title, body} contract" "yes" \
-  "$(grep -qF '{title, body}' "$RA_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: '{title, body}' appears 4x in retrospective-audit SKILL
+assert_eq "#893: Stage B emits the findings-array contract (subslug per finding)" "yes" \
+  "$(grep -qF 'subslug' "$RA_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'subslug' appears several times in retrospective-audit SKILL
 assert_eq "#152: Stage B runs no git worktree" "yes" \
   "$(grep -q 'git worktree' "$RA_SKILL" && echo no || echo yes)"  # raw-guard-ok: absence pin: asserts Stage B runs no git worktree (expected absent)
 assert_eq "#152: Stage B drops the targets[] return field" "yes" \
