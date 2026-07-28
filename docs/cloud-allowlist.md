@@ -584,12 +584,19 @@ This table is the **authoritative** record of each denied arm's permitted altern
 `lib/test/run.sh` assertion pairs each arm's row here with the guard's row for the same
 arm, so a change on one side reconciles the other in the same commit (the same
 coupled-mirror discipline the closure literals carry, applied to a `scripts/`-to-`docs/`
-pair). **The join literal differs by arm.** `R1` joins on `VAR=$(cmd)` and `R3-tmp` on
-`.devflow/tmp/` — both permitted alternatives, so editing either alternative cell alone
-turns the suite RED. `R4` joins on its **denied-shape** token `python3/python/node`
-instead, because its alternative is a whitespace-bearing English phrase that the
-issue-810 boundary classifies as markdown prose and so may not be pinned; editing the
-`R4` alternative cell alone does **not** turn the suite RED — reconcile it by hand.
+pair). Both sides are extracted **by arm id** — this document's table row for the arm, and
+the guard's `REMEDIATION` entry for the arm — never by a whole-file substring test, which
+could not distinguish the row it claims to pin from any other mention of the same literal
+and would be inert.
+
+**The join literal differs by arm, and is deliberately not re-quoted in this paragraph**
+(a second copy outside the row would defeat the row-scoped extraction). `R1` and `R3-tmp`
+each join on a whitespace-free fragment of their own permitted-alternative cell, so
+editing either alternative cell alone turns the suite RED. `R4` joins on its
+**denied-shape** cell instead, because its alternative is a whitespace-bearing English
+phrase that the issue-810 boundary classifies as markdown prose and so may not be pinned;
+editing the `R4` **alternative** cell alone does **not** turn the suite RED — reconcile
+that one by hand.
 
 | Arm | Denied shape | Permitted alternative (the join key is the arm id) |
 | --- | --- | --- |

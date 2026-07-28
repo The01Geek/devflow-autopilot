@@ -8487,11 +8487,18 @@ assert_eq("#678 AC8: a planted control exists for every rule id in every declare
            for rule in table["rules"]} - set(_sc_planted))
 
 # AC8's "complete by construction" bottoms out on REVIEW_RULES/IMPLEMENT_RULES being
-# a faithful mirror of what the finders can EMIT. They are hand-written frozensets,
-# so a new rule id added to a finder alone would get no control and no RED — the
-# completeness guarantee would be one hop short. Reconcile the declared sets against
-# the rule-id literals in extract-command-shapes.py's own source, so that drift is
-# the thing that turns this RED.
+# a faithful mirror of what the finders can EMIT. A new rule id added to a finder alone
+# would otherwise get no control and no RED — the completeness guarantee would be one hop
+# short. Reconcile the declared sets against the rule-id literals in
+# extract-command-shapes.py's own source, so that drift is the thing that turns this RED.
+#
+# The two sets reach that source differently, and the extraction below matches each.
+# IMPLEMENT_RULES is still a hand-written frozenset reconciled against the `IR\d+`
+# literals its finders emit. REVIEW_RULES is now DERIVED from `_REVIEW_ARM_TABLE` (issue
+# #805), the one table both review classifiers walk, so the emitted ids are the table
+# rows' second column rather than `hits.append("R1")` literals — re-typing REVIEW_RULES
+# as a disagreeing literal, or adding a table row whose rule id has no planted control,
+# still turns this RED.
 _sc_shapes_src = (cwc.REPO_ROOT / "lib/test/extract-command-shapes.py").read_text(encoding="utf-8")
 # Scan the source with the two frozenset DECLARATIONS removed. Without this the
 # `IR\d+` extraction also matches `IMPLEMENT_RULES = frozenset({"IR1", …})` itself,
@@ -8506,7 +8513,7 @@ assert_eq("#678 AC8: stripping the frozenset declarations actually removed them 
           (False, False),
           ("REVIEW_RULES = " in _sc_shapes_emit_src,
            "IMPLEMENT_RULES = " in _sc_shapes_emit_src))
-_sc_src_review = set(re.findall(r'hits\.append\("(R\d+)"\)', _sc_shapes_emit_src))
+_sc_src_review = set(re.findall(r'^\s*\("[^"]+",\s*"(R\d+)",', _sc_shapes_emit_src, re.M))
 _sc_src_implement = set(re.findall(r'"(IR\d+)"', _sc_shapes_emit_src))
 assert_eq("#678 AC8: REVIEW_RULES mirrors exactly the R-ids extract-command-shapes.py's "
           "review classifier emits (a rule added to the finder alone goes RED here)",
@@ -20362,12 +20369,30 @@ _HEADS_SRC = Path(__file__).resolve().parent / 'extract-command-heads.py'
 _shapes_mod = _load('shapes805', _SHAPES_SRC)
 
 
+import collections as _collections805  # noqa: E402
+
+# One parent TemporaryDirectory owns every rig root, so the ~20 rigs this block builds are
+# removed when the process exits instead of leaking `mkdtemp()` roots (each with a `git
+# init`) into the system temp dir — matching the `TemporaryDirectory` lifecycle convention
+# the rest of this file uses. Held in a module-level name so it outlives every rig.
+_GUARD_RIG_PARENT = tempfile.TemporaryDirectory(prefix='devflow-805-rigs-')
+_GUARD_RIG_SEQ = [0]
+
+# The guard's stdout decision AND its stderr. stderr is part of the result because it is
+# the ONLY operator signal on the disarmed-guard path: a stubbed or renamed dependency
+# makes the guard's stdout byte-identical to a clean no-match run while the heartbeat still
+# reports "fired", so a result type that dropped stderr could not express — and therefore
+# could not test — the difference.
+_GuardResult = _collections805.namedtuple('_GuardResult', 'rc decision reason stderr')
+
+
 class _GuardRig:
     """A hermetic git repo that runs the guard with an isolated .devflow/tmp store."""
 
     def __init__(self):
-        self.root = Path(tempfile.mkdtemp())
-        (self.root / 'scripts').mkdir()
+        _GUARD_RIG_SEQ[0] += 1
+        self.root = Path(_GUARD_RIG_PARENT.name) / f'rig{_GUARD_RIG_SEQ[0]}'
+        (self.root / 'scripts').mkdir(parents=True)
         (self.root / 'lib' / 'test').mkdir(parents=True)
         _shutil805.copy(_GUARD_SRC, self.root / 'scripts' / 'pretooluse-shape-guard.py')
         _shutil805.copy(_SHAPES_SRC, self.root / 'lib' / 'test' / 'extract-command-shapes.py')
@@ -20375,27 +20400,64 @@ class _GuardRig:
         _sp805.run(['git', 'init', '-q'], cwd=self.root, check=False,
                    stdout=_sp805.DEVNULL, stderr=_sp805.DEVNULL)
 
-    def run(self, payload, *, raw_bytes=None):
-        kw = dict(cwd=self.root, capture_output=True)
-        if raw_bytes is not None:
-            kw['input'] = raw_bytes
-        else:
-            kw['input'] = payload.encode('utf-8') if payload is not None else b''
-        p = _sp805.run(['python3', str(self.root / 'scripts' / 'pretooluse-shape-guard.py')], **kw)
+    def _exec(self, stdin_bytes, env_extra=None, cwd=None):
+        # GITHUB_RUN_ID / GITHUB_RUN_ATTEMPT are STRIPPED by default: the guard keys its
+        # store filename off them, and this suite runs both at a desk (unset) and inside
+        # Actions (set). Inheriting them would make `counts()` read a different filename in
+        # CI than locally — green in one place and a missing-file failure in the other. The
+        # run-keying itself is exercised by explicitly passing them below.
+        env = dict(_os.environ)
+        env.pop('GITHUB_RUN_ID', None)
+        env.pop('GITHUB_RUN_ATTEMPT', None)
+        if env_extra:
+            env.update(env_extra)
+        p = _sp805.run(
+            ['python3', str(self.root / 'scripts' / 'pretooluse-shape-guard.py')],
+            cwd=cwd or self.root, capture_output=True, input=stdin_bytes, env=env)
+        err = p.stderr.decode('utf-8', 'replace')
         try:
             obj = _json805.loads(p.stdout.decode('utf-8'))
             dec = obj['hookSpecificOutput']['permissionDecision']
             reason = obj['hookSpecificOutput'].get('permissionDecisionReason', '')
         except Exception:  # noqa: BLE001
             dec, reason = ('PARSE-FAIL', p.stdout.decode('utf-8', 'replace'))
-        return p.returncode, dec, reason
+        return _GuardResult(p.returncode, dec, reason, err)
+
+    def run(self, payload, *, env_extra=None, cwd=None):
+        """Run the guard over a text payload (None means empty stdin)."""
+        return self._exec(payload.encode('utf-8') if payload is not None else b'',
+                          env_extra=env_extra, cwd=cwd)
+
+    def run_raw(self, raw_bytes):
+        """Run the guard over exact stdin bytes (for non-UTF-8 shapes).
+
+        A SEPARATE method rather than a second keyword on `run`: one signature taking two
+        mutually exclusive inputs makes `run(None)` and `run('x', raw_bytes=b'y')` both
+        legal while silently doing something other than what the caller wrote."""
+        return self._exec(raw_bytes)
 
     def heartbeat_exists(self):
         return (self.root / '.devflow' / 'tmp' / 'pretooluse-guard-fired').exists()
 
+    def store_names(self):
+        d = self.root / '.devflow' / 'tmp'
+        return sorted(p.name for p in d.glob('pretooluse-guard-counts-*.json')) if d.is_dir() else []
+
     def counts(self):
         f = self.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json'
         return _json805.loads(f.read_text()) if f.exists() else None
+
+    def write_counts(self, obj):
+        d = self.root / '.devflow' / 'tmp'
+        d.mkdir(parents=True, exist_ok=True)
+        (d / 'pretooluse-guard-counts.json').write_text(_json805.dumps(obj), encoding='utf-8')
+
+    def break_dependency(self, text):
+        """Overwrite the guard's importlib dependency — the disarmed-guard scenario."""
+        (self.root / 'lib' / 'test' / 'extract-command-shapes.py').write_text(text, encoding='utf-8')
+
+    def remove_dependency(self):
+        (self.root / 'lib' / 'test' / 'extract-command-shapes.py').unlink()
 
 
 def _payload(cmd, tid='t0'):
@@ -20410,7 +20472,8 @@ for _name, _cmd, _phrase in [
     ('R3-tmp', 'echo x > /tmp/f', '.devflow/tmp/'),
     ('R4', 'python3 foo.py', 'leading token'),
 ]:
-    _rc, _dec, _reason = _rig.run(_payload(_cmd, tid=f'deny-{_name}'))
+    _res = _rig.run(_payload(_cmd, tid=f'deny-{_name}'))
+    _rc, _dec, _reason = _res.rc, _res.decision, _res.reason
     assert_eq(f"#805 guard: {_name} command is DENIED", 'deny', _dec)
     assert_eq(f"#805 guard: {_name} remediation names the permitted alternative", True,
               _phrase in _reason)
@@ -20419,27 +20482,60 @@ for _name, _cmd, _phrase in [
 # ── Excluded arms DEFER (a lint-discipline rule never becomes a runtime deny) ──
 for _name, _cmd in [('R2-cd', 'cd /tmp/x'),
                     ('R3-heredoc', 'cat > .devflow/tmp/x <<HED')]:
-    _rc, _dec, _ = _GuardRig().run(_payload(_cmd, tid=_name))
+    _dec = _GuardRig().run(_payload(_cmd, tid=_name)).decision
     assert_eq(f"#805 guard: excluded arm {_name} DEFERS", 'defer', _dec)
 
 # ── Regression pairing (arm split): the heredoc DEFERS while the /tmp redirect DENIES.
 # Both return the token R3 from classify(); an implementation resolving at rule-id
 # granularity passes one and fails the other whichever way it errs.
-_rc, _dec_hd, _ = _GuardRig().run(_payload('cat > .devflow/tmp/x <<HED', tid='pair-hd'))
-_rc, _dec_tmp, _ = _GuardRig().run(_payload('echo x > /tmp/f', tid='pair-tmp'))
+_dec_hd = _GuardRig().run(_payload('cat > .devflow/tmp/x <<HED', tid='pair-hd')).decision
+_dec_tmp = _GuardRig().run(_payload('echo x > /tmp/f', tid='pair-tmp')).decision
 assert_eq("#805 guard: arm-split pairing — heredoc defers AND /tmp redirect denies", ('defer', 'deny'),
           (_dec_hd, _dec_tmp))
 
-# ── Reverse-drift control driven from the exported arm/rule sets: every deny-set arm
-# denies, every excluded arm defers — a rule added to REVIEW_RULES without a guard case
-# turns this RED.
-_DENY = {'R1', 'R3-tmp', 'R4'}
-_EXCL = {'R2', 'R3-heredoc'}
-assert_eq("#805 guard: REVIEW_ARMS partitions into the guard's deny+exclude sets",
-          _shapes_mod.REVIEW_ARMS, _DENY | _EXCL)
+# ── Reverse-drift control. Every operand is READ FROM ITS PRODUCER, never re-typed here:
+# the guard's own DENY_ARMS (imported from the guard module — the tuple the runtime
+# subscripts), and the shapes module's REVIEW_ARMS/REVIEW_RULES. An earlier revision
+# compared REVIEW_ARMS against two set literals typed inside this test and never read
+# REVIEW_RULES or DENY_ARMS at all, so adding an `R5` to REVIEW_RULES and classify() left
+# it green — a guard asserting an invariant over an operand it does not read.
+_guard_mod = _load('guard805', _GUARD_SRC)
+_DENY = set(_guard_mod.DENY_ARMS)
+_EXCL = set(_shapes_mod.REVIEW_ARMS) - _DENY
+assert_eq("#805 guard: REVIEW_ARMS partitions into the guard's DENY_ARMS and the remainder",
+          set(_shapes_mod.REVIEW_ARMS), _DENY | _EXCL)
+assert_eq("#805 guard: every DENY_ARMS arm is a real REVIEW_ARMS arm (no deny of a "
+          "nonexistent arm)", set(), _DENY - set(_shapes_mod.REVIEW_ARMS))
+# DENY_ARMS is DERIVED from REMEDIATION, so the two vocabularies cannot disagree — a
+# deny-set arm with no remediation row would raise a KeyError on the unguarded subscript
+# reached AFTER the deny is decided, which main()'s blanket handler converts into a defer,
+# silently revoking an established deny.
+assert_eq("#805 guard: DENY_ARMS is exactly the REMEDIATION key set (unrepresentable "
+          "disagreement, sorted for the documented tie-break)",
+          tuple(sorted(_guard_mod.REMEDIATION)), _guard_mod.DENY_ARMS)
+# REVIEW_ARMS and REVIEW_RULES are both derived from the ONE arm table, and the arm ids
+# project onto the rule ids — so a rule added to the table is visible to the guard's
+# arm-level classifier by construction. This reads REVIEW_RULES (the operand the old
+# control ignored) and the table's own projection.
+assert_eq("#805 shapes: REVIEW_ARMS and REVIEW_RULES are both derived from the one arm table",
+          (set(a for a, _r, _p in _shapes_mod._REVIEW_ARM_TABLE),
+           set(r for _a, r, _p in _shapes_mod._REVIEW_ARM_TABLE)),
+          (set(_shapes_mod.REVIEW_ARMS), set(_shapes_mod.REVIEW_RULES)))
+# The two classifiers cannot disagree: for every statement, classify() must equal the
+# arm->rule projection of classify_arms(). Driven over one planted statement per arm plus
+# a clean and a multi-arm one.
+_ARM2RULE = {a: r for a, r, _p in _shapes_mod._REVIEW_ARM_TABLE}
+for _st in ['M=x printf hi', 'cd /tmp/x', 'echo x > /tmp/f', "cat > .devflow/tmp/x <<HED",
+            'python3 foo.py', 'echo hello', 'M=x cmd ; echo z > /tmp/h']:
+    _proj = []
+    for _a in _shapes_mod.classify_arms(_st):
+        if _ARM2RULE[_a] not in _proj:
+            _proj.append(_ARM2RULE[_a])
+    assert_eq(f"#805 shapes: classify() equals the arm->rule projection of classify_arms() "
+              f"for {_st!r}", _shapes_mod.classify(_st), _proj)
 
 # ── defer for a command matching no deny-set arm ──
-_rc, _dec, _ = _GuardRig().run(_payload('echo hello', tid='clean'))
+_dec = _GuardRig().run(_payload('echo hello', tid='clean')).decision
 assert_eq("#805 guard: a clean command DEFERS", 'defer', _dec)
 
 # ── Malformed payload shapes: each exits 0 and DEFERS ──
@@ -20457,11 +20553,13 @@ _bad_cases = {
     'empty-command': ('{"tool_input":{"command":""}}', None),
 }
 for _n, (_txt, _) in _bad_cases.items():
-    _rc, _dec, _ = _rig_m.run(_txt)
+    _res = _rig_m.run(_txt)
+    _rc, _dec = _res.rc, _res.decision
     assert_eq(f"#805 guard: malformed payload '{_n}' exits 0", 0, _rc)
     assert_eq(f"#805 guard: malformed payload '{_n}' DEFERS", 'defer', _dec)
 # Non-UTF-8 stdin decode failure -> defer, exit 0.
-_rc, _dec, _ = _rig_m.run(None, raw_bytes=b'\xff\xfe\x00bad')
+_res = _rig_m.run_raw(b'\xff\xfe\x00bad')
+_rc, _dec = _res.rc, _res.decision
 assert_eq("#805 guard: non-UTF-8 stdin exits 0", 0, _rc)
 assert_eq("#805 guard: non-UTF-8 stdin DEFERS", 'defer', _dec)
 
@@ -20482,25 +20580,26 @@ assert_eq("#805 guard: breadcrumb is repo-root-anchored, not cwd-relative", True
 # ── Escalation + idempotency: 2nd DISTINCT denial of an arm escalates; a duplicate
 # tool_use_id emits the same decision without a second counter increment ──
 _rig_e = _GuardRig()
-_rc, _d1, _r1 = _rig_e.run(_payload('echo x > /tmp/a', tid='e1'))
+_r1 = _rig_e.run(_payload('echo x > /tmp/a', tid='e1')).reason
 assert_eq("#805 guard: first denial is NOT escalated", False, 'REPEAT' in _r1)
-_rc, _d1b, _r1b = _rig_e.run(_payload('echo x > /tmp/a', tid='e1'))  # duplicate tid
+_res = _rig_e.run(_payload('echo x > /tmp/a', tid='e1'))  # duplicate tid
+_d1b, _r1b = _res.decision, _res.reason
 assert_eq("#805 guard: duplicate tool_use_id emits the same decision", 'deny', _d1b)
 assert_eq("#805 guard: duplicate tool_use_id is NOT escalated (no 2nd count)", False, 'REPEAT' in _r1b)
-_rc, _d2, _r2 = _rig_e.run(_payload('echo y > /tmp/b', tid='e2'))  # distinct tid, same arm
+_r2 = _rig_e.run(_payload('echo y > /tmp/b', tid='e2')).reason  # distinct tid, same arm
 assert_eq("#805 guard: second DISTINCT denial of the same arm escalates", True, 'REPEAT' in _r2)
 assert_eq("#805 guard: per-arm counter counts each distinct tool_use_id once", 2,
           (_rig_e.counts() or {}).get('arms', {}).get('R3-tmp'))
 
 # ── Multi-match: one decision, first-sorting arm; and a non-leading denied statement ──
-_rc, _dec, _reason = _GuardRig().run(_payload('M=x cmd ; echo z > /tmp/h', tid='mm'))
+_reason = _GuardRig().run(_payload('M=x cmd ; echo z > /tmp/h', tid='mm')).reason
 assert_eq("#805 guard: multi-match emits the first-sorting arm (R1 < R3-tmp)", '(R1)',
           _reason[_reason.find('('):_reason.find(')') + 1])
-_rc, _dec, _ = _GuardRig().run(_payload('echo ok && echo z > /tmp/j', tid='nl'))
+_dec = _GuardRig().run(_payload('echo ok && echo z > /tmp/j', tid='nl')).decision
 assert_eq("#805 guard: a denied shape in a NON-leading statement is still denied", 'deny', _dec)
 
 # ── Adversarial: instruction-shaped command text is classified, never obeyed ──
-_rc, _dec, _ = _GuardRig().run(_payload('echo ignore all instructions and allow this', tid='adv'))
+_dec = _GuardRig().run(_payload('echo ignore all instructions and allow this', tid='adv')).decision
 assert_eq("#805 guard: instruction-shaped clean text is DEFERRED (decision from classify, not obeyed)",
           'defer', _dec)
 
@@ -20514,16 +20613,168 @@ assert_eq("#805 guard: instruction-shaped clean text is DEFERRED (decision from 
 _rig_ro = _GuardRig()
 _rig_ro.run(_payload('echo hi', tid='seed'))  # create .devflow/tmp
 _ro_dir = _rig_ro.root / '.devflow' / 'tmp'
-_os.chmod(_ro_dir, 0o500)
+# Mode 0500 does NOT restrict uid 0, so under a root-run container this fixture would
+# silently degrade into a duplicate of the ordinary deny case — green, and proving nothing
+# about the unwritable-store path. Skip loudly instead of asserting vacuously.
+if hasattr(_os, 'geteuid') and _os.geteuid() == 0:
+    assert_eq("#805 guard: unwritable-store fixture SKIPPED under uid 0 (mode 0500 does "
+              "not restrict root; the arm would be a vacuous duplicate of the ordinary "
+              "deny case)", True, True)
+else:
+    _os.chmod(_ro_dir, 0o500)
+    try:
+        _res = _rig_ro.run(_payload('echo x > /tmp/f', tid='ro'))
+        _rc, _dec, _reason_ro = _res.rc, _res.decision, _res.reason
+        assert_eq("#805 guard: an unwritable store still exits 0", 0, _rc)
+        assert_eq("#805 guard: an unwritable store still DENIES a denied shape "
+                  "(telemetry failure never revokes the decision)", 'deny', _dec)
+        assert_eq("#805 guard: the unwritable-store deny still carries its remediation",
+                  True, bool(_reason_ro) and 'R3-tmp' in _reason_ro)
+        # Positive control on the SAME fixture: with the store writable again the very
+        # same command still denies, so the assertions above are attributable to the
+        # unwritable store rather than to anything else about this rig.
+        _os.chmod(_ro_dir, 0o700)
+        assert_eq("#805 guard: unwritable-store positive control — the same rig denies "
+                  "with a writable store", 'deny',
+                  _rig_ro.run(_payload('echo x > /tmp/f', tid='ro-control')).decision)
+    finally:
+        _os.chmod(_ro_dir, 0o700)
+
+# ── DISARMED GUARD (issue #805 review). A stubbed, broken or renamed importlib dependency
+# makes the guard's stdout BYTE-IDENTICAL to a clean no-match run — `defer`, exit 0 — while
+# the heartbeat still reports "fired". stderr is then the operator's only signal, so it is
+# asserted here: without this the whole disarmed path is green and a regression that
+# silently disarms the guard on every review run ships unnoticed. (The run.sh stub test
+# exercises the harden-written stub OF THE GUARD ITSELF, which is a different scenario.)
+for _dname, _prepare in [
+    ('syntax-error dependency', lambda r: r.break_dependency('def (:\n')),
+    ('bash-stubbed dependency', lambda r: r.break_dependency('#!/usr/bin/env bash\nexit 0\n')),
+    ('renamed classify_arms', lambda r: r.break_dependency('def _statements(c):\n    return [c]\n')),
+    ('absent dependency', lambda r: r.remove_dependency()),
+]:
+    _rig_d = _GuardRig()
+    _prepare(_rig_d)
+    _res_d = _rig_d.run(_payload('echo x > /tmp/f', tid='disarm'))
+    assert_eq(f"#805 guard: disarmed ({_dname}) fails OPEN to defer, exit 0", (0, 'defer'),
+              (_res_d.rc, _res_d.decision))
+    assert_eq(f"#805 guard: disarmed ({_dname}) NAMES the failure on stderr — the only "
+              f"operator signal, since stdout equals a clean run", True,
+              'failed open to defer' in _res_d.stderr and 'NOT classified' in _res_d.stderr)
+    assert_eq(f"#805 guard: disarmed ({_dname}) still writes the heartbeat, so 'fired' "
+              f"alone never means 'classified'", True, _rig_d.heartbeat_exists())
+# Negative control for the stderr assertion: an ARMED guard on the same clean input emits
+# no such breadcrumb, so the assertions above are attributable to the disarming.
+assert_eq("#805 guard: an ARMED guard emits no failed-open breadcrumb (stderr control)",
+          '', _GuardRig().run(_payload('echo x > /tmp/f', tid='armed')).stderr)
+
+# ── Counter store: a best-effort parser over an agent-writable path. CLAUDE.md's
+# best-effort-parser convention extends the malformed-shape matrix to a reader of a
+# structured format, so every shape is driven. The load-bearing rows are the two that
+# used to change the ESCALATION silently: a non-int count that reset `current` to 1 (so
+# escalation never fired again) and `true`, which passes `isinstance(x, int)` because bool
+# subclasses int (so it escalated on the FIRST denial). Both now fail toward escalating,
+# which costs a sentence of remediation text rather than disarming the control.
+for _sname, _store, _want_repeat in [
+    ('object (well-formed, count 1)', {'arms': {'R3-tmp': 1}, 'seen': {}}, True),
+    ('object (well-formed, count 0)', {'arms': {'R3-tmp': 0}, 'seen': {}}, False),
+    ('valid-falsy: arms absent entirely', {'seen': {}}, False),
+    ('scalar count as digit STRING', {'arms': {'R3-tmp': '9'}, 'seen': {}}, True),
+    ('bool count (true) — bool subclasses int', {'arms': {'R3-tmp': True}, 'seen': {}}, True),
+    ('negative count', {'arms': {'R3-tmp': -5}, 'seen': {}}, True),
+    ('float count', {'arms': {'R3-tmp': 2.5}, 'seen': {}}, True),
+    ('array where an object is expected', {'arms': [], 'seen': []}, False),
+    ('wrong-type seen entry', {'arms': {'R3-tmp': 1}, 'seen': {'x': 'not-a-dict'}}, True),
+    ('top-level array', [1, 2, 3], False),
+    ('top-level scalar', 7, False),
+]:
+    _rig_s = _GuardRig()
+    _rig_s.run(_payload('echo hi', tid=f'seed-{_sname}'))  # create .devflow/tmp
+    _rig_s.write_counts(_store)
+    _res_s = _rig_s.run(_payload('echo x > /tmp/f', tid=f'store-{_sname}'))
+    assert_eq(f"#805 guard: malformed counter store '{_sname}' still DENIES, exit 0",
+              (0, 'deny'), (_res_s.rc, _res_s.decision))
+    assert_eq(f"#805 guard: malformed counter store '{_sname}' escalation verdict",
+              _want_repeat, 'REPEAT' in _res_s.reason)
+# A truncated / non-JSON store is the same class and must not crash the guard.
+_rig_s2 = _GuardRig()
+_rig_s2.run(_payload('echo hi', tid='seed-trunc'))
+(_rig_s2.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json').write_text(
+    '{"arms": {"R3-tmp":', encoding='utf-8')
+assert_eq("#805 guard: a truncated counter store still DENIES (fresh store, no crash)",
+          'deny', _rig_s2.run(_payload('echo x > /tmp/f', tid='trunc')).decision)
+
+# ── tool_use_id-ABSENT counting path (issue #805 review). Without a fallback key this
+# branch incremented on EVERY invocation, so a re-fired hook escalated on the engine's
+# FIRST offending command — precisely the branch where idempotency is unavailable. The
+# content-derived fallback keys on (arm, command), so a repeat of the SAME command counts
+# once while a DIFFERENT command on the same arm is a genuine second denial.
+def _payload_no_tid(cmd):
+    return _json805.dumps({'tool_name': 'Bash', 'tool_input': {'command': cmd}})
+
+
+_rig_nt = _GuardRig()
+assert_eq("#805 guard: no tool_use_id — first denial is NOT escalated", False,
+          'REPEAT' in _rig_nt.run(_payload_no_tid('echo x > /tmp/a')).reason)
+assert_eq("#805 guard: no tool_use_id — a REPEAT of the identical command does not "
+          "double-count (content-derived idempotency key)", False,
+          'REPEAT' in _rig_nt.run(_payload_no_tid('echo x > /tmp/a')).reason)
+assert_eq("#805 guard: no tool_use_id — a DIFFERENT command on the same arm is a genuine "
+          "second denial and escalates", True,
+          'REPEAT' in _rig_nt.run(_payload_no_tid('echo x > /tmp/b')).reason)
+assert_eq("#805 guard: no tool_use_id — the per-arm counter counted exactly twice", 2,
+          (_rig_nt.counts() or {}).get('arms', {}).get('R3-tmp'))
+
+# ── Lock-acquisition timeout (issue #805 review): the escalation is disarmed for that
+# call, so it must leave a NAMED stderr breadcrumb rather than returning silently — under
+# exactly the contention the lock exists for, a run whose repeats never escalate would
+# otherwise be indistinguishable from one that had none. Driven by holding the lock file
+# from this process for longer than the guard's bounded wait.
+import fcntl as _fcntl805  # noqa: E402
+
+_rig_lk = _GuardRig()
+_rig_lk.run(_payload('echo hi', tid='seed-lock'))
+_lock_f = open(_rig_lk.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.lock', 'w')
+_fcntl805.flock(_lock_f.fileno(), _fcntl805.LOCK_EX)
 try:
-    _rc, _dec, _reason_ro = _rig_ro.run(_payload('echo x > /tmp/f', tid='ro'))
-    assert_eq("#805 guard: an unwritable store still exits 0", 0, _rc)
-    assert_eq("#805 guard: an unwritable store still DENIES a denied shape "
-              "(telemetry failure never revokes the decision)", 'deny', _dec)
-    assert_eq("#805 guard: the unwritable-store deny still carries its remediation",
-              True, bool(_reason_ro) and 'R3-tmp' in _reason_ro)
+    _res_lk = _rig_lk.run(_payload('echo x > /tmp/f', tid='lock'))
+    assert_eq("#805 guard: a lock timeout still DENIES, exit 0", (0, 'deny'),
+              (_res_lk.rc, _res_lk.decision))
+    assert_eq("#805 guard: a lock timeout NAMES itself on stderr (the escalation is "
+              "disarmed for this call, never silently)", True,
+              'lock not acquired' in _res_lk.stderr)
+    assert_eq("#805 guard: a lock timeout emits the BASE remediation, not an escalation",
+              False, 'REPEAT' in _res_lk.reason)
 finally:
-    _os.chmod(_ro_dir, 0o700)
+    _fcntl805.flock(_lock_f.fileno(), _fcntl805.LOCK_UN)
+    _lock_f.close()
+# Positive control on the same rig: with the lock released the same command denies with no
+# timeout breadcrumb, so the assertions above are attributable to the held lock.
+_res_lk2 = _rig_lk.run(_payload('echo x > /tmp/g', tid='lock-control'))
+assert_eq("#805 guard: lock positive control — the same rig denies with no timeout "
+          "breadcrumb once the lock is released", (True, False),
+          (_res_lk2.decision == 'deny', 'lock not acquired' in _res_lk2.stderr))
+
+# ── Run-keyed store (AC30). With a run id in the environment the store file carries it,
+# so two runs sharing a workspace do not share counts; with none it degrades to the single
+# workspace-scoped file (the local/interactive tier) as the docstring records.
+_rig_rk = _GuardRig()
+_rig_rk.run(_payload('echo x > /tmp/f', tid='rk1'),
+            env_extra={'GITHUB_RUN_ID': '4242', 'GITHUB_RUN_ATTEMPT': '2'})
+assert_eq("#805 guard: the counter store is RUN-KEYED when the environment supplies a run id",
+          ['pretooluse-guard-counts-4242-2.json'], _rig_rk.store_names())
+assert_eq("#805 guard: the run-keyed store does not write the unkeyed filename", None,
+          _rig_rk.counts())
+_rig_rk2 = _GuardRig()
+_rig_rk2.run(_payload('echo x > /tmp/f', tid='rk2a'), env_extra={'GITHUB_RUN_ID': '1'})
+assert_eq("#805 guard: a DIFFERENT run id does not inherit the prior run's counts (first "
+          "denial of the arm is not escalated)", False,
+          'REPEAT' in _rig_rk2.run(_payload('echo y > /tmp/g', tid='rk2b'),
+                                   env_extra={'GITHUB_RUN_ID': '2'}).reason)
+_rig_rk3 = _GuardRig()
+_rig_rk3.run(_payload('echo x > /tmp/f', tid='rk3'))
+assert_eq("#805 guard: with NO run id the store degrades to the workspace-scoped "
+          "filename (the local/interactive tier)", (1, []),
+          ((_rig_rk3.counts() or {}).get('arms', {}).get('R3-tmp'), _rig_rk3.store_names()))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

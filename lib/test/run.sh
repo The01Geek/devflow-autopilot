@@ -22559,26 +22559,56 @@ else
   record_fail "#805 drift-guard: mktemp -d failed"
   printf '  FAIL  #805 drift-guard: mktemp -d failed (UNRESOLVABLE-IMPORT arm not exercised; not a vacuous skip)\n' >&2
 fi
-# Remediation mirror (issue #805): each deny-set arm's permitted-alternative phrase appears
-# in BOTH the guard's REMEDIATION table and docs/cloud-allowlist.md's authoritative record,
-# so the scripts/-to-docs/ coupled mirror cannot drift silently. This is a machine-consumed
-# cross-file contract (the guard's remediation text is the emitted permissionDecisionReason),
-# not a prose-presence pin.
-assert_eq "#805 remediation mirror: arm R1 alternative is in the guard" "yes" \
-  "$(grep -qF 'VAR=$(cmd)' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
-assert_eq "#805 remediation mirror: arm R1 alternative is in docs/cloud-allowlist.md" "yes" \
-  "$(grep -qF 'VAR=$(cmd)' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
-assert_eq "#805 remediation mirror: arm R3-tmp alternative is in the guard" "yes" \
-  "$(grep -qF '.devflow/tmp/' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
-assert_eq "#805 remediation mirror: arm R3-tmp alternative is in docs/cloud-allowlist.md" "yes" \
-  "$(grep -qF '.devflow/tmp/' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+# Remediation mirror (issue #805): each deny-set arm's join literal appears in BOTH the
+# guard's REMEDIATION ENTRY FOR THAT ARM and docs/cloud-allowlist.md's authoritative TABLE
+# ROW FOR THAT ARM, so the scripts/-to-docs/ coupled mirror cannot drift silently. This is
+# a machine-consumed cross-file contract (the guard's remediation text is the emitted
+# permissionDecisionReason), not a prose-presence pin.
+#
+# BOTH SIDES ARE ROW-SCOPED, and that is the whole point of the assertion. A whole-file
+# `grep -qF` for these literals is INERT: every one of them also occurs outside the row it
+# claims to pin (the guard's module docstring, this document's own explanatory prose), so
+# the test could never go RED for the row it names — it would certify a mirror it does not
+# read. The guard side resolves REMEDIATION[arm] by importing the module (the same table
+# the runtime subscripts); the docs side extracts the single markdown table row whose first
+# cell is that arm id.
+_805_guard_cell() {  # $1 = arm id -> that arm's REMEDIATION text, or empty
+  python3 - "$GUARD_PY" "$1" <<'PY' 2>/dev/null || true
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("devflow_guard_pin", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+sys.stdout.write(mod.REMEDIATION.get(sys.argv[2], ""))
+PY
+}
+_805_doc_row() {  # $1 = arm id -> that arm's docs/cloud-allowlist.md table row, or empty
+  grep -F "| \`$1\` |" "$ALLOWLIST_DOC" || true
+}
+assert_eq "#805 remediation mirror: arm R1 join literal is in the guard's R1 REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R1 join literal is in the docs R1 table row" "yes" \
+  "$(_805_doc_row R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the guard's R3-tmp REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R3-tmp | grep -qF '.devflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the docs R3-tmp table row" "yes" \
+  "$(_805_doc_row R3-tmp | grep -qF '.devflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
 # R4's permitted alternative reads as a whitespace-bearing English phrase on the docs side,
-# which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE token is the
-# whitespace-free join key carried verbatim by both sides, so the R4 row is mirrored on that.
-assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard" "yes" \
-  "$(grep -qF 'python3/python/node' "$GUARD_PY" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
-assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in docs/cloud-allowlist.md" "yes" \
-  "$(grep -qF 'python3/python/node' "$ALLOWLIST_DOC" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
+# which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE cell carries the
+# whitespace-free join key verbatim on both sides, so the R4 row is mirrored on that.
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard's R4 REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the docs R4 table row" "yes" \
+  "$(_805_doc_row R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
+# NEGATIVE CONTROLS for the row-scoping itself: the extractors must return the arm's OWN
+# row, never another arm's and never the surrounding prose. Without these the row-scoped
+# pins above could silently regress back to whole-file behavior (an extractor that returned
+# the entire file would satisfy every positive assertion above).
+assert_eq "#805 remediation mirror: the guard-side extractor is row-scoped (R1 entry does not carry R4's token)" "no" \
+  "$(_805_guard_cell R1 | grep -qF 'python3/python/node' && echo yes || echo no)"
+assert_eq "#805 remediation mirror: the docs-side extractor is row-scoped (R1 row does not carry R4's token)" "no" \
+  "$(_805_doc_row R1 | grep -qF 'python3/python/node' && echo yes || echo no)"
+assert_eq "#805 remediation mirror: the guard-side extractor returns nothing for an EXCLUDED arm (R2)" "" \
+  "$(_805_guard_cell R2)"
 # Language-appropriate stub (issue #805): drive harden-stop-hooks.sh with an EMPTY
 # TRUSTED_DIR so every target is stubbed, then assert the .py target's stub parses under
 # python3 and a .sh target's stub parses under bash — asserting the INSTALLED BYTES parse,
@@ -34773,13 +34803,29 @@ assert_eq "#504 AC10 run.sh #460 FP1 names the closure (count-free)" "2" \
 assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
 # #805: the grounding block names the three denied shapes no runtime guard catches, so
 # the engine self-polices them. Asserted on the RENDERED output (a shape name assembled
-# from adjacent string literals lives on no single source line).
-assert_eq "#805 grounding names the bash <path> wrapper shape" "yes" \
-  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'bash <path>' && echo yes || echo no)"
-assert_eq "#805 grounding names process substitution" "yes" \
-  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'process substitution' && echo yes || echo no)"
-assert_eq "#805 grounding names the simple_expansion shape" "yes" \
-  "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'simple_expansion' && echo yes || echo no)"
+# from adjacent string literals lives on no single source line), and SECTION-SCOPED to the
+# command-shapes section: a whole-block grep is satisfied by the shape name appearing
+# anywhere in the block — including in a future section that merely mentions it — so it
+# would not go RED for the thing it pins (the shape being named where the engine reads the
+# shape rules). `_rgb_shapes` slices numbered section 3 out of the rendered block.
+_rgb_shapes() {  # rendered command-shapes section only (section 3, up to section 4)
+  _rgb deadbeef 'lint: success' 'Read' \
+    | sed -n "/^> \*\*3\. Command shapes/,/^> \*\*4\./p"
+}
+assert_eq "#805 grounding names the bash <path> wrapper shape (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'bash <path>' && echo yes || echo no)"
+assert_eq "#805 grounding names process substitution (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'process substitution' && echo yes || echo no)"
+assert_eq "#805 grounding names the simple_expansion shape (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'simple_expansion' && echo yes || echo no)"
+# Section-slice controls: the slice must be a PROPER subset of the block (non-empty, and
+# not the whole thing). Without these a `sed` range that silently matched nothing would
+# fail the three pins above loudly, but a range that matched everything would restore the
+# whole-block behaviour these pins were rewritten to remove, with no signal at all.
+assert_eq "#805 grounding command-shapes slice is non-empty" "yes" \
+  "$(_rgb_shapes | grep -qF 'Command shapes this run' && echo yes || echo no)"
+assert_eq "#805 grounding command-shapes slice excludes the CI-results section (proper subset)" "no" \
+  "$(_rgb_shapes | grep -qF 'CI results already observed' && echo yes || echo no)"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \

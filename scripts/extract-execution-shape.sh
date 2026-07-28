@@ -262,6 +262,57 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
                else "absent" end
            end
        end) as $p
+    # --- Denied-command emission (issue #805, Part 3). Derived INSIDE this pass, from the
+    # same $objs and behind the same $has_result-gated $p the count line reports, for two
+    # reasons a separate second jq pass got wrong.
+    #
+    # (1) UNKNOWN IS NOT ZERO. A pass with no completion gate publishes
+    # `{"commands":[],"total":0}` for a run whose denials were never established — an
+    # aborted run then emits `permission_denials: unavailable` on one line and `total: 0`
+    # on the next (a self-contradicting record), and the COUNT-ONLY degradation documented
+    # above (count carrier present, array absent — the frequent case) emits
+    # `permission_denials: present` beside `total: 0`, a definitive "zero denied commands"
+    # about a run that demonstrably had them. So the object is emitted ONLY when $p is a
+    # positive observation backed by an actual array carrier; `unavailable` otherwise, and
+    # the genuinely-zero `absent` case is the one that gets the empty object.
+    #
+    # (2) POSITION. The field is part of the header field block, immediately after the
+    # count it qualifies, on EVERY arm — `_emit_unavailable` emits it there too. Appending
+    # it after the structural-key-paths heading on the success arm only would put it in a
+    # different record position on the two arms, so a consumer parsing the header block up
+    # to the `##` heading would find it on `unavailable` runs and miss it on successful
+    # ones, inverting the field purpose.
+    #
+    # SINGLE-LINE by construction: `tojson` escapes every newline, so no post-hoc
+    # line-count check is needed to hold the $GITHUB_OUTPUT one-value contract.
+    #
+    # BOUNDS: a per-command LENGTH cap (500 chars) and a 40-ENTRY list cap — a length
+    # budget and an item-count budget, not two size budgets — each with its own explicit
+    # truncation marker.
+    #   NO NEUTRALIZING CONSUMER SHIPS YET. The ::-workflow-command and fence-breaking-
+    #   backtick neutralization and the fenced rendering are the RENDERING layer job, and
+    #   the devflow-runner.yml producer + devflow-review.yml check-run consumer that would
+    #   perform them are NOT in the tree at this revision. So this field currently carries
+    #   un-neutralized text, and any consumer added later MUST neutralize before rendering.
+    #   Treat that as a precondition on the consumer, not a property of this output.
+    #   NOTE the redaction consequence: the AC2 statement that every string leaf is
+    #   dropped now has exactly this one disclosed exception (docs/execution-file-shape.md).
+    # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted
+    # jq program, where one would terminate the string (SC1011/SC1073).
+    | (any($objs[]; (.permission_denials? | type) == "array")) as $has_denial_array
+    | [ $objs[] | (.permission_denials? // empty)
+        | select(type == "array") | .[]
+        | (.tool_input.command? // .command? // empty)
+        | select(type == "string")
+        | if (length > 500) then (.[0:500] + " …[per-command-truncated]") else . end
+      ] as $cmds
+    | (if $p == "unavailable" then "unavailable"
+       elif $p == "absent" then ({commands: [], total: 0, truncated: false} | tojson)
+       elif ($has_denial_array | not) then "unavailable"
+       else ({ commands: ($cmds[0:40]),
+               total: ($cmds | length),
+               truncated: (($cmds | length) > 40) } | tojson)
+       end) as $dc
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t
@@ -283,6 +334,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
         "tool_use: \($t)",
         "subagent_type: \($s)",
         "permission_denials: \($p)",
+        "permission_denials_commands: \($dc)",
         "",
         "## Structural key-paths (redacted; string leaves shown as type only)" ]
       + (if ($struct | length) > 0 then $struct else ["_(no object keys found)_"] end)
@@ -294,61 +346,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
   _emit_unavailable "jq slurp pass failed ('$FILE')"
 fi
 
-# --- Denied-command emission (issue #805, Part 3). The existing record REDACTS every
-# string leaf; this field is the deliberate, scoped EXCEPTION — the whole point of the
-# feature is to surface the agent's own denied commands so a maintainer need not download
-# and parse the 2.4 MB execution artifact by hand. The commands are the engine's OWN
-# emitted Bash, not arbitrary prompt/repo content, but they can still carry injected text,
-# so this layer only bounds them (per-command cap + a total cap, each with an explicit
-# truncation marker) and emits a compact SINGLE-LINE JSON object. Single-line so a
-# workflow can carry it through $GITHUB_OUTPUT as one JSON-encoded value with no
-# delimiter-injection surface.
-#   NO NEUTRALIZING CONSUMER SHIPS YET. The ::-workflow-command and fence-breaking-
-#   backtick neutralization and the fenced rendering are the RENDERING layer's job, and
-#   the devflow-runner.yml producer + devflow-review.yml check-run consumer that would
-#   perform them are NOT in the tree at this revision (grep: this file and lib/test/run.sh
-#   are the only mentions of permission_denials_commands). So this field currently carries
-#   un-neutralized text, and any consumer added later MUST neutralize before rendering.
-#   Treat that as a precondition on the consumer, not a property of this output.
-#   NOTE the redaction consequence: docs/execution-file-shape.md's AC2 statement that
-#   every string leaf is dropped now has exactly this one disclosed exception.
-#   present  -> {"commands":[...], "total":N, "truncated":bool}
-#   absent   -> {"commands":[], "total":0, "truncated":false}  (a run that denied nothing)
-#   unavailable -> the literal `unavailable` (jq failed / file unreadable)
-# SLURP (`-s`) like every other pass in this helper. Without it, jq runs the filter ONCE
-# PER RECORD on the `jsonl` encoding — which this helper explicitly detects — emitting one
-# object per record: the labeled line then carries the FIRST record's (usually empty)
-# result, publishing `total: 0` for a run that denied commands, and every later record's
-# object lands as an extra unlabeled line, defeating the single-line/$GITHUB_OUTPUT
-# contract above. Slurped, `..` walks the whole array and all three encodings agree.
-# rc is read by the `if !` itself (never a captured status a later statement reads): jq
-# exits non-zero on a truncated or corrupt file AFTER printing the records it did parse,
-# so a bare `|| true` would publish a PARTIAL extraction that looks complete. An
-# unestablished extraction is `unavailable`, never a plausible-looking short list.
-if ! DENIED_COMMANDS="$("$DEVFLOW_JQ" -cs '
-    def cap: if (type == "string") and (length > 500)
-             then (.[0:500] + " …[per-command-truncated]") else . end;
-    [ .. | objects | (.permission_denials? // empty)
-      | select(type == "array") | .[]
-      | (.tool_input.command? // .command? // empty)
-      | select(type == "string") | cap ] as $all
-    | { commands: ($all[0:40]),
-        total: ($all | length),
-        truncated: (($all | length) > 40) }
-  ' "$FILE" 2>/dev/null)"; then
-  DENIED_COMMANDS="unavailable"
-fi
-# A multi-line value would break the single-line contract even if jq exited 0, so treat
-# anything but exactly one line as unestablished rather than emitting it. Compared with a
-# bash builtin (a $'\n' literal in a `case` pattern) — never a `tr`/`wc` pipeline, since
-# this value decides what is EMITTED and a missing PATH tool must not change it.
-case "$DENIED_COMMANDS" in
-  *$'\n'*) DENIED_COMMANDS="unavailable" ;;
-esac
-[ -n "$DENIED_COMMANDS" ] || DENIED_COMMANDS="unavailable"
-
 printf '%s\n' "$_HEADER"
 printf 'encoding: %s\n' "$ENCODING"
 printf '%s\n' "$BODY"
-printf 'permission_denials_commands: %s\n' "$DENIED_COMMANDS"
 exit 0

@@ -41,6 +41,24 @@ leaf is dropped, so no prompt text, repository content, secret, or attacker-cont
 check-run name leaves the run (AC2). (Object keys are the fixed schema field names, emitted
 verbatim; the observed schema places untrusted content in value positions, not keys.)
 
+> **One disclosed exception to the string-leaf redaction (issue #805).** The
+> `permission_denials_commands` field carries the **raw text of the engine's own denied
+> Bash commands**, length- and count-bounded but **not** redacted and **not** neutralized.
+> It is the deliberate scope of the denied-command-visibility feature: the whole point is
+> to surface those commands without downloading and parsing the multi-megabyte execution
+> artifact by hand. They are the engine's own emitted Bash rather than arbitrary prompt or
+> repository content, but a command can still quote attacker-influencable text, and the
+> `::`-workflow-command / fence-breaking-backtick neutralization is the *rendering*
+> layer's job — no such consumer ships yet.
+>
+> **Consequence for committed evidence:** the statement below that
+> `docs/execution-file-shape.observed.txt` is "redaction-safe by construction" holds for
+> the *structural* section and for the probe run that produced it, whose record predates
+> this field. It is **not** a standing guarantee for a future re-run: before committing a
+> newly generated record, read its `permission_denials_commands` line and confirm the
+> commands it carries are safe to publish, or drop that one line. Do not commit a fresh
+> record on the strength of the by-construction claim alone.
+
 ---
 
 ## Observation
@@ -68,7 +86,9 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
   everything below it is the helper's own unedited output), committed **because GitHub artifacts
   expire (~90 days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
   with no surviving evidence; with it, a second reviewer can re-derive this table from bytes in
-  the repo at any point in the future. (It is redaction-safe by construction — see below.)
+  the repo at any point in the future. (Redaction-safe by construction for the structural
+  section — see below, and see the `permission_denials_commands` exception above before
+  committing a freshly generated record.)
 - **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job; also the
   source of the committed file above)
 - **Observed on:** `anthropics/claude-code-action@v1`, 2026-07-12

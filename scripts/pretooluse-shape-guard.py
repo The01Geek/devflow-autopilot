@@ -34,23 +34,48 @@ cannot be expressed at rule-id granularity (`classify()` returns the single toke
 for both arms), the guard resolves through that module's `classify_arms()` arm-level
 classifier.
 
-FAIL-OPEN. Every failure — an unparseable payload, an internal exception, a failed
-breadcrumb or counter write — resolves to `defer` (the default permission flow) and
-exit 0. A guard that blocked on an unparsed payload would deny legitimate commands; a
-guard that exited non-zero with no heartbeat would read to the workflow as the
-never-fired case for a guard that in fact ran, destroying the distinguishability the
-heartbeat exists to provide. The harness also caps consecutive hook blocks, so a guard
-that denied everything would stall a run — the `defer` majority path is what bounds it.
+FAIL-OPEN, AND ITS ONE EXCLUSION. Every failure in the CLASSIFICATION path — an
+unparseable payload, a dependency that cannot be loaded, any other internal exception —
+resolves to `defer` (the default permission flow) and exit 0. A guard that blocked on an
+unparsed payload would deny legitimate commands; a guard that exited non-zero with no
+heartbeat would read to the workflow as the never-fired case for a guard that in fact
+ran, destroying the distinguishability the heartbeat exists to provide. The harness also
+caps consecutive hook blocks, so a guard that denied everything would stall a run — the
+`defer` majority path is what bounds it.
+
+The BOOKKEEPING writes are deliberately NOT on that fail-open path. A failed heartbeat
+write, a failed counter write, an unavailable `fcntl`, or a lock the guard could not
+acquire costs only the telemetry and the REPEAT escalation — never the decision: a
+command already classified as a denied shape still returns `deny`. Un-excluded, an
+unwritable `.devflow/tmp` silently disarmed the guard for a whole run. See the
+`BOOKKEEPING NEVER DECIDES` comment in `_run` and the counter-write comment below it;
+this exclusion is the contract those two comments implement, so do not "restore" a
+uniform fail-open here.
 
 REPEAT BOUND. The load-bearing assumption (a per-call remediation changes behavior where
 generic refusal did not) may fail, so the guard also carries a control: a second denial
 of the same arm within one run escalates the remediation to name the abandonment rule
-explicitly. The per-arm counts live in a WORKSPACE-scoped store under `.devflow/tmp/`
-(each hook invocation is a separate process) written under an exclusive lock, so
-parallel subagent invocations cannot interleave and undercount. It is per-RUN only
-because the cloud tier gets a fresh workspace each run; the store carries no run key, so
-on a persistent local checkout the counts accumulate across sessions and the escalation
-can fire on a later session's first denial of an arm.
+explicitly. The per-arm counts live in a store under `.devflow/tmp/` (each hook
+invocation is a separate process) written under an exclusive lock, so parallel subagent
+invocations cannot interleave and undercount. The store file is RUN-KEYED whenever the
+environment supplies a run identifier (`GITHUB_RUN_ID`, then `GITHUB_RUN_ATTEMPT` — the
+cloud review tier always does), which is what makes "within one run" true there even on a
+reused workspace. With no run identifier in the environment — the local/interactive tier
+— the store degrades to a single workspace-scoped file, so counts accumulate across
+sessions on a persistent checkout and the escalation can fire on a later session's first
+denial of an arm. That degradation costs an over-eager remediation suffix, never a
+decision.
+
+UNESTABLISHED: THE HARNESS'S `permissionDecision` VOCABULARY. `deny` and `defer` are the
+tokens the published hooks reference names, and this guard emits only those two. What the
+harness does with an UNRECOGNIZED token is not established by anything in this repository,
+and no local test can establish it — the answer lives in the harness, not here. It matters
+because the whole fail-open design rests on `defer` meaning "fall through to the default
+permission flow": if a future harness version ignored or rejected it, every fail-open path
+would change character silently. Resolving this is part of the `pretooluse-probe` arm
+recorded in docs/cloud-allowlist.md (its reason-delivery verdict observes what the harness
+actually does with the emitted object); until that arm runs, treat the vocabulary as an
+ASSUMPTION this file depends on, not as a measured fact.
 
 TRUST BOUNDARY (the contract registration must satisfy). This file is inert unless its
 path is in the trusted-base HOOK_TARGETS: the hook command a `settings` input would
@@ -69,6 +94,7 @@ scripts/harden-stop-hooks.sh and docs/cloud-allowlist.md.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -76,26 +102,20 @@ import subprocess
 import sys
 import time
 
-# The arm identifiers this guard denies, in the SORTED order the multi-match tie-break
-# selects — sorted("R1","R3-tmp","R4") is exactly this. A command matching more than one
-# deny-set arm emits the first-sorting arm's remediation, so the choice is deterministic
-# across invocations rather than dependent on an unstated spelling.
-DENY_ARMS = ("R1", "R3-tmp", "R4")
-
 # ── Arm → permitted-alternative remediation (issue #805) ──────────────────────
 # This table is the guard's own named table; NO remediation text is composed at runtime,
 # and it carries NO entry for an excluded arm (R2, R3-heredoc). docs/cloud-allowlist.md
 # is the AUTHORITATIVE record of each arm's permitted alternative and this table is its
-# mirror — a lib/test/run.sh assertion ties each arm's row to that document's row for the
-# same arm, so the two cannot drift apart silently (the same coupled-mirror discipline the
-# closure literals carry, applied to a scripts/-to-docs/ pair). The JOIN LITERAL differs by
-# arm and is NOT uniformly the alternative: R1 and R3-tmp each join on a whitespace-free
-# fragment of their own permitted alternative, while R4 joins on its DENIED-SHAPE token
-# instead, because R4's alternative is a whitespace-bearing English phrase that the
-# issue-810 boundary classifies as markdown prose on the docs side and so may not be
-# pinned. Consequence: editing R4's alternative cell alone does NOT turn the suite RED —
-# reconcile that one by hand. (The join fragments are deliberately not re-quoted here: they
-# are pinned uniquely elsewhere, and a second copy in this comment would collide.)
+# mirror — a lib/test/run.sh assertion ties each arm's ROW here to that document's table
+# ROW for the same arm (both sides extracted by arm id, never whole-file substring tests:
+# a whole-file test cannot distinguish the row it claims to pin from any other mention of
+# the same literal, and would be inert). The JOIN LITERAL differs by arm and is NOT
+# uniformly the alternative: R1 and R3-tmp each join on a whitespace-free fragment of
+# their own permitted alternative, while R4 joins on its DENIED-SHAPE token instead,
+# because R4's alternative is a whitespace-bearing English phrase that the issue-810
+# boundary classifies as markdown prose on the docs side and so may not be pinned.
+# Consequence: editing R4's alternative cell alone does NOT turn the suite RED — reconcile
+# that one by hand.
 REMEDIATION = {
     "R1": (
         "devflow shape guard (R1): a leading VAR=value assignment or env-prefix "
@@ -116,6 +136,16 @@ REMEDIATION = {
     ),
 }
 
+# The arm identifiers this guard denies, DERIVED from REMEDIATION rather than re-typed:
+# `REMEDIATION[arm]` is an unguarded subscript reached AFTER the deny is decided, so a
+# deny-set arm with no remediation row would raise a KeyError that main()'s blanket
+# handler converts into a `defer` — silently revoking an established deny. Deriving the
+# set makes that disagreement unrepresentable. `sorted` also fixes the multi-match
+# tie-break order (a command matching more than one deny-set arm emits the first-sorting
+# arm's remediation), so the choice is deterministic across invocations rather than
+# dependent on an unstated spelling.
+DENY_ARMS = tuple(sorted(REMEDIATION))
+
 # The escalation suffix for a SECOND denial of the same arm within one run: it names the
 # abandonment rule explicitly for that arm. Appended to the base remediation above.
 _ABANDON = (
@@ -128,6 +158,54 @@ _HEARTBEAT = "pretooluse-guard-fired"
 _COUNTS = "pretooluse-guard-counts.json"
 _LOCK = "pretooluse-guard-counts.lock"
 _LOCK_WAIT_SECONDS = 2.0  # bounded wait; on timeout, emit the decision without incrementing
+# Upper bound on the `seen` idempotency map (issue #805 review). Every denied call's key is
+# retained, which is bounded in practice on the cloud tier's fresh per-run workspace but
+# unbounded on a persistent local checkout — the same asymmetry the counters carry. On
+# overflow the OLDEST-inserted keys are dropped (json preserves insertion order), which
+# costs at worst a re-count of a long-superseded call, never a decision.
+_SEEN_MAX = 512
+
+
+def _run_key() -> str | None:
+    """A per-run identifier from the environment, or None when there is none.
+
+    AC30 specifies a run-keyed store. The cloud review tier always supplies
+    `GITHUB_RUN_ID` (plus `GITHUB_RUN_ATTEMPT`, so a re-run of the same workflow run does
+    not inherit the prior attempt's counts), which is what makes the REPEAT bound's
+    "within one run" true even on a workspace that is reused. The local/interactive tier
+    supplies neither, so the store degrades to a single workspace-scoped file — see the
+    module docstring's REPEAT BOUND note. Sanitized to a filename-safe alphabet with a
+    bash-builtin-equivalent scan (never a PATH tool): a value that sanitizes to nothing is
+    treated as absent rather than as an empty key."""
+    run_id = os.environ.get("GITHUB_RUN_ID") or ""
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT") or ""
+    raw = f"{run_id}-{attempt}" if attempt else run_id
+    safe = "".join(ch for ch in raw if ch.isalnum() or ch in "._-")
+    return safe or None
+
+
+def _store_names() -> tuple[str, str]:
+    """(counts filename, lock filename) for this run — run-keyed when a run key exists."""
+    key = _run_key()
+    if not key:
+        return (_COUNTS, _LOCK)
+    return (f"pretooluse-guard-counts-{key}.json", f"pretooluse-guard-counts-{key}.lock")
+
+
+def _seen_key(tool_use_id: str | None, arm: str, command: str) -> str:
+    """The idempotency key for this denial.
+
+    `tool_use_id` when the payload carried one. When it did NOT, fall back to a
+    content-derived key over (arm, command) rather than skipping idempotency entirely:
+    without a fallback, a payload with no `tool_use_id` increments on EVERY invocation, so
+    a re-fired hook escalates on the engine's FIRST offending command — precisely the
+    branch where the escalation control is least trustworthy. The fallback is coarser
+    (two genuinely distinct calls emitting the identical command on the same arm count
+    once), which errs toward under-counting a repeat rather than inventing one."""
+    if tool_use_id:
+        return tool_use_id
+    digest = hashlib.sha256(f"{arm}\0{command}".encode("utf-8", "replace")).hexdigest()
+    return f"cmd:{digest[:32]}"
 
 
 def _repo_root() -> str:
@@ -221,26 +299,35 @@ def _read_command(payload) -> str | None:
     return command
 
 
-def _bump_counts(tmp: str, arm: str, tool_use_id: str | None) -> tuple[bool, bool]:
-    """Under an exclusive lock, record one denial of `arm` in the workspace-scoped store
-    (see the module docstring's REPEAT BOUND note: no run key is carried) and return
-    `(escalated, incremented)`.
+def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
+    """Under an exclusive lock, record one denial of `arm` in the store (run-keyed where
+    the environment supplies a run id — see `_run_key` and the module docstring's REPEAT
+    BOUND note) and return `(escalated, incremented)`.
 
-    - Idempotent across duplicate registration: a `tool_use_id` already recorded returns
-      its stored `escalated` verdict WITHOUT incrementing the per-arm counter a second
-      time (so a double-fired guard cannot double the counter or fire the escalation on
-      the engine's first offending command).
+    - Idempotent across duplicate registration: a `seen_key` already recorded returns its
+      stored `escalated` verdict WITHOUT incrementing the per-arm counter a second time
+      (so a double-fired guard cannot double the counter or fire the escalation on the
+      engine's first offending command).
     - `escalated` is True on the SECOND (or later) distinct denial of the same arm.
-    - A lock that cannot be acquired within the bounded wait returns
-      `(False, False)` — the guard emits its (base) decision WITHOUT incrementing rather
-      than blocking the tool call.
+    - A lock that cannot be acquired within the bounded wait returns `(False, False)` with
+      a stderr breadcrumb — the guard emits its (base) decision WITHOUT incrementing
+      rather than blocking the tool call.
 
-    Import fcntl lazily so a platform without it still fails open to a defer rather than
-    at module import."""
+    THE STORE IS A BEST-EFFORT PARSER over an agent-writable path, so every field it reads
+    back is shape-checked, and a shape it cannot trust fails toward ESCALATING rather than
+    toward resetting: a corrupt counter that silently restarts at 1 disarms the escalation
+    for the rest of the run, while an over-eager escalation costs only an extra sentence
+    of remediation text.
+
+    `fcntl` is imported lazily so a platform without it raises HERE — inside the call the
+    caller wraps — rather than at module import. Per the module docstring's fail-open
+    exclusion, the caller converts that into "no escalation", NOT into a defer: a command
+    already classified as a denied shape is still denied on a platform with no `fcntl`."""
     import fcntl
 
-    lock_path = os.path.join(tmp, _LOCK)
-    store_path = os.path.join(tmp, _COUNTS)
+    counts_name, lock_name = _store_names()
+    lock_path = os.path.join(tmp, lock_name)
+    store_path = os.path.join(tmp, counts_name)
     lock_fh = open(lock_path, "w", encoding="utf-8")
     try:
         deadline = time.monotonic() + _LOCK_WAIT_SECONDS
@@ -255,8 +342,16 @@ def _bump_counts(tmp: str, arm: str, tool_use_id: str | None) -> tuple[bool, boo
                     break
                 time.sleep(0.02)
         if not acquired:
+            # Breadcrumb, not silence: under exactly the contention this lock exists for,
+            # the escalation control is disarmed for this call, and without a named signal
+            # a run whose repeats never escalate is indistinguishable from one with none.
+            sys.stderr.write(
+                "devflow: pretooluse-shape-guard: denial-counter lock not acquired within "
+                f"{_LOCK_WAIT_SECONDS}s ('{store_path}'); emitting the base remediation for "
+                f"{arm} without escalation\n"
+            )
             return (False, False)
-        store = {"arms": {}, "seen": {}}
+        store: dict = {"arms": {}, "seen": {}}
         try:
             with open(store_path, encoding="utf-8") as fh:
                 loaded = json.load(fh)
@@ -265,16 +360,32 @@ def _bump_counts(tmp: str, arm: str, tool_use_id: str | None) -> tuple[bool, boo
                 store["seen"] = loaded.get("seen") if isinstance(loaded.get("seen"), dict) else {}
         except (OSError, ValueError):
             pass  # absent / malformed store — start fresh (fail toward re-counting)
-        if tool_use_id and tool_use_id in store["seen"]:
-            prior = store["seen"][tool_use_id]
+        prior = store["seen"].get(seen_key)
+        if prior is not None:
             escalated = bool(prior.get("escalated")) if isinstance(prior, dict) else False
             return (escalated, False)
-        current = store["arms"].get(arm, 0)
-        current = current + 1 if isinstance(current, int) else 1
+        raw = store["arms"].get(arm, 0)
+        # `bool` is an `int` subclass, so `isinstance(True, int)` is True and an injected
+        # `true` would read as the count 1 and escalate on the FIRST denial. Exclude it
+        # explicitly, and treat every other non-int (a string "9", a float, a list) as a
+        # corrupt count meaning "at least one prior denial" rather than as a reset to 1.
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            if raw != 0:
+                sys.stderr.write(
+                    "devflow: pretooluse-shape-guard: denial counter for "
+                    f"{arm} is not a non-negative int ({type(raw).__name__}); treating it "
+                    "as at least one prior denial rather than resetting the escalation\n"
+                )
+            current = 2
+        else:
+            current = raw + 1
         store["arms"][arm] = current
         escalated = current >= 2
-        if tool_use_id:
-            store["seen"][tool_use_id] = {"arm": arm, "escalated": escalated}
+        store["seen"][seen_key] = {"arm": arm, "escalated": escalated}
+        if len(store["seen"]) > _SEEN_MAX:
+            # Drop the oldest-inserted keys (json round-trips insertion order).
+            for stale in list(store["seen"])[: len(store["seen"]) - _SEEN_MAX]:
+                del store["seen"][stale]
         with open(store_path, "w", encoding="utf-8") as fh:
             json.dump(store, fh)
         return (escalated, True)
@@ -341,7 +452,9 @@ def _run() -> None:
     escalated = False
     if tmp is not None:
         try:
-            escalated, _incremented = _bump_counts(tmp, arm, tool_use_id)
+            escalated, _incremented = _bump_counts(
+                tmp, arm, _seen_key(tool_use_id, arm, command)
+            )
         except Exception as exc:  # noqa: BLE001 - telemetry must never decide
             sys.stderr.write(
                 "devflow: pretooluse-shape-guard: denial counter write failed "

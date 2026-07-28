@@ -499,39 +499,57 @@ def _cat_heredoc_violation(statement: str) -> bool:
 # the suite RED; its companion `a planted control exists for every rule id`
 # assertion turns the reverse drift RED — a rule added to a finder and to these
 # sets without a control.
-REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
+def _cd_violation(statement: str) -> bool:
+    """R2's arm predicate: a leading `cd`."""
+    head = _heads._head_of(statement)
+    return bool(head and head[0] == "cd")
+
+
+def _interpreter_violation(statement: str) -> bool:
+    """R4's arm predicate: an interpreter head."""
+    head = _heads._head_of(statement)
+    return bool(head and head[0] in _INTERPRETERS)
+
+
+# ── The review profile's ONE arm table (issue #805) ───────────────────────────
+# Every review-profile enumeration below is DERIVED from this table — the rule-id set,
+# the arm set, the rule-granularity classifier, and the arm-granularity classifier the
+# scripts/pretooluse-shape-guard.py deny set resolves through. They were four hand-
+# maintained mirrors: `classify()` and `classify_arms()` carried byte-for-byte duplicate
+# predicate chains with nothing asserting they agreed, and `REVIEW_ARMS` was a re-typed
+# literal with no derivation from `REVIEW_RULES`. An `R5` added to one of the four then
+# passed the whole suite while the guard's only runtime classifier stayed blind to it.
+# Rows are (arm id, rule id, predicate) in EMISSION ORDER — both classifiers walk this
+# tuple in order, so the returned sequences cannot drift apart either.
+#
+# ARM vs RULE granularity: R3 is the one rule with two arms. Its `/tmp`-target redirect
+# arm (`R3-tmp`) is probe-denied, so a runtime deny is warranted; its in-workspace
+# `cat`-heredoc arm (`R3-heredoc`) is banned only as authoring discipline, and a runtime
+# deny there would cost the engine a shape the harness permits. `classify()` collapses
+# both onto `R3`; `classify_arms()` keeps them apart. The arm identifiers are the JOIN KEY
+# between the guard's remediation table and the permitted alternatives
+# docs/cloud-allowlist.md records; every other rule maps one-to-one to an arm of the same
+# name.
+_REVIEW_ARM_TABLE = (
+    ("R1", "R1", _assignment_violation),
+    ("R2", "R2", _cd_violation),
+    ("R3-tmp", "R3", _redirect_violation),
+    ("R3-heredoc", "R3", _cat_heredoc_violation),
+    ("R4", "R4", _interpreter_violation),
+)
+
+REVIEW_ARMS = frozenset(arm for arm, _rule, _pred in _REVIEW_ARM_TABLE)
+REVIEW_RULES = frozenset(rule for _arm, rule, _pred in _REVIEW_ARM_TABLE)
 IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
 
 
 def classify(statement: str) -> list[str]:
     """Return the rule ids this statement violates (possibly several)."""
     hits: list[str] = []
-    if _assignment_violation(statement):
-        hits.append("R1")
-    head = _heads._head_of(statement)
-    if head and head[0] == "cd":
-        hits.append("R2")
-    if _redirect_violation(statement) or _cat_heredoc_violation(statement):
-        hits.append("R3")
-    if head and head[0] in _INTERPRETERS:
-        hits.append("R4")
+    for _arm, rule, pred in _REVIEW_ARM_TABLE:
+        if pred(statement) and rule not in hits:
+            hits.append(rule)
     return hits
-
-
-# ── Arm-level classifier (issue #805) ────────────────────────────────────────
-# `classify()` above reports at RULE-ID granularity, collapsing R3's two arms onto
-# the single token `R3` (`_redirect_violation(...) or _cat_heredoc_violation(...)`).
-# scripts/pretooluse-shape-guard.py's runtime deny set is defined over ARMS, and R3
-# is the rule where arm granularity matters: its `/tmp`-target redirect arm is
-# probe-denied (a runtime deny is warranted) while its in-workspace `cat`-heredoc arm
-# is banned only as authoring discipline (a runtime deny there would cost the engine a
-# shape the harness permits). The two arm predicates `_redirect_violation` and
-# `_cat_heredoc_violation` are module-private, so a deny set defined over arms cannot be
-# evaluated by intersecting `classify()`'s returned rule ids — this classifier is the
-# arm discriminator that makes it evaluable. The arm identifiers are the JOIN KEY between
-# the guard's remediation table and the permitted alternatives docs/cloud-allowlist.md
-# records; every other rule maps one-to-one to an arm of the same name.
-REVIEW_ARMS = frozenset({"R1", "R2", "R3-tmp", "R3-heredoc", "R4"})
 
 
 def classify_arms(statement: str) -> list[str]:
@@ -539,21 +557,11 @@ def classify_arms(statement: str) -> list[str]:
 
     R3 is split into `R3-tmp` (a `/tmp`-target `>`/`>>` redirect — probe-denied) and
     `R3-heredoc` (a `cat`-headed heredoc write — lint discipline, not a probe result).
-    R1/R2/R4 each map to an arm of the same name.
+    R1/R2/R4 each map to an arm of the same name. Derived from the same
+    `_REVIEW_ARM_TABLE` as `classify()`, so the two cannot disagree about which
+    statements violate what.
     """
-    arms: list[str] = []
-    if _assignment_violation(statement):
-        arms.append("R1")
-    head = _heads._head_of(statement)
-    if head and head[0] == "cd":
-        arms.append("R2")
-    if _redirect_violation(statement):
-        arms.append("R3-tmp")
-    if _cat_heredoc_violation(statement):
-        arms.append("R3-heredoc")
-    if head and head[0] in _INTERPRETERS:
-        arms.append("R4")
-    return arms
+    return [arm for arm, _rule, pred in _REVIEW_ARM_TABLE if pred(statement)]
 
 
 def _fence_line_offsets(text: str) -> list[tuple[int, str]]:
