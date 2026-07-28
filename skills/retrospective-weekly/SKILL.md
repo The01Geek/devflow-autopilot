@@ -639,6 +639,7 @@ fi
 # (delivered < selected) distinctly from the cap-dropped gap. Built with jq so the
 # element is valid JSON for the Step 9 slurp.
 if [ "$delivered" -lt "$TOTAL" ]; then
+    # argjson-ok: delivered,total,selected -- bounded per-pattern counts (small integers capped by audit_bundle_cap / occurrence_count), never corpus-sized operands, so they carry no E2BIG risk (issue #894)
     truncations+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$TAG" \
         --argjson delivered "$delivered" --argjson total "$TOTAL" --argjson selected "$selected" \
         '{tag:$tag,delivered:$delivered,total:$total,selected:$selected}')")
