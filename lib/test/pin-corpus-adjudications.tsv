@@ -248,7 +248,6 @@ literal:4e91385929d2ad30a877e085b794407e8a2593ddbd3f8045d7b7451797ed0cd0	boundar
 literal:4fbc2f067ce55b8aeb87be887ca62cf44779836217ebda7afb41ce012405327a	boundary	maintainer adjudication: prompt-extensions ST: review gate state transition fails engine changes lacking a changeset
 literal:4fcea564b4acdc1ac394d836488bbe49f2b17bc83059827e2349878f2e5a1088	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the recovery never sanctions a bare re-record pair
 literal:50f946020a4a1c4253eb2408ae8140375dbcc7ff036833e2a032989377ef21da	boundary	maintainer adjudication: runtime state-vocabulary: Closed state vocabulary prevents a merged prerequisite from being treated as blocked.
-literal:513b25a3d0a3a221bb50e7911fd01c5e06089d29ed9ad581a4d0af91bcd58e2c	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: query-next-action's answer is obeyed verbatim from its closed answer set
 literal:5214812b76f1fbcb6b2d1a8682cbabfa2c5a9e7e93ab0308fe6048ce16beca8c	boundary	Monotonic verdict-state rule.
 literal:521c49d8b55a41e8ad38e4063837069128949e0668a2932b31709b462ff386de	boundary	Mandatory gate handoff before committing an outcome.
 literal:523ef44161e9cb8a64adcc09a310bf61128395b206978b3c896e8500f2c9d45e	boundary	Fast-path phase-routing and cost-accounting contract.
