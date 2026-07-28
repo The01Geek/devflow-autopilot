@@ -1,6 +1,7 @@
 ---
 name: retrospective-audit
 description: "Stage B of /devflow:retrospective-weekly: given the bundled context of every occurrence PR for one recurring pattern, re-derive the root cause and return a single {title, body} JSON issue spec — no edits, no worktree. Invoked as a subagent — do not call it directly."
+disable-model-invocation: true
 ---
 
 # retrospective-audit — Stage B Issue-Spec Brief
