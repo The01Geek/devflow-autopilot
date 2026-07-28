@@ -21,6 +21,14 @@ CI_ROOT="${DEVFLOW_CREATE_ISSUE_CONTRACT_ROOT:-${LIB%/lib}}"
 CI_SKILL="$CI_ROOT/skills/create-issue/SKILL.md"
 CI_TMPL="$CI_ROOT/skills/create-issue/references/issue-template.md"
 CI_TMPL_AUDIT="$CI_ROOT/skills/create-issue/references/audit-prompt-template.md"  # #600 audit-prompt renderer template
+# #793: the two reference files whose out-of-bounds enumerations are LOCATION-sensitive.
+# Each list must live in its own arm's file — a file-arm list that survived only in the
+# embed-arm file would leave the file arm undeclared — so these pins keep a specific-file
+# target rather than the concatenated bundle, per the #614 per-pin routing rule. It also
+# makes their typed structural declarations INSPECTABLE, which a runtime-built bundle
+# target structurally cannot be.
+CI_STEP36="$CI_ROOT/skills/create-issue/references/step-3-6-audit.md"
+CI_FALLBACK_ARMS="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatch-arms.md"
 # #614: create-issue is a BUNDLE — a thin SKILL.md root plus marker-gated step and
 # fallback references under references/. A contract sentence lives in exactly one of
 # those sources, and which one is an implementation detail that may be re-partitioned,
@@ -318,7 +326,7 @@ devflow_module_pin_unique "#546: the state-owner-unavailable marker is distinct 
 #      pin. Ground it so the count cannot silently disagree with its own path list — #749 added
 #      the Step 1 evidence artifact as the sixth path, after #705's staged canonical-draft fifth.
 devflow_module_pin_unique "#793: file-arm skill-prose out-of-bounds names exactly the 7 paths (dispatch scope added)" \
-  'naming exactly these 7 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`' "$CI_BUNDLE"  # structural-pin-ok: cross-file-phase-contract -- the file-arm out-of-bounds list is one contract carried across step-3-6-audit.md, audit-prompt-template.md and the renderer's own rendered output; a path added on one carrier and not the others leaves an artifact holding this run's findings readable by a later round's auditor
+  'naming exactly these 7 paths — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, the audit report `.devflow/tmp/issue-audit-<slug>.md`, the state owner'"'"'s record `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** event log `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`' "$CI_STEP36"  # structural-pin-ok: cross-file-phase-contract -- the file-arm out-of-bounds list is one contract carried across step-3-6-audit.md, audit-prompt-template.md and the renderer's own rendered output; a path added on one carrier and not the others leaves an artifact holding this run's findings readable by a later round's auditor
 # (4) The user-chosen-rounds OFFER at the Step 3.6 → Step 4 boundary. #546 moved the trigger
 #     EVALUATION into the tool (`query-triggers` answers `t1=…  t2=…  reason=…`), so the old
 #     "evaluate exactly these **2 offer triggers**" literal is gone; T1, T2, and the
@@ -590,7 +598,7 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 # after a failed replace it holds bytes the canonical file does not. #749 widened it again
 # 6 → 7 (file arm 5 → 6): the Step 1 evidence artifact holds the drafter's own grounding.
 devflow_module_pin_unique "#793: embed arm out-of-bounds names exactly the 9 files (dispatch scope + instruction file added)" \
-  'On this arm the out-of-bounds declaration names exactly these 9 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.devflow/tmp/issue-audit-dispatch-<slug>.md`' "$CI_BUNDLE"  # structural-pin-ok: cross-file-phase-contract -- the embed-arm list is a coupled pair between fallback-audit-dispatch-arms.md and audit-prompt-template.md, reconciled with test_render_audit_prompt.py's EMBED_ARM_OOB; #793 added the dispatch-scope glob and the generated instruction file, which persists with the scope payload spliced into it
+  'On this arm the out-of-bounds declaration names exactly these 9 files — `.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.devflow/tmp/issue-audit-dispatch-<slug>.md`' "$CI_FALLBACK_ARMS"  # structural-pin-ok: cross-file-phase-contract -- the embed-arm list is a coupled pair between fallback-audit-dispatch-arms.md and audit-prompt-template.md, reconciled with test_render_audit_prompt.py's EMBED_ARM_OOB; #793 added the dispatch-scope glob and the generated instruction file, which persists with the scope payload spliced into it
 # ── #546 RECONCILIATION: the carriage COMPARE, the event log, the retry bounds, and T1/T2.
 #
 # The #522 block used to pin, as prose, the whole deterministic half of the carriage/identity
