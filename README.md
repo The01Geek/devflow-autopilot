@@ -116,7 +116,7 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 
 - **`git`** and **[`gh`](https://cli.github.com)** (GitHub CLI, authenticated via `gh auth login`) — you most likely already have these.
 - **`jq`** — JSON wrangling inside the skills.
-- **Python 3.11+ with PyYAML** — install PyYAML with `python3 -m pip install PyYAML`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself (a plugin-cache install has no `requirements.txt` to point `pip` at).
+- **Python 3.11+ with PyYAML** — install PyYAML with `python3 -m pip install PyYAML`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself. Name the package rather than reaching for `-r requirements.txt`: that path resolves against *your* working directory, not the plugin cache, so in a Python project it installs your project's dependencies instead.
 
 All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
 

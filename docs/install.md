@@ -38,7 +38,7 @@ DevFlow declares **zero companion-plugin dependencies** — every external asset
 
 ### The step people miss: PyYAML
 
-`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself (a plugin-cache install has no `requirements.txt` to point `pip` at):
+`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. DevFlow's shell helpers need **PyYAML**, so install it yourself — by package name, not with `-r requirements.txt` (that path resolves against *your* working directory, not the plugin cache, so in a Python project it would install your project's dependencies instead):
 
 ```bash
 python3 -m pip install PyYAML
