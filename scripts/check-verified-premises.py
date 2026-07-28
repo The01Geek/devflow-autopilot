@@ -588,7 +588,8 @@ def main(argv=None) -> int:
                         help='path to the issue body (the Phase 1.1 cache)')
     parser.add_argument('--repo-root', default=None,
                         help='tree to adjudicate against (default: the enclosing '
-                             'git working tree, else the current directory)')
+                             'git working tree; unestablished (exit 3) if none '
+                             'is found)')
     args = parser.parse_args(argv)
 
     try:

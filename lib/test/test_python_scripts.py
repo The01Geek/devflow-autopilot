@@ -19120,8 +19120,8 @@ assert_eq("#868 helper: a body with no Verified bullets exits 0 and reports tota
           True, _cvp_rc == 0 and 'VERIFIED_PREMISES total=0' in _cvp_out)
 
 # --- the PRODUCTION invocation shape: no --repo-root, cwd in a subdirectory --
-# Pass 6 passes only --body-file, so `_default_root` is what adjudicates every
-# real run. Both git layouts must resolve to the repo root, not the cwd: in a
+# create-issue Step 3.5 passes only --body-file, so `_default_root` is what
+# adjudicates there. Both git layouts must resolve to the repo root, not the cwd: in a
 # linked worktree — this repo's own working mode — `.git` is a regular FILE.
 for _cvp_gitform, _cvp_gitval in (('worktree .git file', 'gitdir: /elsewhere\n'),
                                   ('ordinary .git directory', None)):
