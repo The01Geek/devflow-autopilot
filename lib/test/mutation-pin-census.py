@@ -186,11 +186,11 @@ def _audited_sources(repo_root: Path) -> tuple[str, ...]:
 # every tracked shell source under lib/test, and the row extraction afterwards
 # parses the audited subset again. What has to fit for that second parse to hit
 # is NOT the audited set — the sweep is ordered and never revisits an entry, so
-# an audited source parsed early is evicted by the non-audited ones that sort
-# after it long before the extraction asks for it again. What has to fit is the
-# whole set the sweep visits. Sizing this against the audited count instead was
+# an audited source whose parse happened early is evicted by the non-audited
+# ones sorting after it, long before the extraction asks for it again. What has
+# to fit is the whole set the sweep visits. Sizing this against the audited count instead was
 # measured wrong: at a bound of 15 the audited 13 still "fit" and 12 of the 13
-# second parses missed anyway.
+# repeat parses did not hit.
 #
 # So the bound clears the tracked shell sources one sweep visits, with margin.
 # A tree that outgrows it does not break — it silently stops getting the hits,
