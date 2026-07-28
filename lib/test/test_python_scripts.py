@@ -19193,6 +19193,24 @@ assert_eq("#793/AC39: an all-not-addressed targeted round leaves the run-wide ef
           (1, None),
           (_m793._effective_unresolved(_doc4), _doc4['rounds'][1].get('findings')))
 
+# ── the answer-vocabulary cross-file contract, DERIVED not transcribed ────────────────
+# Replaces the retired wording pin. The comparand is the tool's own closed tuple, so a
+# token added to _NEXT_ACTIONS and forgotten in the skill's obey list goes RED — the exact
+# drift this change introduced (confirm-whole-draft), which a literal wording pin would
+# only have caught because the sentence happened to be rewritten.
+_793_STEP36 = (SCRIPTS.parent / 'skills' / 'create-issue' / 'references'
+               / 'step-3-6-audit.md').read_text(encoding='utf-8')
+assert_eq("#793: every _NEXT_ACTIONS token the tool can answer appears in the skill's "
+          "obey-verbatim list (derived from the tuple, never transcribed)",
+          [], [t for t in _m793._NEXT_ACTIONS if f'`{t}`' not in _793_STEP36])
+
+assert_eq("#793: ... and the obey list names no token the tool cannot answer",
+          [],
+          [t for t in re.findall(r'`([a-z][a-z-]+)`',
+                                 _793_STEP36.split('**Obey the answer verbatim**')[1]
+                                 .split('.')[0])
+           if t not in _m793._NEXT_ACTIONS])
+
 assert_eq("#793: last_completed stays kind-blind — it answers the newest completed "
           "round whatever its kind",
           3,

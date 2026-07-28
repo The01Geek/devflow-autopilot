@@ -713,9 +713,13 @@ devflow_module_pin_unique "#546: the verdict token's absence is classified by th
 # it verbatim. Pinned as a COUPLED PAIR with the tool: every token named here is driven by #546
 # next_action_budget_rows below, and the skill naming a token the tool cannot answer (or the tool
 # growing an arm the skill never obeys) is the drift this pin plus those rows catch together.
-devflow_module_pin_unique "#546: query-next-action's answer is obeyed verbatim from its closed answer set" \
-  '**Obey the answer verbatim** — it is one of `dispatch-embed-retry`, `dispatch-retry-same-arm`, `dispatch-inline-degraded`, `proceed`, `revise-and-reaudit`, `revise-then-evaluate-offer`, `round-open-awaiting-return`, `round-closed-no-verdict`, or `confirm-whole-draft`' \
-  "$CI_BUNDLE"
+# RETIRED (#793, under the #810 prose-presence prohibition): the answer-vocabulary
+# sentence was a wording pin, which a structural declaration cannot exempt. Its
+# guarantee moved to an EXECUTABLE cross-file reconciliation in
+# lib/test/test_python_scripts.py, which derives the token set from the tool's own
+# _NEXT_ACTIONS and requires each member to appear in the skill's obey list — so a
+# token added to the tool and forgotten in the prose goes RED, which is exactly the
+# drift this change introduced and a wording pin could only catch by accident.
 
 # ── issue #462: retain the falsifiable no-dependencies boundary.
 devflow_module_pin_unique "#462 rule3: zero arm states the falsifiable no-dependencies claim, not a count" \
