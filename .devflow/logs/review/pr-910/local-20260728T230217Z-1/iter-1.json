@@ -2,9 +2,18 @@
   "iter": 1,
   "started_at": "2026-07-28T23:02:17Z",
   "loop_role": "fix",
-  "current_step": "loop-control",
-  "current_substep": "phase_1_checklist_generation",
-  "pending_dispatch": {"kind": "checklist_generator", "roster": ["devflow:checklist-generator"], "dispatched_at": "2026-07-28T23:12:00Z"},
+  "current_step": "3.5",
+  "current_substep": "fix_delta_gate",
+  "pending_dispatch": null,
+  "fix_commit_sha": "c15f1c6bc290f60029b77fc7cc2a58b35f6e08e2",
+  "fix_files": [
+    ".changeset/issue-858-subagent-write-probe.md",
+    ".github/workflows/matcher-probe.yml",
+    "docs/cloud-allowlist.md",
+    "lib/test/modules/coverage-map.json",
+    "lib/test/run.sh",
+    "scripts/subagent-write-probe-verdict.py"
+  ],
   "config": {
     "max_iterations": 5,
     "fix_severity_threshold": "suggestion",
@@ -14,13 +23,90 @@
   "pr_number": 910,
   "run_id": "local-20260728T230217Z-1",
   "head_at_iteration_start": "fcb535fac4e1c8a0ce8fc210ccdfeaea192f0681",
-  "step_0_5_note": "gh pr checkout skipped by deliberate deviation: this is a .claude/worktrees/ checkout (branch wt-pr-910) whose local HEAD already equals the PR headRefOid and whose upstream is wired to origin/issue-858-measure-subagent-write-probe with push.default=upstream. The step's invariant (local HEAD is the PR head; fix commits land on the PR branch) holds; running gh pr checkout would contend with the sibling worktrees listed by git worktree list.",
-  "checklist": [],
-  "phase3_dispatched": [],
-  "phase3_findings": [],
-  "fix_decisions": [],
-  "dispatched_effort": [],
-  "diff_profile": null,
-  "shadow": null,
-  "telemetry": {}
+  "head_after_checkpoint": "d8218154bcc66d8b990c69ccd08b16af96b024df",
+  "base_checkpoint": {"token": "UPDATED", "behind_by": 2},
+  "base_checkpoint_note": "The helper's first push was REFUSED: the remote ref had advanced to edde5b68 (the repo owner merged main into the PR branch, bringing the Opus 4.8 model revert). The helper integrated origin's ref and retried once, succeeding. Clean merge, no conflicts; every iteration-1 fix verified intact afterwards. Not treated as a hostile head-move.",
+  "step_0_5_note": "gh pr checkout skipped by deliberate deviation: a .claude/worktrees/ checkout (branch wt-pr-910) whose HEAD already equalled the PR headRefOid, upstream wired to origin/issue-858-measure-subagent-write-probe with push.default=upstream. The step's invariant held; running it would contend with sibling worktrees.",
+  "phase_0_3_5_note": "Live progress comment NOT seeded: review-and-fix is silent on GitHub by design and its report goes to chat. Narrative rendered to chat instead of posting a local-run comment beside the bot's.",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": null
+  },
+  "stale_prose_check": {
+    "phase_0_6": {"rc": 0, "stale": 0, "unresolvable": 23},
+    "item_6a_post_fix": {"rc": 0, "stale": 0, "unresolvable": 26}
+  },
+  "checklist_summary": {
+    "total": 45,
+    "passed": 39,
+    "failed": 6,
+    "inconclusive": 0,
+    "lite": 2,
+    "agent": 43,
+    "normalized_count": 1,
+    "field_defect_fail_count": 0,
+    "failed_ids": ["VC-6", "VC-7", "VC-24", "VC-33", "VC-34", "VC-37"],
+    "normalized_ids": ["VC-3"]
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_gated_out": ["devflow:type-design-analyzer"],
+  "phase_3_1_5_completeness_critic": {
+    "ran": true,
+    "independent_signal": "the fixture builder's own scenarios dict (the producer), not the audit's hardcoded FLOOR tuple",
+    "result": "audit incomplete — conformance checker invoked 4x, every invocation against the `permitted` fixture alone; message/content and permission_denials/tool_name/tool_input vocabularies never checked",
+    "disposition": "applied"
+  },
+  "fix_decisions": [
+    {"finding_id": "F-null-toolname", "decision": "applied", "commit": "c15f1c6b", "severity": "Critical"},
+    {"finding_id": "F-residual-bucket", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-denial-recursion", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-side-present-existence-only", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-ref-sha-merge-commit", "decision": "applied", "commit": "c15f1c6b", "severity": "Important", "step25_classification": "web_confirmed", "evidence": "docs.github.com: GITHUB_SHA = 'Last merge commit on the GITHUB_REF branch'; GITHUB_REF = refs/pull/PULL_REQUEST_NUMBER/merge"},
+    {"finding_id": "F-census-one-fixture", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-coverage-map-note", "decision": "applied", "commit": "c15f1c6b", "severity": "Important", "corroboration_count": 3},
+    {"finding_id": "F-docs-heading-pending", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-docs-later-push", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+    {"finding_id": "F-stale-ordinal", "decision": "applied", "commit": "c15f1c6b", "severity": "Suggestion", "note": "capped at Suggestion by the Phase 4.1.5 behavior-inert prose cap (both limbs recorded)"},
+    {"finding_id": "F-changeset-citation", "decision": "applied", "commit": "c15f1c6b", "severity": "Important"},
+
+    {"finding_id": "VC-33", "decision": "deferred", "source_file": "docs/cloud-allowlist.md", "claim_text": "AC18: the record is written from the final pre-merge head commit", "skip_category": "uncategorized", "evidence": "Structurally undischargeable at review time: the probe jobs do not exist on the default branch, so no run has produced a verdict yet. The PR files this under Post-Merge Verification and the docs state the pending status honestly. Fixing this means dispatching the probe and recording its output, not editing prose."},
+    {"finding_id": "VC-34", "decision": "deferred", "source_file": "docs/cloud-allowlist.md", "claim_text": "AC19: observed verdicts recorded with run id, job id, head commit", "skip_category": "uncategorized", "evidence": "Same as VC-33 — the table structure ships; the values await the first PR-triggered run."},
+    {"finding_id": "VC-37", "decision": "deferred", "source_file": "docs/cloud-allowlist.md", "claim_text": "AC22: the jobs' machine output is committed alongside the recorded verdicts", "skip_category": "uncategorized", "evidence": "Same as VC-33 — no run has produced machine output to commit."},
+
+    {"finding_id": "VC-6", "decision": "pushed_back", "source_file": "scripts/subagent-write-probe-verdict.py", "claim_text": "collect()'s envelope-nesting assumption is the shape a real claude-code-action execution file uses", "skip_category": "claim-quality", "evidence": "The CODE is fine and is honest: its own comment says 'The committed census cannot settle this' and cites docs/execution-file-shape.md's 'erases parentage'. The generated claim asserted the shape is CONFIRMED by the census; the code never claims that. A claim-text defect, not a code defect.", "parking_evidence": {"basis": "the checklist claim overstated what the code asserts; the code discloses the assumption in-line", "failing_input": "the envelope-nested execution-file shape", "source": "scripts/subagent-write-probe-verdict.py collect() comment + docs/execution-file-shape.md", "finding_ref": {"iter": 1, "index": 0}}},
+    {"finding_id": "VC-7", "decision": "pushed_back", "source_file": "lib/test/run.sh", "claim_text": "the run.sh fixtures match the real execution-file shape the helper will meet in production", "skip_category": "claim-quality", "evidence": "Same class as VC-6: the fixtures PIN an assumption the block's own comment declares unprovable from the committed census. The related real gap it surfaced — that the conformance check ran against one fixture — was a genuine finding and IS fixed this iteration.", "parking_evidence": {"basis": "claim asserted a settled match the block itself documents as an assumption", "failing_input": "envelope_* fixtures vs the committed census", "source": "lib/test/run.sh #858 block PRODUCTION NESTING comment", "finding_ref": {"iter": 1, "index": 1}}},
+    {"finding_id": "VC-24", "decision": "pushed_back", "source_file": "scripts/subagent-write-probe-verdict.py", "claim_text": "the same denied-then-PERMITTED-then-unattempted precedence the existing probe jobs use", "skip_category": "claim-quality", "evidence": "The helper's OWN ordering is denied-then-permitted, as the AC requires. The claim additionally asserted the two sibling helpers share it; background-tasks-probe-verdict.py orders its positive arm first and env-propagation-probe-verdict.py has no denial concept at all. That is a defect in the generated claim's scope, not in this PR's code.", "parking_evidence": {"basis": "the claim overstated cross-file consistency; the in-file precedence the AC requires does hold", "failing_input": "arm ordering in the two named sibling helpers", "source": "scripts/background-tasks-probe-verdict.py compute_verdict(); scripts/env-propagation-probe-verdict.py collect()", "finding_ref": {"iter": 1, "index": 2}}},
+
+    {"finding_id": "F-checkout-guard", "decision": "pushed_back", "source_file": ".github/workflows/matcher-probe.yml", "claim_text": "the verdict step dies with no verdict if actions/checkout failed", "skip_category": "out-of-scope", "evidence": "Real, but shared verbatim by every sibling probe job in this workflow and pre-existing to this PR's diff. Fixing it here would change sibling-shared behavior this issue does not cover; the reporting agent itself graded it an accepted residual rather than a new regression.", "parking_evidence": {"basis": "pre-existing behavior shared by all sibling probe jobs, outside this PR's diff", "failing_input": "a failed actions/checkout before the verdict step", "source": ".github/workflows/matcher-probe.yml — the same shape in background-tasks/env-propagation/schedulewakeup verdict steps", "finding_ref": {"iter": 1, "index": 3}}}
+  ],
+  "carried_to_iteration_2": [
+    "F-denied-over-corroborated-write (write arm lacks the dispatch arm's retry guard)",
+    "F-nonempty-container-no-records (positive 'dispatch never occurred' claim)",
+    "F-comment-drift-parse-docstring / F-comment-drift-one-residual / F-comment-drift-observed-provenance",
+    "F-workflow-header-enumeration",
+    "F-observed-denials-section-unpinned",
+    "F-unrecognised-flag-arm-undriven",
+    "F-step-summary-append-vs-truncate",
+    "F-structural-pin-ok-declarations",
+    "F-task-absent-assertion",
+    "F-workflow-param-passing-unpinned",
+    "F-deep-nesting-alternation-catch-all",
+    "F-inline-branch-selection-not-extracted"
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh > .devflow/tmp/verification-858.log 2>&1",
+    "result": "running",
+    "note": "Launched detached with preexec_fn=SIG_DFL + start_new_session=True; a plain & sets SIGINT to SIG_IGN and yields spurious signal-trap failures. Read the log's own 'N passed' summary, never the launcher's exit code."
+  },
+  "telemetry": "unavailable"
 }
