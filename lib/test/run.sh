@@ -23505,7 +23505,7 @@ PY
     mkdir -p "$BVROOT/$1/.devflow"; printf '%s' "$2" > "$BVROOT/$1/.devflow/config.json"
     bp_mkbase "$BVROOT/$1"; printf '%s' "$BVROOT/$1"   # reuse bp_mkbase (2.2.4 Reuse gate)
   }
-  bv_ver() { sed -n 's/^devflow_version=//p' "$BV_OUT" | head -1; }
+  bv_ver() { bp_out "$BV_OUT" devflow_version; }   # reuse bp_out (2.2.4 Reuse gate)
   bv_msg() { grep -c "$1" "$BV_LOG" 2>/dev/null || true; }
   # (object) a valid object with a string leaf → publishes it, exit 0, no warning.
   bv_run "$(bv_cfg object '{"devflow_version":"1.2.3"}')" "$BV_STEP"
@@ -23679,13 +23679,19 @@ STUB
   # would go RED. (A quoted regression is otherwise silent: the traversal guard passes
   # and absence is established positively, so the helper exits 0 with the closure empty.)
   BPL_MUT=$(mktemp)
-  sed 's/^\(\s*\)\$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS /\1"$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS" /' "$BPL_STEP" > "$BPL_MUT"
+  # `[[:space:]]`, not the GNU-only `\s` (CLAUDE.md portability convention) — BSD/macOS
+  # sed treats `\s` literally, so the mutation would silently not apply and the
+  # "actually applied" guard below would then fail LOUDLY (spurious RED), not vacuously.
+  sed 's/^\([[:space:]]*\)\$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS /\1"$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS" /' "$BPL_STEP" > "$BPL_MUT"
   assert_eq "#898 ladder(AC4): the quote mutation actually applied" "applied" \
     "$(cmp -s "$BPL_STEP" "$BPL_MUT" && echo none || echo applied)"
   bpl_run "$BPLROOT/a" committed - "$BPL_MUT"
-  # Fewer than two standalone protected-name argv entries ⇒ the AC4 guard would fire.
-  assert_eq "#898 ladder(AC4): quoting the expansion collapses to <2 standalone name argv entries" "yes" \
-    "$([ "$(bpl_names)" -lt 2 ] && echo yes || echo no)"
+  # The helper STILL RAN (rank 1 resolved) but received fewer than two standalone
+  # protected-name argv entries ⇒ the AC4 guard would fire. Asserting the rank too
+  # isolates "collapsed by quoting" from a hypothetical "helper never invoked" (which
+  # would also yield <2 names) — the argv count alone cannot tell those apart.
+  assert_eq "#898 ladder(AC4): quoting collapses to <2 standalone name entries (helper still ran)" "base-ref-vendored:yes" \
+    "$(bpl_rank):$([ "$(bpl_names)" -lt 2 ] && echo yes || echo no)"
   rm -rf "$BPLROOT"; rm -f "$BPL_STEP" "$BPL_MUT"
 
   # ── #404: vendor-slice reports its branch (vendor_source) ─────────────────────
