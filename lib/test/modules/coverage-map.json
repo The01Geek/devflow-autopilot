@@ -488,7 +488,7 @@
       "owner": "unmodularized"
     },
     "scripts/subagent-write-probe-verdict.py": {
-      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no focused_test, so the ~10-minute suite is not routed on a change to it.",
+      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
       "owner": "unmodularized"
     },
     "scripts/summarize-ci-checks.sh": {

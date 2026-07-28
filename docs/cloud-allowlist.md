@@ -249,6 +249,13 @@ on-disk side-effect file. It reports the two control facts **independently** —
 *recorded-at-all* and *chain-attributable* — never conjoined; the model's prose is never
 read. Every state outside the measurable pair reports `unestablished`, never `DENIED`.
 
+Both signals are attributed **per recorded entry**, never over the concatenation of the
+run's entries: the write is the `Write` tool's own call naming the side-effect path (a
+different tool merely *naming* that path is not the write, and a different tool's refusal
+quoting it is not the write's denial), and a parent-less marker call is the orchestrator's
+wherever the execution file records parent chains at all. A multi-entry denial list holding
+both a dispatch refusal and a genuine `Write` denial therefore still reports `DENIED`.
+
 **This measurement is PENDING.** The implementing run added the job and this entry and
 deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo
 `pull_request` scoped to the workflow's own path — so pushing this change to the

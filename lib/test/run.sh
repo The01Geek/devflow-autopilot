@@ -24450,7 +24450,19 @@ def write(parent="d1", tid="w1"):
             "input": {"file_path": SIDE, "content": "SUBWRITE_PAYLOAD"}}
 CB = bash("printf SUBWRITE_CONTROL_BEFORE", "d1", "c1")
 CA = bash("printf SUBWRITE_CONTROL_AFTER", "d1", "c2")
-WDEN = {"permission_denials": [{"tool_name": "Write", "tool_input": {"file_path": SIDE}}]}
+WDEN_ENTRY = {"tool_name": "Write", "tool_input": {"file_path": SIDE}}
+WDEN = {"permission_denials": [WDEN_ENTRY]}
+# A refused DISPATCH entry whose recorded tool_input echoes the subagent prompt verbatim —
+# it names the side-effect path AND the payload, which is why per-entry classification (not
+# a scan of the joined denial text) is what keeps it off the write-denial bucket.
+TASK_DEN_ENTRY = {"tool_name": "Task", "tool_input": {
+    "subagent_type": "general-purpose",
+    "prompt": ("use the Write tool to create the file .devflow/tmp/subwrite-review.txt "
+               "with content SUBWRITE_PAYLOAD")}}
+READ_DEN_ENTRY = {"tool_name": "Read",
+                  "tool_input": {"file_path": SIDE, "note": "SUBWRITE_PAYLOAD"}}
+BASH_DEN_ENTRY = {"tool_name": "Bash",
+                  "tool_input": {"command": "cat " + SIDE + "  # SUBWRITE_PAYLOAD"}}
 scenarios = {
     # happy path
     "permitted": [D, CB, write(), CA],
@@ -24503,6 +24515,45 @@ scenarios = {
     "wrong_type_parent": [D, {"type": "tool_use", "name": "Write", "id": "w1",
                               "parent_tool_use_id": 123,
                               "input": {"file_path": SIDE, "content": "SUBWRITE_PAYLOAD"}}],
+    # ── Naming the side-effect path is not issuing the write. A chain-attributable
+    # non-Write call that merely READS the path back, with the side-effect file present on
+    # disk, must NOT publish PERMITTED — that would be the probe's headline positive result
+    # about a permission never exercised.
+    "nonwrite_names_path": [D, CB, bash("cat " + SIDE, "d1", "r1"), CA],
+    # ── A denial belonging to some OTHER tool must not publish DENIED, however its recorded
+    # input quotes the path or the payload — a permission finding about a permission that
+    # was in fact granted.
+    "third_tool_denial_only": [D, CB, {"permission_denials": [READ_DEN_ENTRY]}, CA],
+    "bash_denial_quoting_payload": [D, CB, {"permission_denials": [BASH_DEN_ENTRY]}, CA],
+    # ── Multi-entry permission_denials lists. Every cross-entry behaviour of the two denial
+    # signals lives here: a dispatch refusal co-recorded with a genuine Write denial must
+    # still resolve DENIED (the dispatch entry may not answer for the write entry), a Write
+    # denial beside an unrelated third-tool denial must resolve DENIED, and a list holding
+    # only third-tool denials must resolve to neither.
+    "multi_dispatch_then_write": [D, CB, {"permission_denials": [TASK_DEN_ENTRY, WDEN_ENTRY]}],
+    "multi_write_then_read": [D, CB, {"permission_denials": [WDEN_ENTRY, READ_DEN_ENTRY]}],
+    "multi_third_tools_only": [D, CB, {"permission_denials": [READ_DEN_ENTRY, BASH_DEN_ENTRY]}, CA],
+    # ── WRONG-TYPE rows of the external-format shape matrix: permission_denials present but
+    # not a list. The entries cannot be enumerated, so their absence is UNKNOWN, never zero —
+    # silently dropping the key renders an otherwise-PERMITTED-shaped run as PERMITTED even
+    # though its Write may have been denied.
+    "pd_wrong_type_obj": [D, CB, write(), CA, {"permission_denials": {"tool_name": "Write"}}],
+    "pd_wrong_type_null": [D, CB, write(), CA, {"permission_denials": None}],
+    # A list whose ENTRY is a bare scalar rather than an object: no tool_name is recordable,
+    # so the entry attributes by the side-effect path alone (the disclosed residual).
+    "pd_scalar_entry": [D, CB, {"permission_denials": [
+        "Write denied for .devflow/tmp/subwrite-review.txt"]}],
+    # ── Orchestrator exclusion. This job's top-level session is granted heads whose inputs
+    # may quote the marker vocabulary while reporting on the dispatch, and a top-level call
+    # carries no parent_tool_use_id. When the file DOES record parent chains elsewhere, a
+    # parent-less marker call is the orchestrator's and must not set the control facts.
+    "orch_marker_only": [D, bash("echo hi", "d1", "z1"),
+                         bash("echo SUBWRITE_CONTROL_BEFORE and SUBWRITE_PAYLOAD into "
+                              + SIDE, None, "o1")],
+    # Positive control for the same discriminator: a real chain-attributable Write plus an
+    # orchestrator marker call still resolves PERMITTED (the exclusion must not over-reach).
+    "orch_marker_beside_real_write": [D, CB, write(), CA,
+                                      bash("echo SUBWRITE_CONTROL_AFTER reported", None, "o1")],
 }
 recs = scenarios[scen]
 with open(path, "w", encoding="utf-8") as fh:
@@ -24549,7 +24600,9 @@ assert_eq "#858 subagent-write: neither control nor write recorded → unestabli
 # The closed unestablished complement — one arm per member, each asserting unestablished AND not DENIED.
 for _scen in dispatch_denied_unknown dispatch_denied_head no_dispatch no_subagent_call \
              no_parent_chain controls_no_write wrong_type_parent \
-             not_object pd_not_list tooluse_missing_name; do
+             not_object pd_not_list tooluse_missing_name \
+             nonwrite_names_path third_tool_denial_only bash_denial_quoting_payload \
+             multi_third_tools_only pd_wrong_type_obj pd_wrong_type_null orch_marker_only; do
   _out="$(devflow_swv "$_scen")"
   assert_eq "#858 subagent-write: scenario '$_scen' → unestablished" "unestablished" "$(swv_verdict "$_out")"
   assert_eq "#858 subagent-write: scenario '$_scen' is NOT DENIED (no permission finding about an unattempted permission)" \
@@ -24607,6 +24660,80 @@ assert_eq "#858 subagent-write: the tool_name-less prompt-echoing denial is NOT 
 # was not fully parsed.
 assert_eq "#858 subagent-write: a partially-corrupt execution file → unestablished, never a confident PERMITTED" \
   "unestablished" "$(swv_verdict "$(devflow_swv partial_corrupt)")"
+
+# ── Attribution of the write ITSELF: the recorded tool's own name must be Write. A
+# chain-attributable non-Write call that merely names the side-effect path, with the file
+# present on disk, is the fail-OPEN shape — it would publish the probe's headline PERMITTED
+# for a run in which no Write was ever issued. The generic loop above pins the verdict; this
+# pins the field a reader would act on, and the positive control below proves the same
+# fixture yields PERMITTED once the naming call is a real Write.
+assert_eq "#858 subagent-write: a non-Write call NAMING the side-effect path is not the write (write_outcome=absent)" "yes" \
+  "$(printf '%s' "$(devflow_swv nonwrite_names_path)" | grep -qF '| write_outcome | absent |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: the same fixture with a real chain-attributable Write IS PERMITTED (positive control)" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv permitted)")"
+
+# ── Attribution of the DENIAL: entries are classified one at a time, so a denial belonging
+# to some other tool never answers for the write however its input quotes the markers, and a
+# multi-entry list holding both a dispatch refusal and a genuine Write denial still resolves
+# DENIED rather than reporting `unestablished` with a false "no write was attempted" reason.
+assert_eq "#858 subagent-write: a third tool's denial quoting the payload is NOT a write denial (write_outcome=absent)" "yes" \
+  "$(printf '%s' "$(devflow_swv bash_denial_quoting_payload)" | grep -qF '| write_outcome | absent |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: a dispatch refusal co-recorded with a real Write denial → DENIED (not masked)" \
+  "DENIED" "$(swv_verdict "$(devflow_swv multi_dispatch_then_write)")"
+assert_eq "#858 subagent-write: a Write denial beside an unrelated third-tool denial → DENIED" \
+  "DENIED" "$(swv_verdict "$(devflow_swv multi_write_then_read)")"
+assert_eq "#858 subagent-write: a scalar denial entry naming the side-effect path → DENIED (disclosed no-tool_name residual)" \
+  "DENIED" "$(swv_verdict "$(devflow_swv pd_scalar_entry)")"
+
+# ── WRONG-TYPE permission_denials: the shape matrix's wrong-type row. The verdict is pinned
+# by the loop above; here the SPECIFIC breadcrumb is pinned, because a generic one would not
+# tell a reader that the denial list was never enumerated (unknown is not zero).
+for _pdscen in pd_wrong_type_obj pd_wrong_type_null pd_not_list; do
+  assert_eq "#858 subagent-write: '$_pdscen' names the unenumerable denial list specifically" "yes" \
+    "$(printf '%s' "$(devflow_swv "$_pdscen")" | grep -qF 'permission_denials key is present but is a' && echo yes || echo no)"
+done
+
+# ── Orchestrator exclusion: when this file records parent chains at all, a parent-less
+# marker call is the orchestrator's and must not set the control facts — otherwise a run in
+# which the harness surfaced NO dispatchee action reads as the distinct third schema world,
+# with both AC8 control fields attributed to a dispatchee that never acted.
+SWV_ORCH="$(devflow_swv orch_marker_only)"
+assert_eq "#858 subagent-write: an orchestrator marker call does not set recorded_at_all" "yes" \
+  "$(printf '%s' "$SWV_ORCH" | grep -qF '| recorded_at_all | no |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: an orchestrator marker call does not set control_before" "yes" \
+  "$(printf '%s' "$SWV_ORCH" | grep -qF '| control_before | no |' && echo yes || echo no)"
+# The exclusion must not over-reach: with a real chain-attributable Write present, an
+# orchestrator marker call alongside it still resolves PERMITTED.
+assert_eq "#858 subagent-write: an orchestrator marker call beside a real chained Write is still PERMITTED" \
+  "PERMITTED" "$(swv_verdict "$(devflow_swv orch_marker_beside_real_write)")"
+# And where NO entry carries a parent at all, parent-less marker calls are RETAINED (the
+# schema does not surface chains, so excluding them would collapse the third world onto
+# "no dispatchee action recorded") and the reason discloses the ambiguity.
+SWV_NPC="$(devflow_swv no_parent_chain)"
+assert_eq "#858 subagent-write: with no parent chains recorded anywhere, marker calls are still counted" "yes" \
+  "$(printf '%s' "$SWV_NPC" | grep -qF '| recorded_at_all | yes |' && echo yes || echo no)"
+assert_eq "#858 subagent-write: that third-world reason discloses it cannot tell them from orchestrator calls" "yes" \
+  "$(printf '%s' "$SWV_NPC" | grep -qF 'cannot be distinguished from orchestrator-issued ones' && echo yes || echo no)"
+
+# ── --tier outside the closed set: a specific stderr breadcrumb AND unestablished, never a
+# silent coercion to `unknown` that makes the helper look for a side-effect file no probe
+# job writes and then render a confident-looking negative.
+devflow_swv_build permitted
+SWV_TIER_ERR="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier bogus --side-effect-file "$SWV_TMP/side-review.txt" 2>&1 >/dev/null)"
+SWV_TIER_OUT="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier bogus --side-effect-file "$SWV_TMP/side-review.txt" 2>/dev/null)"
+assert_eq "#858 subagent-write: an invalid --tier → unestablished, never a coerced measurement" \
+  "unestablished" "$(swv_verdict "$SWV_TIER_OUT")"
+assert_eq "#858 subagent-write: an invalid --tier names the bad value on stderr" "yes" \
+  "$(printf '%s' "$SWV_TIER_ERR" | grep -qFe "--tier value 'bogus' is not one of review/implement" && echo yes || echo no)"
+assert_eq "#858 subagent-write: a MISSING --tier value is not silently accepted" \
+  "unestablished" "$(swv_verdict "$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier 2>/dev/null)")"
+
+# ── The flag parser must not consume the NEXT FLAG as a value: `--tier --allowlist X` would
+# otherwise bind tier="--allowlist" and drop the allowlist from the record that exists to
+# carry "the measured condition, verbatim".
+SWV_SWALLOW="$(python3 "$SWV" "$SWV_TMP/exec.jsonl" --tier --allowlist 'Read,Write(.devflow/tmp/**)' 2>/dev/null)"
+assert_eq "#858 subagent-write: a value-less --tier does not swallow the following flag" "yes" \
+  "$(printf '%s' "$SWV_SWALLOW" | grep -qF 'Read,Write(.devflow/tmp/**)' && echo yes || echo no)"
 
 # The fixture conforms to the committed execution-file shape census: no fixture key
 # contradicts a census-recorded type. Keys absent from the census (e.g. file_path — the
