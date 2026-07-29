@@ -22635,6 +22635,62 @@ assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
 
+# ── #927: plugin.json `name` is a trust/routing discriminator with no ─────────
+# cross-assertion against the REAL manifest. Tracked sites gate on the literal
+# `devflow` via the ERE `"name"[[:space:]]*:[[:space:]]*"devflow"`:
+# devflow-runner.yml's rank-1 trusted-source materialization of the deny-floor
+# helper, vendor-slice.sh's `self`-branch discriminator, and install.sh's legacy
+# prune. Every existing test writes its own `{"name":"devflow"}` fixture, so the
+# suite would stay green if the manifest's `name` and these discriminators ever
+# diverged — silently flipping the vendor trust ladder self→fetch. Derive every
+# discriminator literal from tracked source (never a hand-transcribed count — the
+# self-referential-ordinal rule; a new site enters the set automatically) and
+# assert each equals the name in the real manifest, not a fixture.
+P927_ROOT="$LIB/.."
+P927_MANIFEST="$P927_ROOT/.claude-plugin/plugin.json"
+# The manifest name is read with python3 (a preflight-guaranteed JSON parser),
+# never a grep of the manifest — the whole point is to compare a REAL parsed
+# value against the discriminators. Fails closed to empty on a read error, which
+# the non-empty assertion below turns RED.
+P927_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$P927_MANIFEST" 2>/dev/null || true)"
+assert_eq "#927: the real .claude-plugin/plugin.json carries a non-empty name" "yes" \
+  "$([ -n "$P927_NAME" ] && echo yes || echo no)"
+# Derive the discriminator literals: `git grep` (tracked-only, so worktree-immune
+# per issue #711 — never a repo-root recursive walk; `git -C` keeps git the sole
+# rc-bearer, never a `cd && git grep` that short-circuits to a fail-open empty).
+# Match the ERE discriminator SHAPE in source and extract the trailing quoted
+# literal from each hit. lib/test/ is excluded so this block's own regex text
+# cannot self-match. Adding a new discriminator site is caught with no count to
+# update (AC3): its literal simply joins P927_LITS.
+P927_LITS="$(git -C "$P927_ROOT" grep -hoE '"name"\[\[:space:\]\]\*:\[\[:space:\]\]\*"[^"]+"' -- ':(exclude)lib/test/' | sed -E 's/.*"([^"]+)"$/\1/')"
+P927_COUNT="$(printf '%s\n' "$P927_LITS" | grep -c . || true)"
+# Non-vacuity: the derivation must find the known discriminator sites, else the
+# extraction regex has rotted and every equality below would pass over an empty
+# set. (Not a hand-transcribed exact count — a lower bound that only proves the
+# grep still resolves something.)
+assert_eq "#927: discriminator-literal derivation resolves at least one tracked site (non-vacuous)" "yes" \
+  "$([ "$P927_COUNT" -ge 1 ] && echo yes || echo no)"
+# AC1 — the core cross-assertion: every derived discriminator literal equals the
+# real manifest name. Count literals that are NOT the manifest name; expect 0.
+P927_MISMATCH="$(printf '%s\n' "$P927_LITS" | grep -vxF "$P927_NAME" | grep -c . || true)"
+assert_eq "#927: every discriminator literal equals the real plugin.json name ($P927_NAME)" "0" \
+  "$P927_MISMATCH"
+# AC2 — negative control (drift is caught RED, not asserted only on the happy
+# path), both directions:
+#  (a) manifest-side drift — the same comparison against a MUTATED manifest name
+#      flags every discriminator as a mismatch (rename the manifest's `name` and
+#      the rank-1 trust gate stops matching).
+P927_NEG_A="$(printf '%s\n' "$P927_LITS" | grep -vxF "${P927_NAME}-drifted" | grep -c . || true)"
+assert_eq "#927 negative control (manifest drift): a renamed manifest name mismatches every discriminator literal" "$P927_COUNT" \
+  "$P927_NEG_A"
+#  (b) discriminator-side drift — a single discriminator whose literal diverges
+#      from the manifest (the vendor-slice `self`-branch hazard) is flagged.
+#      Inject one bogus literal into the derived set; exactly one must mismatch.
+P927_NEG_B="$(printf '%s\nnot-devflow\n' "$P927_LITS" | grep -vxF "$P927_NAME" | grep -c . || true)"
+assert_eq "#927 negative control (discriminator drift): a divergent discriminator literal is flagged against the manifest name" "1" \
+  "$P927_NEG_B"
+unset P927_ROOT P927_MANIFEST P927_NAME P927_LITS P927_COUNT P927_MISMATCH P927_NEG_A P927_NEG_B
+
 # ── #402: deny-floor helper — direct adversarial-matrix drive ────────────────
 # filter-runner-tools.sh is the AUTHORITATIVE deny-list floor. Drive it directly
 # over the full input matrix, asserting BOTH channels per row: the kept list on
