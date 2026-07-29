@@ -66,12 +66,13 @@ DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # acs file so a resumed/re-triggered run cannot splice a prior attempt's parse.
 if ! mkdir -p "$DEVFLOW_ROOT/.devflow/tmp"; then
   echo "devflow: could not create $DEVFLOW_ROOT/.devflow/tmp for the AC parse — STOP" >&2
-fi
-rm -f "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"
-if ! "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" > "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"; then
-  # STOP: the cache could not be read (helper exit ≠ 0). Do NOT proceed with an
-  # empty AC section — take the run's existing stop path.
-  echo "devflow: could not read the issue-body cache into the AC parser — STOP"
+else
+  rm -f "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"
+  if ! "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" > "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"; then
+    # STOP: the cache could not be read (helper exit ≠ 0). Do NOT proceed with an
+    # empty AC section — take the run's existing stop path.
+    echo "devflow: could not read the issue-body cache into the AC parser — STOP"
+  fi
 fi
 ```
 
@@ -147,22 +148,24 @@ fi
 
 - **`WORKPAD_ID` empty (fresh issue — local-tier run with no `gate` job)** → Build the lean skeleton with the helper and create it, then mirror the issue's Acceptance Criteria into it:
   ```bash
+  DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   BODY=$(mktemp)
   # Add --no-reproduction when the 1.1 classification is non-bug so the bug-only
   # "reproduction captured" sub-item isn't rendered; omit the flag when it is
   # bug-report. Decide from the CLASSIFICATION (1.1), not the label.
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction when the 1.1 classification is non-bug; omit --run-link for a local run
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create $ISSUE_NUMBER "$BODY"
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --replace-acs-file .devflow/tmp/acs-${ARGUMENTS}.md
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --replace-acs-file "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"
   ```
   `new-body` seeds `**Status:** 🚀 Setup`, the `**Branch:** _(creating…)_` placeholder (filled in 1.4 the instant the branch exists), the friendly `Last updated`, the `## Progress` checklist (the bug-only `reproduction captured` sub-item is rendered only when `--no-reproduction` is omitted) with the `/devflow:implement run started` note nested under Setup, a placeholder `## Plan` (filled in 2.2), a placeholder `## Acceptance Criteria` (you replace it above), and an empty `## Devflow Reflection` `<details>` block. The `## Reproduction` section is added later in 2.1.5 if applicable.
 - **`WORKPAD_ID` non-empty (resume — the normal cloud path, since `gate` pre-created it; or a re-run)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `## Progress` notes and `Devflow Reflection` as load-bearing context (see Workpad Reference). Reset for this run **and populate the Acceptance Criteria** (a `gate`-created workpad carries only a placeholder AC section, so always replace it):
   ```bash
+  DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
       --expect-comment-id "$WORKPAD_ID" --expect-status "<observed status word>" \
       --status Setup \
       --run-link "[View run]($RUN_URL)" \
-      --replace-acs-file .devflow/tmp/acs-${ARGUMENTS}.md \
+      --replace-acs-file "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md" \
       --checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-hydrated" "<selected lifecycle event>" \
       --note "<selected lifecycle event>"
   ```

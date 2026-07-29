@@ -8789,6 +8789,23 @@ def _pf_git_bad(args):
     return _sp915.CompletedProcess(args, 128, "", "not a git repo")
 
 
+_pf_happy_tmpd = tempfile.mkdtemp()
+
+
+def _pf_git_happy(args):
+    return _sp915.CompletedProcess(args, 0, _pf_happy_tmpd + "\n", "")
+
+
+_pf915._run_git = _pf_git_happy
+_pf_happy_err = io.StringIO()
+with contextlib.redirect_stderr(_pf_happy_err):
+    _pf_happy_v = _pf915._payload_dir()
+assert_eq("#915 preflight: the happy-path arm returns the repo-relative .devflow/tmp dir with no breadcrumb",
+          (os.path.join(_pf_happy_tmpd, ".devflow", "tmp"), ""),
+          (_pf_happy_v, _pf_happy_err.getvalue()))
+assert_eq("#915 preflight: the happy-path arm actually creates the returned directory",
+          True, os.path.isdir(_pf_happy_v))
+
 _pf915._run_git = _pf_git_bad
 _pf_err = io.StringIO()
 with contextlib.redirect_stderr(_pf_err):
