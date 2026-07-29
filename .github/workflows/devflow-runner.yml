@@ -2600,8 +2600,13 @@ jobs:
             [ -f "$ROUTE" ] || ROUTE=scripts/route-guard-counts-outcome.sh
             if [ -f "$ROUTE" ]; then
               OUTCOME_OUT=$(bash "$ROUTE" "$RGC_RC" "$FIRED")
-              OUTCOME=$(printf '%s\n' "$OUTCOME_OUT" | sed -n '1p')
-              OUTCOME_MSG=$(printf '%s\n' "$OUTCOME_OUT" | sed -n '2p')
+              # Split the helper's two-line contract with bash BUILTINS, never `sed`
+              # (CLAUDE.md guard-class 2: `sed` is not preflight-guaranteed, so a host
+              # without it would empty $OUTCOME and silently launder the positively-known
+              # `known-zero` arm into `unavailable` — an unestablished measurement
+              # standing in for a real value). A here-string, not a pipe: a pipe would
+              # run `read` in a subshell and leave both variables unset.
+              { IFS= read -r OUTCOME || OUTCOME=""; IFS= read -r OUTCOME_MSG || OUTCOME_MSG=""; } <<<"$OUTCOME_OUT"
               case "$OUTCOME" in
                 parse)
                   JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
@@ -2677,10 +2682,13 @@ jobs:
             [ -f "$EDC" ] || EDC=scripts/extract-denied-command-line.sh
             if [ -f "$EDC" ]; then
               EDC_OUT=$(printf '%s\n' "$BLOCK" | bash "$EDC" "$EES_RC")
-              EDC_STATUS=$(printf '%s\n' "$EDC_OUT" | sed -n '1p')
+              # Builtin split, not `sed` — same guard-class-2 reasoning as the guard
+              # step above, and here the second line is the EMITTED `commands=` value.
+              # `IFS=` + `-r` keep the attacker-influenced command text byte-exact.
+              { IFS= read -r EDC_STATUS || EDC_STATUS=""; IFS= read -r EDC_VALUE || EDC_VALUE=""; } <<<"$EDC_OUT"
               case "$EDC_STATUS" in
                 found)
-                  VALUE=$(printf '%s\n' "$EDC_OUT" | sed -n '2p')
+                  VALUE="$EDC_VALUE"
                   ;;
                 rc-nonzero)
                   # Do NOT parse $BLOCK on a failed run: a truncated or partial
