@@ -15263,13 +15263,18 @@ assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "review/implement trigger helpers (parse-engine-error.sh … resolve-command-trigger.sh)"
+echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-command-trigger.sh)"
 # ────────────────────────────────────────────────────────────────────────────
-# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746) as 11 consecutive
-# former sections. The first two of those — covering derive-review-verdict.sh and
-# derive-review-preconditions.sh — were retired with their helpers when issue #936 withheld
-# the auto PR-triggered review tier, so the live span now runs from "parse-engine-error.sh"
-# through "resolve-command-trigger.sh". It stops there deliberately — the tranche was scoped
+# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11 consecutive
+# former sections from "derive-review-verdict.sh" through "resolve-command-trigger.sh".
+# ALL 11 SECTIONS ARE STILL LIVE. Issue #936 withheld the auto PR-triggered review tier and
+# deleted its workflow, but every helper that tier called — including derive-review-verdict.sh
+# and derive-review-preconditions.sh, whose sections lead this tranche — is RETAINED and still
+# shipped, because an already-installed consumer copy still resolves them after an upgrade.
+# Only two assertions left the module: the #353 pair whose subject was the deleted WORKFLOW
+# file (an existence backstop and the absence pin it protected), which is the whole of the
+# 401 → 399 floor change. Do not read that drop as dead code — deleting these helpers would
+# break every consumer that upgrades. It stops there deliberately — the tranche was scoped
 # in advance to a measured set of low-risk sections, and what follows was not in it.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \

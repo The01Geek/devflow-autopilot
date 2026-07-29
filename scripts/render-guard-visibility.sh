@@ -49,13 +49,18 @@
 # from this release and its caller .github/workflows/devflow-review.yml — this renderer's
 # only invoking workflow — was deleted, so nothing reaches this helper today. It is kept in
 # the tree deliberately, not by oversight: .github/workflows/devflow-runner.yml is retained
-# (the capability-profile generator writes into it and lib/review-profile.tokens locks its
-# resolved review profile) and names this file as the sanctioned neutralizing renderer for
-# the attacker-influenced denied-command text it emits. Retiring the renderer while keeping
-# the producer that points at it would break the pair a future reconstruction of the tier
-# has to reassemble. Contrast the three helpers deleted alongside the workflow
-# (derive-review-verdict.sh, derive-review-preconditions.sh, describe-skip-title.sh): the
-# only file that named any of those was the deleted workflow itself.
+# (kept so the withheld tier stays reconstructable without re-authoring its callee) and names
+# this file as the sanctioned neutralizing renderer for the attacker-influenced denied-command
+# text it emits. Retiring the renderer while keeping the producer that points at it would
+# break the pair a future reconstruction of the tier has to reassemble.
+#
+# The same retention covers derive-review-verdict.sh, derive-review-preconditions.sh and
+# describe-skip-title.sh, whose only namer WAS the deleted workflow. An earlier commit on
+# this branch deleted those three as unreachable; that was reverted, because unreachable in
+# THIS tree is not unreachable from an already-installed consumer copy — install.sh re-stamps
+# devflow_version, so a consumer re-running the installer keeps their installed
+# devflow-review.yml while vendoring a plugin that would be missing the helpers it calls.
+# The rule is uniform: everything downstream of the withheld tier stays shipped.
 
 set -u
 

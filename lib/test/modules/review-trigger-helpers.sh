@@ -392,6 +392,19 @@ rm -f "$DRV_STUB"
 # ────────────────────────────────────────────────────────────────────────────
 echo "derive-review-preconditions.sh (#304 branch-freshness + other-CI-green gate)"
 # ────────────────────────────────────────────────────────────────────────────
+# COVERAGE RETIREMENT RECORDED (issue #936) — read this before reconstructing the tier.
+# The `#304` block that issue #936 removed from lib/test/run.sh carried URL-LITERAL pins on
+# THIS still-shipped helper: the `compare/$BASE_BRANCH...$HEAD_SHA` operand ORDER, and the
+# `?head_sha=$HEAD_SHA` scoping parameter. This module's gh stub is URL-shape-BLIND (it
+# matches `*compare/*` and `*head_sha=*` regardless of operand order or presence), so a
+# regression that reversed the compare operands or dropped the scoping parameter would now
+# go UNCAUGHT here. That loss is accepted, not overlooked, and the reason is narrow: with the
+# tier withheld this helper is unreachable in DevFlow's own tree, so such a regression has no
+# in-repo effect — it would surface only in an installed consumer copy or in a reconstruction.
+# This is a retirement for an UNREACHABLE-IN-TREE helper, NOT a "the subject was deleted"
+# retirement: the helper still ships. A reconstruction of the tier must restore those two
+# URL-literal pins (or teach this stub to discriminate operand order) as part of the work.
+#
 # The unit precheck.route calls before emitting should_run=true on the
 # first-review / synchronize / completion-re-trigger paths. It evaluates two
 # config-gated preconditions against the PR head and prints:
