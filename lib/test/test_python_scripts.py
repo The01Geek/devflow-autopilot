@@ -8575,6 +8575,12 @@ assert_eq("#855: a `cd`-prefixed head (cdparanoia) does not fire IR4",
 _wd_ls = _sp295.run(["git", "ls-files", "-z"], cwd=str(cwc.REPO_ROOT),
                     capture_output=True, text=True)
 _wd_tracked = [p for p in _wd_ls.stdout.split("\0") if p]
+# Read every tracked skills/*.md ONCE — both this scan-population clean-scan and the
+# pointer-population sweep below read from this single in-memory copy (no second
+# `git ls-files`, no re-reading the same files twice).
+_wd_skills_text = {p: (cwc.REPO_ROOT / p).read_text(encoding="utf-8")
+                   for p in _wd_tracked
+                   if p.startswith("skills/") and p.endswith(".md")}
 _wd_dir_globs = {
     "skills/implement/phases",
     "skills/implement/references",
@@ -8588,9 +8594,8 @@ _wd_exact = {
     "skills/review-and-fix/SKILL.md",
 }
 _wd_population = sorted(
-    {p for p in _wd_tracked
-     if p.endswith(".md") and os.path.dirname(p) in _wd_dir_globs}
-    | {p for p in _wd_exact if p in _wd_tracked}
+    {p for p in _wd_skills_text if os.path.dirname(p) in _wd_dir_globs}
+    | (_wd_exact & set(_wd_tracked))
 )
 # Non-empty: an empty enumeration (a rename, a moved tree) must fail closed, never
 # pass vacuously by scanning nothing.
@@ -8598,8 +8603,7 @@ assert_eq("#855: the Python-defined implement-profile scan population is non-emp
           True, len(_wd_population) > 0)
 _wd_dirty = [
     p for p in _wd_population
-    if _shapes_mod.find_implement_violations(
-        (cwc.REPO_ROOT / p).read_text(encoding="utf-8"))
+    if _shapes_mod.find_implement_violations(_wd_skills_text[p])
 ]
 assert_eq("#855: every scanned implement-profile prompt surface teaches no denied "
           "shape (no leading `cd`) under the implement finder",
@@ -8622,55 +8626,37 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
 # `for X in …` data list — those are data strings, not emitted command paths). The
 # pointer line itself (`…/docs/working-directory-contract.md`) is excluded from the
 # token scan so the change does not enlarge its own expected set.
-_wd_tokens = (".devflow/", "docs/", "scripts/", "lib/", ".github/")
+# A BARE repo-relative path token: one of the tokens preceded by a boundary char —
+# NOT a `$VAR/`-anchored (`/`, `$`), `${…}`-anchored (`{`, `}`), or word-internal
+# (`.`, `_`, `-`, alnum) path, which resolve independently of cwd. The negative
+# lookbehind is the class the hand-rolled prev-char test spelled out; `\w` covers
+# alnum + `_`.
+_wd_bare_re = re.compile(r"(?<![\w/$.{}-])(?:\.devflow/|docs/|scripts/|lib/|\.github/)")
 _wd_assign_only = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s*(#.*)?$")
 _wd_for_in = re.compile(r"(^|;|\bdo\b|\bthen\b)\s*for\s+\w+\s+in\b")
 
-def _wd_bare_repo_path(text_line):
-    for tok in _wd_tokens:
-        pos = 0
-        while True:
-            at = text_line.find(tok, pos)
-            if at < 0:
-                break
-            prev = text_line[at - 1] if at > 0 else ""
-            if prev not in "/$._-{}" and not prev.isalnum():
-                return True
-            pos = at + 1
-    return False
-
 def _wd_emits_command_path(text_line):
     s = text_line.strip()
-    if not _wd_bare_repo_path(s):
+    if not _wd_bare_re.search(s):
         return False
-    if _wd_assign_only.match(s):
+    if _wd_assign_only.match(s):      # a pure VAR=value assignment: a data string
         return False
-    if _wd_for_in.search(s):
+    if _wd_for_in.search(s):          # a `for X in …` data list, not a command path
         return False
     return True
 
-_wd_skill_md = _sp295.run(["git", "ls-files", "skills"], cwd=str(cwc.REPO_ROOT),
-                          capture_output=True, text=True).stdout.split()
+# Reuse the finder's OWN fence parser (`_fence_line_offsets`) so the sweep's notion of
+# "inside a ```bash fence" cannot drift from what `find_implement_violations` scans.
 _wd_pointer_pop = set()
-for _wd_f in _wd_skill_md:
-    if not _wd_f.endswith(".md"):
-        continue
-    _wd_in_fence = False
-    for _wd_line in (cwc.REPO_ROOT / _wd_f).read_text(encoding="utf-8").splitlines():
-        _wd_s = _wd_line.strip()
-        if not _wd_in_fence:
-            if _wd_s == "```bash":
-                _wd_in_fence = True
-            continue
-        if _wd_s == "```":
-            _wd_in_fence = False
-            continue
-        if "CLAUDE_SKILL_DIR" in _wd_line:
-            continue
-        if "working-directory-contract.md" in _wd_line:
-            continue
-        if _wd_emits_command_path(_wd_line):
-            _wd_pointer_pop.add(_wd_f.split("/")[1])
+for _wd_f, _wd_text in _wd_skills_text.items():
+    for _wd_start, _wd_block in _shapes_mod._fence_line_offsets(_wd_text):
+        for _wd_line in _wd_block.split("\n"):
+            if "CLAUDE_SKILL_DIR" in _wd_line:
+                continue
+            if "working-directory-contract.md" in _wd_line:
+                continue
+            if _wd_emits_command_path(_wd_line):
+                _wd_pointer_pop.add(_wd_f.split("/")[1])
 assert_eq("#855: the pointer-population sweep matches the recorded snapshot exactly "
           "(a new skill emitting a bare repo-relative command path turns this RED)",
           {"implement", "retrospective-weekly", "review", "review-and-fix"},

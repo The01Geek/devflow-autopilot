@@ -503,14 +503,24 @@ REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
 IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3", "IR4"})
 
 
+def _leading_cd(statement: str) -> bool:
+    """A statement whose command HEAD is `cd` — review R2 and implement IR4 are the
+    same underlying "no leading `cd`" rule, so both call this one predicate rather
+    than each inlining the head test (which would let the two profiles' notion of a
+    leading `cd` drift). `cd` in argument position, and a `cd`-prefixed head like
+    `cdparanoia`, do not match."""
+    head = _heads._head_of(statement)
+    return bool(head and head[0] == "cd")
+
+
 def classify(statement: str) -> list[str]:
     """Return the rule ids this statement violates (possibly several)."""
     hits: list[str] = []
     if _assignment_violation(statement):
         hits.append("R1")
-    head = _heads._head_of(statement)
-    if head and head[0] == "cd":
+    if _leading_cd(statement):
         hits.append("R2")
+    head = _heads._head_of(statement)
     if _redirect_violation(statement) or _cat_heredoc_violation(statement):
         hits.append("R3")
     if head and head[0] in _INTERPRETERS:
@@ -1053,11 +1063,9 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
                 # IR4 — a leading `cd` (issue #855). The Bash tool's cwd persists
                 # across calls and every granted helper literal is repo-relative, so
                 # a leading `cd` moves the working directory out from under every
-                # later helper. Reuse the head extraction `classify` performs rather
-                # than re-deriving it; `cd` in argument position (head[0] != "cd")
-                # and a `cd`-prefixed head like `cdparanoia` do not fire.
-                head = _heads._head_of(statement)
-                if head and head[0] == "cd":
+                # later helper. Shares the `_leading_cd` predicate with review R2, so
+                # the two profiles' notion of a leading `cd` cannot drift.
+                if _leading_cd(statement):
                     lineno = _attribute_line(statement, start, len(block_lines), lines)
                     seen.add((lineno, "IR4", statement.strip()))
                 if not _label_capture_violation(statement):
