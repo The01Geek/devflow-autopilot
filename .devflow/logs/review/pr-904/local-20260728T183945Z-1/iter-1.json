@@ -1,0 +1,87 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-28T18:39:45Z",
+  "fix_commit_sha": "13a1f6b40feb4f173e4d300a734bae971cd435bc",
+  "fix_files": [
+    "lib/test/modules/coverage-map.json",
+    "lib/test/modules/retrospective-lifecycle.sh",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": "non_converged_handoff",
+  "pending_dispatch": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "not-run"},
+  "checklist_summary": {
+    "total": 59,
+    "passed": 52,
+    "failed": 7,
+    "inconclusive": 0,
+    "lite": 1,
+    "agent": 58,
+    "normalized": 0,
+    "field_defect_fail_count": 0,
+    "failed_ids": ["VC-11", "VC-17", "VC-31", "VC-38", "VC-43", "VC-57", "VC-58"]
+  },
+  "dispatched_effort": [
+    {"agent": "devflow:checklist-generator", "phase": "1", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"},
+    {"agent": "devflow:checklist-deduper", "phase": "1.5", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"},
+    {"agent": "devflow:checklist-verifier", "phase": "2", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": false,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "reference_reads": {
+    "fix_delta": {"status": "not_verified", "outcome": null, "reason": "loop terminated before Step 3.5 — Phase 2 REJECT handed off, no fix applied to the reviewed implementation"}
+  },
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": "not_verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": "loop did not reach a tentative non-REJECT verdict; Phase 2 produced 7 FAILs (Phase 4.2 rule 1 REJECT), so the shadow-pass trigger was never met",
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": ["VC-11", "VC-17", "VC-31", "VC-38", "VC-43", "VC-57", "VC-58"],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "verdict": "REJECT",
+  "verdict_basis": "Phase 4.2 rule 1 — 7 verification-checklist FAILs",
+  "telemetry": "unavailable",
+  "notes": {
+    "step_0_5": "PR-mode branch sync satisfied by the shepherd-worktree shape: local branch wt-pr-904 tracks origin/issue-893-stage-b-findings and local HEAD is the PR head plus this run's fix commit. `gh pr checkout 904` was NOT run — it would clobber the worktree checkout.",
+    "phase_0_3_5": "Live progress comment skipped: the fix loop is silent on GitHub by design.",
+    "phase_0_4": "acs-resolve exited 0 with source=pr-identity-mismatch; the workpad criteria could not be confirmed as this PR's, so the issue body's Acceptance Criteria section supplied them.",
+    "phase_0_6": "stale-prose lint ran: exit 0, 0 STALE rows, 13 UNRESOLVABLE (informational, never gates). No adjudication join needed (no STALE rows).",
+    "phase_2_batching": "Verifier items were dispatched in grouped batches (2-4 related items per verifier) rather than one agent per item, to bound cost on a 58-item agent population. Every item still received an independent read-the-source verdict with property_proven/inaccuracy_scope. Verdicts were normalized through scripts/normalize-verdicts.py via the sanctioned response_text fallback channel (rc 0, 0 normalized, 0 needs_retry).",
+    "phase_3": "NOT RUN — the loop terminated at the Phase 2 REJECT handoff. Phase 3 review agents, Phase 3.2 corroboration, Phase 4.0 deferral match, Phase 4.1.5/4.1.6 sweeps and the Step 2.6 shadow pass were all skipped. Review coverage for this run is therefore PARTIAL and the verdict must not be read as a clean gate.",
+    "termination": "Non-converged handoff. The run's mandate was to repair a RED required check; the 4 substantive findings below live in the PR's own new implementation (lib/select-findings.sh, skills/retrospective-weekly/SKILL.md), predate this run's commit, and require design decisions outside a CI-repair mandate. They are handed to the shepherd rather than auto-fixed."
+  },
+  "handoff_findings": [
+    {"id": "VC-11", "file": "lib/select-findings.sh", "severity": "Important", "kind": "logic_error", "description": "The [A-Za-z0-9_-]+ key-grammar `case` runs BEFORE the alias block overwrites `_key` with an existing overrides.json record key, and the aliased key is never re-checked. Driven end-to-end: an overrides record keyed `testcat!!!key` whose token set matched was emitted verbatim on stdout. The AC's 'constrains EVERY filing key it emits' is false for the aliased path, and lib/meta-issue.sh will reject such a key downstream."},
+    {"id": "VC-38", "file": "lib/select-findings.sh", "severity": "Important", "kind": "logic_error", "description": "The alias signature is computed with `tokset` over the FULL key (category prefix + subslug), and `unique` collapses a subslug token the category already contributes. Probed live: with category `tooling-gap`, a new key `tooling-gap-gap-slow` signature-collides with existing `tooling-gap-slow` — two different sub-patterns falsely aliased onto one record. This falsifies the source comment's stated universal ('two strings differing by ANY token get distinct signatures') and the AC's 'equal SUBSLUG token sets' semantics; the AC and the code disagree about what is tokenized."},
+    {"id": "VC-17 / VC-43", "file": "lib/select-findings.sh + skills/retrospective-weekly/SKILL.md", "severity": "Important", "kind": "test_gap", "description": "The >3-findings AC requires the run to record a line naming the pattern and the number dropped. The truncation notice is written to stderr ONLY, with no `--dropped-file` channel (contrast `--withheld-file`, which exists precisely so cap withholds can be named in the report). Step 8c captures stdout only, so the drop count never reaches skip_records/blockers/withheld and never renders. AC undischarged."},
+    {"id": "VC-31", "file": "lib/test/modules/retrospective-lifecycle.sh", "severity": "Suggestion", "kind": "other", "description": "Claim-side only, no code defect: the checklist alleged the rc captures might be vacuous; every capture follows a BARE (non-`local`) command-substitution assignment, so `$?` is correct. Recorded as a FAIL only because property_proven is false, which blocks wording-only normalization."},
+    {"id": "VC-57 / VC-58", "file": "skills/retrospective-audit/SKILL.md", "severity": "Suggestion", "kind": "other", "description": "Claim-side only, no code defect: both alleged self-contradictions were disproved — the 'exactly one JSON object' sentence is about stdout structure, not element count, and the same diff adds a sentence scoping the 'One proposed change' Hard rule per finding."},
+    {"id": "VC-9 / VC-52 / VC-55 / VC-56", "file": "multiple", "severity": "Suggestion", "kind": "comment_drift", "description": "PASS-verdict items whose verifiers nonetheless recorded inaccuracy_scope=source_authored_text: (VC-9) the module labels the alias comparison a 'token multiset' when `unique` makes it a set; (VC-52) Step 8a's three `<<< \"$pattern\"` herestrings contradict the same paragraph's unconditional no-herestring prohibition over the enriched object; (VC-55) the findings-array branch's `source` is unguarded, so a not-sourced helper is misattributed by the else arm to select-findings' own cap-owner arm; (VC-56) the 'sole owner ... every cap decision' universal is false because the legacy title/body branch derives its own cap verdict."}
+  ]
+}
