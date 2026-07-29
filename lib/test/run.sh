@@ -23579,6 +23579,275 @@ PY
        && grep -q dpc-marker "$BP_E_HDIR/describe-plugin-compose.sh" 2>/dev/null && echo yes || echo no)"
   rm -rf "$BPROOT" "$BP_D_WORK"; rm -f "$BP_STEP" "$BP_A" "$BP_B" "$BP_C" "$BP_D_OUT" "$BP_E"
 
+  # ── #898: baseversion resolves devflow_version from the TRUSTED base ref ──────
+  # The baseversion step is a best-effort config-JSON parser (issue #874): it reads
+  # .devflow/config.json from the base ref, guards it with `jq -ce 'if
+  # type=="object"'`, clamps the leaf with `... | strings | select(. != "")`, and
+  # publishes devflow_version (empty = the fail-closed degraded path). It selects
+  # among distinct ::warning:: messages per input shape. Nothing drove it before
+  # this block. Drive the REAL step (extracted like baseprovision above, its own
+  # unit surface because the parser is deliberately inline workflow YAML) over the
+  # {object, array, scalar, valid-falsy, missing, wrong-type} config matrix plus the
+  # config-absent and fetch-failure/empty-base-ref arms, asserting exit status, the
+  # SPECIFIC message, and the output.
+  BV_STEP=$(mktemp)
+  python3 - "$RUNNER" >"$BV_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "baseversion" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            raise SystemExit
+raise SystemExit("baseversion step not found")
+PY
+  BVROOT=$(mktemp -d)
+  bv_run() {  # $1=base fixture dir, $2=step script, $3=BASE_REF (default main) → sets BV_RC; BV_OUT/BV_LOG globals
+    # `${3-main}`, NOT `${3:-main}`: the empty-base-ref test passes an explicit "" as $3,
+    # and `:-` would collapse that to "main" (defaulting on empty as well as unset),
+    # silently testing a successful fetch instead of the empty-base-ref arm.
+    local work ref; work=$(mktemp -d); BV_OUT=$(mktemp); BV_LOG=$(mktemp); ref="${3-main}"
+    git -C "$work" init -q
+    git -C "$work" remote add origin "file://$1"
+    # ::warning:: lines go to STDOUT (echo), so merge streams into BV_LOG.
+    ( cd "$work" && BASE_REF="$ref" RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$BV_OUT" bash "$2" ) >"$BV_LOG" 2>&1
+    BV_RC=$?
+    rm -rf "$work"
+  }
+  bv_cfg() {  # $1=name, $2=config content → commits a base fixture, prints its dir
+    mkdir -p "$BVROOT/$1/.devflow"; printf '%s' "$2" > "$BVROOT/$1/.devflow/config.json"
+    bp_mkbase "$BVROOT/$1"; printf '%s' "$BVROOT/$1"   # reuse bp_mkbase (2.2.4 Reuse gate)
+  }
+  bv_ver() { bp_out "$BV_OUT" devflow_version; }   # reuse bp_out (2.2.4 Reuse gate)
+  bv_msg() { grep -c "$1" "$BV_LOG" 2>/dev/null || true; }
+  # (object) a valid object with a string leaf → publishes it, exit 0, no warning.
+  bv_run "$(bv_cfg object '{"devflow_version":"1.2.3"}')" "$BV_STEP"
+  assert_eq "#898 baseversion(object): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(object): publishes the string leaf" "1.2.3" "$(bv_ver)"
+  assert_eq "#898 baseversion(object): no malformed/empty warning on the happy path" "0:0" \
+    "$(bv_msg 'malformed or non-object'):$(bv_msg 'resolved EMPTY')"
+  # (array) top-level array → object guard drops it → malformed warning, empty output.
+  bv_run "$(bv_cfg array '[1,2,3]')" "$BV_STEP"
+  assert_eq "#898 baseversion(array): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(array): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(array): selects the malformed/non-object message" "1" \
+    "$(bv_msg 'malformed or non-object')"
+  # (scalar) a bare JSON scalar → same malformed arm as array.
+  bv_run "$(bv_cfg scalar '"hello"')" "$BV_STEP"
+  assert_eq "#898 baseversion(scalar): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(scalar): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(scalar): selects the malformed/non-object message" "1" \
+    "$(bv_msg 'malformed or non-object')"
+  # (valid-falsy) a real empty-string leaf must NOT be coerced to a truthy default
+  # (the CLAUDE.md valid-falsy row) → empty output, the EMPTY consequence message,
+  # and crucially NOT the malformed message (the config IS a valid object).
+  bv_run "$(bv_cfg falsy '{"devflow_version":""}')" "$BV_STEP"
+  assert_eq "#898 baseversion(valid-falsy \"\"): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(valid-falsy \"\"): empty (not coerced)" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(valid-falsy \"\"): the EMPTY-consequence message, NOT malformed" "1:0" \
+    "$(bv_msg 'resolved EMPTY'):$(bv_msg 'malformed or non-object')"
+  # (missing) a valid object with the key ABSENT → empty output, EMPTY message, not malformed.
+  bv_run "$(bv_cfg missing '{"other":"x"}')" "$BV_STEP"
+  assert_eq "#898 baseversion(missing key): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(missing key): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(missing key): the EMPTY-consequence message, NOT malformed" "1:0" \
+    "$(bv_msg 'resolved EMPTY'):$(bv_msg 'malformed or non-object')"
+  # (wrong-type) a non-string leaf → `strings` drops it → empty output, EMPTY message,
+  # not malformed (a valid object). This is exactly what the AC2 `strings` mutation breaks.
+  bv_run "$(bv_cfg wrongtype '{"devflow_version":123}')" "$BV_STEP"
+  assert_eq "#898 baseversion(wrong-type number): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(wrong-type number): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(wrong-type number): the EMPTY-consequence message, NOT malformed" "1:0" \
+    "$(bv_msg 'resolved EMPTY'):$(bv_msg 'malformed or non-object')"
+  # (no config at all) base ref carries no .devflow/config.json → its own distinct
+  # "carries no .devflow/config.json" message (NOT the malformed arm).
+  mkdir -p "$BVROOT/nocfg"; printf 'x' > "$BVROOT/nocfg/readme"; bp_mkbase "$BVROOT/nocfg"
+  bv_run "$BVROOT/nocfg" "$BV_STEP"
+  assert_eq "#898 baseversion(no config): selects the no-config message, NOT malformed" "1:0" \
+    "$(bv_msg 'carries no .devflow/config.json'):$(bv_msg 'malformed or non-object')"
+  # (fetch failure / empty base ref) the OUTER `else` arm — distinct from every
+  # config-shape arm above (which all reach a successful fetch) and from the
+  # no-config arm (fetch succeeded, config absent). The `object` fixture fetches
+  # cleanly on `main`, so forcing the arm is done via BASE_REF, not the fixture: an
+  # EMPTY base ref (the trusted ref could not be determined) and a NON-EXISTENT ref
+  # (the fetch fails) both take it, emitting the single "fetch failed or the base
+  # ref is empty" diagnostic with empty output — and NOT the malformed/no-config
+  # messages. This is the most operationally reachable degraded path (a transient
+  # base-ref fetch failure), and its own message was untested before.
+  bv_run "$(bv_cfg okfetch '{"devflow_version":"7.7.7"}')" "$BV_STEP" ""
+  assert_eq "#898 baseversion(empty base ref): exit 0" "0" "$BV_RC"
+  assert_eq "#898 baseversion(empty base ref): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(empty base ref): the fetch-failed/empty message, NOT malformed/no-config" "1:0:0" \
+    "$(bv_msg 'fetch failed or the base ref is empty'):$(bv_msg 'malformed or non-object'):$(bv_msg 'carries no')"
+  bv_run "$BVROOT/okfetch" "$BV_STEP" "no-such-branch"
+  assert_eq "#898 baseversion(fetch fails): empty devflow_version" "" "$(bv_ver)"
+  assert_eq "#898 baseversion(fetch fails): selects the fetch-failed/empty message" "1" \
+    "$(bv_msg 'fetch failed or the base ref is empty')"
+
+  # ── #898 AC2: the `strings` clamp and the `-e` object guard are load-bearing ──
+  # Demonstrated by MUTATION on a COPY of the extracted step (never the working
+  # tree): break each guard and confirm the observable output diverges from the
+  # clean baseline asserted above, so a regression that dropped either turns RED.
+  BV_MUT_STRINGS=$(mktemp)
+  sed 's/\.devflow_version | strings | select/.devflow_version | select/' "$BV_STEP" > "$BV_MUT_STRINGS"
+  assert_eq "#898 baseversion(AC2): the \`strings\` clamp mutation actually applied" "applied" \
+    "$(cmp -s "$BV_STEP" "$BV_MUT_STRINGS" && echo none || echo applied)"
+  # Without `strings`, a numeric leaf survives `select(. != "")` and is published —
+  # the wrong-type row above (asserted empty) would go RED. Proven by the divergence.
+  bv_run "$(bv_cfg wrongtype_mut '{"devflow_version":123}')" "$BV_MUT_STRINGS"
+  assert_eq "#898 baseversion(AC2): dropping \`strings\` publishes the non-string leaf (was empty)" "123" \
+    "$(bv_ver)"
+  BV_MUT_GUARD=$(mktemp)
+  sed 's/jq -ce /jq -c /' "$BV_STEP" > "$BV_MUT_GUARD"
+  assert_eq "#898 baseversion(AC2): the \`-e\` object-guard mutation actually applied" "applied" \
+    "$(cmp -s "$BV_STEP" "$BV_MUT_GUARD" && echo none || echo applied)"
+  # Without `-e`, `jq -c 'if type=="object" then . else empty end'` on an array exits
+  # 0 with empty output, so the guard's `else` (the malformed warning) is skipped —
+  # the array row above (asserted to emit that warning) would go RED.
+  bv_run "$(bv_cfg array_mut '[1,2,3]')" "$BV_MUT_GUARD"
+  assert_eq "#898 baseversion(AC2): dropping the \`-e\` guard skips the malformed warning (was 1)" "0" \
+    "$(bv_msg 'malformed or non-object')"
+  rm -rf "$BVROOT"; rm -f "$BV_STEP" "$BV_MUT_STRINGS" "$BV_MUT_GUARD"
+
+  # ── #898: baseprovision's trusted prompt-extension materialization ladder ─────
+  # The prompt-ext ladder inside baseprovision (issue #874) resolves the materialize
+  # helper through a THREE-rank trusted-source ladder — base-ref-vendored → base-ref-
+  # repo (gated on the plugin.json name discriminator) → vendored-fetch (gated on
+  # VENDOR_SOURCE == fetch) — then invokes it with the protected set expanded
+  # UNQUOTED so each name is its own argv entry. None of it had executable coverage.
+  # Drive the REAL step against a RECORDING stub materialize helper committed to the
+  # fixture base ref (rank 1/2) or seeded into the checkout (rank 3): the stub writes
+  # a rank marker and one line per argv entry into $RUNNER_TEMP/argv-record, so the
+  # test observes which rank ran, the arm ORDERING, and the argv count.
+  BPL_STEP=$(mktemp)
+  python3 - "$RUNNER" >"$BPL_STEP" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "baseprovision" and "run" in s:
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            raise SystemExit
+raise SystemExit("baseprovision step not found")
+PY
+  BPLROOT=$(mktemp -d)
+  BPL_MAT="materialize-trusted-prompt-extensions.sh"
+  bpl_stub() {  # $1=rank marker, $2=dest path — records marker + one line per argv entry
+    cat > "$2" <<STUB
+#!/usr/bin/env bash
+printf 'RANK=%s\n' "$1" >> "\$RUNNER_TEMP/argv-record"
+for a in "\$@"; do printf 'ARG=%s\n' "\$a" >> "\$RUNNER_TEMP/argv-record"; done
+exit 0
+STUB
+  }
+  # $1=base fixture dir, $2=VENDOR_SOURCE, $3=work-dir seeder fn (or "-"), $4=step
+  # → sets BPL_REC (argv-record path), BPL_LOG.
+  bpl_run() {
+    local work; work=$(mktemp -d); BPL_LOG=$(mktemp); BPL_REC="$work/rt/argv-record"
+    mkdir -p "$work/rt"
+    git -C "$work" init -q
+    git -C "$work" remote add origin "file://$1"
+    [ "$3" != "-" ] && "$3" "$work"
+    ( cd "$work" && BASE_REF=main RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$work/out" \
+        VENDOR_SOURCE="$2" DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="review requesting-code-review" \
+        bash "$4" ) >"$BPL_LOG" 2>&1
+  }
+  bpl_rank() { sed -n 's/^RANK=//p' "$BPL_REC" 2>/dev/null | head -1; }
+  # count of protected names that arrived as their OWN standalone argv entry
+  bpl_names() { grep -cE '^ARG=(review|requesting-code-review)$' "$BPL_REC" 2>/dev/null || true; }
+  bpl_notattempted() { grep -c 'materialization was not attempted' "$BPL_LOG" 2>/dev/null || true; }
+  # (A) ORDERING rank 1 > rank 2: base-ref-vendored AND base-ref-repo both present →
+  # the vendored copy wins, and the helper receives both names as separate argv entries.
+  mkdir -p "$BPLROOT/a/.devflow/vendor/devflow/scripts" "$BPLROOT/a/.claude-plugin" "$BPLROOT/a/scripts"
+  bpl_stub base-ref-vendored "$BPLROOT/a/.devflow/vendor/devflow/scripts/$BPL_MAT"
+  printf '{"name":"devflow"}' > "$BPLROOT/a/.claude-plugin/plugin.json"
+  bpl_stub base-ref-repo "$BPLROOT/a/scripts/$BPL_MAT"
+  bp_mkbase "$BPLROOT/a"; bpl_run "$BPLROOT/a" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(order 1>2): both present → base-ref-vendored (rank 1) wins" \
+    "base-ref-vendored" "$(bpl_rank)"
+  assert_eq "#898 ladder(order 1>2): helper receives BOTH protected names as separate argv entries" \
+    "2" "$(bpl_names)"
+  # (B) rank 2 alone: DevFlow-repo base ref (plugin.json name + scripts/ copy).
+  mkdir -p "$BPLROOT/b/.claude-plugin" "$BPLROOT/b/scripts"
+  printf '{"name":"devflow"}' > "$BPLROOT/b/.claude-plugin/plugin.json"
+  bpl_stub base-ref-repo "$BPLROOT/b/scripts/$BPL_MAT"
+  bp_mkbase "$BPLROOT/b"; bpl_run "$BPLROOT/b" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(rank 2): DevFlow-repo base ref → base-ref-repo" "base-ref-repo" "$(bpl_rank)"
+  # (C) discriminator: a consumer's like-named scripts/ copy WITHOUT the devflow
+  # plugin.json must NOT be taken (rank 2 gated off) → not attempted.
+  mkdir -p "$BPLROOT/c/scripts"; bpl_stub consumer-lookalike "$BPLROOT/c/scripts/$BPL_MAT"
+  bp_mkbase "$BPLROOT/c"; bpl_run "$BPLROOT/c" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(rank 2 discriminator): consumer lookalike NOT taken (no rank recorded)" "" "$(bpl_rank)"
+  assert_eq "#898 ladder(rank 2 discriminator): materialization not attempted" "1" "$(bpl_notattempted)"
+  # (D) rank 3: no base-ref source, but a runtime-fetched vendored copy in the
+  # checkout AND VENDOR_SOURCE=fetch → vendored-fetch runs (the rank a two-rank
+  # ladder would omit — the thin-install path).
+  bpl_seed_fetch() { mkdir -p "$1/.devflow/vendor/devflow/scripts"; bpl_stub vendored-fetch "$1/.devflow/vendor/devflow/scripts/$BPL_MAT"; }
+  mkdir -p "$BPLROOT/d"; printf 'x' > "$BPLROOT/d/readme"; bp_mkbase "$BPLROOT/d"
+  bpl_run "$BPLROOT/d" fetch bpl_seed_fetch "$BPL_STEP"
+  assert_eq "#898 ladder(rank 3): VENDOR_SOURCE=fetch + checkout vendored copy → vendored-fetch" \
+    "vendored-fetch" "$(bpl_rank)"
+  assert_eq "#898 ladder(rank 3): helper receives BOTH protected names as separate argv entries" \
+    "2" "$(bpl_names)"
+  # (D2) rank-3 GATE: the identical checkout vendored copy with VENDOR_SOURCE=committed
+  # (PR-head content) must NOT qualify → not attempted (the trust gate, and the ordering
+  # proof that rank 3 is reached only when ranks 1/2 miss AND the fetch gate holds).
+  mkdir -p "$BPLROOT/d2"; printf 'x' > "$BPLROOT/d2/readme"; bp_mkbase "$BPLROOT/d2"
+  bpl_run "$BPLROOT/d2" committed bpl_seed_fetch "$BPL_STEP"
+  assert_eq "#898 ladder(rank 3 gate): checkout copy under VENDOR_SOURCE=committed NOT taken" "" "$(bpl_rank)"
+  assert_eq "#898 ladder(rank 3 gate): materialization not attempted" "1" "$(bpl_notattempted)"
+  # (E) no trusted source at all → not attempted ::notice::, closure stays empty.
+  mkdir -p "$BPLROOT/e"; printf 'x' > "$BPLROOT/e/readme"; bp_mkbase "$BPLROOT/e"
+  bpl_run "$BPLROOT/e" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(none): no trusted source → materialization not attempted" "1" "$(bpl_notattempted)"
+  # (F) EMPTY-BLOB rejection (security guard): a rank-1 source path EXISTS on the base
+  # ref but is a zero-byte blob. `git show` succeeds on it, so a naive ladder would set
+  # source=base-ref-vendored, write the empty script out, and RUN it — a script that
+  # does nothing and exits 0, i.e. a silently unprotected review run. The step's
+  # `[ -n "$_mtpe_raw" ] || _mtpe_source='absent'` guard rejects it: not attempted,
+  # helper never invoked (no argv-record written). Distinct from (E), which has no file.
+  mkdir -p "$BPLROOT/f/.devflow/vendor/devflow/scripts"
+  : > "$BPLROOT/f/.devflow/vendor/devflow/scripts/$BPL_MAT"   # zero-byte blob at the rank-1 path
+  printf 'x' > "$BPLROOT/f/readme"; bp_mkbase "$BPLROOT/f"; bpl_run "$BPLROOT/f" committed - "$BPL_STEP"
+  assert_eq "#898 ladder(empty-blob): zero-byte rank-1 helper rejected → no rank recorded" "" "$(bpl_rank)"
+  assert_eq "#898 ladder(empty-blob): rejected → materialization not attempted" "1" "$(bpl_notattempted)"
+  assert_eq "#898 ladder(empty-blob): the empty helper was NEVER invoked (no argv-record)" "no" \
+    "$([ -e "$BPL_REC" ] && echo yes || echo no)"
+  # MUTATION: dropping the `[ -n "$_mtpe_raw" ]` empty-read guard makes the empty helper
+  # get written out and INVOKED — the not-attempted notice then disappears (count 1 → 0),
+  # proving the guard is load-bearing (the "silently unprotected run" it prevents).
+  BPL_MUT_EB=$(mktemp)
+  sed 's/\[ -n "\$_mtpe_raw" \] || _mtpe_source=.absent./true/' "$BPL_STEP" > "$BPL_MUT_EB"
+  assert_eq "#898 ladder(empty-blob AC): the guard-drop mutation actually applied" "applied" \
+    "$(cmp -s "$BPL_STEP" "$BPL_MUT_EB" && echo none || echo applied)"
+  bpl_run "$BPLROOT/f" committed - "$BPL_MUT_EB"
+  assert_eq "#898 ladder(empty-blob AC): dropping the empty-read guard writes+runs the empty helper (notice was 1)" "0" \
+    "$(bpl_notattempted)"
+  rm -f "$BPL_MUT_EB"
+
+  # ── #898 AC4: the protected-set expansion at the call site must stay UNQUOTED ──
+  # The baseline above proved the helper receives BOTH names as separate argv entries
+  # (bpl_names == 2). Demonstrate the guard is load-bearing by MUTATION on a COPY:
+  # quoting `$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS` collapses the two names into ONE
+  # argv entry, so fewer than two standalone name entries arrive — the assertion above
+  # would go RED. (A quoted regression is otherwise silent: the traversal guard passes
+  # and absence is established positively, so the helper exits 0 with the closure empty.)
+  BPL_MUT=$(mktemp)
+  # `[[:space:]]`, not the GNU-only `\s` (CLAUDE.md portability convention) — BSD/macOS
+  # sed treats `\s` literally, so the mutation would silently not apply and the
+  # "actually applied" guard below would then fail LOUDLY (spurious RED), not vacuously.
+  sed 's/^\([[:space:]]*\)\$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS /\1"$DEVFLOW_PROTECTED_PROMPT_EXTENSIONS" /' "$BPL_STEP" > "$BPL_MUT"
+  assert_eq "#898 ladder(AC4): the quote mutation actually applied" "applied" \
+    "$(cmp -s "$BPL_STEP" "$BPL_MUT" && echo none || echo applied)"
+  bpl_run "$BPLROOT/a" committed - "$BPL_MUT"
+  # The helper STILL RAN (rank 1 resolved) but received fewer than two standalone
+  # protected-name argv entries ⇒ the AC4 guard would fire. Asserting the rank too
+  # isolates "collapsed by quoting" from a hypothetical "helper never invoked" (which
+  # would also yield <2 names) — the argv count alone cannot tell those apart.
+  assert_eq "#898 ladder(AC4): quoting collapses to <2 standalone name entries (helper still ran)" "base-ref-vendored:yes" \
+    "$(bpl_rank):$([ "$(bpl_names)" -lt 2 ] && echo yes || echo no)"
+  rm -rf "$BPLROOT"; rm -f "$BPL_STEP" "$BPL_MUT"
+
   # ── #404: vendor-slice reports its branch (vendor_source) ─────────────────────
   VS="$LIB/../.github/actions/vendor-plugin/vendor-slice.sh"
   # Behavioral (committed branch — the cheap fixture): dest already populated.
