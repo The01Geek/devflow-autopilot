@@ -1414,20 +1414,25 @@ jobs:
           set +e
           set -uo pipefail
           # COUPLED mirror of scripts/harden-stop-hooks.sh's HOOK_TARGETS — the FULL
-          # transitive source/exec closure of the three .claude/settings.json Stop-hook
-          # scripts, not just the entry points (issue #458 REJECT). Byte-identical to the
+          # transitive source/exec closure of the .claude/settings.json Stop-hook scripts
+          # plus the #805 PreToolUse guard, not just the entry points (issue #458 REJECT). Byte-identical to the
           # helper's HOOK_TARGETS and pinned equal in lib/test/run.sh. Used both to
           # materialize the trusted base copies AND, on the fail-closed arm, to stub
           # every target inline. A file dropped here silently leaves that PR-head script
           # executable (or un-materialized, so the helper stubs it).
-          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py"
+          TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           TRUSTED_DIR=""
           HELPER=""
           SKIP_HARDEN=0
-          # The three ENTRY hooks whose presence in the TRUSTED base .claude/settings.json
-          # is what makes this hardening relevant at all (issue #460 review, FP1).
-          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"
+          # The ENTRY hooks whose presence in the TRUSTED base .claude/settings.json is
+          # what makes this hardening relevant at all (issue #460 review, FP1). COUPLED
+          # mirror of harden-stop-hooks.sh's HOOK_ENTRY_TARGETS (pinned in lib/test/run.sh)
+          # — this is the INLINE FALLBACK the gate uses when no trusted helper resolved, so
+          # a member the helper's --wired-check scans and this list omits makes the two
+          # selectors disagree on the same settings file. Since #805 the list carries the
+          # PreToolUse guard alongside the three Stop-hook entries.
+          ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py"
           # Rank 1: materialize the trusted hook copies AND the trusted helper from
           # the base ref. `origin` is the upstream repo, so the base tip is the
           # maintainer-controlled tree, not the PR head. Only inside this fetch-
@@ -1459,8 +1464,10 @@ jobs:
             # devflow-runner.yml to consumer repos, but DevFlow's own .claude/settings.json
             # Stop hooks do NOT ship. In a consumer whose TRUSTED base settings.json does
             # not wire these hooks there is nothing to harden — and stubbing/creating the
-            # ten DevFlow-layout paths would clobber a same-named consumer file (a wrong
-            # verdict). So harden ONLY when the trusted base settings.json wires an entry
+            # hardened closure over same-named consumer files would be a wrong verdict (the
+            # emitted skip notice below states that rationale for the consumer to read, and
+            # lib/test/run.sh pins it there rather than in this explanatory comment). So
+            # harden ONLY when the trusted base settings.json wires an entry
             # hook. DECIDE VIA THE TRUSTED HELPER'S --wired-check MODE — the single,
             # lib/test/run.sh-driven source of truth for this selection — falling back to
             # an inline substring scan only when no trusted helper resolved. Keyed on the
@@ -1521,7 +1528,7 @@ jobs:
             fi
             if [ "$HOOKS_WIRED" -eq 0 ]; then
               SKIP_HARDEN=1
-              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects)."
+              echo "::notice::harden-stop-hooks: the trusted base .claude/settings.json does not wire the DevFlow Stop hooks — nothing to harden; skipping (this repo does not use the base-hook channel this floor protects, and stubbing/creating the DevFlow-layout closure paths would clobber a same-named consumer file)."
             else
               TRUSTED_DIR="$RUNNER_TEMP/devflow-trusted-hooks"
               for t in $TARGETS; do
@@ -1540,7 +1547,7 @@ jobs:
               done
             fi
           else
-            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the ten DevFlow-layout paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
+            echo "::warning::harden-stop-hooks: could not fetch base ref '${BASE_REF:-}' to materialize trusted Stop-hook copies; failing closed (no-op stubs for every hook target). NOTE (issue #460 review, FP-S1): in a CONSUMER repo a base-ref fetch failure means the relevance gate cannot run, so the DevFlow-layout closure paths are stubbed/created over any same-named consumer files during this (read-only) review — a deliberate fail-closed-over-consumer-fidelity trade, disclosed in docs/DEVFLOW_SYSTEM_OVERVIEW.md."
           fi
           # RELEVANCE GATE early-out (issue #460 review, FP1): the trusted base ref
           # demonstrably does not wire these Stop hooks, so there is nothing to harden
@@ -1626,8 +1633,8 @@ jobs:
           # space-separated literal (no tr/sed — guard-class 2: a value deciding an
           # emitted result must not be derived through a non-preflight PATH tool).
           # Exact because displacement is all-or-nothing: the helper displaces every
-          # target on exit 0, else the inline arm stubs all ten, else the job failed
-          # before this point. The compose step (after this one) forwards this as
+          # target on exit 0, else the inline arm stubs every target, else the job
+          # failed before this point. The compose step (after this one) forwards this as
           # HARDENED_PATHS to the renderer, which routes listed-path HEAD verification
           # through `git show`.
           printf 'disposition=displaced\n' >> "$GITHUB_OUTPUT"

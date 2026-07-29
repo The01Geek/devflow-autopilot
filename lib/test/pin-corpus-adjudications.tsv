@@ -165,7 +165,6 @@ literal:2f2e80dc276fa8e34f67337f3d7d307ad506ff47ce3b1135997a95d3ede5d9aa	boundar
 literal:2f38411fb9d75fb169fe94f270934f241f535a509c73d2196cef631d9dd6ee9b	boundary	maintainer adjudication: create-issue CG: runner capability or affordance gate: truncation warning uses the runner's user-question tool
 literal:2f6076d6f94c2066fc16dd8596597f59e5c7fb77247a615d16812e062dfa6b89	boundary	Defines the operands used by the convergence decision.
 literal:2fdee39b645560a2be3f42952185c7ab0c95b46a8caeadecba82a4a91f1cc03e	boundary	maintainer adjudication: review-and-fix POST_SHADOW_GATE: Defines the logs-only exemption for post-shadow edits.
-literal:2fff197c78d220c798edcc94598e9f4cf2eb5a2687f55d6166003b86e750a782	boundary	maintainer adjudication: declared security or interface boundary
 literal:302d7b96763047d7ce336048dc669b3fb467e12554ad3ce24ba1ff490bcee923	boundary	maintainer adjudication: review PF: review-profile routing boundary: #769: small_diff AND config_only profile-table row present (surface presence over unamended text)
 literal:309de5bd34ede0803efd50977b208c9a51aaa94cb4459176822d1d1dec820566	boundary	Retain security/integrity boundary: #224 Phase 3.1: empty-read guard falls back to main (fail-closed consequent).
 literal:30a1c1cd03ebce197fa08ad6b87f6575382b20507a09e16ae11f5885ff0c32c9	boundary	Retain operational boundary: #275 pin (P4-op): canonical preamble carries the fail-closed stop clause protects the named executable or safety condition, not prose presentation.
@@ -284,6 +283,7 @@ literal:4e91385929d2ad30a877e085b794407e8a2593ddbd3f8045d7b7451797ed0cd0	boundar
 literal:4fbc2f067ce55b8aeb87be887ca62cf44779836217ebda7afb41ce012405327a	boundary	maintainer adjudication: prompt-extensions ST: review gate state transition fails engine changes lacking a changeset
 literal:4fcea564b4acdc1ac394d836488bbe49f2b17bc83059827e2349878f2e5a1088	boundary	maintainer adjudication: create-issue WD: writer, extractor, delivery marker, dispatch record, or override sequencing interface: the recovery never sanctions a bare re-record pair
 literal:50f946020a4a1c4253eb2408ae8140375dbcc7ff036833e2a032989377ef21da	boundary	maintainer adjudication: runtime state-vocabulary: Closed state vocabulary prevents a merged prerequisite from being treated as blocked.
+literal:513aa727327d80ddc8442f11947343078e221bbdac76a5e629523b3fa5269134	boundary	maintainer adjudication: declared security or interface boundary
 literal:51702e1dac85465702923d7d4b2122ab4637607c8634805c6e308a78fb24007c	boundary	Retain preflight state boundary: rcv/#545 P-direct-established: only an explicit invocation record establishes direct context fixes a subject, freshness, or authorization decision arm.
 literal:519469fcd7efadc336b96346a0df760d962d4c2d82849be392459c6fec9f152d	boundary	Retain operational boundary: #247/#275 T5b: create-issue preamble carries the tool-less drive-letter mapping rule protects the named executable or safety condition, not prose presentation.
 literal:51c452eb448b2e8c9d9bfbe62391620635b9ba7d48b1a076e012500e51ae329c	boundary	Retain preflight state boundary: rcv/#668 P-rebind-surface: a non-null rebound_from is surfaced in fact 10's value fixes a subject, freshness, or authorization decision arm.
@@ -313,7 +313,6 @@ literal:56ddc5978ee3e1464b7f47c0f3e9bb62fc925bf649dddf6d7a48292dd2144682	boundar
 literal:56fcab3767ec48fce3de66e4f702a3692254a53236047ab8408975199444c4cc	boundary	maintainer adjudication: other-skills schema-contract: Exact interim defined-skip JSON shape.
 literal:5707bb51265027c85eaa995fa1ad4186751a48c3865b7fd210e35de1d59b2f98	boundary	maintainer adjudication: create-issue CS: carriage identity, digest, unreadable marker, or sentinel protocol: embed-arm auditor must quote both sentinels plus body boundary lines
 literal:57198d23ad57dcdde6fc820a82f4d6c1e9dcfbdb440428319cf18ac37146971b	boundary	maintainer adjudication: create-issue CF: fail-closed config/capability gate or reason-selection contract: offer gate reads workflows.devflow via config-get.sh as the leading token
-literal:57317a34526a4f43d7f30b86eea5351588894a37c4fa1d270f75500ffaa065bd	boundary	maintainer adjudication: declared security or interface boundary
 literal:5795a1d4edc524defdb9bff1da08086a62597bcfdd20105f055cabe54724dcc7	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:58277a4cef7ad14aab11778b37e32186f4580f5251f80699c29b0db1d83744b9	boundary	maintainer adjudication: deferral merge call is an external-helper boundary
 literal:587bacb0dcaffd8c9588453e9d9ebda3be0a766c16f493c69ad73d8d07e96414	boundary	maintainer adjudication: final-modules routing-anchor: The section heading is the extraction and cross-reference anchor for the byte-identical generated-artifact conflict rule.
@@ -671,6 +670,7 @@ literal:cccb3e980d41364843b8979473bfa61a281613573c74bfc1f2dfbd20d91425b6	boundar
 literal:cd175c2895713a3096ca46e78e5f4ea88474393b5e42d5dc0edf5bfe3e9a9781	boundary	maintainer adjudication: agents HC: agent verification contract requires a falsifying-input probe
 literal:cd360da86b7bcdfaff040dcee718b35048f8397d633fe798ec95704ba2dc65db	boundary	maintainer adjudication: implement-top operative-contract: Operative lifecycle, routing, helper, state, or cross-phase contract.
 literal:cd3ee1a8b55cbe8dfe90ab8b9890ebfc52cf2143827e045b5aa6ef1d1408acbe	boundary	Retain operative cross-surface contract: #754 A10: phase-2 keeps the rig under an already-ignored scratch path.
+literal:cd892e0f9b3ecd86385ccb2be98c87bbb45d8d2c5a2b2b17ee9448e17bf9801c	boundary	maintainer adjudication: declared security or interface boundary
 literal:ce2c66f9cd9b5c2baa4faf77ce04f33e0ad7c426f234c1b1856c32826ec468c5	boundary	Exact diff-range operand passed across review phases.
 literal:cede004b2ee18d36e5dc8218f6a43aec4d554595669a1126798cbf8f93d803c4	boundary	maintainer adjudication: runtime helper-contract: Explicit parser class preserves the exit-3 preflight error contract instead of argparse's exit 2.
 literal:cf53ba94cec2144116fd75a53c8429543065bfa122a6b9ef37c63e96db8235aa	boundary	Retain security/integrity boundary: #374 untracked-file warning: implement Phase 2.3 states git checkout cannot restore an untracked file.

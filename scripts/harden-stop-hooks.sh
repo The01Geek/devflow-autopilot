@@ -29,6 +29,7 @@
 #                                  scripts/config_fingerprint.py, lib/telemetry-branch.sh
 #   lib/implement-stop-guard.sh -> lib/config-source.sh, scripts/workpad.py
 #   scripts/stop-hook-probe.sh  -> lib/resolve-jq.sh
+#   scripts/pretooluse-shape-guard.py -> lib/test/extract-command-shapes.py (importlib load, #805)
 #   lib/resolve-jq.sh           -> lib/resolve-bin.sh
 #   lib/config-source.sh        -> scripts/config-get.sh
 #   lib/resolve-bin.sh          -> (leaf: only external tool probes)
@@ -36,6 +37,11 @@
 #   scripts/config-get.sh       -> (leaf: inline python3 -c, git, no repo files)
 #   scripts/config_fingerprint.py -> (leaf: stdlib only)
 #   scripts/workpad.py          -> (leaf: git/gh subprocesses only, no repo files)
+#   lib/test/extract-command-shapes.py -> lib/test/extract-command-heads.py (importlib load, #805)
+#   lib/test/extract-command-heads.py  -> (leaf: stdlib only)
+# The two importlib edges above are seen by the walker's Python-import edge form (#805);
+# scripts/pretooluse-shape-guard.py is a .py ENTRY, so a missing trusted copy installs the
+# language-appropriate Python stub (STUB_PY), not the bash STUB.
 # lib/test/run.sh's drift-guard (the shared walker scripts/detect-hook-closure-edges.py)
 # verifies the closure is transitively closed — it checks each HOOK_TARGETS member's
 # DIRECT source/exec edges and turns RED if any references a repo file NOT in HOOK_TARGETS
@@ -78,7 +84,8 @@
 # So the executed script is either the base-branch version or a stub that does
 # nothing; the PR-head version never runs. (An unedited PR yields byte-identical base
 # copy CONTENTS; the unconditional `chmod +x` may still surface a mode-only delta on a
-# target tracked non-executable — lib/resolve-jq.sh, lib/resolve-bin.sh, and lib/telemetry-branch.sh are 100644 —
+# target tracked non-executable — lib/resolve-jq.sh, lib/resolve-bin.sh, lib/telemetry-branch.sh
+# and, since #805, lib/test/extract-command-shapes.py + lib/test/extract-command-heads.py are 100644 —
 # under core.fileMode=true. That delta is inert: the review job is read-only, so it is
 # never committed, and the exec bit is not load-bearing anyway — entries run as
 # `bash <path>`, libs are `source`d, Python deps run as `python3 <path>`.)
@@ -124,9 +131,10 @@
 set -u
 
 # ── The full transitive source/exec closure (repo-relative). ─────────────────────
-# Entry hooks — the three .claude/settings.json Stop-hook script paths. A stub here
-# is SAFE (skipping the hook is safe).
-HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'
+# Entry hooks — the .claude/settings.json Stop-hook script paths plus, since #805, the
+# PreToolUse guard. A stub here is SAFE (skipping the hook is safe). COUPLED mirror of
+# devflow-runner.yml's inline ENTRY_TARGETS fallback (pinned equal in lib/test/run.sh).
+HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'
 # Libraries SOURCED INLINE (`.`/`source`) into an entry, directly or transitively. A
 # stub here would exit the SOURCING entry mid-run, so a MISSING trusted copy of one of
 # these neutralizes every entry instead of installing a mid-source-breaking stub.
@@ -137,11 +145,11 @@ HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh 
 # the exec-dep class (the logic derives "exec dep" as any closure member that is neither
 # an entry nor a sourced lib), so it is not read by the code below.
 # shellcheck disable=SC2034
-HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 # Authoritative single-line closure literal (COUPLED mirror of devflow-runner.yml's
 # inline TARGETS= — pinned in lib/test/run.sh). Order: entries, then sourced libs, then
 # exec deps.
-HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HOOK_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-.}"
 TRUSTED_DIR="${TRUSTED_DIR:-}"
@@ -151,7 +159,8 @@ TRUSTED_DIR="${TRUSTED_DIR:-}"
 # the trusted-materialized helper instead of a hand-copied inline `case`, so the branch
 # selection is driven by lib/test/run.sh — the repo's "extract branch-selecting inline
 # workflow shell into a helper" convention). Given the TRUSTED base .claude/settings.json
-# on stdin or as $2, decide whether it wires any of the three entry Stop hooks.
+# on stdin or as $2, decide whether it wires any HOOK_ENTRY_TARGETS entry hook (the
+# Stop-hook entries and, since #805, the PreToolUse guard).
 #   usage : harden-stop-hooks.sh --wired-check [<settings-file>]   (stdin if no file)
 #   exit  : 0 = wired (at least one entry hook referenced) — HARDEN
 #           1 = a CLEAN "not wired" verdict (or the file is unreadable/absent) — nothing
@@ -185,6 +194,18 @@ fi
 
 # Fail-closed no-op stub: a Stop hook that does nothing rather than the PR-head copy.
 STUB=$'#!/usr/bin/env bash\n# Installed by scripts/harden-stop-hooks.sh (#458): no trusted base copy of this\n# Stop-hook target was available, so it is neutralized rather than run from the\n# PR-head checkout. Fail-closed: run no hook, never a PR-controlled one.\nexit 0'
+
+# Language-appropriate stub for a .py target (issue #805). The PreToolUse guard is the
+# first Python ENTRY hook; writing the bash STUB above into a file the harness runs as a
+# Python hook raises SyntaxError on `exit 0`, failing the hook on every call instead of
+# the intended benign no-op. This Python stub emits a `defer` decision (the documented
+# non-approving default the hook contract wants) and exits 0 — but ONLY under __main__.
+# That guard is DEFENSIVE, not a description of any current routing: `write_stub` below
+# installs STUB_PY for a .py ENTRY target only, and every .py EXEC dep keeps the bash
+# STUB, so no file the closure imports can carry STUB_PY today. It keeps the stub inert
+# should a future .py entry target also be imported — without it a top-level
+# `sys.exit(0)` would raise SystemExit into the importer.
+STUB_PY=$'#!/usr/bin/env python3\n# Installed by scripts/harden-stop-hooks.sh (#458/#805): no trusted base copy of this\n# Python hook target was available, so it is neutralized rather than run from the PR-head\n# checkout. Fail-closed: emit a benign defer decision and exit 0, never a PR-controlled\n# body.\nimport json, sys\nif __name__ == "__main__":\n    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "defer", "permissionDecisionReason": "devflow: stubbed hook (no trusted base copy)"}}))\n    sys.exit(0)'
 
 # Membership tests — pure bash (a SELECTION-deciding value must not route through a
 # non-preflight PATH tool: the repo's guard-class 2).
@@ -234,7 +255,19 @@ write_stub() {
   # Unlink a symlink dest first (issue #460 review) so the stub is written AT the path,
   # not through the link into its resolved target.
   [ -L "$dest" ] && rm -f "$dest" 2>/dev/null
-  if mkdir -p "$destdir" 2>/dev/null && printf '%s\n' "$STUB" > "$dest" 2>/dev/null; then
+  # Language-appropriate stub (issue #805): a .py ENTRY hook gets the Python stub (a bash
+  # `exit 0` in a file the harness runs as a Python hook raises SyntaxError on `exit 0`).
+  # A .py EXEC dep (workpad.py, config_fingerprint.py, extract-command-*.py) keeps the bash
+  # STUB — it runs in a SUBPROCESS (`python3 <path>`) or is imported, so a bash stub just
+  # makes it a no-op/import-error and the caller degrades (the guard fails open to defer),
+  # the established exec-dep behavior. Pure suffix + membership `case`/`if` — no PATH tool
+  # decides this SELECTION (guard-class 2).
+  local _stub
+  case "$t" in
+    *.py) if _is_entry_target "$t"; then _stub="$STUB_PY"; else _stub="$STUB"; fi ;;
+    *)    _stub="$STUB" ;;
+  esac
+  if mkdir -p "$destdir" 2>/dev/null && printf '%s\n' "$_stub" > "$dest" 2>/dev/null; then
     chmod +x "$dest" 2>/dev/null || true
     printf 'devflow: harden-stop-hooks: %s <- %s\n' "$t" "$label" >&2
     return 0

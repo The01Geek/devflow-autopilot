@@ -22387,20 +22387,21 @@ HSH="$LIB/../scripts/harden-stop-hooks.sh"
 assert_eq "#458 helper: harden-stop-hooks.sh exists" "yes" \
   "$([ -f "$HSH" ] && echo yes || echo no)"
 # HOOK_TARGETS is the authoritative single-line mirror of the FULL transitive
-# source/exec closure of the three .claude/settings.json Stop hooks — COUPLED (a
+# source/exec closure of the .claude/settings.json Stop hooks plus the #805 PreToolUse
+# guard entry — COUPLED (a
 # file dropped here silently leaves that PR-head script executable, or the workflow
 # never materializes its trusted copy). Pin the exact closure literal.
-HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'
+HSH_CLOSURE_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'
 assert_eq "#458 helper: HOOK_TARGETS is the full transitive source/exec closure" "1" \
   "$(grep -cF "HOOK_TARGETS='$HSH_CLOSURE_LIT'" "$HSH" || true)"
 # The three per-class sub-lists (entries / sourced libs / exec'd deps) drive the
 # stub-vs-trusted-copy decision; pin each exact literal.
-assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three settings.json hooks" "1" \
-  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh'" "$HSH" || true)"
+assert_eq "#458 helper: HOOK_ENTRY_TARGETS are the three Stop-hook entries plus the #805 PreToolUse guard" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_SOURCED_TARGETS are the inline-sourced libs (mid-source-break class)" "1" \
   "$(grep -cF "HOOK_SOURCED_TARGETS='lib/resolve-jq.sh lib/config-source.sh lib/resolve-bin.sh lib/telemetry-branch.sh'" "$HSH" || true)"
 assert_eq "#458 helper: HOOK_EXEC_TARGETS are the subprocess-exec'd deps" "1" \
-  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py'" "$HSH" || true)"
+  "$(grep -cF "HOOK_EXEC_TARGETS='scripts/config-get.sh scripts/config_fingerprint.py scripts/workpad.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py'" "$HSH" || true)"
 SETTINGS="$LIB/../.claude/settings.json"
 assert_eq "#458 coupling: settings.json wires lib/efficiency-trace.sh Stop hook" "1" \
   "$(jq '[.hooks.Stop[]?.hooks[]? | select((.command // "") | contains("lib/efficiency-trace.sh") and contains("--persist"))] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
@@ -22408,17 +22409,26 @@ assert_eq "#458 coupling: settings.json wires lib/implement-stop-guard.sh Stop h
   "$(grep -c 'lib/implement-stop-guard.sh' "$SETTINGS" || true)"
 assert_eq "#458 coupling: settings.json wires scripts/stop-hook-probe.sh Stop hook" "1" \
   "$(grep -c 'scripts/stop-hook-probe.sh' "$SETTINGS" || true)"
-# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the ENTRY-target
-# count (3) — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
-# would execute from the PR-head checkout untouched.
-assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== HOOK_ENTRY_TARGETS)" "3" \
+# BIDIRECTIONAL coupling: the settings.json Stop-hook COUNT equals the count of `.sh`
+# ENTRY targets — a new Stop hook added to settings.json but NOT to HOOK_ENTRY_TARGETS
+# would execute from the PR-head checkout untouched. The comparand is deliberately the
+# `.sh` SUBSET of HOOK_ENTRY_TARGETS, not the whole list: since #805 that list also
+# carries the PreToolUse guard, a `.py` entry that is NOT a Stop hook and so has no
+# settings.json `Stop` row to pair with. Because a subset comparand alone would let the
+# entry list grow unnoticed, the TOTAL membership is pinned separately immediately below.
+assert_eq "#458 coupling: settings.json has exactly 3 Stop-hook commands (== the .sh HOOK_ENTRY_TARGETS subset)" "3" \
   "$(jq '[.hooks.Stop[].hooks[]] | length' "$SETTINGS" 2>/dev/null || echo BAD)"
-assert_eq "#458 coupling: HOOK_ENTRY_TARGETS has exactly 3 entries (== settings.json Stop-hook count)" "3" \
+assert_eq "#458 coupling: HOOK_ENTRY_TARGETS carries exactly 3 .sh Stop-hook entries (== settings.json Stop-hook count)" "3" \
   "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -c '\.sh' || true)"
+# TOTAL entry membership (issue #805): the `.sh` subset check above cannot see a `.py`
+# entry, so pin the whole list too — a new entry target of either language now has to
+# come through this assertion, restoring the bound the subset comparand gave up.
+assert_eq "#805 coupling: HOOK_ENTRY_TARGETS has exactly 4 entries in total (3 .sh Stop hooks + the .py PreToolUse guard)" "4" \
+  "$(grep -oE "HOOK_ENTRY_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # The full closure hardened here is the entry hooks plus their transitive source/exec/python3
 # deps; its exact membership and size are pinned by the assertion below and the drift-guard,
 # not asserted in prose (the count-locked stale-prose lint owns numeric claims).
-assert_eq "#458 coupling: HOOK_TARGETS has exactly 10 closure entries (.sh + .py)" "10" \
+assert_eq "#458 coupling: HOOK_TARGETS has exactly 13 closure entries (.sh + .py)" "13" \
   "$(grep -oE "HOOK_TARGETS='[^']*'" "$HSH" | tr ' ' '\n' | grep -cE '\.(sh|py)' || true)"
 # SET-EQUALITY invariant (issue #460 SHADOW, FP-S3): the three per-class lists must
 # partition HOOK_TARGETS exactly — entries ∪ sourced ∪ exec == HOOK_TARGETS. A future
@@ -22448,6 +22458,16 @@ assert_eq "#460 walker gap backstop: no .py closure member spawns a LITERAL-path
 # stale-and-green, un-materialized and (on the fail-closed arm) un-stubbed.
 assert_eq "#458 coupling: devflow-runner.yml inline TARGETS == helper HOOK_TARGETS (full closure)" "1" \
   "$(grep -cF "TARGETS=\"$HSH_CLOSURE_LIT\"" "$RUNNER" || true)"
+# IMPORTANT-2 (issue #805): the workflow's inline ENTRY_TARGETS is the relevance gate's
+# FALLBACK selector when no trusted helper resolved, while the helper's --wired-check scans
+# HOOK_ENTRY_TARGETS. An entry present in one list and not the other makes the two selectors
+# reach different verdicts on the same settings file — the gate would report "nothing to
+# harden" on one path and harden on the other. Pin them byte-equal.
+HSH_ENTRY_LIT='lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh scripts/pretooluse-shape-guard.py'
+assert_eq "#805 coupling: devflow-runner.yml inline ENTRY_TARGETS == helper HOOK_ENTRY_TARGETS" "1" \
+  "$(grep -cF "ENTRY_TARGETS=\"$HSH_ENTRY_LIT\"" "$RUNNER" || true)"
+assert_eq "#805 coupling: the helper's HOOK_ENTRY_TARGETS carries that same literal" "1" \
+  "$(grep -cF "HOOK_ENTRY_TARGETS='$HSH_ENTRY_LIT'" "$HSH" || true)"
 
 # DRIFT-GUARD (issue #458 REJECT): statically walk every source/`.`/exec/`python3 <path>`
 # edge in each closure file and assert every referenced repo .sh/.py is itself in the
@@ -22599,6 +22619,217 @@ HSH_UR_OUT2="$(REPO_ROOT="$HSH_UR_DIR2" CLOSURE="lib/is-a-dir.sh" python3 "$HSH_
 assert_eq "#460 drift-guard: a directory closure member is reported UNREADABLE (IsADirectoryError, not swallowed)" "1" \
   "$(printf '%s\n' "$HSH_UR_OUT2" | grep -c 'lib/is-a-dir.sh -> UNREADABLE' || true)"
 rm -rf "$HSH_UR_DIR" "$HSH_UR_DIR2"
+
+# ── #805 PreToolUse shape guard: closure edge fail-closed, remediation mirror, stub ──
+GUARD_PY="$LIB/../scripts/pretooluse-shape-guard.py"
+ALLOWLIST_DOC="$LIB/../docs/cloud-allowlist.md"
+# The guard's importlib edge to extract-command-shapes.py is a REAL, trust-sensitive edge
+# the walker must model — assert it is DETECTED and REQUIRED: dropping shapes from the
+# closure surfaces the guard->shapes violation (fail-closed), so an importlib-edge regex
+# regression that stops matching turns the closure assertion RED rather than silently
+# certifying a set it cannot inspect.
+HSH_805_DROP="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -v 'extract-command-shapes.py' | tr '\n' ' ')"
+HSH_805_OUT="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_805_DROP" python3 "$HSH_EDGES")"
+assert_eq "#805 drift-guard: the guard's importlib edge to extract-command-shapes.py is detected + required (fail-closed)" "1" \
+  "$(printf '%s\n' "$HSH_805_OUT" | grep -c 'pretooluse-shape-guard.py -> extract-command-shapes.py' || true)"
+HSH_805_DROP2="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -v 'extract-command-heads.py' | tr '\n' ' ')"
+HSH_805_OUT2="$(REPO_ROOT="$LIB/.." CLOSURE="$HSH_805_DROP2" python3 "$HSH_EDGES")"
+assert_eq "#805 drift-guard: the shapes->heads importlib edge is detected + required (fail-closed)" "1" \
+  "$(printf '%s\n' "$HSH_805_OUT2" | grep -c 'extract-command-shapes.py -> extract-command-heads.py' || true)"
+# UNRESOLVABLE-IMPORT arm: a .py member that demonstrably performs a spec_from_file_location
+# load whose target path neither capture form resolves must be reported, NOT returned clean.
+# Reporting clean there is the fail-OPEN direction — the walker would certify a closure
+# containing an in-process edge it cannot see, which is how PR-head-editable Python reaches
+# the secrets-bearing review job. Drive it on a synthetic member (no closure file has this
+# shape today, so a positive control is the only way to exercise the arm), and pair it with
+# the _HAS_SPEC negative control: an os.path.join of a .py in a NON-importing member must
+# invent no edge at all.
+if HSH_UI_DIR="$(mktemp -d 2>/dev/null)" && [ -d "$HSH_UI_DIR" ]; then
+  mkdir -p "$HSH_UI_DIR/scripts"
+  printf '%s\n' \
+    'import importlib.util' \
+    'from pathlib import Path' \
+    'p = Path(__file__).parent / dep_name' \
+    'spec = importlib.util.spec_from_file_location("x", p)' \
+    > "$HSH_UI_DIR/scripts/unresolvable.py"
+  printf '%s\n' \
+    'import os' \
+    'DATA = os.path.join(os.path.dirname(__file__), "not-an-edge.py")' \
+    > "$HSH_UI_DIR/scripts/nonimporter.py"
+  HSH_UI_OUT="$(REPO_ROOT="$HSH_UI_DIR" CLOSURE="scripts/unresolvable.py" python3 "$HSH_EDGES")"
+  assert_eq "#805 drift-guard: an UNRESOLVABLE spec_from_file_location target is reported (fail-closed, not silently clean)" "1" \
+    "$(printf '%s\n' "$HSH_UI_OUT" | grep -c 'UNRESOLVABLE-IMPORT' || true)"
+  HSH_NI_OUT="$(REPO_ROOT="$HSH_UI_DIR" CLOSURE="scripts/nonimporter.py" python3 "$HSH_EDGES")"
+  assert_eq "#805 drift-guard: _HAS_SPEC negative control — an os.path.join in a NON-importing member invents no edge" "" \
+    "$(printf '%s' "$HSH_NI_OUT")"
+  rm -rf "$HSH_UI_DIR"
+else
+  echo FAIL >> "$RESULTS_FILE"
+  record_fail "#805 drift-guard: mktemp -d failed"
+  printf '  FAIL  #805 drift-guard: mktemp -d failed (UNRESOLVABLE-IMPORT arm not exercised; not a vacuous skip)\n' >&2
+fi
+# Remediation mirror (issue #805): each deny-set arm's join literal appears in BOTH the
+# guard's REMEDIATION ENTRY FOR THAT ARM and docs/cloud-allowlist.md's authoritative TABLE
+# ROW FOR THAT ARM, so the scripts/-to-docs/ coupled mirror cannot drift silently. This is
+# a machine-consumed cross-file contract (the guard's remediation text is the emitted
+# permissionDecisionReason), not a prose-presence pin.
+#
+# BOTH SIDES ARE ROW-SCOPED, and that is the whole point of the assertion. A whole-file
+# `grep -qF` for these literals is INERT: every one of them also occurs outside the row it
+# claims to pin (the guard's module docstring, this document's own explanatory prose), so
+# the test could never go RED for the row it names — it would certify a mirror it does not
+# read. The guard side resolves REMEDIATION[arm] by importing the module (the same table
+# the runtime subscripts); the docs side extracts the single markdown table row whose first
+# cell is that arm id.
+_805_guard_cell() {  # $1 = arm id -> that arm's REMEDIATION text, or empty
+  python3 - "$GUARD_PY" "$1" <<'PY' 2>/dev/null || true
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("devflow_guard_pin", sys.argv[1])
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+sys.stdout.write(mod.REMEDIATION.get(sys.argv[2], ""))
+PY
+}
+_805_doc_row() {  # $1 = arm id -> that arm's docs/cloud-allowlist.md table row, or empty
+  grep -F "| \`$1\` |" "$ALLOWLIST_DOC" || true
+}
+assert_eq "#805 remediation mirror: arm R1 join literal is in the guard's R1 REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R1 join literal is in the docs R1 table row" "yes" \
+  "$(_805_doc_row R1 | grep -qF 'VAR=$(cmd)' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the guard's R3-tmp REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R3-tmp | grep -qF '.devflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R3-tmp join literal is in the docs R3-tmp table row" "yes" \
+  "$(_805_doc_row R3-tmp | grep -qF '.devflow/tmp/' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's permitted-alternative cell is the authoritative form the guard's emitted remediation must name
+# R4's permitted alternative reads as a whitespace-bearing English phrase on the docs side,
+# which the issue-810 boundary classifies as prose; the arm's DENIED-SHAPE cell carries the
+# whitespace-free join key verbatim on both sides, so the R4 row is mirrored on that.
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the guard's R4 REMEDIATION entry" "yes" \
+  "$(_805_guard_cell R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the guard's REMEDIATION entry IS the emitted permissionDecisionReason a denied caller reads; docs/cloud-allowlist.md is its authoritative record, so a drift on either side must go RED
+assert_eq "#805 remediation mirror: arm R4 interpreter-head shape is in the docs R4 table row" "yes" \
+  "$(_805_doc_row R4 | grep -qF 'python3/python/node' && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- the allowlist record's R4 row is the authoritative record of the denied interpreter-head shape the guard refuses
+# NEGATIVE CONTROLS for the row-scoping itself: the extractors must return the arm's OWN
+# row, never another arm's and never the surrounding prose. Without these the row-scoped
+# pins above could silently regress back to whole-file behavior (an extractor that returned
+# the entire file would satisfy every positive assertion above).
+assert_eq "#805 remediation mirror: the guard-side extractor is row-scoped (R1 entry does not carry R4's token)" "no" \
+  "$(_805_guard_cell R1 | grep -qF 'python3/python/node' && echo yes || echo no)"
+assert_eq "#805 remediation mirror: the docs-side extractor is row-scoped (R1 row does not carry R4's token)" "no" \
+  "$(_805_doc_row R1 | grep -qF 'python3/python/node' && echo yes || echo no)"
+assert_eq "#805 remediation mirror: the guard-side extractor returns nothing for an EXCLUDED arm (R2)" "" \
+  "$(_805_guard_cell R2)"
+# Language-appropriate stub (issue #805): drive harden-stop-hooks.sh with an EMPTY
+# TRUSTED_DIR so every target is stubbed, then assert the .py target's stub parses under
+# python3 and a .sh target's stub parses under bash — asserting the INSTALLED BYTES parse,
+# not merely that a stub was written.
+HSH_STUB_WS="$(mktemp -d)"
+WORKSPACE_ROOT="$HSH_STUB_WS" TRUSTED_DIR="" bash "$HSH" >/dev/null 2>&1 || true
+assert_eq "#805 stub: the .py entry target's stub parses under python3" "0" \
+  "$(python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1; echo $?)"
+assert_eq "#805 stub: a .sh entry target's stub parses under bash" "0" \
+  "$(bash -n "$HSH_STUB_WS/lib/efficiency-trace.sh" 2>/dev/null; echo $?)"
+# The .py stub run as __main__ emits a benign defer decision and exits 0 (never a
+# SyntaxError-on-`exit 0` that would fail the hook on every call).
+HSH_STUB_OUT="$(python3 "$HSH_STUB_WS/scripts/pretooluse-shape-guard.py" </dev/null 2>/dev/null)"
+assert_eq "#805 stub: the .py stub emits a defer decision when run as a hook" "1" \
+  "$(printf '%s' "$HSH_STUB_OUT" | grep -c '"permissionDecision": "defer"' || true)"
+rm -rf "$HSH_STUB_WS"
+# Denied-command visibility (issue #805, Part 3): extract-execution-shape.sh emits the
+# denied commands the permission_denials array carries, alongside the existing token.
+EES_805="$LIB/../scripts/extract-execution-shape.sh"
+EES_805_FIX="$(mktemp)"
+cat > "$EES_805_FIX" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo a > /tmp/f"}},{"tool_name":"Bash","tool_input":{"command":"::error::x"}}],"permission_denials_count":2}]
+EESEOF
+EES_805_OUT="$(bash "$EES_805" "$EES_805_FIX" 2>/dev/null)"
+assert_eq "#805 extract-execution-shape emits a permission_denials_commands line" "1" \
+  "$(printf '%s\n' "$EES_805_OUT" | grep -c '^permission_denials_commands: ' || true)"
+assert_eq "#805 extract-execution-shape carries the denied command text" "1" \
+  "$(printf '%s\n' "$EES_805_OUT" | grep -c 'echo a > /tmp/f' || true)"
+rm -f "$EES_805_FIX"
+# JSONL ENCODING (the encoding the un-slurped first cut got wrong). Un-slurped, jq ran the
+# filter once per RECORD: the labeled line carried the first record's empty result — a
+# published `total: 0` for a run that DID deny — and each later record's object landed as
+# an extra unlabeled line, breaking the single-line/$GITHUB_OUTPUT contract. Drive the
+# jsonl encoding directly and pin BOTH properties: exactly one emitted line, and the real
+# count. (An array-only fixture cannot see this: it has a single top-level record.)
+EES_805_JL="$(mktemp)"
+printf '%s\n' \
+  '{"type":"assistant"}' \
+  '{"type":"result","permission_denials":[{"tool_name":"Bash","tool_input":{"command":"echo a > /tmp/f"}}],"permission_denials_count":1}' \
+  > "$EES_805_JL"
+EES_805_JL_OUT="$(bash "$EES_805" "$EES_805_JL" 2>/dev/null)"
+assert_eq "#805 jsonl: exactly ONE permission_denials_commands line is emitted" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '^permission_denials_commands: ' || true)"
+assert_eq "#805 jsonl: no stray unlabeled JSON object line follows it" "0" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '^{"commands"' || true)"
+assert_eq "#805 jsonl: the denial is COUNTED, not published as total 0" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c '"total":1' || true)"
+assert_eq "#805 jsonl: the denied command text survives the slurped pass" "1" \
+  "$(printf '%s\n' "$EES_805_JL_OUT" | grep -c 'echo a > /tmp/f' || true)"
+rm -f "$EES_805_JL"
+# BOUNDS. This field is the one disclosed exception to leaf redaction, so its per-command
+# and total caps are the only thing bounding attacker-influencable text: assert each cap
+# fires with its truncation marker, rather than trusting the jq program by inspection.
+EES_805_CAP="$(mktemp)"
+python3 - "$EES_805_CAP" <<'CAPEOF'
+import json, sys
+long_cmd = "A" * 900
+denials = [{"tool_name": "Bash", "tool_input": {"command": long_cmd}}]
+denials += [{"tool_name": "Bash", "tool_input": {"command": f"cmd{i}"}} for i in range(50)]
+doc = [{"type": "assistant"},
+       {"type": "result", "permission_denials": denials,
+        "permission_denials_count": len(denials)}]
+with open(sys.argv[1], "w", encoding="utf-8") as fh:
+    json.dump(doc, fh)
+CAPEOF
+EES_805_CAP_OUT="$(bash "$EES_805" "$EES_805_CAP" 2>/dev/null | grep '^permission_denials_commands: ' || true)"
+assert_eq "#805 bounds: a >500-char denied command carries the per-command truncation marker" "1" \
+  "$(printf '%s\n' "$EES_805_CAP_OUT" | grep -c 'per-command-truncated' || true)"
+assert_eq "#805 bounds: the total cap is applied (commands list holds 40)" "40" \
+  "$(printf '%s' "$EES_805_CAP_OUT" | sed -E 's/^permission_denials_commands: //' | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["commands"]))' 2>/dev/null || echo BAD)"
+assert_eq "#805 bounds: total reports every extracted denial, not the capped slice" "51" \
+  "$(printf '%s' "$EES_805_CAP_OUT" | sed -E 's/^permission_denials_commands: //' | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])' 2>/dev/null || echo BAD)"
+assert_eq "#805 bounds: truncated flags the total-cap overflow" "1" \
+  "$(printf '%s\n' "$EES_805_CAP_OUT" | grep -c '"truncated":true' || true)"
+rm -f "$EES_805_CAP"
+# UNKNOWN IS NOT ZERO (issue #805 review round 3). A NON-EMPTY denials array that yields no
+# extractable command — the harness carrying the text under some other field, or under a
+# non-string value — is an unestablished extraction. Publishing `total: 0` there would
+# assert "this run denied nothing carrying a command" about a run that denied two things,
+# the same collapse `permission_denials_count` is forbidden from making. Both non-extract
+# shapes are driven, each against an EMPTY-array positive control on the same helper so a
+# blanket `unavailable` cannot satisfy them.
+EES_805_UNK="$(mktemp)"
+cat > "$EES_805_UNK" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[{"tool_name":"Bash","argv":["echo","hi"]},{"tool_name":"Bash","tool_input":{"command":{"nested":"not-a-string"}}}],"permission_denials_count":2}]
+EESEOF
+assert_eq "#805 unknown-is-not-zero: a non-empty denials array yielding no extractable command reports unavailable, not total 0" "1" \
+  "$(bash "$EES_805" "$EES_805_UNK" 2>/dev/null | grep -c '^permission_denials_commands: unavailable$' || true)"
+rm -f "$EES_805_UNK"
+EES_805_EMPTY="$(mktemp)"
+cat > "$EES_805_EMPTY" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[],"permission_denials_count":0}]
+EESEOF
+EES_805_EMPTY_OUT="$(bash "$EES_805" "$EES_805_EMPTY" 2>/dev/null | grep '^permission_denials_commands: ' || true)"
+assert_eq "#805 unknown-is-not-zero positive control: a genuinely EMPTY denials array still reports total 0, not unavailable" "1" \
+  "$(printf '%s\n' "$EES_805_EMPTY_OUT" | grep -c '"total":0' || true)"
+assert_eq "#805 unknown-is-not-zero positive control: the empty-array shape is not swept into unavailable" "0" \
+  "$(printf '%s\n' "$EES_805_EMPTY_OUT" | grep -c 'unavailable' || true)"
+rm -f "$EES_805_EMPTY"
+# SELF-CONTRADICTORY CARRIERS (PR #906 review): a positive permission_denials_count
+# coexisting with a present-but-EMPTY permission_denials array used to emit `total: 0` — a
+# genuine zero — because the array-empty shape alone reads as the natural absent case and
+# nothing checked the count against it. The count and the array disagree about the same
+# event, so this must report unavailable, distinct from the genuinely-empty positive
+# control above (count 0, array []) which stays total:0.
+EES_805_CONTRA="$(mktemp)"
+cat > "$EES_805_CONTRA" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[],"permission_denials_count":3}]
+EESEOF
+assert_eq "#906 self-contradictory carriers: positive count + empty array reports unavailable, not total 0" "1" \
+  "$(bash "$EES_805" "$EES_805_CONTRA" 2>/dev/null | grep -c '^permission_denials_commands: unavailable$' || true)"
+rm -f "$EES_805_CONTRA"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
@@ -22972,14 +23203,17 @@ assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name disc
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
 # but DevFlow's own Stop hooks do not; without this gate a consumer review stubs/creates
-# the ten DevFlow-layout paths over same-named files (a wrong verdict).
+# the DevFlow-layout closure paths over same-named files (a wrong verdict).
 # Two steps read the trusted base-ref .claude/settings.json via git show: the #460
 # harden-stop-hooks relevance gate, and the #505 baseprovision compose materialization
 # (same trusted-ref read; the compose consumes only that materialized $RUNNER_TEMP path).
 assert_eq "#460 workflow: relevance gate reads the TRUSTED base .claude/settings.json" "2" \
   "$(grep -cF 'git show "FETCH_HEAD:.claude/settings.json"' "$RUNNER" || true)"
-assert_eq "#460 workflow: relevance gate keys on the three entry hooks" "1" \
-  "$(grep -cF 'ENTRY_TARGETS="lib/efficiency-trace.sh lib/implement-stop-guard.sh scripts/stop-hook-probe.sh"' "$RUNNER" || true)"
+# The gate's fallback selector is the workflow's inline ENTRY_TARGETS. Assert it against the
+# SAME literal the helper-coupling pin above uses, rather than re-transcribing the member
+# list here — a second transcription is what let the two drift when #805 added a fourth entry.
+assert_eq "#460 workflow: relevance gate keys on the entry hooks (== helper HOOK_ENTRY_TARGETS)" "1" \
+  "$(grep -cF "ENTRY_TARGETS=\"$HSH_ENTRY_LIT\"" "$RUNNER" || true)"
 assert_eq "#460 workflow: gate skips hardening when base settings.json does not wire the hooks" "1" \
   "$(grep -c 'does not wire the DevFlow Stop hooks' "$RUNNER" || true)"
 # CROSS-PIN (issue #460 SHADOW, FP-S2): the workflow's inline ENTRY_TARGETS (the gate's
@@ -23069,7 +23303,8 @@ raise SystemExit("harden_hooks step not found")
 PY
   HH_FIX="$(git_sandbox '#460 errexit fixture')"
   # The trusted "origin": base tracks the REAL .claude/settings.json (wires the three
-  # Stop hooks), the vendored helper, and all ten closure targets — the same shapes
+  # Stop hooks), the vendored helper, and every closure target in $HSH_CLOSURE_LIT (the
+  # loop below iterates that literal, so no count is transcribed here) — the same shapes
   # main carries — and deliberately does NOT track .claude/settings.local.json.
   mkdir -p "$HH_FIX/origin/.claude" "$HH_FIX/origin/.devflow/vendor/devflow/scripts"
   cp "$LIB/../.claude/settings.json" "$HH_FIX/origin/.claude/settings.json" 2>/dev/null
@@ -23105,15 +23340,18 @@ PY
   # AC1 CONTENT (#504): the fixture now runs the step through the terminal AC1 publish
   # block, so assert what it actually WROTE to $GITHUB_OUTPUT — the workflow-side
   # `printf '%s\n' $TARGETS` word-split is exercised nowhere else (the renderer tests feed
-  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the ten
-  # paths onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
-  # would publish zero — both pass every other assertion green. The ten paths each start
+  # HARDENED_PATHS directly). A regression that QUOTED $TARGETS would collapse the whole
+  # closure onto ONE line (rendering one bogus displaced-path bullet) and an emptied TARGETS
+  # would publish zero — both pass every other assertion green. Every closure path starts
   # with lib/ or scripts/; the disposition/heredoc-delimiter lines do not, so the count is
-  # exactly ten on the correct (word-split) publish, 1 under the quoted-regression, 0 under
-  # an emptied one.
+  # exactly the closure size on the correct (word-split) publish, 1 under the
+  # quoted-regression, 0 under an emptied one. The expected count is DERIVED from
+  # HSH_CLOSURE_LIT (the pinned closure literal) rather than transcribed, so growing the
+  # closure does not leave a stale number here.
+  HH_CLOSURE_N="$(printf '%s\n' $HSH_CLOSURE_LIT | grep -cE '^(lib|scripts)/' || true)"
   assert_eq "#504 AC1 errexit fixture: harden published disposition=displaced to GITHUB_OUTPUT" "1" \
     "$(grep -c '^disposition=displaced$' "$HH_FIX/gh_out.txt" || true)"
-  assert_eq "#504 AC1 errexit fixture: harden published the ten displaced paths (word-split, one per line)" "10" \
+  assert_eq "#504 AC1 errexit fixture: harden published every displaced closure path (word-split, one per line)" "$HH_CLOSURE_N" \
     "$(grep -cE '^(lib|scripts)/' "$HH_FIX/gh_out.txt" || true)"
   # MUTATION control: strip the errexit-off line from a COPY and re-run — the inherited
   # `-e` must kill it with git's 128 again, proving this test pins the exact regression
@@ -36212,16 +36450,43 @@ assert_pin_unique "#504 AC6 Phase 2.1b dispatch reads the displaced scratch file
 # AC7: Phase 0.1.5 scratch persistence.
 assert_pin_unique "#504 AC6 Phase 0.1.5 scratch persistence" "Persist the displaced-path list" "$REVIEW_BUNDLE"
 
-# ── #504 AC10 stale-prose corrections.
-assert_pin_unique "#504 AC10 devflow-runner relevance-gate says ten" "ten DevFlow-layout paths would clobber" "$RUNNER_YML"
-assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning says ten" "ten DevFlow-layout paths are stubbed" "$RUNNER_YML"
+# ── #504 AC10 stale-prose corrections. Re-anchored COUNT-FREE (issue #805): the two
+# devflow-runner.yml prose literals name the closure rather than its size, so the pins
+# stop encoding a total (formerly "ten") that changes whenever the closure does.
+assert_pin_unique "#504 AC10 devflow-runner relevance-gate names the closure (count-free)" "DevFlow-layout closure paths would clobber" "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- re-anchored (issue #805) from the explanatory YAML comment onto the EMITTED ::notice:: the relevance-gate early-out prints, so the consumer-fidelity rationale the gate acts on is pinned where a consumer actually reads it
+assert_pin_unique "#504 AC10 devflow-runner FP-S1 warning names the closure (count-free)" "DevFlow-layout closure paths are stubbed" "$RUNNER_YML"  # structural-pin-ok: cross-file-phase-contract -- the FP-S1 ::warning:: is the emitted, consumer-visible disclosure of the fail-closed arm the suite drives over harden-stop-hooks.sh; the pin couples the emitted text to that arm so the two cannot describe different behaviour
 # This pin's TARGET is run.sh itself, so the literal necessarily appears twice — once in the
-# real FP1 comment (the prose this corrects nine->ten) and once here as the pin's own argument.
+# real FP1 comment (the count-free prose) and once here as the pin's own argument.
 # assert_pin_unique cannot express a same-file self-pin (it demands exactly 1), so assert on the
-# self-inclusive count of 2: reverting the comment to "nine" drops it to 1 (this line alone) -> FAIL.
-assert_eq "#504 AC10 run.sh #460 FP1 says ten" "2" \
-  "$(pin_count 'ten DevFlow-layout paths over same-named' "$LIB/test/run.sh")"
+# self-inclusive count of 2: re-introducing a count in the comment drops it to 1 (this line alone) -> FAIL.
+assert_eq "#504 AC10 run.sh #460 FP1 names the closure (count-free)" "2" \
+  "$(pin_count 'DevFlow-layout closure paths over same-named' "$LIB/test/run.sh")"
 assert_eq "#504 AC10 CHANGELOG keeps the historical nine" "1" "$(pin_count 'nine DevFlow-layout' "$LIB/../CHANGELOG.md")"
+# #805: the grounding block names the three denied shapes no runtime guard catches, so
+# the engine self-polices them. Asserted on the RENDERED output (a shape name assembled
+# from adjacent string literals lives on no single source line), and SECTION-SCOPED to the
+# command-shapes section: a whole-block grep is satisfied by the shape name appearing
+# anywhere in the block — including in a future section that merely mentions it — so it
+# would not go RED for the thing it pins (the shape being named where the engine reads the
+# shape rules). `_rgb_shapes` slices numbered section 3 out of the rendered block.
+_rgb_shapes() {  # rendered command-shapes section only (section 3, up to section 4)
+  _rgb deadbeef 'lint: success' 'Read' \
+    | sed -n "/^> \*\*3\. Command shapes/,/^> \*\*4\./p"
+}
+assert_eq "#805 grounding names the bash <path> wrapper shape (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'bash <path>' && echo yes || echo no)"
+assert_eq "#805 grounding names process substitution (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'process substitution' && echo yes || echo no)"
+assert_eq "#805 grounding names the simple_expansion shape (in the command-shapes section)" "yes" \
+  "$(_rgb_shapes | grep -qF 'simple_expansion' && echo yes || echo no)"
+# Section-slice controls: the slice must be a PROPER subset of the block (non-empty, and
+# not the whole thing). Without these a `sed` range that silently matched nothing would
+# fail the three pins above loudly, but a range that matched everything would restore the
+# whole-block behaviour these pins were rewritten to remove, with no signal at all.
+assert_eq "#805 grounding command-shapes slice is non-empty" "yes" \
+  "$(_rgb_shapes | grep -qF 'Command shapes this run' && echo yes || echo no)"
+assert_eq "#805 grounding command-shapes slice excludes the CI-results section (proper subset)" "no" \
+  "$(_rgb_shapes | grep -qF 'CI results already observed' && echo yes || echo no)"
 assert_eq "#363 renderer interpolates the reviewed HEAD SHA" "yes" \
   "$(_rgb deadbeef 'lint: success' 'Read' | grep -qF 'reviewed commit (`deadbeef`)' && echo yes || echo no)"
 assert_eq "#363 renderer renders an absent HEAD SHA as 'unknown', never as blank" "yes" \
@@ -39537,11 +39802,24 @@ done
 # --- exec-shape(redaction): the security boundary (AC2). The full fixture seeds a
 # fake secret, a long prompt body, and a hostile/attacker-controlled check-run name
 # as STRING LEAVES. Assert on the EMITTED BYTES that NONE of them survive — a test
-# that checks the filter's internals would prove nothing. ---
+# that checks the filter's internals would prove nothing.
+# SCOPE (issue #805): `permission_denials_commands:` is the one DISCLOSED exception to
+# leaf redaction — surfacing the agent's own denied Bash is the whole point of that field
+# — so the redaction boundary is asserted over the rest of the record, and the exception's
+# extent is pinned separately below (exactly one line, and that line is the denied-command
+# field). Excluding the line wholesale here would let a future leak hide inside it. ---
+EES_FULL_REDACTED="$(printf '%s\n' "$EES_FULL" | grep -v '^permission_denials_commands: ' || true)"
 for _leak in 'SECRET_sentinel_value' 'this is a long prompt body' 'DROP TABLE' 'onerror=alert'; do
-  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from output" "yes" \
-    "$(printf '%s' "$EES_FULL" | grep -qF "$_leak" && echo no || echo yes)"
+  assert_eq "#437 exec-shape(redaction): '$_leak' stripped from the redacted record" "yes" \
+    "$(printf '%s' "$EES_FULL_REDACTED" | grep -qF "$_leak" && echo no || echo yes)"
 done
+# The exception is EXACTLY the denied-command field: the fixture's denied command carries
+# the secret sentinel, so assert it survives on that ONE line and on no other. A redaction
+# regression that leaked a leaf elsewhere would add a second matching line and turn this RED.
+assert_eq "#805 exec-shape(redaction): the denied-command sentinel appears on exactly one emitted line" "1" \
+  "$(printf '%s\n' "$EES_FULL" | grep -cF 'SECRET_sentinel_value' || true)"
+assert_eq "#805 exec-shape(redaction): that line is the disclosed permission_denials_commands exception" "1" \
+  "$(printf '%s\n' "$EES_FULL" | grep -F 'SECRET_sentinel_value' | grep -c '^permission_denials_commands: ' || true)"
 # The structural section still carries the KEY→type shape (redaction keeps structure).
 assert_eq "#437 exec-shape(redaction): structural key retained as type-only" "yes" \
   "$(printf '%s' "$EES_FULL" | grep -qxF 'subagent_type: string' && echo yes || echo no)"
