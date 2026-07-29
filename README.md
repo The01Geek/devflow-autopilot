@@ -16,6 +16,15 @@
     ![DevFlow turning issue #42 into a ready PR](docs/demo.gif)
 -->
 
+> [!NOTE]
+> **Automatic review on pull request is withheld from this release.** A fresh installation
+> receives no `devflow-review.yml`, `devflow-runner.yml` or `telemetry-push.yml`. The
+> supported review path is a repository collaborator commenting `/devflow:review` on a pull
+> request — an outside fork contributor cannot self-trigger a review. A repository that
+> already installed the tier keeps it, and keeps its exposure to issues #930 and #920 until
+> it removes the files by hand. See [`docs/workflow-triggers.md`](docs/workflow-triggers.md)
+> for the reason and the removal procedure.
+
 ## Quick start
 
 > [!TIP]

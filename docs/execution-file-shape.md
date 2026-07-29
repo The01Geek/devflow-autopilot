@@ -51,7 +51,8 @@ verbatim; the observed schema places untrusted content in value positions, not k
 > `::`-workflow-command / fence-breaking-backtick neutralization is the *rendering*
 > layer's job — and no consumer of **this field** ships yet: nothing in the tree reads
 > `permission_denials_commands` at this revision, so the precondition binds whoever adds
-> the first reader (the `devflow-runner.yml` job output and the `devflow-review.yml`
+> the first reader (the `devflow-runner.yml` job output and the check-run consumer in
+> the withheld `devflow-review.yml`, issue #936 —
 > check-run summary are the intended ones). Scope note, so this is not read as "no denial
 > text is rendered anywhere": the maintainer-run `matcher-probe.yml` already writes raw
 > `permission_denials` entries into its own step summary, from its own independent walk of

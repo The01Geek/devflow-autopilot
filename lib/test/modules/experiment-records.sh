@@ -16,8 +16,7 @@
 #
 # DELIBERATELY PARTIAL EXTRACTION: the former section's trailing "#431 producer
 # pins" block stays in lib/test/run.sh. Those five pins assert against
-# lib/efficiency-trace.{jq,sh}, .github/workflows/devflow-review.yml,
-# lib/open-state-pr.sh and the review-and-fix skill bundle — none of which is this
+# lib/efficiency-trace.{jq,sh}, lib/open-state-pr.sh and the review-and-fix skill bundle — none of which is this
 # assembler's own surface — and one of them binds the run.sh-global $MAXI_BUNDLE.
 # So the #431 coverage-map label remains partially in run.sh and its owner stays
 # `unmodularized`; that is a recorded decision, not an oversight.

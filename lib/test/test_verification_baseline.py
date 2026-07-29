@@ -259,14 +259,15 @@ class RegistryAndCensusTests(_TmpDirTestCase):
         cm = load_cloud_mappings(REGISTRY)
         self.assertTrue(any("\x1fclaude" in k for k in cm))
         self.assertEqual(cm[".github/workflows/devflow-implement.yml\x1fclaude"]["consumer"], "implement")
-        # PR #531 iter-1 VC-40: devflow-review.yml's `review` job is a reusable-
-        # workflow call (uses: devflow-runner.yml) — the Actions jobs API reports
-        # the nested agent job as "review / run" (caller-job / called-job), so the
-        # mapping must key on that literal or every auto-review census row is
-        # silently non-agent. The bare "review" key must NOT be present, and the
-        # workflow_call-only devflow-runner.yml never appears as its own run.
-        self.assertIn(".github/workflows/devflow-review.yml\x1freview / run", cm)
-        self.assertNotIn(".github/workflows/devflow-review.yml\x1freview", cm)
+        # PR #531 iter-1 VC-40 covered devflow-review.yml's `review / run` nested-job
+        # key. Issue #936 withheld the automatic pull-request-triggered review tier and
+        # removed that workflow, so its positive and negative mapping assertions are
+        # removed with their subject rather than left asserting a key no producer emits.
+        # The workflow_call-only devflow-runner.yml assertion is RETAINED: that file is
+        # still in the tree (kept for the capability-profile generator and the
+        # review-profile lock), so "it never appears as its own run" is still a live
+        # claim about a real file — and since #936 removed its sole caller it now has no
+        # reachable entry point at all, which makes the claim strictly more true.
         self.assertFalse(any(k.startswith(".github/workflows/devflow-runner.yml\x1f") for k in cm))
 
     def test_confirmed_eligible_for_exact_slash_command(self) -> None:
@@ -3081,14 +3082,19 @@ class Pr531RafLocalIter1Tests(_TmpDirTestCase):
     def test_registry_agent_step_names_the_real_step_id(self) -> None:
         doc = json.loads(REGISTRY.read_text(encoding="utf-8"))
         entries = doc["cloud_mappings"]["agent_jobs"]
-        self.assertEqual(len(entries), 3)
+        # Count-free (issue #936): the population is re-derived from the registry rather
+        # than pinned to a literal, which rotted the moment the devflow-review.yml entry
+        # was removed. Assert the property that actually matters — the set is non-empty
+        # (so the loop below is never vacuous) and every entry names the real step id.
+        self.assertTrue(entries)
         for entry in entries:
             self.assertEqual(entry["agent_step"], "claude")
-        # The id exists in each mapped workflow file (the producer side).
+        # The id exists in each mapped workflow file (the producer side). The
+        # filename-keyed `continue` arm that skipped devflow-review.yml (whose agent job
+        # lived in devflow-runner.yml as a nested call) is gone with that workflow; every
+        # remaining mapped file hosts its own `id: claude` step, so no exemption is needed.
         for wf in {e["workflow_file"] for e in entries} | {".github/workflows/devflow-runner.yml"}:
             text = (ROOT / wf).read_text(encoding="utf-8")
-            if wf.endswith("devflow-review.yml"):
-                continue  # its agent job lives in devflow-runner.yml (nested)
             self.assertIn("id: claude", text)
 
     # PT-1: the list-of-blocks tool_result content shape (the dominant native

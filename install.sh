@@ -362,23 +362,26 @@ log "creating .devflow/prompt-extensions"
 mkdir -p .devflow/prompt-extensions
 
 # 3. Workflows (only those the primary repo actually ships).
+#
+# The automatic pull-request-triggered review tier is WITHHELD from this release
+# (issue #936) and is therefore not installed: none of devflow-review.yml,
+# devflow-runner.yml or telemetry-push.yml is copied. That tier triggered on
+# pull-request events, called a reusable workflow with `secrets: inherit`, checked
+# out the pull-request head, and carried no actor-authorization gate; issues #930
+# and #920 describe the open defects. The supported review path is a repository
+# collaborator commenting `/devflow:review` on a pull request, which devflow.yml
+# authorizes through scripts/authorize-actor.sh.
+#
+# A repository that already installed those three files KEEPS them —
+# prune_stale_devflow_workflows() is deliberately not extended to remove them, so
+# an existing installation's auto-review keeps working (and stays exposed to #930
+# and #920 while its `workflows["devflow-review"]` config key is true). Removing
+# them is a manual step; docs/workflow-triggers.md gives the procedure.
 log "installing workflows + composite actions"
 mkdir -p .github/workflows .github/actions
-for w in devflow devflow-runner devflow-implement devflow-review telemetry-push; do
+for w in devflow devflow-implement; do
   [ -f "$SRC/.github/workflows/$w.yml" ] && cp "$SRC/.github/workflows/$w.yml" ".github/workflows/$w.yml"
 done
-# devflow-review.yml's CI-completion re-trigger (issue #304) re-fires a review
-# that was deferred behind the branch-freshness / other-CI-green preconditions
-# once your CI completes. The `workflow_run:` trigger REQUIRES an explicit
-# workflow-name list (a GitHub platform constraint — no wildcards) and ships
-# naming this repo's own gating workflows. It must list EVERY workflow of yours
-# that runs on PR events (not just your primary CI): the review waits on all of
-# them, but re-fires only when a listed one completes, so a gating workflow left
-# off the list that finishes last strands the review at a neutral "waiting"
-# check (issue #579). Prompt for it prominently here.
-if [ -f ".github/workflows/devflow-review.yml" ]; then
-  log "ACTION REQUIRED: edit '.github/workflows/devflow-review.yml' — set the 'workflow_run:' 'workflows:' list to the name(s) of EVERY workflow in your repo that runs on pull requests (not just your primary CI), or the auto-review's CI-completion re-trigger will not fire for reviews deferred behind a workflow you omitted. External non-Actions CI is covered by 'check_suite', and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger — both need no naming. See docs/workflow-triggers.md."
-fi
 # Drop DevFlow's superseded claude*.yml on upgrade (signature-guarded so an
 # Anthropic-owned claude.yml is never touched).
 prune_stale_devflow_workflows

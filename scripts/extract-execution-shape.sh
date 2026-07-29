@@ -291,7 +291,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # truncation marker.
     #   NO NEUTRALIZING CONSUMER SHIPS YET. The ::-workflow-command and fence-breaking-
     #   backtick neutralization and the fenced rendering are the RENDERING layer job, and
-    #   the devflow-runner.yml producer + devflow-review.yml check-run consumer that would
+    #   the devflow-runner.yml producer + the auto-review check-run consumer that would
     #   perform them are NOT in the tree at this revision. So this field currently carries
     #   un-neutralized text, and any consumer added later MUST neutralize before rendering.
     #   Treat that as a precondition on the consumer, not a property of this output.

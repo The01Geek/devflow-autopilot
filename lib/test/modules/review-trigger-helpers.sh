@@ -392,6 +392,19 @@ rm -f "$DRV_STUB"
 # ────────────────────────────────────────────────────────────────────────────
 echo "derive-review-preconditions.sh (#304 branch-freshness + other-CI-green gate)"
 # ────────────────────────────────────────────────────────────────────────────
+# COVERAGE RETIREMENT RECORDED (issue #936) — read this before reconstructing the tier.
+# The `#304` block that issue #936 removed from lib/test/run.sh carried URL-LITERAL pins on
+# THIS still-shipped helper: the `compare/$BASE_BRANCH...$HEAD_SHA` operand ORDER, and the
+# `?head_sha=$HEAD_SHA` scoping parameter. This module's gh stub is URL-shape-BLIND (it
+# matches `*compare/*` and `*head_sha=*` regardless of operand order or presence), so a
+# regression that reversed the compare operands or dropped the scoping parameter would now
+# go UNCAUGHT here. That loss is accepted, not overlooked, and the reason is narrow: with the
+# tier withheld this helper is unreachable in DevFlow's own tree, so such a regression has no
+# in-repo effect — it would surface only in an installed consumer copy or in a reconstruction.
+# This is a retirement for an UNREACHABLE-IN-TREE helper, NOT a "the subject was deleted"
+# retirement: the helper still ships. A reconstruction of the tier must restore those two
+# URL-literal pins (or teach this stub to discriminate operand order) as part of the work.
+#
 # The unit precheck.route calls before emitting should_run=true on the
 # first-review / synchronize / completion-re-trigger paths. It evaluates two
 # config-gated preconditions against the PR head and prints:
@@ -788,8 +801,17 @@ devflow_module_pin_unique "#353 create_check maps ci-approval-required to its ex
 # AC10 cannot silently re-open the hole. The operand is the deterministic
 # `[ -f FILE ]` test (yes on a present file, no otherwise); assert_eq expects
 # "yes", so a renamed/removed target flips it to "no" and the suite goes RED.
-assert_eq "#353 devflow-review.yml exists (AC13 absence-pin fail-closed backstop)" "yes" \
-  "$([ -f "$LIB/../.github/workflows/devflow-review.yml" ] && echo yes || echo no)"
+# RETIRED (issue #936): the AC13 existence backstop and the absence pin it protected both
+# targeted `.github/workflows/devflow-review.yml`, which issue #936 removed from the tree when
+# it withheld the auto PR-triggered review tier. The pair is deleted rather than re-anchored:
+# their shared subject no longer exists, so there is no target to fail closed against, and
+# CONTRIBUTING.md's retirement arms do not reach this case (they govern retiring a pin while
+# its pinned subject REMAINS in the tree — here the subject itself is gone). The helper this
+# section covers, `describe-skip-title.sh`, is RETAINED and its behavioral assertions above
+# are untouched: the withheld tier's own workflow file is deleted, but every helper it called
+# stays shipped so an existing consumer's installed copy keeps resolving them after upgrade.
+# What is lost: nothing that a surviving file can assert. What replaces it: a reconstruction
+# of the tier must restore this pair alongside the workflow.
 # AC13-guard fail-closed proof: the existence idiom yields "no" on a
 # missing/renamed target (the absent-operand shape), so the assert_eq above
 # would go RED rather than pass vacuously if the workflow file ever moves.
@@ -804,8 +826,7 @@ assert_eq "#353 existence idiom fails closed on a missing workflow file" "no" \
 # SOURCE line for a grep…SKILL…echo shape, not the referenced file's contents — never matches
 # this line. It needs no `# raw-guard-ok:` marker; a former one here exempted nothing and read
 # as coverage it did not provide, so it was dropped (issue #758).
-assert_eq "#353 deferral SUMMARY no longer cites 'cancelled sibling run'" "no" \
-  "$(grep -qF 'cancelled sibling run' "$LIB/../.github/workflows/devflow-review.yml" && echo yes || echo no)"
+# (the #353 absence pin that stood here is retired with its existence backstop above)
 rm -f "$DRP_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────

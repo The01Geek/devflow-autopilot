@@ -211,41 +211,15 @@ PY
 )"
 assert_eq "#408 config example+schema carry coupled devflow_review.stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG408"
 
-# Workflow wiring — devflow-review.yml finalize_check. Content pins over the YAML
-# (RED pre-change: the steps did not exist).
-WFR408="$REPO_ROOT/.github/workflows/devflow-review.yml"
-devflow_module_pin_unique "#408 review-yml: incomplete arm marks the run backstop_eligible" \
-  'echo "backstop_eligible=true" >> "$GITHUB_OUTPUT"' "$WFR408"
-devflow_module_pin_unique "#408 review-yml: 'Review stall backstop' step present" \
-  "name: Review stall backstop" "$WFR408"
-# The post-and-annotate glue (decision call + POST + notice/warning selection, incl.
-# the request-review-backstop.sh / post-issue-comment.sh calls and the stall-backstop
-# header) is now the shared post-review-backstop-comment.sh helper (issue #414); the
-# step just calls it (vendored path + repo-path fallback, so the name appears twice).
-# The moved helper-content literals are pinned against the helper in the #414 block.
-assert_eq "#408/#414 review-yml: step calls the extracted post-and-annotate helper" "yes" \
-  "$(grep -qF "post-review-backstop-comment.sh" "$WFR408" && echo yes || echo no)"
-devflow_module_pin_unique "#408 review-yml: fresh backstop-token mint step present" \
-  "id: backstop-token" "$WFR408"
-assert_eq "#408 review-yml: backstop-token mint gated on always()+eligible+DEVFLOW_APP_ID" "1" \
-  "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' && vars.DEVFLOW_APP_ID != '' }}" "$WFR408")"
-# The run-step's OWN if: gate is load-bearing: the step hardcodes VERDICT: incomplete,
-# so the helper's verdict guard cannot protect against firing on an approve/reject run
-# — the only protection is (a) backstop_eligible set ONLY in the incomplete arm (pinned
-# above) and (b) this run-step gate. Pin the run-step if: (a mint-step-only pin misses it).
-assert_eq "#408 review-yml: run-step gated on always()+backstop_eligible" "1" \
-  "$(grep -cF "if: \${{ always() && steps.finalize.outputs.backstop_eligible == 'true' }}" "$WFR408")"
-# Anchor `backstop_eligible=true` INSIDE the incomplete (`*)`) case arm — devflow_module_pin_unique
-# only proves it appears once, not that it lives in the incomplete arm; moving it to a
-# broader arm would resume decided verdicts undetected. The incomplete arm sits between the
-# `*)  # incomplete` label and the `esac`; assert the echo appears in that window.
-assert_eq "#408 review-yml: backstop_eligible=true lives in the incomplete case arm" "yes" \
-  "$(awk '/\*\)  # incomplete/{f=1} f && /backstop_eligible=true/{print "hit"; exit} f && /^              esac/{exit}' "$WFR408" | grep -q hit && echo yes || echo no)"
-# Fix A (issue #408 review): the success ::notice:: must be gated on post-issue-comment.sh's
-# exact success breadcrumb (that helper ALWAYS exits 0, so an exit-code check would annotate a
-# failed POST as a fired re-trigger). After #414 that selection lives in the shared helper and
-# is DRIVEN — not merely presence-pinned — in the #414 block below (fire+success vs fire+silent).
-
+# Workflow wiring — the auto-review path's finalize_check pins are RETIRED (issue #936).
+# .github/workflows/devflow-review.yml was the auto PR-triggered review tier's caller and is
+# no longer in the tree, so its backstop_eligible arm, its "Review stall backstop" step, its
+# backstop-token mint, and their gating `if:` expressions have no subject. The stall-backstop
+# MECHANISM keeps full coverage: the manual /devflow:review dead-run arm below pins the same
+# step, mint, helper call and gating on devflow.yml, and the #414 helper block drives
+# post-review-backstop-comment.sh's decision/POST/annotation arms directly, on both paths'
+# shared code. What is lost is only the assertion that the deleted workflow wired them.
+#
 # Workflow wiring — devflow.yml manual /devflow:review dead-run arm.
 WFD408="$REPO_ROOT/.github/workflows/devflow.yml"
 devflow_module_pin_unique "#408 devflow-yml: 'Review stall backstop' step present on the manual path" \
@@ -753,35 +727,19 @@ assert_eq "#435 AC5 mktemp-fail: NO fired-re-trigger ::notice::" "no" \
 # HEAD_SHA and the decision helper takes its unscoped no-fire arm — the manual-path auto-resume
 # is silently defeated (safe direction, but defeated). The executable fixture drops the
 # `HEAD_SHA="$HEAD_SHA" ` prefix, so the suite goes RED the moment
-# the prefix is removed (issue #435 AC-6). The auto path (devflow-review.yml) delivers HEAD_SHA via
-# the step env: block and needs no prefix — no symmetric PREFIX pin there (a false mirror); its
-# own load-bearing delivery, the step-scoped env: line, gets the scoped pin below.
+# the prefix is removed (issue #435 AC-6). This is now the only backstop HEAD_SHA delivery
+# in the tree: the auto path, which delivered it via a step `env:` block instead, went with
+# .github/workflows/devflow-review.yml under issue #936.
 
-# ── #435 shadow finding: the AUTO path's HEAD_SHA delivery to the backstop step is pinned
-# STEP-SCOPED. The literal `HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}` recurs three
-# times in devflow-review.yml (create_check, finalize_check, and the backstop step), so a
-# whole-file presence pin would stay green when the
-# BACKSTOP step's own line is dropped — the drop that silently defeats auto-resume on the
-# primary path (the helper reads an empty HEAD_SHA and the decision helper takes its
-# unscoped no-fire arm). Extract the step's block (its `- name:` line through the
-# `bash "$HELPER"` invocation) and assert the env line inside it; the paired mutation probe
-# applies a range-scoped deletion to a COPY and asserts the scoped check goes RED — the
-# behavioral-fix-pin evidence, baked into the suite rather than run once by hand.
-bstep_headsha() {  # file -> yes|no : HEAD_SHA env line present inside the Review stall backstop step
-  awk '/- name: Review stall backstop/,/bash "\$HELPER"/' "$1" | \
-    grep -qF -- 'HEAD_SHA: ${{ needs.precheck.outputs.head_sha }}' && echo yes || echo no
-}
-assert_eq "#435 backstop auto path: HEAD_SHA env delivery present inside the Review stall backstop step" \
-  "yes" "$(bstep_headsha "$WFR408")"
-# No guard on the assignment: probe_tmp fails CLOSED on its own (it records a suite FAIL
-# and prints /dev/null on an mktemp failure — the PRU_FX call-site idiom), so a guard
-# testing for empty output would test a contract probe_tmp does not have.
-T435WF="$(probe_tmp '#435 backstop env-pin mutation setup')"
-sed -E '/- name: Review stall backstop/,/bash "\$HELPER"/{/HEAD_SHA: \$\{\{ needs\.precheck\.outputs\.head_sha \}\}/d;}' \
-  "$WFR408" > "$T435WF"
-assert_eq "#435 backstop auto path: dropping the step-scoped HEAD_SHA env line turns the scoped pin RED" \
-  "no" "$(bstep_headsha "$T435WF")"
-rm -f "$T435WF"
+# RETIRED (issue #936): the auto path's step-scoped HEAD_SHA env pin and its mutation probe.
+# Their subject was .github/workflows/devflow-review.yml's `Review stall backstop` step,
+# which is gone with that workflow. The #435 mechanism itself is unaffected — the helper
+# still reads HEAD_SHA and still takes its unscoped no-fire arm on an empty value, driven
+# directly in the helper block above — and the MANUAL path's own delivery stays covered by
+# the devflow.yml wiring pins. Nothing re-anchors this pair: `needs.precheck.outputs.head_sha`
+# was the deleted workflow's own job-output wiring, which has no counterpart on the manual
+# path (devflow.yml derives its head SHA differently), so a re-anchored pin would assert a
+# contract that does not exist rather than the one that was lost.
 
 
 # ── #801: harness floor + runner-agnostic dispatch barrier ───────────────────
@@ -910,10 +868,20 @@ rm -f "$_t801p"
 unset _site801 _t801p
 
 # install-loop-unchanged — consumers receive the harness floor with no install.sh edit,
-# because the copy loop already carries all three engine workflows; matcher-probe.yml stays
+# because the copy loop still carries the engine workflows it ships; matcher-probe.yml stays
 # repo-internal and absent from it. Both halves are asserted: a loop that lost an engine
 # workflow would silently stop shipping the floor, and one that GAINED matcher-probe.yml
 # would ship a repo-internal probe to consumers.
+#
+# RE-ANCHORED (issue #936): the scoping term below was `devflow-runner`, which is no longer
+# on the copy-loop line — the auto PR-triggered review tier is withheld and install.sh ships
+# only devflow and devflow-implement. Left as-is, BOTH this check and its planted-defect
+# positive control would have gone silently VACUOUS: the middle `grep -F 'devflow-runner'`
+# would match nothing, so the pipeline prints nothing, the function echoes "no", and the
+# absence assertion keeps passing for the wrong reason while the control could never reach
+# "yes". The term is re-pointed at `devflow-implement`, which the loop still names and which
+# install.sh's OWN copy-loop assertions in lib/test/run.sh pin as present — so the scoping
+# stays real rather than becoming a term nothing matches.
 # The POSITIVE half — that the copy loop still lists the three engine workflows — is deliberately
 # NOT re-pinned here: lib/test/run.sh already covers that behavior directly, and a second
 # counted home for an existence-only pin is
@@ -926,21 +894,61 @@ unset _site801 _t801p
 # "no", never that it can ever say "yes". Both halves are single-line-scoped by construction:
 # the sibling structural pin above asserts the whole loop line verbatim, so a wrapped or
 # array-built rewrite of that line turns THAT pin RED first.
+loop_ships_probe801_term() {  # file, term -> yes|no : term named on the copy-loop line
+  # The shared line scanner. Both the non-vacuity check and the absence check route through
+  # it, so they cannot disagree about which line "the copy loop" is or how a match is spelled.
+  local _line
+  while IFS= read -r _line; do
+    case "$_line" in
+      *"for w in "*)
+        case "$_line" in *"$2"*) echo yes; return 0 ;; esac
+        ;;
+    esac
+  done < "$1"
+  echo no
+}
 loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop line
   # Anchor on the loop HEAD (`for w in`), not on `for w in devflow`: anchoring on the first
   # workflow name is itself order-dependent, so a reordered list would slip the anchor and the
   # absence check would read "no" for the wrong reason. The positive control below reorders the
   # list precisely to prove this anchor survives it.
-  # Scoped to the WORKFLOW copy loop by requiring devflow-runner on the same line, so an
-  # unrelated future `for w in …` loop naming matcher-probe cannot false-RED this check.
-  grep -F -- 'for w in ' "$1" | grep -F -- 'devflow-runner' | grep -qF -- 'matcher-probe' && echo yes || echo no
+  # Scoped to the WORKFLOW copy loop by requiring $2 (a name the loop still carries) on the
+  # same line, so an unrelated future `for w in …` loop naming matcher-probe cannot
+  # false-RED this check. The scoping term is a PARAMETER rather than a literal because
+  # issue #936 moved it once already (devflow-runner left the loop when the auto PR-triggered
+  # review tier was withheld) and a literal buried here goes silently vacuous on the next move.
+  # Built with bash builtins (read/case) rather than a PATH matcher: the presence test is what
+  # SELECTS this helper's emitted yes/no, and a value that decides an emitted result must not
+  # depend on a non-preflight PATH tool (CLAUDE.md guard-class 2) — an absent one would
+  # silently emit "no", the exact answer this check treats as the passing state.
+  local _line
+  while IFS= read -r _line; do
+    case "$_line" in
+      *"for w in "*)
+        case "$_line" in *"$2"*) : ;; *) continue ;; esac
+        case "$_line" in *matcher-probe*) echo yes; return 0 ;; esac
+        ;;
+    esac
+  done < "$1"
+  echo no
 }
+# Non-vacuity: the absence check below scopes itself by a term that must actually be on the
+# copy-loop line. Driven through the SAME line scanner the absence check uses — a second,
+# differently-spelled matcher here could disagree with the helper it is meant to validate,
+# and would re-introduce the PATH-tool dependency the helper deliberately dropped. A fixture
+# with the term stripped must read "no", which is what makes the "yes" below meaningful.
+_t801v="$(probe_tmp '#801 install-loop non-vacuity fixture')"
+sed -E 's/for w in devflow devflow-implement/for w in devflow/' "$INSTALL801" > "$_t801v"
+assert_eq "#801 install-loop-unchanged: the scoping term is still on install.sh's copy-loop line (the check below is not vacuous)" \
+  "yes" "$(loop_ships_probe801_term "$INSTALL801" devflow-implement)"
+assert_eq "#801 install-loop-unchanged: stripping the scoping term from the loop makes the same scanner read 'no' (the non-vacuity check can fail)" \
+  "no" "$(loop_ships_probe801_term "$_t801v" devflow-implement)"
 assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
-  "no" "$(loop_ships_probe801 "$INSTALL801")"
+  "no" "$(loop_ships_probe801 "$INSTALL801" devflow-implement)"
 _t801i="$(probe_tmp '#801 install-loop negative-assertion positive control')"
 sed -E 's/for w in devflow /for w in matcher-probe devflow /' "$INSTALL801" > "$_t801i"
 assert_eq "#801 install-loop-unchanged: adding matcher-probe to the copy loop in LEADING position (a reorder the old devflow-anchored form missed) turns the absence check RED" \
-  "yes" "$(loop_ships_probe801 "$_t801i")"
+  "yes" "$(loop_ships_probe801 "$_t801i" devflow-implement)"
 rm -f "$_t801i"
 unset _t801i
 

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # render-guard-visibility.sh — render the PreToolUse shape-guard's per-run
-# telemetry (issue #908) into the devflow-review.yml check-run summary, beneath
+# telemetry (issue #908) into an auto-review check-run summary, beneath
 # the existing `permission_denials_count` line rendered by describe-denial-count.sh
 # (which this file does not touch or duplicate).
 #
@@ -44,6 +44,23 @@
 # render-grounding-block.sh's own comment on this point).
 #
 # Always exits 0 — an informational renderer must never fail the review job.
+#
+# RETAINED (issue #936): the automatic pull-request-triggered review tier was withheld
+# from this release and its caller .github/workflows/devflow-review.yml — this renderer's
+# only invoking workflow — was deleted, so nothing reaches this helper today. It is kept in
+# the tree deliberately, not by oversight: .github/workflows/devflow-runner.yml is retained
+# (kept so the withheld tier stays reconstructable without re-authoring its callee) and names
+# this file as the sanctioned neutralizing renderer for the attacker-influenced denied-command
+# text it emits. Retiring the renderer while keeping the producer that points at it would
+# break the pair a future reconstruction of the tier has to reassemble.
+#
+# The same retention covers derive-review-verdict.sh, derive-review-preconditions.sh and
+# describe-skip-title.sh, whose only namer WAS the deleted workflow. An earlier commit on
+# this branch deleted those three as unreachable; that was reverted, because unreachable in
+# THIS tree is not unreachable from an already-installed consumer copy — install.sh re-stamps
+# devflow_version, so a consumer re-running the installer keeps their installed
+# devflow-review.yml while vendoring a plugin that would be missing the helpers it calls.
+# The rule is uniform: everything downstream of the withheld tier stays shipped.
 
 set -u
 

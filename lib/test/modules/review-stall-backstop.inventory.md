@@ -21,7 +21,7 @@ source, so a count copied here could drift out of it silently.
 | --- | --- | --- | --- |
 | Fire / no-fire decision | `#408` head | `review-stall-backstop.sh` / decision section | `request-review-backstop.sh` owns the whole decision (config read, verdict guard, per-head attempt count, App-token guard, marker construction), every arm drivable with a stubbed `gh` |
 | Guarantee-class arm | `#408` guarantee rows | decision section | an incomplete run is treated as a no-verdict resume candidate, never silently as a pass |
-| Workflow wiring | `#408` `devflow-review.yml` / `devflow.yml` rows | wiring section | the backstop step is wired on both the auto and manual paths with a step-scoped `HEAD_SHA` |
+| Workflow wiring | `#408` `devflow.yml` rows | wiring section | the backstop step is wired on the manual `/devflow:review` path with a command-prefix `HEAD_SHA` (the auto path went with `devflow-review.yml` under issue #936) |
 | Grounding-block coupling | `#408` `render-grounding-block.sh` rows | wiring section | the resume path carries the rendered grounding block rather than a second hand-copied one |
 | Review-skill coupling | `#408` bundle pins | bundle-pin section | the headless-wait discipline sentences survive somewhere in the review engine bundle |
 | Post-and-annotate helper | `#414` head | post-and-annotate section | `post-review-backstop-comment.sh` posts and annotates as one extracted helper |

@@ -6928,27 +6928,26 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 # each carries, plus the identity of the two workflow literals.
 #
 # Declared here rather than reused from the workflow-wiring block below: that block defines
-# $REVIEW_YML/$DEVFLOW_YML further down, and this block must not depend on statement order.
-M356_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+# $DEVFLOW_YML further down, and this block must not depend on statement order.
+# Issue #936 retired the second consumer: devflow-review.yml (the auto PR-triggered
+# review tier's caller) was removed from the tree, so the cross-FILE identity check
+# between the two workflow copies has no second operand and is gone with it. The
+# producer↔consumer contract this block exists to protect is untouched — it is the
+# skill's seeded marker against devflow.yml's rebuilt one, pinned below — and that is
+# the pair `flip-review-progress-failed.sh`'s header and docs/DEVFLOW_SYSTEM_OVERVIEW.md
+# claim is "pinned in lib/test/run.sh".
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
   'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$REVIEW_BUNDLE"
-assert_pin_unique "#356 marker: devflow-review.yml rebuilds the identical run-keyed marker" \
-  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
-# Cross-file identity: the two consumers must agree byte-for-byte with each other, and both
-# must carry the marker PREFIX the skill seeds. A rename of `devflow:review-progress` on
-# either side now goes RED here rather than silently disabling the flip in production.
-assert_eq "#356 marker: both workflows' FLIP_MARKER literals are byte-identical" "yes" \
-  "$([ "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_REVIEW_YML")" \
-     = "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML")" ] \
-     && [ -n "$(grep -oF 'FLIP_MARKER="<!-- devflow:review-progress run=' "$M356_REVIEW_YML")" ] && echo yes || echo no)"
-assert_eq "#356 marker: the marker prefix the skill seeds is the prefix both workflows rebuild" "yes" \
-  "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_REVIEW_YML" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
+# The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
+# against each other. Issue #936 removed the second copy with devflow-review.yml, and no
+# separate prefix assertion replaces it: the two assert_pin_unique calls above already pin
+# the producer's seeded literal and the consumer's rebuilt literal in full, and the shared
+# `<!-- devflow:review-progress run=` prefix is a substring of both — so a rename on either
+# side turns one of them RED without a third, weaker check.
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
@@ -6956,7 +6955,6 @@ assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. �
 
 # ── Static workflow-wiring pins (the repo's #232/#258 pattern) ─────────────────
 IMPL_YML="$LIB/../.github/workflows/devflow-implement.yml"
-REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -7201,34 +7199,12 @@ assert_eq "#356 pin: devflow.yml names the engine-error cause when is_error fire
 assert_eq "#356 pin: devflow.yml otherwise names the claude step outcome as the cause" "yes" \
   "$(grep -qF 'CAUSE="claude step ${CLAUDE_OUTCOME}"' "$DEVFLOW_YML" && echo yes || echo no)"
 
-# Review flip: finalize_check's three arms + devflow.yml's outcome-keyed step.
-assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on job failure" "yes" \
-  "$(grep -q 'flip_review "review job failed' "$REVIEW_YML" && echo yes || echo no)"
-assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on cancellation" "yes" \
-  "$(grep -q 'flip_review "review job cancelled"' "$REVIEW_YML" && echo yes || echo no)"
-# The engine-error arm is GATED on ENGINE_ERROR so a plain no-verdict incomplete —
-# where the agent ran to completion and wrote its own verdict — is left to the agent.
-# A file-wide `grep -q 'ENGINE_ERROR:-false'` does NOT pin that gate: the literal also
-# occurs in a prose comment and on the DERIVED= line, so deleting the `if` guard while
-# keeping the flip_review call leaves such a pin GREEN while the flip starts firing on
-# every incomplete. Pin the guard CO-LOCATED with the call it gates instead: extract the
-# guard line and the line that follows it, and require the call to sit inside. The
-# positive control below asserts the extracted window is non-empty first, so a guard that
-# is reworded (and thus no longer locatable) fails RED rather than passing vacuously.
-_engine_error_guard_window() {  # print the ENGINE_ERROR guard line + the line after it
-  grep -A1 -F 'if [ "${ENGINE_ERROR:-false}" = "true" ]; then' "$1"
-}
-assert_eq "#356 pin: the ENGINE_ERROR guard is locatable (co-location pin below is not vacuous)" "yes" \
-  "$([ -n "$(_engine_error_guard_window "$REVIEW_YML")" ] && echo yes || echo no)"
-assert_eq "#356 pin: devflow-review.yml finalize_check invokes flip_review on engine-error incomplete" "yes" \
-  "$(_engine_error_guard_window "$REVIEW_YML" | grep -q 'flip_review "review engine ended with an error' && echo yes || echo no)"
-assert_eq "#356 pin: devflow-review.yml wires flip-review-progress-failed.sh" "yes" \
-  "$(grep -q 'flip-review-progress-failed.sh' "$REVIEW_YML" && echo yes || echo no)"
-# The filename alone also appears on the FLIP_HELPER= path-assignment lines, so a
-# filename-only pin stays GREEN even if the INVOCATION is deleted (gutting the flip).
-# Pin the invocation itself, in each workflow.
-assert_eq "#356 pin: devflow-review.yml actually INVOKES the helper (not just names it)" "yes" \
-  "$(grep -qF 'bash "$FLIP_HELPER" "$PR_NUMBER" "$FLIP_MARKER"' "$REVIEW_YML" && echo yes || echo no)"
+# Review flip: devflow.yml's outcome-keyed step. Issue #936 removed
+# devflow-review.yml (the auto PR-triggered tier's caller), so its finalize_check
+# arms — job-failure, cancellation, and the ENGINE_ERROR-gated engine-error
+# incomplete — are gone with the workflow that carried them. The manual
+# /devflow:review comment path in devflow.yml is the surviving flip consumer and
+# keeps its full pin set below.
 assert_eq "#356 pin: devflow.yml adds the dead-run review-progress flip step" "yes" \
   "$(grep -q 'Flip review-progress comment on dead run' "$DEVFLOW_YML" && echo yes || echo no)"
 assert_eq "#356 pin: devflow.yml flip step wires the helper" "yes" \
@@ -15289,13 +15265,20 @@ rm -f "$DSR_STUB"
 # ────────────────────────────────────────────────────────────────────────────
 echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-command-trigger.sh)"
 # ────────────────────────────────────────────────────────────────────────────
-# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11
-# consecutive former sections from "derive-review-verdict.sh" through
-# "resolve-command-trigger.sh". It stops there deliberately — the tranche was scoped
+# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11 consecutive
+# former sections from "derive-review-verdict.sh" through "resolve-command-trigger.sh".
+# ALL 11 SECTIONS ARE STILL LIVE. Issue #936 withheld the auto PR-triggered review tier and
+# deleted its workflow, but every helper that tier called — including derive-review-verdict.sh
+# and derive-review-preconditions.sh, whose sections lead this tranche — is RETAINED and still
+# shipped, because an already-installed consumer copy still resolves them after an upgrade.
+# Only two assertions left the module: the #353 pair whose subject was the deleted WORKFLOW
+# file (an existence backstop and the absence pin it protected), which is the whole of the
+# 401 → 399 floor change. Do not read that drop as dead code — deleting these helpers would
+# break every consumer that upgrades. It stops there deliberately — the tranche was scoped
 # in advance to a measured set of low-risk sections, and what follows was not in it.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 401; then
+  "review-trigger-helpers" 399; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15710,23 +15693,155 @@ for f in devflow devflow-implement; do
 done
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "#936 — surviving references to the withheld devflow-review.yml"
+# ────────────────────────────────────────────────────────────────────────────
+# Issue #936 withheld the automatic pull-request-triggered review tier and removed
+# .github/workflows/devflow-review.yml from the tree. Every remaining mention of that
+# filename must be a deliberate, reviewed one — a historical record, a withheld-tier
+# statement, or a still-correct query against a consumer that retains the file. This
+# assertion is the machine-consumed inventory of that set: a newly-added reference from
+# any other path turns the suite RED and forces the author to state which it is.
+#
+# Excluded, and why: .devflow/logs/ and .devflow/learnings/ are append-only historical
+# records whose whole purpose is to describe what the repo used to do; CHANGELOG.md is the
+# change record that announces this very removal; .changeset/ is excluded because
+# version-consolidate CONSUMES and DELETES its files on merge, so an allowlist entry naming
+# one would rot RED on main the moment it landed.
+#
+# Disclosed residual on one allowlisted path. scripts/describe-denial-count.sh's header comment
+# still names devflow-review.yml in the present tense, and issue #936 deliberately did NOT
+# rewrite it: the #908 AC6 pin below asserts that file is byte-unmodified relative to the
+# merge-base with origin/main, so any edit — including a tense correction — turns that pin RED.
+# Re-scoping someone else's guard was out of scope here, so the stale tense is recorded as a
+# known exception rather than silently fixed or silently ignored.
+#
+# Accepted residual, stated rather than discovered later: this pins the FILENAME form only.
+# The bare `devflow-review` is a config KEY, not a filename, and legitimately survives in
+# .devflow/config.example.json, .devflow/config.json and .devflow/config.schema.json (each
+# covered by its own criterion) — so a future reference written in the bare form is not
+# caught here.
+_936_EXPECTED="$(cat <<'EOF'
+.devflow/config.schema.json
+.github/workflows/ci.yml
+.github/workflows/devflow-implement.yml
+.github/workflows/devflow-runner.yml
+.github/workflows/devflow.yml
+.github/workflows/matcher-probe.yml
+.github/workflows/telemetry-push.yml
+CLAUDE.md
+README.md
+docs/DEVFLOW_SYSTEM_OVERVIEW.md
+docs/cloud-setup.md
+docs/execution-file-shape.md
+docs/external/release-notes.md
+docs/implement-skill.md
+docs/workflow-triggers.md
+install.sh
+lib/test/fixtures/issue-304-body.md
+lib/test/modules/capability-profiles.sh
+lib/test/modules/review-stall-backstop.inventory.md
+lib/test/modules/review-stall-backstop.sh
+lib/test/modules/review-trigger-helpers.sh
+lib/test/mutation-pin-corpus-adjudications.tsv
+lib/test/run.sh
+lib/test/test_verification_baseline.py
+scripts/build-experiment-records.py
+scripts/derive-review-preconditions.sh
+scripts/derive-review-verdict.sh
+scripts/describe-denial-count.sh
+scripts/describe-skip-title.sh
+scripts/post-review-backstop-comment.sh
+scripts/render-guard-visibility.sh
+scripts/workflow-flight-recorder-registry.json
+EOF
+)"
+# `git grep -l` reads the INDEX-plus-worktree tracked set, so it never descends into the
+# sibling checkouts under .claude/worktrees/ the way a repo-root-anchored recursive walk
+# would (issue #711).
+# LC_ALL=C pins the collation: the checked-in list is in C order (uppercase before lowercase),
+# while a UTF-8 locale's sort ignores case and punctuation and interleaves README.md and the
+# docs/ paths differently. Unpinned, this assertion passes or fails on the runner's locale
+# rather than on the tree's path set.
+_936_ACTUAL="$(cd "$LIB/.." && git grep -lF -- 'devflow-review.yml' \
+  | grep -vE '^(\.devflow/logs/|\.devflow/learnings/|\.changeset/|CHANGELOG\.md$)' | LC_ALL=C sort)"
+assert_eq "#936 surviving devflow-review.yml references match the checked-in allowlist exactly" \
+  "$_936_EXPECTED" "$_936_ACTUAL"  # structural-pin-ok: generated-artifact-identity -- the allowlist IS the machine-consumed inventory of surviving references to a deleted workflow; its subject is the tree's path set, not prose wording
+# Positive control: the comparison must be able to say "differs" for the RIGHT reason.
+# An earlier form scanned a one-file mktemp sandbox and compared that to the 32-path
+# allowlist — those can never be equal, so it reported "differs" even if grep found nothing
+# or were not installed. It proved only that two unequal strings are unequal. Instead, feed
+# the real allowlist plus one extra path through the same equality the assertion above uses:
+# a newly-referencing file must make the comparison differ, and the unmodified list must not.
+assert_eq "#936 allowlist comparison detects a reference from an unlisted path (positive control)" "differs" \
+  "$([ "$_936_EXPECTED"$'\n'"docs/newly-referencing-file.md" != "$_936_EXPECTED" ] && echo differs || echo same)"
+assert_eq "#936 allowlist comparison reports 'same' for the unmodified list (negative control — the control above can report both)" \
+  "same" "$([ "$_936_EXPECTED" != "$_936_EXPECTED" ] && echo differs || echo same)"
+
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
 # ────────────────────────────────────────────────────────────────────────────
-# Every runs-on in the five CONSUMER-shipped workflows is parameterized on the
-# GitHub Actions variable DEVFLOW_RUNNER (unset/empty → ubuntu-latest; a value
-# starting with '[' → a fromJSON array of labels; any other value → a bare
-# label). Each of the five also declares a top-level `defaults: run: shell: bash`
-# so run: steps execute under bash on a non-Linux self-hosted runner. The
-# plugin-internal workflows (ci/matcher-probe/version-consolidate/pages) are OUT
-# of scope and keep the hardcoded ubuntu-latest literal — the out-of-scope guard
-# at the end of this block pins that they stay unparameterized.
+# `.github/workflows/*.yml` partitions THREE ways, and issue #936 is what made the
+# third group necessary: the auto PR-triggered review tier is withheld from this
+# release, so `devflow-runner.yml` and `telemetry-push.yml` are no longer shipped by
+# `install.sh` — but they still EXECUTE in every consumer that installed them before
+# the withholding, so they keep the parameterized DEVFLOW_RUNNER contract. The three
+# groups are:
+#
+#   1. shipped by the installer            → _582_SHIPPED    (parameterized runs-on)
+#   2. retained consumer runtime, unshipped → _582_RETAINED   (parameterized runs-on)
+#   3. plugin-internal                      → _582_INTERNAL   (hardcoded ubuntu-latest)
+#
+# Groups 1 and 2 carry identical assertions (both run in consumer repos, on consumer
+# infrastructure); they are kept as distinct lists because the *reason* differs and a
+# file moving between them is a shipping decision a reader must see. Group 3 runs on
+# this repo's own GitHub-hosted infra and must NOT be parameterized.
+#
+# The partition itself is asserted below: every `.github/workflows/*.yml` file lands in
+# exactly one group — none in zero (a new workflow that nobody classified), none in two
+# (a file that would be asserted both parameterized and hardcoded). Without that check
+# the groups are three arbitrary lists, and a workflow added to none of them is silently
+# uncovered, which is exactly how `agents-seam-probe.yml` sat outside both pre-#936 loops.
+# The shipped group is DERIVED from install.sh's copy loop, never transcribed: that loop is
+# the source of truth for which workflows reach a consumer repo, and issue #936 is precisely
+# a change to it. A hand-copied list here could drift from the installer in either direction
+# with nothing going RED — including the one regression this issue most needs caught, a
+# `devflow-review` put back into the loop. Derived with builtins (a non-preflight PATH tool
+# must not decide a comparison value, CLAUDE.md guard-class 2); an unparseable loop leaves
+# the list empty, which the non-vacuity assertion below turns RED rather than passing.
+_582_SHIPPED=""
+while IFS= read -r _582_l; do
+  case "$_582_l" in
+    "for w in "*"; do")
+      _582_l="${_582_l#for w in }"
+      _582_SHIPPED="${_582_l%; do}"
+      break
+      ;;
+  esac
+done < "$LIB/../install.sh"
+assert_eq "#936/#582: install.sh's workflow copy loop ships exactly devflow + devflow-implement" \
+  "devflow devflow-implement" "$_582_SHIPPED"
+assert_eq "#936/#582: the withheld auto-review tier is absent from install.sh's copy loop" \
+  "absent" "$(case " $_582_SHIPPED " in *" devflow-review "*|*" devflow-runner "*|*" telemetry-push "*) echo present ;; *) echo absent ;; esac)"
+_582_RETAINED="devflow-runner telemetry-push"
+_582_INTERNAL="ci matcher-probe version-consolidate pages agents-seam-probe"
+# Exhaustive-and-disjoint: compare the on-disk basename set against the three lists
+# concatenated. A duplicate across lists makes the concatenated count exceed the
+# deduplicated count; a missing file makes the sorted sets differ. Both are asserted.
+_582_ALL_DECLARED="$(printf '%s %s %s' "$_582_SHIPPED" "$_582_RETAINED" "$_582_INTERNAL" | tr ' ' '\n' | grep -v '^$' | sort)"
+_582_ON_DISK="$(ls "$WF"/*.yml | sed -e 's|.*/||' -e 's|\.yml$||' | sort)"
+assert_eq "#582: the three-way workflow partition covers every .github/workflows/*.yml (none unclassified)" \
+  "$_582_ON_DISK" "$(printf '%s\n' "$_582_ALL_DECLARED" | sort -u)"
+assert_eq "#582: the three-way workflow partition is disjoint (no file in two groups)" \
+  "$(printf '%s\n' "$_582_ALL_DECLARED" | wc -l | tr -d ' ')" \
+  "$(printf '%s\n' "$_582_ALL_DECLARED" | sort -u | wc -l | tr -d ' ')"
 # The canonical parameterized runs-on expression. Every consumer runs-on line
 # must be BYTE-IDENTICAL to this: a mere count/mention check would pass a
 # divergent-but-still-parameterized copy (a typo that keeps `vars.DEVFLOW_RUNNER`
 # but garbles the rest, silently reverting that job to a different runner), so
 # pin (b) below asserts fixed-string identity, not just that the variable is named.
 _582_CANON="runs-on: \${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}"
-for f in devflow devflow-implement devflow-review devflow-runner telemetry-push; do
+for f in $_582_SHIPPED $_582_RETAINED; do
   WFF="$WF/$f.yml"
   # (a) No bare `runs-on: ubuntu-latest` line survives. The parameterized form
   #     carries 'ubuntu-latest' only as a quoted fallback inside ${{ … }}, so
@@ -15741,7 +15856,7 @@ for f in devflow devflow-implement devflow-review devflow-runner telemetry-push;
     "$(grep -cF "$_582_CANON" "$WFF")"
   # (c) Top-level `defaults: run: shell: bash`. The `defaults:` key is column-0
   #     (top level); the shell key nests at 4 spaces — distinct from the 8-space
-  #     step-level `shell: bash` two of the five already carry. Assert the exact
+  #     step-level `shell: bash` some of them already carry. Assert the exact
   #     CONTIGUOUS `defaults:` → `  run:` → `    shell: bash` nesting (not two
   #     independent line-counts, which would both pass on a malformed interleaving
   #     — a column-0 `defaults:` and an unrelated 4-space `shell: bash` elsewhere).
@@ -15752,7 +15867,7 @@ for f in devflow devflow-implement devflow-review devflow-runner telemetry-push;
 done
 # Out-of-scope guard: the plugin-internal workflows keep the hardcoded literal
 # and must NOT be parameterized (they run on this repo's GitHub-hosted infra).
-for f in ci matcher-probe version-consolidate pages; do
+for f in $_582_INTERNAL; do
   assert_eq "#582: $f.yml (plugin-internal) still uses hardcoded ubuntu-latest" "yes" \
     "$(grep -qF 'runs-on: ubuntu-latest' "$WF/$f.yml" && echo yes || echo no)"  # raw-guard-ok: presence pin
   assert_eq "#582: $f.yml (plugin-internal) is NOT parameterized on DEVFLOW_RUNNER" "no" \
@@ -16194,567 +16309,6 @@ assert_eq "app-token: overview §15 names the primary App's reactions + notices 
 # re-attributes review posts to the primary App goes RED.
 assert_eq "app-token: overview §15 routes the review agent's posts to DevFlow-Reviewer (not the primary App)" "yes" \
   "$(grep -qF 'run instead under the separate **`DevFlow-Reviewer`** App' "$OV" && echo yes || echo no)"
-
-# ────────────────────────────────────────────────────────────────────────────
-echo "devflow-review.yml first-ready gate invariant"
-# ────────────────────────────────────────────────────────────────────────────
-# The first-ready gate counts pre-existing `Devflow Review` check-runs to enforce
-# auto-review-exactly-once. A skipped job still emits a `Devflow Review` check-run
-# (conclusion: skipped) — from the dual pull_request/pull_request_target dedupe
-# loser and from draft/synchronize deferrals — so both gate queries (head-SHA and
-# commit-list backstop) MUST exclude `conclusion == "skipped"`, or the gate
-# counts its own deferrals as "already ran" and the review never fires. The
-# sibling synchronize cost-guard keeps its narrower `conclusion=="success"` filter
-# (correct for that path); this guard asserts exactly two gate queries carry the
-# skipped-exclusion form.
-#
-# The regexes tolerate optional whitespace around `==` / `!=` (` *==? *`) so a
-# jq reformat of the workflow doesn't produce a false failure. The load-bearing
-# protection is the bare-query guard below: it pins the actual issue-#32
-# regression (a first-ready-gate select on the name alone, with no conclusion
-# filter, that recounts skipped deferrals as "already ran") to zero occurrences.
-REVIEW_WF="$WF/devflow-review.yml"
-# (1) No first-ready-gate query may count check-runs unconditionally — a name-only
-# select with nothing after it is exactly the issue-#32 bug.
-bare_gate_query_count="$(grep -cE \
-  'select\(\.name *== *"Devflow Review"\) *\|' \
-  "$REVIEW_WF" || true)"
-assert_eq "first-ready gate: no unfiltered Devflow Review check-run query" \
-  "0" "$bare_gate_query_count"
-# (2) The exactly-once exclusion filter — skipped AND neutral — lives in
-# EXACTLY ONE place: the shared devflow_review_run_count() helper all three
-# exactly-once gates (first-ready head-SHA, commit-list backstop, #304
-# CI-completion re-trigger) call. A #304 precondition deferral posts a neutral
-# "waiting" check on the head, so a gate that only excluded skipped would read
-# the deferral itself as "already reviewed" and wedge e.g. a reopened PR
-# forever; single-sourcing the filter is what keeps the three gates aligned.
-gate_excl_filter_count="$(grep -cE \
-  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped" and \.conclusion *!= *"neutral"\)' \
-  "$REVIEW_WF" || true)"
-assert_eq "exactly-once gates: skipped+neutral exclusion filter has exactly one definition (shared helper)" \
-  "1" "$gate_excl_filter_count"
-assert_eq "exactly-once gates: all three call sites use the shared helper" \
-  "3" "$(grep -cE '=\$\(devflow_review_run_count ' "$REVIEW_WF" || true)"
-# (2b) No gate query may regress to the skipped-only exclusion (it would count
-# the #304 neutral waiting check as a completed review).
-gate_skipped_only_count="$(grep -cE \
-  'select\(\.name *== *"Devflow Review" and \.conclusion *!= *"skipped"\) *\|' \
-  "$REVIEW_WF" || true)"
-assert_eq "exactly-once gates: no skipped-only exclusion remains (neutral must also be excluded)" \
-  "0" "$gate_skipped_only_count"
-# (3) The synchronize cost-guard must NOT be widened to an exclusion filter —
-# it stays scoped to conclusion=="success".
-sync_success_filter_count="$(grep -cE \
-  'select\(\.name *== *"Devflow Review" and \.conclusion *== *"success"\)' \
-  "$REVIEW_WF" || true)"
-assert_eq "synchronize cost-guard keeps conclusion==success filter" \
-  "1" "$sync_success_filter_count"
-
-# ── #304 precondition-gate invariants (static pins on the workflow) ─────────
-# The gate itself is execution-tested via derive-review-preconditions.sh above;
-# these pin the WORKFLOW wiring that cannot be executed in the suite.
-# (a) create_check also fires on a precondition deferral — the required check
-# must never be absent. Mutating the if: back to should_run-only goes RED here.
-assert_eq "#304 create_check gate widened to skip_reason (deferral still posts the required check)" "yes" \
-  "$(grep -qF "needs.precheck.outputs.should_run == 'true' || needs.precheck.outputs.skip_reason != ''" "$REVIEW_WF" && echo yes || echo no)"
-# (b) The review engine job is NOT widened — a deferral must never run it.
-assert_eq "#304 review job still gates on should_run only (a deferral never runs the engine)" "0" \
-  "$(grep -cF "skip_reason" <(sed -n '/^  review:/,/^  finalize_check:/p' "$REVIEW_WF") || true)"
-# (c) The two deferral reasons map to the distinctive neutral "waiting" titles
-# (posted pre-completed in ONE POST, so no finalize PATCH on the deferral path).
-# The title selection moved into describe-skip-title.sh (#389); these coupled
-# presence pins move with it (full arm/order coverage is the #389 block below).
-assert_eq "#304 deferral maps behind-base to the waiting title (via the helper)" "yes" \
-  "$(grep -qF "Devflow review waiting: branch behind base" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
-assert_eq "#304 deferral maps ci-not-green to the waiting title (via the helper)" "yes" \
-  "$(grep -qF "Devflow review waiting: other CI not green" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
-# (c2) finalize_check is SKIPPED on a deferral (skip_reason non-empty). This is
-# load-bearing for the re-trigger: a finalize run that exits 0 emits a SUCCESS
-# workflow job check-run named 'Devflow Review', which devflow_review_run_count
-# counts as an already-run review — wedging the CI-completion re-trigger
-# forever. Skipped, the job check-run concludes 'skipped', which the gates
-# exclude. Mutating finalize's if: back to the two-clause form goes RED here.
-assert_eq "#304 finalize_check skips on a deferral (its success job check-run must never count as a review)" "yes" \
-  "$(grep -qF "needs.create_check.outputs.check_run_id != '' && needs.precheck.outputs.skip_reason == ''" "$REVIEW_WF" && echo yes || echo no)"
-# (c3) The boolean precondition keys use the TYPE-CHECKED default, never
-# `// true`: jq's // substitutes on null AND false, so `// true` silently
-# coerces an explicit false (the documented off-switch) back to true.
-assert_eq "#304 require_* extraction is type-checked (never a false-coercing // true)" "2" \
-  "$(grep -cF 'catch null) | if type == "boolean" then . else true end' "$REVIEW_WF" || true)"
-assert_eq "#304 no false-coercing // true remains on the require_* extractions" "0" \
-  "$(grep -cE 'require_(up_to_date|ci_green) catch null\) // true' "$REVIEW_WF" || true)"
-# ...and the exact extraction expression honors an explicit false / defaults
-# absent + garbage shapes to true (executed, not just pinned).
-assert_eq "#304 extraction expression: explicit false stays false" "false" \
-  "$(echo '{"devflow_review":{"require_ci_green":false}}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
-assert_eq "#304 extraction expression: absent key defaults true" "true" \
-  "$(echo '{}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
-assert_eq "#304 extraction expression: scalar-corrupted section defaults true" "true" \
-  "$(echo '{"devflow_review":"oops"}' | jq -r '(try .devflow_review.require_ci_green catch null) | if type == "boolean" then . else true end')"
-# (c4) The precheck job's workflow_run event filter survives — and 'push'
-# MUST be among the allowed events: many consumer repos run CI on branch
-# pushes, and a filter that drops push completions silently disables the
-# CI-completion re-trigger for them. (Pin the workflow_run underlying-event
-# sub-clause specifically: #310 restructured the surrounding if: to add the
-# status green-state arm, so the old whole-expression literal no longer appears
-# contiguously — but the push-allowed contract this pin protects is unchanged.)
-assert_eq "#304 precheck if: workflow_run filter passes pull_request/pull_request_target/push" "yes" \
-  "$(grep -qF "github.event.workflow_run.event == 'pull_request' || github.event.workflow_run.event == 'pull_request_target' || github.event.workflow_run.event == 'push'" "$REVIEW_WF" && echo yes || echo no)"
-# (c5) The single most load-bearing wiring fact: the three gated route paths
-# actually CALL the preconditions gate (with the || exit 0 that turns a
-# deferral into a clean skip instead of a set -e step failure). Deleting one
-# call silently disables the feature on that path while every script test
-# stays green.
-assert_eq "#304 all three route paths call preconditions_ok with the deferral exit" "3" \
-  "$(grep -cF 'preconditions_ok "$PR" "$HEAD" || exit 0' "$REVIEW_WF" || true)"
-# (c6) The precheck permissions the precondition queries depend on: without
-# actions:read the runs query 403s; without statuses:read the combined-status
-# query 403s on a private repo — either way the script fails closed (reason
-# 'unverifiable') on every event and the review is permanently deferred.
-assert_eq "#304 precheck grants actions: read" "yes" \
-  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      actions: read' && echo yes || echo no)"
-assert_eq "#304 precheck grants statuses: read" "yes" \
-  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
-# (c7) The check_suite self-loop guard (defensive twin of the workflow_run
-# one) and the on: trigger blocks themselves — deleting a trigger disables
-# the CI-completion re-trigger entirely while every other pin stays green.
-assert_eq "#304 check_suite route carries the github-actions app guard" "yes" \
-  "$(grep -qF '"$CS_APP" = "github-actions"' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#304 on: block declares the workflow_run trigger" "yes" \
-  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  workflow_run:' && echo yes || echo no)"
-assert_eq "#304 on: block declares the check_suite trigger" "yes" \
-  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  check_suite:' && echo yes || echo no)"
-# (c8) resolve_pr_for_head distinguishes BOTH failure arms (query and parse)
-# from a genuine no-PR result — the misattribution breadcrumbs are pinned.
-assert_eq "#304 resolve_pr_for_head pins the query-failure misattribution breadcrumb" "yes" \
-  "$(grep -qF 'the real cause is the query, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#304 resolve_pr_for_head pins the parse-failure misattribution breadcrumb" "yes" \
-  "$(grep -qF 'the real cause is the parse, not an absent PR' "$REVIEW_WF" && echo yes || echo no)"
-# (c9) The unverifiable reason gets its own HONEST title (never a condition the
-# script did not observe). The title selection moved into describe-skip-title.sh
-# (#389), so this pin asserts the honest title lives in the helper. The
-# CI-completion path enforces the open-PR invariant on the payload-carried arm
-# too (a closed/merged PR is never reviewed off a late CI completion).
-assert_eq "#304 unverifiable deferral maps to the honest 'preconditions unverifiable' title (via the helper)" "yes" \
-  "$(grep -qF "Devflow review waiting: preconditions unverifiable" "$LIB/../scripts/describe-skip-title.sh" && echo yes || echo no)"
-assert_eq "#304 CI-completion path guards PR state == OPEN" "yes" \
-  "$(grep -qF '"$PR_STATE" != "OPEN"' "$REVIEW_WF" && echo yes || echo no)"
-# (c10) Coupled literals: ci.yml is named "CI" (the re-trigger list and the
-# checker below match by workflow name), and the script's SELF_WORKFLOW_NAME
-# default must byte-match this workflow's name: (a rename desyncs the fallback
-# and the gate would count its own run as other-CI-pending on default
-# invocations).
-assert_eq "#304 ci.yml is named CI (the name the re-trigger list and coverage checker key on)" "yes" \
-  "$(grep -qE '^name: CI$' "$WF/ci.yml" && echo yes || echo no)"
-# (c10b) The workflow_run re-trigger list must cover EVERY first-party
-# PR-gating workflow (issue #579): require_ci_green waits on all other Actions
-# runs on the head, but a deferred review re-fires only when a listed workflow
-# completes — a gating workflow left off the list that finishes last strands
-# the review at the neutral "waiting: other CI not green" check. The self-sync
-# checker enumerates the PR-triggering workflows and asserts the list is a
-# superset; here it must pass on the real tree, and (behavioral proof) FAIL
-# on a tree whose list was narrowed back to CI-only.
-assert_eq "#579 review re-trigger list covers every PR-gating workflow" "yes" \
-  "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$WF" >/dev/null 2>&1 && echo yes || echo no)"
-if ! _r579_d="$(mktemp -d)"; then
-  printf '  FAIL  #579 re-trigger coverage mutation — mktemp -d failed (behavioral proof not run)\n' >&2
-  # Records through RESULTS_FILE, not the in-memory `FAIL=$((FAIL + 1))` this line used to
-  # carry: the authoritative tally is RECOMPUTED from RESULTS_FILE at the tail, so the
-  # increment was discarded and this arm printed a FAIL the suite never counted (the same
-  # dead idiom the #683 comment below already names). Found while wiring #789's identifier
-  # record, which requires every FAIL site to be a real, tallied one.
-  echo FAIL >> "$RESULTS_FILE"
-  record_fail "#579 re-trigger coverage mutation — mktemp -d failed"
-else
-  cp "$WF"/*.yml "$_r579_d"/
-  sed -E 's/workflows: \[CI, Matcher probe\]/workflows: [CI]/' "$REVIEW_WF" > "$_r579_d/devflow-review.yml"
-  assert_eq "#579 MUTATION: dropping a gating workflow from the re-trigger list trips the checker" "no" \
-    "$(python3 "$LIB/test/check-review-retrigger-coverage.py" "$_r579_d" >/dev/null 2>&1 && echo yes || echo no)"
-  rm -rf "$_r579_d"
-fi
-assert_eq "#304 script SELF_WORKFLOW_NAME default matches the workflow name:" "yes" \
-  "$(grep -qF ':-Devflow Review (auto-trigger)}' "$LIB/../scripts/derive-review-preconditions.sh" && grep -qE '^name: Devflow Review \(auto-trigger\)$' "$REVIEW_WF" && echo yes || echo no)"
-# (c11) The compare operand ORDER is load-bearing and the test stub is
-# URL-shape-blind (it matches any compare/ URL): base...head reads behind_by
-# as "how far head trails base"; swapping the operands inverts the gate's
-# semantics while every stubbed test stays green — pin the literal.
-assert_eq "#304 compare query uses base...head operand order" "yes" \
-  "$(grep -qF 'compare/$BASE_BRANCH...$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
-# (c12) A crashed/unreadable helper (contract violation: the script is
-# always-exit-0) gets its own breadcrumb, distinct from a ran-and-reported-
-# unverifiable result.
-assert_eq "#304 preconditions_ok distinguishes a crashed helper with its own breadcrumb" "yes" \
-  "$(grep -qF 'exited non-zero (contract violation' "$REVIEW_WF" && echo yes || echo no)"
-# (c13) The three head-SHA-scoped CI queries are pinned by URL literal (the
-# stub is URL-shape-blind, same rationale as c11): dropping ?head_sha= would
-# gate on every run in the repo; a wrong-variable SHA evaluates the wrong
-# commit — both invisible to the stubbed tests.
-assert_eq "#304 actions-runs query is head_sha-scoped" "yes" \
-  "$(grep -qF 'actions/runs?head_sha=$HEAD_SHA' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
-assert_eq "#304 combined-status query is head-scoped" "yes" \
-  "$(grep -qF 'commits/$HEAD_SHA/status' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
-assert_eq "#304 check-runs query is head-scoped" "yes" \
-  "$(grep -qF 'commits/$HEAD_SHA/check-runs' "$LIB/../scripts/derive-review-preconditions.sh" && echo yes || echo no)"
-# (c14) A present-but-broken vendored copy retries the in-repo fallback once
-# (existence-vs-sourceability: [ -f ] proves existence, not runnability).
-assert_eq "#304 crashed vendored copy retries the in-repo preconditions script" "yes" \
-  "$(grep -qF 'retrying the preconditions with the in-repo scripts/derive-review-preconditions.sh' "$REVIEW_WF" && echo yes || echo no)"
-# (d) The workflow_run self-trigger guard compares against the workflow's own
-# name (and the on: workflows list must not name it).
-assert_eq "#304 workflow_run route carries the self-trigger guard" "yes" \
-  "$(grep -qF '"$WR_NAME" = "$SELF_WORKFLOW_NAME"' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#304 on: workflow_run workflows list does not name this workflow itself" "0" \
-  "$(sed -n '/^  workflow_run:/,/types:/p' "$REVIEW_WF" | grep -c 'Devflow Review (auto-trigger)' || true)"
-# (e) AC8: no hardcoded CI job names anywhere in the gate — the precondition
-# surface (workflow + script) must stay generic for consumer repos.
-assert_eq "#304 no hardcoded CI job name in devflow-review.yml (AC8)" "0" \
-  "$(grep -cF 'lib + python tests' "$REVIEW_WF" || true)"
-assert_eq "#304 no hardcoded CI job name in derive-review-preconditions.sh (AC8)" "0" \
-  "$(grep -cF 'lib + python tests' "$LIB/../scripts/derive-review-preconditions.sh" || true)"
-# (f) base_branch reaches the route from config (never a hardcoded main in the
-# precondition call chain).
-assert_eq "#304 extract resolves base_branch from config for the preconditions" "yes" \
-  "$(grep -qF 'base_branch=$(echo "$CONFIG_JSON" | jq -r' "$REVIEW_WF" && echo yes || echo no)"
-# (g) A missing preconditions helper fails OPEN (an un-vendored consumer repo
-# must keep its reviews) — pin the distinctive breadcrumb.
-assert_eq "#304 missing preconditions helper fails open with the vendor breadcrumb" "yes" \
-  "$(grep -qF 'skipping the review preconditions and proceeding (fail open' "$REVIEW_WF" && echo yes || echo no)"
-# (h) Config keys are extracted with the try/catch adversarial-shape guard.
-assert_eq "#304 require_* config extraction is try/catch-guarded" "2" \
-  "$(grep -cE 'try \.devflow_review\.require_(up_to_date|ci_green) catch null' "$REVIEW_WF" || true)"
-
-# ── #311 workflow-resident hardening (deferred from #311 to this human/PAT PR) ─
-# The workflow half of #311 could not ship in the bot-pushed #319 (the DevFlow
-# bot's installation token cannot push .github/workflows/), and these pins are
-# coupled to the exact devflow-review.yml lines — landed in the SAME commit as
-# those lines so CI never greps an unlanded line (the CLAUDE.md coupled-
-# invariant rule). The script gh-stderr half of AC2 shipped in #319 (drp_stderr
-# tests above); this is the workflow-resident remainder.
-# (AC1) preconditions_ok clears the crashed helper's captured stdout on the
-# no-retry path (bare `pre=""` in the else arm) so a corrupted copy's partial
-# output is never parsed — the parse below then fails closed to 'unverifiable'.
-# The bare pre="" IS the operative fix (its removal re-introduces parsing a
-# crashed helper's partial stdout). preconditions_ok has TWO crash arms that
-# must each clear it — the no-retry `else` arm AND the in-repo retry arm — so
-# the rule is peer-complete only when BOTH clear (2.3.0a): pin the count at 2.
-# Removal-proof: dropping either clear → count 1 → RED; dropping both → 0 → RED.
-assert_eq '#311 preconditions_ok clears partial stdout on BOTH crash arms (no-retry + retry), fail-closed' "2" \
-  "$(grep -cF 'pre=""' "$REVIEW_WF" || true)"
-# (AC1, retry-arm conditionality — structural, not count-only) The count==2 pin
-# above proves two `pre=""` exist but not WHERE: the in-repo retry arm's `pre=""`
-# must sit INSIDE its `if ! pre=$(…retry…); then` failure branch (clear only on a
-# failed retry), never unconditionally. If a refactor moved it out of the failure
-# branch, a SUCCESSFUL retry's stdout would be discarded and the retry path would
-# always fail closed to `unverifiable` even when the helper succeeded (reviews
-# silently never fire via retry) — and count would stay 2, GREEN. grep -A1 anchors
-# the retry `pre=""` to its failure-branch warning line, so that move goes RED.
-assert_eq '#311 AC1 retry-arm pre="" is anchored inside its failure branch (clears only on a failed retry)' "yes" \
-  "$(grep -A1 -F 'the in-repo retry also exited non-zero' "$REVIEW_WF" | grep -qE '^[[:space:]]*pre=""' && echo yes || echo no)"
-# (AC2) devflow_review_run_count emits its OWN breadcrumb distinguishing a
-# query failure from a non-numeric count (the #311 workflow half of AC2).
-assert_eq "#311 run_count distinguishes query-failure in its own breadcrumb" "yes" \
-  "$(grep -qF 'the check-runs query for $1 failed' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#311 run_count distinguishes non-numeric-count in its own breadcrumb" "yes" \
-  "$(grep -qF 'the count was non-numeric' "$REVIEW_WF" && echo yes || echo no)"
-# (AC3, executed) The exclusion filter is skipped+neutral ONLY: run the exact
-# devflow_review_run_count jq filter over a fixture spanning the conclusion
-# vocabulary. A cancelled review JOB is mapped to neutral upstream (finalize_
-# check) and so is excluded as the neutral case; a bare `cancelled` conclusion
-# sits OUTSIDE the exclusion set and counts — this is the cancelled-conclusion
-# gate case, exercised here by the `cancelled` (id:5) entry in the fixture:
-# skipped+neutral are excluded; null(in-progress)+success+cancelled are
-# counted (→ 3); a non-'Devflow Review' name never counts.
-RUNCOUNT_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
-assert_eq "#311 run_count filter excludes skipped+neutral, counts null+success+cancelled, ignores other names" "3" \
-  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"skipped","id":1},{"name":"Devflow Review","conclusion":"neutral","id":2},{"name":"Devflow Review","conclusion":null,"id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Devflow Review","conclusion":"cancelled","id":5},{"name":"Other","conclusion":"success","id":6}]}' | jq -r "$RUNCOUNT_FILTER" | grep -c . || true)"
-# (AC3, static) The CI-completion path's draft + stale-head guards, anchored
-# to the operative token (breadcrumb-plus-behavior): grep -A1 pins that each
-# guard's notice is immediately followed by its `exit 0`, so a reword that
-# silently dropped the deferral behavior goes RED — not a comment-only pin.
-assert_eq "#311 CI-completion path draft guard defers with exit 0 (breadcrumb-plus-behavior)" "yes" \
-  "$(grep -A1 'is a draft; deferring (the later ready_for_review event reviews it)' "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
-assert_eq "#311 CI-completion path stale-head guard no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
-  "$(grep -A1 "no-op (the newer head's own events cover it)" "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
-# (AC3, static) The missing-helper fail-OPEN arm keeps its `return 0`
-# DIRECTION (behavior, not breadcrumb-only): the return 0 sits immediately
-# under the fail-open breadcrumb, so an un-vendored consumer reviews
-# unconditionally rather than losing reviews. grep -A1 pins the coupling.
-assert_eq "#311 missing-helper fail-open arm returns 0 right under its breadcrumb (behavior, not breadcrumb-only)" "yes" \
-  "$(grep -A1 'skipping the review preconditions and proceeding (fail open' "$REVIEW_WF" | grep -qE '^ *return 0' && echo yes || echo no)"
-# (AC3, static) resolve_pr_for_head filters to OPEN PRs only — a closed/merged
-# PR sharing the head is never resolved as the review target.
-assert_eq '#311 resolve_pr_for_head keeps the select(.state=="open") filter' "yes" \
-  "$(grep -qF 'select(.state=="open")' "$REVIEW_WF" && echo yes || echo no)"
-# (AC4) The concurrency-comment overstatement is reworded to the true worst
-# case (a same-instant race can double-review); the old claim is gone.
-assert_eq "#311 concurrency comment reworded to the true worst case (same-instant double-review)" "yes" \
-  "$(grep -qF 'the true worst case is a same-instant double-review' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#311 old concurrency overstatement removed (no 'at worst two prechecks race and one skips')" "0" \
-  "$(grep -cF 'at worst two prechecks' "$REVIEW_WF" || true)"
-# (AC5) create_check reuses/PATCHes an existing neutral check for the same
-# head+reason instead of POSTing a fresh completed-neutral run each re-eval.
-assert_eq "#311 create_check reuses an existing neutral check for the same head+reason (PATCH in place)" "yes" \
-  "$(grep -qF 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" && echo yes || echo no)"
-# (AC5, post-PATCH exit 0 — structural, not presence-only) The `exit 0` right
-# after the successful-PATCH notice is what STOPS the reuse path from ALSO
-# falling through to the POST (STATUS_ARGS) block — it IS the anti-duplication.
-# The presence pin above only proves the notice text exists; if a refactor
-# dropped the `exit 0`, every deferral would PATCH the existing check AND POST a
-# fresh duplicate (the exact litter this AC eliminates) while staying GREEN.
-# grep -A1 anchors the notice to its `exit 0` (same discipline the AC3 draft/
-# stale-head guards use), so dropping the exit goes RED.
-assert_eq "#311 AC5 successful-PATCH reuse exits 0 right after its notice (no fall-through to a duplicate POST)" "yes" \
-  "$(grep -A1 -F 'PATCHed in place instead of posting a duplicate' "$REVIEW_WF" | grep -qE '^[[:space:]]*exit 0' && echo yes || echo no)"
-# (AC5, PATCH-failure fallback breadcrumb) Parity with the reuse-query-failure
-# breadcrumb pin: a failed PATCH warns and falls through to POST (required check
-# never lost); pin the breadcrumb so removing that fallback warning goes RED.
-assert_eq "#311 AC5 PATCH-failure fallback emits its own breadcrumb before falling through to POST" "yes" \
-  "$(grep -qF 'Could not PATCH existing neutral check' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#311 create_check reuse looks up neutral Devflow Review checks on the head" "yes" \
-  "$(grep -qF 'select(.name=="Devflow Review" and .conclusion=="neutral")' "$REVIEW_WF" && echo yes || echo no)"
-# (AC5, executed) The reuse lookup's jq PROJECTION column order is load-bearing:
-# the bash reads `IFS=$'\t' read -r _rt _rid`, so the filter must emit
-# title<TAB>id (not id<TAB>title) or the title match silently compares the id
-# and de-dup breaks. A presence grep can't catch a swapped projection, so run
-# the exact filter over a fixture. Only neutral Devflow Review rows project;
-# success/other-name rows are excluded; an absent output.title yields an empty
-# first column (not null), so the row still parses as "<empty>\t<id>".
-REUSE_FILTER='.check_runs[] | select(.name=="Devflow Review" and .conclusion=="neutral") | [(.output.title // ""), (.id|tostring)] | @tsv'
-assert_eq "#311 AC5 reuse lookup projects title<TAB>id (column order) for neutral Devflow Review rows only" "$(printf 'Devflow review waiting: branch behind base\t7')" \
-  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","output":{"title":"Devflow review waiting: branch behind base"},"id":7},{"name":"Devflow Review","conclusion":"success","output":{"title":"x"},"id":8},{"name":"Other","conclusion":"neutral","output":{"title":"y"},"id":9}]}' | jq -r "$REUSE_FILTER")"
-assert_eq "#311 AC5 reuse lookup emits an empty title column (not null) when output.title is absent" "$(printf '\t11')" \
-  "$(echo '{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":11}]}' | jq -r "$REUSE_FILTER")"
-# (AC5, coupling) The fixture above only proves REUSE_FILTER is self-consistent;
-# it does NOT prove the workflow still uses that exact projection. A swap of the
-# workflow's projection column order (id<TAB>title) would break de-dup while the
-# fixture stayed green. Byte-couple the fixture to the source the same way
-# RUNCOUNT_FILTER is: the exact filter string must appear verbatim in the
-# workflow exactly once (a swapped/edited projection makes this count 0 → RED).
-assert_eq "#311 AC5 reuse-lookup projection in run.sh is byte-identical to the workflow (exactly one match)" "1" \
-  "$(grep -cF "$REUSE_FILTER" "$REVIEW_WF" || true)"
-# (AC5, breadcrumb) The reuse lookup's captured-rc restructure distinguishes a
-# genuine gh-api query failure from an empty result, emitting its own breadcrumb
-# on the failure arm only (both arms still fall through to POST, so the required
-# check is never lost). Like every other breadcrumb this PR hardens
-# (devflow_review_run_count's two, the pre="" crash arms), it needs a coupling
-# pin: collapsing the if/else arms so a query failure silently falls through to
-# POST with no warning — reintroducing the failure/empty conflation the old
-# `2>/dev/null || true` had — would otherwise stay green.
-# Structural (grep -B1), not presence-only: anchor the breadcrumb as sitting
-# directly under the `else` of the `if [ "$_reuse_rc" -eq 0 ]` split, so the pin
-# fully covers its stated claim. A regression that KEEPS the echo but fires it on
-# both arms (moving it out of the else, destroying the failure-vs-empty
-# distinction) — not just outright removal — goes RED.
-assert_eq "#311 AC5 reuse-lookup failure arm emits its own distinguishing breadcrumb (on the else/query-failure arm)" "yes" \
-  "$(grep -B1 -F "Could not query existing 'Devflow Review' check-runs" "$REVIEW_WF" | grep -qE '^[[:space:]]*else[[:space:]]*$' && echo yes || echo no)"
-# (AC5, read-order — the consuming half of the column-order contract) The
-# byte-coupling pin above secures jq↔workflow-source, but the contract has two
-# sides: the bash consumer must read the columns in the order the jq emits them
-# (title first, id second). A swap to `read -r _rid _rt` would compare the id
-# against $TITLE (never matches) and assign a non-numeric title to REUSE_ID
-# (the downstream ^[0-9]+$ guard then fails) — silently breaking dedup while the
-# self-consistent fixture stays green. grep -A1 anchors the title var reading
-# first (_rt) AND being compared against $TITLE on the very next line, so a
-# read-order swap goes RED.
-assert_eq "#311 AC5 reuse lookup reads title column first (_rt) and compares it against \$TITLE (read-order regression-proof)" "yes" \
-  "$(grep -A1 -F 'read -r _rt _rid' "$REVIEW_WF" | grep -qF '[ "$_rt" = "$TITLE" ]' && echo yes || echo no)"
-# (AC6) The dangling review-rerun-checks.md comment ref is corrected to the
-# real doc, and the behind-base deferral summary points at it.
-assert_eq "#311 no dangling review-rerun-checks.md reference remains in the workflow" "0" \
-  "$(grep -cF 'review-rerun-checks.md' "$REVIEW_WF" || true)"
-assert_eq "#311 trigger-policy comment points at the real doc (docs/workflow-triggers.md)" "yes" \
-  "$(grep -qF 'see docs/workflow-triggers.md' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#311 behind-base deferral summary points at docs/workflow-triggers.md" "yes" \
-  "$(grep -qF 'See docs/workflow-triggers.md for the deferral and re-trigger policy' "$REVIEW_WF" && echo yes || echo no)"
-# (AC6, end-to-end) The two pins above assert the workflow REFERENCES the doc;
-# this closes the dangling-ref loop by asserting the target actually EXISTS on
-# disk. #311's bug was a *dangling* reference — a text-only pin would stay green
-# if the ref were later re-pointed at a deleted/renamed doc, re-introducing the
-# exact defect class this AC fixed.
-assert_eq "#311 AC6 target doc docs/workflow-triggers.md exists on disk (closes the dangling-ref loop)" "yes" \
-  "$([ -f "$LIB/../docs/workflow-triggers.md" ] && echo yes || echo no)"
-# ── #311 post-#307 hardening pins (pushable subset — see the workflow-resident
-# remainder deferred to a follow-up issue: the run.sh pins for AC1/AC2b/AC4/AC5,
-# the AC3 workflow-guard pins, and the AC7 comment-fix all grep devflow-review.yml
-# and therefore ship in the human/PAT workflow PR alongside those edits, so CI
-# never greps a workflow the bot could not push. The three pins below are
-# self-contained: the executed jq filter fixture, the AC6 doc, and the AC7
-# installer note.) ─────────────────────────────────────────────────────────
-# (AC3) Executed fixture for the shared devflow_review_run_count jq filter,
-# including a `cancelled`-conclusion gate case: a cancelled Devflow Review check
-# is NOT skipped/neutral, so it COUNTS (a cancelled review job still means a
-# review ran at this head); skipped and the #304 neutral "waiting" deferral are
-# excluded. The filter literal mirrors the shared helper, whose single
-# definition is pinned above (gate_excl_filter_count == 1).
-run_count_filter='.check_runs[] | select(.name=="Devflow Review" and .conclusion != "skipped" and .conclusion != "neutral") | .id'
-run_count_fixture='{"check_runs":[{"name":"Devflow Review","conclusion":"neutral","id":1},{"name":"Devflow Review","conclusion":"skipped","id":2},{"name":"Devflow Review","conclusion":"cancelled","id":3},{"name":"Devflow Review","conclusion":"success","id":4},{"name":"Other","conclusion":"success","id":5}]}'
-assert_eq "#311 run_count filter counts cancelled+success, excludes skipped/neutral (executed)" "3 4" \
-  "$(printf '%s' "$run_count_fixture" | jq -r "$run_count_filter" | tr '\n' ' ' | sed 's/ *$//')"
-# (AC6) The behind-base base-advance limitation is documented in
-# docs/workflow-triggers.md (the doc the deferral summary points at once the
-# workflow-hardening follow-up ships the summary pointer).
-assert_eq "#311 behind-base base-advance limitation documented in workflow-triggers.md" "yes" \
-  "$(grep -qF 'push-to-base listener' "$LIB/../docs/workflow-triggers.md" && echo yes || echo no)"
-# (AC7) The installer prompts prominently for the consumer's CI workflow name(s)
-# in the workflow_run trigger list.
-assert_eq "#311 installer prompts for the consumer CI workflow name in workflow_run" "yes" \
-  "$(grep -qF "set the 'workflow_run:' 'workflows:' list" "$LIB/../install.sh" && echo yes || echo no)"
-
-# ── #310 status-event re-trigger (legacy commit-status-only CI) ───────────────
-# A repo whose CI reports ONLY via the commit-status API (classic Jenkins,
-# legacy CircleCI) emits a `status` event — not workflow_run/check_suite — when
-# its CI transitions, so without a status listener it defers every PR at open
-# (ci-not-green) with no completion event to auto-re-trigger on. These pins are
-# coupled to the exact devflow-review.yml lines and land in the SAME commit as
-# them (the CLAUDE.md coupled-invariant rule); the workflow YAML has no runnable
-# unit surface, so the static pins ARE the verification.
-# (a) The on: block declares the status trigger (deleting it disables the whole
-# legacy-status re-trigger while every other pin stays green).
-assert_eq "#310 on: block declares the status trigger" "yes" \
-  "$(sed -n '/^on:/,/^permissions:/p' "$REVIEW_WF" | grep -qE '^  status:' && echo yes || echo no)"
-# (b) The precheck if: green-state cheap-filter (AC1: non-success states never
-# spin the route). status events fire on EVERY CI transition, so gating them at
-# the if: keeps pending/failure/error off the runner entirely — mirroring the
-# existing workflow_run push filter's placement.
-assert_eq "#310 precheck if: status proceeds only on state == success (green-state cheap-filter)" "yes" \
-  "$(grep -qF "github.event_name == 'status' && github.event.state == 'success'" "$REVIEW_WF" && echo yes || echo no)"
-# (c) The route step plumbs the status head SHA + state env inputs (without
-# ST_SHA the head is unresolvable; without ST_STATE the defensive re-filter in
-# the arm cannot fire).
-assert_eq "#310 route step reads ST_SHA from github.event.sha" "yes" \
-  "$(grep -qF 'ST_SHA: ${{ github.event.sha }}' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#310 route step reads ST_STATE from github.event.state" "yes" \
-  "$(grep -qF 'ST_STATE: ${{ github.event.state }}' "$REVIEW_WF" && echo yes || echo no)"
-# (d) The CI-completion route branch's outer dispatch includes status, so a
-# status event enters the SHARED open-state/draft/stale-head/exactly-once/
-# preconditions machinery (AC2) rather than a parallel copy.
-assert_eq "#310 CI-completion route branch outer condition includes the status event" "yes" \
-  "$(grep -qF '[ "$EVENT_NAME" = "status" ]' "$REVIEW_WF" && echo yes || echo no)"
-# (e) The status arm derives HEAD from the status payload's own sha (ST_SHA),
-# not a workflow_run/check_suite field.
-assert_eq "#310 status route arm derives HEAD from ST_SHA" "yes" \
-  "$(grep -qF 'HEAD="$ST_SHA"' "$REVIEW_WF" && echo yes || echo no)"
-# (f) Defense-in-depth: even though (b) already filtered to success at the if:,
-# the status arm RE-ASSERTS state == success and no-ops otherwise
-# (breadcrumb-plus-behavior via grep -A1: the ::warning:: breadcrumb is immediately followed by
-# its exit 0), so a future precheck-if edit can't silently let a non-success
-# status spin the route (AC1: "non-success states never spin the route").
-assert_eq "#310 status arm re-asserts non-success no-ops with exit 0 (breadcrumb-plus-behavior)" "yes" \
-  "$(grep -A1 -F "is not success; no-op (only a green commit status re-triggers a deferred review)" "$REVIEW_WF" | grep -qE '^ *exit 0' && echo yes || echo no)"
-# (g) The status payload has no PR ref, so the arm leaves PR empty and the
-# shared resolve_pr_for_head fallback resolves it from the head SHA — same as a
-# fork-PR workflow_run completion. grep -A1 anchors the empty-PR set directly
-# under the ST_SHA head assignment (the resolve call + open-state guard are
-# already pinned by the #304/#311 blocks the status arm now reuses).
-assert_eq "#310 status arm leaves PR empty for resolve_pr_for_head (no payload PR ref)" "yes" \
-  "$(grep -A1 -F 'HEAD="$ST_SHA"' "$REVIEW_WF" | grep -qE '^ *PR=""' && echo yes || echo no)"
-# (h) Docs reconciliation (AC4): §14 of the overview names the status-event
-# re-trigger.
-assert_eq "#310 DEVFLOW_SYSTEM_OVERVIEW §14 names the status-event re-trigger" "yes" \
-  "$(grep -qF 'since issue #310' "$OV" && echo yes || echo no)"
-# (i) Docs reconciliation (AC4): the require_ci_green schema description names
-# the status-event re-trigger (replacing the workflow_run/check_suite-only
-# re-trigger caveat). The pinned phrase is the #310-specific lead-in to the
-# status-event clause, distinctive within the schema (the pre-existing
-# CI-green signal list already mentions "legacy commit statuses" separately).
-assert_eq "#310 require_ci_green schema description names the status-event re-trigger" "yes" \
-  "$(grep -qF 'since issue #310) a legacy commit-status' "$LIB/../.devflow/config.schema.json" && echo yes || echo no)"
-# (j) The precheck if: LEADING guard `github.event_name != 'status'` is the
-# clause that actually keeps a non-success status OFF the runner (AC1: "before a
-# runner spins"). Pin (b) only asserts the trailing `state == 'success'` arm —
-# but if the leading guard were dropped (a bad revert to the pre-#310
-# `github.event_name != 'workflow_run'` form), the first OR-clause would evaluate
-# TRUE for a status event and spin a runner on EVERY CI transition regardless of
-# state, while pin (b) AND pin (f) both stay green (the success literal and the
-# runtime re-check are untouched). This pin closes that gap: the cost half of AC1
-# — non-success never spins the route — is protected, not just the runtime no-op.
-assert_eq "#310 precheck if: leading guard excludes status events from the pass-through clause (non-success never spins the runner)" "yes" \
-  "$(grep -qF "github.event_name != 'status'" "$REVIEW_WF" && echo yes || echo no)"
-# (k) The status arm has NO runtime self-exclusion guard (unlike workflow_run's
-# self-name guard and check_suite's github-actions-app guard); its "cannot
-# self-trigger" safety (AC2) rests entirely on the workflow being STRUCTURALLY
-# incapable of posting a commit status — the precheck grants `statuses: read`,
-# never `statuses: write`, so no status POST is possible. Pin that absence-based
-# invariant per the CLAUDE.md "a guard whose comparand can be absent fails open"
-# discipline: a future edit adding `statuses: write` + any status POST would
-# create an infinite self-trigger loop with every other #310 pin still green.
-assert_eq "#310 precheck grants statuses: read (self-trigger safety comparand present)" "yes" \
-  "$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_WF" | grep -qE '^      statuses: read' && echo yes || echo no)"
-assert_eq "#310 workflow never grants statuses: write (cannot post a commit status → cannot self-trigger)" "0" \
-  "$(grep -cE 'statuses:[[:space:]]*write' "$REVIEW_WF" || true)"
-# (k, airtight) The invariant is "no grant that confers statuses: write" — an
-# explicit `statuses: write` is one form, but `permissions: write-all` implicitly
-# confers it too and would re-enable the self-trigger loop while the explicit-key
-# count above stays 0. Pin write-all's absence as well so the absence-based
-# invariant can't be evaded by a blanket grant (the workflow uses explicit
-# per-key permissions throughout — this keeps it that way).
-assert_eq "#310 workflow never grants permissions: write-all (would implicitly confer statuses: write)" "0" \
-  "$(grep -cE 'permissions:[[:space:]]*write-all' "$REVIEW_WF" || true)"
-# (l) Pin (j) proves the leading `!= 'status'` guard is PRESENT, but not that it
-# is AND-coupled to the `!= 'workflow_run'` guard inside the parenthesized
-# pass-through clause. If that `&&` regressed to `||` — `(… != 'workflow_run' ||
-# … != 'status')` — the clause would be TRUE for EVERY status event regardless of
-# state, spinning a runner on every pending/failure/error status while pins (b)
-# and (j) both still find their substrings (GREEN). Pin the contiguous
-# `&&`-coupled parenthesized form so a join-operator corruption goes RED.
-assert_eq "#310 precheck if: the two leading guards are AND-coupled (a &&->|| regression would spin runners on every status)" "yes" \
-  "$(grep -qF "(github.event_name != 'workflow_run' && github.event_name != 'status')" "$REVIEW_WF" && echo yes || echo no)"
-# (m) #310 restructured the CI-completion route branch's catch-all `else` (which
-# handled check_suite) into `elif check_suite`, with status as the new terminal
-# `else`. Nothing pinned the inner check_suite dispatch, so a regression of the
-# `elif [ "$EVENT_NAME" = "check_suite" ]` literal would drop check_suite into
-# the status else-arm → HEAD="$ST_SHA" (empty on a check_suite payload) → "no
-# head_sha" silent no-op, killing the PRE-EXISTING external-CI re-trigger while
-# every #310 pin and the #304 check_suite app-guard pin stay green. Pin both the
-# elif gate and its CS_HEAD derivation so the else->elif boundary #310 introduced
-# is protected.
-assert_eq "#310 route branch keeps check_suite on its own elif arm (not swallowed by the new status else)" "yes" \
-  "$(grep -qF 'elif [ "$EVENT_NAME" = "check_suite" ]; then' "$REVIEW_WF" && echo yes || echo no)"
-assert_eq "#310 check_suite arm still derives HEAD from CS_HEAD (guards the else->elif restructure)" "yes" \
-  "$(grep -qF 'HEAD="$CS_HEAD"' "$REVIEW_WF" && echo yes || echo no)"
-# (n) The concurrency group deliberately gives status NO arm (it falls to the
-# run_id group — recorded looseness, deduped by the exactly-once gate). Lock that
-# documented decision: a future edit adding a github.event.status.* term to the
-# group key would silently change the dedupe behavior the #310 comment reasons
-# about. Absence pin (count 0).
-assert_eq "#310 concurrency group adds no status arm (status falls to run_id — recorded looseness)" "0" \
-  "$(grep -cF 'github.event.status' "$REVIEW_WF" || true)"
-# (o) Pin (f) asserts the defensive no-op's message text + exit 0, but not that
-# it is emitted at ::warning:: (the code deliberately uses warning, not the
-# ::notice:: the routine no-ops use, so an operator sees a precheck-if
-# regression). A regression to ::notice:: would blend the operator-actionable
-# signal into normal traffic and still pass (f); pin the warning prefix.
-assert_eq "#310 status arm defensive no-op emits ::warning:: (operator-visible precheck-if regression), not ::notice::" "yes" \
-  "$(grep -qF '::warning::status event state' "$REVIEW_WF" && echo yes || echo no)"
-# (p) The runtime guard's PREDICATE DIRECTION (`!= "success"`) is load-bearing
-# and, until this pin, uncovered. Pins (f)/(o) grep the no-op message + exit 0 +
-# ::warning:: prefix, and (e)/(g) grep the HEAD/PR assignments below the guard —
-# but if the predicate were INVERTED to `= "success"`, every green status would
-# hit the ::warning:: no-op + exit 0 and the re-trigger would NEVER fire (total
-# feature kill), while all of (e)(f)(g)(o) stay green (their lines are unchanged;
-# HEAD/PR become dead code below the flipped guard). Only deleting the whole
-# `if…fi` is caught today. Pin the guard's exact sense so an inversion goes RED.
-assert_eq "#310 status arm guard tests state != success (an inversion to = success would silently kill the whole re-trigger)" "yes" \
-  "$(grep -qF 'if [ "$ST_STATE" != "success" ]; then' "$REVIEW_WF" && echo yes || echo no)"
-# (q)/(r)/(s) The #310 status clause was added to FIVE reconciled doc/schema
-# mirror sites in this commit (CLAUDE.md coupled-invariant rule), but only §14
-# (pin h) and the schema (pin i) were pinned — so a later divergence at the other
-# three would go uncaught. Pin the remaining three by a #310-distinctive phrase.
-assert_eq "#310 install.sh names the status trigger in its coverage enumeration" "yes" \
-  "$(grep -qF "legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the 'status' trigger" "$LIB/../install.sh" && echo yes || echo no)"
-assert_eq "#310 docs/cloud-setup.md names the status trigger in its coverage row" "yes" \
-  "$(grep -qF 'legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger' "$LIB/../docs/cloud-setup.md" && echo yes || echo no)"
-assert_eq "#310 docs/workflow-triggers.md table row names the status re-trigger" "yes" \
-  "$(grep -qF 'status` covers legacy commit-status-only CI' "$LIB/../docs/workflow-triggers.md" && echo yes || echo no)"
-# (t) The operator-facing deferral SUMMARY string in the workflow ITSELF is a
-# SIXTH re-trigger-policy mirror site that got the #310 legacy-status clause
-# (alongside the five doc/schema sites pinned by h/i/q/r/s). It is the message a
-# legacy-CI-repo operator reads on a deferred check to learn what re-triggers
-# their review, so a reword/drop of the legacy-status clause here would silently
-# mislead them while every other #310 pin stays green. Pin it for parity with
-# the other mirror sites (same coupled-invariant discipline).
-assert_eq "#310 deferral SUMMARY names the legacy commit-status re-trigger (6th mirror site)" "yes" \
-  "$(grep -qF 'or a legacy commit status transitioning to success' "$REVIEW_WF" && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "efficiency-trace.jq / efficiency-trace.sh"
@@ -26777,18 +26331,21 @@ VP_PLACEMENT="$(awk '
   /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
   END { print (ok+0)"/"(bad+0) }
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
-assert_eq "vendor: vendor-plugin runs after checkout in all eight plugin jobs" "8/0" "$VP_PLACEMENT"
+# Count-free in the "bad" dimension and self-deriving in the "ok" one (issue #936 removed a
+# workflow and with it two vendor-plugin jobs, rotting the old hardcoded 8): assert that NO
+# job places vendor-plugin before its checkout, and — so the check can never pass vacuously
+# on a tree with zero such jobs — that at least one job places it correctly.
+assert_eq "vendor: no plugin job runs vendor-plugin before its checkout" "0" "${VP_PLACEMENT##*/}"
+assert_eq "vendor: at least one plugin job runs vendor-plugin after its checkout (non-vacuous)" "yes" \
+  "$([ "${VP_PLACEMENT%%/*}" -gt 0 ] && echo yes || echo no)"
 
-# AC3 finalize_check drift-guard: the dismiss call must be preceded by an
-# explicit executability check so a vendoring miss (absent script, exit 127)
-# is reported distinctly from a present-but-errored run. A workflow-level grep
-# guard (the script-absent branch cannot be exercised by the shell harness):
-# the `[ ! -x … ]` test and a distinct "absent" warning string must both be
-# present in devflow-review.yml.
-assert_eq "review: finalize_check guards dismiss with [ -x ] before invoking" "1" \
-  "$(grep -c '\[ ! -x "\$DISMISS" \]' "$REVIEW_WF" || true)"
-assert_eq "review: finalize_check emits a distinct script-absent warning" "1" \
-  "$(grep -c 'dismiss-stale-rejections.sh absent — vendoring did not materialize it' "$REVIEW_WF" || true)"
+# AC3's finalize_check dismiss drift-guard is RETIRED (issue #936). Its two pins — the
+# `[ ! -x "$DISMISS" ]` executability test and the distinct "vendoring did not materialize
+# it" warning — asserted content inside .github/workflows/devflow-review.yml's
+# finalize_check, and that workflow is no longer in the tree. scripts/dismiss-stale-rejections.sh
+# is RETAINED: unlike the three helpers retired with the tier, it has a surviving invoker
+# (the review engine's Phase 0.3.6 blocker-recheck reaches it from the comment-triggered
+# path), and its own unit coverage sits above this block, unchanged.
 
 # devflow_version pin (AC7): declared in the schema and present in the example.
 assert_eq "vendor: schema declares devflow_version string" "string" \
@@ -33312,7 +32869,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 190; then
+  "review-stall-backstop" 183; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -33532,39 +33089,64 @@ wf_perm_lint() {  # $1=workflows-dir  $2=precond-helper-path (anchors scripts/ d
 }
 
 WF_DIR="$LIB/../.github/workflows"
-WF_PRECOND="$LIB/../scripts/derive-review-preconditions.sh"
+# The second operand is only a scripts_dir ANCHOR: wf_perm_lint takes its dirname to
+# locate scripts/ and lib/ for the generic helper walk, and reads the file itself only
+# to prove it is readable (an unreadable path is the MISSING_PRECOND sentinel). Issue
+# #936 retired scripts/derive-review-preconditions.sh with its sole caller
+# devflow-review.yml, so the anchor is re-pointed at another real, readable gh-calling
+# helper in the same directory. Nothing about the lint's behavior depends on WHICH file
+# anchors it — the fixtures below each supply their own anchor for the same reason.
+WF_PRECOND="$LIB/../scripts/summarize-ci-checks.sh"
 assert_eq "#312: workflow endpoint↔permission lint is clean on the current tree (0 violations)" \
   "0" "$(wf_perm_lint "$WF_DIR" "$WF_PRECOND")"
 
-# Mutation proof, baked into the suite (not a one-time manual check): removing
-# precheck's `statuses: read` grant must make the lint RED, because the
-# derive-review-preconditions.sh `repos/*/commits/*/status` call attributed to precheck
-# then has no covering permission. This retro-validates the #307 statuses:read grant as
-# load-bearing rather than incidental — the pin fails GREEN only if the lint no longer
-# ties that endpoint to that grant.
+# Mutation proof, baked into the suite (not a one-time manual check): removing a job's
+# grant for a family one of ITS helpers calls must make the lint RED. Before issue #936
+# the subject was devflow-review.yml's precheck `statuses: read` (needed by
+# derive-review-preconditions.sh's `repos/*/commits/*/status` call); that workflow and that
+# helper are both gone, and no surviving workflow grants `statuses: read` at all, so the
+# proof is RE-ANCHORED rather than deleted — the mechanism it validates (helper attribution
+# feeding the permission requirement) is unchanged and still load-bearing.
+#
+# The new subject is devflow.yml's `command` job `checks: read`, which its own in-file
+# comment ties to scripts/summarize-ci-checks.sh's `repos/{owner}/{repo}/commits/{sha}/check-runs`
+# query. Removing it leaves that helper-attributed `checks` requirement uncovered, exactly as
+# the old mutation left `statuses` uncovered — so the pin still fails GREEN only if the lint
+# stops tying a helper's endpoint to its caller's grant. The statuses family keeps its own
+# INLINE differential case in the positive fixture below, so retiring the old subject costs
+# no family coverage.
+#
+# devflow.yml declares `checks: read` in TWO jobs, so `!d` first-match targeting would mutate
+# whichever comes first. Scope the removal to the `command:` job block explicitly instead —
+# the re-anchoring the old comment said to do "if another job gains one".
 # Reuse the suite's canonical isolated-temp-dir helper: on `mktemp -d` failure it records a
 # suite FAIL (never a vacuous pass) and hands back a `/dev/null/…` sentinel, so the mkdir/cp/awk
 # below fail CLOSED and wf_perm_lint returns MISSING_WFDIR → the final assert_eq goes RED too.
 WF_MUT_DIR="$(git_sandbox "#312: wf-lint mutation proof temp dir")"
 mkdir -p "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts" 2>/dev/null || true
 cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
-cp "$WF_PRECOND" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh" 2>/dev/null || true
-# Drop ONLY the first `statuses: read` (precheck's). `0,/re/` is GNU-only, so use awk
-# for a portable first-match replacement (macOS/BSD per CLAUDE.md portability rule).
-# First-match targeting assumes precheck's grant stays the file's only/first
-# `statuses: read` (true today); if another job gains one, re-anchor this to the
-# precheck job block (#312 review). The other families precheck requires
-# (actions/checks/contents via derive-review-preconditions.sh, pull-requests via the
-# inline resolve_pr_for_head call) have no per-family attribution mutation case —
-# deferred (#312 review).
-awk '!d && /^      statuses: read/ { sub(/statuses: read/, "REMOVED_statuses_read: read"); d=1 } { print }' \
-  "$WF_DIR/devflow-review.yml" > "$WF_MUT_DIR/.github/workflows/devflow-review.yml" 2>/dev/null || true
-WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/derive-review-preconditions.sh")"
+# Only the one helper the mutated `command:` job attributes `checks` through. Copying the
+# whole scripts/ dir made wf_perm_lint resolve ~52 basenames instead of 1 and spawn a
+# subshell per (job, basename) hit — measured at ~1.8s per suite run for no extra coverage,
+# since the assertion needs exactly this helper's attribution.
+cp "$LIB/../scripts/summarize-ci-checks.sh" "$WF_MUT_DIR/scripts/" 2>/dev/null || true
+# Portable (macOS/BSD) first-match-within-a-block edit: track whether we are inside the
+# `command:` job and drop only that block's `checks: read`.
+awk '
+  /^  [a-z_]+:$/ { inblk = ($0 == "  command:") }
+  inblk && !d && /^      checks: read$/ { sub(/checks: read/, "REMOVED_checks_read: read"); d=1 }
+  { print }
+' "$WF_DIR/devflow.yml" > "$WF_MUT_DIR/.github/workflows/devflow.yml" 2>/dev/null || true
+# Positive control: the mutation must actually have landed, or the assert below would
+# "pass" for the wrong reason on a tree where the awk pattern stopped matching.
+assert_eq "#312: wf-lint mutation proof — the planted defect actually landed in the fixture" "yes" \
+  "$(grep -q 'REMOVED_checks_read: read' "$WF_MUT_DIR/.github/workflows/devflow.yml" && echo yes || echo no)"
+WF_MUT_V="$(wf_perm_lint "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts/summarize-ci-checks.sh")"
 case "$WF_MUT_V" in
   ''|*[!0-9]*) WF_MUT_RED=no ;;
   *) [ "$WF_MUT_V" -ge 1 ] && WF_MUT_RED=yes || WF_MUT_RED=no ;;
 esac
-assert_eq "#312: wf-lint mutation proof — removing precheck statuses:read makes the lint RED" \
+assert_eq "#312: wf-lint mutation proof — removing the command job's checks:read makes the lint RED" \
   "yes" "$WF_MUT_RED"
 # rm the sandbox on the success path; a no-op on the /dev/null sentinel (that path never exists,
 # and it is a subpath of /dev/null so the device node itself is never touched).
@@ -33600,14 +33182,14 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 #                        helper-attribution path; this is its inline-path case)
 #   - actions_missing:   actions/runs (→ actions), declares only contents so the
 #                        job block REPLACES the top-level actions grant           → +1
-#   - verdict_helper_missing: runs derive-review-verdict.sh (→ comments AND pull-requests via
-#                        the second-helper attribution — the real scripts/ file calls both
-#                        issues/{n}/comments and pulls/{n}/reviews; resolved from $WF_PRECOND's
-#                        real scripts/ dir), declares only contents                → +2
+#   - verdict_helper_missing: runs the fixture's synthetic two-family-helper.sh (→ comments AND
+#                        pull-requests via the second-helper attribution — it calls both
+#                        issues/{n}/comments and pulls/{n}/reviews; resolved from the
+#                        fixture's own scripts/ dir), declares only contents        → +2
 #                        (proves BOTH the comments and the pull-requests attributions of
-#                        derive-review-verdict.sh are load-bearing — #312 shadow review + #312
+#                        the two-family helper are load-bearing — #312 shadow review + #312
 #                        receiving-review; if either regresses this drops toward 0)
-#   - verdict_helper_ok:  runs derive-review-verdict.sh (→ comments + pull-requests), declares
+#   - verdict_helper_ok:  runs two-family-helper.sh (→ comments + pull-requests), declares
 #                        pull-requests → 0 (pull-requests satisfies both the pull-requests
 #                        requirement and — via the either-arm — the comments requirement;
 #                        proves a satisfied grant clears the second-helper requirement)
@@ -33621,7 +33203,25 @@ rm -rf "$WF_MUT_DIR" 2>/dev/null || true
 # inheritance/replacement/strip/anchor logic regressing, moves the count off 9 → RED. Fail-closed
 # on a git_sandbox sentinel: the cat/mkdir no-op and wf_perm_lint → MISSING_WFDIR ≠ "9" → RED.
 WF_POS_DIR="$(git_sandbox "#312: wf-lint positive inline test temp dir")"
-mkdir -p "$WF_POS_DIR/.github/workflows" 2>/dev/null || true
+mkdir -p "$WF_POS_DIR/.github/workflows" "$WF_POS_DIR/scripts" 2>/dev/null || true
+# The two-family helper the verdict_helper_* jobs below run. It used to be the REAL
+# scripts/derive-review-verdict.sh, resolved against the repo's own scripts/ dir; issue
+# #936 retired that helper with its sole caller devflow-review.yml, and no surviving
+# helper calls BOTH the comments and the pulls/{n}/reviews families. So the fixture now
+# supplies it synthetically, exactly as the generic-attribution proof below already does.
+# The mechanism under test is unchanged — a job running a helper that makes two
+# differently-attributed calls must inherit BOTH requirements — and it is now independent
+# of which real helpers happen to exist, which is what let a helper retirement break it.
+cat > "$WF_POS_DIR/scripts/two-family-helper.sh" <<'TWOFAM' 2>/dev/null || true
+#!/usr/bin/env bash
+gh api -X POST "repos/$REPO/issues/$N/comments" -f body=x
+gh api "repos/$REPO/pulls/$N/reviews?per_page=100"
+TWOFAM
+# scripts_dir anchor for this fixture (readable, same dir as the helper above).
+cat > "$WF_POS_DIR/scripts/anchor.sh" <<'POSANCHOR' 2>/dev/null || true
+#!/usr/bin/env bash
+: # no gh api call — this file only anchors scripts_dir for the helper walk
+POSANCHOR
 cat > "$WF_POS_DIR/.github/workflows/pos.yml" <<'POSYAML' 2>/dev/null || true
 name: pos-fixture
 on: push
@@ -33680,12 +33280,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - run: bash scripts/derive-review-verdict.sh
+      - run: bash scripts/two-family-helper.sh
   verdict_helper_ok:
     permissions:
       pull-requests: read
     steps:
-      - run: bash scripts/derive-review-verdict.sh
+      - run: bash scripts/two-family-helper.sh
   guards_ok:
     permissions:
       contents: read
@@ -33694,7 +33294,7 @@ jobs:
       - run: echo "run https://github.com/o/r/actions/runs/123"
 POSYAML
 assert_eq "#312: wf-lint positive inline test — six inline families (pull-requests in both the commits/*/pulls and pulls/{n}/reviews shapes) + verdict-helper attribution differentially covered, inheritance/replacement/strip/anchor honored (9 violations)" \
-  "9" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_PRECOND")"
+  "9" "$(wf_perm_lint "$WF_POS_DIR/.github/workflows" "$WF_POS_DIR/scripts/anchor.sh")"
 rm -rf "$WF_POS_DIR" 2>/dev/null || true
 
 # Generic-attribution proof (#312 conv shadow — pr-test-analyzer): the value the generic
@@ -33725,7 +33325,7 @@ LIBSYNTH
 # the precond anchor for scripts_dir must exist + be readable (else MISSING_PRECOND); reuse the
 # same synthetic dir so scripts_dir resolves to where the novel helper lives (and lib/ sits at
 # ../lib beside it).
-cat > "$WF_GEN_DIR/scripts/derive-review-preconditions.sh" <<'ANCHOR' 2>/dev/null || true
+cat > "$WF_GEN_DIR/scripts/anchor.sh" <<'ANCHOR' 2>/dev/null || true
 #!/usr/bin/env bash
 : # no gh api call — this fixture isolates the generic-walk mechanism, not precond attribution
 ANCHOR
@@ -33751,7 +33351,7 @@ GENYAML
 # for runs_novel_helper; a scripts/-only walk → lib helper's checks unattributed → runs_lib_helper
 # +1; a replace-instead-of-union merge → runs_lib_helper +1. Any of these moves the count off 3.
 assert_eq "#312: wf-lint generic-attribution proof — novel scripts/ + lib/ helpers attributed and inline+helper families unioned (3 violations; hardcoded-list / scripts-only / replace-merge regressions each go RED)" \
-  "3" "$(wf_perm_lint "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts/derive-review-preconditions.sh")"
+  "3" "$(wf_perm_lint "$WF_GEN_DIR/.github/workflows" "$WF_GEN_DIR/scripts/anchor.sh")"
 rm -rf "$WF_GEN_DIR" 2>/dev/null || true
 
 # Fail-closed sentinel contract (#312 review — pr-test-analyzer): a missing workflows
@@ -36069,7 +35669,6 @@ assert_eq "#363 the duplicate fixture would otherwise pass vacuously (first line
 # ── (Phase 0.3.6 invokes it from inline prose), so it is pinned by literal here —
 # ── this is the documented compensating control for the narrow extraction scope.
 RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
-REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 DDC_SH="$LIB/../scripts/describe-denial-count.sh"
 for _g363 in 'Bash(mkdir:*)' 'Bash(tee:*)' 'Bash(git cat-file:*)' 'Bash(git hash-object:*)' 'Bash(git checkout:*)' \
@@ -36243,10 +35842,8 @@ perms = (doc.get("permissions") if target == "<workflow>"
 print("yes" if isinstance(perms, dict) and perms.get("checks") == "read" else "no")
 PY
 }
-assert_eq "#363 devflow-runner.yml grants checks:read at the workflow level (coupled with its caller)" \
+assert_eq "#363 devflow-runner.yml grants checks:read at the workflow level" \
   "yes" "$(_has_checks_read "$RUNNER_YML" '<workflow>')"
-assert_eq "#363 devflow-review.yml's 'review' caller job grants checks:read (coupled with devflow-runner.yml)" \
-  "yes" "$(_has_checks_read "$REVIEW_YML" review)"
 assert_eq "#363 devflow.yml's 'command' job grants checks:read for summarize-ci-checks.sh" \
   "yes" "$(_has_checks_read "$DEVFLOW_YML" command)"
 
@@ -36571,17 +36168,11 @@ assert_eq "#363 devflow-runner.yml never defaults the denial count to a literal 
   "$(pin_count "permission_denials_count || '0'" "$RUNNER_YML")"
 assert_pin_unique "#363 devflow-runner.yml exposes permission_denials_count as a workflow_call output" \
   "value: \${{ jobs.run.outputs.permission_denials_count }}" "$RUNNER_YML"
-assert_pin_unique "#363 finalize_check consumes the runner's permission_denials_count (defaulting to 'unavailable')" \
-  "PERMISSION_DENIALS_COUNT: \${{ needs.review.outputs.permission_denials_count || 'unavailable' }}" "$REVIEW_YML"
 # All-output-channels honesty: an unestablished count is reported AS unestablished.
 # "refused 0 command(s)" on a run whose diagnostics never parsed is a false claim
 # that steers the reader away from permission denials.
 # All three helper arms are driven below. The workflow keeps only the fallback used
 # when the helper cannot be resolved.
-assert_pin_unique "#363 finalize_check raises an ::error:: naming the HEAD SHA and the denial count on a no-verdict run" \
-  '::error::Devflow review produced NO VERDICT for $HEAD_SHA' "$REVIEW_YML"
-assert_pin_unique "#363 finalize_check reads the progress comment's phase best-effort, never failing the step" \
-  "LAST_PHASE=\$(" "$REVIEW_YML"
 
 # ── The no-verdict ::error::'s denial clause. This clause IS the accurate-diagnosis
 # ── output the change exists to produce, so every arm is DRIVEN, not grep-pinned:
@@ -36605,133 +36196,14 @@ assert_eq "#363 denial clause: no argument at all still reports unestablished (e
 # positive count must not be absorbed by the zero arm.
 assert_eq "#363 denial clause: the 0 arm and the positive arm are distinct (order pinned)" "differ" \
   "$([ "$(bash "$DDC_SH" 0)" != "$(bash "$DDC_SH" 1)" ] && echo differ || echo same)"
-assert_pin_unique "#363 finalize_check routes the denial clause through the testable helper" \
-  'DDC=.devflow/vendor/devflow/scripts/describe-denial-count.sh' "$REVIEW_YML"
-assert_pin_unique "#363 finalize_check verifies the clause helper's OUTCOME, not just its existence" \
-  '[ -n "$DENIAL_CLAUSE" ] || DENIAL_CLAUSE=' "$REVIEW_YML"
 
-# ── The deferral check-run TITLE selection (issue #389). create_check's
-# ── SKIP_REASON→TITLE case is extracted into describe-skip-title.sh so the suite
-# ── can drive every arm AND its order: the arms are disjoint literals + a `*`
-# ── default, so a reordered/deleted arm would misattribute the deferral title
-# ── while the workflow still ran clean. Same rationale as describe-denial-count.sh.
-DST_SH="$LIB/../scripts/describe-skip-title.sh"
-assert_eq "#389 describe-skip-title.sh exists and is executable" "yes" \
-  "$([ -x "$DST_SH" ] && echo yes || echo no)"
-# Each of the four positively-observed reasons drives its own arm to its own title.
-assert_eq "#389 skip title: behind-base" \
-  "Devflow review waiting: branch behind base" "$("$DST_SH" behind-base)"
-assert_eq "#389 skip title: ci-not-green" \
-  "Devflow review waiting: other CI not green" "$("$DST_SH" ci-not-green)"
-assert_eq "#389 skip title: ci-approval-required" \
-  "Devflow review waiting: CI approval required" "$("$DST_SH" ci-approval-required)"
-assert_eq "#389 skip title: unverifiable names the query failure, not an unobserved state" \
-  "Devflow review waiting: preconditions unverifiable (API query failed — see the precheck log)" \
-  "$("$DST_SH" unverifiable)"
-# The `*` default: any unrecognized/empty reason gets the generic title, never a
-# specific state the precheck did not observe (the load-bearing honesty rule).
-for _r389 in "" "bogus" "behind_base" "BEHIND-BASE"; do
-  assert_eq "#389 skip title: '$_r389' falls to the generic default (asserts no unobserved cause)" \
-    "Devflow review waiting: precondition not met" "$("$DST_SH" "$_r389")"
-done
-assert_eq "#389 skip title: no argument at all still exits 0" "0" \
-  "$("$DST_SH" >/dev/null 2>&1; echo $?)"
-# The exit-0 contract holds on the recognized and unrecognized arms too, not only the
-# no-arg path: the assert_eq stdout comparisons above discard the exit status, so an
-# arm regressed to a nonzero exit would otherwise stay invisible to the unit suite.
-assert_eq "#389 skip title: a recognized reason exits 0" "0" \
-  "$("$DST_SH" behind-base >/dev/null 2>&1; echo $?)"
-assert_eq "#389 skip title: an unrecognized reason exits 0" "0" \
-  "$("$DST_SH" bogus >/dev/null 2>&1; echo $?)"
-# Vocabulary drift is LOUD: an unrecognized reason (a new token added upstream in
-# derive-review-preconditions.sh without a matching arm here) emits a stderr breadcrumb
-# alongside the generic title; a recognized reason stays stderr-silent (the title is
-# command-substituted, so stdout must remain exactly the title either way).
-assert_eq "#389 skip title: an unrecognized reason emits a stderr breadcrumb (drift is loud)" "yes" \
-  "$([ -n "$("$DST_SH" bogus 2>&1 >/dev/null)" ] && echo yes || echo no)"
-assert_eq "#389 skip title: a recognized reason emits no stderr" "" \
-  "$("$DST_SH" behind-base 2>&1 >/dev/null)"
-# Arm ORDER is load-bearing (AC2). Because the arms are disjoint literals, a
-# reordered specific arm is behaviorally invisible — pin the SOURCE order so a
-# reorder or deletion turns RED; `*` MUST be last, or a specific reason it
-# precedes is silently absorbed.
-ARM_ORDER_389=$(grep -oE '^[[:space:]]*(behind-base|ci-not-green|ci-approval-required|unverifiable|\*)\)' "$DST_SH" 2>/dev/null \
-  | sed -E 's/^[[:space:]]*//; s/\)$//' | tr '\n' ',')
-assert_eq "#389 skip title: case arms appear in the pinned order, * last" \
-  "behind-base,ci-not-green,ci-approval-required,unverifiable,*," "$ARM_ORDER_389"
-# The helper owns the titles while the workflow keeps only generic fallbacks.
-# The specific arms are driven above; retain the generic default's single-home guard.
-assert_pin_unique "#389 the generic-default title is defined once, in the helper" \
-  'Devflow review waiting: precondition not met' "$DST_SH"
-# The workflow routes the title through the testable helper (leading-token, vendored
-# path first) and verifies the OUTCOME, not just the file's existence. The invocation
-# lives in the *precheck* job's `title` step, NOT create_check: create_check has no
-# actions/checkout, so the helper file is absent in its workspace — precheck (which does
-# check out and already runs helpers) computes the title and passes it as the skip_title
-# output, which create_check consumes (issue #389 iter-2 fix, caught by the shadow pass).
-assert_pin_unique "#389 precheck routes the deferral title through the helper (vendored path first)" \
-  'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh' "$REVIEW_YML"
-assert_pin_unique "#389 precheck invokes the helper as a leading-token command" \
-  'TITLE=$("$DST" "$SKIP_REASON")' "$REVIEW_YML"
-# The vendored-path miss degrades to the repo-path copy — deleting this fallback would
-# silently collapse every non-vendored deferral to the generic title, suite green.
-assert_pin_unique "#389 precheck falls back to the repo-path helper when the vendored copy is absent" \
-  '[ -x "$DST" ] || DST=scripts/describe-skip-title.sh' "$REVIEW_YML"
-# The invocation is an if/then, never an `&&` list: under the step's set -e, a
-# present-but-executable helper exiting non-zero as the FINAL command of an && list
-# aborts the step -> precheck fails -> create_check (no always()) is skipped and the
-# deferral check is never posted, instead of degrading to the generic fallback.
-assert_pin_unique "#389 precheck tolerates a present-but-broken helper (if/then + || fallback, no set -e abort)" \
-  'if [ -x "$DST" ]; then TITLE=$("$DST" "$SKIP_REASON") || TITLE=""; fi' "$REVIEW_YML"
-assert_eq "#389 no abort-prone &&-list invocation of the helper remains in the workflow" "0" \
-  "$(pin_count '[ -x "$DST" ] && TITLE=' "$REVIEW_YML")"
-assert_pin_unique "#389 precheck verifies the helper OUTCOME with a resolution fallback" \
-  '[ -n "$TITLE" ] || TITLE=' "$REVIEW_YML"
-# Pin BOTH halves of the output chain: the outputs mapping alone stays green if the
-# producer echo is deleted or its key typo'd — every deferral would then silently
-# collapse to create_check's defensive fallback title while the suite stayed green.
-assert_pin_unique "#389 the title step writes the skip_title output (the producer half of the wiring)" \
-  'echo "skip_title=$TITLE" >> "$GITHUB_OUTPUT"' "$REVIEW_YML"
-# The title step runs only on a deferral — the diff-added outputs comment ("Empty unless
-# skip_reason is non-empty") depends on this gate, so pin it.
-assert_pin_unique "#389 the title step is gated on a non-empty skip_reason" \
-  "if: steps.route.outputs.skip_reason != ''" "$REVIEW_YML"
-# precheck exposes the computed title as an output, and create_check consumes it (rather
-# than invoking the helper in its checkout-less workspace).
-assert_pin_unique "#389 precheck exposes the deferral title as the skip_title output" \
-  'skip_title: ${{ steps.title.outputs.skip_title }}' "$REVIEW_YML"
-assert_pin_unique "#389 create_check consumes the precomputed skip_title output" \
-  'SKIP_TITLE: ${{ needs.precheck.outputs.skip_title }}' "$REVIEW_YML"
-assert_pin_unique "#389 create_check uses the precomputed title with a defensive fallback" \
-  'TITLE="${SKIP_TITLE:-' "$REVIEW_YML"
-# The inline case is gone — extraction is complete, not duplicated.
-assert_eq "#389 the inline SKIP_REASON case no longer lives in the workflow" "0" \
-  "$(pin_count 'case "$SKIP_REASON" in' "$REVIEW_YML")"
-# Single-definition, repo-wide: the four SPECIFIC deferral titles live ONLY in the helper
-# now — never in the workflow (create_check's/precheck's only workflow-resident title is
-# the generic "precondition not met" fallback). A specific title lingering in the workflow
-# would be a stale duplicate the "defined once in the helper" pins above cannot see.
-for _t389 in "Devflow review waiting: branch behind base" \
-             "Devflow review waiting: other CI not green" \
-             "Devflow review waiting: CI approval required" \
-             "Devflow review waiting: preconditions unverifiable"; do
-  assert_eq "#389 specific deferral title '$_t389' does not linger in the workflow (helper is the only home)" "0" \
-    "$(pin_count "$_t389" "$REVIEW_YML")"
-done
-# JOB PLACEMENT is the load-bearing invariant of this extraction (issue #389 iter-3): the
-# helper must be invoked ONLY in precheck (which has actions/checkout, so the helper file
-# is present) and NEVER in create_check (which has NO checkout — invoking there 404s the
-# file and every deferral silently collapses to the generic fallback title, the exact
-# Critical the shadow pass caught). The file-wide pins above assert the invocation exists
-# once but NOT which job it lives in — a move back into create_check would leave them all
-# GREEN. So scope to each job body (same technique as the #304 block's sed slices).
-# The scoped counts below enforce placement in precheck rather than create_check.
-PRECHECK_SLICE_389=$(sed -n '/^  precheck:/,/^  create_check:/p' "$REVIEW_YML")
-CREATE_SLICE_389=$(sed -n '/^  create_check:/,/^  review:/p' "$REVIEW_YML")
-assert_eq "#389 the helper is invoked in the precheck job (the job that checks out)" "1" \
-  "$(printf '%s\n' "$PRECHECK_SLICE_389" | grep -cF 'TITLE=$("$DST" "$SKIP_REASON")')"
-assert_eq "#389 the helper is NOT invoked in create_check (no checkout — would 404 the file)" "0" \
-  "$(printf '%s\n' "$CREATE_SLICE_389" | grep -cF 'DST=.devflow/vendor/devflow/scripts/describe-skip-title.sh')"
+# ── The deferral check-run TITLE selection (issue #389) is RETIRED with the auto
+# ── PR-triggered review tier (issue #936). scripts/describe-skip-title.sh existed
+# ── solely to render devflow-review.yml's deferred `Devflow Review` check-run title;
+# ── a sole-caller sweep resolved its only workflow caller to that one file, so with the
+# ── workflow deleted the helper is unreachable and is deleted with it, together with
+# ── these arm/order/placement pins and its coverage-map and inventory rows. Nothing
+# ── replaces the coverage: there is no deferral title left to render.
 
 # ── The injected grounding block. The security-sensitive prompt-injection prose
 # ── lives in ONE place (scripts/render-grounding-block.sh) rather than hand-copied
@@ -37131,18 +36603,10 @@ assert_eq "#363 finalize_check phase extraction exits 0 on every well-formed com
 # transient/garbled comment read would abort the step, losing the ::error:: entirely.
 assert_eq "#363 finalize_check phase extraction exits NON-zero on a malformed payload (caller must absorb)" "yes" \
   "$(_last_phase_jq 'not json' >/dev/null 2>&1 && echo no || echo yes)"
-assert_pin_unique "#363 finalize_check absorbs a failed progress-comment read instead of aborting the step" \
-  'LAST_PHASE=""' "$REVIEW_YML"
 # The jq exercised above is a copy of the one deployed in YAML. Pin the deployed
 # program's operative fragments so the tested copy and the shipped one cannot drift
 # (CLAUDE.md coupled-mirror rule): if the marker or the capture regex changes in the
 # workflow without changing the test, this goes RED.
-assert_pin_unique "#363 finalize_check's deployed jq selects the run-keyed progress comment (tested copy pinned identical)" \
-  'contains("<!-- devflow:review-progress")' "$REVIEW_YML"
-assert_pin_unique "#363 finalize_check's deployed jq captures the Status line (tested copy pinned identical)" \
-  'capture("\\*\\*Status:\\*\\* (?<s>[^' "$REVIEW_YML"
-assert_pin_unique "#363 finalize_check's deployed jq flattens paginated comment pages" \
-  'map(.[]?)' "$REVIEW_YML"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "implement-stop-guard.sh (issue #362)"
@@ -45079,7 +44543,7 @@ fi
 # lower-bound contract; test_module_runner.py parses this operand and rejects any
 # coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/capability-profiles.sh" \
-  "capability-profiles" 61; then
+  "capability-profiles" 62; then
   printf 'ERROR: capability-profiles boundary could not record its result\n'
   exit 1
 fi
@@ -48968,11 +48432,10 @@ assert_eq "#908 extract-denied-command-line: empty stdin reports not-found, not 
 assert_eq "#908 devflow-runner.yml delegates permission_denials_commands SELECTION to extract-denied-command-line.sh" "yes" \
   "$(grep -qF 'EDC_OUT=$(printf' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the permission_denials_commands SELECTION stays delegated to the suite-drivable helper rather than reinlined into untested YAML
 
-echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
+echo "#908 devflow-runner.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
 # ────────────────────────────────────────────────────────────────────────────
 _908_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
 _908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
-_908_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
@@ -49019,10 +48482,14 @@ assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard
 _908_MB="$(git -C "$REPO_ROOT" merge-base origin/main HEAD 2>/dev/null || true)"
 assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)" "yes" \
   "$([ -n "$_908_MB" ] && git -C "$REPO_ROOT" diff --quiet "$_908_MB" -- scripts/describe-denial-count.sh && echo yes || echo no)"
-assert_eq "#908: the permission_denials_count SUMMARY line is untouched by the new guard-visibility append" "yes" \
-  "$(grep -qF 'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that the #431 assembler's line-bound permission_denials_count producer contract (scripts/build-experiment-records.py's DENIAL_SUMMARY_RE) survives byte-identical, since AC6 requires describe-denial-count.sh's three clauses stay unchanged
-assert_eq "#908: devflow-review.yml routes guard-visibility rendering through render-guard-visibility.sh" "yes" \
-  "$(grep -qF 'bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS"' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins that the un-neutralized, attacker-influenced denied-command text is routed through the neutralizing renderer rather than rendered raw into the check-run summary
+# The two #908 pins on devflow-review.yml (the permission_denials_count SUMMARY line
+# and the render-guard-visibility.sh routing) are retired with that workflow under
+# issue #936. Their subject file no longer exists, so there is no summary to render and
+# no attacker-influenced denied-command text reaching a check-run. The producer half of
+# the #431 contract — devflow-runner.yml emitting permission_denials_count — is pinned
+# above and is unaffected; scripts/render-guard-visibility.sh is RETAINED because
+# devflow-runner.yml (retained in the tree for the capability-profile generator and the
+# review-profile lock) still names it as the sanctioned neutralizing renderer.
 # Same origin/main-relative fix as the AC6 pin above (issue #908 review) — a
 # HEAD-relative diff is vacuous once this PR's own commits land.
 assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
