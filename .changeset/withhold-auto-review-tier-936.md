@@ -26,12 +26,20 @@ bump: minor
   `devflow-runner.yml` object ID it was cut against; re-shipping the tier is a reconstruction
   against whatever that callee says at that later time, not a restore. (#936)
 
-### Removed
+### Retained deliberately
 
-- `scripts/derive-review-verdict.sh`, `scripts/derive-review-preconditions.sh` and
-  `scripts/describe-skip-title.sh`. A sole-caller sweep resolved each one's only workflow
-  caller to the removed `devflow-review.yml`, so all three became unreachable shipped code
-  and are retired with it rather than left under live assertions.
-  `scripts/render-guard-visibility.sh` is retained: `devflow-runner.yml`, which stays in the
-  tree for the capability-profile generator and the review-profile lock, still names it as
-  the sanctioned neutralizing renderer. (#936)
+- Every helper the withheld tier called stays shipped — `derive-review-verdict.sh`,
+  `derive-review-preconditions.sh`, `describe-skip-title.sh` and `render-guard-visibility.sh`
+  — even though the workflow that called them is gone and nothing in the tree now reaches
+  them. A sole-caller sweep initially marked the first three for deletion, which would have
+  **broken every existing consumer that upgrades**: `install.sh` re-stamps `devflow_version`
+  to the installed commit, so re-running the installer keeps the consumer's already-installed
+  `devflow-review.yml` while vendoring a plugin in which those helpers no longer exist. Its
+  `finalize_check` resolves `derive-review-verdict.sh` through the vendored path and fails
+  **closed** when absent, so every auto-review would report `incomplete`, the required
+  `Devflow Review` check would never report a verdict, and every pull request in that
+  repository would wedge — while `derive-review-preconditions.sh` going absent fails **open**,
+  silently dropping the freshness and CI-green preconditions. Deleting them is therefore not
+  a cleanup but a breaking change to installed copies, and the retention rule is now uniform:
+  everything downstream of the withheld tier stays, so the tier remains reconstructable and
+  installed copies keep resolving what they call. (#936)
