@@ -12287,26 +12287,12 @@ assert_eq "post_bot: only a human merge after the bot → 0" "0" \
 assert_eq "post_bot: missing parents_count treated as non-merge (counted)" "1" \
   "$(echo '[{"author_login":"claude[bot]","committer_login":"web-flow"},{"author_login":"alice","committer_login":"alice"}]' | _postbot_count someoneelse)"
 
-# #4: the /review verdict parser must recognize BOTH the standalone `/review`
-# report heading (`## Verdict: APPROVE (…)`) and the CI `@claude run /review`
-# wrapper heading (`### /review — Verdict: **REJECT**`), and must NOT fire on a
-# prose mention of the word "verdict".
-_vparse() {
-  jq -r '
-    [ .[] | . as $c | (.body//"") | split("\n")[] | rtrimstr("\r")
-      | select(test("^#{1,6}[ \t]*(/review[ \t]*[—–-]+[ \t]*)?Verdict:[ \t]*\\**[ \t]*(APPROVE|REJECT)"; "i"))
-      | capture("Verdict:[ \t]*\\**[ \t]*(?<verdict>APPROVE|REJECT)"; "i")
-      | {verdict:(.verdict|ascii_upcase), createdAt:$c.created_at} ]
-    | (.[-1].verdict // "NONE")'
-}
-assert_eq "verdict parser: CI wrapper format" "REJECT" \
-  "$(echo '[{"body":"**Claude finished** ——\n\n---\n### /review — Verdict: **REJECT**\n\nblah","created_at":"2026-01-01T00:00:00Z"}]' | _vparse)"
-assert_eq "verdict parser: standalone format" "APPROVE" \
-  "$(echo '[{"body":"# Review Report\n\n## Verdict: APPROVE (looks good)\n","created_at":"2026-01-02T00:00:00Z"}]' | _vparse)"
-assert_eq "verdict parser: APPROVE WITH CAVEAT → APPROVE" "APPROVE" \
-  "$(echo '[{"body":"## Verdict: APPROVE WITH CAVEAT — checklist not generated\n","created_at":"2026-01-03T00:00:00Z"}]' | _vparse)"
-assert_eq "verdict parser: prose mention ignored" "NONE" \
-  "$(echo '[{"body":"I think the verdict: REJECT was harsh.","created_at":"2026-01-04T00:00:00Z"}]' | _vparse)"
+# #4 / issue #895: the /review verdict parser is now exercised by EXECUTING the
+# producer (lib/fetch-pr-context.sh) through a gh stub — never by re-declaring its
+# jq filter inline — so a change to the producer's filter turns these RED. See the
+# "fetch-pr-context.sh: review_verdicts union" block below, which drives the
+# CI-wrapper form, the standalone form, the APPROVE-WITH-CAVEAT collapse, and the
+# prose-mention-ignored case through the real producer.
 
 # #5: fetch-pr-context elides generated/vendored file bodies from the embedded
 # diff but keeps every path in changed_files.
@@ -12343,6 +12329,134 @@ assert_eq "diff trim: lockfile noise removed"  "false" "$(printf '%s' "$_DIFF_TR
 assert_eq "diff trim: minified bundle elided"  "true"  "$(printf '%s' "$_DIFF_TRIMMED" | grep -q '\[elided: jsx/dist/app.min.js\]' && echo true || echo false)"
 
 # ────────────────────────────────────────────────────────────────────────────
+echo "fetch-pr-context.sh: review_verdicts union (issue #895)"
+# ────────────────────────────────────────────────────────────────────────────
+# The verdict signal is now the UNION of the PR conversation comments and the
+# durable bot PR reviews. Every assertion below EXECUTES the real producer through
+# a gh stub (AC21) — the filter is never re-declared inline — so a change to the
+# producer's union filter turns these RED.
+
+# The static UNION fixture set (lib/test/fixtures/UNION-*) is the mixed-leg content
+# assertion (AC22): a comment-derived APPROVE, a review-derived APPROVE, a review-
+# derived DISMISSED REJECT (CI-wrapper heading form), plus a PENDING review and a
+# no-heading CHANGES_REQUESTED review that both contribute nothing.
+UOUT="$(DEVFLOW_GH="$GH_STUB" DEVFLOW_FIXTURE_PR=UNION bash "$LIB/fetch-pr-context.sh" 895)"
+UCTX="$(cat "$UOUT")"
+# Fails first against today's comment-only code, which reads only the APPROVE
+# comment and reports review_reject_outstanding=false.
+assert_eq "union: review-derived REJECT sets review_reject_outstanding=true" "true" \
+  "$(jq -r '.signals.review_reject_outstanding' <<<"$UCTX")"
+assert_eq "union: review_verdicts length = 3 (PENDING + no-heading excluded)" "3" \
+  "$(jq -r '.review_verdicts | length' <<<"$UCTX")"
+assert_eq "union: review_verdicts verdict sequence" "APPROVE APPROVE REJECT" \
+  "$(jq -r '[.review_verdicts[].verdict] | join(" ")' <<<"$UCTX")"
+assert_eq "union: review_verdicts source sequence" "pr_review pr_comment pr_review" \
+  "$(jq -r '[.review_verdicts[].source] | join(" ")' <<<"$UCTX")"
+assert_eq "union: review_verdicts createdAt sequence" "2026-05-08T09:00:00Z 2026-05-08T10:00:00Z 2026-05-08T11:00:00Z" \
+  "$(jq -r '[.review_verdicts[].createdAt] | join(" ")' <<<"$UCTX")"
+assert_eq "union: each entry carries EXACTLY verdict/createdAt/source (no index leak)" "true" \
+  "$(jq -r 'all(.review_verdicts[]; (keys | sort) == ["createdAt","source","verdict"])' <<<"$UCTX")"
+# End-to-end: the review-derived REJECT gates the bundle non-clean with the
+# existing reason literal.
+assert_eq "union: cheap-gate reason on a review-only REJECT" "outstanding /review REJECT" \
+  "$(jq -c -f "$LIB/cheap-gate.jq" <<<"$UCTX" | jq -r .reason)"
+
+# Parametric scenarios via an inline gh stub that serves swappable comments/reviews
+# (the F97 pattern). Branch claude/issue-895-uv → issue 895; PR & issue thread are
+# both issues/895/comments (the gh-stub.sh limitation), which is immaterial here —
+# these assertions read .review_verdicts and .signals.review_reject_outstanding only.
+F895="$(mktemp -d)"
+cat > "$F895/prview.json" <<'PV'
+{"number":895,"headRefName":"claude/issue-895-uv","baseRefName":"main","headRefOid":"sha895","mergeCommit":{"oid":"m895"},"mergedAt":"2026-05-08T16:31:00Z","createdAt":"2026-05-08T07:00:00Z","author":{"login":"example-bot"},"title":"t","body":"Closes #895","additions":1,"deletions":0,"files":[{"path":"x.txt"}],"labels":[]}
+PV
+cat > "$F895/gh" <<'STUB'
+#!/usr/bin/env bash
+FX="${DEVFLOW_FX}"
+case "$*" in
+  *"repo view"*) echo "acme/example-repo" ;;
+  *"pr view"*) cat "$FX/prview.json" ;;
+  *"pr diff"*) echo 'diff --git a/x.txt b/x.txt' ;;
+  *"pulls/"*"/comments"*) echo '[]' ;;
+  *"pulls/"*"/reviews"*) cat "$FX/reviews.json" ;;
+  *"pulls/"*"/commits"*) echo '[]' ;;
+  *"check-runs"*) echo '{"check_runs":[]}' ;;
+  *"issues/895/comments"*) cat "$FX/comments.json" ;;
+  *"issues/"*"/comments"*) echo '[]' ;;
+  *"issues/895"*) echo '{"number":895,"title":"t","body":"b","labels":[],"comments":[]}' ;;
+  *"commits/"*) echo '{"files":[]}' ;;
+  *) echo '[]' ;;
+esac
+STUB
+chmod +x "$F895/gh"
+# $1 = comments JSON, $2 = reviews JSON → prints the emitted bundle to stdout.
+_uv() {
+  printf '%s' "$1" > "$F895/comments.json"
+  printf '%s' "$2" > "$F895/reviews.json"
+  local _o; _o="$(DEVFLOW_FX="$F895" DEVFLOW_GH="$F895/gh" bash "$LIB/fetch-pr-context.sh" 895 2>/dev/null)"
+  cat "$_o"
+}
+_uv_verds() { jq -r '[.review_verdicts[].verdict] | join(" ")'; }
+_uv_srcs()  { jq -r '[.review_verdicts[].source]  | join(" ")'; }
+_uv_rro()   { jq -r '.signals.review_reject_outstanding'; }
+
+# Verdict-parser format coverage, now producer-driven (replaces the old inline
+# _vparse): CI-wrapper form, standalone form, APPROVE-WITH-CAVEAT collapse (AC11),
+# and prose-mention-ignored — exercised through BOTH legs (AC7 grammar parity).
+assert_eq "union parser: CI-wrapper form in a REVIEW body → REJECT" "REJECT" \
+  "$(_uv '[]' '[{"state":"COMMENTED","body":"**bot** ——\n\n---\n### /review — Verdict: **REJECT**\n\nblah","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_verds)"
+assert_eq "union parser: standalone form in a COMMENT → APPROVE" "APPROVE" \
+  "$(_uv '[{"body":"# Review Report\n\n## Verdict: APPROVE (looks good)\n","created_at":"2026-01-02T00:00:00Z"}]' '[]' | _uv_verds)"
+assert_eq "union parser: APPROVE WITH CAVEAT collapses to APPROVE" "APPROVE" \
+  "$(_uv '[{"body":"## Verdict: APPROVE WITH CAVEAT — checklist not generated\n","created_at":"2026-01-03T00:00:00Z"}]' '[]' | _uv_verds)"
+assert_eq "union parser: prose mention of 'verdict: REJECT' ignored" "" \
+  "$(_uv '[{"body":"I think the verdict: REJECT was harsh.","created_at":"2026-01-04T00:00:00Z"}]' '[]' | _uv_verds)"
+
+# AC5: a review body with NO verdict heading contributes nothing whatever its state.
+assert_eq "union: CHANGES_REQUESTED review with no heading → rro stays false" "false" \
+  "$(_uv '[]' '[{"state":"CHANGES_REQUESTED","body":"please fix the tests","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_rro)"
+# AC10: a PENDING review with a verdict heading contributes nothing.
+assert_eq "union: PENDING review with a REJECT heading → rro false" "false" \
+  "$(_uv '[]' '[{"state":"PENDING","body":"## Verdict: REJECT","submitted_at":null}]' | _uv_rro)"
+# AC10: an absent/null/non-string state does NOT exclude the review.
+assert_eq "union: absent state + heading → contributes (rro true)" "true" \
+  "$(_uv '[]' '[{"body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_rro)"
+# AC6: a DISMISSED REJECT with no later APPROVE stays outstanding.
+assert_eq "union: DISMISSED REJECT, no later APPROVE → rro true" "true" \
+  "$(_uv '[]' '[{"state":"DISMISSED","body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_rro)"
+# AC6: cleared by a later APPROVE ordering after it.
+assert_eq "union: DISMISSED REJECT cleared by later APPROVE → rro false" "false" \
+  "$(_uv '[]' '[{"state":"DISMISSED","body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"},{"state":"COMMENTED","body":"## Verdict: APPROVE","submitted_at":"2026-01-02T00:00:00Z"}]' | _uv_rro)"
+# AC8/AC9: a non-string body skips that entry without aborting; other entries survive.
+assert_eq "union: non-string body skipped, sibling survives (no abort)" "REJECT" \
+  "$(_uv '[]' '[{"state":"COMMENTED","body":5,"submitted_at":"2026-01-01T00:00:00Z"},{"state":"COMMENTED","body":"## Verdict: REJECT","submitted_at":"2026-01-02T00:00:00Z"}]' | _uv_verds)"
+# AC16: a timestamp-less REJECT forces rro true regardless of timestamped entries.
+assert_eq "union: timestamp-less REJECT forces rro true" "true" \
+  "$(_uv '[]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE","submitted_at":"2026-01-01T00:00:00Z"},{"state":"COMMENTED","body":"## Verdict: REJECT","submitted_at":null}]' | _uv_rro)"
+# AC17: a timestamp-less APPROVE never clears a timestamped REJECT.
+assert_eq "union: timestamp-less APPROVE never clears a timestamped REJECT" "true" \
+  "$(_uv '[]' '[{"state":"COMMENTED","body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"},{"state":"COMMENTED","body":"## Verdict: APPROVE","submitted_at":""}]' | _uv_rro)"
+# AC13: identical timestamps order the review last (comment then review).
+assert_eq "union: identical timestamp → review orders last" "pr_comment pr_review" \
+  "$(_uv '[{"body":"## Verdict: APPROVE","created_at":"2026-01-01T00:00:00Z"}]' '[{"state":"COMMENTED","body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_srcs)"
+# AC13 consequence on review_reject_outstanding: because the review orders LAST on an
+# identical timestamp, a same-timestamp APPROVE *review* clears a REJECT *comment* — the
+# decided tie-break direction (a same-second cross-source tie is inherently ambiguous at
+# GitHub's 1s granularity; the issue's Potential Gotchas accept this ordering skew rather
+# than correcting it). Pin the signal consequence, not just the sequence.
+assert_eq "union: identical timestamp, APPROVE review after REJECT comment → rro false (AC13 tie-break)" "false" \
+  "$(_uv '[{"body":"## Verdict: REJECT","created_at":"2026-01-01T00:00:00Z"}]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_rro)"
+# AC4: multiple verdict headings in one body → one entry per heading.
+assert_eq "union: two headings in one review body → 2 entries" "APPROVE REJECT" \
+  "$(_uv '[]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE\nmid\n## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_verds)"
+# AC14: a round producing a stub review AND its progress comment → two entries, no dedup.
+assert_eq "union: stub review + progress comment (same verdict) → 2 entries" "2" \
+  "$(_uv '[{"body":"## Verdict: APPROVE — full report","created_at":"2026-01-01T00:00:05Z"}]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE — full report in PR comment","submitted_at":"2026-01-01T00:00:00Z"}]' | jq -r '.review_verdicts | length')"
+# Regression: empty comments + empty reviews → [] and false.
+assert_eq "union: empty comments + empty reviews → [] and rro false" "0 false" \
+  "$(_uv '[]' '[]' | jq -r '"\(.review_verdicts | length) \(.signals.review_reject_outstanding)"')"
+rm -rf "$F895"
+
+# ────────────────────────────────────────────────────────────────────────────
 echo "cheap-gate.jq"
 # ────────────────────────────────────────────────────────────────────────────
 gate() { jq -c -f "$LIB/cheap-gate.jq"; }
@@ -12377,6 +12491,45 @@ assert_eq "#626: workpad NoIssue sentinel → clean=false" "false" "$(echo "$BAS
 # #626: a wrong-type status (JSON boolean true) gates non-clean via the fallthrough.
 assert_eq "#626: workpad wrong-type (true) → clean=false" "false" "$(echo "$BASE" | jq '.signals.workpad_final_status=true' | gate | jq -r .clean)"
 
+# #895: fail closed when review_reject_outstanding is not readable as a boolean.
+# The new arm is evaluated BEFORE every existing arm, with a reason distinct from
+# both workpad reason literals (AC19/AC20). The closed set of unreadable shapes:
+UGATE_REASON="review-verdict signal unreadable"
+# — .signals is not a JSON object —
+assert_eq "#895 gate: signals null → fail-closed reason (was 'workpad absent')" "$UGATE_REASON" \
+  "$(echo '{"signals":null}' | gate | jq -r .reason)"
+assert_eq "#895 gate: signals null → clean=false, no abort" "false" \
+  "$(echo '{"signals":null}' | gate | jq -r .clean)"
+assert_eq "#895 gate: signals absent key → fail-closed reason" "$UGATE_REASON" \
+  "$(echo '{}' | gate | jq -r .reason)"
+assert_eq "#895 gate: signals as a JSON string → fail-closed (no index abort)" "$UGATE_REASON" \
+  "$(echo '{"signals":"nope"}' | gate | jq -r .reason)"
+assert_eq "#895 gate: signals as a JSON array → fail-closed (no index abort)" "$UGATE_REASON" \
+  "$(echo '{"signals":[1,2]}' | gate | jq -r .reason)"
+assert_eq "#895 gate: signals as a JSON number → fail-closed" "$UGATE_REASON" \
+  "$(echo '{"signals":7}' | gate | jq -r .reason)"
+# — .signals is an object but the field is absent/null/non-boolean —
+assert_eq "#895 gate: review_reject_outstanding absent → fail-closed" "$UGATE_REASON" \
+  "$(echo "$BASE" | jq 'del(.signals.review_reject_outstanding)' | gate | jq -r .reason)"
+assert_eq "#895 gate: review_reject_outstanding null → fail-closed" "$UGATE_REASON" \
+  "$(echo "$BASE" | jq '.signals.review_reject_outstanding=null' | gate | jq -r .reason)"
+# The two type-boundary cases: a JSON string is truthy in jq, so "false" must NOT
+# read as an outstanding REJECT, and "true" must NOT pass as a real boolean.
+assert_eq "#895 gate: review_reject_outstanding string \"false\" → fail-closed" "$UGATE_REASON" \
+  "$(echo "$BASE" | jq '.signals.review_reject_outstanding="false"' | gate | jq -r .reason)"
+assert_eq "#895 gate: review_reject_outstanding string \"true\" → fail-closed" "$UGATE_REASON" \
+  "$(echo "$BASE" | jq '.signals.review_reject_outstanding="true"' | gate | jq -r .reason)"
+# The new reason is neither workpad reason literal (AC20).
+assert_eq "#895 gate: fail-closed reason ≠ 'workpad absent or status unknown'" "false" \
+  "$([ "$UGATE_REASON" = "workpad absent or status unknown" ] && echo true || echo false)"
+assert_eq "#895 gate: fail-closed reason ≠ 'workpad status not Complete'" "false" \
+  "$([ "$UGATE_REASON" = "workpad status not Complete" ] && echo true || echo false)"
+# Regression: a real boolean keeps today's behavior on both values.
+assert_eq "#895 gate: real boolean false → clean stays true" "true" \
+  "$(echo "$BASE" | gate | jq -r .clean)"
+assert_eq "#895 gate: real boolean true → outstanding REJECT reason" "outstanding /review REJECT" \
+  "$(echo "$BASE" | jq '.signals.review_reject_outstanding=true' | gate | jq -r .reason)"
+
 # ────────────────────────────────────────────────────────────────────────────
 echo "issue #626: dispatch-disposition.jq — mechanical skip-or-dispatch classifier"
 # ────────────────────────────────────────────────────────────────────────────
@@ -12401,6 +12554,19 @@ assert_eq "#626 disp: Absent + outstanding REJECT → dispatch" "dispatch" "$(di
 assert_eq "#626 disp: non-sentinel status (Blocked) → dispatch" "dispatch" "$(disp "$(echo "$DBASE" | jq -c '.signals.workpad_final_status="Blocked"')" | jq -r .disposition)"
 assert_eq "#626 disp: wrong-type provenance → treated false → skip" "skip" "$(disp "$(echo "$DBASE" | jq -c '.pr_devflow_provenance="yes"')" | jq -r .disposition)"
 assert_eq "#626 disp: absent provenance key → treated false → skip" "skip" "$(disp "$(echo "$DBASE" | jq -c 'del(.pr_devflow_provenance)')" | jq -r .disposition)"
+
+# #895 disp: a non-object .signals must route to dispatch, not abort on the index
+# (AC28). Drives the whole bundle through REAL cheap-gate → dispatch-disposition.
+assert_eq "#895 disp: signals as a JSON string → dispatch (no abort)" "dispatch" \
+  "$(disp '{"signals":"nope","pr_devflow_provenance":false}' | jq -r .disposition)"
+assert_eq "#895 disp: signals as a JSON array → dispatch (no abort)" "dispatch" \
+  "$(disp '{"signals":[1,2],"pr_devflow_provenance":false}' | jq -r .disposition)"
+assert_eq "#895 disp: signals null → dispatch (no abort)" "dispatch" \
+  "$(disp '{"signals":null,"pr_devflow_provenance":false}' | jq -r .disposition)"
+# The fail-closed review-signal reason is not a workpad reason, so it dispatches
+# even alongside a sentinel status and no provenance (AC21).
+assert_eq "#895 disp: fail-closed review-signal reason → dispatch" "dispatch" \
+  "$(disp "$(echo "$DBASE" | jq -c 'del(.signals.review_reject_outstanding)')" | jq -r .disposition)"
 
 # ── #626 marker-entry consumer handling ──────────────────────────────────────
 # A skip marker entry {kind:"skip", pr, reason} is processed-PR bookkeeping, not a
@@ -47601,13 +47767,14 @@ echo "#783 argjson-transport guard: corpus-sized retrospective jq operands use -
 E783_LINT="$LIB/test/lint-argjson-transport.py"
 assert_eq "#783 lint helper exists" "yes" "$([ -f "$E783_LINT" ] && echo yes || echo no)"
 
-# Live gate: the three shipped aggregating helpers carry no unmarked --argjson.
+# Live gate: the four in-scope helpers carry no unmarked --argjson (issue #895
+# added lib/fetch-pr-context.sh to the IN_SCOPE set — see lint-argjson-transport.py).
 E783_OUT="$(python3 "$E783_LINT" 2>&1)"; E783_RC=$?
-assert_eq "#783 the three real aggregating helpers audit clean (no unmarked --argjson)" "rc=0" \
+assert_eq "#783 the four in-scope helpers audit clean (no unmarked --argjson)" "rc=0" \
   "$([ "$E783_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E783_RC" "$E783_OUT")"
-assert_eq "#783 the real-file run audited exactly the 3 in-scope files" "yes" \
+assert_eq "#783 the real-file run audited exactly the 4 in-scope files" "yes" \
   "$(printf '%s' "$E783_OUT" | python3 -c 'import re,sys
-m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==3 else "no")')"
+m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==4 else "no")')"
 
 # Positive control: the lint MUST report RED on an unmarked --argjson (the E2BIG
 # regression) and GREEN on the marked / converted / block-marked / prose-mention

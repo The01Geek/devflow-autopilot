@@ -23,8 +23,17 @@
 #     post_bot_commits          <int>    — commits pushed after the last bot push
 #     ci_failures_during_pr     <int>    — CI runs that failed while the PR was open
 #     workpad_final_status      <string|null> — final workpad status tag
-#     review_reject_outstanding <bool>   — true if a /review REJECT has not been
-#                                          superseded by a later APPROVE
+#     review_reject_outstanding <bool>   — true if a review REJECT (from either the
+#                                          PR conversation comments or the durable
+#                                          bot PR reviews) has not been superseded
+#                                          by a later APPROVE. Must be a genuine
+#                                          boolean: if `.signals` is not an object,
+#                                          or this field is absent/null/non-boolean,
+#                                          the gate FAILS CLOSED with the reason
+#                                          "review-verdict signal unreadable" (a
+#                                          truthy JSON string like "false" must not
+#                                          be read as an outstanding REJECT — issue
+#                                          #895).
 #     ci_status_unknown         <bool>   — true if CI check-runs could not be read
 #                                          (fail-safe: such a PR is never "clean")
 #   plus two TOP-LEVEL fields (siblings of .signals):
@@ -65,7 +74,11 @@
 #
 #   "reason" names the FIRST failing check when clean=false, or
 #   "all clean signals" when clean=true. Check order matches the priority
-#   used in the LLM triage prompt (most-blocking first). The reflection check
+#   used in the LLM triage prompt (most-blocking first) — with the
+#   "review-verdict signal unreadable" fail-closed check evaluated BEFORE every
+#   other arm, so an unreadable review signal is named as such rather than masked
+#   by the workpad-absent reason a non-object `.signals` would otherwise trip. The
+#   reflection check
 #   is last: a run that left a FRICTION bullet on its workpad is forced into
 #   LLM analysis even when every other signal is clean — that self-reported
 #   friction is exactly the signal the retrospective exists to learn from. A run
@@ -74,7 +87,25 @@
 #   clean-entry.jq). `reflections` and `reflections_friction_count` are top-level
 #   bundle fields (siblings of .signals), read directly.
 
-.signals as $s
+# Normalize .signals to an object once: a non-object value (absent, null, string,
+# array, number) becomes {} so EVERY field read below is safe regardless of the
+# if/elif arm order — no per-field type guard, and no reliance on the fail-closed
+# arm short-circuiting to keep the later raw index reads safe (issue #895).
+.signals as $s0
+| ($s0 | type) as $signals_type
+| (if $signals_type == "object" then $s0 else {} end) as $s
+# review_reject_outstanding must be readable as a boolean, or the gate fails CLOSED.
+# The raw read `if $s.review_reject_outstanding` is unsafe two ways: a non-object
+# `.signals` (now normalized to {} above, so the field reads null) and a JSON
+# *string* value ("false" is truthy in jq, "true" would pass a `// false`-style
+# guard as a real boolean) both mis-read the signal. So require a genuine boolean:
+# a normalized-away container yields null (type "null"), and a string yields type
+# "string" — either selects the distinct fail-closed arm below, reported before
+# every other arm so an unreadable review signal is named as such rather than
+# masked by the workpad-absent reason. The reason literal is NEITHER workpad reason
+# literal, so dispatch-disposition.jq routes such a bundle to `dispatch`.
+| ($s.review_reject_outstanding) as $rro
+| (($rro | type) == "boolean") as $rro_readable
 | ((.reflections // []) | length) as $reflection_count
 # Fail closed: when the friction field is ABSENT (null — an older bundle or a
 # failed emission), fall back to the legacy "any reflection trips" count so a
@@ -87,10 +118,13 @@
 # corrupt `Unparsed` case, so a run that left no audit trail is surfaced rather
 # than laundered past analysis. A non-empty non-"Complete" string (Unparsed /
 # Blocked / Failed / Cancelled / any future word) keeps the existing reason.
-| ($s.workpad_final_status == "Complete") as $workpad_ok
-| (($s.workpad_final_status == "") or ($s.workpad_final_status == null)) as $workpad_absent
+# $s is normalized to an object above, so this read is direct and safe.
+| ($s.workpad_final_status) as $wfs
+| ($wfs == "Complete") as $workpad_ok
+| (($wfs == "") or ($wfs == null)) as $workpad_absent
 |
-  if   $s.review_reject_outstanding               then { clean: false, reason: "outstanding /review REJECT" }
+  if   ($rro_readable | not)                      then { clean: false, reason: "review-verdict signal unreadable" }
+  elif $rro                                       then { clean: false, reason: "outstanding /review REJECT" }
   elif ($s.ci_status_unknown // false)            then { clean: false, reason: "CI status could not be read" }
   elif $s.ci_failures_during_pr   > 0             then { clean: false, reason: "CI failures during PR" }
   elif $s.post_bot_commits        > 0             then { clean: false, reason: "human commits after the bot" }

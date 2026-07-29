@@ -67,7 +67,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
 | `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
 | `reflections` | array | The bullet lines from the workpad's `## Devflow Reflection` `<details>` block — the bot's own self-reported friction notes (`[]` when none) |
-| `review_verdicts` | array | `/devflow:review` verdicts in time order: `[{verdict,createdAt}]` (APPROVE or REJECT) |
+| `review_verdicts` | array | Verdict entries in time order, drawn from the **union** of the PR conversation comments and the durable bot PR reviews: `[{verdict,createdAt,source}]` where `verdict` is APPROVE or REJECT and `source` is `pr_comment` or `pr_review`. Any verdict heading in either source qualifies (not only `/devflow:review` output). A single review round can contribute **two** entries — a stub review body and its progress comment — so entry count is not round count. |
 | `implement_summary_comment` | string\|null | The `/devflow:implement` completion summary comment body |
 | `signals` | object | See below |
 
@@ -81,7 +81,7 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `workpad_final_status` | string | Parsed Status line from the workpad, e.g. `"Complete"`, `"Blocked"`, `"Cancelled"`, or one of the three absent/corrupt sentinels `"Unparsed"` / `"Absent"` / `"NoIssue"` (issue #626). The producer always emits a non-empty value — `""` no longer appears. |
 | `pr_devflow_provenance` | boolean | True iff the literal `DevFlow` label is on the PR or the resolved linked issue — i.e. this was one of DevFlow's own runs (issue #626). Drives the workpad-absent analysis rule below. |
 | `ttm_hours` | number | Time from PR creation to merge, in decimal hours |
-| `review_reject_outstanding` | boolean | True when the chronologically-last `/devflow:review` verdict is REJECT |
+| `review_reject_outstanding` | boolean | True when the chronologically-last review verdict (from either conversation comments or durable PR reviews) is REJECT |
 
 **Source priority.** The **issue workpad** is your highest-signal primary source,
 and you treat its three facets as primary analysis input:

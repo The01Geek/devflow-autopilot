@@ -26,16 +26,21 @@
 #   2. the status word is a sentinel ("Absent" | "NoIssue"),
 #   3. provenance is false.
 # Otherwise "dispatch". Precedence is therefore explicit: a bundle non-clean on
-# ANY non-workpad signal (outstanding REJECT, CI failures, post-bot commits,
-# review comments) is dispatched regardless of sentinel or provenance — exactly
-# the analysis it receives today.
+# ANY non-workpad signal (outstanding REJECT, an unreadable review-verdict signal,
+# CI failures, post-bot commits, review comments) is dispatched regardless of
+# sentinel or provenance — exactly the analysis it receives today.
 #
 # Output: one compact JSON object:
 #   { "disposition": "skip"|"dispatch", "reason": <string> }
 # A skip carries the exact operator-facing reason line; a dispatch echoes the
 # gate reason so the run report can name why it was analyzed.
 
-.signals.workpad_final_status as $status
+# Guard the index: a `.signals` that is not a JSON object (absent, null, string,
+# array, number) would abort the filter on `.signals.workpad_final_status`. Treat
+# any non-object as an unknown workpad status (null), which is never a sentinel, so
+# the bundle routes to `dispatch` (issue #895) — the safe direction for a
+# truncated/hand-edited bundle.
+(if (.signals | type) == "object" then .signals.workpad_final_status else null end) as $status
 | (.pr_devflow_provenance == true) as $has_provenance
 | ($gate.reason) as $gate_reason
 # COUPLED CONTRACT: these two literals are cheap-gate.jq's workpad reason lines —
