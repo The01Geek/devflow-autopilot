@@ -497,8 +497,8 @@ REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" --slurpfile reviews "
     # Guard both payloads to arrays before iterating: a non-array comments payload
     # (stdin `.`) or a non-array reviews payload ($reviews[0]) would otherwise abort
     # the whole filter on `.[]` (external structured format — fail closed to empty).
-    ( (if type == "array" then . else [] end) ) as $comments
-    | ( (if ($reviews[0] | type) == "array" then $reviews[0] else [] end) ) as $reviews_arr
+    (if type == "array" then . else [] end) as $comments
+    | (if ($reviews[0] | type) == "array" then $reviews[0] else [] end) as $reviews_arr
     | (
         [ $comments[] | . as $c | verdicts_in($c.body) | {verdict: ., createdAt: ($c.created_at // ""), source: "pr_comment"} ]
         +

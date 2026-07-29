@@ -87,21 +87,25 @@
 #   clean-entry.jq). `reflections` and `reflections_friction_count` are top-level
 #   bundle fields (siblings of .signals), read directly.
 
-.signals as $s
-| ($s | type) as $signals_type
-# review_reject_outstanding must be readable as a boolean, or the gate fails CLOSED
-# (issue #895). The raw read `if $s.review_reject_outstanding` is unsafe two ways:
-# a non-object `.signals` (absent, null, string, array, number) aborts the whole
-# filter on the index, and a JSON *string* value ("false" is truthy in jq, "true"
-# would pass a `// false`-style guard as a real boolean) mis-reads the signal. So
-# derive readability explicitly: the container must be an object AND the field must
-# be a genuine boolean. Anything else selects the distinct fail-closed arm below —
-# reported before every other arm so an unreadable review signal is named as such
-# rather than masked by the workpad-absent reason (which the same non-object shape
-# would otherwise trip). The reason literal is NEITHER workpad reason literal, so
-# dispatch-disposition.jq routes such a bundle to `dispatch`.
-| (if $signals_type == "object" then $s.review_reject_outstanding else null end) as $rro
-| (($signals_type == "object") and (($rro | type) == "boolean")) as $rro_readable
+# Normalize .signals to an object once: a non-object value (absent, null, string,
+# array, number) becomes {} so EVERY field read below is safe regardless of the
+# if/elif arm order — no per-field type guard, and no reliance on the fail-closed
+# arm short-circuiting to keep the later raw index reads safe (issue #895).
+.signals as $s0
+| ($s0 | type) as $signals_type
+| (if $signals_type == "object" then $s0 else {} end) as $s
+# review_reject_outstanding must be readable as a boolean, or the gate fails CLOSED.
+# The raw read `if $s.review_reject_outstanding` is unsafe two ways: a non-object
+# `.signals` (now normalized to {} above, so the field reads null) and a JSON
+# *string* value ("false" is truthy in jq, "true" would pass a `// false`-style
+# guard as a real boolean) both mis-read the signal. So require a genuine boolean:
+# a normalized-away container yields null (type "null"), and a string yields type
+# "string" — either selects the distinct fail-closed arm below, reported before
+# every other arm so an unreadable review signal is named as such rather than
+# masked by the workpad-absent reason. The reason literal is NEITHER workpad reason
+# literal, so dispatch-disposition.jq routes such a bundle to `dispatch`.
+| ($s.review_reject_outstanding) as $rro
+| (($rro | type) == "boolean") as $rro_readable
 | ((.reflections // []) | length) as $reflection_count
 # Fail closed: when the friction field is ABSENT (null — an older bundle or a
 # failed emission), fall back to the legacy "any reflection trips" count so a
@@ -114,10 +118,8 @@
 # corrupt `Unparsed` case, so a run that left no audit trail is surfaced rather
 # than laundered past analysis. A non-empty non-"Complete" string (Unparsed /
 # Blocked / Failed / Cancelled / any future word) keeps the existing reason.
-# Guard the workpad reads too: a non-object $s would abort these bindings on the
-# index before the fail-closed arm below could fire. When $s is not an object the
-# status resolves to null, which the fail-closed arm handles first anyway.
-| (if $signals_type == "object" then $s.workpad_final_status else null end) as $wfs
+# $s is normalized to an object above, so this read is direct and safe.
+| ($s.workpad_final_status) as $wfs
 | ($wfs == "Complete") as $workpad_ok
 | (($wfs == "") or ($wfs == null)) as $workpad_absent
 |
