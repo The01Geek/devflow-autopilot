@@ -225,14 +225,6 @@
       "note": "",
       "owner": "unmodularized"
     },
-    "scripts/derive-review-preconditions.sh": {
-      "note": "",
-      "owner": "unmodularized"
-    },
-    "scripts/derive-review-verdict.sh": {
-      "note": "",
-      "owner": "unmodularized"
-    },
     "scripts/describe-denial-count.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -247,10 +239,6 @@
     },
     "scripts/describe-pretooluse-probe.sh": {
       "note": "issue #908 PreToolUse settings-input probe observation renderer",
-      "owner": "unmodularized"
-    },
-    "scripts/describe-skip-title.sh": {
-      "note": "",
       "owner": "unmodularized"
     },
     "scripts/detect-hook-closure-edges.py": {

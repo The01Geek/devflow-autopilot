@@ -176,6 +176,6 @@
   },
   "workflows": {
     "devflow": true,
-    "devflow-review": true
+    "devflow-review": false
   }
 }

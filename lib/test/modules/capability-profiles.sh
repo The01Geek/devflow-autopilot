@@ -192,8 +192,15 @@ _cap_noncomment_hits() {  # <file> -> prints "yes" if a non-comment line names a
   grep -vE '^[[:space:]]*#' "$1" \
     | grep -qE 'generate-capability-profiles\.py|capability-profiles\.json' && echo yes || echo no
 }
+CAP_WF_FILES="$(ls "$CAP_WF_DIR" 2>/dev/null | grep -E '\.yml$' || true)"
+assert_eq "#561 T8 the no-runtime-read scan enumerates a non-empty workflow set (not vacuous)" "yes" \
+  "$([ -n "$CAP_WF_FILES" ] && echo yes || echo no)"
 CAP_RT_HITS=0
-for f in devflow.yml devflow-runner.yml devflow-implement.yml devflow-review.yml telemetry-push.yml matcher-probe.yml; do
+# Enumerate the workflow files that EXIST in the tree rather than a hardcoded list: issue
+# #936 removed devflow-review.yml, and a hardcoded name for an absent file makes
+# `grep` read a missing path — the helper prints "no" for the wrong reason and the scan
+# silently stops covering anything it names but cannot open.
+for f in $CAP_WF_FILES; do
   [ "$(_cap_noncomment_hits "$CAP_WF_DIR/$f")" = yes ] && CAP_RT_HITS=$((CAP_RT_HITS+1))
 done
 assert_eq "#561 T8 no workflow reads policy from the manifest at run time (zero non-comment hits)" "0" "$CAP_RT_HITS"

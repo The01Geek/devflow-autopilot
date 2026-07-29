@@ -4,7 +4,7 @@
 # describe-denial-count.sh — render the permission-denial clause of the no-verdict
 # `::error::` annotation (issue #363).
 #
-# Why a helper rather than an inline `case` in devflow-review.yml: this clause IS the
+# Why a helper rather than an inline `case` in the workflow that consumed it: this clause IS the
 # accurate-diagnosis output the whole change exists to produce, so a silently
 # mis-selected arm (a reordered `case`, a glob typo) defeats the feature while the
 # workflow still "works". Inline shell inside YAML cannot be unit-tested; here

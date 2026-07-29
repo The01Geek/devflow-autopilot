@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: MIT
 # post-review-backstop-comment.sh — the review stall-backstop "post-and-annotate" glue
 # (issue #414). Extracted from the near-identical inline blocks in
-# .github/workflows/devflow-review.yml and .github/workflows/devflow.yml. The ~40-line glue
+# .github/workflows/devflow.yml (and, before issue #936 withheld the auto PR-triggered
+# review tier, .github/workflows/devflow-review.yml too). The ~40-line glue
 # (from the decision parse onward) matched between the two blocks except: (1) the no-fire
 # notice's PR reference — `${PR_NUMBER:-?}` in review.yml vs `${PR_NUMBER}` in devflow.yml,
 # unified here to the `:-?` form; and (2) review.yml's glue carried a "Post the marker +

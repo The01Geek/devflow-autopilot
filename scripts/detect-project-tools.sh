@@ -33,7 +33,7 @@
 # author's code in their respective workflows. The automated reviewer instead
 # runs PR build code only when the maintainer sets devflow_runner.provision_env
 # (read from the BASE branch's committed config, never the PR head — see
-# devflow-review.yml — so a PR cannot enable it for itself), which then runs
+# the auto-review caller — so a PR cannot enable it for itself), which then runs
 # setup.install + the PR's build under a write token AND grants the freeform
 # devflow_runner.allowed_tools list (bounded by the runner's deny-list floor).
 # This script never writes a deny-listed tool — the same catastrophic tier the

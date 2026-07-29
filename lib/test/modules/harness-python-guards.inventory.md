@@ -53,7 +53,6 @@ a whole population or test the module system itself).
 | `lib/test/cloud_writer_contract.py` | A whole-tree meta-guard over the cloud-writer reachability closure and its runtime manifest. The suite reaches it through `lib/test/test_python_scripts.py`, so it is inside the population — but its subject is a whole closure, not one code unit. |
 | `lib/test/cloud_writer_deps.py` | Reached the same way, through `lib/test/test_python_scripts.py`, and part of the same whole-closure subject as the guard above. |
 | `lib/test/regenerate-artifacts.py` | The batched generated-artifact pass itself: its subject is every registered artifact row rather than one code unit, and the `regenerate-artifacts` module already carries its focused coverage. |
-| `lib/test/check-review-retrigger-coverage.py` | A population scanner: it enumerates every PR-gating workflow under `.github/workflows/` and asserts the re-trigger list is a superset. Its subject is that whole population, not one code unit. |
 | `lib/test/extract-command-heads.py` | A whole-bundle scanner over every ```bash fence across the skill surfaces, driven against several allowlists. |
 | `lib/test/extract-command-shapes.py` | Same shape: a whole-bundle command-shape scan, not a single-unit verification. |
 | `lib/test/lint-issue-body-refetch.py` | A whole-tree lint over every cut-over site. |
