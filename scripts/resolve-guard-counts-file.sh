@@ -40,21 +40,9 @@ if [ -z "$TMP_DIR" ] || [ ! -d "$TMP_DIR" ]; then
 fi
 
 # Sanitize to the same filename-safe alphabet the guard's _run_key() uses (alnum,
-# `.`, `_`, `-`) via bash builtins only — never a PATH tool for a value that decides
-# which file gets read.
-_sanitize() {
-  _out=""
-  _s="$1"
-  _i=0
-  while [ "$_i" -lt "${#_s}" ]; do
-    _c="${_s:$_i:1}"
-    case "$_c" in
-      [A-Za-z0-9._-]) _out="${_out}${_c}" ;;
-    esac
-    _i=$((_i + 1))
-  done
-  printf '%s' "$_out"
-}
+# `.`, `_`, `-`) via a bash builtin pattern-substitution — never a PATH tool for a
+# value that decides which file gets read.
+_sanitize() { printf '%s' "${1//[^A-Za-z0-9._-]/}"; }
 
 RUN_ID_SAFE=$(_sanitize "$RUN_ID")
 ATTEMPT_SAFE=$(_sanitize "$ATTEMPT")
