@@ -48730,10 +48730,38 @@ PY
   # displaced/stubbed — exactly on the harden_hooks-skipped consumer-repo arm this step
   # exists to still cover. Behavioral: re-run the success-arm fixture and assert the
   # GITHUB_OUTPUT carries all three GUARD_TARGETS under displaced_paths.
-  assert_eq "#908 harden_guard: publishes displaced_paths for the success arm (shadow-review regression lock)" "yes" \
-    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out1.txt" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- the target is this fixture's own GITHUB_OUTPUT capture file (a mktemp'd sandbox artifact, not repo prose), asserting the harden_guard step's displaced_paths output actually carries the GUARD_TARGETS closure
-  assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" \
-    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out2.txt" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- same as above, the fail-closed/stubbed arm's fixture GITHUB_OUTPUT capture, not repo prose
+  # Read each fixture's GITHUB_OUTPUT capture into a variable and test membership with
+  # bash `case` (not `grep -qF`) — a dynamic mktemp'd fixture path can never be a
+  # statically-inspectable structural-pin target, so this deliberately avoids the
+  # raw-presence grep-for-literal shape rather than declaring an uninspectable pin.
+  _908_gh1="$(cat "$HG_FIX/gh_out1.txt" 2>/dev/null)"
+  _908_gh1_ok=no
+  case "$_908_gh1" in
+    *"scripts/pretooluse-shape-guard.py"*)
+      case "$_908_gh1" in
+        *"lib/test/extract-command-shapes.py"*)
+          case "$_908_gh1" in
+            *"lib/test/extract-command-heads.py"*) _908_gh1_ok=yes ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  assert_eq "#908 harden_guard: publishes displaced_paths for the success arm (shadow-review regression lock)" "yes" "$_908_gh1_ok"
+  _908_gh2="$(cat "$HG_FIX/gh_out2.txt" 2>/dev/null)"
+  _908_gh2_ok=no
+  case "$_908_gh2" in
+    *"scripts/pretooluse-shape-guard.py"*)
+      case "$_908_gh2" in
+        *"lib/test/extract-command-shapes.py"*)
+          case "$_908_gh2" in
+            *"lib/test/extract-command-heads.py"*) _908_gh2_ok=yes ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" "$_908_gh2_ok"
   assert_eq "#908 review: displaced_join wires harden_guard's displaced_paths as a third producer" "yes" \
     "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
 fi
