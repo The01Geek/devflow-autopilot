@@ -1307,10 +1307,7 @@ PYEOF
 srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=marker
 # (#871) Every refusal-token row asserts THROUGH this recorder, so the set of tokens the
 # driver rows exercise is a by-product of the rows rather than a hand-kept list beside them.
-# The grounded-coverage assertion at the end of this block compares that recorded set with
-# the set derived from the helper's own source, so a refusal arm added later — which would
-# otherwise route correctly through the prompt's token-PREFIX rule while carrying no
-# distinguishing token and no row — turns the suite RED until it gains both.
+# The grounded-coverage assertion at the end of this block states what that buys.
 : > "$SRP857/exercised.log"
 srp857_expect() {   # $1=label $2=expected refusal token $3=actual stdout
   printf '%s\n' "$2" >> "$SRP857/exercised.log"
@@ -1359,16 +1356,23 @@ chmod 755 "$SRP857/scripts/workpad.py"
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
   "RESUME 999" "$(srp857_run 7 m)"
-# NOT driven, deliberately -- the two arms the grounded-coverage assertion below declares
-# undrivable, each for a portability reason this repo's conventions bar working around:
-#   SKIP api-error-scratch-file        forcing mktemp to fail is not portable -- BSD/macOS
-#                                      mktemp ignores TMPDIR (verified), so the only levers
-#                                      are root-dependent or GNU-only.
-#   SKIP workpad-unreadable-script-dir reaching it needs the helper's OWN parent directory
-#                                      to be unsearchable, which also makes the helper
-#                                      itself unexecutable -- there is no state in which the
-#                                      arm runs and the resolution fails.
-# Both still fail CLOSED onto the published token+exit contract; what is undriven is each
+# NOT driven -- the two arms the grounded-coverage assertion below declares undrivable.
+# Each is undrivable GIVEN THE HELPER'S CURRENT DESIGN, not intrinsically, so name what
+# would change that rather than leaving the gap reading as environmental:
+#   SKIP api-error-scratch-file        the helper reaches for a system temp file, and forcing
+#                                      mktemp to fail is not portable -- BSD/macOS mktemp
+#                                      ignores TMPDIR (verified), so the only levers are
+#                                      root-dependent or GNU-only. Capturing the id stderr
+#                                      beside the caller-supplied body file instead would
+#                                      retire the arm outright.
+#   SKIP workpad-unreadable-script-dir the helper self-anchors on BASH_SOURCE, so reaching
+#                                      this arm needs its OWN parent directory to be
+#                                      unsearchable -- which also makes the helper
+#                                      unexecutable. A DEVFLOW_<TOOL>-style override for the
+#                                      workpad.py path (the repo's established convention)
+#                                      would make it injectable.
+# Both changes are out of scope here: each alters a shipped cloud helper's contract. Both
+# arms still fail CLOSED onto the published token+exit contract; what is undriven is each
 # arm's breadcrumb wording, and the declaration below keeps that gap visible rather than
 # letting an unexercised token pass as covered.
 # S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
@@ -1415,17 +1419,35 @@ assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on 
 # empty one side of it.
 SRP857_UNDRIVABLE="SKIP api-error-scratch-file
 SKIP workpad-unreadable-script-dir"
-assert_eq "#871 exactly two refusal arms are declared undrivable (a widening of the declaration is visible, not silent)" \
-  "2" "$(printf '%s\n' "$SRP857_UNDRIVABLE" | grep -c .)"
+# Compare the declaration against its exact expected value rather than counting its rows: a
+# count restates the literal's own content as a number and rots on any edit to it, and it
+# would miss a SUBSTITUTION (one token swapped for another) entirely.
+assert_eq "#871 the declared-undrivable set is exactly the two named arms (a widening OR a substitution is visible, not silent)" \
+  "SKIP api-error-scratch-file
+SKIP workpad-unreadable-script-dir" "$SRP857_UNDRIVABLE"
 cat > "$SRP857/token-sets.py" <<'PY871A'
 import re, sys
 # argv[1] = "emitted" | "covered"; argv[2] = the helper source; argv[3] = the
 # exercised-token log; argv[4] = the newline-separated declared-undrivable tokens.
 # Prints ONE sorted, de-duplicated set, so neither side of the comparison is carved
 # out of a combined payload by a PATH tool whose absence would empty both at once.
-if sys.argv[1] == 'emitted':
-    out = set(re.findall(r'^\s*echo "(SKIP [a-z0-9-]+)"\s*$',
-                         open(sys.argv[2], encoding='utf-8').read(), re.M))
+if sys.argv[1] in ('emitted', 'stray'):
+    body = open(sys.argv[2], encoding='utf-8').read()
+    # re.M is load-bearing: without it `^`/`$` anchor to the whole string and findall over
+    # the body returns nothing, which would empty the emitted set and make the equality row
+    # below compare two empty sets — a vacuous pass. The >=8 control row catches that too.
+    emit = re.compile(r'^\s*echo "(SKIP [a-z0-9-]+)"\s*$', re.M)
+    if sys.argv[1] == 'emitted':
+        out = set(emit.findall(body))
+    else:
+        # The emitted-set regex recognises ONE authoring shape. An arm written any other
+        # way — printf, an interpolated "SKIP $reason", a trailing comment — would
+        # contribute nothing to the emitted set, so the equality row would pass while the
+        # new arm went undocumented and undriven: the exact silent decay this block exists
+        # to stop. Report every non-comment line that mentions a SKIP token yet does not
+        # match the recognised shape, so an unrecognised spelling is RED rather than absent.
+        out = {ln.strip() for ln in body.splitlines()
+               if 'SKIP ' in ln and not ln.lstrip().startswith('#') and not emit.match(ln)}
 else:
     out = {ln for ln in open(sys.argv[3], encoding='utf-8').read().splitlines() if ln}
     out |= {ln for ln in sys.argv[4].splitlines() if ln}
@@ -1434,6 +1456,8 @@ PY871A
 srp857_sets() { python3 "$SRP857/token-sets.py" "$1" "$LIB/../scripts/seed-review-progress.sh" "$SRP857/exercised.log" "$SRP857_UNDRIVABLE"; }
 SRP857_EMITTED="$(srp857_sets emitted)"
 SRP857_COVERED="$(srp857_sets covered)"
+assert_eq "#871 every SKIP token in the helper's code is written in the shape the emitted-set derivation recognises (an unrecognised spelling is RED, not invisible)" \
+  "" "$(srp857_sets stray)"
 # A positive control on the derivation itself: an emitted set that came back EMPTY would
 # make the equality row below pass against an equally-empty covered set, so assert the
 # helper's own source yielded a non-trivial vocabulary before comparing the two.
