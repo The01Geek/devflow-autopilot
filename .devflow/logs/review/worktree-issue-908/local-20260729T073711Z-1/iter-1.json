@@ -1,0 +1,104 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-29T07:37:11Z",
+  "fix_commit_sha": "ff4fbf9d",
+  "fix_files": [
+    "scripts/resolve-guard-counts-file.sh",
+    ".github/workflows/devflow-runner.yml",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "current_step": "3.5",
+  "current_substep": "fix_delta_gate",
+  "pending_dispatch": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {"status": "run"},
+  "checklist": [],
+  "dispatched_effort": [
+    {"agent": "devflow:code-reviewer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:silent-failure-hunter", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:comment-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:pr-test-analyzer", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"},
+    {"agent": "devflow:requesting-code-review", "phase": "3", "requested": "low", "resolved": "low", "application_point": "session-fallback", "effective": null, "fallback_reason": "per-agent effort 'low' resolved but not applied: no in-session per-agent effort seam"}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit_note": "set; forced the Phase 3.1.5 completeness-critic pass",
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:code-reviewer", "severity": "Critical", "description": "resolve-guard-counts-file.sh's glob fallback cannot match the guard's bare store name, so a run-key mismatch silently reports a false zero", "defect_signature": {"file": "scripts/resolve-guard-counts-file.sh", "line_range": [80, 89], "kind": "logic_error"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "the resolver header claims the glob fallback covers run-key drift 'without going silent' and calls the divergence behaviorally inert; both false for the bare-name direction", "defect_signature": {"file": "scripts/resolve-guard-counts-file.sh", "line_range": [20, 30], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "a zero-byte counts store is reported as a positively-known zero rather than unavailable; the guard only creates that file on a deny, so zero-length means a partial write", "defect_signature": {"file": "scripts/resolve-guard-counts-file.sh", "line_range": [75, 90], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "harden_guard fires its fail-closed stub arm on every consumer-repo review run, emitting a spurious ::warning:: and writing phantom scripts/ and lib/test/ files into the consumer checkout (issue-#502 class)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1414, 1533], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "render-guard-visibility.sh's arm-name regex is an uncoupled mirror of the guard's REMEDIATION keys; one unknown arm blanks the entire counts panel", "defect_signature": {"file": "scripts/render-guard-visibility.sh", "line_range": [95, 104], "kind": "logic_error"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "Surface denied command detail swallows a helper failure with '|| true' and no breadcrumb, unlike its sibling branch in devflow-review.yml", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [2484, 2497], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "harden_guard comment names a displaced_paths output the step does not publish (the key is guard_paths)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1513, 1531], "kind": "documented_falsehood"}, "corroboration_count": 3, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:code-reviewer", "severity": "Important", "description": "the new harden_guard step was inserted mid-sentence, splitting the pre-existing harden_hooks comment across 118 lines", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1413, 1414], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "the guard step's three-outcome comment states a false cause for the FIRED=false arm; _run() continues with tmp=None when the telemetry dir is unwritable", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [2318, 2334], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'It runs unconditionally, so this is non-empty on every run' is a universal the code does not guarantee (implicit if: success(), and the last-resort arm exits before writing)", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1806, 1813], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "the settings: comment labels the hook command REPO-RELATIVE; it is an absolute path resolved at run time from the repo root", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [2270, 2272], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "resolver header understates the sanitizing divergence (Python str.isalnum is Unicode-aware) and omits that an existing-but-empty file is also rejected", "defect_signature": {"file": "scripts/resolve-guard-counts-file.sh", "line_range": [24, 33], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the newline-flattening neutralization limb is untested although it is a stated security boundary", "defect_signature": {"file": "scripts/render-guard-visibility.sh", "line_range": [133, 137], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "a dead resolve-guard-counts-file.sh invocation, and an assertion name claiming an empty-stdout guarantee the test never checks", "defect_signature": {"file": "lib/test/run.sh", "line_range": [48745, 48747], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "no assertion that the pretooluse-probe job is declared in matcher-probe.yml (AC7); the helper-invocation grep survives a renamed or settings-stripped job", "defect_signature": {"file": "lib/test/run.sh", "line_range": [48758, 48759], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Important", "description": "the settings input's merge-vs-overwrite semantics are unmeasured; under overwrite the base-restored Stop hooks would silently stop applying on the review tier", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [2213, 2311], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "the guard and denied-commands runner steps, and devflow-review.yml's three-arm summary-append selection, are presence-pinned only with no behavioral driver", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [2429, 2492], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "undocumented ordering dependency between the new attacker-influenced summary text and build-experiment-records.py's unanchored DENIAL_SUMMARY_RE", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [1349, 1355], "kind": "security"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "completeness-critic", "severity": "Suggestion", "description": "the bash exit-0 stub literal pin counts a branch harden_guard never executes, while the python branch it does execute carries no source-level pin", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1455, 1470], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "completeness-critic", "severity": "Suggestion", "description": "two sibling #458/#460 pins keep generic titles that now under-describe their population after harden_guard added a second site", "defect_signature": {"file": "lib/test/run.sh", "line_range": [23519, 23550], "kind": "comment_drift"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "completeness-critic", "severity": "Suggestion", "description": "harden_guard's disposition= output has no consumer; it is currently write-only", "defect_signature": {"file": ".github/workflows/devflow-runner.yml", "line_range": [1499, 1511], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-16", "decision": "deferred", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "settings input merge-vs-overwrite semantics are unmeasured", "skip_category": "already-tracked", "evidence": "the unmeasured boundary is already recorded as an issue-accuracy-class reflection on the workpad and is the stated purpose of the AC7 pretooluse-probe arm this PR ships; measuring it requires dispatching that probe post-merge (#919's scope), so it cannot be closed in-PR", "parking_evidence": {"basis": "the measurement requires a cloud probe dispatch that only exists after this PR merges; the risk is disclosed in the workflow comment and in the workpad reflection", "failing_input": "a claude-code-action settings input that overwrites rather than merges the base-restored .claude/settings.json Stop hooks", "source": ".github/workflows/matcher-probe.yml pretooluse-probe job (AC7, shipped by this PR)", "finding_ref": {"iter": 1, "index": 15}}},
+    {"finding_id": "F-17", "decision": "deferred", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "the guard/denied-commands runner steps and devflow-review.yml's summary-append arm lack behavioral drivers", "skip_category": "out-of-scope", "evidence": "extracting two more workflow steps into suite-drivable helpers is a coverage-architecture change beyond this issue's ACs; this iteration did add the exit-2 routing pin and the resolver arm matrix that cover the specific defect found", "parking_evidence": {"basis": "the finding asks for a new extraction of inline workflow shell into helpers, which is a separate coverage-architecture change none of this issue's eight ACs mandate", "failing_input": "a regression reinstating `.arms // {}` or reordering the FIRED arms in the guard step", "source": "CLAUDE.md inline-shell-extraction convention", "finding_ref": {"iter": 1, "index": 16}}},
+    {"finding_id": "F-18", "decision": "deferred", "source_file": ".github/workflows/devflow-review.yml", "claim_text": "undocumented ordering dependency with build-experiment-records.py's unanchored DENIAL_SUMMARY_RE", "skip_category": "out-of-scope", "evidence": "anchoring the regex edits a #431 assembler outside this diff's surface; the parser is safe today because it returns on the first valid token and the genuine line is appended above the guard block, which Phase 2 verified by reading the regex and docstring", "parking_evidence": {"basis": "the fix touches scripts/build-experiment-records.py, an artifact outside this issue's changed surface, and the current behavior was verified correct", "failing_input": "a future reordering of the summary assembly that places the neutralized guard block above the genuine permission_denials_count line", "source": "scripts/build-experiment-records.py DENIAL_SUMMARY_RE", "finding_ref": {"iter": 1, "index": 17}}},
+    {"finding_id": "F-19", "decision": "deferred", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "the bash exit-0 stub pin counts a dead branch while the executed python branch is unpinned", "skip_category": "claim-quality", "evidence": "the guarantee is not vacuous — the harden_guard behavioral fixture executes the real step and asserts the malicious PR-head bytes are gone on the unreachable-base arm, which is stronger coverage than a source-level pin on the python literal would be", "parking_evidence": {"basis": "the executing branch already has behavioral coverage; the source-level pin the finding asks for would be a wording-style pin the repo's #375/#666/#810 policy discourages", "failing_input": "a regression to harden_guard's python stub literal", "source": "lib/test/run.sh #908 harden_guard fixture block", "finding_ref": {"iter": 1, "index": 18}}},
+    {"finding_id": "F-20", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "two sibling #458/#460 pin titles under-describe their population", "skip_category": "uncategorized", "evidence": "naming/attribution drift only; harden_guard's equivalents are covered behaviorally by the #908 fixture block, and the counts themselves are correct at HEAD (independently re-enumerated by the completeness critic)"},
+    {"finding_id": "F-21", "decision": "deferred", "source_file": ".github/workflows/devflow-runner.yml", "claim_text": "harden_guard's disposition= output has no consumer", "skip_category": "uncategorized", "evidence": "a write-only output mirroring harden_hooks' own disposition= contract; harmless, and removing it would break the #504 symmetry the step deliberately mirrors"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 15,
+    "fix_diff_lines": 214,
+    "new_corroborated_critical_count": 1
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "parked_class_sweep": {"classes": [], "truncation": null, "dispatch": "verified"},
+  "reference_reads": {"fix_delta": {"status": "not_verified", "outcome": "clean", "reason": "orchestrator-driven inline loop; fix-delta gate discharged by the full-suite run plus targeted per-arm execution of every changed resolver branch"}},
+  "shadow": {
+    "ran_at": null,
+    "reviewed_sha": null,
+    "verdict": null,
+    "coverage": null,
+    "prompt_addenda": null,
+    "reviewers_dispatched": [],
+    "expected_reviewers": [],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3":   {"calls": 6, "tokens": 674294, "wall_clock_s": 292},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 2, "webfetches": 0},
+    "step_2_6":  {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}
