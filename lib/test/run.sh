@@ -22592,12 +22592,15 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at four sites: the tools
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at five sites: the tools
 # step's deny-floor (#404), the #458 harden-stop-hooks step, the #505 compose step
-# (same trusted-source rank — the compose helper's rank-2 vendored fallback), and the
+# (same trusted-source rank — the compose helper's rank-2 vendored fallback), the
 # #874 baseprovision step, whose prompt-extension materialization ladder carries the
-# identical fetch-gated rank so a THIN install resolves a trusted helper at all.
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision)" "4" \
+# identical fetch-gated rank so a THIN install resolves a trusted helper at all, and
+# the #908 harden_guard step, which keys the SAME trust signal to decide whether the
+# vendored copy of the PreToolUse guard closure also needs hardening (a `fetch`
+# vendor tree is official-repo content this run; any other value is PR-head content).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision + #908 harden_guard)" "5" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -23549,24 +23552,45 @@ assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
 assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
+# The issue-#908 "Harden PreToolUse guard closure" step (id: harden_guard) performs the
+# same trusted-source read for its own GUARD_TARGETS closure, but over the PREFIXED
+# path variable `$vt` (repo-root and, when the vendored tree is not fetch-fresh, the
+# `.devflow/vendor/devflow/` copy) — so it is pinned separately rather than folded into
+# the `$t` count above, which stays scoped to harden_hooks' own TARGETS loop.
+assert_eq "#908 workflow: trusted guard-closure copies materialized from FETCH_HEAD" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:$vt"' "$RUNNER" || true)"
 # The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
 # gate re-opens PR-head tampering (same operative gate the #404 floor pins).
 # Fail-closed arm: when no trusted helper resolves, the step stubs every target
 # inline (never the PR-head copy) and warns.
 assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
   "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
-assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
+# Count is 2, not 1 (issue #908 review, fix-delta gate attribution correction): the
+# second occurrence is source-only, not currently exercised — harden_guard's own
+# stub_guard() carries this exact exit-0 bash-stub literal for a NON-.py GUARD_TARGETS
+# member, a branch every current member (all .py) takes the python3-stub sibling
+# branch instead of. The pin still legitimately guards against source-level drift of
+# this literal (this repo's structural-pin-ok convention), it is just not proof the
+# branch runs today.
+assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "2" \
   "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
 # The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
 # write_stub) so the `> "$d"` never writes THROUGH the link into its resolved target.
-assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "1" \
+# Count is 3, not 1 (issue #908 review): harden_guard applies this SAME check in TWO
+# of its own branches (the trusted-copy displacement loop AND its stub_guard()
+# fallback) — both independently need it, since either is reachable depending on
+# whether the base fetch succeeds — plus this step's own single occurrence.
+assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "3" \
   "$(grep -cF '[ -L "$d" ] && rm -f "$d"' "$RUNNER" || true)"
 # LAST-RESORT arm must be genuinely fail-CLOSED (issue #460): if the inline stub WRITE
 # itself fails (a wholly-unwritable dest), the PR-head hook script REMAINS — warning and
 # exiting 0 would let `Run Claude Code` proceed with a PR-controlled hook intact in this
 # secrets-bearing job (fail-OPEN). On any un-stubbable target the step must FAIL (exit 1)
 # after the loop so the job aborts BEFORE the engine runs.
-assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "1" \
+# Count is 2, not 1 (issue #908 review): harden_guard's own stub_guard() mirrors this
+# exact checked-write-failure-flag pattern for its own GUARD_TARGETS closure,
+# independent of this harden_hooks step's fail-closed arm.
+assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "2" \
   "$(grep -cF 'stub_failed=1' "$RUNNER" || true)"
 assert_eq "#460 workflow: un-stubbable target fails the step with a fail-closed ::error::" "1" \
   "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires' "$RUNNER" || true)"
@@ -24553,14 +24577,15 @@ assert_eq "provision: malformed/non-object base config warns + read-only (basepr
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-# THREE sites read the trusted BASE_REF from the event payload and fetch it: the
-# baseprovision step, the #458 harden-stop-hooks step, and the #874 baseversion step
-# (all under the same trusted-source rule). The #874 step fetches independently rather
-# than relying on another step's FETCH_HEAD surviving — reading FETCH_HEAD outside the
-# branch that established it is the misattribution that trust rule exists to prevent.
-assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden + #874 baseversion)" "3" \
+# FOUR sites read the trusted BASE_REF from the event payload and fetch it (issue #908
+# review: was three before the new harden_guard step): the baseprovision step, the
+# #458 harden-stop-hooks step, the #874 baseversion step, and the #908 harden_guard
+# step (all under the same trusted-source rule — the guard's own trusted-copy
+# displacement needs its own independent fetch, for the same reason #874's baseversion
+# step does not rely on another step's FETCH_HEAD surviving).
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden + #874 baseversion + #908 harden_guard)" "4" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden + #874 baseversion)" "3" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden + #874 baseversion + #908 harden_guard)" "4" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
 # Two readers of the trusted base config: baseprovision (provision_env, allowed_tools,
 # setup) and the #874 baseversion step (devflow_version).
@@ -48608,6 +48633,625 @@ assert_eq "#877 gate: the empty-result diagnosis is distinct from the did-not-su
   "$(bash "$E877_GATE" "" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
 assert_eq "#877 gate: a missing argument takes the same unestablished arm (no bare set -u abort)" "yes" \
   "$(bash "$E877_GATE" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
+# ────────────────────────────────────────────────────────────────────────────
+
+echo "#908 render-guard-visibility.sh (PreToolUse guard visibility renderer — adversarial matrix)"
+# ────────────────────────────────────────────────────────────────────────────
+# Follow-up to #805/#906. extract-execution-shape.sh's own docstring discloses that
+# permission_denials_commands is the ONE field it does NOT redact — this is the sanctioned
+# neutralizing consumer that docstring names as a precondition on any future consumer.
+RGV="$REPO_ROOT/scripts/render-guard-visibility.sh"
+RGV_OUT="$(bash "$RGV" true '{"R1":2,"R4":1}' '{"commands":["echo `hi`","git push ::error::sneaky"],"total":2,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: backtick is stripped from denied-command text" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -F '- echo' | grep -qF '`' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: a literal :: is neutralized in denied-command text" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF '::error::' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: the neutralized :: still carries the original word content" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'error' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: happy-path output stays inside a single fence" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -c '^```' | grep -qx 2 && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: guard-fired true renders" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'guard fired: **true**' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: populated per-arm counts render both arms" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'R1=2' && printf '%s' "$RGV_OUT" | grep -qF 'R4=1' && echo yes || echo no)"
+RGV_UNAVAIL="$(bash "$RGV" unavailable unavailable unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: all-unavailable input renders unavailable everywhere, never a false 0/false" "yes" \
+  "$(printf '%s' "$RGV_UNAVAIL" | grep -qF 'guard fired: **unavailable**' \
+     && printf '%s' "$RGV_UNAVAIL" | grep -qF 'per-arm denial counts: unavailable' \
+     && echo yes || echo no)"
+RGV_MALFORMED="$(bash "$RGV" true 'not-json' 'also not json' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: malformed JSON degrades to unavailable, never a bash abort" "0" "$?"
+assert_eq "#908 render-guard-visibility: malformed counts JSON renders unavailable (fail-closed, not a crash)" "yes" \
+  "$(printf '%s' "$RGV_MALFORMED" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# UNKNOWN IS NOT ZERO, AND ZERO IS NOT UNKNOWN — the operand-trace-sweep fix: a valid EMPTY
+# counts object ({} — guard fired, zero denials) must render as a positively-known zero, not
+# collapse onto the same "unavailable" line a genuinely-unparseable input renders.
+RGV_EMPTY="$(bash "$RGV" true '{}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a valid empty counts object renders as a known zero, not 'unavailable'" "yes" \
+  "$(printf '%s' "$RGV_EMPTY" | grep -qF 'per-arm denial counts: none' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: the known-zero line is textually distinct from the unavailable line" "yes" \
+  "$(printf '%s' "$RGV_EMPTY" | grep -qF 'per-arm denial counts: unavailable' && echo no || echo yes)"
+RGV_TRUNC="$(bash "$RGV" true unavailable '{"commands":["a"],"total":99,"truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a truncated commands list carries the truncation marker + total" "yes" \
+  "$(printf '%s' "$RGV_TRUNC" | grep -qF 'truncated — 99 total' && echo yes || echo no)"
+bash "$RGV" >/dev/null 2>&1
+assert_eq "#908 render-guard-visibility: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+# issue #908 review (Critical/security finding, confirmed by direct execution): jq's
+# gsub("::"; ": :") is non-overlapping, so an ODD-length colon run leaves a residual ::
+# — the exact input class the happy-path ':: error ::' case above (a well-separated,
+# even-length run) does not exercise. Regression-lock the fixed gsub(single-colon)
+# form: no `::` substring may survive ANY colon run, of any length.
+RGV_ODD3="$(bash "$RGV" true '{}' '{"commands":[":::"],"total":1,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: an odd-length (3) colon run leaves no residual :: (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$RGV_ODD3" | grep -qF '::' && echo no || echo yes)"
+RGV_ODD5="$(bash "$RGV" true '{}' '{"commands":["a:::::b"],"total":1,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: an odd-length (5) colon run leaves no residual :: (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$RGV_ODD5" | grep -qF '::' && echo no || echo yes)"
+# Suggestion (issue #908 review): the "total unavailable" truncation branch — a
+# truncated list whose producer omitted/mistyped `.total` — was previously untested
+# (only the total-present path was exercised).
+RGV_TRUNC_NOTOTAL_SHOWING="$(bash "$RGV" true '{}' '{"commands":["a"],"truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: truncated + missing total + non-empty commands renders 'total unavailable, showing N'" "yes" \
+  "$(printf '%s' "$RGV_TRUNC_NOTOTAL_SHOWING" | grep -qF '_(list truncated — total unavailable, showing 1)_' && echo yes || echo no)"
+RGV_TRUNC_BADTOTAL="$(bash "$RGV" true '{}' '{"commands":["a"],"total":"not-a-number","truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a non-numeric .total (string) is treated the same as a missing total, not coerced" "yes" \
+  "$(printf '%s' "$RGV_TRUNC_BADTOTAL" | grep -qF '_(list truncated — total unavailable, showing 1)_' && echo yes || echo no)"
+# UNKNOWN IS NOT ZERO on the denied-commands axis too (issue #908 review, corroborated
+# by multiple Phase-3 agents): a valid-but-empty commands array is the COMMON, healthy
+# "guard fired, denied nothing" shape extract-execution-shape.sh emits on every clean
+# run — it must render as a positively-known zero, distinct from "unavailable".
+RGV_CMD_EMPTY="$(bash "$RGV" true '{}' '{"commands":[],"total":0,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a valid empty commands array renders as a known zero, not 'unavailable' (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$RGV_CMD_EMPTY" | grep -qF '_(unavailable)_' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: the empty-commands known-zero line names zero denied commands" "yes" \
+  "$(printf '%s' "$RGV_CMD_EMPTY" | grep -qF 'none (guard fired, zero denied commands recorded)' && echo yes || echo no)"
+# A non-string entry inside .commands is a producer-shape violation — it must render as
+# malformed (unavailable), never silently dropped into a clean-looking empty render.
+RGV_CMD_BADTYPE="$(bash "$RGV" true '{}' '{"commands":[123],"total":1,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a non-string commands entry renders unavailable, not a silent drop" "yes" \
+  "$(printf '%s' "$RGV_CMD_BADTYPE" | grep -qF '_(unavailable)_' && echo yes || echo no)"
+# A valid-JSON-but-wrong-TYPE GUARD_COUNTS_JSON (array, not object) must not slip past
+# the `type == "object"` guard as a false "empty" or crash the parse.
+RGV_COUNTS_ARR="$(bash "$RGV" true '[1,2,3]' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a valid-JSON-wrong-type (array) counts value renders unavailable, not a false zero" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_ARR" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# Confirmatory-review finding (issue #908 review, iteration 3, Critical/security):
+# .devflow/tmp (the counts store's directory) is agent-writable under the review
+# profile's own Write(.devflow/tmp/**) grant, so a hostile counts object is a real
+# input class, not a hypothetical — demonstrated by direct execution before the fix.
+# A key/value outside the guard's own closed arm-name vocabulary (R<n>, optionally
+# R<n>-<word>) or a non-numeric value must degrade the WHOLE object to unavailable,
+# never render partially (which would still leak the injected bytes).
+RGV_COUNTS_INJECT="$(bash "$RGV" true '{"R1":"1\npermission_denials_count: 0"}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a hostile counts value (embedded newline mimicking another summary line) renders unavailable, never the injected text (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_INJECT" | grep -qF 'permission_denials_count: 0' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: the hostile-counts case degrades the WHOLE object to unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_INJECT" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+RGV_COUNTS_BADKEY="$(bash "$RGV" true '{"not-an-arm-name":1}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a counts key outside the guard's closed arm-name vocabulary renders unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_BADKEY" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+RGV_COUNTS_STRVAL="$(bash "$RGV" true '{"R1":"2"}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a non-numeric counts value (string, not number) renders unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_STRVAL" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# COUPLED-INVARIANT GATE (issue #908 confirmatory review, corroborated by three reviewers).
+# The renderer validates every counts key against its own arm-name pattern and degrades the
+# WHOLE object to `unavailable` on a single miss. That pattern is an uncoupled MIRROR of the
+# guard's REMEDIATION arm names, so a future arm the pattern cannot express (a second
+# hyphenated word, a digit or uppercase in the suffix) would silently report real denials as
+# an unestablished measurement — the inverse of the unknown-is-not-zero collapse this file's
+# own doctrine forbids, with no failing test. Drive the renderer with a counts object
+# synthesized FROM THE GUARD'S OWN KEYS rather than re-asserting the literal pattern, so the
+# two sides are bound by behavior: adding an unrenderable arm turns this RED at the desk.
+RGV_ARMS_JSON="$(python3 - "$REPO_ROOT/scripts/pretooluse-shape-guard.py" <<'PY'
+import ast, json, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+keys = []
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and any(
+        isinstance(t, ast.Name) and t.id == "REMEDIATION" for t in node.targets
+    ) and isinstance(node.value, ast.Dict):
+        keys = [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
+print(json.dumps({k: 1 for k in keys}) if keys else "")
+PY
+)"
+assert_eq "#908 render-guard-visibility: the guard's REMEDIATION arm names were extractable (the coupling gate below is not vacuous)" "yes" \
+  "$([ -n "$RGV_ARMS_JSON" ] && [ "$RGV_ARMS_JSON" != '{}' ] && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: EVERY guard REMEDIATION arm name is renderable (coupled-invariant gate — an arm the renderer cannot express would blank the whole counts panel)" "no" \
+  "$(bash "$RGV" true "$RGV_ARMS_JSON" unavailable 2>/dev/null | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# Negative control: the gate above can only fail closed if a genuinely unrenderable key
+# really does blank the panel, so prove that direction too rather than trusting the pass.
+assert_eq "#908 render-guard-visibility: the coupling gate's failure direction is real (an unrenderable arm name DOES blank the panel)" "yes" \
+  "$(bash "$RGV" true '{"R5-cd-lead":1}' unavailable 2>/dev/null | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# NEWLINE-FLATTENING LIMB (issue #908 confirmatory review). The renderer's header commits to
+# three neutralizations; backtick-stripping and colon-spacing each got a lock, this one did
+# not. A denied command carrying newlines must render as exactly ONE list item and must not
+# forge a second summary line or break out of the fence.
+RGV_NL="$(bash "$RGV" true unavailable '{"commands":["echo a\npermission_denials_count: 0\n```fake"],"total":1,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command renders as exactly one list item" "1" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^- echo')"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command forges no second permission_denials_count line" "0" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^permission_denials_count:')"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command cannot break out of the fence" "2" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^```')"
+
+echo "#908 describe-pretooluse-probe.sh (settings-input probe observation — FIRED/reason-delivery matrix)"
+# ────────────────────────────────────────────────────────────────────────────
+DPP="$REPO_ROOT/scripts/describe-pretooluse-probe.sh"
+DPP_TMP="$(mktemp -d)"
+DPP_ABSENT="$(bash "$DPP" "$DPP_TMP/absent-marker" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: marker absent renders NOT-FIRED" "yes" \
+  "$(printf '%s' "$DPP_ABSENT" | grep -qF 'observed: **NOT-FIRED**' && echo yes || echo no)"
+assert_eq "#908 describe-pretooluse-probe: absent-marker reason-delivery is unavailable (no exec file supplied)" "yes" \
+  "$(printf '%s' "$DPP_ABSENT" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+: > "$DPP_TMP/fired-marker"
+printf '[{"type":"result","hookSpecificOutput":{"permissionDecisionReason":"devflow pretooluse-probe: settings-input hook fired"}}]' > "$DPP_TMP/exec-with-reason.json"
+DPP_FIRED_REASON="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-with-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: marker present renders FIRED" "yes" \
+  "$(printf '%s' "$DPP_FIRED_REASON" | grep -qF 'observed: **FIRED**' && echo yes || echo no)"
+assert_eq "#908 describe-pretooluse-probe: reason-bearing exec file renders REASON-DELIVERED" "yes" \
+  "$(printf '%s' "$DPP_FIRED_REASON" | grep -qF 'REASON-DELIVERED' && echo yes || echo no)"
+printf '[{"type":"result","summary":"ok"}]' > "$DPP_TMP/exec-no-reason.json"
+DPP_FIRED_NOREASON="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-no-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: reason-free exec file renders REASON-ABSENT (distinct from unavailable)" "yes" \
+  "$(printf '%s' "$DPP_FIRED_NOREASON" | grep -qF 'REASON-ABSENT' && echo yes || echo no)"
+# issue #908 review (finding: startswith->contains): the execution file's on-disk
+# shape is undocumented, so the reason string may arrive WRAPPED inside a larger
+# transcript string rather than as a bare leading match. `startswith` would report a
+# confident false REASON-ABSENT on exactly this shape; regression-lock `contains`.
+printf '[{"type":"result","hookSpecificOutput":{"permissionDecisionReason":"PreToolUse:Bash [hook] devflow pretooluse-probe: settings-input hook fired"}}]' > "$DPP_TMP/exec-wrapped-reason.json"
+DPP_FIRED_WRAPPED="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-wrapped-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: a WRAPPED reason string still renders REASON-DELIVERED (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$DPP_FIRED_WRAPPED" | grep -qF 'REASON-DELIVERED' && echo yes || echo no)"
+printf 'not json' > "$DPP_TMP/exec-bad.json"
+DPP_UNPARSEABLE="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-bad.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: unparseable exec file renders unavailable, never REASON-ABSENT" "yes" \
+  "$(printf '%s' "$DPP_UNPARSEABLE" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+# Suggestion (issue #908 review): the FIRED-but-empty-exec-file arm — a marker present
+# but a zero-byte execution file — was previously untested.
+: > "$DPP_TMP/exec-empty.json"
+DPP_FIRED_EMPTYEXEC="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-empty.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: FIRED marker + zero-byte exec file renders reason-delivery unavailable" "yes" \
+  "$(printf '%s' "$DPP_FIRED_EMPTYEXEC" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+# Suggestion (issue #908 review): the jq-not-runnable arm was previously untested.
+DPP_JQ_NOTRUNNABLE="$(DEVFLOW_JQ=/nonexistent/not-a-real-jq-908 bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-with-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: an unrunnable DEVFLOW_JQ renders reason-delivery unavailable, never a false REASON-ABSENT" "yes" \
+  "$(printf '%s' "$DPP_JQ_NOTRUNNABLE" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+bash "$DPP" >/dev/null 2>&1
+assert_eq "#908 describe-pretooluse-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+assert_eq "#908 describe-pretooluse-probe: no-argument invocation leaves a stderr breadcrumb" "yes" \
+  "$(bash "$DPP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
+assert_eq "#908 matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
+  "$(grep -qF 'bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"' "$LIB/../.github/workflows/matcher-probe.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line (not the bare helper name) so a regression that re-inlines the observation selector, the #370 pin-in-comment class, is caught
+# AC7 structural declaration (issue #908 confirmatory review; mirrors the #874/#858
+# probe-job precedent). The helper-invocation pin above still passes if the job is renamed,
+# removed, or stripped of the `settings:` input that is the whole point of this probe arm —
+# it only proves the LINE exists somewhere in the file. Parse the workflow and assert the
+# job itself, so AC7's declaration is verified rather than inferred from one grep.
+_908_PROBE_JOB="$(python3 - "$REPO_ROOT/.github/workflows/matcher-probe.yml" <<'PY'
+import sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception as exc:  # a parse failure must read as "not established", never as pass
+    print(f"unparseable: {exc.__class__.__name__}")
+    raise SystemExit(0)
+jobs = doc.get("jobs")
+if not isinstance(jobs, dict):
+    print("no jobs mapping")
+    raise SystemExit(0)
+job = jobs.get("pretooluse-probe")
+if not isinstance(job, dict):
+    print("pretooluse-probe job absent")
+    raise SystemExit(0)
+steps = job.get("steps")
+if not isinstance(steps, list):
+    print("pretooluse-probe has no steps list")
+    raise SystemExit(0)
+has_settings = any(
+    isinstance(s, dict) and isinstance(s.get("with"), dict) and "settings" in s["with"]
+    for s in steps
+)
+print("declared-with-settings" if has_settings else "declared-without-settings-input")
+PY
+)"
+assert_eq "#908 AC7: matcher-probe.yml declares a pretooluse-probe job that registers its hook via the settings input" "declared-with-settings" "$_908_PROBE_JOB"
+
+echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+RGC="$REPO_ROOT/scripts/resolve-guard-counts-file.sh"
+RGC_D1="$(mktemp -d)"
+echo '{"arms":{"R1":1}}' > "$RGC_D1/pretooluse-guard-counts-12345-1.json"
+assert_eq "#908 resolve-guard-counts-file: run-keyed name (id+attempt) resolves" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D1" 12345 1)" = "$RGC_D1/pretooluse-guard-counts-12345-1.json" ] && echo yes || echo no)"
+RGC_D2="$(mktemp -d)"
+echo '{"arms":{}}' > "$RGC_D2/pretooluse-guard-counts.json"
+assert_eq "#908 resolve-guard-counts-file: bare legacy name resolves when no run id is supplied" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D2" "" "")" = "$RGC_D2/pretooluse-guard-counts.json" ] && echo yes || echo no)"
+# Suggestion (issue #908 review): the RUN_ID-set/ATTEMPT-empty candidate name
+# (`pretooluse-guard-counts-<id>.json`, no attempt segment) was previously untested —
+# only the id+attempt and bare-legacy shapes had direct coverage.
+RGC_D6="$(mktemp -d)"
+echo '{"arms":{"R1":1}}' > "$RGC_D6/pretooluse-guard-counts-424242.json"
+assert_eq "#908 resolve-guard-counts-file: RUN_ID set + ATTEMPT empty resolves the id-only candidate name" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D6" 424242 "")" = "$RGC_D6/pretooluse-guard-counts-424242.json" ] && echo yes || echo no)"
+RGC_D3="$(mktemp -d)"
+echo '{"arms":{}}' > "$RGC_D3/pretooluse-guard-counts-99999-2.json"
+assert_eq "#908 resolve-guard-counts-file: glob fallback finds a mismatched run-keyed store" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D3" 11111 3)" = "$RGC_D3/pretooluse-guard-counts-99999-2.json" ] && echo yes || echo no)"
+# CONFIRMATORY-REVIEW REGRESSION LOCK (issue #908, corroborated Critical, reproduced by
+# direct execution). The guard runs as a HOOK SUBPROCESS of claude-code-action, so its
+# _run_key() can return None and make it write the BARE store name, while THIS resolver —
+# reading the workflow step's own environment — definitely has a run id. The glob fallback
+# cannot rescue that: `pretooluse-guard-counts-*.json` requires the trailing hyphen and so
+# structurally cannot match `pretooluse-guard-counts.json`. Before the bare candidate was
+# made unconditional this resolved to "no match", which devflow-runner.yml turned into a
+# positively-asserted `{}` ("guard fired, zero denials recorded") over a store holding real
+# denials. Assert the resolved PATH, not merely rc 0, so a fix that returns some other file
+# cannot satisfy this.
+RGC_D5="$(mktemp -d)"
+echo '{"arms":{"R1":2}}' > "$RGC_D5/pretooluse-guard-counts.json"
+assert_eq "#908 resolve-guard-counts-file: the BARE store resolves even when a run id IS supplied (issue #908 confirmatory-review regression lock — the glob cannot match the bare name)" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D5" 12345 1)" = "$RGC_D5/pretooluse-guard-counts.json" ] && echo yes || echo no)"
+# Most-specific-first ordering: a run-keyed store must still win over a bare one when both
+# exist, so adding the bare candidate did not make the resolver prefer the legacy name.
+echo '{"arms":{"R4":9}}' > "$RGC_D5/pretooluse-guard-counts-12345-1.json"
+assert_eq "#908 resolve-guard-counts-file: a run-keyed store still wins over a bare one when both exist" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D5" 12345 1)" = "$RGC_D5/pretooluse-guard-counts-12345-1.json" ] && echo yes || echo no)"
+RGC_D4="$(mktemp -d)"
+assert_eq "#908 resolve-guard-counts-file: no store present exits 1" "rc=1" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
+# The name used to claim "with empty stdout" while sending stdout to /dev/null and never
+# inspecting it (issue #908 confirmatory review). Assert the claim instead of asserting it.
+assert_eq "#908 resolve-guard-counts-file: the no-store exit-1 path prints nothing on stdout" "" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 2>/dev/null)"
+# ZERO-BYTE IS UNESTABLISHED, NOT ABSENT (issue #908 confirmatory review). The guard writes
+# the counts store only from _bump_counts — i.e. only on a deny — so a zero-length store is
+# a partial/interrupted write of a REAL deny record, never evidence of zero denials. It now
+# exits 2, which devflow-runner.yml maps to `unavailable` rather than to its known-zero arm.
+assert_eq "#908 resolve-guard-counts-file: an existing but zero-byte store exits 2 (unestablished), NOT 1 (absent)" "rc=2" \
+  "$(: > "$RGC_D4/pretooluse-guard-counts-1-1.json"; bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 resolve-guard-counts-file: the zero-byte exit-2 path prints nothing on stdout" "" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 2>/dev/null)"
+# A non-empty store anywhere in the order must still win over a recorded zero-byte one —
+# emptiness only decides between exit 2 and exit 1 when nothing usable was found at all.
+assert_eq "#908 resolve-guard-counts-file: a non-empty glob match wins over a zero-byte candidate" "yes" \
+  "$(echo '{"arms":{"R1":1}}' > "$RGC_D4/pretooluse-guard-counts-99999-2.json"; \
+     [ "$(bash "$RGC" "$RGC_D4" 1 1)" = "$RGC_D4/pretooluse-guard-counts-99999-2.json" ] && echo yes || echo no)"
+assert_eq "#908 resolve-guard-counts-file: a nonexistent TMP_DIR fails closed to exit 1, not a shell error" "rc=1" \
+  "$(bash "$RGC" "/nonexistent/path/xyz-908" >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 devflow-runner.yml routes counts-file selection through the helper (invocation line)" "yes" \
+  "$(grep -qF 'COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the run-keyed/bare/glob counts-file SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+# issue #908 review, Important finding #2 (resolved): the RGC_RC -> outcome ROUTING
+# (parse / zero-byte / known-zero / unavailable) moved out of inline YAML into
+# scripts/route-guard-counts-outcome.sh, a suite-drivable helper — see the block
+# below for its own behavioral coverage. This pin now only asserts devflow-runner.yml
+# still DELEGATES to that helper rather than reinlining the routing.
+assert_eq "#908 devflow-runner.yml delegates RGC_RC/FIRED routing to route-guard-counts-outcome.sh" "yes" \
+  "$(grep -qF 'OUTCOME_OUT=$(bash "$ROUTE" "$RGC_RC" "$FIRED")' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the RGC_RC/FIRED -> outcome SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+
+echo "#908 route-guard-counts-outcome.sh (RGC_RC/FIRED -> counts outcome routing — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+ROUTE_GCO="$REPO_ROOT/scripts/route-guard-counts-outcome.sh"
+assert_eq "#908 route-guard-counts-outcome: rc=0 routes to parse regardless of FIRED" "parse" \
+  "$(bash "$ROUTE_GCO" 0 false | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=2 (zero-byte store) routes to zero-byte with a message, never known-zero" "yes" \
+  "$(out=$(bash "$ROUTE_GCO" 2 true); [ "$(printf '%s\n' "$out" | sed -n '1p')" = "zero-byte" ] && [ -n "$(printf '%s\n' "$out" | sed -n '2p')" ] && echo yes || echo no)"
+# CONFIRMATORY-REVIEW REGRESSION LOCK (issue #908): rc=1 with FIRED=true is a
+# POSITIVELY-known zero (the heartbeat proves the guard ran, the resolver positively
+# found no store) — the one case allowed to render `{}`.
+assert_eq "#908 route-guard-counts-outcome: rc=1 AND FIRED=true is the only known-zero arm" "known-zero" \
+  "$(bash "$ROUTE_GCO" 1 true | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=1 AND FIRED=false is unavailable, NOT known-zero" "unavailable" \
+  "$(bash "$ROUTE_GCO" 1 false | sed -n '1p')"
+# The `-eq 1` in the known-zero test is load-bearing: a present-but-unrunnable helper
+# (rc 126/127) must NOT collapse into the known-zero arm just because FIRED=true —
+# that would turn "our tooling could not run" into a confident zero.
+assert_eq "#908 route-guard-counts-outcome: rc=126 (present-but-unrunnable) with FIRED=true still routes to unavailable, not known-zero" "unavailable" \
+  "$(bash "$ROUTE_GCO" 126 true | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=126 emits a non-empty diagnostic message" "yes" \
+  "$([ -n "$(bash "$ROUTE_GCO" 126 true | sed -n '2p')" ] && echo yes || echo no)"
+
+echo "#908 extract-denied-command-line.sh (permission_denials_commands: line SELECTION — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+EDC_HELPER="$REPO_ROOT/scripts/extract-denied-command-line.sh"
+assert_eq "#908 extract-denied-command-line: finds the value when the block carries the line" "found
+[\"rm -rf /\"]" \
+  "$(printf 'permission_denials_count: 3\npermission_denials_commands: ["rm -rf /"]\n' | bash "$EDC_HELPER" 0)"
+assert_eq "#908 extract-denied-command-line: reports not-found when the block carries no such line" "not-found" \
+  "$(printf 'permission_denials_count: 3\n' | bash "$EDC_HELPER" 0 | sed -n '1p')"
+# rc-nonzero must NOT parse the block, even when it happens to carry a well-formed
+# line — a truncated/partial upstream run must never be published as authoritative
+# (issue #908 confirmatory review).
+assert_eq "#908 extract-denied-command-line: a nonzero EES_RC never parses the block, even if it looks well-formed" "rc-nonzero" \
+  "$(printf 'permission_denials_commands: ["x"]\n' | bash "$EDC_HELPER" 1 | sed -n '1p')"
+assert_eq "#908 extract-denied-command-line: empty stdin reports not-found, not a shell error" "not-found" \
+  "$(printf '' | bash "$EDC_HELPER" 0 | sed -n '1p')"
+assert_eq "#908 devflow-runner.yml delegates permission_denials_commands SELECTION to extract-denied-command-line.sh" "yes" \
+  "$(grep -qF 'EDC_OUT=$(printf' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the permission_denials_commands SELECTION stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+
+echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
+# ────────────────────────────────────────────────────────────────────────────
+_908_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"
+_908_IMPLEMENT_YML="$LIB/../.github/workflows/devflow-implement.yml"
+_908_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
+assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
+  "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
+assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
+  "$(grep -qF '/scripts/pretooluse-shape-guard.py\"' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the JSON hook-command string (trailing escaped quote makes the literal code-only, never a comment mention) so a regression that drops the guard from the hook body — while leaving prose referencing it elsewhere — is caught
+# issue #908 review (test_mock_alignment finding): an unanchored whole-file
+# `grep -qE 'settings:|PreToolUse'` is imprecise both directions — an unrelated
+# `settings:` key (this literal is generic YAML, not unique to hook registration)
+# would falsely flip this RED for a non-defect, and a differently-spelled
+# registration would evade it entirely. Parse the YAML with PyYAML instead and check,
+# structurally, that no step anywhere in the file carries a `with.settings` key and no
+# step's `with` values mention "PreToolUse" — the same precision the #460 errexit
+# fixture above uses to extract a step's `run:` body, applied here to a `with:` key
+# check instead. Falls back to the previous (imprecise but not silently skipped)
+# grep when python3/PyYAML is unavailable, so the assertion still runs somewhere.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  _908_IMPL_CHECK=$(python3 - "$_908_IMPLEMENT_YML" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+hit = False
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        with_block = s.get("with") or {}
+        if "settings" in with_block:
+            hit = True
+        for v in with_block.values():
+            if isinstance(v, str) and "PreToolUse" in v:
+                hit = True
+print("no" if hit else "yes")
+PY
+) || _908_IMPL_CHECK="extractor-failed"   # fail CLOSED: a YAML parse error or an unexpected shape must never yield the passing value (issue #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline)
+  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" "$_908_IMPL_CHECK"
+else
+  assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
+    "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+fi
+assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
+  "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
+# issue #908 review (test_mock_alignment finding): `git diff --quiet HEAD -- <path>`
+# compares the WORKING TREE to the current commit, so it is trivially true whenever
+# there are no *uncommitted* edits to <path> — a vacuous guarantee once this PR's own
+# work is committed, regardless of whether the path differs from the branch's actual
+# base. Compare against the merge-base with origin/main instead, so the assertion
+# genuinely proves "this issue's commits did not touch <path>."
+_908_MB="$(git -C "$REPO_ROOT" merge-base origin/main HEAD 2>/dev/null || true)"
+assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)" "yes" \
+  "$([ -n "$_908_MB" ] && git -C "$REPO_ROOT" diff --quiet "$_908_MB" -- scripts/describe-denial-count.sh && echo yes || echo no)"
+assert_eq "#908: the permission_denials_count SUMMARY line is untouched by the new guard-visibility append" "yes" \
+  "$(grep -qF 'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that the #431 assembler's line-bound permission_denials_count producer contract (scripts/build-experiment-records.py's DENIAL_SUMMARY_RE) survives byte-identical, since AC6 requires describe-denial-count.sh's three clauses stay unchanged
+assert_eq "#908: devflow-review.yml routes guard-visibility rendering through render-guard-visibility.sh" "yes" \
+  "$(grep -qF 'bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS"' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins that the un-neutralized, attacker-influenced denied-command text is routed through the neutralizing renderer rather than rendered raw into the check-run summary
+# Same origin/main-relative fix as the AC6 pin above (issue #908 review) — a
+# HEAD-relative diff is vacuous once this PR's own commits land.
+assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
+  "$([ -n "$_908_MB" ] && git -C "$REPO_ROOT" diff --quiet "$_908_MB" -- docs/cloud-allowlist.md && echo yes || echo no)"
+# ────────────────────────────────────────────────────────────────────────────
+
+echo "#908 review finding: harden_guard step — the PreToolUse guard's own trusted-source displacement is unconditional"
+# ────────────────────────────────────────────────────────────────────────────
+# Critical/security finding (issue #908 review, confirmed independently by
+# code-reviewer and silent-failure-hunter): the settings: input above registers the
+# PreToolUse guard UNCONDITIONALLY, but the pre-existing harden_hooks step's own
+# relevance gate skips ALL hardening (including the guard's) when the trusted base
+# .claude/settings.json wires no Stop hook — the common shape in a consumer repo that
+# never dogfoods DevFlow's own Stop-hook pattern. Without its own, separate, always-on
+# displacement, a PR-head copy of scripts/pretooluse-shape-guard.py (and the
+# lib/test/extract-command-shapes.py it dynamically imports) would execute in this
+# secrets-bearing job. The fix is the new "Harden PreToolUse guard closure
+# (unconditional)" step (id: harden_guard) — deliberately NOT folded into harden_hooks,
+# so it carries zero blast radius on the existing #460/#504/#874 pinned behavior of
+# that step (a purely additive diff to devflow-runner.yml — see the AC1 pins above,
+# unchanged).
+assert_eq "#908 review: harden_guard step exists in devflow-runner.yml" "yes" \
+  "$(grep -qE '^\s*id: harden_guard\s*$' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins that the unconditional guard-hardening step exists; its absence reopens the settings-input security gap this block documents
+# issue #908 review, fix-delta gate (iteration 1): the closure is THREE files, not
+# two — lib/test/extract-command-shapes.py's own module top level (unconditional on
+# import) dynamically loads lib/test/extract-command-heads.py, so it must be hardened
+# too or it stays PR-controlled even with the other two members displaced.
+assert_eq "#908 review: harden_guard's GUARD_TARGETS covers the guard and its FULL transitive dynamic-import closure" "yes" \
+  "$(grep -qF 'GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the exact THREE-file closure the security fix must displace/stub; a dropped member (this pin was fix-delta-gate-caught missing lib/test/extract-command-heads.py, imported at runtime by extract-command-shapes.py's own top level) leaves a PR-controlled file reachable even when the other two are hardened
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  _908_HG_ORDER=$(python3 - "$_908_RUNNER_YML" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+ids = []
+for job in doc.get("jobs", {}).values():
+    for s in job.get("steps", []) or []:
+        ids.append(s.get("id") or s.get("name") or "")
+def idx(want):
+    for i, v in enumerate(ids):
+        if v == want:
+            return i
+    return -1
+hg, hh, rc = idx("harden_guard"), idx("harden_hooks"), idx("claude")
+print("yes" if (hg >= 0 and hh >= 0 and rc >= 0 and hg < hh < rc) else "no")
+PY
+) || _908_HG_ORDER="no"
+  assert_eq "#908 review: harden_guard precedes harden_hooks precedes Run Claude Code (guard is displaced before it can ever fire)" "yes" "$_908_HG_ORDER"
+fi
+# BEHAVIORAL fixture (mirrors the #460 errexit fixture pattern): extract the step's
+# run: body and execute it end-to-end under GitHub's default bash -e {0} shell, proving
+# — not merely asserting via grep — that a PR-head-edited guard closure is displaced by
+# a trusted base copy when the base fetch succeeds, and fail-closed stubbed when it does
+# not, in both cases before "Run Claude Code" would ever see the PR-head bytes.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+  HG_SCRIPT="$(probe_tmp '#908 harden_guard step script')"
+  python3 - "$_908_RUNNER_YML" >"$HG_SCRIPT" <<'PY'
+import sys, yaml
+doc = yaml.safe_load(open(sys.argv[1]))
+for job in doc["jobs"].values():
+    for s in job.get("steps", []):
+        if s.get("id") == "harden_guard" and "run" in s:
+            sys.stdout.write(s["run"])
+            raise SystemExit
+raise SystemExit("harden_guard step not found")
+PY
+  HG_FIX="$(git_sandbox '#908 harden_guard fixture')"
+  mkdir -p "$HG_FIX/origin/scripts" "$HG_FIX/origin/lib/test"
+  echo "TRUSTED_GUARD" > "$HG_FIX/origin/scripts/pretooluse-shape-guard.py"
+  echo "TRUSTED_SHAPES" > "$HG_FIX/origin/lib/test/extract-command-shapes.py"
+  echo "TRUSTED_HEADS" > "$HG_FIX/origin/lib/test/extract-command-heads.py"
+  git -C "$HG_FIX/origin" init -q 2>/dev/null
+  git -C "$HG_FIX/origin" add -A 2>/dev/null
+  git -C "$HG_FIX/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
+  git -C "$HG_FIX/origin" branch -q -M main 2>/dev/null
+  git clone -q "$HG_FIX/origin" "$HG_FIX/ws" 2>/dev/null
+  mkdir -p "$HG_FIX/ws/scripts" "$HG_FIX/ws/lib/test"
+  echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX/ws/scripts/pretooluse-shape-guard.py"
+  echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX/ws/lib/test/extract-command-heads.py"
+  ( cd "$HG_FIX/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX/gh_out1.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX/out1.log" 2>&1
+  assert_eq "#908 harden_guard errexit: the step survives GitHub's default bash -e {0} shell" "0" "$?"
+  assert_eq "#908 harden_guard: base-fetch success displaces the PR-head guard with the trusted base copy" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: base-fetch success displaces the PR-head dynamic-import dependency too" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_SHAPES' "$HG_FIX/ws/lib/test/extract-command-shapes.py" && echo no || echo yes)"
+  # Fix-delta gate finding (issue #908 review, iteration 1): extract-command-heads.py
+  # is the THIRD, transitively-imported closure member — regression-lock it too, not
+  # only the two directly-named files.
+  assert_eq "#908 harden_guard: base-fetch success displaces the PR-head transitive-import dependency too (fix-delta gate regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_HEADS' "$HG_FIX/ws/lib/test/extract-command-heads.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: displaced content is the TRUSTED base copy, not a stub" "yes" \
+    "$(diff -q "$HG_FIX/origin/scripts/pretooluse-shape-guard.py" "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1 && echo yes || echo no)"
+  # Fail-closed arm: base ref cannot be fetched (a deleted/unreachable base) — the
+  # PR-head bytes must never survive; they are stubbed inline instead.
+  echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX/ws/scripts/pretooluse-shape-guard.py"
+  echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX/ws/lib/test/extract-command-heads.py"
+  ( cd "$HG_FIX/ws" && BASE_REF=nonexistent-branch-xyz-908 GITHUB_OUTPUT="$HG_FIX/gh_out2.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX/out2.log" 2>&1
+  assert_eq "#908 harden_guard errexit: the fail-closed arm also survives bash -e {0}" "0" "$?"
+  assert_eq "#908 harden_guard: an unreachable base ref stubs the PR-head guard (fail-closed), never leaves it intact" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: an unreachable base ref stubs the dynamic-import dependency too" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_SHAPES' "$HG_FIX/ws/lib/test/extract-command-shapes.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: an unreachable base ref stubs the transitive-import dependency too (fix-delta gate regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_HEADS' "$HG_FIX/ws/lib/test/extract-command-heads.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: the fail-closed stub warns rather than silently succeeding" "1" \
+    "$(grep -c 'could not materialize a trusted base copy' "$HG_FIX/out2.log" || true)"
+  # Shadow-review finding (issue #908 review, early shadow trigger): the last-resort
+  # stub WRITE itself must be verified — a stub write failure (wholly unwritable
+  # target) must FAIL the job (exit 1), never merely warn-and-proceed, or a PR-head
+  # copy could remain executable in this secrets-bearing job with no signal that the
+  # fail-closed arm itself failed open.
+  HG_FIX3="$(git_sandbox '#908 harden_guard write-failure fixture')"
+  mkdir -p "$HG_FIX3/ws/scripts" "$HG_FIX3/ws/lib/test"
+  echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py"
+  echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX3/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX3/ws/lib/test/extract-command-heads.py"
+  git -C "$HG_FIX3/ws" init -q 2>/dev/null
+  git -C "$HG_FIX3/ws" add -A 2>/dev/null
+  git -C "$HG_FIX3/ws" -c user.email=t@t -c user.name=t commit -qm x 2>/dev/null
+  chmod 444 "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null
+  chmod 555 "$HG_FIX3/ws/scripts" 2>/dev/null
+  ( cd "$HG_FIX3/ws" && BASE_REF=nonexistent-branch-xyz-908 GITHUB_OUTPUT="$HG_FIX3/gh_out3.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX3/out3.log" 2>&1
+  assert_eq "#908 harden_guard: an un-stubbable target (wholly unwritable) fails the job with a fail-closed ::error:: (issue #908 review regression lock)" "1" \
+    "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled guard hook fires' "$HG_FIX3/out3.log" || true)"
+  chmod 755 "$HG_FIX3/ws/scripts" 2>/dev/null
+  chmod 644 "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null
+  # ── Absent-target skip arms (issue #908 confirmatory review) ────────────────
+  # The skip arms are the principal behavioral change of that iteration and had no
+  # fixture: deleting either one, or dropping the working-tree half of its predicate,
+  # left the suite green. Two shapes, and the SECOND is the security-critical one —
+  # the working-tree half of the predicate is the only thing keeping the skip from
+  # being a fail-open, so a test that exercises only the benign shape proves nothing.
+  #
+  # Shape A — CONSUMER repo: the targets exist on NEITHER the base ref NOR the working
+  # tree. Nothing to harden: no phantom files, empty guard_paths, no ::warning::.
+  HG_FIX4="$(git_sandbox '#908 harden_guard absent-target fixture')"
+  mkdir -p "$HG_FIX4/origin"
+  echo "unrelated consumer file" > "$HG_FIX4/origin/README.md"
+  git -C "$HG_FIX4/origin" init -q 2>/dev/null
+  git -C "$HG_FIX4/origin" add -A 2>/dev/null
+  git -C "$HG_FIX4/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
+  git -C "$HG_FIX4/origin" branch -q -M main 2>/dev/null
+  git clone -q "$HG_FIX4/origin" "$HG_FIX4/ws" 2>/dev/null
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out4.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out4.log" 2>&1
+  assert_eq "#908 harden_guard errexit: the absent-target (consumer-repo) arm survives bash -e {0}" "0" "$?"
+  assert_eq "#908 harden_guard: an absent target creates NO phantom scripts/ file in a consumer checkout (issue-#502 class regression lock)" "no" \
+    "$([ -e "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: an absent target creates NO phantom lib/test/ files in a consumer checkout" "no" \
+    "$([ -e "$HG_FIX4/ws/lib/test/extract-command-shapes.py" ] || [ -e "$HG_FIX4/ws/lib/test/extract-command-heads.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: the absent-target arm emits NO spurious deployment-fault ::warning:: (every consumer auto-review saw one before this fix)" "0" \
+    "$(grep -c 'could not materialize a trusted base copy' "$HG_FIX4/out4.log" || true)"
+  assert_eq "#908 harden_guard: the absent-target arm publishes an EMPTY guard_paths (no false displacement disclosure)" "yes" \
+    "$(python3 - "$HG_FIX4/gh_out4.txt" <<'PY'
+import re, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^guard_paths<<(\S+)\n(.*?)^\1$", body, re.S | re.M)
+print("yes" if m and not m.group(2).strip() else "no")
+PY
+)"
+  # The grep target is a TEMP_-named alias for the run's captured GITHUB_OUTPUT
+  # scratch: `disposition=guard-absent` doubles as a real harden-stop-hooks.sh
+  # source token, so a bare `grep -qF … "$HG_FIX4/gh_out4.txt"` reads to the
+  # mutation-routing raw-presence detector as an undeclared source-presence pin.
+  # The TEMP_ name IS the declaration that this is a runtime executable assertion
+  # over scratch, not a source pin (see pin-corpus-lint.py's TMP_/TEMP_ carve-out).
+  TEMP_HG_OUT4="$HG_FIX4/gh_out4.txt"
+  assert_eq "#908 harden_guard: the absent-target arm reports disposition=guard-absent, not a false guard-displaced" "yes" \
+    "$(grep -qF 'disposition=guard-absent' "$TEMP_HG_OUT4" && echo yes || echo no)"
+  # Shape B (SECURITY NEGATIVE CONTROL) — the PR *adds* a guard target: absent on the
+  # base ref, PRESENT in the working tree. This MUST still route to the fail-closed
+  # stub arm. If it did not, the skip would be exactly the fail-open the predicate's
+  # working-tree half exists to prevent.
+  echo "MALICIOUS_PR_ADDED_GUARD" > "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null || mkdir -p "$HG_FIX4/ws/scripts" && echo "MALICIOUS_PR_ADDED_GUARD" > "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out5.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out5.log" 2>&1
+  assert_eq "#908 harden_guard: a PR-ADDED guard target (absent on base, present in tree) is still stubbed — the skip arm is not a fail-open (issue #908 confirmatory-review security regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_ADDED_GUARD' "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
+  # Shape C (SECURITY NEGATIVE CONTROL) — a PR-added DANGLING symlink at a guard path.
+  # `[ ! -e ]` alone follows the link and reads it as absent, so the target would be
+  # neither displaced nor stubbed, and materializing its destination later in the job
+  # would reopen PR-controlled execution. The paired `[ ! -L ]` is what closes this.
+  rm -f "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ln -s /nonexistent/attacker-target-908 "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out6.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out6.log" 2>&1
+  assert_eq "#908 harden_guard: a PR-added DANGLING symlink at a guard path is not skipped as absent (issue #908 confirmatory-review Critical regression lock)" "no" \
+    "$([ -L "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: the dangling-symlink path holds a real stub afterwards, not a link to an attacker-materializable destination" "yes" \
+    "$([ -f "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
+  # Shadow-review finding (issue #908 review, early shadow trigger, Critical): harden_guard
+  # must publish its own displaced_paths output (mirroring harden_hooks' #504 AC1
+  # contract) or the grounding-block renderer never learns these three files were
+  # displaced/stubbed — exactly on the harden_hooks-skipped consumer-repo arm this step
+  # exists to still cover. Behavioral: re-run the success-arm fixture and assert the
+  # GITHUB_OUTPUT carries all three GUARD_TARGETS under displaced_paths.
+  # Read each fixture's GITHUB_OUTPUT capture into a variable and test membership with
+  # bash `case` (not `grep -qF`) — a dynamic mktemp'd fixture path can never be a
+  # statically-inspectable structural-pin target, so this deliberately avoids the
+  # raw-presence grep-for-literal shape rather than declaring an uninspectable pin.
+  _908_gh1="$(cat "$HG_FIX/gh_out1.txt" 2>/dev/null)"
+  _908_gh1_ok=no
+  case "$_908_gh1" in
+    *"scripts/pretooluse-shape-guard.py"*)
+      case "$_908_gh1" in
+        *"lib/test/extract-command-shapes.py"*)
+          case "$_908_gh1" in
+            *"lib/test/extract-command-heads.py"*) _908_gh1_ok=yes ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  assert_eq "#908 harden_guard: publishes guard_paths for the success arm (shadow-review regression lock)" "yes" "$_908_gh1_ok"
+  _908_gh2="$(cat "$HG_FIX/gh_out2.txt" 2>/dev/null)"
+  _908_gh2_ok=no
+  case "$_908_gh2" in
+    *"scripts/pretooluse-shape-guard.py"*)
+      case "$_908_gh2" in
+        *"lib/test/extract-command-shapes.py"*)
+          case "$_908_gh2" in
+            *"lib/test/extract-command-heads.py"*) _908_gh2_ok=yes ;;
+          esac
+          ;;
+      esac
+      ;;
+  esac
+  assert_eq "#908 harden_guard: publishes guard_paths for the stubbed arm too" "yes" "$_908_gh2_ok"
+  assert_eq "#908 review: displaced_join wires harden_guard's guard_paths as a third producer" "yes" \
+    "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.guard_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
+fi
 # ────────────────────────────────────────────────────────────────────────────
 
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
