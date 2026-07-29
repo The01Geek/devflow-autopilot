@@ -21,19 +21,31 @@
 # path (a fence that prints NOTHING is therefore a harness refusal the caller routes
 # to its fallback arm, never read as a create authorization):
 #
-#   stdout                     exit  meaning
-#   RESUME <comment-id>        0     this run's comment already exists (cmd_id exit 0)
-#   CREATED <comment-id>       0     clean absence confirmed; comment created
-#   SKIP not-numeric          3     S1 refused a non-numeric PR number
-#   SKIP bad-marker           3     the run-keyed marker was empty (an empty --marker
-#                                   would defeat S3's stderr-emptiness discriminator)
-#   SKIP workpad-unreadable   3     S2 found workpad.py missing or unreadable
-#   SKIP api-error            3     the catch-all failure token. Every arm that emits it:
-#                                   S3 rejected the create arm (exit 2 WITH stderr), `id`
-#                                   reported a real failure, the scratch-file `mktemp`
-#                                   failed, `create` failed after a confirmed clean
-#                                   absence, or `id`/`create` exited 0 without printing a
-#                                   comment id (the frozen-comment guard)
+#   stdout                              exit  meaning
+#   RESUME <comment-id>                 0     this run's comment already exists (cmd_id exit 0)
+#   CREATED <comment-id>                0     clean absence confirmed; comment created
+#   SKIP not-numeric                    3     S1 refused a non-numeric PR number
+#   SKIP bad-marker                     3     the run-keyed marker was empty (an empty --marker
+#                                             would defeat S3's stderr-emptiness discriminator)
+#   SKIP workpad-unreadable-script-dir  3     this helper's own directory could not be resolved,
+#                                             so the workpad.py path cannot be derived
+#   SKIP workpad-unreadable-file        3     S2 found workpad.py missing or unreadable
+#   SKIP api-error-scratch-file         3     the scratch file for the id stderr capture
+#                                             could not be created
+#   SKIP api-error-id-empty-id          3     `id` exited 0 without printing a comment id
+#   SKIP api-error-create-empty-id      3     `create` exited 0 without printing a comment id
+#   SKIP api-error-create-failed        3     `create` failed after a confirmed clean absence
+#   SKIP api-error-id-failed            3     `id` reported a real failure, or S3 rejected the
+#                                             create arm (exit 2 WITH stderr)
+#
+# ONE TOKEN PER ARM, not one per screen (issue #871): the caller's only diagnostic channel
+# for a refusal is the stdout token — the review engine's primary invocation redirects
+# nothing, so this helper's stderr breadcrumb reaches a tool transcript but never the
+# annotation the operator reads. A vocabulary that collapsed five distinct causes onto one
+# `SKIP api-error` value therefore made a failed seed undiagnosable from the annotation
+# alone. Every token shares the `SKIP ` prefix so the caller routes on the prefix and a
+# later arm needs no second edit to the prompt surface; the qualifier after it is what
+# attributes the refusal. Each arm's stderr breadcrumb is unchanged.
 #
 # This is the same token-line-plus-exit-code SHAPE the implement tier's helpers use, but
 # with its OWN codes, and it matches neither of theirs: `scripts/classify-id-exit.sh` (the
@@ -53,12 +65,12 @@
 #        fails at exec with rc 127 and an unreadable one with rc 126 — neither is python3's
 #        exit 2, so neither could reach the `-eq 2` clean-absence arm even without S2. What
 #        S2 buys is therefore the SPECIFIC diagnosis (a partial vs a permission-broken
-#        deploy), not exit-2 disambiguation; without it both collapse into the generic
-#        SKIP api-error arm. Known limit: S2 tests `-r` only, so an exec-bit-stripped copy
-#        is readable, fails exec with rc 126, and takes that generic arm.
+#        deploy), not exit-2 disambiguation; without it both collapse into the id-failure arm
+#        (SKIP api-error-id-failed). Known limit: S2 tests `-r` only, so an exec-bit-stripped
+#        copy is readable, fails exec with rc 126, and takes that arm.
 #   (S3) cmd_id exits 2 SILENTLY (sys.exit(2)); every interpreter-level exit 2 writes a
 #        diagnostic. So exit 2 with a NON-EMPTY captured stderr file is never a clean
-#        scan — it routes to SKIP api-error, never create. Emptiness is derived with
+#        scan — it routes to SKIP api-error-id-failed, never create. Emptiness is derived with
 #        `[ -s <file> ]` alone; no arm-selection value is derived through cat/tr/sed/
 #        wc/cut/head (a value that decides an arm must not flow through a
 #        non-preflight-guaranteed PATH tool).
@@ -79,7 +91,7 @@ BODY_FILE="${3:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
 if [ -z "$SCRIPT_DIR" ]; then
   echo "devflow review-seed: could not resolve this helper's own directory from '${BASH_SOURCE[0]:-<unset>}' — the workpad.py path cannot be derived (an unreadable parent directory, or a runner that does not populate BASH_SOURCE)" >&2
-  echo "SKIP workpad-unreadable"
+  echo "SKIP workpad-unreadable-script-dir"
   exit 3
 fi
 WORKPAD_PY="$SCRIPT_DIR/workpad.py"
@@ -97,7 +109,7 @@ esac
 # `_workpad_marker` before the `.devflow/config.json` read, and that read can breadcrumb
 # to stderr. An empty MARKER would let the breadcrumb land in $ERRF on a genuine clean
 # absence, so S3 would read the first write as an interpreter-level exit and route it to
-# SKIP api-error — fail-closed, but the live comment is lost with no explanation. Guard
+# SKIP api-error-id-failed — fail-closed, but the live comment is lost with no explanation. Guard
 # the assumption at the boundary rather than leaving it latent.
 if [ -z "$MARKER" ]; then
   echo "devflow review-seed: the run-keyed marker is empty — refusing the id call (an empty --marker lets a config breadcrumb reach stderr and defeat the exit-2 emptiness discriminator)" >&2
@@ -106,15 +118,15 @@ if [ -z "$MARKER" ]; then
 fi
 
 # (S2) The workpad.py about to exec must be a readable file, so a broken deploy is refused
-# with a breadcrumb naming its cause rather than collapsing into the generic SKIP api-error
-# arm the raw exec failure (rc 127 missing / rc 126 unreadable) would otherwise take.
+# with a breadcrumb naming its cause rather than collapsing into the id-failure arm the raw
+# exec failure (rc 127 missing / rc 126 unreadable) would otherwise take.
 if [ ! -r "$WORKPAD_PY" ]; then
   if [ -e "$WORKPAD_PY" ]; then
     echo "devflow review-seed: workpad.py present but unreadable ([Errno 13]) at $WORKPAD_PY — a permission-broken deploy" >&2
   else
     echo "devflow review-seed: workpad.py not present ([Errno 2]) at $WORKPAD_PY — a partial deploy" >&2
   fi
-  echo "SKIP workpad-unreadable"
+  echo "SKIP workpad-unreadable-file"
   exit 3
 fi
 
@@ -123,7 +135,7 @@ fi
 ERRF="$(mktemp 2>/dev/null)" || ERRF=""
 if [ -z "$ERRF" ]; then
   echo "devflow review-seed: could not create a scratch file for the id stderr capture" >&2
-  echo "SKIP api-error"
+  echo "SKIP api-error-scratch-file"
   exit 3
 fi
 trap 'rm -f "$ERRF"' EXIT
@@ -139,7 +151,7 @@ if WP="$("$WORKPAD_PY" id "$PR_NUMBER" --marker "$MARKER" 2>"$ERRF")"; then
   # failure this helper exists to make diagnosable. Fail closed onto the shared token.
   if [ -z "$WP" ]; then
     echo "devflow review-seed: workpad.py id exited 0 but printed no comment id: $(cat "$ERRF" 2>/dev/null)" >&2
-    echo "SKIP api-error"
+    echo "SKIP api-error-id-empty-id"
     exit 3
   fi
   echo "RESUME $WP"
@@ -151,25 +163,25 @@ elif [ "$?" -eq 2 ] && [ ! -s "$ERRF" ]; then
     # Same non-empty validation as the RESUME arm above.
     if [ -z "$WP" ]; then
       echo "devflow review-seed: workpad.py create exited 0 but printed no comment id: $(cat "$ERRF" 2>/dev/null)" >&2
-      echo "SKIP api-error"
+      echo "SKIP api-error-create-empty-id"
       exit 3
     fi
     echo "CREATED $WP"
     exit 0
   fi
   # Fold the captured stderr into the breadcrumb (the inline seed this helper replaced
-  # did the same): a generic SKIP api-error with no underlying cause is exactly the
+  # did the same): a refusal token with no underlying cause is exactly the
   # undiagnosable missing-comment failure issue #857 exists to eliminate. `cat` is used
   # for a COSMETIC diagnostic only — no arm was selected by it, and its absence empties
   # the clause rather than changing an outcome (the non-preflight-PATH-tool rule).
   echo "devflow review-seed: workpad.py create failed after a confirmed clean absence: $(cat "$ERRF" 2>/dev/null)" >&2
-  echo "SKIP api-error"
+  echo "SKIP api-error-create-failed"
   exit 3
 else
   # A real gh-api/parse failure (exit 1), or exit 2 WITH stderr (an interpreter-level
   # exit, not cmd_id's clean scan). Skip to avoid a duplicate comment.
   # Same cosmetic-only stderr fold as the create arm above.
   echo "devflow review-seed: workpad.py id failed (exit != 0, or exit 2 with non-empty stderr — an interpreter-level exit, not cmd_id's clean scan): $(cat "$ERRF" 2>/dev/null)" >&2
-  echo "SKIP api-error"
+  echo "SKIP api-error-id-failed"
   exit 3
 fi

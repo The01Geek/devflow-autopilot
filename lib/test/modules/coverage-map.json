@@ -496,7 +496,7 @@
       "owner": "unmodularized"
     },
     "scripts/seed-review-progress.sh": {
-      "note": "review live-progress seed find-or-create helper; driven per token outcome by the #857 run_sh_blocks block",
+      "note": "review live-progress seed find-or-create helper; driven per PER-ARM refusal token by the #857/#871 run_sh_blocks block, whose grounded-coverage row derives the emitted token set from this file's source",
       "owner": "unmodularized"
     },
     "scripts/stage-draft-write.py": {
@@ -1760,6 +1760,10 @@
     },
     "869": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "871": {
+      "note": "per-arm refusal-token rows and the grounded-coverage equality row for scripts/seed-review-progress.sh (co-located with the #857 block), the exact-output R5-successor row over s-r5-retired.md, and the pin_count positional-contract assertions over the primary fence and the fallback arm",
       "owner": "unmodularized"
     },
     "874": {
