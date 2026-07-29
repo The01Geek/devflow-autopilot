@@ -160,10 +160,20 @@ if [ "$COMMANDS_VALID" = true ]; then
           "- "*) SHOWING=$((SHOWING + 1)) ;;
         esac
       done <<<"$COMMANDS_BLOCK"
-      if [ "$SHOWING" -gt 0 ]; then
-        echo "_(list truncated — ${TOTAL:-N} total, showing ${SHOWING})_"
+      # An unestablished total is OMITTED, never rendered as the literal placeholder
+      # character the old `${TOTAL:-N}` fallback emitted (issue #908 confirmatory
+      # review): "N total" reads to a human as a rendering bug, and it is not an
+      # honest "unavailable" claim either — saying nothing about the total is.
+      if [ -n "${TOTAL:-}" ]; then
+        if [ "$SHOWING" -gt 0 ]; then
+          echo "_(list truncated — ${TOTAL} total, showing ${SHOWING})_"
+        else
+          echo "_(list truncated — ${TOTAL} total)_"
+        fi
+      elif [ "$SHOWING" -gt 0 ]; then
+        echo "_(list truncated — total unavailable, showing ${SHOWING})_"
       else
-        echo "_(list truncated — ${TOTAL:-N} total)_"
+        echo "_(list truncated — total unavailable)_"
       fi
     fi
   else

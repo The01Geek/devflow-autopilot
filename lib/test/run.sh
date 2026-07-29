@@ -48868,7 +48868,7 @@ for job in doc.get("jobs", {}).values():
                 hit = True
 print("no" if hit else "yes")
 PY
-) || _908_IMPL_CHECK="yes"
+) || _908_IMPL_CHECK="extractor-failed"   # fail CLOSED: a YAML parse error or an unexpected shape must never yield the passing value (issue #908 confirmatory review; mirrors the _908_PROBE_JOB extractor's discipline)
   assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" "$_908_IMPL_CHECK"
 else
   assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
@@ -49016,6 +49016,60 @@ PY
     "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled guard hook fires' "$HG_FIX3/out3.log" || true)"
   chmod 755 "$HG_FIX3/ws/scripts" 2>/dev/null
   chmod 644 "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null
+  # ── Absent-target skip arms (issue #908 confirmatory review) ────────────────
+  # The skip arms are the principal behavioral change of that iteration and had no
+  # fixture: deleting either one, or dropping the working-tree half of its predicate,
+  # left the suite green. Two shapes, and the SECOND is the security-critical one —
+  # the working-tree half of the predicate is the only thing keeping the skip from
+  # being a fail-open, so a test that exercises only the benign shape proves nothing.
+  #
+  # Shape A — CONSUMER repo: the targets exist on NEITHER the base ref NOR the working
+  # tree. Nothing to harden: no phantom files, empty guard_paths, no ::warning::.
+  HG_FIX4="$(git_sandbox '#908 harden_guard absent-target fixture')"
+  mkdir -p "$HG_FIX4/origin"
+  echo "unrelated consumer file" > "$HG_FIX4/origin/README.md"
+  git -C "$HG_FIX4/origin" init -q 2>/dev/null
+  git -C "$HG_FIX4/origin" add -A 2>/dev/null
+  git -C "$HG_FIX4/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
+  git -C "$HG_FIX4/origin" branch -q -M main 2>/dev/null
+  git clone -q "$HG_FIX4/origin" "$HG_FIX4/ws" 2>/dev/null
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out4.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out4.log" 2>&1
+  assert_eq "#908 harden_guard errexit: the absent-target (consumer-repo) arm survives bash -e {0}" "0" "$?"
+  assert_eq "#908 harden_guard: an absent target creates NO phantom scripts/ file in a consumer checkout (issue-#502 class regression lock)" "no" \
+    "$([ -e "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: an absent target creates NO phantom lib/test/ files in a consumer checkout" "no" \
+    "$([ -e "$HG_FIX4/ws/lib/test/extract-command-shapes.py" ] || [ -e "$HG_FIX4/ws/lib/test/extract-command-heads.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: the absent-target arm emits NO spurious deployment-fault ::warning:: (every consumer auto-review saw one before this fix)" "0" \
+    "$(grep -c 'could not materialize a trusted base copy' "$HG_FIX4/out4.log" || true)"
+  assert_eq "#908 harden_guard: the absent-target arm publishes an EMPTY guard_paths (no false displacement disclosure)" "yes" \
+    "$(python3 - "$HG_FIX4/gh_out4.txt" <<'PY'
+import re, sys
+body = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^guard_paths<<(\S+)\n(.*?)^\1$", body, re.S | re.M)
+print("yes" if m and not m.group(2).strip() else "no")
+PY
+)"
+  assert_eq "#908 harden_guard: the absent-target arm reports disposition=guard-absent, not a false guard-displaced" "yes" \
+    "$(grep -qF 'disposition=guard-absent' "$HG_FIX4/gh_out4.txt" && echo yes || echo no)"
+  # Shape B (SECURITY NEGATIVE CONTROL) — the PR *adds* a guard target: absent on the
+  # base ref, PRESENT in the working tree. This MUST still route to the fail-closed
+  # stub arm. If it did not, the skip would be exactly the fail-open the predicate's
+  # working-tree half exists to prevent.
+  echo "MALICIOUS_PR_ADDED_GUARD" > "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null || mkdir -p "$HG_FIX4/ws/scripts" && echo "MALICIOUS_PR_ADDED_GUARD" > "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out5.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out5.log" 2>&1
+  assert_eq "#908 harden_guard: a PR-ADDED guard target (absent on base, present in tree) is still stubbed — the skip arm is not a fail-open (issue #908 confirmatory-review security regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_ADDED_GUARD' "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
+  # Shape C (SECURITY NEGATIVE CONTROL) — a PR-added DANGLING symlink at a guard path.
+  # `[ ! -e ]` alone follows the link and reads it as absent, so the target would be
+  # neither displaced nor stubbed, and materializing its destination later in the job
+  # would reopen PR-controlled execution. The paired `[ ! -L ]` is what closes this.
+  rm -f "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ln -s /nonexistent/attacker-target-908 "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py"
+  ( cd "$HG_FIX4/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX4/gh_out6.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX4/out6.log" 2>&1
+  assert_eq "#908 harden_guard: a PR-added DANGLING symlink at a guard path is not skipped as absent (issue #908 confirmatory-review Critical regression lock)" "no" \
+    "$([ -L "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
+  assert_eq "#908 harden_guard: the dangling-symlink path holds a real stub afterwards, not a link to an attacker-materializable destination" "yes" \
+    "$([ -f "$HG_FIX4/ws/scripts/pretooluse-shape-guard.py" ] && echo yes || echo no)"
   # Shadow-review finding (issue #908 review, early shadow trigger, Critical): harden_guard
   # must publish its own displaced_paths output (mirroring harden_hooks' #504 AC1
   # contract) or the grounding-block renderer never learns these three files were
@@ -49039,7 +49093,7 @@ PY
       esac
       ;;
   esac
-  assert_eq "#908 harden_guard: publishes displaced_paths for the success arm (shadow-review regression lock)" "yes" "$_908_gh1_ok"
+  assert_eq "#908 harden_guard: publishes guard_paths for the success arm (shadow-review regression lock)" "yes" "$_908_gh1_ok"
   _908_gh2="$(cat "$HG_FIX/gh_out2.txt" 2>/dev/null)"
   _908_gh2_ok=no
   case "$_908_gh2" in
@@ -49053,8 +49107,8 @@ PY
       esac
       ;;
   esac
-  assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" "$_908_gh2_ok"
-  assert_eq "#908 review: displaced_join wires harden_guard's displaced_paths as a third producer" "yes" \
+  assert_eq "#908 harden_guard: publishes guard_paths for the stubbed arm too" "yes" "$_908_gh2_ok"
+  assert_eq "#908 review: displaced_join wires harden_guard's guard_paths as a third producer" "yes" \
     "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.guard_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
 fi
 # ────────────────────────────────────────────────────────────────────────────
