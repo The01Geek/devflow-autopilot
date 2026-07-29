@@ -3778,7 +3778,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
             clean_rc, clean_stdout, clean_stderr = self._public_rc(root)
             self.assertEqual(3, clean_rc, clean_stderr)
-            self.assertIn("cannot exempt prose presence", clean_stdout)
+            self.assertIn("resolves into prose", clean_stdout)
 
             target.write_text(
                 "```text\nSTATIC PIN PROSE\n```\n",
@@ -3786,7 +3786,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             dirty_rc, dirty_stdout, dirty_stderr = self._public_rc(root)
             self.assertEqual(3, dirty_rc, dirty_stderr)
-            self.assertIn("cannot exempt prose presence", dirty_stdout)
+            self.assertIn("resolves into prose", dirty_stdout)
 
     def test_authorized_retired_revival_cannot_launder_committed_prose_target(self):
         literal = "Step 3.6 fresh-context audit"
@@ -3851,7 +3851,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
             rc, stdout, stderr = self._public_rc(root)
             self.assertEqual(3, rc, stderr)
-            self.assertIn("cannot exempt prose presence", stdout)
+            self.assertIn("resolves into prose", stdout)
 
     def test_worktree_target_snapshot_detects_byte_mode_and_path_races(self):
         for mutation in ("bytes", "mode", "path"):

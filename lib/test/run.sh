@@ -1530,8 +1530,9 @@ assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in t
 # `create` statements live in a prose paragraph as inline backticked code rather than in a
 # fenced block, which is why each is authored as a pin_count call from the outset: a raw
 # presence assertion over prose resolves inside prose and hits pin-corpus-lint's
-# "typed structural declaration cannot exempt prose presence" arm, which no
-# `# structural-pin-ok:` declaration rescues.
+# prose-resolution arm ("literal resolves into prose at <file>:<line>"), which no
+# `# structural-pin-ok:` declaration rescues — and, since #925 removed the count-helper
+# short-circuit, which a pin_count spelling no longer skips either.
 assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positionally and the marker behind --marker" "1" \
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
@@ -1543,8 +1544,9 @@ assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number the
 # tool reads that. `extract-command-heads.py` and `extract-command-shapes.py` parse the fence for
 # HEADS and SHAPES only; neither consumes the order. So the literal can change without breaking a
 # machine-consumed contract, which is the wording-only class this repo prohibits — and routing it
-# through `pin_count` would only have cleared the gate by the COUNT_HELPERS short-circuit rather
-# than by adjudication. Per CLAUDE.md's #843/#876 decision the compensating control is the
+# through `pin_count` only ever cleared the gate by the count-helper short-circuit rather
+# than by adjudication (a bypass #925 has since closed, so no pin_count spelling skips it now).
+# Per CLAUDE.md's #843/#876 decision the compensating control is the
 # merge-gating review pass, and that absence is the decision, not an oversight.
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
