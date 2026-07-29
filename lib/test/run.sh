@@ -48661,7 +48661,7 @@ PY
   assert_eq "#908 harden_guard: base-fetch success displaces the PR-head dynamic-import dependency too" "yes" \
     "$(grep -qF 'MALICIOUS_PR_HEAD_SHAPES' "$HG_FIX/ws/lib/test/extract-command-shapes.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: displaced content is the TRUSTED base copy, not a stub" "yes" \
-    "$(grep -qF 'TRUSTED_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo yes || echo no)"
+    "$(grep -qF 'TRUSTED_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- the literal is this fixture's own synthetic trusted-base marker (planted at $HG_FIX/origin above), not repo prose; asserts the harden_guard step materialized the TRUSTED copy (not a fail-closed stub) into the workspace
   # Fail-closed arm: base ref cannot be fetched (a deleted/unreachable base) — the
   # PR-head bytes must never survive; they are stubbed inline instead.
   echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX/ws/scripts/pretooluse-shape-guard.py"
