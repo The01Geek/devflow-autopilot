@@ -140,5 +140,36 @@
       "iter": 2,
       "phases": "unavailable"
     }
-  ]
+  ],
+  "harness_cost": {
+    "cost_source": "execution-file",
+    "engine_version": "2.25.6",
+    "workflow": "The01Geek/devflow-autopilot/.github/workflows/devflow-implement.yml@refs/heads/main",
+    "command": "implement",
+    "scope": "whole-job",
+    "cost_usd": 39.110521750000004,
+    "tokens": {
+      "input_tokens": 315,
+      "output_tokens": 139226,
+      "cache_read_input_tokens": 41695983,
+      "cache_creation_input_tokens": 422988,
+      "total_tokens": null
+    },
+    "model_usage": {
+      "claude-opus-4-8": {
+        "inputTokens": 553,
+        "outputTokens": 210588,
+        "cacheReadInputTokens": 48145816,
+        "cacheCreationInputTokens": 1309431,
+        "webSearchRequests": 0,
+        "costUSD": 39.110521750000004,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 64000,
+        "canonicalModel": "claude-opus-4-8",
+        "provider": "firstParty"
+      }
+    },
+    "num_turns": 190,
+    "duration_ms": 6397968
+  }
 }
