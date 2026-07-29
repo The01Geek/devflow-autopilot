@@ -4,6 +4,18 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.26.1] — 2026-07-29
+
+### Changed
+### Fixed
+
+- Corrected stale comments in `.github/workflows/devflow.yml` that still described the
+  automatic pull-request-triggered review tier — withheld by issue #936, with
+  `devflow-review.yml` removed from the tree — as a live `synchronize`-driven mechanism.
+  The file header, the `review_dedupe` policy block, and the Signal 2 comment now state
+  that the tier is withheld here and that the dedupe gate is retained for consumers whose
+  installed copy predates the withholding. Comment-only: no executable line changed.
+
 ## [2.26.0] — 2026-07-29
 
 ### Changed
