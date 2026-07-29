@@ -123,6 +123,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "lib/select-findings.sh": {
+      "note": "issue #893 owner of which Stage B findings become filings on the findings-array path (compose/alias/rank/cap); the legacy bare title/body path caps itself",
+      "owner": "retrospective-lifecycle"
+    },
     "lib/slugify.jq": {
       "note": "issue #891 shared slugify module (compute-patterns.jq + compose-filing-key.sh include it)",
       "owner": "retrospective-lifecycle"
@@ -1783,6 +1787,10 @@
       "owner": "unmodularized"
     },
     "891": {
+      "note": "",
+      "owner": "retrospective-lifecycle"
+    },
+    "893": {
       "note": "",
       "owner": "retrospective-lifecycle"
     },

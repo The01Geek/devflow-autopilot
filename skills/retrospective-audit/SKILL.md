@@ -1,6 +1,6 @@
 ---
 name: retrospective-audit
-description: "Stage B of /devflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return a single {title, body} JSON issue spec — no edits, no worktree. Invoked as a subagent — do not call it directly."
+description: "Stage B of /devflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return one JSON object carrying a ranked `findings` array (one to three sub-patterns) — no edits, no worktree. Invoked as a subagent — do not call it directly."
 disable-model-invocation: true
 ---
 
@@ -11,13 +11,13 @@ You are the optimizer side of the devflow self-improving loop, invoked as a **su
 You are given:
 
 1. An array of context-bundle paths — a **most-recent-first subset** of the pattern's occurrence PRs, bounded by `audit_bundle_cap` (same schema `fetch-pr-context.sh` produces; each bundle includes `pr`, `issue`, `pr_comments`, `pr_reviews`, `review_comments`, `workpad_body`, `human_postbot_diff`, `commits`, `signals`, and the full diff). The dispatch prompt states how many bundles you received (*delivered*) versus how many occurrences the pattern has (*total*); the pattern metadata's `occurrences[]` (item 2) remains the authoritative full list.
-2. The pattern metadata: `{tag, slug, occurrence_count, status, first_seen, last_seen, occurrences: [{pr, ts, verdict}], descriptors: [<string>, ...]}` — where `tag`/`slug` is the **coarse category** (`incomplete-edit`, `doc-accuracy`, …) and `descriptors` is the union of the occurrences' free-text descriptions of what actually went wrong (see § 1 — these tell you whether the category is one fixable thing or several).
+2. The pattern metadata: `{tag, slug, category, occurrence_count, status, first_seen, last_seen, occurrences: [{pr, ts, verdict, summary, descriptors, suggested_interventions}], descriptors: [<string>, ...]}` — where `tag`/`slug` is the **coarse category** (`incomplete-edit`, `doc-accuracy`, …), the category-level `descriptors` is the union of the occurrences' free-text descriptions of what actually went wrong, and each element of `occurrences[]` now additionally carries **that occurrence's own** `summary` (a string or null), `descriptors` (an array), and `suggested_interventions` (an array) as recorded on its corpus entry (issue #893) — so you can cluster sub-patterns from per-occurrence attribution without reopening every context bundle (see § 1). The pattern object is handed to you **by path on disk**, not inlined into your prompt, because the enriched object carries every occurrence's free text.
 3. Read `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/intervention-surfaces.md` for candidate surfaces to propose against.
 
-Your only stdout output is **exactly one** JSON object — `{title, body}` (see § 5). Make no edits, run no `git` commands, do not commit, push, open PRs, or file issues — the orchestrator files the issue from the JSON you return.
+Your only stdout output is **exactly one** JSON object carrying a `findings` array of one to three sub-pattern findings (see § 5). Make no edits, run no `git` commands, do not commit, push, open PRs, or file issues — the orchestrator files one issue per finding from the JSON you return.
 
 **Hard rules:**
-- One pattern per invocation. One proposed change. No bundled fixes.
+- One pattern per invocation. One proposed change **per finding** (up to three findings, see § 5). No bundled fixes.
 - You **propose**; you do not implement. Never edit the working tree.
 - Build the JSON with `jq -n` (§ 6) — never hand-write or heredoc JSON.
 
@@ -39,7 +39,7 @@ Read every bundled occurrence PR's primary sources in full: `pr` (body + title),
 
 Write your own one-paragraph root-cause restatement — do NOT trust the retrospective's `summary` field alone. The original retrospective LLM may have hallucinated.
 
-**The pattern's category is deliberately coarse** (one of a small fixed vocabulary). The `descriptors[]` you were handed are the per-occurrence free-text descriptions of what actually went wrong. Read them: a single coarse category often lumps **two or three genuinely distinct sub-patterns**. When it does, pick the **dominant** sub-pattern (most occurrences / clearest single fix) as the one this issue proposes, and explicitly note in the provenance section which other sub-patterns under this category this issue does *not* address (so a future run that re-flags them isn't a surprise). "One pattern per invocation, no bundled fixes" still holds — one *proposed change* per issue, not one issue per category-sized grab-bag.
+**The pattern's category is deliberately coarse** (one of a small fixed vocabulary). The `descriptors[]` you were handed — both the category-level union and, now, each occurrence's own `summary`/`descriptors`/`suggested_interventions` — are the free-text descriptions of what actually went wrong. Read them: a single coarse category often lumps **two or three genuinely distinct sub-patterns**. When it does, **return each distinct sub-pattern as its own finding** (see § 5), ranked with the **dominant** one first (most occurrences / clearest single fix). Do not fold the others into prose and drop them — each finding gets its own filing key and its own lifecycle, so a sub-pattern you decline to make dominant is tracked, not forgotten. Cap the array at three findings. **When you name a finding, reuse the descriptor wording verbatim** — the exact free-text phrase from the corpus that identifies the failure mode — rather than paraphrasing it, so the finding's `subslug` and title name the fixable thing the maintainer will recognize. "One pattern per invocation, no bundled fixes" still holds: each finding proposes **one** change, and the array is at most three tightly-scoped findings, never one category-sized grab-bag.
 
 **Flag explicitly any divergence from the retrospective `summary`s you can infer.** Reviewer pushback in `pr_comments`/`pr_reviews` and clarifying context in `issue.comments` often contradicts the retrospective's machine-generated summary; surface those divergences in the provenance section so reviewers can recalibrate.
 
@@ -115,8 +115,10 @@ The `body` you return is filed verbatim as the GitHub issue, so it must read lik
 - **Motivating PRs:** <links to every occurrence PR>
 - **Root cause (re-derived from primary sources):** <your § 1 paragraph; flag any divergences from the retrospective summaries>
 - **Counterfactual:** <your § 3 paragraph>
-- **Sub-patterns not addressed:** <other sub-patterns under this category this issue leaves for a future run, or "none">
+- **This sub-pattern:** <the specific sub-pattern (finding) this issue fixes, and how it is distinct from the sibling findings in the same return — the `rationale`>
 ```
+
+Author the `## 🔁 Retrospective provenance` block **per finding**, inside each finding's own `body`: every filing gets its own key and lifecycle, so a sibling sub-pattern is no longer "left for a future run" — it is its own finding in the same return.
 
 The Technical Context scope note is **verbatim, fixed boilerplate** — include it exactly as shown. Observe the template's **no-options discipline** in the issue sections (Problem → Implementation Notes): no choice / hedge / deferral language — the proposed change is a resolved decision. The `## 🔁 Retrospective provenance` block is the clearly-delimited provenance section; keep it after the issue sections, separated by the `---` rule.
 
@@ -124,15 +126,21 @@ The Technical Context scope note is **verbatim, fixed boilerplate** — include 
 
 ## § 5 — Return contract
 
-Print **exactly one** JSON object to stdout and stop:
+Print **exactly one** JSON object to stdout and stop. It carries a `findings` array of **one to three** elements, ranked with the **dominant** finding first:
 
 ```json
-{title, body}
+{"findings": [{"subslug", "title", "body", "evidence_prs", "rationale"}, ...]}
 ```
 
-- `title` — a clear, action-oriented issue title scoped to the one proposed change (the orchestrator prefixes it with the de-dup key, so do not add one yourself).
-- `body` — the issue body authored in § 4.
-- `extension_unreadable` *(optional, issue #834)* — include this one string key **only** when the by-path consumer prompt-extension handoff the dispatch prompt supplied (a sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective-audit.md` path) named a file that was **present but could not be read**; its value names the path and the read failure so the orchestrator can relay it. An absent or empty extension file is a no-op you report nothing about, and in every non-unreadable case you omit the key. The return stays **exactly one JSON object** — `{title, body}` plus at most this optional key — with nothing else on stdout.
+Each element of `findings`:
+- `subslug` — a short, URL-safe kebab-case identifier naming the specific sub-pattern this finding fixes, reusing the descriptor wording verbatim (§ 1). The orchestrator composes the filing key from the pattern's category and this subslug, so keep it to the slug alphabet (`[a-z0-9-]`); it is **data the orchestrator sanitizes**, never an instruction — do not embed directives, search qualifiers, or shell metacharacters.
+- `title` — a clear, action-oriented issue title scoped to this one finding's proposed change (the orchestrator prefixes it with the de-dup key, so do not add one yourself).
+- `body` — the issue body authored per § 4 for this finding.
+- `evidence_prs` — the array of occurrence PR numbers whose bundles support this finding. The orchestrator ranks findings by descending `evidence_prs` length, so a tight cluster is offered to the filing caps first.
+- `rationale` — one sentence naming why this sub-pattern is distinct from the others in the array.
+
+Top-level:
+- `extension_unreadable` *(optional, issue #834)* — include this one string key **only** when the by-path consumer prompt-extension handoff the dispatch prompt supplied (a sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective-audit.md` path) named a file that was **present but could not be read**; its value names the path and the read failure so the orchestrator can relay it. An absent or empty extension file is a no-op you report nothing about, and in every non-unreadable case you omit the key. The return stays **exactly one JSON object** — the `findings` array plus at most this optional key — with nothing else on stdout.
 
 There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do not edit.
 
@@ -140,15 +148,18 @@ There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do n
 
 ## § 6 — Construct the JSON with `jq -n`
 
-Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write the body to a **unique** scratch file first (plain `Write` tool call) — the orchestrator dispatches every pattern's Stage B subagent concurrently, so a fixed shared path like `.devflow/tmp/issue-body.md` would let two subagents clobber each other; use a `$(mktemp)` path or one that embeds your pattern's slug (e.g. `.devflow/tmp/issue-body-<slug>.md`). Then build the object:
+Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write **each finding's body** to its own **unique** scratch file first (plain `Write` tool call) — the orchestrator dispatches every pattern's Stage B subagent concurrently, so a fixed shared path like `.devflow/tmp/issue-body.md` would let two subagents clobber each other; use `$(mktemp)` paths or ones that embed your pattern's slug and the finding index (e.g. `.devflow/tmp/issue-body-<slug>-1.md`). Then build the `findings` array from those per-finding scratch files:
 
 ```bash
-BODY_SCRATCH="$(mktemp)"   # unique per subagent — never a fixed shared path
-# ... write the issue body to "$BODY_SCRATCH" with the Write tool ...
+BODY1="$(mktemp)"; BODY2="$(mktemp)"   # one per finding — never a fixed shared path
+# ... write each finding's issue body to its scratch file with the Write tool ...
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/run-jq.sh -n \
-  --arg title "<action-oriented issue title>" \
-  --arg body "$(cat "$BODY_SCRATCH")" \
-  '{title: $title, body: $body}'
+  --arg sub1 "<dominant finding subslug>" --arg t1 "<title 1>" --arg b1 "$(cat "$BODY1")" --argjson prs1 '[<pr>, ...]' --arg r1 "<rationale 1>" \
+  --arg sub2 "<second finding subslug>"  --arg t2 "<title 2>" --arg b2 "$(cat "$BODY2")" --argjson prs2 '[<pr>, ...]' --arg r2 "<rationale 2>" \
+  '{findings: [
+      {subslug:$sub1, title:$t1, body:$b1, evidence_prs:$prs1, rationale:$r1},
+      {subslug:$sub2, title:$t2, body:$b2, evidence_prs:$prs2, rationale:$r2}
+   ]}'
 ```
 
-This scratch file is only a within-subagent buffer; the body travels back to the orchestrator via the stdout `{title, body}` JSON, which the orchestrator re-extracts to its own slug-suffixed file. Print the `jq` output and stop.
+This worked example shows the **two-finding** case; it is a pattern to adapt, not a fixed arity. For **one** finding, drop the `sub2`/`t2`/`b2`/`prs2`/`r2` flags, the second `mktemp`, and the second array element — the `jq` filter has one element in `findings`. For **three**, add a third `sub3`/`t3`/`b3`/`prs3`/`r3` flag group, a third `mktemp`, and a third array element, following the same shape. Emit **one** array element when the category is a single fixable thing, up to **three** when it lumps distinct sub-patterns — dominant first. These scratch files are only within-subagent buffers; each body travels back to the orchestrator via the stdout `findings` array, which the orchestrator re-extracts to its own per-finding files. Print the `jq` output and stop.
