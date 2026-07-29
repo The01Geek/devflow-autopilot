@@ -904,7 +904,20 @@ loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop
   # false-RED this check. The scoping term is a PARAMETER rather than a literal because
   # issue #936 moved it once already (devflow-runner left the loop when the auto PR-triggered
   # review tier was withheld) and a literal buried here goes silently vacuous on the next move.
-  grep -F -- 'for w in ' "$1" | grep -F -- "$2" | grep -qF -- 'matcher-probe' && echo yes || echo no
+  # Built with bash builtins (read/case) rather than a PATH matcher: the presence test is what
+  # SELECTS this helper's emitted yes/no, and a value that decides an emitted result must not
+  # depend on a non-preflight PATH tool (CLAUDE.md guard-class 2) — an absent one would
+  # silently emit "no", the exact answer this check treats as the passing state.
+  local _line
+  while IFS= read -r _line; do
+    case "$_line" in
+      *"for w in "*)
+        case "$_line" in *"$2"*) : ;; *) continue ;; esac
+        case "$_line" in *matcher-probe*) echo yes; return 0 ;; esac
+        ;;
+    esac
+  done < "$1"
+  echo no
 }
 assert_eq "#801 install-loop-unchanged: the scoping term is still on install.sh's copy-loop line (the check above is not vacuous)" "yes" "$(grep -F -- 'for w in ' "$INSTALL801" | grep -qF -- 'devflow-implement' && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- install.sh's workflow copy loop IS the machine-consumed routing decision for which workflows reach a consumer repo, and this asserts the term the sibling absence check scopes itself by is actually present on that line
 assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
