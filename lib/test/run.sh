@@ -1384,7 +1384,7 @@ srp857_expect "#871 seed helper: the id-stderr scratch file could not be created
   "SKIP api-error-scratch-file" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
 assert_eq "#871 seed helper: SKIP api-error-scratch-file exits 3" "3" \
   "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m >/dev/null; echo $?)"
-rm -rf "$SRP857/bin"
+rm -rf "${SRP857:?}/bin"   # :? so an unset/empty SRP857 can never expand this to /bin
 # NOT driven -- the one arm the grounded-coverage assertion below declares undrivable:
 #   SKIP workpad-unreadable-script-dir the helper self-anchors on BASH_SOURCE, so reaching
 #                                      this arm needs its OWN parent directory to be
