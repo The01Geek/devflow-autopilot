@@ -103,6 +103,12 @@ jobs:
     # same-repo (it only exists on the default branch).
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Expose the resolved review-tier literal so the subagent-write-review-probe job
+    # (issue #858) can CONSUME it via `needs:` instead of re-composing a second REVIEW=
+    # assignment (which the generator's duplicated-anchor refusal forbids). The step is
+    # otherwise unchanged — it already carries `id: tools` and writes to $GITHUB_OUTPUT.
+    outputs:
+      tools: ${{ steps.tools.outputs.tools }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -486,6 +492,12 @@ jobs:
   implement-probe:
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    # Expose the resolved implement-tier literal so the subagent-write-implement-probe
+    # job (issue #858) can CONSUME it via `needs:` instead of re-composing a second
+    # IMPLEMENT= assignment. The step is otherwise unchanged — it already carries
+    # `id: tools` and writes to $GITHUB_OUTPUT.
+    outputs:
+      tools: ${{ steps.tools.outputs.tools }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -1428,3 +1440,298 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/env-propagation-probe-verdict.py "${EXECUTION_FILE}"
+
+  # issue #858 — measure whether a DISPATCHED subagent's Write into `.devflow/tmp/**`
+  # succeeds under each tier's generated baseline joined with that job's standing extras
+  # (NOT the shipped profile alone — the record reproduces the resolved literal verbatim). `Write(.devflow/tmp/**)` (review) and
+  # unrestricted Write (implement) are granted, but every shipped instruction that authors
+  # into that tree is addressed to the ORCHESTRATOR — whether a DISPATCHEE can write is
+  # unestablished (a grant proven for the dispatcher is not inherited; CLAUDE.md: "Unknown
+  # is not zero"). Each tier gets its OWN dedicated job — NOT a shape row inside the
+  # existing probe/implement-probe jobs, whose sessions already write into `.devflow/tmp/`
+  # and would leave a Write record with two possible authors. This job's prompt instructs NO
+  # orchestrator write, so a Write record in its execution file has exactly one EXPECTED
+  # author (the subagent). That is a PROMPT-level guarantee, not a technical restriction —
+  # the composed allowlist grants Write(.devflow/tmp/**) to the whole session, so the
+  # orchestrator keeps the capability and is simply not asked to use it. The verdict helper
+  # does not rest on the prompt alone: wherever the execution file records parent chains, a
+  # parent-less (orchestrator-issued) Write naming the same file falsifies the premise and
+  # routes the run to `unestablished` instead of a DENIED that record would contradict.
+  #
+  # The allowlist is CONSUMED from the tier job's resolved-tools step via `needs:` (the
+  # generated baseline joined with that job's standing extras — the review tier's include a
+  # second Write pattern, Write(/tmp/**)), PLUS `Task` and `Agent`. Both dispatch heads are
+  # granted for the same reason the sibling dispatching probes state: so the allowlist can
+  # never be the thing that prevents the dispatch, keeping a null result attributable to the
+  # harness rather than an allowlist omission. `Task` is absent from
+  # lib/capability-profiles.json entirely, so this grant lives ONLY here, in a hand-written
+  # --allowed-tools, and enters no generated region and no shipped profile.
+  #
+  # `always() && (same-repo || workflow_dispatch)`: a BARE `needs:` would SKIP the dependent
+  # when the workflow's cancel-in-progress cancels the upstream tier job — a fourth, silent
+  # outcome outside the closed three-outcome vocabulary. always() keeps the job running; an
+  # empty consumed allowlist routes to the helper's `--upstream-tools-empty` `unestablished`
+  # arm (naming "upstream tier job did not complete"), never DENIED. The verdict is derived
+  # DETERMINISTICALLY from the execution file by scripts/subagent-write-probe-verdict.py; the
+  # model's prose is never the measurement. The marker vocabulary in the prompt and the
+  # helper's constants are one contract, edited together.
+  #
+  # Version-dependent, like every verdict here: re-probe after a claude-code-action / CLI
+  # upgrade. The record (run id, job id, head commit, composed literal, and the machine
+  # output) goes into docs/cloud-allowlist.md from the FINAL pre-merge head — any push to
+  # this file re-fires the workflow and invalidates a recorded head commit.
+  subagent-write-review-probe:
+    needs: probe
+    if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Compose the consumed review literal + the two dispatch heads. An empty consumed
+      # output (upstream `probe` failed/cancelled/skipped) sets upstream_empty=true and
+      # emits an empty tools string, which skips the action step below and routes the
+      # verdict to the unestablished upstream arm.
+      #
+      # `Agent` is already present in the consumed baseline, so the appended `,Task,Agent`
+      # leaves a DUPLICATE `Agent` token in the resolved string. That is deliberate and must
+      # NOT be "cleaned up": the recorded literal is the measured condition, reproduced
+      # byte-for-byte, and de-duplicating it here would make the record diverge from the
+      # string the matcher was actually handed. Both heads are named unconditionally so the
+      # grant is legible at this call site rather than depending on what the baseline
+      # happens to contain at some later commit.
+      - name: Compose allowed-tools (consumed review literal + Task,Agent)
+        id: compose
+        env:
+          UPSTREAM_TOOLS: ${{ needs.probe.outputs.tools }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPSTREAM_TOOLS}" ]; then
+            printf 'upstream_empty=true\n' >> "$GITHUB_OUTPUT"
+            printf 'tools=\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'upstream_empty=false\n' >> "$GITHUB_OUTPUT"
+            TOOLS="${UPSTREAM_TOOLS},Task,Agent"
+            delim="TOOLS_EOF_$(date +%s%N)_$$"
+            {
+              printf 'tools<<%s\n' "$delim"
+              printf '%s\n' "$TOOLS"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Claude Code (subagent-write review probe)
+        id: claude
+        # `== 'false'` and not `!= 'true'`: if the compose step itself FAILS, the output is
+        # unset, and `!= 'true'` fails OPEN — it would run the paid engine step with an
+        # empty --allowed-tools. Only an affirmative `false` (compose ran and resolved a
+        # non-empty upstream literal) runs the engine; every other state, including unset,
+        # routes to the verdict step's upstream-empty arm below.
+        if: steps.compose.outputs.upstream_empty == 'false'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # Same rationale as the sibling probes: same-repo only, mutates nothing, but
+          # claude-code-action otherwise refuses a bot-initiated run.
+          allowed_bots: "*"
+          prompt: |
+            You are a DISPATCHED-SUBAGENT WRITE PROBE. Do EXACTLY the two numbered
+            actions below, in order, each exactly once, and nothing else.
+
+            YOU — the top-level session — must NEVER use the Write tool and must NEVER
+            create, edit, or write any file yourself, at any point. The entire
+            measurement depends on your own prompt performing NO write. The only write
+            in this run must come from the subagent you dispatch.
+
+            Your text output is not measured. Only the harness record of tool calls is
+            measured.
+
+            Action 1 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            subagent_type `general-purpose` and this EXACT prompt (copy it verbatim):
+            "You are a write-probe subagent. Do these three steps in order, each exactly
+            once, and nothing else:
+            (1) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_BEFORE'
+            (2) use the Write tool to create the file
+                .devflow/tmp/subwrite-review.txt with exactly this content on one line:
+                SUBWRITE_PAYLOAD
+            (3) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_AFTER'
+            Then STOP and reply with the single word DONE."
+            Dispatch it once. Do not retry it and do not dispatch a second one.
+
+            Action 2 — after the subagent returns, STOP and reply with the single word
+            DONE. Do NOT write any file, do NOT use the Write tool, do NOT echo anything.
+
+          # No plugin_marketplaces/plugins: the subagent uses only Bash printf and the
+          # Write tool, both already in the consumed review literal — loading the plugin
+          # would add a marketplace clone + install for zero measurement value. The
+          # subagent_type is the built-in `general-purpose`, so no --agents block is needed.
+          # acceptEdits so a granted call never prompt-denies and masquerades as a denial.
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.compose.outputs.tools }}"
+
+      # Deterministic three-outcome verdict from the execution file + on-disk side-effect,
+      # via the unit-tested helper. always() so the row is produced even on engine error or
+      # a skipped action step (the upstream-empty arm).
+      - name: Compute subagent-write verdict (review tier)
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          RESOLVED_TOOLS: ${{ steps.compose.outputs.tools }}
+          UPSTREAM_EMPTY: ${{ steps.compose.outputs.upstream_empty }}
+          # The PR HEAD ref and commit, never GITHUB_REF/GITHUB_SHA. On a `pull_request`
+          # event GitHub documents GITHUB_REF as `refs/pull/<n>/merge` and GITHUB_SHA as the
+          # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
+          # neither the head this record must name nor a commit that survives the merge, so
+          # a record built from them is unre-verifiable the moment the PR lands. That
+          # `pull_request` is the trigger that produces the pre-merge record, so it is the path
+          # that matters here. (workflow_dispatch is also reachable — this workflow already
+          # carries it on the default branch, so a maintainer can dispatch and select this
+          # branch — and the `||` fallbacks keep that path on GITHUB_REF/GITHUB_SHA, which are
+          # the correct values there.) Same idiom as devflow-review.yml's head.sha read.
+          PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
+          PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          # Anything other than an affirmative "false" — including the UNSET value a failed
+          # compose step leaves behind — is treated as upstream-empty. Testing for "true"
+          # instead let a compose failure fall through to the helper's parse arm, which then
+          # blamed an execution file the run never produced; the dedicated upstream arm
+          # exists for exactly this class of non-run.
+          if [ "${UPSTREAM_EMPTY}" != "false" ]; then
+            EXTRA+=(--upstream-tools-empty)
+          fi
+          python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
+            --tier review \
+            --side-effect-file .devflow/tmp/subwrite-review.txt \
+            --allowlist "${RESOLVED_TOOLS}" \
+            --permission-mode acceptEdits \
+            --model claude-haiku-4-5-20251001 \
+            --effort low \
+            --ref "${PROBE_REF}" \
+            --head-commit "${PROBE_SHA}" \
+            "${EXTRA[@]}"
+
+  # issue #858 — the implement-tier twin. A shape proven on the review tier is unproven on
+  # the implement tier (they are separately-probed allowlists), so the fact is measured on
+  # both. Identical structure; the allowlist is CONSUMED from the implement-probe job.
+  subagent-write-implement-probe:
+    needs: implement-probe
+    if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # The duplicate `Agent` token in the appended `,Task,Agent` is deliberate here for the
+      # same reason as the review job above: the recorded literal is the measured condition,
+      # reproduced byte-for-byte, so it is not de-duplicated.
+      - name: Compose allowed-tools (consumed implement literal + Task,Agent)
+        id: compose
+        env:
+          UPSTREAM_TOOLS: ${{ needs.implement-probe.outputs.tools }}
+        run: |
+          set -euo pipefail
+          if [ -z "${UPSTREAM_TOOLS}" ]; then
+            printf 'upstream_empty=true\n' >> "$GITHUB_OUTPUT"
+            printf 'tools=\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'upstream_empty=false\n' >> "$GITHUB_OUTPUT"
+            TOOLS="${UPSTREAM_TOOLS},Task,Agent"
+            delim="TOOLS_EOF_$(date +%s%N)_$$"
+            {
+              printf 'tools<<%s\n' "$delim"
+              printf '%s\n' "$TOOLS"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Claude Code (subagent-write implement probe)
+        id: claude
+        # `== 'false'` and not `!= 'true'`: if the compose step itself FAILS, the output is
+        # unset, and `!= 'true'` fails OPEN — it would run the paid engine step with an
+        # empty --allowed-tools. Only an affirmative `false` (compose ran and resolved a
+        # non-empty upstream literal) runs the engine; every other state, including unset,
+        # routes to the verdict step's upstream-empty arm below.
+        if: steps.compose.outputs.upstream_empty == 'false'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          prompt: |
+            You are a DISPATCHED-SUBAGENT WRITE PROBE. Do EXACTLY the two numbered
+            actions below, in order, each exactly once, and nothing else.
+
+            YOU — the top-level session — must NEVER use the Write tool and must NEVER
+            create, edit, or write any file yourself, at any point. The entire
+            measurement depends on your own prompt performing NO write. The only write
+            in this run must come from the subagent you dispatch.
+
+            Your text output is not measured. Only the harness record of tool calls is
+            measured.
+
+            Action 1 — dispatch exactly ONE subagent via the Task/Agent tool, with
+            subagent_type `general-purpose` and this EXACT prompt (copy it verbatim):
+            "You are a write-probe subagent. Do these three steps in order, each exactly
+            once, and nothing else:
+            (1) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_BEFORE'
+            (2) use the Write tool to create the file
+                .devflow/tmp/subwrite-implement.txt with exactly this content on one line:
+                SUBWRITE_PAYLOAD
+            (3) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_AFTER'
+            Then STOP and reply with the single word DONE."
+            Dispatch it once. Do not retry it and do not dispatch a second one.
+
+            Action 2 — after the subagent returns, STOP and reply with the single word
+            DONE. Do NOT write any file, do NOT use the Write tool, do NOT echo anything.
+
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "${{ steps.compose.outputs.tools }}"
+
+      - name: Compute subagent-write verdict (implement tier)
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+          RESOLVED_TOOLS: ${{ steps.compose.outputs.tools }}
+          UPSTREAM_EMPTY: ${{ steps.compose.outputs.upstream_empty }}
+          # The PR HEAD ref and commit, never GITHUB_REF/GITHUB_SHA. On a `pull_request`
+          # event GitHub documents GITHUB_REF as `refs/pull/<n>/merge` and GITHUB_SHA as the
+          # "Last merge commit on the GITHUB_REF branch" — an ephemeral merge commit that is
+          # neither the head this record must name nor a commit that survives the merge, so
+          # a record built from them is unre-verifiable the moment the PR lands. That
+          # `pull_request` is the trigger that produces the pre-merge record, so it is the path
+          # that matters here. (workflow_dispatch is also reachable — this workflow already
+          # carries it on the default branch, so a maintainer can dispatch and select this
+          # branch — and the `||` fallbacks keep that path on GITHUB_REF/GITHUB_SHA, which are
+          # the correct values there.) Same idiom as devflow-review.yml's head.sha read.
+          PROBE_REF: ${{ github.event.pull_request.head.ref || github.ref }}
+          PROBE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          # Anything other than an affirmative "false" — including the UNSET value a failed
+          # compose step leaves behind — is treated as upstream-empty. Testing for "true"
+          # instead let a compose failure fall through to the helper's parse arm, which then
+          # blamed an execution file the run never produced; the dedicated upstream arm
+          # exists for exactly this class of non-run.
+          if [ "${UPSTREAM_EMPTY}" != "false" ]; then
+            EXTRA+=(--upstream-tools-empty)
+          fi
+          python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
+            --tier implement \
+            --side-effect-file .devflow/tmp/subwrite-implement.txt \
+            --allowlist "${RESOLVED_TOOLS}" \
+            --permission-mode acceptEdits \
+            --model claude-haiku-4-5-20251001 \
+            --effort low \
+            --ref "${PROBE_REF}" \
+            --head-commit "${PROBE_SHA}" \
+            "${EXTRA[@]}"
