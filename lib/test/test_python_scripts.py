@@ -8645,6 +8645,24 @@ def _wd_emits_command_path(text_line):
         return False
     return True
 
+# Branch-level controls for the predicate (issue #855). The pointer-population
+# snapshot below pins the aggregate over the live corpus, but the drift guarantee it
+# advertises ("a skill that LATER emits a bare repo-relative command path turns this
+# RED") rests on this predicate being correct by construction — so assert each
+# include/exclude arm against synthetic lines rather than trusting the corpus never
+# to hit a false-negative shape.
+for _wd_line, _wd_want, _wd_why in [
+    ("mkdir -p .devflow/tmp/x", True, "bare repo-relative path as a command argument"),
+    ("> docs/generated.txt", True, "bare repo-relative path as a redirect target"),
+    ('mkdir -p "$MAIN_ROOT/.devflow/tmp"', False, "$VAR/-anchored path (resolves independently of cwd)"),
+    ('cp "${CLAUDE_SKILL_DIR}/lib/x" .', False, "${…}-anchored path"),
+    ('for f in ".github/x" "y"; do', False, "a `for X in …` data list, not a command path"),
+    ('DEFERRALS_FILE=".devflow/tmp/x.json"', False, "a pure VAR=value assignment value"),
+    ("echo mydocs/x", False, "word-internal token (mydocs/), not a bare path"),
+]:
+    assert_eq("#855: _wd_emits_command_path(%r) == %s (%s)" % (_wd_line, _wd_want, _wd_why),
+              _wd_want, _wd_emits_command_path(_wd_line))
+
 # Reuse the finder's OWN fence parser (`_fence_line_offsets`) so the sweep's notion of
 # "inside a ```bash fence" cannot drift from what `find_implement_violations` scans.
 _wd_pointer_pop = set()
