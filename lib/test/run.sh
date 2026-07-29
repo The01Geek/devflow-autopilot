@@ -35625,14 +35625,17 @@ fi
 # when it was filed. Issue #834's unconditional consumer-prompt-extension handoff sentence
 # — an addition the Phase 4.1 dispatch requires on every run, so it cannot be routed behind
 # a conditional progressively-loaded reference — does not fit inside the residual headroom
-# #815's move happened to leave, so the ceiling is re-registered here at the trimmed
-# post-#834 measurement with NO added slack: the next edit that grows this file goes RED and
-# must register its own raise, exactly as #815 intended. It is pinned rather than rendered
+# #815's move happened to leave, so the ceiling was re-registered at the trimmed
+# post-#834 measurement of 97729. Issue #915's cloud-denied-/tmp scratch relocation adds a
+# rc-checked `mkdir -p .devflow/tmp` guard ahead of the discovery capture, which does not fit
+# inside that headroom either, so the ceiling is raised again here, at the post-#915
+# measurement, with NO added slack: the next edit that grows this file goes RED and must
+# register its own raise, exactly as #815 intended. It is pinned rather than rendered
 # because a rendered figure would move with the file and enforce nothing. Provenance, both
 # measured deltas, and the raise rationale:
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 97729 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 99031 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
