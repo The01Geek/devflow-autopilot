@@ -49049,8 +49049,15 @@ m = re.search(r"^guard_paths<<(\S+)\n(.*?)^\1$", body, re.S | re.M)
 print("yes" if m and not m.group(2).strip() else "no")
 PY
 )"
+  # The grep target is a TEMP_-named alias for the run's captured GITHUB_OUTPUT
+  # scratch: `disposition=guard-absent` doubles as a real harden-stop-hooks.sh
+  # source token, so a bare `grep -qF … "$HG_FIX4/gh_out4.txt"` reads to the
+  # mutation-routing raw-presence detector as an undeclared source-presence pin.
+  # The TEMP_ name IS the declaration that this is a runtime executable assertion
+  # over scratch, not a source pin (see pin-corpus-lint.py's TMP_/TEMP_ carve-out).
+  TEMP_HG_OUT4="$HG_FIX4/gh_out4.txt"
   assert_eq "#908 harden_guard: the absent-target arm reports disposition=guard-absent, not a false guard-displaced" "yes" \
-    "$(grep -qF 'disposition=guard-absent' "$HG_FIX4/gh_out4.txt" && echo yes || echo no)"
+    "$(grep -qF 'disposition=guard-absent' "$TEMP_HG_OUT4" && echo yes || echo no)"
   # Shape B (SECURITY NEGATIVE CONTROL) — the PR *adds* a guard target: absent on the
   # base ref, PRESENT in the working tree. This MUST still route to the fail-closed
   # stub arm. If it did not, the skip would be exactly the fail-open the predicate's
