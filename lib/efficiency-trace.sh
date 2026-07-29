@@ -519,6 +519,29 @@ synthesize_iter_workpads() {
     echo "::warning::efficiency-trace.sh --persist: the base ref 'origin/${_DEVFLOW_BASE_BRANCH:-main}' is UNESTABLISHED (its pre-synthesis refresh did not succeed — see the refresh warning above); commit selection is skipped, so no synthesized iter-*.json is written this run" >&2
     return 3
   fi
+  # Telemetry-fetch freshness guard (issue #916): do_persist's pre-synthesis
+  # telemetry-branch fetch sets _DEVFLOW_TELEMETRY_FETCH_STATUS (`ok`/`failed`/
+  # `unattempted`). recorded_fix_shas reads the LOCAL telemetry ref to build the
+  # fix-commit exclusion set; when the fetch did NOT succeed (`failed`/
+  # `unattempted`) that ref may be absent or stale, so the exclusion set is
+  # silently incomplete and synthesis can re-attribute a commit an earlier run
+  # already recorded (the cross-PR double-booking #916 closes). This mirrors the
+  # base-ref guard above (decline → rc 3), adapted to a three-valued status: where
+  # the base-ref sentinel declines on the single value `unestablished`, this one
+  # declines on any status other than `ok` (`failed`/`unattempted`) — write no
+  # record, take the "search never ran" outcome (rc 3), joining the same rc-3
+  # class. Without it list_blobs/recorded_fix_shas only emit a `::warning::` while
+  # synthesis proceeds against the incomplete set. The `::warning::` is textually
+  # distinct from the base-ref, unresolvable-base-ref, and found-none breadcrumbs
+  # (the breadcrumb is the only channel that discriminates decline from found-none,
+  # since both write no file and both exit 0). Default `ok` when the var is unset
+  # guards a hypothetical caller reaching synthesis without do_persist having
+  # seeded it (the sole production path always seeds it); it is never
+  # `failed`-by-accident here.
+  if [ "${_DEVFLOW_TELEMETRY_FETCH_STATUS:-ok}" != ok ]; then
+    echo "::warning::efficiency-trace.sh --persist: the telemetry-branch fetch is UNESTABLISHED (_DEVFLOW_TELEMETRY_FETCH_STATUS='${_DEVFLOW_TELEMETRY_FETCH_STATUS:-ok}' — its pre-synthesis fetch did not succeed; see the fetch warning above); the fix-commit exclusion set may be incomplete, so commit selection is skipped and no synthesized iter-*.json is written this run" >&2
+    return 3
+  fi
   if ! base="$(synth_base_ref "$root")"; then
     echo "::warning::efficiency-trace.sh --persist: could not resolve a base branch ref (the warning above names the tried value); cannot select fix commits for synthesis" >&2
     return 3
@@ -929,7 +952,7 @@ persist_one() {
     case "$synth_rc" in
       0) : ;;
       3)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, a telemetry-branch fetch left unestablished by a failed/unattempted fetch, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above, which carry the actual jq error text — disk/permissions, a malformed jq program, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
