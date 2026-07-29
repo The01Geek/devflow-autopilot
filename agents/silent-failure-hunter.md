@@ -1,6 +1,7 @@
 ---
 name: silent-failure-hunter
 description: 'DevFlow''s silent-failure reviewer, dispatched by the review engine and available directly. Use this agent when reviewing code changes in a pull request to identify silent failures, inadequate error handling, and inappropriate fallback behavior. This agent should be invoked proactively after completing a logical chunk of work that involves error handling, catch blocks, fallback logic, or any code that could potentially suppress errors. See "When to invoke" in the agent body for worked scenarios.'
+tools: Read, Grep, Glob, Bash
 model: inherit
 color: yellow
 ---

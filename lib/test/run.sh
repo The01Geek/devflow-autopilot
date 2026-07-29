@@ -28160,9 +28160,9 @@ assert_eq "#141 no operative surface references the namespaced pr-review-toolkit
 # five review agents: the file exists first-party under agents/; the shared review engine
 # (skills/review/SKILL.md) dispatches the devflow: id AND a first-party agent of that exact
 # `name:` exists to resolve it (closing the #62/#98 dead-end-dispatch gap); the resolver
-# allowlists the devflow: id; and the frontmatter is well-formed. NOTE: unlike the #139
-# feature-dev agents, these carry NO `tools:` key (they inherit all tools), so 2c asserts
-# model: but NOT tools:.
+# allowlists the devflow: id; and the frontmatter is well-formed. Like the #139 feature-dev
+# agents, these now carry an explicit `tools:` allowlist (they no longer inherit every tool);
+# 2c asserts model:, and the tool-boundary block below owns the `tools:` contract.
 for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
@@ -28189,7 +28189,8 @@ for a in $PRT_AGENTS; do
     "yes" "$(grep -qF "\"devflow:$a\"" "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
   # Structural markers (open + close ---, model:) within the head window — bounded to
   # head -30 so a body horizontal-rule cannot inflate the closing-fence count and mask a
-  # dropped closer. tools: is intentionally NOT required (these agents inherit all tools).
+  # dropped closer. The `tools:` key is asserted by the tool-boundary block below, which owns
+  # that contract for all eight explicitly-allowlisted agents (not just these five).
   assert_eq "#141 agents/$a.md has well-formed frontmatter (open+close ---, model:)" \
     "yes" "$(head -1 "$FDROOT/agents/$a.md" | grep -qx -- '---' \
             && [ "$(head -30 "$FDROOT/agents/$a.md" | grep -c '^---$')" -ge 2 ] \
@@ -28209,6 +28210,58 @@ assert_eq "#141 LICENSES/pr-review-toolkit-LICENSE retains the upstream Apache-2
 # scoped-removal guard above.
 assert_eq "#141 plugin.json dependencies no longer lists pr-review-toolkit" \
   "0" "$(jq '[.dependencies[]? | select(.name == "pr-review-toolkit")] | length' "$FDROOT/.claude-plugin/plugin.json")"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "subagent tool-boundary allowlists (agents/*.md)"
+# ────────────────────────────────────────────────────────────────────────────
+# Every DevFlow-authored subagent declares an explicit `tools:` allowlist, so the read-only
+# advisory policy each one states in its own body is enforced by the harness rather than only
+# requested in prose. Two measured facts drive the shape of these rows:
+#   - An empty `tools:` value (bare key, `[]`, or `""`) parses IDENTICALLY to omitting the key
+#     — the agent inherits EVERY tool (measured on Claude Code 2.1.220 by probing all four
+#     forms against a control). So an emptied value is a silent fail-OPEN of this boundary,
+#     never a tightening: each row proves the value is non-empty BEFORE testing what it omits,
+#     exactly the "guard whose comparand can be absent fails open" class in CLAUDE.md.
+#   - Agent frontmatter has no deny/disallow key, so the allowlist is the only lever.
+# Write is granted to exactly ONE agent — checklist-verifier — because its Phase 2.1b dispatch
+# prompt (skills/review/phases/phase-2-verification.md) instructs it to Write its verdict JSON
+# to {VERDICT_FILE}. Granting Write to any other agent here contradicts that agent's own
+# stated working-tree policy, which is why the expectation is per-agent, not global.
+# NOTE: this boundary is name-level, not a claim of read-only-ness — the six agents that hold
+# Bash can still reach the tree through it (`sed -i`, `git checkout --`). It closes the
+# tool-shaped path; the Phase-3 dirty-tree snapshot guard remains the behavioral backstop.
+AGENT_TOOL_ROSTER="checklist-deduper checklist-generator checklist-verifier code-reviewer"
+AGENT_TOOL_ROSTER="$AGENT_TOOL_ROSTER comment-analyzer pr-test-analyzer silent-failure-hunter"
+AGENT_TOOL_ROSTER="$AGENT_TOOL_ROSTER type-design-analyzer"
+for a in $AGENT_TOOL_ROSTER; do
+  # structural-pin-ok: security-credential-boundary -- the `tools:` line IS the runtime tool
+  # boundary the harness parses for a dispatched subagent; no other surface constrains what a
+  # dispatched review agent may do to the working tree.
+  atools="$(grep -E '^tools:[[:space:]]' "$FDROOT/agents/$a.md" | head -1)"
+  atools_value="${atools#tools:}"
+  case "$atools_value" in
+    *[![:space:]]*) atools_nonempty=yes ;;
+    *) atools_nonempty=no ;;
+  esac
+  # Fail CLOSED on an absent/emptied/reformatted value: an empty capture would make every
+  # omission row below pass VACUOUSLY (printf '' | grep -qw -> "no") while the agent had in
+  # fact reverted to inheriting all tools — the precise fail-open this block exists to catch.
+  assert_eq "#agent-tools agents/$a.md declares a NON-EMPTY tools: value (empty == inherits all tools)" \
+    "yes" "$atools_nonempty"
+  for denied in Edit MultiEdit NotebookEdit Task; do
+    assert_eq "#agent-tools agents/$a.md tools: omits $denied" \
+      "no" "$(printf '%s' "$atools_value" | grep -qw "$denied" && echo yes || echo no)"  # raw-guard-ok: loop body: the pattern is the $denied loop variable, not a static pin
+  done
+  # Write: expected on checklist-verifier (its dispatch prompt mandates the verdict-file
+  # write), asserted ABSENT on every other agent — asserted both ways so neither a dropped
+  # grant that would break Phase 2 nor a spread grant that would breach the policy is silent.
+  case "$a" in
+    checklist-verifier) atools_write_expected=yes ;;
+    *) atools_write_expected=no ;;
+  esac
+  assert_eq "#agent-tools agents/$a.md tools: Write grant matches its dispatch contract" \
+    "$atools_write_expected" "$(printf '%s' "$atools_value" | grep -qw 'Write' && echo yes || echo no)"
+done
 
 # --- #191: retain the review agents' complete-location-set deliverable boundary. ---
 assert_pin_unique "#191 code-reviewer includes the complete location set in the finding body before submitting" \

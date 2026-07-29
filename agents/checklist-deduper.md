@@ -1,6 +1,7 @@
 ---
 name: checklist-deduper
 description: Merges multiple batches of checklist items from checklist-generator into a single deduped checklist. Preserves traceability by recording which original IDs were merged. Does NOT judge correctness or re-tag items.
+tools: Read
 model: sonnet
 color: violet
 ---

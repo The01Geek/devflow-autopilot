@@ -1,6 +1,7 @@
 ---
 name: checklist-generator
 description: Use when an orchestrator needs to enumerate every verifiable claim in a code diff (dependency interactions, test-mock alignment, data format assumptions, API contracts) and return a JSON checklist for independent verification. Does NOT judge correctness.
+tools: Read, Grep, Glob
 model: opus
 color: blue
 ---
