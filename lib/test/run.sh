@@ -35906,17 +35906,36 @@ assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's par
 # ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. A grant that is
 # ── intentionally config-only until a later matcher-probe run proves its command shape is
 # ── listed in `unproven_post_merge` below (currently none) so it stays closed and visible.
+# ── Issue #928: the workflow templates config's absolute workspace prefix off
+# ── ${{ github.workspace }} so matcher-probe.yml hardcodes no repo-derived path, while
+# ── the config key stays out of scope (trigger-time-resolved) and keeps its absolute
+# ── literals. The mirror therefore holds under exactly one transform — config's absolute
+# ── prefix ↔ the ${{ github.workspace }} expression — which this test derives from config
+# ── itself (no hardcoded path) and applies to `want` before comparing.
 assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible devflow_implement.allowed_tools" "SYNCED" \
   "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
 unproven_post_merge = set()
-want = [
+cfg_tokens = [
     token
     for token in cfg.get("devflow_implement", {}).get("allowed_tools", [])
     if token not in unproven_post_merge
 ]
+# Derive config's absolute workspace prefix from any absolute token (never hardcoded
+# here). The workflow templates that exact prefix off ${{ github.workspace }} (#928), so
+# apply the same substitution to `want`. When config carries no absolute token (the
+# post-merge state after the config key is itself migrated) abs_prefix is None and the
+# comparison degrades to identity — forward-compatible with no change here.
+WS = "${{ github.workspace }}"
+abs_prefix = None
+for t in cfg_tokens:
+    mm = re.match(r"Bash\((/.*?)/(?:scripts|lib)/", t)
+    if mm:
+        abs_prefix = mm.group(1)
+        break
+want = [t.replace(abs_prefix, WS) if abs_prefix else t for t in cfg_tokens]
 m = re.search(r"EXTRAS='([^']*)'", yml)
 if not m:
     print("EXTRAS-NOT-FOUND")
