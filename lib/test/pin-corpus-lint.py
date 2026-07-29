@@ -2199,7 +2199,12 @@ def run_mutation_routing(pin_source, lib, overrides, md_targets, diff_file):
             continue
         helper = first[0]
         if helper not in REQUIRED_DECLARATION_HELPERS:
-            # Mutation-taking and count-based helpers never draw a finding.
+            # In THIS legacy synthetic self-test command, mutation-taking and
+            # count-based helpers draw no finding. This is scoped to the legacy
+            # path only: the production `mutation-routing-worktree` classifier
+            # (scan_changed_sources) no longer exempts count helpers — issue #925
+            # removed that short-circuit, so a prose pin routed through pin_count
+            # is reported there. Do not read this exemption as a global policy.
             continue
         toks = tokenize(stripped)
         if not toks or "".join(v for _, v in toks[0]) != helper:
@@ -2605,26 +2610,35 @@ def _markdown_prose_text(text):
     return re.sub(r"<!--.*?-->", "", visible, flags=re.DOTALL)
 
 
+def _markdown_line_is_prose(visible_line, literal):
+    """The conservative issue-810 per-line prose test, single-sourced so the
+    presence predicate and the line-number lookup cannot drift: ``literal`` is
+    prose on ``visible_line`` when the line is a Markdown heading, or the literal
+    itself bears whitespace (a phrase, not a bare token). ``visible_line`` must
+    already have its fenced/HTML-comment content removed by the caller."""
+    if literal not in visible_line:
+        return False
+    return bool(re.match(r"^ {0,3}#{1,6}(?:\s+|$)", visible_line)) or bool(
+        re.search(r"\s", literal)
+    )
+
+
 def _markdown_literal_is_prose(text, literal):
     """Detect visible Markdown headings and whitespace-bearing prose phrases."""
     visible = _markdown_prose_text(text)
-    for line in visible.splitlines():
-        if literal not in line:
-            continue
-        if re.match(r"^ {0,3}#{1,6}(?:\s+|$)", line):
-            return True
-        if re.search(r"\s", literal):
-            return True
-    return False
+    return any(
+        _markdown_line_is_prose(line, literal) for line in visible.splitlines()
+    )
 
 
 def _markdown_prose_literal_lineno(text, literal):
     """1-based original line of the first visible (non-fenced) Markdown line
-    where ``literal`` appears as a heading or a whitespace-bearing phrase — the
-    same conservative test ``_markdown_literal_is_prose`` applies. Falls back to
-    the first raw occurrence line if no fence-outside line matches (a literal
-    resolved only inside a multi-line HTML comment), so a reported line always
-    exists once the prose predicate has fired."""
+    where ``literal`` reads as prose under ``_markdown_line_is_prose``. Falls
+    back to the first raw occurrence line if no fence-outside line matches (a
+    literal resolved only inside a multi-line HTML comment — a case the DOTALL
+    strip in ``_markdown_literal_is_prose`` would not have called prose, so the
+    fallback is protective: it guarantees the finding always names a real line
+    rather than ``None`` even if the two comment-stripping passes ever diverge)."""
     excluded = _markdown_excluded_line_indices(text)
     lines = text.splitlines()
     fallback = None
@@ -2634,11 +2648,7 @@ def _markdown_prose_literal_lineno(text, literal):
         if index in excluded:
             continue
         visible = re.sub(r"<!--.*?-->", "", line)
-        if literal not in visible:
-            continue
-        if re.match(r"^ {0,3}#{1,6}(?:\s+|$)", visible) or re.search(
-            r"\s", literal
-        ):
+        if _markdown_line_is_prose(visible, literal):
             return index + 1
     return fallback
 
@@ -3338,10 +3348,7 @@ def scan_changed_sources(
                 "verdict"
             )
             continue
-        if (
-            site.declaration is not None
-            and site.declaration_error is None
-        ):
+        if site.declaration is not None and site.declaration_error is None:
             continue
         if site.declaration_error != "missing structural declaration":
             detail = site.declaration_error
