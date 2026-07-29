@@ -526,7 +526,9 @@ synthesize_iter_workpads() {
   # `unattempted`) that ref may be absent or stale, so the exclusion set is
   # silently incomplete and synthesis can re-attribute a commit an earlier run
   # already recorded (the cross-PR double-booking #916 closes). This mirrors the
-  # base-ref guard above exactly: any status other than `ok` declines — write no
+  # base-ref guard above (decline → rc 3), adapted to a three-valued status: where
+  # the base-ref sentinel declines on the single value `unestablished`, this one
+  # declines on any status other than `ok` (`failed`/`unattempted`) — write no
   # record, take the "search never ran" outcome (rc 3), joining the same rc-3
   # class. Without it list_blobs/recorded_fix_shas only emit a `::warning::` while
   # synthesis proceeds against the incomplete set. The `::warning::` is textually
