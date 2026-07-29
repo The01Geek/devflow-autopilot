@@ -23741,7 +23741,7 @@ exit 0
 STUB
   }
   # $1=base fixture dir, $2=VENDOR_SOURCE, $3=work-dir seeder fn (or "-"), $4=step
-  # → sets BPL_REC (argv-record path), BPL_LOG, BPL_RC.
+  # → sets BPL_REC (argv-record path), BPL_LOG.
   bpl_run() {
     local work; work=$(mktemp -d); BPL_LOG=$(mktemp); BPL_REC="$work/rt/argv-record"
     mkdir -p "$work/rt"
@@ -23751,7 +23751,6 @@ STUB
     ( cd "$work" && BASE_REF=main RUNNER_TEMP="$work/rt" GITHUB_OUTPUT="$work/out" \
         VENDOR_SOURCE="$2" DEVFLOW_PROTECTED_PROMPT_EXTENSIONS="review requesting-code-review" \
         bash "$4" ) >"$BPL_LOG" 2>&1
-    BPL_RC=$?
   }
   bpl_rank() { sed -n 's/^RANK=//p' "$BPL_REC" 2>/dev/null | head -1; }
   # count of protected names that arrived as their OWN standalone argv entry
