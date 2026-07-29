@@ -1085,8 +1085,13 @@ REQUIRED_DECLARATION_HELPERS = frozenset(
 MUTATION_TAKING_HELPERS = frozenset(
     {"assert_pin_red_under", "devflow_module_pin_red_under", "assert_count_red_under"}
 )
-# Count-based guards — exempt by helper, grounded in the phase-2 §2.3 scope limiter
-# ("does not apply to count-based guards"). They draw no finding.
+# Count-based guards. The legacy synthetic `mutation-routing` command still
+# exempts them by helper (they are absent from REQUIRED_DECLARATION_HELPERS),
+# but the required `mutation-routing-worktree` classifier no longer does: issue
+# #925 removed the `count-helper` short-circuit in scan_changed_sources so a
+# NEW or MODIFIED count-helper pin whose literal resolves into prose is reported
+# exactly as the equivalent static-helper or raw-grep pin, with no spelling that
+# skips the prose adjudication.
 COUNT_HELPERS = frozenset({"pin_count", "devflow_module_pin_count"})
 
 # The declaration marker is recognized only in a real comment region; a quoted
@@ -2558,8 +2563,8 @@ def _resolve_guard_target(args, spec, literal_vars, path_vars, lib):
     return None
 
 
-def _markdown_prose_text(text):
-    """Return Markdown text outside closed fences and HTML comments.
+def _markdown_excluded_line_indices(text):
+    """0-based indices of Markdown lines inside a properly closed fenced block.
 
     A properly closed fenced block is machine-facing content for this boundary.
     An unterminated fence fails closed: its content remains prose-eligible
@@ -2587,7 +2592,13 @@ def _markdown_prose_text(text):
             excluded.update(range(fence_start, index + 1))
             fence = None
             fence_start = None
+    return excluded
 
+
+def _markdown_prose_text(text):
+    """Return Markdown text outside closed fences and HTML comments."""
+    lines = text.splitlines(keepends=True)
+    excluded = _markdown_excluded_line_indices(text)
     visible = "".join(
         line for index, line in enumerate(lines) if index not in excluded
     )
@@ -2607,6 +2618,76 @@ def _markdown_literal_is_prose(text, literal):
     return False
 
 
+def _markdown_prose_literal_lineno(text, literal):
+    """1-based original line of the first visible (non-fenced) Markdown line
+    where ``literal`` appears as a heading or a whitespace-bearing phrase — the
+    same conservative test ``_markdown_literal_is_prose`` applies. Falls back to
+    the first raw occurrence line if no fence-outside line matches (a literal
+    resolved only inside a multi-line HTML comment), so a reported line always
+    exists once the prose predicate has fired."""
+    excluded = _markdown_excluded_line_indices(text)
+    lines = text.splitlines()
+    fallback = None
+    for index, line in enumerate(lines):
+        if literal in line and fallback is None:
+            fallback = index + 1
+        if index in excluded:
+            continue
+        visible = re.sub(r"<!--.*?-->", "", line)
+        if literal not in visible:
+            continue
+        if re.match(r"^ {0,3}#{1,6}(?:\s+|$)", visible) or re.search(
+            r"\s", literal
+        ):
+            return index + 1
+    return fallback
+
+
+def _literal_prose_resolution(site, repo_root, target_loader=None):
+    """Return ``(relative_target, 1-based line)`` where ``site.literal`` resolves
+    into prose of its statically resolved target, or ``None`` when it does not
+    (not prose, unreadable, absent, or an unresolved target/literal).
+
+    The conservative issue-810 prose boundary: a heading, a whitespace-bearing
+    visible Markdown phrase, or hash-comment text is prose; a standalone
+    non-heading token, fenced Markdown machine content, and operative source
+    text are not. It makes NO reference to a structural declaration and none to
+    the site's helper family (issue #925): a count-based helper's literal is
+    weighed exactly as a static-helper or raw-``grep`` one, so routing a prose
+    pin through ``pin_count`` no longer skips the question.
+    """
+    if site.literal is None or site.target_path is None:
+        return None
+    target = Path(site.target_path)
+    if not target.is_absolute():
+        target = Path(repo_root) / target
+    ext = target.suffix.lower()
+    text, error = _read_typed_target(target, target_loader)
+    if error is not None or site.literal not in text:
+        return None
+    if ext in COMMENT_MD_EXTS:
+        if not _markdown_literal_is_prose(text, site.literal):
+            return None
+        lineno = _markdown_prose_literal_lineno(text, site.literal)
+    elif ext in COMMENT_HASH_EXTS:
+        lineno = None
+        for candidate_lineno, comment in hash_comment_regions(text.splitlines()):
+            if site.literal in comment:
+                lineno = candidate_lineno
+                break
+        if lineno is None:
+            return None
+    else:
+        return None
+    try:
+        relative_target = os.path.relpath(
+            os.path.abspath(target), os.path.abspath(repo_root)
+        ).replace(os.sep, "/")
+    except ValueError:
+        relative_target = str(target)
+    return relative_target, lineno
+
+
 def _read_typed_target(target, target_loader):
     """Return target text plus an optional inspection error label."""
     if target_loader is not None:
@@ -2615,43 +2696,6 @@ def _read_typed_target(target, target_loader):
         return target.read_text(encoding="utf-8"), None
     except (OSError, UnicodeDecodeError) as exc:
         return None, type(exc).__name__
-
-
-def _typed_pin_protects_prose(site, repo_root, target_loader=None):
-    """Return True when a declaration matches the conservative prose boundary.
-
-    The issue-810 boundary is semantic: a category marker does not turn an
-    advisory phrase into an executable contract. For statically resolved
-    targets, the conservative classifier rejects headings, whitespace-bearing
-    visible Markdown phrases, and hash-comment text. A standalone non-heading
-    token is treated as a sentinel; fenced Markdown machine content and
-    operative source text retain the typed structural path.
-    """
-    if (
-        site.declaration is None
-        or site.literal is None
-        or site.target_path is None
-    ):
-        return False
-    target = Path(site.target_path)
-    if not target.is_absolute():
-        target = Path(repo_root) / target
-    ext = target.suffix.lower()
-    text, error = _read_typed_target(target, target_loader)
-    if error is not None:
-        # Defensive fallback for direct callers. The production scanner rejects
-        # unreadable typed targets in _typed_pin_inspection_error first.
-        return ext in COMMENT_MD_EXTS and bool(re.search(r"\s", site.literal))
-    if site.literal not in text:
-        return False
-    if ext in COMMENT_MD_EXTS:
-        return _markdown_literal_is_prose(text, site.literal)
-    if ext in COMMENT_HASH_EXTS:
-        return any(
-            site.literal in comment
-            for _, comment in hash_comment_regions(text.splitlines())
-        )
-    return False
 
 
 def _typed_pin_inspection_error(site, repo_root, target_loader=None):
@@ -3266,8 +3310,11 @@ def scan_changed_sources(
                     "retired wording-pin revival lacks " + " and ".join(missing)
                 )
                 continue
-        elif site.family == "count-helper":
-            continue
+        # Issue #925: helper identity selects no exemption. A count-based helper
+        # (pin_count / devflow_module_pin_count) reaches the same prose
+        # adjudication every static-helper and raw-grep pin does — the former
+        # `count-helper` short-circuit that preceded this block let a prose pin
+        # skip the question simply by being spelled as a count.
         inspection_error = _typed_pin_inspection_error(
             site, repo_root, target_loader
         )
@@ -3278,18 +3325,23 @@ def scan_changed_sources(
                 f"{inspection_error}"
             )
             continue
+        prose_resolution = _literal_prose_resolution(
+            site, repo_root, target_loader
+        )
+        if prose_resolution is not None:
+            prose_target, prose_line = prose_resolution
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t{site.literal}\t"
+                f"literal resolves into prose at {prose_target}:{prose_line}; "
+                f"the {site.helper or site.family} helper does not change the "
+                "verdict"
+            )
+            continue
         if (
             site.declaration is not None
             and site.declaration_error is None
-            and not _typed_pin_protects_prose(site, repo_root, target_loader)
         ):
-            continue
-        if _typed_pin_protects_prose(site, repo_root, target_loader):
-            findings.append(
-                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
-                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t"
-                "typed structural declaration cannot exempt prose presence"
-            )
             continue
         if site.declaration_error != "missing structural declaration":
             detail = site.declaration_error
