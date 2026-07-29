@@ -22,22 +22,33 @@ invocation) — so the E2BIG regression cannot ship silently.
 It is a member of the repository's declaration-marker lint family, alongside
 ``# raw-guard-ok:`` / ``# structural-pin-ok:`` / ``# tree-walk-ok:``.
 
-Audited population, closed by enumeration (the three corpus-AGGREGATING helpers):
+Audited population, closed by enumeration:
 
-* ``lib/actionable-patterns.sh`` — the actionable-pattern OUTPUT block.
-* ``lib/scan.sh`` — the candidate-accumulation and unprocessed-filter jq.
+* ``lib/actionable-patterns.sh`` — the actionable-pattern OUTPUT block (corpus-
+  aggregating).
+* ``lib/scan.sh`` — the candidate-accumulation and unprocessed-filter jq (corpus-
+  aggregating).
 * ``skills/retrospective-weekly/SKILL.md`` — the Step 9 summary build (invoked
-  through the ``scripts/run-jq.sh`` wrapper, recognized identically).
+  through the ``scripts/run-jq.sh`` wrapper, recognized identically; corpus-
+  aggregating).
+* ``lib/fetch-pr-context.sh`` — the per-PR context producer (issue #895). It is
+  NOT corpus-aggregating, but its ``review_verdicts`` union reads two GitHub
+  payloads (the PR conversation comments and the durable bot PR reviews) that are
+  paginated and can be large, so both must reach jq via stdin / ``--slurpfile``
+  rather than an ``--argjson`` argv string; auditing this file here enforces that
+  neither payload ever reverts to ``--argjson`` (a reverted payload would appear
+  as an undeclared operand name and fail this lint). Its remaining ``--argjson``
+  operands are bounded scalars or per-PR-bounded values, each declared by an
+  ``# argjson-ok:`` marker.
 
-The complement is deliberately out of scope and left unchanged: ``lib/
-fetch-pr-context.sh`` is per-PR (bounded by one PR) and already ``--slurpfile``-
-compliant; ``lib/materialize-retrospectives.sh`` passes single-PR / single-line
-operands; ``skills/retrospective/SKILL.md`` is the Stage A subagent that analyzes
-**one** PR from its pre-fetched context bundle, so its ``--argjson`` operands
+The complement is deliberately out of scope and left unchanged:
+``lib/materialize-retrospectives.sh`` passes single-PR / single-line operands;
+``skills/retrospective/SKILL.md`` is the Stage A subagent that analyzes **one** PR
+from its pre-fetched context bundle, so its ``--argjson`` operands
 (``bundle``/``categories``/``descriptors``/``suggested_interventions``) are per-PR
 bounded, not corpus-sized; ``lib/efficiency-trace.sh`` is not on the retrospective
 loop's path. The file set is a hardcoded closed list — this guard reads exactly
-these three named paths and performs **no** repository-tree walk (so the #711
+these named paths and performs **no** repository-tree walk (so the #711
 tree-enumeration convention is not engaged).
 
 Marker coverage rule — PER-OPERAND-NAME, not per-line (robust to shell
@@ -122,6 +133,7 @@ IN_SCOPE = (
     "lib/actionable-patterns.sh",
     "lib/scan.sh",
     "skills/retrospective-weekly/SKILL.md",
+    "lib/fetch-pr-context.sh",
 )
 
 

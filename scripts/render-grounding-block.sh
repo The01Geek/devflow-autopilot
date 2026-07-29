@@ -197,6 +197,17 @@ ${ALLOWED_TOOLS}
 >   targeting \`/tmp\`; the Write tool outside \`.devflow/tmp/\`; a \`cat\`-headed heredoc
 >   write to any target (use the Write tool or \`tee\` instead); an interpreter head
 >   (\`python3\`/\`python\`/\`node\`).
+> - **Three more shapes the harness denies — self-police these:** the \`bash <path>\`
+>   wrapper (invoke the helper path directly as the leading token, never
+>   \`bash <path>\`); process substitution (\`<(…)\` / \`>(…)\`); and the
+>   leading-assignment shape the harness reports as \`simple_expansion\`
+>   (\`VAR=value cmd\` — capture with \`VAR=\$(cmd)\` or pass the value as an argument
+>   instead). The first two are covered by no runtime guard at all; the third is the
+>   \`R1\` arm of the issue-#805 shape guard's deny set, which denies it at runtime
+>   wherever that guard is registered. Together these three shapes accounted for 5 of the
+>   18 denials in one observed review run — a tally over these three shapes only, which
+>   does not include, and is not the same count as, the \`/tmp\`-redirect denials recorded
+>   for run \`30138268273\` elsewhere in this repo.
 > - **Hard rule: after two denials of a shape, switch to a permitted alternative above
 >   — never iterate variants of the denied shape.** Iterating denied variants is what
 >   exhausts the run and ends it with no verdict.
