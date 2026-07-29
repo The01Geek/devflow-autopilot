@@ -68,8 +68,15 @@ if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
   exit 0
 fi
 
+# `contains`, not `startswith` (issue #908 review): the execution file's on-disk shape
+# is not a pinned public contract (see the header note above), so the harness may
+# surface `permissionDecisionReason` wrapped inside a larger transcript string (e.g. a
+# "PreToolUse:Bash [hook] devflow pretooluse-probe: ..." envelope). `startswith` would
+# report a confident false REASON-ABSENT on exactly that shape — the one axis this
+# probe exists to measure. The marker prefix is already distinctive, so `contains` is
+# strictly more robust with no added false-positive risk.
 FOUND=$("$DEVFLOW_JQ" -rs '
-  [ .. | strings | select(startswith("devflow pretooluse-probe:")) ] | length > 0
+  [ .. | strings | select(contains("devflow pretooluse-probe:")) ] | length > 0
 ' "$EXECUTION_FILE" 2>/dev/null) || FOUND=""
 
 case "$FOUND" in

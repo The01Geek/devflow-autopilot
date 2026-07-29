@@ -20,13 +20,19 @@
 # that "any consumer added later MUST neutralize before rendering." This is that
 # consumer. Each command string may carry attacker-influenced bytes (it is the literal
 # text of a denied Bash command an untrusted PR attempted), so before it enters the
-# check-run summary:
-#   - a backtick is stripped (mirrors render-grounding-block.sh's `${VAR//\`/}`
-#     approach — one strip strategy in the repo, not two) so it cannot close the
-#     surrounding ```text fence early;
-#   - a literal `::` is neutralized to `: :` so it cannot read as a GitHub Actions
-#     workflow-command token if this text is ever echoed to a raw log stream rather
-#     than only the check-run summary API payload;
+# check-run summary it is REWRITTEN, not left verbatim:
+#   - a backtick is stripped (conceptually mirrors render-grounding-block.sh's
+#     strip-don't-escape philosophy for backticks — that file uses bash
+#     `${VAR//\`/}`, this one uses jq to keep the parse and the neutralization in one
+#     tool) so it cannot close the surrounding ```text fence early;
+#   - EVERY literal `:` is followed by an inserted space, so no `::` substring can
+#     survive under any input — including an ODD-LENGTH run of colons (e.g. `:::`),
+#     which a naive `gsub("::"; ": :")` does NOT close: jq's `gsub` is
+#     non-overlapping and scans past each match's original 2-character span, so
+#     `:::` -> match `::` at [0,2), replace, then append the untouched trailing `:`
+#     verbatim -> `: ::` — a FRESH `::` pair re-forms at the seam (issue #908 review,
+#     confirmed by direct execution). Inserting a space after every single colon has
+#     no such seam: no two colons are ever left adjacent, for any input;
 #   - an embedded newline is flattened to a visible marker so one denied command can
 #     never masquerade as multiple summary lines or break out of its list-item.
 # All three run through jq (a preflight-guaranteed tool — CLAUDE.md's guard-class 2
@@ -86,30 +92,54 @@ else
   echo "- per-arm denial counts: unavailable"
 fi
 
-echo "- denied commands (verbatim text; see the neutralization note above the fence):"
+echo "- denied commands (neutralized for rendering — backticks stripped, every \`:\` spaced, newlines shown as ⏎ — never the raw text; see the neutralization note above):"
 
-# Parse the denied-commands object. Any failure (malformed JSON, wrong shape, the
-# literal "unavailable") degrades to a single "unavailable" line — never a partial or
-# misleading render, and never a bash abort.
+# Parse the denied-commands object. As with the counts block above, parse-validity and
+# emptiness are two SEPARATE signals: {"commands":[],...} is a positively-known zero
+# (the run denied nothing) and must render distinctly from "malformed" or the literal
+# "unavailable" — collapsing all three onto one "unavailable" line would misreport the
+# common, healthy "guard fired, denied nothing" case as an instrumentation failure on
+# every clean run (issue #908 review). A non-string entry inside .commands is treated
+# as malformed (COMMANDS_VALID=false) rather than silently skipped, so a producer-side
+# shape violation is never masked as a clean empty render.
+COMMANDS_VALID=false
 COMMANDS_BLOCK=""
+TRUNCATED=false
+TOTAL=""
 if [ -n "$DENIED_COMMANDS_JSON" ] && [ "$DENIED_COMMANDS_JSON" != unavailable ]; then
-  COMMANDS_BLOCK=$("$DEVFLOW_JQ" -r '
-    if (type == "object") and ((.commands? | type) == "array") then
-      (.commands[]? | gsub("\n"; "⏎") | gsub("`"; "") | gsub("::"; ": :") | "- " + .)
-    else
-      empty
-    end
-  ' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null) || COMMANDS_BLOCK=""
-  TRUNCATED=$("$DEVFLOW_JQ" -r 'if (type == "object") and (.truncated == true) then "true" else "false" end' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null) || TRUNCATED=false
-  TOTAL=$("$DEVFLOW_JQ" -r 'if (type == "object") and ((.total? | type) == "number") then (.total | tostring) else "" end' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null) || TOTAL=""
+  if "$DEVFLOW_JQ" -e '
+      (type == "object") and ((.commands? | type) == "array")
+      and ((.commands | map(type == "string") | all))
+    ' <<<"$DENIED_COMMANDS_JSON" >/dev/null 2>&1; then
+    if COMMANDS_BLOCK=$("$DEVFLOW_JQ" -r '
+        (.commands[] | gsub("\n"; "⏎") | gsub("`"; "") | gsub("(?<x>:)"; "\(.x) ") | "- " + .)
+      ' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null); then
+      COMMANDS_VALID=true
+      TRUNCATED=$("$DEVFLOW_JQ" -r 'if .truncated == true then "true" else "false" end' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null) || TRUNCATED=false
+      TOTAL=$("$DEVFLOW_JQ" -r 'if (.total? | type) == "number" then (.total | tostring) else "" end' <<<"$DENIED_COMMANDS_JSON" 2>/dev/null) || TOTAL=""
+    fi
+  fi
 fi
 
-if [ -n "$COMMANDS_BLOCK" ]; then
-  printf '```text\n'
-  printf '%s\n' "$COMMANDS_BLOCK"
-  printf '```\n'
-  if [ "${TRUNCATED:-false}" = "true" ]; then
-    echo "_(list truncated — ${TOTAL:-N} total, showing 40)_"
+if [ "$COMMANDS_VALID" = true ]; then
+  if [ -n "$COMMANDS_BLOCK" ]; then
+    printf '```text\n'
+    printf '%s\n' "$COMMANDS_BLOCK"
+    printf '```\n'
+    if [ "${TRUNCATED:-false}" = "true" ]; then
+      # Derive the shown count from what was actually rendered rather than
+      # transcribing the producer's cap as a literal — a producer-side cap change
+      # would otherwise silently make a hardcoded figure lie here (CLAUDE.md's
+      # "prefer generated evidence over exact checked-in numbers").
+      SHOWING=$(printf '%s\n' "$COMMANDS_BLOCK" | grep -c '^- ') || SHOWING=""
+      if [ -n "$SHOWING" ]; then
+        echo "_(list truncated — ${TOTAL:-N} total, showing ${SHOWING})_"
+      else
+        echo "_(list truncated — ${TOTAL:-N} total)_"
+      fi
+    fi
+  else
+    echo "  none (guard fired, zero denied commands recorded)"
   fi
 else
   echo "  _(unavailable)_"

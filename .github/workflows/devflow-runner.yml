@@ -1411,6 +1411,70 @@ jobs:
       # base-ref copy (materialized here via `git show FETCH_HEAD:…`), and where no
       # base copy exists overwrite it with a fail-closed no-op stub — NEVER left as
       # the PR-head copy. The installer logic is the suite-driven, unit-tested
+      # issue #908 review (Critical/security): the PreToolUse guard is registered
+      # UNCONDITIONALLY by the `settings:` input on the "Run Claude Code" step below —
+      # independent of whether the trusted base .claude/settings.json wires ANY Stop
+      # hook, which is the relevance gate the NEXT step (harden_hooks) applies to the
+      # Stop-hook TARGETS. That gate correctly skips Stop-hook hardening when a consumer
+      # repo never wires Stop hooks (there is genuinely nothing to harden there), but the
+      # guard is a DIFFERENT, always-live entry point this issue adds — its hardening
+      # must never ride on that gate, or a PR-head copy of scripts/pretooluse-shape-guard.py
+      # (and the lib/test/extract-command-shapes.py it dynamically imports) executes in
+      # THIS secrets-bearing job on every Bash call the run makes (the #402/#404 "a floor
+      # the PR controls is no floor" class, reopened through this second registration
+      # channel). So this step is deliberately separate from, and unconditioned by,
+      # harden_hooks' relevance gate: it ALWAYS materializes a trusted base copy of the
+      # guard closure, or — on any failure to do so — ALWAYS stubs it inline (fail-closed).
+      - name: Harden PreToolUse guard closure (unconditional)
+        id: harden_guard
+        env:
+          # Same TRUSTED base ref the harden_hooks step below reads — never a
+          # PR-controlled input.
+          BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+        run: |
+          set +e
+          set -uo pipefail
+          GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py"
+          ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          stub_guard() {
+            for t in $GUARD_TARGETS; do
+              d="$ROOT/$t"
+              mkdir -p "${d%/*}" 2>/dev/null || true
+              # Unlink a symlink dest first: a `>` write through a PR-controlled symlink
+              # would land the stub bytes at the link's resolved target, leaving the
+              # symlink itself at the hook path (and, for an absolute link, writing
+              # outside the workspace) — mirrors harden_hooks' own symlink handling.
+              [ -L "$d" ] && rm -f "$d" 2>/dev/null
+              if [ "${t##*.}" = "py" ]; then
+                printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$d" 2>/dev/null && chmod +x "$d" 2>/dev/null
+              else
+                printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null && chmod +x "$d" 2>/dev/null
+              fi
+            done
+          }
+          ok=0
+          if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
+            ok=1
+            for t in $GUARD_TARGETS; do
+              d="$ROOT/$t"
+              if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
+                [ -L "$d" ] && rm -f "$d" 2>/dev/null
+                if ! printf '%s\n' "$raw" > "$d" 2>/dev/null; then
+                  ok=0
+                fi
+              else
+                ok=0
+              fi
+            done
+          fi
+          if [ "$ok" -ne 1 ]; then
+            echo "::warning::harden-guard: could not materialize a trusted base copy of the PreToolUse guard closure (base-ref fetch or git-show failure); stubbing it inline (fail-closed) so no PR-head copy of it can execute in this secrets-bearing job." >&2
+            stub_guard
+            printf 'disposition=stubbed\n' >> "$GITHUB_OUTPUT"
+          else
+            printf 'disposition=displaced\n' >> "$GITHUB_OUTPUT"
+          fi
+
       # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
       # (rank 1: base-ref materialized copy; rank 2: the vendored copy gated on
       # vendor_source=fetch — never the PR-head checkout, which the PR can edit).
@@ -2091,16 +2155,31 @@ jobs:
           # This file's `on: workflow_call` is the review tier's reusable workflow
           # (devflow-implement.yml carries its own separate claude-code-action
           # invocation with no `settings:` input — grepped, zero hits), so no tier
-          # conditional is needed here. The hook is INERT
-          # unless scripts/pretooluse-shape-guard.py is present in the trusted-base
-          # HOOK_TARGETS closure (see the HOOK_ENTRY_TARGETS/HOOK_TARGETS mirror below) —
-          # already true on main, so no further gating is required here.
+          # conditional is needed here. The hook command below points at a REPO-RELATIVE
+          # path, so it is INERT only when that path holds trusted (not PR-head) bytes at
+          # the time this step runs — gating that is NOT the harden_hooks Stop-hook
+          # relevance gate below (that gate correctly skips when the trusted base
+          # .claude/settings.json wires no Stop hook, which says nothing about this
+          # UNCONDITIONALLY-registered guard). The "Harden PreToolUse guard closure"
+          # step above this one is the actual gate: it ALWAYS materializes a trusted base
+          # copy of scripts/pretooluse-shape-guard.py (and the
+          # lib/test/extract-command-shapes.py it dynamically imports) before this step
+          # runs, or fail-closed stubs both on any failure to do so — never leaving a
+          # PR-head copy of either in place (issue #908 review; the earlier wording here
+          # incorrectly named HOOK_TARGETS closure membership alone as sufficient, which
+          # the harden_guard step's own review finding shows it is not, since harden_hooks
+          # can skip entirely).
           # CAVEAT (undocumented upstream): whether this `settings` input MERGES with or
-          # OVERWRITES the base-restored `.claude/settings.json` hooks is unmeasured —
-          # the base settings today carries only a `Stop` key, so the ambiguity is
-          # currently inert, but re-check it if a `PreToolUse` entry is ever added to the
-          # base settings. The matcher-probe.yml `pretooluse-probe` job (AC7) exists in
-          # part to observe this mechanism empirically.
+          # OVERWRITES the base-restored `.claude/settings.json` hooks is unmeasured. The
+          # base settings today carries only a `Stop` key, so the ambiguity is
+          # undetectable by collision here — but NOT harmless: under an overwrite
+          # semantics, the restored `.claude/settings.json`'s three `Stop` hooks
+          # (`lib/efficiency-trace.sh --persist`, `lib/implement-stop-guard.sh`,
+          # `scripts/stop-hook-probe.sh`) plus its `enabledPlugins` block would silently
+          # stop applying on this review tier — a live, concrete consequence, not a
+          # theoretical one. The matcher-probe.yml `pretooluse-probe` job (AC7) exists in
+          # part to observe this mechanism empirically; re-check this caveat once that
+          # evidence lands (tracked in #919).
           settings: |
             {
               "hooks": {
@@ -2275,9 +2354,19 @@ jobs:
       # guard fires but denies nothing does not create that file, so its absence is
       # ambiguous between "guard did not fire" and "guard fired, zero denials" unless
       # disambiguated against the heartbeat, written from `_write_heartbeat` on every
-      # invocation including a defer/allow. This step's two branches:
-      #   FIRED=false + no counts file -> counts genuinely unavailable (guard never ran)
-      #   FIRED=true  + no counts file -> counts is the positively-known empty object {}
+      # invocation including a defer/allow. This step distinguishes THREE outcomes
+      # (issue #908 review — an earlier revision of this comment named only the first
+      # two, which is what let the third go untested):
+      #   FIRED=false + no counts file        -> counts genuinely unavailable (guard never ran)
+      #   FIRED=true  + resolver reports none -> counts is the positively-known empty object {}
+      #     (the resolver SCRIPT ran and positively determined no counts-store FILE, under
+      #     any run-keyed/bare/glob name, exists — that is real information, not a guess)
+      #   resolver script itself absent, OR a found counts file fails to parse
+      #                                       -> counts stays unavailable REGARDLESS of FIRED
+      #     (our own tooling for reading the guard's signal is unavailable/broken here, which
+      #     is a genuinely different kind of unknown than the guard's own signal being
+      #     ambiguous — reporting {} in this case would assert a fact we cannot establish,
+      #     not resolve one, so "unavailable" is the correct, fail-safe answer)
       - name: Surface PreToolUse guard firing + denial counts
         id: guard
         if: always()
