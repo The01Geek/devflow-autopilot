@@ -503,6 +503,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/subagent-write-probe-verdict.py": {
+      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
+      "owner": "unmodularized"
+    },
     "scripts/summarize-ci-checks.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -1729,6 +1733,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "858": {
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent \u2014 so the RecursionError arm specifically is not pinned.",
+      "owner": "unmodularized"
+    },
     "869": {
       "note": "",
       "owner": "unmodularized"
@@ -1768,6 +1776,10 @@
     "894": {
       "note": "",
       "owner": "retrospective-lifecycle"
+    },
+    "898": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "91": {
       "note": "",
