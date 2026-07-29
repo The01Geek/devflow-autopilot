@@ -1739,7 +1739,7 @@
       "owner": "unmodularized"
     },
     "858": {
-      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent \u2014 so the RecursionError arm specifically is not pinned.",
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent — so the RecursionError arm specifically is not pinned.",
       "owner": "unmodularized"
     },
     "869": {
@@ -1779,6 +1779,10 @@
       "owner": "retrospective-lifecycle"
     },
     "898": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "906": {
       "note": "",
       "owner": "unmodularized"
     },
