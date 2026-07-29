@@ -715,8 +715,12 @@ real record carries, none of which is recoverable **from the fix commits**.
   returns **0** (wrote ≥1 record), **2** (the selection ran and found no unrecorded matching
   commit), **3** (the search **could not run** — an uncreatable target dir, an unresolvable base
   ref, a base ref left **unestablished** by a failed pre-synthesis `origin/<base>` refresh (issue
-  #532), or a failed `git log` enumeration, each with its own producer breadcrumb naming the tried
-  value), or **4** (commits *were* selected but every record write failed, with per-commit
+  #532), a telemetry-branch fetch left **unestablished** by a failed/unattempted pre-synthesis fetch
+  (issue #916) — since `recorded_fix_shas` reads the local telemetry ref to build the fix-commit
+  exclusion set, a non-`ok` `_DEVFLOW_TELEMETRY_FETCH_STATUS` means that set may be incomplete and
+  synthesis could re-attribute an already-recorded commit, so it declines rather than double-book;
+  mirrors the #532 base-ref guard — or a failed `git log` enumeration, each with its own producer
+  breadcrumb naming the tried value), or **4** (commits *were* selected but every record write failed, with per-commit
   warnings). `persist_one` dispatches each arm to a distinct `::warning::`, plus an unknown-rc arm
   so a future rc drift is never reported as "no commits were found."
 - *Unsubstituted-placeholder guards.* A `<placeholder>` identity is refused loudly (best-effort
