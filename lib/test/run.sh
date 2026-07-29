@@ -48349,6 +48349,128 @@ assert_eq "#877 gate: a missing argument takes the same unestablished arm (no ba
   "$(bash "$E877_GATE" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
 # ────────────────────────────────────────────────────────────────────────────
 
+echo "#908 render-guard-visibility.sh (PreToolUse guard visibility renderer — adversarial matrix)"
+# ────────────────────────────────────────────────────────────────────────────
+# Follow-up to #805/#906. extract-execution-shape.sh's own docstring discloses that
+# permission_denials_commands is the ONE field it does NOT redact — this is the sanctioned
+# neutralizing consumer that docstring names as a precondition on any future consumer.
+RGV="$REPO_ROOT/scripts/render-guard-visibility.sh"
+RGV_OUT="$(bash "$RGV" true '{"R1":2,"R4":1}' '{"commands":["echo `hi`","git push ::error::sneaky"],"total":2,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: backtick is stripped from denied-command text" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -F '- echo' | grep -qF '`' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: a literal :: is neutralized in denied-command text" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF '::error::' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: the neutralized :: still carries the original word content" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'error' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: happy-path output stays inside a single fence" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -c '^```' | grep -qx 2 && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: guard-fired true renders" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'guard fired: **true**' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: populated per-arm counts render both arms" "yes" \
+  "$(printf '%s' "$RGV_OUT" | grep -qF 'R1=2' && printf '%s' "$RGV_OUT" | grep -qF 'R4=1' && echo yes || echo no)"
+RGV_UNAVAIL="$(bash "$RGV" unavailable unavailable unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: all-unavailable input renders unavailable everywhere, never a false 0/false" "yes" \
+  "$(printf '%s' "$RGV_UNAVAIL" | grep -qF 'guard fired: **unavailable**' \
+     && printf '%s' "$RGV_UNAVAIL" | grep -qF 'per-arm denial counts: unavailable' \
+     && echo yes || echo no)"
+RGV_MALFORMED="$(bash "$RGV" true 'not-json' 'also not json' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: malformed JSON degrades to unavailable, never a bash abort" "0" "$?"
+assert_eq "#908 render-guard-visibility: malformed counts JSON renders unavailable (fail-closed, not a crash)" "yes" \
+  "$(printf '%s' "$RGV_MALFORMED" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# UNKNOWN IS NOT ZERO, AND ZERO IS NOT UNKNOWN — the operand-trace-sweep fix: a valid EMPTY
+# counts object ({} — guard fired, zero denials) must render as a positively-known zero, not
+# collapse onto the same "unavailable" line a genuinely-unparseable input renders.
+RGV_EMPTY="$(bash "$RGV" true '{}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a valid empty counts object renders as a known zero, not 'unavailable'" "yes" \
+  "$(printf '%s' "$RGV_EMPTY" | grep -qF 'per-arm denial counts: none' && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: the known-zero line is textually distinct from the unavailable line" "yes" \
+  "$(printf '%s' "$RGV_EMPTY" | grep -qF 'per-arm denial counts: unavailable' && echo no || echo yes)"
+RGV_TRUNC="$(bash "$RGV" true unavailable '{"commands":["a"],"total":99,"truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a truncated commands list carries the truncation marker + total" "yes" \
+  "$(printf '%s' "$RGV_TRUNC" | grep -qF 'truncated — 99 total' && echo yes || echo no)"
+bash "$RGV" >/dev/null 2>&1
+assert_eq "#908 render-guard-visibility: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+
+echo "#908 describe-pretooluse-probe.sh (settings-input probe observation — FIRED/reason-delivery matrix)"
+# ────────────────────────────────────────────────────────────────────────────
+DPP="$REPO_ROOT/scripts/describe-pretooluse-probe.sh"
+DPP_TMP="$(mktemp -d)"
+DPP_ABSENT="$(bash "$DPP" "$DPP_TMP/absent-marker" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: marker absent renders NOT-FIRED" "yes" \
+  "$(printf '%s' "$DPP_ABSENT" | grep -qF 'observed: **NOT-FIRED**' && echo yes || echo no)"
+assert_eq "#908 describe-pretooluse-probe: absent-marker reason-delivery is unavailable (no exec file supplied)" "yes" \
+  "$(printf '%s' "$DPP_ABSENT" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+: > "$DPP_TMP/fired-marker"
+printf '[{"type":"result","hookSpecificOutput":{"permissionDecisionReason":"devflow pretooluse-probe: settings-input hook fired"}}]' > "$DPP_TMP/exec-with-reason.json"
+DPP_FIRED_REASON="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-with-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: marker present renders FIRED" "yes" \
+  "$(printf '%s' "$DPP_FIRED_REASON" | grep -qF 'observed: **FIRED**' && echo yes || echo no)"
+assert_eq "#908 describe-pretooluse-probe: reason-bearing exec file renders REASON-DELIVERED" "yes" \
+  "$(printf '%s' "$DPP_FIRED_REASON" | grep -qF 'REASON-DELIVERED' && echo yes || echo no)"
+printf '[{"type":"result","summary":"ok"}]' > "$DPP_TMP/exec-no-reason.json"
+DPP_FIRED_NOREASON="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-no-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: reason-free exec file renders REASON-ABSENT (distinct from unavailable)" "yes" \
+  "$(printf '%s' "$DPP_FIRED_NOREASON" | grep -qF 'REASON-ABSENT' && echo yes || echo no)"
+printf 'not json' > "$DPP_TMP/exec-bad.json"
+DPP_UNPARSEABLE="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-bad.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: unparseable exec file renders unavailable, never REASON-ABSENT" "yes" \
+  "$(printf '%s' "$DPP_UNPARSEABLE" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+bash "$DPP" >/dev/null 2>&1
+assert_eq "#908 describe-pretooluse-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
+assert_eq "#908 describe-pretooluse-probe: no-argument invocation leaves a stderr breadcrumb" "yes" \
+  "$(bash "$DPP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
+assert_eq "#908 matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
+  "$(grep -qF 'bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+
+echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+RGC="$REPO_ROOT/scripts/resolve-guard-counts-file.sh"
+RGC_D1="$(mktemp -d)"
+echo '{"arms":{"R1":1}}' > "$RGC_D1/pretooluse-guard-counts-12345-1.json"
+assert_eq "#908 resolve-guard-counts-file: run-keyed name (id+attempt) resolves" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D1" 12345 1)" = "$RGC_D1/pretooluse-guard-counts-12345-1.json" ] && echo yes || echo no)"
+RGC_D2="$(mktemp -d)"
+echo '{"arms":{}}' > "$RGC_D2/pretooluse-guard-counts.json"
+assert_eq "#908 resolve-guard-counts-file: bare legacy name resolves when no run id is supplied" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D2" "" "")" = "$RGC_D2/pretooluse-guard-counts.json" ] && echo yes || echo no)"
+RGC_D3="$(mktemp -d)"
+echo '{"arms":{}}' > "$RGC_D3/pretooluse-guard-counts-99999-2.json"
+assert_eq "#908 resolve-guard-counts-file: glob fallback finds a mismatched run-keyed store" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D3" 11111 3)" = "$RGC_D3/pretooluse-guard-counts-99999-2.json" ] && echo yes || echo no)"
+RGC_D4="$(mktemp -d)"
+bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1
+assert_eq "#908 resolve-guard-counts-file: no store present exits 1 with empty stdout" "rc=1" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 resolve-guard-counts-file: an empty (zero-byte) store file is treated as absent" "rc=1" \
+  "$(: > "$RGC_D4/pretooluse-guard-counts-1-1.json"; bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 resolve-guard-counts-file: a nonexistent TMP_DIR fails closed to exit 1, not a shell error" "rc=1" \
+  "$(bash "$RGC" "/nonexistent/path/xyz-908" >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 devflow-runner.yml routes counts-file selection through the helper (invocation line)" "yes" \
+  "$(grep -qF 'if COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$REPO_ROOT/.github/workflows/devflow-runner.yml" && echo yes || echo no)"
+
+echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
+# ────────────────────────────────────────────────────────────────────────────
+_908_RUNNER_YML="$REPO_ROOT/.github/workflows/devflow-runner.yml"
+_908_IMPLEMENT_YML="$REPO_ROOT/.github/workflows/devflow-implement.yml"
+_908_REVIEW_YML="$REPO_ROOT/.github/workflows/devflow-review.yml"
+assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
+  "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"
+assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
+  "$(grep -qF 'pretooluse-shape-guard.py' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"
+assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
+  "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
+assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
+  "$(grep -qF 'pretooluse-shape-guard.py' "$REPO_ROOT/scripts/harden-stop-hooks.sh" && echo yes || echo no)"
+assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)" "yes" \
+  "$(git -C "$REPO_ROOT" diff --quiet HEAD -- scripts/describe-denial-count.sh && echo yes || echo no)"
+assert_eq "#908: the permission_denials_count SUMMARY line is untouched by the new guard-visibility append" "yes" \
+  "$(grep -qF 'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' "$_908_REVIEW_YML" && echo yes || echo no)"
+assert_eq "#908: devflow-review.yml routes guard-visibility rendering through render-guard-visibility.sh" "yes" \
+  "$(grep -qF 'bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS"' "$_908_REVIEW_YML" && echo yes || echo no)"
+assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
+  "$(git -C "$REPO_ROOT" diff --quiet HEAD -- docs/cloud-allowlist.md && echo yes || echo no)"
+# ────────────────────────────────────────────────────────────────────────────
+
 PASS=$(grep -c '^PASS$' "$RESULTS_FILE" || true)
 FAIL=$(grep -c '^FAIL$' "$RESULTS_FILE" || true)
 # SKIP tally (issue #456): derived with `grep -c` over SKIPS_FILE, the same mechanism as

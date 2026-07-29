@@ -1196,6 +1196,75 @@ jobs:
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+  # issue #908 (Part 1 of the #805 follow-up) — pretooluse-probe: unlike hook-probe
+  # above, which relies on the BASE-BRANCH `.claude/settings.json` Stop hook that
+  # claude-code-action restores, this arm registers an AD HOC PreToolUse/Bash hook
+  # directly via the action's `settings` input — it measures whether the
+  # settings-input mechanism itself delivers a hook and its permissionDecisionReason,
+  # independent of the production shape guard's own logic (already covered by its own
+  # unit tests). The probe hook always `allow`s (never `deny`s) so it can never block
+  # its own single grep command, and always writes the marker + emits a reason string
+  # carrying a distinctive `devflow pretooluse-probe:` prefix so
+  # describe-pretooluse-probe.sh can distinguish it from any other transcript text.
+  # Recording the observed FIRED/NOT-FIRED + REASON-DELIVERED/REASON-ABSENT result
+  # against docs/cloud-allowlist.md's placeholder probe-evidence table is #919's job
+  # (out of scope here) — this job ships the arm; a maintainer dispatches it.
+  pretooluse-probe:
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run Claude Code (PreToolUse settings-input probe)
+        id: claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          allowed_bots: "*"
+          settings: |
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.devflow/tmp\" && touch \"${CLAUDE_PROJECT_DIR:-.}/.devflow/tmp/pretooluse-probe-fired\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"devflow pretooluse-probe: settings-input hook fired\"}}'"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          prompt: |
+            You are a PRETOOLUSE PROBE. Run this single Bash command once, then STOP
+            and reply with the single word DONE. Your only purpose is to trigger a
+            Bash tool call so any settings-input PreToolUse hook has a chance to fire
+            and deliver its permissionDecisionReason; the hook's side effect and the
+            reason text — not your output — are the measurement.
+
+            grep -c . /etc/hosts
+          claude_args: >-
+            --model claude-haiku-4-5-20251001
+            --effort low
+            --permission-mode acceptEdits
+            --allowed-tools "Bash(grep:*)"
+
+      - name: Record PreToolUse firing + reason-delivery observation
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          MARKER=".devflow/tmp/pretooluse-probe-fired"
+          {
+            bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"
+            echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
   # issue #498 — cancel-probe: records what value a cancelled-but-still-finishing
   # job presents to an always() step's `env:` at evaluation time. The GitHub docs
   # state `always()` runs even when canceled and that `job.status` is one of

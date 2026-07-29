@@ -84,6 +84,27 @@ on:
           diagnostics never parsed is a false statement that steers the reader
           away from permission denials.
         value: ${{ jobs.run.outputs.permission_denials_count }}
+      pretooluse_guard_fired:
+        description: |
+          "true" | "false" | "unavailable" — whether scripts/pretooluse-shape-guard.py's
+          heartbeat breadcrumb (.devflow/tmp/pretooluse-guard-fired) is present after this
+          run (issue #908). "unavailable" is never collapsed onto "false": the two are
+          distinct claims ("checked, guard never ran" vs "could not check").
+        value: ${{ jobs.run.outputs.pretooluse_guard_fired }}
+      pretooluse_guard_counts:
+        description: |
+          The guard's per-arm denial-count object (e.g. {"R1":2,"R4":1}), read from its
+          run-keyed .devflow/tmp/pretooluse-guard-counts-<run>-<attempt>.json store, or the
+          literal `unavailable` when no store file could be resolved.
+        value: ${{ jobs.run.outputs.pretooluse_guard_counts }}
+      permission_denials_commands:
+        description: |
+          scripts/extract-execution-shape.sh's `permission_denials_commands` value
+          verbatim — a single-line JSON string {"commands":[...],"total":N,"truncated":
+          bool} — or the literal `unavailable`. UN-NEUTRALIZED, attacker-influenced
+          command text: any consumer rendering this MUST neutralize it first
+          (scripts/render-guard-visibility.sh is the sanctioned renderer).
+        value: ${{ jobs.run.outputs.permission_denials_commands }}
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
         description: |
@@ -164,6 +185,13 @@ jobs:
       # count could not be established", and collapsing both onto `0` makes the
       # no-verdict ::error:: assert a denial count it never observed (issue #363).
       permission_denials_count: ${{ steps.diagnostics.outputs.permission_denials_count || 'unavailable' }}
+      # Same `|| 'unavailable'` load-bearing default as permission_denials_count above,
+      # for the same reason: the `||` expression is what makes an empty
+      # steps.guard/steps.denied-commands output resolve to "unavailable" rather than a
+      # false "0"/"false" — enforced by this expression, not by the steps themselves.
+      pretooluse_guard_fired: ${{ steps.guard.outputs.fired || 'unavailable' }}
+      pretooluse_guard_counts: ${{ steps.guard.outputs.counts || 'unavailable' }}
+      permission_denials_commands: ${{ steps.denied-commands.outputs.commands || 'unavailable' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -2059,6 +2087,38 @@ jobs:
           additional_permissions: |
             actions: read
 
+          # Registers the PreToolUse shape guard (issue #908, follow-up to #805/#906).
+          # This file's `on: workflow_call` is the review tier's reusable workflow
+          # (devflow-implement.yml carries its own separate claude-code-action
+          # invocation with no `settings:` input — grepped, zero hits), so no tier
+          # conditional is needed here. The hook is INERT
+          # unless scripts/pretooluse-shape-guard.py is present in the trusted-base
+          # HOOK_TARGETS closure (see the HOOK_ENTRY_TARGETS/HOOK_TARGETS mirror below) —
+          # already true on main, so no further gating is required here.
+          # CAVEAT (undocumented upstream): whether this `settings` input MERGES with or
+          # OVERWRITES the base-restored `.claude/settings.json` hooks is unmeasured —
+          # the base settings today carries only a `Stop` key, so the ambiguity is
+          # currently inert, but re-check it if a `PreToolUse` entry is ever added to the
+          # base settings. The matcher-probe.yml `pretooluse-probe` job (AC7) exists in
+          # part to observe this mechanism empirically.
+          settings: |
+            {
+              "hooks": {
+                "PreToolUse": [
+                  {
+                    "matcher": "Bash",
+                    "hooks": [
+                      {
+                        "type": "command",
+                        "command": "python3 \"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")/scripts/pretooluse-shape-guard.py\"",
+                        "timeout": 10
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+
           prompt: ${{ steps.compose.outputs.prompt }}
 
           # Composed by the `Compose plugin inputs` step above (issue #505): the
@@ -2200,6 +2260,90 @@ jobs:
           else
             echo "::notice::surface-execution-diagnostics.sh absent; execution diagnostics not surfaced (best-effort)."
           fi
+
+      # Surface the PreToolUse shape-guard's own heartbeat + per-arm denial counts
+      # (issue #908, follow-up to #805/#906). Presence check for the heartbeat is a
+      # plain `[ -f ]` bash builtin (no external tool invoked for this test), and the
+      # counts-file SELECTION is delegated to resolve-guard-counts-file.sh (a
+      # suite-drivable extraction, per CLAUDE.md's inline-shell-extraction convention)
+      # rather than reimplemented inline. Read-only against the tree; does not affect
+      # this job's pass/fail result.
+      #
+      # UNKNOWN IS NOT ZERO, AND ZERO IS NOT UNKNOWN (operand-trace sweep finding).
+      # scripts/pretooluse-shape-guard.py writes the counts store from exactly one
+      # call site, `_bump_counts` (invoked only on a deny decision) — a run where the
+      # guard fires but denies nothing does not create that file, so its absence is
+      # ambiguous between "guard did not fire" and "guard fired, zero denials" unless
+      # disambiguated against the heartbeat, written from `_write_heartbeat` on every
+      # invocation including a defer/allow. This step's two branches:
+      #   FIRED=false + no counts file -> counts genuinely unavailable (guard never ran)
+      #   FIRED=true  + no counts file -> counts is the positively-known empty object {}
+      - name: Surface PreToolUse guard firing + denial counts
+        id: guard
+        if: always()
+        run: |
+          set -euo pipefail
+          FIRED=false
+          [ -f .devflow/tmp/pretooluse-guard-fired ] && FIRED=true
+          echo "fired=$FIRED" >> "$GITHUB_OUTPUT"
+
+          RGC=.devflow/vendor/devflow/scripts/resolve-guard-counts-file.sh
+          [ -f "$RGC" ] || RGC=scripts/resolve-guard-counts-file.sh
+          RAW=unavailable
+          if [ -f "$RGC" ]; then
+            if COUNTS_FILE=$(bash "$RGC" .devflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}"); then
+              JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
+              [ -f "$JQ" ] || JQ=lib/resolve-jq.sh
+              # shellcheck source=../../lib/resolve-jq.sh
+              . "$JQ" 2>/dev/null || echo "::notice::resolve-jq.sh could not be sourced; using bare 'jq' for guard-counts parsing (best-effort)."
+              : "${DEVFLOW_JQ:=jq}"
+              PARSED=$("$DEVFLOW_JQ" -c '.arms // {}' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
+              [ -n "$PARSED" ] && RAW="$PARSED"
+            elif [ "$FIRED" = true ]; then
+              # Helper ran, found no store file, AND the heartbeat proves the guard did
+              # fire this run — a positively-known zero, not an unestablished measurement.
+              RAW='{}'
+            fi
+          else
+            echo "::notice::resolve-guard-counts-file.sh absent; per-arm denial counts unavailable (best-effort)."
+          fi
+          echo "counts=$RAW" >> "$GITHUB_OUTPUT"
+
+      # Surface the guard's denied-command detail (issue #908 AC5), extracted via
+      # extract-execution-shape.sh (already lands `permission_denials_commands`,
+      # issue #805 Part 3) using ONLY bash builtins for the line-extraction SELECTION
+      # (mirrors surface-execution-diagnostics.sh's `_publish_denials()` here-string
+      # `case` pattern — CLAUDE.md guard-class 2: a value that decides a SELECTION
+      # must not be derived through a non-preflight PATH tool like `sed`/`grep`). This
+      # value is UN-NEUTRALIZED, attacker-influenced command text — devflow-review.yml
+      # neutralizes it via render-guard-visibility.sh before rendering; this step only
+      # publishes the raw value.
+      - name: Surface denied command detail
+        id: denied-commands
+        if: always()
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          set -euo pipefail
+          EES=.devflow/vendor/devflow/scripts/extract-execution-shape.sh
+          [ -f "$EES" ] || EES=scripts/extract-execution-shape.sh
+          VALUE=unavailable
+          if [ -f "$EES" ]; then
+            BLOCK=$(bash "$EES" "${EXECUTION_FILE:-}" || true)
+            while IFS= read -r _line; do
+              case "$_line" in
+                "permission_denials_commands: "*)
+                  VALUE="${_line#permission_denials_commands: }"
+                  break
+                  ;;
+              esac
+            done <<<"$BLOCK"
+          else
+            echo "::notice::extract-execution-shape.sh absent; denied-command detail unavailable (best-effort)."
+          fi
+          # $GITHUB_OUTPUT is single-line; the producer's tojson encoding already
+          # escapes every newline, so a direct echo is safe.
+          echo "commands=$VALUE" >> "$GITHUB_OUTPUT"
 
       # Preserve the engine's full execution transcript as a run artifact (issue #401
       # follow-up). Three no-verdict review runs ended on a VOLUNTARY final message

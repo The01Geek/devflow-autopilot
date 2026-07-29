@@ -241,6 +241,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/describe-pretooluse-probe.sh": {
+      "note": "issue #908 PreToolUse settings-input probe observation renderer",
+      "owner": "unmodularized"
+    },
     "scripts/describe-skip-title.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -426,6 +430,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/render-guard-visibility.sh": {
+      "note": "issue #908 PreToolUse guard visibility renderer (neutralizes extract-execution-shape.sh's un-redacted permission_denials_commands before check-run rendering)",
+      "owner": "unmodularized"
+    },
     "scripts/request-review-backstop.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -444,6 +452,10 @@
     },
     "scripts/resolve-extra-plugins.sh": {
       "note": "",
+      "owner": "unmodularized"
+    },
+    "scripts/resolve-guard-counts-file.sh": {
+      "note": "issue #908 run-keyed/bare/glob selection of pretooluse-shape-guard.py's per-arm counts store",
       "owner": "unmodularized"
     },
     "scripts/resolve-implement-trigger.sh": {
@@ -1787,6 +1799,10 @@
       "owner": "unmodularized"
     },
     "906": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "908": {
       "note": "",
       "owner": "unmodularized"
     },

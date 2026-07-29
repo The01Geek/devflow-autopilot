@@ -1157,6 +1157,16 @@ jobs:
           # gates the ::error:: message's detail, never the fail-closed verdict
           # itself.
           PERMISSION_DENIALS_COUNT: ${{ needs.review.outputs.permission_denials_count || 'unavailable' }}
+          # PreToolUse shape-guard visibility (issue #908). Same `|| 'unavailable'`
+          # fallback discipline as PERMISSION_DENIALS_COUNT above, for the same
+          # reason: a version-skewed vendored runner predating these outputs, or a
+          # review job that never ran, must read as unknown, never as a false
+          # "false"/"0"/empty. PERMISSION_DENIALS_COMMANDS carries UN-NEUTRALIZED,
+          # attacker-influenced command text — it is neutralized by
+          # render-guard-visibility.sh below, never rendered raw.
+          PRETOOLUSE_GUARD_FIRED: ${{ needs.review.outputs.pretooluse_guard_fired || 'unavailable' }}
+          PRETOOLUSE_GUARD_COUNTS: ${{ needs.review.outputs.pretooluse_guard_counts || 'unavailable' }}
+          PERMISSION_DENIALS_COMMANDS: ${{ needs.review.outputs.permission_denials_commands || 'unavailable' }}
         run: |
           set -euo pipefail
           # The `Devflow Review` check conclusion encodes the review
@@ -1336,6 +1346,20 @@ jobs:
           # path coerces an unestablished count to 0. The #431 assembler parses
           # this `permission_denials_count:` line from the check-run output[summary].
           SUMMARY="${SUMMARY}"$'\n\n'"permission_denials_count: ${PERMISSION_DENIALS_COUNT}"
+          # PreToolUse shape-guard visibility (issue #908), appended immediately
+          # beneath the permission_denials_count line above. All neutralization of the
+          # (attacker-influenced) denied-command text happens inside
+          # render-guard-visibility.sh — this step never touches that text directly.
+          # describe-denial-count.sh and the permission_denials_count line above are
+          # untouched by this addition (AC6).
+          RGV=.devflow/vendor/devflow/scripts/render-guard-visibility.sh
+          [ -f "$RGV" ] || RGV=scripts/render-guard-visibility.sh
+          if [ -f "$RGV" ]; then
+            GUARD_BLOCK=$(bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS" || true)
+            [ -n "$GUARD_BLOCK" ] && SUMMARY="${SUMMARY}"$'\n\n'"${GUARD_BLOCK}"
+          else
+            echo "::notice::render-guard-visibility.sh absent; PreToolUse guard visibility not rendered (best-effort)."
+          fi
           if ! gh api -X PATCH "repos/$REPO/check-runs/$CHECK_RUN_ID" \
             -f status='completed' \
             -f conclusion="$CONCLUSION" \
