@@ -22638,14 +22638,20 @@ assert_eq "provision: empty-after-strip warns build-aware review has no tools" "
 # ── #927: plugin.json `name` is a trust/routing discriminator with no ─────────
 # cross-assertion against the REAL manifest. Tracked sites gate on the literal
 # `devflow` via the ERE `"name"[[:space:]]*:[[:space:]]*"devflow"`:
-# devflow-runner.yml's rank-1 trusted-source materialization of the deny-floor
-# helper, vendor-slice.sh's `self`-branch discriminator, and install.sh's legacy
-# prune. Every existing test writes its own `{"name":"devflow"}` fixture, so the
-# suite would stay green if the manifest's `name` and these discriminators ever
-# diverged — silently flipping the vendor trust ladder self→fetch. Derive every
-# discriminator literal from tracked source (never a hand-transcribed count — the
-# self-referential-ordinal rule; a new site enters the set automatically) and
-# assert each equals the name in the real manifest, not a fixture.
+# devflow-runner.yml's base-ref-repo (self-repo) trusted-source fallback, which
+# gates materialization of the deny-floor helper and other trusted helpers (it is
+# the `elif` fallback after the base-ref-vendored branch, which carries no
+# name-check); vendor-slice.sh's `self`-branch discriminator; and install.sh's
+# legacy prune. Every existing test writes its own `{"name":"devflow"}` fixture,
+# so the suite would stay green if the manifest's `name` and these discriminators
+# ever diverged — silently flipping the vendor trust ladder self→fetch. Derive
+# every discriminator literal from tracked source (never a hand-transcribed
+# count — the self-referential-ordinal rule; a new site written in this same ERE
+# shape enters the set automatically) and assert each equals the name in the real
+# manifest, not a fixture. Coverage boundary: the derivation is coupled to this
+# canonical `[[:space:]]*` grep shape — a future name-check written in a
+# different-but-equivalent shape (a literal-space grep, `jq -e '.name=="…"'`)
+# would be an unguarded discriminator this block does not see.
 P927_ROOT="$LIB/.."
 P927_MANIFEST="$P927_ROOT/.claude-plugin/plugin.json"
 # The manifest name is read with python3 (a preflight-guaranteed JSON parser),
