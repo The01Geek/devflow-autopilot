@@ -8481,6 +8481,7 @@ _sc_planted = {
     "IR2": 'while read -r n; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR3": 'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)',
     "IR4": "cd somewhere",
+    "IR5": "printf hi > /tmp/devflow-915.txt",
 }
 assert_eq("#678 AC8: a planted control exists for every rule id in every declared table",
           set(),
@@ -8696,6 +8697,128 @@ _wd_cfg = _json.loads((cwc.REPO_ROOT / ".devflow/config.json").read_text(encodin
 assert_eq("#855: Bash(cd:*) is absent from devflow_implement.allowed_tools",
           False,
           "Bash(cd:*)" in _wd_cfg.get("devflow_implement", {}).get("allowed_tools", []))
+
+# issue #915 — engine scratch migrated off cloud-denied /tmp onto .devflow/tmp/,
+# plus IR5 (the desk-time redirect gate) and preflight.py's fallback breadcrumb.
+
+
+def _ir5_rules(txt):
+    return [rule for _, rule, _ in _shapes_mod.find_implement_violations(txt)]
+
+
+# IR5 fires on every redirect spelling to a /tmp/ target — attached and space-
+# separated stdout/stderr/append/&>. (Maps to the IR5-definition criterion.)
+for _ir5_spelling in ("> /tmp/f", "2> /tmp/f", ">> /tmp/f", "&> /tmp/f",
+                      ">/tmp/f", "2>/tmp/f", "&>/tmp/f"):
+    _ir5_fence = "```bash\ncmd %s\n```" % _ir5_spelling
+    assert_eq("#915 IR5: a /tmp redirect '%s' is flagged IR5 under --profile implement"
+              % _ir5_spelling, True, "IR5" in _ir5_rules(_ir5_fence))
+# IR5 ignores a .devflow/tmp/ target. (Maps to the .devflow/tmp/-negative criterion.)
+assert_eq("#915 IR5: a .devflow/tmp/ redirect is NOT flagged",
+          [], _ir5_rules("```bash\ncmd > .devflow/tmp/f\n```"))
+# IR5 does NOT inherit R3's cat-heredoc arm (row 12 records a plain heredoc write
+# PERMITTED on this tier). (Maps to the heredoc-negative criterion.)
+assert_eq("#915 IR5: a cat-headed heredoc write with no /tmp target is NOT flagged",
+          [], _ir5_rules("```bash\ncat > f <<'EOF'\nhi\nEOF\n```"))
+# Boundary targets: exactly `/tmp` (no slash) and a prefix-sharing `/tmpfoo/` are
+# different directories and must NOT flag; `/tmp/` alone and a quoted `'/tmp/f'`
+# must. (Maps to the IR5-definition criterion.)
+assert_eq("#915 IR5 boundary: bare /tmp (no trailing slash) is NOT a /tmp/ target",
+          [], _ir5_rules("```bash\ncmd > /tmp\n```"))
+assert_eq("#915 IR5 boundary: /tmpfoo/x shares the prefix but is a different dir",
+          [], _ir5_rules("```bash\ncmd > /tmpfoo/x\n```"))
+assert_eq("#915 IR5 boundary: /tmp/ alone IS a /tmp/ target",
+          True, "IR5" in _ir5_rules("```bash\ncmd > /tmp/\n```"))
+assert_eq("#915 IR5 boundary: a quoted '/tmp/f' target (quotes stripped) IS flagged",
+          True, "IR5" in _ir5_rules("```bash\ncmd > '/tmp/f'\n```"))
+# Disclosed non-goal: a /tmp path inside a single-quoted string is data, not a
+# redirect target, and is NOT flagged (the NON-GOALS block records the arm scope).
+assert_eq("#915 IR5 non-goal: a /tmp literal inside a single-quoted string is not a redirect",
+          [], _ir5_rules("```bash\necho '/tmp/f is just text'\n```"))
+
+# The five migrated surfaces carry NO bare-/tmp scratch target. The residual count
+# is derived IN python3 (never a grep/wc pipeline, which yields empty on a host
+# missing either binary and would pass vacuously). Prints on pass and fail alike.
+# (Maps to the residual-count criterion.)
+_MIGRATED_FILES = (
+    "skills/implement/phases/phase-1-setup.md",
+    "skills/implement/phases/phase-2-implement.md",
+    "skills/implement/phases/phase-4-documentation.md",
+    "skills/review-and-fix/references/loop-control.md",
+    "skills/review-and-fix/references/loop-exit.md",
+)
+_bare_tmp = 0
+for _mf in _MIGRATED_FILES:
+    for _line in (cwc.REPO_ROOT / _mf).read_text(encoding="utf-8").splitlines():
+        for _m in re.finditer(r"/tmp/", _line):
+            if not _line[max(0, _m.start() - 8):_m.start()].endswith(".devflow"):
+                _bare_tmp += 1
+print("residual bare-/tmp lines: %d" % _bare_tmp)
+assert_eq("#915: no bare-/tmp scratch target remains in the five migrated files",
+          0, _bare_tmp)
+
+# The positive half: each migrated filename stem appears under a .devflow/tmp/ path
+# in its OWN file, so a deleted line cannot satisfy the absence check alone.
+# (Maps to the stems-present criterion.)
+_STEM_HOMES = {
+    "skills/implement/phases/phase-1-setup.md": ("acs-", "devflow-issue-", "-title.txt"),
+    "skills/implement/phases/phase-2-implement.md": ("repro-", "plan-", "narrowed-acs-"),
+    "skills/implement/phases/phase-4-documentation.md":
+        ("devflow-dm.err", "devflow-fd.err", "devflow-docgate-body-", "devflow-docgate-gh.err"),
+    "skills/review-and-fix/references/loop-control.md": ("devflow-maxiter.err",),
+    "skills/review-and-fix/references/loop-exit.md": ("devflow-et-flag.err", "devflow-et.err"),
+}
+for _mf, _stems in _STEM_HOMES.items():
+    _text = (cwc.REPO_ROOT / _mf).read_text(encoding="utf-8")
+    for _stem in _stems:
+        assert_eq("#915: stem '%s' is present under a .devflow/tmp/ path in %s" % (_stem, _mf),
+                  True,
+                  bool(re.search(r"\.devflow/tmp/[^\s`\"')]*" + re.escape(_stem), _text)))
+
+# preflight.py's _payload_dir writes a distinct stderr breadcrumb on each fallback
+# arm (unresolvable git root vs os.makedirs failure), still returns None, and
+# _write_payload still writes the payload. (Maps to both preflight.py criteria.)
+_pf_spec = importlib.util.spec_from_file_location(
+    "_pf915", str(cwc.REPO_ROOT / "scripts" / "preflight.py"))
+_pf915 = importlib.util.module_from_spec(_pf_spec)
+_pf_spec.loader.exec_module(_pf915)
+import subprocess as _sp915  # noqa: E402
+
+
+def _pf_git_bad(args):
+    return _sp915.CompletedProcess(args, 128, "", "not a git repo")
+
+
+_pf915._run_git = _pf_git_bad
+_pf_err = io.StringIO()
+with contextlib.redirect_stderr(_pf_err):
+    _pf_v = _pf915._payload_dir()
+assert_eq("#915 preflight: an unresolvable git root returns None with a naming breadcrumb",
+          (None, True),
+          (_pf_v, "could not resolve the git root" in _pf_err.getvalue()))
+assert_eq("#915 preflight: the git-root breadcrumb states the payload lands outside the workspace",
+          True, "OUTSIDE the workspace" in _pf_err.getvalue())
+
+_pf_tmpd = tempfile.mkdtemp()
+(Path(_pf_tmpd) / ".devflow").write_text("x", encoding="utf-8")  # block makedirs
+
+
+def _pf_git_ok(args):
+    return _sp915.CompletedProcess(args, 0, _pf_tmpd + "\n", "")
+
+
+_pf915._run_git = _pf_git_ok
+_pf_err2 = io.StringIO()
+with contextlib.redirect_stderr(_pf_err2):
+    _pf_v2 = _pf915._payload_dir()
+assert_eq("#915 preflight: an os.makedirs failure returns None with its own breadcrumb",
+          (None, True),
+          (_pf_v2, "could not create the repo-relative payload dir" in _pf_err2.getvalue()))
+# The payload is still written and the verdict path still produced on the fallback arm.
+_pf915._run_git = _pf_git_bad
+_pf_path = _pf915._write_payload("AMBIGUOUS", "reason", {}, {})
+assert_eq("#915 preflight: the payload is still written on the fallback arm",
+          True, os.path.exists(_pf_path))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AC2/AC3 (issue #701) — helper leading-token boundary over the AC1 closure.

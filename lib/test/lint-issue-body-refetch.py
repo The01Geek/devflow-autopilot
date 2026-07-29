@@ -31,7 +31,7 @@ allowances, recognized by a literal in the offending logical line:
   * the §1.1 producer fetch — it redirects into the cache path, so its statement
     carries the `issue-body/issue-` cache-path literal; and
   * §4.1's Documentation-Needed gate fences — they redirect to
-    `/tmp/devflow-docgate-body-<n>.txt`, carrying the `devflow-docgate-body`
+    `.devflow/tmp/devflow-docgate-body-<n>.txt`, carrying the `devflow-docgate-body`
     literal.
 
 A detected form anywhere ELSE in an audited file is a failure.

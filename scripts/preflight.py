@@ -440,15 +440,25 @@ def _payload_dir() -> str | None:
     None (NamedTemporaryFile's default temp dir) when the git root is unresolvable
     or the directory cannot be created — the payload still writes, just elsewhere.
     """
+    def _fallback(cause: str) -> None:
+        # One breadcrumb shape, two distinct cause clauses (issue #915): the payload
+        # still writes, but to the system temp dir a cloud agent's Read tool cannot reach.
+        print(
+            f"preflight.py: {cause}; the stop-verdict payload will land in the system "
+            "temp dir, OUTSIDE the workspace a cloud agent's Read tool can reach",
+            file=sys.stderr,
+        )
+        return None
+
     top = _run_git(["rev-parse", "--show-toplevel"])
     if top.returncode == 0 and top.stdout.strip():
         candidate = os.path.join(top.stdout.strip(), ".devflow", "tmp")
         try:
             os.makedirs(candidate, exist_ok=True)
             return candidate
-        except OSError:
-            pass
-    return None
+        except OSError as exc:
+            return _fallback(f"could not create the repo-relative payload dir {candidate} ({exc})")
+    return _fallback("could not resolve the git root for the payload dir")
 
 
 def _write_payload(verdict: str, reason: str, state: dict, derived: dict) -> str:

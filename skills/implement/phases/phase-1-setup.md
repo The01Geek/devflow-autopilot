@@ -34,7 +34,7 @@ fi
 
 **Two non-satisfied arms:**
 - **`UNAVAILABLE` / denied / no output (exit 3 or the else arm)** — the precondition is an *unestablished measurement*, never a decided "not ignored". Take the run's existing stop path; a matcher refusal must not masquerade as the degraded arm.
-- **`NOT_IGNORED` (exit 2)** — a resolved answer: the cache is **not** written, and each consumer class takes its own stated degraded fallback (**not** a single blanket "fetch live"). Record the degradation in your run context and write a workpad `--note` naming it as soon as the workpad exists (it already does on the cloud tier; otherwise immediately after §1.3): `Phase 1.1: .devflow/tmp/ not gitignored — issue-body cache disabled this run; shell consumers use their --issue arms and subagent dispatches paste the body inline`.
+- **`NOT_IGNORED` (exit 2)** — a resolved answer: the cache is **not** written, and each consumer class takes its own stated degraded fallback (**not** a single blanket "fetch live"). This same precondition also governs **every other `.devflow/tmp/` scratch write in the implement phases** (issue #915) — the §1.2 acs parse, and the Phase 4.0.5 discovery/file-deferrals `.err` captures and the Phase 4.1 docgate body capture — none of which re-checks the precondition; they consume *this* one result. On this arm each names its own degraded fallback, not a blanket one: the acs parse reverts to `parse-acs.py --issue $ARGUMENTS` (which fetches internally); the Phase 4 `.err` captures run their command **without** the stderr capture and the surrounding branch reports the cause as *unavailable* rather than interpolating an unwritten file; the docgate body capture reverts to reading the issue body inline. No fallback re-targets `/tmp`. Record the degradation in your run context and write a workpad `--note` naming it as soon as the workpad exists (it already does on the cloud tier; otherwise immediately after §1.3): `Phase 1.1: .devflow/tmp/ not gitignored — issue-body cache AND migrated scratch (acs parse, Phase 4 .err/docgate captures) disabled this run; shell consumers use their --issue/inline arms and subagent dispatches paste the body inline`.
 
 **Whether the cache was written is orchestrator state every later consumer branches on** — it does not survive across Bash calls, so carry it in your context. When the cache was written, §1.2/§1.3.5/§1.6 read it and the §2.1/§2.2/§4.1 dispatches ship an `Issue body path:` line; on the degraded arm they revert to the pre-#693 behavior. **The cache is reached only by hand-off, never by filesystem discovery:** a consumer never decides to use the cache by testing for the file in the tree; the path reaches it only as an explicit parameter of the orchestrator's own invocation, so no consumer can be induced to read a file the reviewed PR authored.
 
@@ -57,18 +57,25 @@ Hold the verdict and a one-line rationale; Phase 1.3 records them in the workpad
 
 ### 1.2 Parse Acceptance Criteria from the issue body
 
-Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*. **When the §1.1 cache was written, read it via `--body-file` — no re-fetch (issue #693).** parse-acs.py reads `--body-file` unguarded (an unreadable path raises), so **fail closed on the helper's own exit status**: an unreadable cache must route to the run's existing stop path rather than leave a zero-byte `/tmp/acs-${ARGUMENTS}.md` that splices in as an empty Acceptance Criteria section. (An empty-but-readable cache is already closed upstream by §1.1's content check.)
+Run the bundled parser to extract `## Acceptance Criteria` and (optional) `## Test Plan` sections from the issue, pre-classifying each criterion as either code-verifiable or *post-merge*. **When the §1.1 cache was written, read it via `--body-file` — no re-fetch (issue #693).** parse-acs.py reads `--body-file` unguarded (an unreadable path raises), so **fail closed on the helper's own exit status**: an unreadable cache must route to the run's existing stop path rather than leave a zero-byte `$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md` that splices in as an empty Acceptance Criteria section. (An empty-but-readable cache is already closed upstream by §1.1's content check.)
 
 ```bash
 DEVFLOW_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if ! "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" > /tmp/acs-${ARGUMENTS}.md; then
+# Ensure the scratch leaf exists; rc-checked (never `|| true` — a DENIED .devflow/tmp
+# mkdir must fail loudly, mirroring lib/telemetry-branch.sh). Then delete any stale
+# acs file so a resumed/re-triggered run cannot splice a prior attempt's parse.
+if ! mkdir -p "$DEVFLOW_ROOT/.devflow/tmp"; then
+  echo "devflow: could not create $DEVFLOW_ROOT/.devflow/tmp for the AC parse — STOP" >&2
+fi
+rm -f "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"
+if ! "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/parse-acs.py --body-file "$DEVFLOW_ROOT/.devflow/tmp/issue-body/issue-$ARGUMENTS.md" > "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"; then
   # STOP: the cache could not be read (helper exit ≠ 0). Do NOT proceed with an
   # empty AC section — take the run's existing stop path.
   echo "devflow: could not read the issue-body cache into the AC parser — STOP"
 fi
 ```
 
-On the **degraded arm** where §1.1 wrote no cache, revert to the original `parse-acs.py --issue $ARGUMENTS > /tmp/acs-${ARGUMENTS}.md`, which fetches internally exactly as before.
+On the **degraded arm** where §1.1 wrote no cache, revert to `parse-acs.py --issue $ARGUMENTS > "$DEVFLOW_ROOT/.devflow/tmp/acs-${ARGUMENTS}.md"` (still preceded by the same rc-checked `mkdir -p "$DEVFLOW_ROOT/.devflow/tmp"` and `rm -f` of that target), which fetches internally exactly as before.
 
 The output is checkbox lines ready to splice into the workpad's `## Acceptance Criteria` section, with ` (post-merge)` appended to any criterion whose text matches the bundled trigger phrases (see `parse-acs.py`'s `POST_MERGE_TRIGGERS` list for what's matched). When no AC section exists, the helper prints `_(none provided in issue body)_` and Phase 3.4 passes trivially.
 
@@ -146,7 +153,7 @@ fi
   # bug-report. Decide from the CLASSIFICATION (1.1), not the label.
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py new-body $ISSUE_NUMBER --run-link "[View run]($RUN_URL)" > "$BODY"   # + --no-reproduction when the 1.1 classification is non-bug; omit --run-link for a local run
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py create $ISSUE_NUMBER "$BODY"
-  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --replace-acs-file /tmp/acs-${ARGUMENTS}.md
+  "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --replace-acs-file .devflow/tmp/acs-${ARGUMENTS}.md
   ```
   `new-body` seeds `**Status:** 🚀 Setup`, the `**Branch:** _(creating…)_` placeholder (filled in 1.4 the instant the branch exists), the friendly `Last updated`, the `## Progress` checklist (the bug-only `reproduction captured` sub-item is rendered only when `--no-reproduction` is omitted) with the `/devflow:implement run started` note nested under Setup, a placeholder `## Plan` (filled in 2.2), a placeholder `## Acceptance Criteria` (you replace it above), and an empty `## Devflow Reflection` `<details>` block. The `## Reproduction` section is added later in 2.1.5 if applicable.
 - **`WORKPAD_ID` non-empty (resume — the normal cloud path, since `gate` pre-created it; or a re-run)** → Read the live body with `workpad.py body $WORKPAD_ID`. Treat its `## Progress` notes and `Devflow Reflection` as load-bearing context (see Workpad Reference). Reset for this run **and populate the Acceptance Criteria** (a `gate`-created workpad carries only a placeholder AC section, so always replace it):
@@ -155,7 +162,7 @@ fi
       --expect-comment-id "$WORKPAD_ID" --expect-status "<observed status word>" \
       --status Setup \
       --run-link "[View run]($RUN_URL)" \
-      --replace-acs-file /tmp/acs-${ARGUMENTS}.md \
+      --replace-acs-file .devflow/tmp/acs-${ARGUMENTS}.md \
       --checkpoint "gha:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:phase1-hydrated" "<selected lifecycle event>" \
       --note "<selected lifecycle event>"
   ```
@@ -521,7 +528,7 @@ The helper prints exactly one token on stdout with a matching exit code. Read it
 
 **(§1.4 flow only:)** Otherwise, create a new branch. The canonical branch name is computed by the helper (handles slugification, unicode, length truncation, and collision suffixing deterministically):
 
-Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
+Write the issue title (from the `gh issue view` above) to a temp file with the **Write tool** — `.devflow/tmp/devflow-issue-$ARGUMENTS-title.txt` — then derive the branch from it. First ensure the `.devflow/tmp` directory exists (create it if the runner's Write tool does not create missing parent directories) so `branch-for-issue.py --title-file` is never handed a path under a directory that was never created. There is no fence at this Write-tool site to hold a `mkdir`, so this directory obligation lives in the prose. Using `--title-file` instead of passing the title as a positional shell argument avoids breakage when the title contains quotes, backticks, or `$`.
 
 ```bash
 if [ -z "$USE_CURRENT" ]; then
@@ -533,7 +540,7 @@ if [ -z "$USE_CURRENT" ]; then
   # branch is cut from a tip that was actually advanced rather than from a remote-tracking ref
   # an unforced fetch left behind (issue #779).
   git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || { echo "devflow: could not fetch base branch 'origin/$BASE' — if the base is correct, check network/auth; otherwise set base_branch in .devflow/config.json to the repo's real trunk (master/develop/…)" >&2; exit 1; }
-  BRANCH=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/branch-for-issue.py $ARGUMENTS --title-file /tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
+  BRANCH=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/branch-for-issue.py $ARGUMENTS --title-file .devflow/tmp/devflow-issue-$ARGUMENTS-title.txt) || { echo "devflow: branch-for-issue.py failed — could not derive a branch name for issue #$ARGUMENTS; check that the issue title file exists and the issue number is valid" >&2; exit 1; }
   [ -n "$BRANCH" ] || { echo "devflow: branch-for-issue.py returned an empty branch name for issue #$ARGUMENTS — cannot create a branch" >&2; exit 1; }
   git checkout -b "$BRANCH" "origin/$BASE"
 fi
