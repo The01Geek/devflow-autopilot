@@ -41,6 +41,46 @@ leaf is dropped, so no prompt text, repository content, secret, or attacker-cont
 check-run name leaves the run (AC2). (Object keys are the fixed schema field names, emitted
 verbatim; the observed schema places untrusted content in value positions, not keys.)
 
+> **One disclosed exception to the string-leaf redaction (issue #805).** The
+> `permission_denials_commands` field carries the **raw text of the engine's own denied
+> Bash commands**, length- and count-bounded but **not** redacted and **not** neutralized.
+> It is the deliberate scope of the denied-command-visibility feature: the whole point is
+> to surface those commands without downloading and parsing the multi-megabyte execution
+> artifact by hand. They are the engine's own emitted Bash rather than arbitrary prompt or
+> repository content, but a command can still quote attacker-influencable text, and the
+> `::`-workflow-command / fence-breaking-backtick neutralization is the *rendering*
+> layer's job — and no consumer of **this field** ships yet: nothing in the tree reads
+> `permission_denials_commands` at this revision, so the precondition binds whoever adds
+> the first reader (the `devflow-runner.yml` job output and the `devflow-review.yml`
+> check-run summary are the intended ones). Scope note, so this is not read as "no denial
+> text is rendered anywhere": the maintainer-run `matcher-probe.yml` already writes raw
+> `permission_denials` entries into its own step summary, from its own independent walk of
+> the execution file rather than from this field. That path is out of scope here — its
+> input is maintainer-authored and `::` sequences are not interpreted in a step summary —
+> but it is why "no consumer ships yet" is a statement about this field, not about the
+> repository's rendering of denial text in general.
+>
+> **The field's three values — `unknown` is never `0`.** It emits `unavailable` when the
+> extraction was not established: the execution file itself is unavailable, no
+> `permission_denials` array is present, **or** a non-empty denials array yields no
+> extractable command (the harness carrying the text under a field other than
+> `.tool_input.command`/`.command`, or under a non-string value). It emits
+> `{"commands": [...], "total": N, "truncated": bool}` only when the extraction ran — with
+> `total: 0` reserved for a run that genuinely denied nothing. A consumer must therefore
+> render `unavailable` as *unestablished*, never as "this run denied nothing that carried
+> a command", the same three-way discipline `permission_denials_count` carries. One
+> disclosed residual: a *partial* extraction (some entries yield a command, some do not)
+> emits the commands it could extract and counts those in `total`, so it under-reports
+> rather than reporting a false zero.
+>
+> **Consequence for committed evidence:** the statement below that
+> `docs/execution-file-shape.observed.txt` is "redaction-safe by construction" holds for
+> the *structural* section and for the probe run that produced it, whose record predates
+> this field. It is **not** a standing guarantee for a future re-run: before committing a
+> newly generated record, read its `permission_denials_commands` line and confirm the
+> commands it carries are safe to publish, or drop that one line. Do not commit a fresh
+> record on the strength of the by-construction claim alone.
+
 ---
 
 ## Observation
@@ -68,7 +108,9 @@ Cost is carried **directly**, which the issue did not even ask for: `costUSD`,
   everything below it is the helper's own unedited output), committed **because GitHub artifacts
   expire (~90 days)**. Without it the OBSERVED table above would eventually become an unfalsifiable claim
   with no surviving evidence; with it, a second reviewer can re-derive this table from bytes in
-  the repo at any point in the future. (It is redaction-safe by construction — see below.)
+  the repo at any point in the future. (Redaction-safe by construction for the structural
+  section — see below, and see the `permission_denials_commands` exception above before
+  committing a freshly generated record.)
 - **Artifact:** `execution-file-shape` (uploaded by the `execfile-shape-probe` job; also the
   source of the committed file above)
 - **Observed on:** `anthropics/claude-code-action@v1`, 2026-07-12

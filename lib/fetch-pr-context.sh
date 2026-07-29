@@ -54,6 +54,7 @@ CHANGED_FILES="$(echo "$PR_JSON" | "$DEVFLOW_JQ" '[.files[].path]')"
 IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
 LABELS_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.labels // []')"
 CLOSING_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.closingIssuesReferences // []')"
+# argjson-ok: watched labels closing -- per-PR bounded operands (one PR's label list and closing-issue refs, plus a constant boolean), never corpus-sized (issue #895)
 KIND="$("$DEVFLOW_JQ" -rn --arg branch "$BRANCH" --argjson watched true --arg impl_prefix "$IMPL_PREFIX" \
     --argjson labels "$LABELS_JSON" --argjson closing "$CLOSING_JSON" -f "$HERE/classify-pr-kind.jq")"
 if [ "$KIND" = "skip" ]; then
@@ -125,6 +126,7 @@ fi
 # config key). A wrong-type or absent label list yields false (fail-closed). The
 # issue-label leg keeps provenance alive in a deployment whose PR-label applies
 # fail (scripts/apply-labels.sh is best-effort). Any jq error → false.
+# argjson-ok: pr_labels issue -- per-PR bounded operands (one PR's label list and one linked issue's JSON), never corpus-sized (issue #895)
 PR_DEVFLOW_PROVENANCE="$("$DEVFLOW_JQ" -n --argjson pr_labels "$LABELS_JSON" --argjson issue "$ISSUE_JSON" '
     def norm: (if type == "array" then map(if type == "object" then (.name // "") else . end) else [] end);
     (($pr_labels | norm) + (($issue.labels // []) | norm)) | any(. == "DevFlow")
@@ -226,6 +228,14 @@ NUM_FILES="$(echo "$CHANGED_FILES" | "$DEVFLOW_JQ" 'length')"
 DIFFSTAT="${NUM_FILES} files changed, +${ADDITIONS} -${DELETIONS}"
 
 # ── 11. Signals ───────────────────────────────────────────────────────────────
+
+# Scratch dir for large --slurpfile / --rawfile transports, hoisted here from the
+# section-13 bundle-emission site so the review_verdicts union below can route a
+# full paginated reviews payload through a file rather than an --argjson argv
+# string (the E2BIG shape lib/test/lint-argjson-transport.py forbids). One trap
+# covers both the derivation's scratch file and section 13's bundle inputs.
+_JQ_TMP="$(mktemp -d)"
+trap 'rm -rf "$_JQ_TMP"' EXIT
 
 # review_comments_count
 REVIEW_COMMENTS_COUNT="$(echo "$REVIEW_COMMENTS" | "$DEVFLOW_JQ" 'length')"
@@ -437,30 +447,84 @@ PYEOF
 # Guard against an empty result poisoning the later `jq --argjson ttm_hours`.
 [ -n "$TTM_HOURS" ] || TTM_HOURS=0.0
 
-# review_verdicts: scan pr_comments for the /review report's verdict heading.
-# Two formats occur in the wild and both must be recognized:
-#   1. standalone `/review` skill output —  `## Verdict: APPROVE (summary)`
-#   2. CI `@claude run /review` wrapper   —  `### /review — Verdict: **REJECT**`
-# So: a heading line (1-6 `#`), an optional `/review —`/`/review –`/`/review -`
-# prefix, the literal `Verdict:`, an optional `**` bold marker, then the first
-# APPROVE|REJECT token. `APPROVE WITH CAVEAT` / `APPROVE with notes` are recorded
-# as APPROVE (they are not a REJECT, which is all review_reject_outstanding cares
-# about). Case-insensitive; trailing `\r` from CRLF bodies is stripped first.
-REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" '
-    [
-        .[] |
-        . as $c |
-        ($c.body // "") |
-        split("\n")[] |
-        rtrimstr("\r") |
-        select(test("^#{1,6}[ \t]*(/review[ \t]*[—–-]+[ \t]*)?Verdict:[ \t]*\\**[ \t]*(APPROVE|REJECT)"; "i")) |
-        capture("Verdict:[ \t]*\\**[ \t]*(?<verdict>APPROVE|REJECT)"; "i") |
-        {verdict: (.verdict | ascii_upcase), createdAt: $c.created_at}
-    ] | sort_by(.createdAt)
+# review_verdicts: the UNION of two verdict sources —
+#   1. the PR conversation comments (PR_COMMENTS_RAW, on stdin), and
+#   2. the durable bot PR reviews (PR_REVIEWS_RAW, via --slurpfile).
+# The conversation-comment scrape alone fails open: when a /review run leaves no
+# progress comment its whole verdict lives only in the `gh pr review` body, the
+# comment scrape returns [], and review_reject_outstanding is vacuously false —
+# so a PR merged over an un-cleared REJECT reads clean (issue #895). Reading the
+# reviews leg too closes that hole.
+#
+# BOTH legs recognize the verdict heading with the SAME grammar: a heading line
+# (1-6 `#`), an optional `/review —`/`/review –`/`/review -` wrapper prefix, the
+# literal `Verdict:`, an optional `**` bold marker, then the first APPROVE|REJECT
+# token. Two formats occur in the wild — the standalone `## Verdict: APPROVE (…)`
+# and the CI wrapper `### /review — Verdict: **REJECT**` — and both are matched.
+# `APPROVE WITH CAVEAT` / `APPROVE with notes` collapse to APPROVE (they are not a
+# REJECT, which is all review_reject_outstanding cares about). Case-insensitive;
+# a trailing `\r` from CRLF bodies is stripped first. `body` is guarded with
+# `strings` before any string op so a non-string body skips that entry rather than
+# aborting the whole filter (CLAUDE.md's non-string-field guard). The verdict token
+# always comes from the BODY, never from a review's state.
+#
+# The reviews leg contributes an entry per verdict heading when the review's state
+# is anything other than "PENDING" (a plain equality test, so an absent/null/
+# non-string state does NOT exclude the review) and its body carries a heading. A
+# DISMISSED review still contributes — the retrospective deliberately inverts the
+# merge gate's dismissal rule (scripts/derive-review-verdict.sh), because a merge
+# over an overridden REJECT is exactly what the loop exists to study; a REJECT that
+# a later APPROVE cleared is handled by that later APPROVE ordering after it.
+#
+# Ordering: entries carrying a real producer timestamp (`created_at` for a comment,
+# `submitted_at` for a review) are sorted among themselves; an explicit whole-union
+# positional ordinal (`.index`) is the deterministic tie-break (jq's sort_by
+# stability is unspecified), and a review orders after a comment sharing a
+# timestamp. An entry whose own timestamp is absent/null/empty is excluded from
+# that "last" computation and appended after the timestamped partition — it is
+# present in review_verdicts but never becomes the chronologically-last entry (so
+# an untimestamped APPROVE can never clear a timestamped REJECT). `.index` is
+# stripped before emission — review_verdicts is read verbatim by the Stage A agent.
+printf '%s' "$PR_REVIEWS_RAW" > "$_JQ_TMP/pr_reviews_raw.json"
+REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" --slurpfile reviews "$_JQ_TMP/pr_reviews_raw.json" '
+    def verdicts_in($body):
+        ($body | strings)
+        | split("\n")[]
+        | rtrimstr("\r")
+        | select(test("^#{1,6}[ \t]*(/review[ \t]*[—–-]+[ \t]*)?Verdict:[ \t]*\\**[ \t]*(APPROVE|REJECT)"; "i"))
+        | capture("Verdict:[ \t]*\\**[ \t]*(?<verdict>APPROVE|REJECT)"; "i")
+        | (.verdict | ascii_upcase);
+    # Guard both payloads to arrays before iterating: a non-array comments payload
+    # (stdin `.`) or a non-array reviews payload ($reviews[0]) would otherwise abort
+    # the whole filter on `.[]` (external structured format — fail closed to empty).
+    # Defense-in-depth: both payloads are already normalized to arrays upstream by
+    # the sections-7/8 jq add-or-empty slurp, so this guard is not reachable via the
+    # producer path (no producer-driven test can drive it); it is kept as a
+    # fail-closed floor in case that normalization ever changes or the filter is
+    # reused directly.
+    (if type == "array" then . else [] end) as $comments
+    | (if ($reviews[0] | type) == "array" then $reviews[0] else [] end) as $reviews_arr
+    | (
+        [ $comments[] | . as $c | verdicts_in($c.body) | {verdict: ., createdAt: ($c.created_at // ""), source: "pr_comment"} ]
+        +
+        [ $reviews_arr[] | select(.state != "PENDING") | . as $r | verdicts_in($r.body) | {verdict: ., createdAt: ($r.submitted_at // ""), source: "pr_review"} ]
+    )
+    | to_entries | map(.value + {index: .key})
+    | ( map(select(.createdAt != "")) | sort_by(.createdAt, (.source == "pr_review"), .index) ) as $ts
+    | ( map(select(.createdAt == "")) ) as $nots
+    | ($ts + $nots)
+    | map({verdict, createdAt, source})
 ')"
 
-# review_reject_outstanding: last verdict is REJECT?
-REVIEW_REJECT_OUTSTANDING="$(echo "$REVIEW_VERDICTS" | "$DEVFLOW_JQ" 'if length == 0 then false else (last.verdict == "REJECT") end')"
+# review_reject_outstanding: true when the chronologically-last TIMESTAMPED entry
+# is a REJECT, OR when any TIMESTAMP-LESS entry is a REJECT (the one-directional
+# rule). review_verdicts already places the sorted timestamped partition first, so
+# its last timestamped element is the chronologically-last verdict.
+REVIEW_REJECT_OUTSTANDING="$(echo "$REVIEW_VERDICTS" | "$DEVFLOW_JQ" '
+    ( map(select(.createdAt != "")) ) as $ts
+    | ( map(select(.createdAt == "")) ) as $nots
+    | ((($ts | length) > 0) and ($ts[-1].verdict == "REJECT")) or ($nots | any(.verdict == "REJECT"))
+')"
 
 # workpad_body as JSON string (null if empty)
 if [ -n "$WORKPAD_BODY" ]; then
@@ -526,8 +590,8 @@ OUT_FILE="${OUT_DIR}/pr-${PR}.context.json"
 # Large values are written to temp files and passed via --rawfile / --slurpfile
 # to avoid exceeding ARG_MAX when assembling the final jq bundle.
 # Small scalars (numbers, short strings, booleans) remain as --arg / --argjson.
-_JQ_TMP="$(mktemp -d)"
-trap 'rm -rf "$_JQ_TMP"' EXIT
+# (_JQ_TMP and its cleanup trap are established up in section 11, above the
+# review_verdicts union that also uses them.)
 
 # --- raw strings (written as bare text; jq --rawfile reads them as JSON strings) ---
 printf '%s' "$TITLE"          > "$_JQ_TMP/title.txt"
@@ -549,6 +613,7 @@ printf '%s' "$WORKPAD_BODY_JSON"        > "$_JQ_TMP/workpad_body.json"
 printf '%s' "$REFLECTIONS"              > "$_JQ_TMP/reflections.json"
 printf '%s' "$IMPLEMENT_SUMMARY_JSON"   > "$_JQ_TMP/implement_summary_comment.json"
 
+# argjson-ok: pr additions deletions diff_truncated issue_number review_reject_outstanding review_comments_count post_bot_commits ci_failures_during_pr ci_status_unknown pr_devflow_provenance reflections_friction_count ttm_hours -- all bounded scalars (numbers/booleans), never corpus-sized; every corpus-sized operand here is routed via --slurpfile (issue #895)
 "$DEVFLOW_JQ" -n \
     --argjson pr "$PR" \
     --arg kind "$KIND" \

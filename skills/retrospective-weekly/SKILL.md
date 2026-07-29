@@ -194,8 +194,8 @@ DISP=$($LIB/../scripts/run-jq.sh -c --argjson gate "$GATE" -f $LIB/dispatch-disp
 `skip` **exactly** when the gate reason is a workpad reason, the status is a
 sentinel (`Absent`/`NoIssue`), and `pr_devflow_provenance` is `false` — otherwise
 `dispatch`. So a bundle non-clean on **any** non-workpad signal (outstanding
-REJECT, CI failures, post-bot commits, review comments) is always dispatched,
-exactly the analysis it receives today.
+REJECT, an unreadable review-verdict signal, CI failures, post-bot commits,
+review comments) is always dispatched, exactly the analysis it receives today.
 
 **If `disposition == "skip"` (the mechanical no-provenance skip):** this is a
 **permanently-terminal** skip. Append a marker entry to the store and write a
