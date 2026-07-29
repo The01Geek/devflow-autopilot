@@ -48704,6 +48704,38 @@ PY
     "$(grep -qF 'MALICIOUS_PR_HEAD_HEADS' "$HG_FIX/ws/lib/test/extract-command-heads.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: the fail-closed stub warns rather than silently succeeding" "1" \
     "$(grep -c 'could not materialize a trusted base copy' "$HG_FIX/out2.log" || true)"
+  # Shadow-review finding (issue #908 review, early shadow trigger): the last-resort
+  # stub WRITE itself must be verified — a stub write failure (wholly unwritable
+  # target) must FAIL the job (exit 1), never merely warn-and-proceed, or a PR-head
+  # copy could remain executable in this secrets-bearing job with no signal that the
+  # fail-closed arm itself failed open.
+  HG_FIX3="$(git_sandbox '#908 harden_guard write-failure fixture')"
+  mkdir -p "$HG_FIX3/ws/scripts" "$HG_FIX3/ws/lib/test"
+  echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py"
+  echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX3/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX3/ws/lib/test/extract-command-heads.py"
+  git -C "$HG_FIX3/ws" init -q 2>/dev/null
+  git -C "$HG_FIX3/ws" add -A 2>/dev/null
+  git -C "$HG_FIX3/ws" -c user.email=t@t -c user.name=t commit -qm x 2>/dev/null
+  chmod 444 "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null
+  chmod 555 "$HG_FIX3/ws/scripts" 2>/dev/null
+  ( cd "$HG_FIX3/ws" && BASE_REF=nonexistent-branch-xyz-908 GITHUB_OUTPUT="$HG_FIX3/gh_out3.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX3/out3.log" 2>&1
+  assert_eq "#908 harden_guard: an un-stubbable target (wholly unwritable) fails the job with a fail-closed ::error:: (issue #908 review regression lock)" "1" \
+    "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled guard hook fires' "$HG_FIX3/out3.log" || true)"
+  chmod 755 "$HG_FIX3/ws/scripts" 2>/dev/null
+  chmod 644 "$HG_FIX3/ws/scripts/pretooluse-shape-guard.py" 2>/dev/null
+  # Shadow-review finding (issue #908 review, early shadow trigger, Critical): harden_guard
+  # must publish its own displaced_paths output (mirroring harden_hooks' #504 AC1
+  # contract) or the grounding-block renderer never learns these three files were
+  # displaced/stubbed — exactly on the harden_hooks-skipped consumer-repo arm this step
+  # exists to still cover. Behavioral: re-run the success-arm fixture and assert the
+  # GITHUB_OUTPUT carries all three GUARD_TARGETS under displaced_paths.
+  assert_eq "#908 harden_guard: publishes displaced_paths for the success arm (shadow-review regression lock)" "yes" \
+    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out1.txt" && echo yes || echo no)"
+  assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" \
+    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out2.txt" && echo yes || echo no)"
+  assert_eq "#908 review: displaced_join wires harden_guard's displaced_paths as a third producer" "yes" \
+    "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
 fi
 # ────────────────────────────────────────────────────────────────────────────
 

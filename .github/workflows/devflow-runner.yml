@@ -1442,7 +1442,16 @@ jobs:
           # the other two hardened, reopening the exact hole this step exists to close.
           GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          # Shadow-review finding (issue #908 review, early shadow trigger): the stub
+          # write itself must be VERIFIED, not merely attempted — an unverified write
+          # is a silent fail-open in exactly the "wholly unwritable path" case this
+          # step's whole reason for existing is to close. Mirrors
+          # scripts/harden-stop-hooks.sh's own write_stub(): return non-zero on ANY
+          # target write failure, and the caller below turns that into a job-failing
+          # exit 1 rather than a mere warning — the last-resort arm must genuinely be
+          # fail-closed, not fail-open-with-a-warning.
           stub_guard() {
+            stub_failed=0
             for t in $GUARD_TARGETS; do
               d="$ROOT/$t"
               mkdir -p "${d%/*}" 2>/dev/null || true
@@ -1452,11 +1461,18 @@ jobs:
               # outside the workspace) — mirrors harden_hooks' own symlink handling.
               [ -L "$d" ] && rm -f "$d" 2>/dev/null
               if [ "${t##*.}" = "py" ]; then
-                printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$d" 2>/dev/null && chmod +x "$d" 2>/dev/null
+                _stub_ok=0; printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$d" 2>/dev/null && _stub_ok=1
               else
-                printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null && chmod +x "$d" 2>/dev/null
+                _stub_ok=0; printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null && _stub_ok=1
+              fi
+              if [ "$_stub_ok" -eq 1 ]; then
+                chmod +x "$d" 2>/dev/null || true
+              else
+                stub_failed=1
+                echo "::warning::harden-guard: could not stub '$t' (wholly unwritable); the PR-head copy MAY REMAIN." >&2
               fi
             done
+            return "$stub_failed"
           }
           ok=0
           if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
@@ -1475,15 +1491,42 @@ jobs:
           fi
           if [ "$ok" -ne 1 ]; then
             echo "::warning::harden-guard: could not materialize a trusted base copy of the PreToolUse guard closure (base-ref fetch or git-show failure); stubbing it inline (fail-closed) so no PR-head copy of it can execute in this secrets-bearing job." >&2
-            stub_guard
-            # "guard-" prefixed, distinct from harden_hooks' own disposition= values
-            # (issue #908 review) — the two steps' outputs are otherwise unrelated, and
-            # an unprefixed literal here would collide with the #504 AC1 uniqueness pin
-            # on harden_hooks' own displaced-disposition output below.
-            printf 'disposition=guard-stubbed\n' >> "$GITHUB_OUTPUT"
+            if stub_guard; then
+              # "guard-" prefixed, distinct from harden_hooks' own disposition= values
+              # (issue #908 review) — the two steps' outputs are otherwise unrelated, and
+              # an unprefixed literal here would collide with the #504 AC1 uniqueness pin
+              # on harden_hooks' own displaced-disposition output below.
+              printf 'disposition=guard-stubbed\n' >> "$GITHUB_OUTPUT"
+            else
+              # LAST-RESORT arm: the stub write itself failed for one or more targets, so
+              # the PR-head copy MAY REMAIN executable. Merely warning and exiting 0 would
+              # let "Run Claude Code" proceed with that PR-controlled guard closure
+              # INTACT in this secrets-bearing job — the exact fail-OPEN this step exists
+              # to prevent (mirrors harden_hooks' own stub_failed -> exit 1 arm). FAIL the
+              # job so no PR-controlled guard fires.
+              echo "::error::harden-guard: one or more PreToolUse guard closure targets could NOT be stubbed (wholly unwritable path); the PR-head copy MAY REMAIN. Failing the job BEFORE Run Claude Code so no PR-controlled guard hook fires in this secrets-bearing review — inspect the runner." >&2
+              exit 1
+            fi
           else
             printf 'disposition=guard-displaced\n' >> "$GITHUB_OUTPUT"
           fi
+          # Shadow-review finding (issue #908 review, early shadow trigger): publish the
+          # displaced/stubbed GUARD_TARGETS as this step's own displaced_paths output,
+          # mirroring harden_hooks' AC1 (#504) contract — every displacement publishes its
+          # displaced-path set. Without this, the #504 grounding-block renderer never
+          # learns these three files were displaced/stubbed (harden_hooks' own
+          # displaced_paths only covers ITS relevance-gated TARGETS, which the harden_hooks
+          # skip arm — the exact consumer-repo case harden_guard exists to still cover —
+          # leaves empty), so a reviewing agent could read this step's rewritten working-
+          # tree bytes as though they were untouched PR-head content. Reached on both the
+          # displaced and stubbed arms (the exit-1 last-resort arm above never reaches
+          # here, by design — the job has already failed).
+          _908_gd="GUARDDISP_EOF_$(date +%s%N)_$$"
+          {
+            printf 'displaced_paths<<%s\n' "$_908_gd"
+            printf '%s\n' $GUARD_TARGETS
+            printf '%s\n' "$_908_gd"
+          } >> "$GITHUB_OUTPUT"
 
       # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
       # (rank 1: base-ref materialized copy; rank 2: the vendored copy gated on
@@ -1763,6 +1806,11 @@ jobs:
         env:
           HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}
           EXT_PATHS: ${{ steps.promptext.outputs.truncated_paths }}
+          # Third producer (issue #908 review, shadow finding): harden_guard's own
+          # displaced/stubbed GUARD_TARGETS. It runs unconditionally, so this is
+          # non-empty on every run — including the harden_hooks-skipped consumer-repo
+          # arm, which is exactly when this producer's disclosure matters most.
+          GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}
         run: |
           set -euo pipefail
           _j_d="JOINED_EOF_$(date +%s%N)_$$"
@@ -1772,6 +1820,7 @@ jobs:
             # contributes no blank line the renderer would have to filter.
             [ -n "$HOOK_PATHS" ] && printf '%s\n' "$HOOK_PATHS"
             [ -n "$EXT_PATHS" ] && printf '%s\n' "$EXT_PATHS"
+            [ -n "$GUARD_PATHS" ] && printf '%s\n' "$GUARD_PATHS"
             printf '%s\n' "$_j_d"
           } >> "$GITHUB_OUTPUT"
 

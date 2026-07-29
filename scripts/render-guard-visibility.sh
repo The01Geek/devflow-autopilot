@@ -92,7 +92,7 @@ else
   echo "- per-arm denial counts: unavailable"
 fi
 
-echo "- denied commands (neutralized for rendering — backticks stripped, every \`:\` spaced, newlines shown as ⏎ — never the raw text; see the neutralization note above):"
+echo "- denied commands (neutralized for rendering — backticks stripped, every \`:\` spaced, newlines shown as ⏎ — never the raw text):"
 
 # Parse the denied-commands object. As with the counts block above, parse-validity and
 # emptiness are two SEPARATE signals: {"commands":[],...} is a positively-known zero
@@ -130,9 +130,17 @@ if [ "$COMMANDS_VALID" = true ]; then
       # Derive the shown count from what was actually rendered rather than
       # transcribing the producer's cap as a literal — a producer-side cap change
       # would otherwise silently make a hardcoded figure lie here (CLAUDE.md's
-      # "prefer generated evidence over exact checked-in numbers").
-      SHOWING=$(printf '%s\n' "$COMMANDS_BLOCK" | grep -c '^- ') || SHOWING=""
-      if [ -n "$SHOWING" ]; then
+      # "prefer generated evidence over exact checked-in numbers"). Counted with a
+      # bash builtin read/case loop, not grep — CLAUDE.md guard-class 2: an EMITTED
+      # value must not be derived through a non-preflight PATH tool (shadow-review
+      # finding, issue #908 review).
+      SHOWING=0
+      while IFS= read -r _rgv_line; do
+        case "$_rgv_line" in
+          "- "*) SHOWING=$((SHOWING + 1)) ;;
+        esac
+      done <<<"$COMMANDS_BLOCK"
+      if [ "$SHOWING" -gt 0 ]; then
         echo "_(list truncated — ${TOTAL:-N} total, showing ${SHOWING})_"
       else
         echo "_(list truncated — ${TOTAL:-N} total)_"

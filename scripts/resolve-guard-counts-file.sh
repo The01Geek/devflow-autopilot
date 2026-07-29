@@ -10,13 +10,27 @@
 # YAML — the same "a value that decides a SELECTION must be testable" concern
 # CLAUDE.md's guard-class 2 raises for the selection itself.
 #
-# Mirrors the guard's own _store_names()/_run_key() naming exactly:
+# Mirrors the guard's own _store_names()/_run_key() naming for the shapes that matter
+# in practice (shadow-review finding, issue #908 review: an earlier revision of this
+# comment claimed an exact mirror, which is false for one corner case the note below
+# names):
 #   - GITHUB_RUN_ID set, GITHUB_RUN_ATTEMPT set  -> pretooluse-guard-counts-<id>-<attempt>.json
 #   - GITHUB_RUN_ID set, GITHUB_RUN_ATTEMPT empty -> pretooluse-guard-counts-<id>.json
 #   - GITHUB_RUN_ID empty (local/interactive tier) -> pretooluse-guard-counts.json (bare)
 # When the run-keyed (or bare) name does not exist, falls back to a glob match on
 # `pretooluse-guard-counts-*.json` (covers a guard-side run-key derivation drift
 # without going silent) before giving up.
+#
+# Known divergence (behaviorally inert via the glob fallback): the guard's _run_key()
+# JOINS then sanitizes (raw = f"{run_id}-{attempt}" when attempt is truthy, even with
+# an EMPTY run_id — e.g. run_id="", attempt="1" -> raw="-1" -> store name
+# "pretooluse-guard-counts--1.json"), while this script sanitizes each part
+# SEPARATELY then joins — so that same input resolves here to the BARE candidate
+# name instead. GITHUB_RUN_ID and GITHUB_RUN_ATTEMPT come from the same Actions
+# environment, so an empty-id/non-empty-attempt pairing is not a real production
+# shape; when it is passed explicitly anyway, the glob fallback below still finds
+# the guard's actual store (its name matches the `pretooluse-guard-counts-*.json`
+# pattern), so the divergence never surfaces as a missed read.
 #
 # Usage: resolve-guard-counts-file.sh <TMP_DIR> [GITHUB_RUN_ID] [GITHUB_RUN_ATTEMPT]
 #   TMP_DIR             directory to search (the repo's .devflow/tmp — passed
