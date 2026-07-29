@@ -4339,10 +4339,16 @@ assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path
 # code carries discovery status, the fence discriminates it into DISCOVERY_STATE, and the
 # reader routing gains fail-closed arms. Pin the discovery statement, the sentinel field,
 # the extended filing guard, roots-echo surfacing, and the two routing arms.
+# structural-pin-ok: helper-contract -- the discovery helper's stderr capture path is a typed
+# executable boundary between the fence and discover-deferral-manifests.py; the #915 move off
+# cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: Phase 4.0.5 discovers manifests through the fail-closed helper" \
   'discover-deferral-manifests.py $SEARCH_DIRS 2>.devflow/tmp/devflow-dm.err' "$P4_FILE"
 assert_pin_unique "#555: Phase 4.0.5 initializes DISCOVERY_STATE empty before the discovery statement (the #480 sentinel-operand rule)" \
   'DISCOVERY_STATE=""' "$P4_FILE"
+# structural-pin-ok: helper-contract -- the partial-discovery marker is a typed executable
+# boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915
+# move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: Phase 4.0.5 discriminates the partial marker with the file-deferrals.py grep idiom" \
   "elif grep -q 'devflow: discovery partial:' .devflow/tmp/devflow-dm.err; then" "$P4_FILE"
 assert_pin_unique "#555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false" \
@@ -4351,6 +4357,9 @@ assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with
   'discovery=[${DISCOVERY_STATE:-}]' "$P4_FILE"
 assert_pin_unique "#555: the filing guard requires a successful discovery (a persisted prior aggregate must not drive filing on a failed/refused discovery)" \
   '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P4_FILE"
+# structural-pin-ok: helper-contract -- the discovery roots-echo grep is a typed executable
+# boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915
+# move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: the fence surfaces the helper roots-echo into the tool result on every path" \
   "grep 'devflow: discovery roots:' .devflow/tmp/devflow-dm.err || true" "$P4_FILE"
 # ── issue #555 (review finding): a bundled helper granted as a vendored-literal LEADING
