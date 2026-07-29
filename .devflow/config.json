@@ -80,7 +80,6 @@
       "Bash(scripts/workpad.py:*)",
       "Bash(/home/runner/work/devflow-autopilot/devflow-autopilot/scripts/workpad.py:*)",
       "Bash(mktemp:*)",
-      "Bash(cd:*)",
       "Bash(bash:*)"
     ],
     "update_branch_checkpoints": true,

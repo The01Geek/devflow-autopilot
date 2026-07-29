@@ -65,9 +65,15 @@ The `--check` mode wired into `lib/test/run.sh` turns any manifest↔literal dri
 RED before merge — you **never hand-edit** the `TOOLS='…'` literals. See
 [Manifest generation](#manifest-generation-issue-561).
 
-`Bash(cd:*)` is **deliberately ungranted**: its probe row was redirect-confounded
-(unproven), and it is pinned **absent** in `run.sh`. Do not re-add it without a
-fresh redirect-free probe row.
+`Bash(cd:*)` is **ungranted on the review profile**: its probe row was
+redirect-confounded (unproven), and it is pinned **absent** in `run.sh`. Do not
+re-add it without a fresh redirect-free probe row. On the **implement profile** the
+grant was **revoked by policy (issue #855), unmeasured** — never recorded as denied
+on that tier (a leading `cd` was observed *executing* on the review tier in run
+30222310785, so an ungranted `cd` head does not imply a refused statement); the
+revocation removes the authoring affordance, and the leading-`cd` ban is enforced
+as a desk lint (`IR4`) rather than as a claimed matcher refusal. See
+[`docs/working-directory-contract.md`](working-directory-contract.md).
 
 ---
 
@@ -318,10 +324,37 @@ permission mode as the sole reason the write was allowed.
 The read-write `devflow-implement` profile is a **separate allowlist** with its
 **own** probed denied shapes — **a shape proven on the review tier is unproven
 here** — so the `implement-probe` job in `matcher-probe.yml` covers it
-independently. Its abstract rule set is IR1 / IR2 / IR3 (distinct from review's
-R1–R4), enforced by `lib/test/extract-command-shapes.py --profile implement`
-against `skills/implement/SKILL.md`, `skills/implement/phases/*.md`, and
+independently. Its abstract rule set is IR1 / IR2 / IR3 / IR4 (distinct from
+review's R1–R4), enforced by `lib/test/extract-command-shapes.py --profile
+implement` against `skills/implement/SKILL.md`, `skills/implement/phases/*.md`, and
 `skills/implement/references/*.md`.
+
+### Leading `cd` and the working-directory contract (issue #855)
+
+A **repo-relative vendored-literal helper path resolves against the `actions/checkout`
+workspace root** — the run begins there and the Bash tool's working directory
+persists across calls, so a leading `cd` moves every later helper's resolution base
+out from under it. The canonical statement of that contract, tier-scoped, is
+[`docs/working-directory-contract.md`](working-directory-contract.md).
+
+`Bash(cd:*)`'s status on the implement tier is **revoked by policy (issue #855),
+unmeasured** — **never denied**. The revocation removes an authoring affordance; it
+is **not** claimed to produce a matcher refusal, because a leading `cd` was observed
+*executing* on the review tier (run 30222310785) where the grant is already absent.
+The leading-`cd` ban is enforced instead as the desk lint **`IR4`**
+(`find_implement_violations` emits it for a fenced statement whose head is `cd`), so
+a `cd` authored into a scanned prompt surface fails at the desk.
+
+`IR1` / `IR2` (label-helper loops) are the only implement-tier rules with a probe
+measurement (rows I4/I5). `IR3` is discipline-only (the capture carve-out rests on
+an inference, not a measurement — see rows 8/9 below). **`R1`, `R3` and `R4` are not
+enforced on the implement profile at all, because their status there is
+unmeasured** — the recorded implement rows carry no entry for a leading assignment,
+a `/tmp` redirect, or an interpreter head. The contrary evidence that *does* exist
+is not a permission: the PR #694 run reported a **blocked stdout redirect even into
+the working-directory `.devflow/tmp`**, and the interpreter head is denied per issue
+#789. Neither of those forms is stated as permitted on the implement tier; they are
+simply not carried as an enforced desk rule there.
 
 ### The recorded implement-tier table (rows I1–I6)
 
