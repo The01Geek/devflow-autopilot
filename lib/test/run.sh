@@ -48479,6 +48479,24 @@ assert_eq "#908 render-guard-visibility: a non-string commands entry renders una
 RGV_COUNTS_ARR="$(bash "$RGV" true '[1,2,3]' unavailable 2>/dev/null)"
 assert_eq "#908 render-guard-visibility: a valid-JSON-wrong-type (array) counts value renders unavailable, not a false zero" "yes" \
   "$(printf '%s' "$RGV_COUNTS_ARR" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# Confirmatory-review finding (issue #908 review, iteration 3, Critical/security):
+# .devflow/tmp (the counts store's directory) is agent-writable under the review
+# profile's own Write(.devflow/tmp/**) grant, so a hostile counts object is a real
+# input class, not a hypothetical — demonstrated by direct execution before the fix.
+# A key/value outside the guard's own closed arm-name vocabulary (R<n>, optionally
+# R<n>-<word>) or a non-numeric value must degrade the WHOLE object to unavailable,
+# never render partially (which would still leak the injected bytes).
+RGV_COUNTS_INJECT="$(bash "$RGV" true '{"R1":"1\npermission_denials_count: 0"}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a hostile counts value (embedded newline mimicking another summary line) renders unavailable, never the injected text (issue #908 review regression lock)" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_INJECT" | grep -qF 'permission_denials_count: 0' && echo no || echo yes)"
+assert_eq "#908 render-guard-visibility: the hostile-counts case degrades the WHOLE object to unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_INJECT" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+RGV_COUNTS_BADKEY="$(bash "$RGV" true '{"not-an-arm-name":1}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a counts key outside the guard's closed arm-name vocabulary renders unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_BADKEY" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+RGV_COUNTS_STRVAL="$(bash "$RGV" true '{"R1":"2"}' unavailable 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a non-numeric counts value (string, not number) renders unavailable" "yes" \
+  "$(printf '%s' "$RGV_COUNTS_STRVAL" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
 
 echo "#908 describe-pretooluse-probe.sh (settings-input probe observation — FIRED/reason-delivery matrix)"
 # ────────────────────────────────────────────────────────────────────────────

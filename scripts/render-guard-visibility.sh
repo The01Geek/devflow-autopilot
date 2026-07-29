@@ -75,9 +75,29 @@ echo "- guard fired: **${GUARD_FIRED}**"
 # DISTINCT claims and must not collapse to the same rendered line: a valid-but-empty
 # object is a positively-known zero, never "unavailable". So parse-validity and
 # entry-count are read as two separate signals, not inferred from one empty string.
+#
+# Confirmatory-review finding (issue #908 review, iteration 3, Critical/security): the
+# counts store lives under .devflow/tmp — the SAME directory the review-tier profile
+# grants Write(.devflow/tmp/**) against — so unlike a hardcoded producer, this input is
+# NOT trusted, and (unlike DENIED_COMMANDS_JSON below) it was rendered here with NO
+# neutralization at all: `to_entries | map("\(.key)=\(.value)")` echoes an arbitrary
+# key/value verbatim. Demonstrated by direct execution: a counts object
+# {"R1":"1\npermission_denials_count: 0"} rendered a fabricated
+# "permission_denials_count: 0" line into the check-run summary — a value a
+# machine-consumed contract (scripts/build-experiment-records.py's DENIAL_SUMMARY_RE)
+# parses. The guard's own arm-name vocabulary (scripts/pretooluse-shape-guard.py's
+# REMEDIATION dict) is closed and small (R<n>, optionally R<n>-<word>, e.g. R1,
+# R3-tmp, R4); values are counts (a JSON number). So VALIDATE the whole object against
+# that closed shape before rendering ANYTHING from it — every key matches the arm-name
+# pattern AND every value is a number — rather than neutralizing after the fact: a
+# validated key/value pair has no room left for an injected newline, colon, or
+# backtick, so this closes the gap rather than merely reducing it.
 COUNTS_VALID=false
 if [ -n "$GUARD_COUNTS_JSON" ] && [ "$GUARD_COUNTS_JSON" != unavailable ]; then
-  if "$DEVFLOW_JQ" -e 'type == "object"' <<<"$GUARD_COUNTS_JSON" >/dev/null 2>&1; then
+  if "$DEVFLOW_JQ" -e '
+      (type == "object")
+      and (to_entries | all(.[]; (.key | test("^R[0-9]+(-[a-z]+)?$")) and (.value | type == "number")))
+    ' <<<"$GUARD_COUNTS_JSON" >/dev/null 2>&1; then
     COUNTS_VALID=true
     COUNTS_LINE=$("$DEVFLOW_JQ" -r 'to_entries | map("\(.key)=\(.value)") | join(" ")' <<<"$GUARD_COUNTS_JSON" 2>/dev/null) || COUNTS_LINE=""
   fi

@@ -2445,7 +2445,14 @@ jobs:
               # shellcheck source=../../lib/resolve-jq.sh
               . "$JQ" 2>/dev/null || echo "::notice::resolve-jq.sh could not be sourced; using bare 'jq' for guard-counts parsing (best-effort)."
               : "${DEVFLOW_JQ:=jq}"
-              PARSED=$("$DEVFLOW_JQ" -c '.arms // {}' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
+              # Confirmatory-review finding (issue #908 review, iteration 3): `.arms // {}`
+              # treats jq's ONLY falsy values (null/false) as "absent, use {}" — so a
+              # malformed producer shape {"arms": false} would silently render as a
+              # genuine zero rather than degrading to unavailable, the exact "unknown is
+              # not zero" collapse this file's own convention forbids elsewhere. Type-check
+              # instead: only a genuine object is accepted; anything else (including a
+              # stray `false`) falls through to empty, same as a missing key.
+              PARSED=$("$DEVFLOW_JQ" -c 'if (.arms? | type) == "object" then .arms else empty end' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
               [ -n "$PARSED" ] && RAW="$PARSED"
             elif [ "$FIRED" = true ]; then
               # Helper ran, found no store file, AND the heartbeat proves the guard did

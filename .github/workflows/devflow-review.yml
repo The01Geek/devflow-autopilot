@@ -1356,7 +1356,18 @@ jobs:
           [ -f "$RGV" ] || RGV=scripts/render-guard-visibility.sh
           if [ -f "$RGV" ]; then
             GUARD_BLOCK=$(bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS" || true)
-            [ -n "$GUARD_BLOCK" ] && SUMMARY="${SUMMARY}"$'\n\n'"${GUARD_BLOCK}"
+            if [ -n "$GUARD_BLOCK" ]; then
+              SUMMARY="${SUMMARY}"$'\n\n'"${GUARD_BLOCK}"
+            else
+              # Confirmatory-review finding (issue #908 review, iteration 3): the renderer's
+              # own contract is "always exits 0, header line first" — an empty GUARD_BLOCK
+              # here can only mean an actual bug (a crash/unexpected-empty-stdout regression),
+              # never an anticipated case (the "file absent" case is the OTHER branch). The
+              # old code swallowed this with `|| true` and no breadcrumb, so the section
+              # would silently vanish with no signal distinguishing "nothing to render" from
+              # "the renderer broke" — mirror the absent-file branch's notice discipline.
+              echo "::notice::render-guard-visibility.sh produced no output despite being present (unexpected; the renderer's own contract is to always print a header line); PreToolUse guard visibility not rendered this run."
+            fi
           else
             echo "::notice::render-guard-visibility.sh absent; PreToolUse guard visibility not rendered (best-effort)."
           fi
