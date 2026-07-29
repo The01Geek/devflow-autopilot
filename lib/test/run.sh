@@ -48658,6 +48658,46 @@ assert_eq "#908 render-guard-visibility: a counts key outside the guard's closed
 RGV_COUNTS_STRVAL="$(bash "$RGV" true '{"R1":"2"}' unavailable 2>/dev/null)"
 assert_eq "#908 render-guard-visibility: a non-numeric counts value (string, not number) renders unavailable" "yes" \
   "$(printf '%s' "$RGV_COUNTS_STRVAL" | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# COUPLED-INVARIANT GATE (issue #908 confirmatory review, corroborated by three reviewers).
+# The renderer validates every counts key against its own arm-name pattern and degrades the
+# WHOLE object to `unavailable` on a single miss. That pattern is an uncoupled MIRROR of the
+# guard's REMEDIATION arm names, so a future arm the pattern cannot express (a second
+# hyphenated word, a digit or uppercase in the suffix) would silently report real denials as
+# an unestablished measurement — the inverse of the unknown-is-not-zero collapse this file's
+# own doctrine forbids, with no failing test. Drive the renderer with a counts object
+# synthesized FROM THE GUARD'S OWN KEYS rather than re-asserting the literal pattern, so the
+# two sides are bound by behavior: adding an unrenderable arm turns this RED at the desk.
+RGV_ARMS_JSON="$(python3 - "$REPO_ROOT/scripts/pretooluse-shape-guard.py" <<'PY'
+import ast, json, sys
+tree = ast.parse(open(sys.argv[1], encoding="utf-8").read())
+keys = []
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign) and any(
+        isinstance(t, ast.Name) and t.id == "REMEDIATION" for t in node.targets
+    ) and isinstance(node.value, ast.Dict):
+        keys = [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
+print(json.dumps({k: 1 for k in keys}) if keys else "")
+PY
+)"
+assert_eq "#908 render-guard-visibility: the guard's REMEDIATION arm names were extractable (the coupling gate below is not vacuous)" "yes" \
+  "$([ -n "$RGV_ARMS_JSON" ] && [ "$RGV_ARMS_JSON" != '{}' ] && echo yes || echo no)"
+assert_eq "#908 render-guard-visibility: EVERY guard REMEDIATION arm name is renderable (coupled-invariant gate — an arm the renderer cannot express would blank the whole counts panel)" "no" \
+  "$(bash "$RGV" true "$RGV_ARMS_JSON" unavailable 2>/dev/null | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# Negative control: the gate above can only fail closed if a genuinely unrenderable key
+# really does blank the panel, so prove that direction too rather than trusting the pass.
+assert_eq "#908 render-guard-visibility: the coupling gate's failure direction is real (an unrenderable arm name DOES blank the panel)" "yes" \
+  "$(bash "$RGV" true '{"R5-cd-lead":1}' unavailable 2>/dev/null | grep -qF 'per-arm denial counts: unavailable' && echo yes || echo no)"
+# NEWLINE-FLATTENING LIMB (issue #908 confirmatory review). The renderer's header commits to
+# three neutralizations; backtick-stripping and colon-spacing each got a lock, this one did
+# not. A denied command carrying newlines must render as exactly ONE list item and must not
+# forge a second summary line or break out of the fence.
+RGV_NL="$(bash "$RGV" true unavailable '{"commands":["echo a\npermission_denials_count: 0\n```fake"],"total":1,"truncated":false}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command renders as exactly one list item" "1" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^- echo')"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command forges no second permission_denials_count line" "0" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^permission_denials_count:')"
+assert_eq "#908 render-guard-visibility: a newline-bearing denied command cannot break out of the fence" "2" \
+  "$(printf '%s\n' "$RGV_NL" | grep -c '^```')"
 
 echo "#908 describe-pretooluse-probe.sh (settings-input probe observation — FIRED/reason-delivery matrix)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -48697,6 +48737,38 @@ assert_eq "#908 describe-pretooluse-probe: no-argument invocation leaves a stder
   "$(bash "$DPP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
 assert_eq "#908 matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
   "$(grep -qF 'bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"' "$LIB/../.github/workflows/matcher-probe.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line (not the bare helper name) so a regression that re-inlines the observation selector, the #370 pin-in-comment class, is caught
+# AC7 structural declaration (issue #908 confirmatory review; mirrors the #874/#858
+# probe-job precedent). The helper-invocation pin above still passes if the job is renamed,
+# removed, or stripped of the `settings:` input that is the whole point of this probe arm —
+# it only proves the LINE exists somewhere in the file. Parse the workflow and assert the
+# job itself, so AC7's declaration is verified rather than inferred from one grep.
+_908_PROBE_JOB="$(python3 - "$REPO_ROOT/.github/workflows/matcher-probe.yml" <<'PY'
+import sys, yaml
+try:
+    doc = yaml.safe_load(open(sys.argv[1], encoding="utf-8")) or {}
+except Exception as exc:  # a parse failure must read as "not established", never as pass
+    print(f"unparseable: {exc.__class__.__name__}")
+    raise SystemExit(0)
+jobs = doc.get("jobs")
+if not isinstance(jobs, dict):
+    print("no jobs mapping")
+    raise SystemExit(0)
+job = jobs.get("pretooluse-probe")
+if not isinstance(job, dict):
+    print("pretooluse-probe job absent")
+    raise SystemExit(0)
+steps = job.get("steps")
+if not isinstance(steps, list):
+    print("pretooluse-probe has no steps list")
+    raise SystemExit(0)
+has_settings = any(
+    isinstance(s, dict) and isinstance(s.get("with"), dict) and "settings" in s["with"]
+    for s in steps
+)
+print("declared-with-settings" if has_settings else "declared-without-settings-input")
+PY
+)"
+assert_eq "#908 AC7: matcher-probe.yml declares a pretooluse-probe job that registers its hook via the settings input" "declared-with-settings" "$_908_PROBE_JOB"
 
 echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -48713,16 +48785,54 @@ RGC_D3="$(mktemp -d)"
 echo '{"arms":{}}' > "$RGC_D3/pretooluse-guard-counts-99999-2.json"
 assert_eq "#908 resolve-guard-counts-file: glob fallback finds a mismatched run-keyed store" "yes" \
   "$([ "$(bash "$RGC" "$RGC_D3" 11111 3)" = "$RGC_D3/pretooluse-guard-counts-99999-2.json" ] && echo yes || echo no)"
+# CONFIRMATORY-REVIEW REGRESSION LOCK (issue #908, corroborated Critical, reproduced by
+# direct execution). The guard runs as a HOOK SUBPROCESS of claude-code-action, so its
+# _run_key() can return None and make it write the BARE store name, while THIS resolver —
+# reading the workflow step's own environment — definitely has a run id. The glob fallback
+# cannot rescue that: `pretooluse-guard-counts-*.json` requires the trailing hyphen and so
+# structurally cannot match `pretooluse-guard-counts.json`. Before the bare candidate was
+# made unconditional this resolved to "no match", which devflow-runner.yml turned into a
+# positively-asserted `{}` ("guard fired, zero denials recorded") over a store holding real
+# denials. Assert the resolved PATH, not merely rc 0, so a fix that returns some other file
+# cannot satisfy this.
+RGC_D5="$(mktemp -d)"
+echo '{"arms":{"R1":2}}' > "$RGC_D5/pretooluse-guard-counts.json"
+assert_eq "#908 resolve-guard-counts-file: the BARE store resolves even when a run id IS supplied (issue #908 confirmatory-review regression lock — the glob cannot match the bare name)" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D5" 12345 1)" = "$RGC_D5/pretooluse-guard-counts.json" ] && echo yes || echo no)"
+# Most-specific-first ordering: a run-keyed store must still win over a bare one when both
+# exist, so adding the bare candidate did not make the resolver prefer the legacy name.
+echo '{"arms":{"R4":9}}' > "$RGC_D5/pretooluse-guard-counts-12345-1.json"
+assert_eq "#908 resolve-guard-counts-file: a run-keyed store still wins over a bare one when both exist" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D5" 12345 1)" = "$RGC_D5/pretooluse-guard-counts-12345-1.json" ] && echo yes || echo no)"
 RGC_D4="$(mktemp -d)"
-bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1
-assert_eq "#908 resolve-guard-counts-file: no store present exits 1 with empty stdout" "rc=1" \
+assert_eq "#908 resolve-guard-counts-file: no store present exits 1" "rc=1" \
   "$(bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
-assert_eq "#908 resolve-guard-counts-file: an empty (zero-byte) store file is treated as absent" "rc=1" \
+# The name used to claim "with empty stdout" while sending stdout to /dev/null and never
+# inspecting it (issue #908 confirmatory review). Assert the claim instead of asserting it.
+assert_eq "#908 resolve-guard-counts-file: the no-store exit-1 path prints nothing on stdout" "" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 2>/dev/null)"
+# ZERO-BYTE IS UNESTABLISHED, NOT ABSENT (issue #908 confirmatory review). The guard writes
+# the counts store only from _bump_counts — i.e. only on a deny — so a zero-length store is
+# a partial/interrupted write of a REAL deny record, never evidence of zero denials. It now
+# exits 2, which devflow-runner.yml maps to `unavailable` rather than to its known-zero arm.
+assert_eq "#908 resolve-guard-counts-file: an existing but zero-byte store exits 2 (unestablished), NOT 1 (absent)" "rc=2" \
   "$(: > "$RGC_D4/pretooluse-guard-counts-1-1.json"; bash "$RGC" "$RGC_D4" 1 1 >/dev/null 2>&1; echo "rc=$?")"
+assert_eq "#908 resolve-guard-counts-file: the zero-byte exit-2 path prints nothing on stdout" "" \
+  "$(bash "$RGC" "$RGC_D4" 1 1 2>/dev/null)"
+# A non-empty store anywhere in the order must still win over a recorded zero-byte one —
+# emptiness only decides between exit 2 and exit 1 when nothing usable was found at all.
+assert_eq "#908 resolve-guard-counts-file: a non-empty glob match wins over a zero-byte candidate" "yes" \
+  "$(echo '{"arms":{"R1":1}}' > "$RGC_D4/pretooluse-guard-counts-99999-2.json"; \
+     [ "$(bash "$RGC" "$RGC_D4" 1 1)" = "$RGC_D4/pretooluse-guard-counts-99999-2.json" ] && echo yes || echo no)"
 assert_eq "#908 resolve-guard-counts-file: a nonexistent TMP_DIR fails closed to exit 1, not a shell error" "rc=1" \
   "$(bash "$RGC" "/nonexistent/path/xyz-908" >/dev/null 2>&1; echo "rc=$?")"
 assert_eq "#908 devflow-runner.yml routes counts-file selection through the helper (invocation line)" "yes" \
-  "$(grep -qF 'if COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the run-keyed/bare/glob counts-file SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+  "$(grep -qF 'COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the run-keyed/bare/glob counts-file SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+# The consuming step must distinguish the resolver's exit 1 (no store) from its exit 2
+# (zero-byte, unestablished): an `if cmd` compound collapses both onto "false" and would
+# route a known-BROKEN measurement into the known-zero `{}` arm.
+assert_eq "#908 devflow-runner.yml captures the resolver rc so exit 2 routes away from the known-zero arm" "yes" \
+  "$(grep -qF 'elif [ "$RGC_RC" -eq 2 ]; then' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the zero-byte arm is what keeps a partial/interrupted counts write from being rendered as a positively-known zero; collapsing it back into the exit-1 arm reopens the confirmatory review's false-zero defect
 
 echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
 # ────────────────────────────────────────────────────────────────────────────

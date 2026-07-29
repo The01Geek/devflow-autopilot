@@ -1410,7 +1410,8 @@ jobs:
       # runs, overwrite each hook target in the PR-head workspace with the TRUSTED
       # base-ref copy (materialized here via `git show FETCH_HEAD:…`), and where no
       # base copy exists overwrite it with a fail-closed no-op stub — NEVER left as
-      # the PR-head copy. The installer logic is the suite-driven, unit-tested
+      # the PR-head copy.
+      #
       # issue #908 review (Critical/security): the PreToolUse guard is registered
       # UNCONDITIONALLY by the `settings:` input on the "Run Claude Code" step below —
       # independent of whether the trusted base .claude/settings.json wires ANY Stop
@@ -1450,10 +1451,24 @@ jobs:
           # target write failure, and the caller below turns that into a job-failing
           # exit 1 rather than a mere warning — the last-resort arm must genuinely be
           # fail-closed, not fail-open-with-a-warning.
+          # ACTED accumulates only the targets this step actually displaced or stubbed,
+          # so `guard_paths` discloses what was really rewritten rather than the static
+          # GUARD_TARGETS list (issue #908 confirmatory review).
+          ACTED=""
           stub_guard() {
             stub_failed=0
             for t in $GUARD_TARGETS; do
               d="$ROOT/$t"
+              # Nothing at this path in the working tree means there is no copy — PR-head
+              # or otherwise — that could execute, so there is nothing to stub. Skipping
+              # is what keeps a CONSUMER repo (where none of these DevFlow-internal paths
+              # exist) from having phantom scripts/ and lib/test/ files created in its
+              # checkout, plus a spurious ::warning:: on every auto-review — the issue-#502
+              # class. Fail-closed is preserved: the hazard this arm exists to close is a
+              # PR-controlled file that EXISTS, and that case still takes the stub below.
+              if [ ! -e "$d" ]; then
+                continue
+              fi
               mkdir -p "${d%/*}" 2>/dev/null || true
               # Unlink a symlink dest first: a `>` write through a PR-controlled symlink
               # would land the stub bytes at the link's resolved target, leaving the
@@ -1467,6 +1482,7 @@ jobs:
               fi
               if [ "$_stub_ok" -eq 1 ]; then
                 chmod +x "$d" 2>/dev/null || true
+                ACTED="$ACTED $t"
               else
                 stub_failed=1
                 echo "::warning::harden-guard: could not stub '$t' (wholly unwritable); the PR-head copy MAY REMAIN." >&2
@@ -1483,7 +1499,22 @@ jobs:
                 [ -L "$d" ] && rm -f "$d" 2>/dev/null
                 if ! printf '%s\n' "$raw" > "$d" 2>/dev/null; then
                   ok=0
+                else
+                  ACTED="$ACTED $t"
                 fi
+              elif [ ! -e "$d" ]; then
+                # Absent on the trusted base ref AND absent from the PR-head working
+                # tree: there is no copy of this target anywhere, so no PR-controlled
+                # bytes can execute and there is nothing to displace. This is the
+                # CONSUMER-repo shape (these three paths are DevFlow-repo-internal;
+                # a consumer vendors the plugin under .devflow/vendor/devflow/), and
+                # without this arm every consumer auto-review took the stub path,
+                # emitting a spurious deployment-fault ::warning:: and creating phantom
+                # scripts/ and lib/test/ files in the consumer's checkout — the
+                # issue-#502 class. The working-tree half of the predicate is what keeps
+                # this security-preserving: a target the PR ADDS is present at "$d", so
+                # it fails this test and still routes to the fail-closed stub arm.
+                :
               else
                 ok=0
               fi
@@ -1511,7 +1542,9 @@ jobs:
             printf 'disposition=guard-displaced\n' >> "$GITHUB_OUTPUT"
           fi
           # Shadow-review finding (issue #908 review, early shadow trigger): publish the
-          # displaced/stubbed GUARD_TARGETS as this step's own displaced_paths output,
+          # displaced/stubbed GUARD_TARGETS as this step's own `guard_paths` output
+          # (the key written below and consumed as steps.harden_guard.outputs.guard_paths;
+          # `displaced_paths` is harden_hooks' own key, not this step's),
           # mirroring harden_hooks' AC1 (#504) contract — every displacement publishes its
           # displaced-path set. Without this, the #504 grounding-block renderer never
           # learns these three files were displaced/stubbed (harden_hooks' own
@@ -1521,14 +1554,23 @@ jobs:
           # tree bytes as though they were untouched PR-head content. Reached on both the
           # displaced and stubbed arms (the exit-1 last-resort arm above never reaches
           # here, by design — the job has already failed).
+          # Publish only what was actually rewritten (ACTED), not the static GUARD_TARGETS
+          # list: in a consumer repo none of the three exist, so nothing is displaced and
+          # this is legitimately EMPTY — publishing all three there would be a false
+          # displacement disclosure, telling a reviewing agent to route reads through
+          # `git show` for paths this step never touched.
           _908_gd="GUARDDISP_EOF_$(date +%s%N)_$$"
           {
             printf 'guard_paths<<%s\n' "$_908_gd"
-            printf '%s\n' $GUARD_TARGETS
+            # Unquoted on purpose: word-splitting turns the accumulated space-separated
+            # list into one path per line. Empty ACTED yields no lines at all.
+            # shellcheck disable=SC2086
+            [ -n "$ACTED" ] && printf '%s\n' $ACTED
             printf '%s\n' "$_908_gd"
           } >> "$GITHUB_OUTPUT"
 
-      # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
+      # The installer logic is the suite-driven, unit-tested helper
+      # scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
       # (rank 1: base-ref materialized copy; rank 2: the vendored copy gated on
       # vendor_source=fetch — never the PR-head checkout, which the PR can edit).
       # When no trusted helper resolves the step fails closed INLINE (trusted
@@ -1807,9 +1849,13 @@ jobs:
           HOOK_PATHS: ${{ steps.harden_hooks.outputs.displaced_paths }}
           EXT_PATHS: ${{ steps.promptext.outputs.truncated_paths }}
           # Third producer (issue #908 review, shadow finding): harden_guard's own
-          # displaced/stubbed GUARD_TARGETS. It runs unconditionally, so this is
-          # non-empty on every run — including the harden_hooks-skipped consumer-repo
-          # arm, which is exactly when this producer's disclosure matters most.
+          # displaced/stubbed GUARD_TARGETS. Unlike harden_hooks it carries no relevance
+          # gate, so it is non-empty on every run that REACHES it — including the
+          # harden_hooks-skipped consumer-repo arm, which is exactly when this producer's
+          # disclosure matters most. It is not unconditional in the stronger sense: the
+          # step carries the implicit `if: success()`, and its fail-closed last-resort arm
+          # exits 1 before writing `guard_paths`, so an earlier failure leaves this empty.
+          # The consumer below already handles the empty case (`[ -n "$GUARD_PATHS" ]`).
           GUARD_PATHS: ${{ steps.harden_guard.outputs.guard_paths }}
         run: |
           set -euo pipefail
@@ -2214,8 +2260,10 @@ jobs:
           # This file's `on: workflow_call` is the review tier's reusable workflow
           # (devflow-implement.yml carries its own separate claude-code-action
           # invocation with no `settings:` input — grepped, zero hits), so no tier
-          # conditional is needed here. The hook command below points at a REPO-RELATIVE
-          # path, so it is INERT only when that path holds trusted (not PR-head) bytes at
+          # conditional is needed here. The hook command below points at a path INSIDE THE
+          # CHECKED-OUT TREE (an absolute path resolved at run time from the repo root via
+          # `git rev-parse --show-toplevel`, not a literal repo-relative string),
+          # so it is INERT only when that path holds trusted (not PR-head) bytes at
           # the time this step runs — gating that is NOT the harden_hooks Stop-hook
           # relevance gate below (that gate correctly skips when the trusted base
           # .claude/settings.json wires no Stop hook, which says nothing about this
@@ -2413,13 +2461,23 @@ jobs:
       # guard fires but denies nothing does not create that file, so its absence is
       # ambiguous between "guard did not fire" and "guard fired, zero denials" unless
       # disambiguated against the heartbeat, written from `_write_heartbeat` on every
-      # invocation including a defer/allow. This step distinguishes THREE outcomes
+      # invocation including a defer/allow. This step distinguishes FOUR outcomes
       # (issue #908 review — an earlier revision of this comment named only the first
-      # two, which is what let the third go untested):
-      #   FIRED=false + no counts file        -> counts genuinely unavailable (guard never ran)
+      # two, which is what let the third go untested; the fourth arrived with the
+      # confirmatory review's zero-byte finding):
+      #   FIRED=false + no counts file        -> counts genuinely unavailable
+      #     (no evidence the guard ran — either it never fired, or its telemetry
+      #     directory was unwritable: `_run()` wraps `_write_heartbeat` in a try and
+      #     continues with tmp=None, so the guard CAN run and classify with no heartbeat)
       #   FIRED=true  + resolver reports none -> counts is the positively-known empty object {}
       #     (the resolver SCRIPT ran and positively determined no counts-store FILE, under
       #     any run-keyed/bare/glob name, exists — that is real information, not a guess)
+      #   resolver reports a store that exists but is ZERO-BYTE (its exit 2)
+      #                                       -> counts stays unavailable REGARDLESS of FIRED
+      #     (the guard writes that file only from `_bump_counts`, i.e. only on a deny, so a
+      #     zero-length store is a partial/interrupted write of a real deny record — a
+      #     known-BROKEN measurement, never a zero. Rendering {} here would launder it into
+      #     a confident zero, the inverse of the collapse this block exists to prevent.)
       #   resolver script itself absent, OR a found counts file fails to parse
       #                                       -> counts stays unavailable REGARDLESS of FIRED
       #     (our own tooling for reading the guard's signal is unavailable/broken here, which
@@ -2439,7 +2497,12 @@ jobs:
           [ -f "$RGC" ] || RGC=scripts/resolve-guard-counts-file.sh
           RAW=unavailable
           if [ -f "$RGC" ]; then
-            if COUNTS_FILE=$(bash "$RGC" .devflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}"); then
+            # Capture the resolver's rc rather than testing it inline: exit 1 (no store
+            # exists) and exit 2 (a store exists but is zero-byte — unestablished) route
+            # to DIFFERENT arms, and an `if cmd` compound collapses both onto "false".
+            RGC_RC=0
+            COUNTS_FILE=$(bash "$RGC" .devflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}") || RGC_RC=$?
+            if [ "$RGC_RC" -eq 0 ]; then
               JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
               [ -f "$JQ" ] || JQ=lib/resolve-jq.sh
               # shellcheck source=../../lib/resolve-jq.sh
@@ -2454,6 +2517,10 @@ jobs:
               # stray `false`) falls through to empty, same as a missing key.
               PARSED=$("$DEVFLOW_JQ" -c 'if (.arms? | type) == "object" then .arms else empty end' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
               [ -n "$PARSED" ] && RAW="$PARSED"
+            elif [ "$RGC_RC" -eq 2 ]; then
+              # A store exists but is zero-byte: a partial/interrupted write of a real
+              # deny record. RAW stays `unavailable` — never the known-zero arm below.
+              echo "::warning::resolve-guard-counts-file.sh found a zero-byte counts store under .devflow/tmp (partial or interrupted write); per-arm denial counts reported as unavailable rather than as a zero."
             elif [ "$FIRED" = true ]; then
               # Helper ran, found no store file, AND the heartbeat proves the guard did
               # fire this run — a positively-known zero, not an unestablished measurement.
@@ -2484,15 +2551,29 @@ jobs:
           [ -f "$EES" ] || EES=scripts/extract-execution-shape.sh
           VALUE=unavailable
           if [ -f "$EES" ]; then
-            BLOCK=$(bash "$EES" "${EXECUTION_FILE:-}" || true)
+            # Capture the helper's rc instead of discarding it with `|| true`: a missing
+            # or unparseable execution file, a jq failure, or a crash would otherwise be
+            # indistinguishable in the summary from "no execution file this run" — the
+            # same swallowed-failure defect the sibling devflow-review.yml block already
+            # fixed, applied here too (issue #908 confirmatory review).
+            EES_RC=0
+            BLOCK=$(bash "$EES" "${EXECUTION_FILE:-}") || EES_RC=$?
+            if [ "$EES_RC" -ne 0 ]; then
+              echo "::notice::extract-execution-shape.sh exited non-zero (rc=$EES_RC); denied-command detail unavailable (best-effort)."
+            fi
+            _found=0
             while IFS= read -r _line; do
               case "$_line" in
                 "permission_denials_commands: "*)
                   VALUE="${_line#permission_denials_commands: }"
+                  _found=1
                   break
                   ;;
               esac
             done <<<"$BLOCK"
+            if [ "$_found" -eq 0 ] && [ "$EES_RC" -eq 0 ]; then
+              echo "::notice::extract-execution-shape.sh ran cleanly but emitted no permission_denials_commands line; denied-command detail unavailable (best-effort)."
+            fi
           else
             echo "::notice::extract-execution-shape.sh absent; denied-command detail unavailable (best-effort)."
           fi
