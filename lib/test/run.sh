@@ -526,48 +526,34 @@ assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the 
 # zero-expected assertion (`assert_eq … "0" "$(pin_count …)"` — how this repo
 # encodes prohibitions) passed VACUOUSLY once its target file was renamed, moved,
 # or deleted. The fix mirrors devflow_module_pin_count: emit the non-numeric
-# sentinel `unestablished` (rc 1) instead of `0`. These negative/positive
-# controls drive the unreadable-file arm through a REAL consuming assertion (not
-# merely the helper's stdout) with RESULTS_FILE diverted to an isolated probe
-# (the same idiom as the #161 git_sandbox controls above), and assert the suite
-# would go RED — AC1/AC2/AC3.
+# sentinel `unestablished` (rc 1) instead of `0`, so every consuming assertion —
+# including assert_pin_unique, whose PASS gate is exactly `count == "1"` — records
+# a FAIL. These controls drive the unreadable-file arm through a REAL consuming
+# assert_eq via probe_assert (which isolates the intentional RED from the suite
+# tally), and assert the recorded verdict — AC1/AC2/AC3. pin_count is a
+# count-helper, so these driver calls draw no #810 mutation-routing finding.
 PC_MISSING="$(mktemp -u)"   # a path guaranteed NOT to exist (mktemp -u: name only, no file)
-# AC1/AC2 (negative control): a zero-expected assert_eq over pin_count on a
-# missing file FAILs — the exact vacuous-pass shape the issue names (`assert_eq …
-# "0" "$(pin_count …)"`). Diverting RESULTS_FILE to an isolated probe keeps this
-# intentional RED out of the suite tally, then a separate assert_eq confirms the
-# FAIL was recorded (the #161 git_sandbox idiom). pin_count is a count-helper, so
-# these driver calls draw no #810 mutation-routing finding.
-PC_PROBE2="$(mktemp)"
-( RESULTS_FILE="$PC_PROBE2" assert_eq "#926 nc: zero-expected pin_count on unreadable file" "0" "$(pin_count "absent" "$PC_MISSING" 2>/dev/null)" ) >/dev/null 2>&1
+# AC1/AC2 (negative control): a zero-expected assert_eq over pin_count on a missing
+# file records a suite FAIL — the exact vacuous-pass shape the issue names.
 assert_eq "#926 pin_count: a zero-expected assertion over an unreadable file records a suite FAIL" \
-  "FAIL" "$(tail -n 1 "$PC_PROBE2")"
-rm -f "$PC_PROBE2" "$PC_PROBE2.names"
+  "FAIL" "$(probe_assert assert_eq "#926 nc: zero-expected pin_count on unreadable file" "0" "$(pin_count "absent" "$PC_MISSING" 2>/dev/null)")"
 # Fail-closed contract at the helper boundary: unreadable file → sentinel + rc 1.
+# assert_pin_unique (PASS iff count == "1") therefore also fails closed on it — the
+# sentinel is neither "1" nor a real "0" — so it needs no separate driver call
+# (which would itself draw a #810 finding as a new source-presence pin site).
 PC_OUT="$(pin_count "absent" "$PC_MISSING" 2>/dev/null)"; PC_RC=$?
 assert_eq "#926 pin_count: unreadable file yields the non-numeric sentinel (never 0)" \
   "unestablished" "$PC_OUT"
 assert_eq "#926 pin_count: unreadable file returns rc 1" "1" "$PC_RC"
-# AC1 (assert_pin_unique, which CONSUMES pin_count, fails closed too): its PASS
-# gate is exactly `count == "1"`, so the non-numeric sentinel can never satisfy it
-# — every assert_pin_unique over an unreadable file records a FAIL. We assert that
-# consequence directly against the sentinel rather than adding a NEW
-# assert_pin_unique call site, which the #810 mutation-routing gate forbids
-# (the source-presence-pin inflow is stopped — new coverage must be an ordinary
-# behavioral test, which this is).
-assert_eq "#926 pin_count: the unreadable-file sentinel is not the assert_pin_unique PASS value (1), so assert_pin_unique fails closed" \
-  "no" "$([ "$PC_OUT" = "1" ] && echo yes || echo no)"
 # AC3 (positive control): a READABLE file that genuinely lacks the literal still
 # yields a clean `0` and still passes a zero-expected assertion — the distinction
 # the fix must preserve.
 PC_READABLE="$(mktemp)"; printf 'present line\nother line\n' > "$PC_READABLE"
 assert_eq "#926 pin_count: a readable file genuinely lacking the literal still yields 0" \
   "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")"
-PC_PROBE3="$(mktemp)"
-( RESULTS_FILE="$PC_PROBE3" assert_eq "#926 pc: zero-expected pin_count on readable-absent" "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")" ) >/dev/null 2>&1
 assert_eq "#926 pin_count: a zero-expected assertion over a readable-but-absent literal still PASSES" \
-  "PASS" "$(tail -n 1 "$PC_PROBE3")"
-rm -f "$PC_PROBE3" "$PC_PROBE3.names" "$PC_READABLE"
+  "PASS" "$(probe_assert assert_eq "#926 pc: zero-expected pin_count on readable-absent" "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")")"
+rm -f "$PC_READABLE"
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
