@@ -22,6 +22,8 @@ implement → review pipeline, not landed as an autonomous PR.
 
 **`$LIB` notation (textual, not a shell variable).** Throughout this skill, `$LIB` in a command denotes the resolved path `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib` — expand it textually (with the anchor already resolved for this runner) when composing each command you actually run. Never rely on a shell variable named `LIB` persisting from one statement or block to another — each Bash call is a fresh shell, and the *Portable helper anchor* note below explains why even same-command variable reuse is unsafe on some runners.
 
+**Working-directory contract.** This skill's `lib/`/`scripts/` helper paths are repo-relative literals resolving against the repository root; no fence emits a leading `cd`. See [`docs/working-directory-contract.md`](../../docs/working-directory-contract.md).
+
 Every `jq` in this skill is invoked through the execution-verified wrapper
 `$LIB/../scripts/run-jq.sh` (`$LIB/../scripts` is the `scripts/` dir beside
 `lib/`), never bare `jq` — so a shim-shadowed Windows/WSL host resolves a

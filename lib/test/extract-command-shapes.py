@@ -500,7 +500,7 @@ def _cat_heredoc_violation(statement: str) -> bool:
 # assertion turns the reverse drift RED — a rule added to a finder and to these
 # sets without a control.
 REVIEW_RULES = frozenset({"R1", "R2", "R3", "R4"})
-IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
+IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3", "IR4"})
 
 
 def classify(statement: str) -> list[str]:
@@ -1050,6 +1050,16 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
         for carry in (False, True):
             clean_lines, expanding = _preprocess(block, carry_comments=carry)
             for statement in _statements_from_lines(clean_lines):
+                # IR4 — a leading `cd` (issue #855). The Bash tool's cwd persists
+                # across calls and every granted helper literal is repo-relative, so
+                # a leading `cd` moves the working directory out from under every
+                # later helper. Reuse the head extraction `classify` performs rather
+                # than re-deriving it; `cd` in argument position (head[0] != "cd")
+                # and a `cd`-prefixed head like `cdparanoia` do not fire.
+                head = _heads._head_of(statement)
+                if head and head[0] == "cd":
+                    lineno = _attribute_line(statement, start, len(block_lines), lines)
+                    seen.add((lineno, "IR4", statement.strip()))
                 if not _label_capture_violation(statement):
                     continue
                 lineno = _attribute_line(statement, start, len(block_lines), lines)

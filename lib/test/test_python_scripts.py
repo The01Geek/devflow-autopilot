@@ -8480,6 +8480,7 @@ _sc_planted = {
     "IR1": 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR2": 'while read -r n; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
     "IR3": 'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)',
+    "IR4": "cd somewhere",
 }
 assert_eq("#678 AC8: a planted control exists for every rule id in every declared table",
           set(),
@@ -8536,6 +8537,154 @@ for _sc_profile, _sc_table in sorted(cwc.PROFILE_SHAPE_TABLES.items()):
         assert_eq("#678 AC8: planting a %s violation in %s is observed RED under the "
                   "%s profile" % (_sc_rule, _sc_asset, _sc_profile),
                   True, any(_sc_rule == rule for _, rule, _ in _sc_hits))
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IR4 — a leading `cd` on the implement profile (issue #855). The Bash tool's cwd
+# persists across calls and every granted helper literal is repo-relative, so a
+# leading `cd` moves every later helper's resolution base out from under it. The
+# finder must flag it, must NOT flag a granted leading-token helper call, and no
+# scanned implement-profile prompt surface may teach it.
+_wd_cd_fixture = "```bash\ncd somewhere\n```\n"
+assert_eq("#855: find_implement_violations flags a leading `cd` (IR4)",
+          True,
+          any(rule == "IR4" for _, rule, _ in
+              _shapes_mod.find_implement_violations(_wd_cd_fixture)))
+_wd_helper_fixture = ("```bash\n"
+                      ".devflow/vendor/devflow/scripts/apply-labels.sh 1 X\n"
+                      "```\n")
+assert_eq("#855: find_implement_violations does NOT flag a granted leading-token "
+          "helper call",
+          [], _shapes_mod.find_implement_violations(_wd_helper_fixture))
+# `cd` in ARGUMENT position and a `cd`-prefixed head (`cdparanoia`) must not fire —
+# the rule is about the command HEAD.
+assert_eq("#855: a `cd` in argument position does not fire IR4",
+          [], _shapes_mod.find_implement_violations("```bash\ngit log cd\n```\n"))
+assert_eq("#855: a `cd`-prefixed head (cdparanoia) does not fire IR4",
+          [], _shapes_mod.find_implement_violations("```bash\ncdparanoia x\n```\n"))
+
+# The scanned implement-profile population, defined IN PYTHON from git ls-files over
+# the same trees `lib/test/run.sh`'s implement-profile scan covers (IMPL_SHAPE_FILES
+# + the #530 review-and-fix bundle) — NOT parsed out of run.sh's shell-glob array,
+# whose elements a Python consumer would have to re-expand (a best-effort parser that
+# yields an empty population, passing vacuously, on a rename or a reflowed line). The
+# dir-glob specs mirror run.sh's non-recursive `*.md` globs one level deep; the
+# coupled-invariant discipline keeps this set and run.sh's scanned set in lockstep
+# (edit both in the same change). Every file in it must scan clean under the
+# implement profile — this is the regression that proves no scanned surface teaches
+# a leading `cd` (or any other implement-tier denied shape).
+_wd_ls = _sp295.run(["git", "ls-files", "-z"], cwd=str(cwc.REPO_ROOT),
+                    capture_output=True, text=True)
+_wd_tracked = [p for p in _wd_ls.stdout.split("\0") if p]
+_wd_dir_globs = {
+    "skills/implement/phases",
+    "skills/implement/references",
+    "skills/create-issue/references",
+    "skills/review-and-fix/references",
+}
+_wd_exact = {
+    "skills/implement/SKILL.md",
+    "skills/create-issue/SKILL.md",
+    "skills/init/SKILL.md",
+    "skills/review-and-fix/SKILL.md",
+}
+_wd_population = sorted(
+    {p for p in _wd_tracked
+     if p.endswith(".md") and os.path.dirname(p) in _wd_dir_globs}
+    | {p for p in _wd_exact if p in _wd_tracked}
+)
+# Non-empty: an empty enumeration (a rename, a moved tree) must fail closed, never
+# pass vacuously by scanning nothing.
+assert_eq("#855: the Python-defined implement-profile scan population is non-empty",
+          True, len(_wd_population) > 0)
+_wd_dirty = [
+    p for p in _wd_population
+    if _shapes_mod.find_implement_violations(
+        (cwc.REPO_ROOT / p).read_text(encoding="utf-8"))
+]
+assert_eq("#855: every scanned implement-profile prompt surface teaches no denied "
+          "shape (no leading `cd`) under the implement finder",
+          [], _wd_dirty)
+
+# Pointer-population sweep (issue #855). Which SKILLS emit a bare repo-relative path
+# in a command inside a ```bash fence — the population that therefore takes a pointer
+# to the working-directory contract page (AC pointer recipients: implement,
+# retrospective-weekly, review, review-and-fix). This asserts POPULATION MEMBERSHIP
+# only, not that each skill carries the pointer text (a pointer-literal pin would be
+# the prose-presence shape this issue declines everywhere, and the literal changes
+# with the relative-link depth — that is a reviewer-checklist item). A skill that
+# LATER begins emitting a bare repo-relative path in a command joins the set and turns
+# this RED at the desk.
+#
+# The predicate is the recorded snapshot's: a bash-fence line carrying one of the
+# tokens {.devflow/ docs/ scripts/ lib/ .github/} as a BARE repo-relative path (not
+# `$VAR/…`-anchored, not `${CLAUDE_SKILL_DIR}`-anchored — those resolve independently
+# of cwd), in COMMAND position (not a pure `VAR=value` assignment value, not a
+# `for X in …` data list — those are data strings, not emitted command paths). The
+# pointer line itself (`…/docs/working-directory-contract.md`) is excluded from the
+# token scan so the change does not enlarge its own expected set.
+_wd_tokens = (".devflow/", "docs/", "scripts/", "lib/", ".github/")
+_wd_assign_only = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s*(#.*)?$")
+_wd_for_in = re.compile(r"(^|;|\bdo\b|\bthen\b)\s*for\s+\w+\s+in\b")
+
+def _wd_bare_repo_path(text_line):
+    for tok in _wd_tokens:
+        pos = 0
+        while True:
+            at = text_line.find(tok, pos)
+            if at < 0:
+                break
+            prev = text_line[at - 1] if at > 0 else ""
+            if prev not in "/$._-{}" and not prev.isalnum():
+                return True
+            pos = at + 1
+    return False
+
+def _wd_emits_command_path(text_line):
+    s = text_line.strip()
+    if not _wd_bare_repo_path(s):
+        return False
+    if _wd_assign_only.match(s):
+        return False
+    if _wd_for_in.search(s):
+        return False
+    return True
+
+_wd_skill_md = _sp295.run(["git", "ls-files", "skills"], cwd=str(cwc.REPO_ROOT),
+                          capture_output=True, text=True).stdout.split()
+_wd_pointer_pop = set()
+for _wd_f in _wd_skill_md:
+    if not _wd_f.endswith(".md"):
+        continue
+    _wd_in_fence = False
+    for _wd_line in (cwc.REPO_ROOT / _wd_f).read_text(encoding="utf-8").splitlines():
+        _wd_s = _wd_line.strip()
+        if not _wd_in_fence:
+            if _wd_s == "```bash":
+                _wd_in_fence = True
+            continue
+        if _wd_s == "```":
+            _wd_in_fence = False
+            continue
+        if "CLAUDE_SKILL_DIR" in _wd_line:
+            continue
+        if "working-directory-contract.md" in _wd_line:
+            continue
+        if _wd_emits_command_path(_wd_line):
+            _wd_pointer_pop.add(_wd_f.split("/")[1])
+assert_eq("#855: the pointer-population sweep matches the recorded snapshot exactly "
+          "(a new skill emitting a bare repo-relative command path turns this RED)",
+          {"implement", "retrospective-weekly", "review", "review-and-fix"},
+          _wd_pointer_pop)
+
+# Regression pin: `Bash(cd:*)` is revoked from devflow_implement.allowed_tools
+# (issue #855), so a later re-add fails at the desk. Reading the config file, not an
+# executed probe — the grant is trigger-time-resolved and a running implement job
+# cannot observe its own revocation. Introduces no mutation-taking pin helper, so
+# mutation-pin-census.py's RETAINED_BOUNDARY_IDENTITIES stays empty.
+_wd_cfg = _json.loads((cwc.REPO_ROOT / ".devflow/config.json").read_text(encoding="utf-8"))
+assert_eq("#855: Bash(cd:*) is absent from devflow_implement.allowed_tools",
+          False,
+          "Bash(cd:*)" in _wd_cfg.get("devflow_implement", {}).get("allowed_tools", []))
 
 # ─────────────────────────────────────────────────────────────────────────────
 # AC2/AC3 (issue #701) — helper leading-token boundary over the AC1 closure.
