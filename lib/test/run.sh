@@ -1312,8 +1312,11 @@ srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR
 srp857_expect() {   # $1=label $2=expected refusal token $3=actual stdout
   # Log the OBSERVED token, not the expected one: logging the expectation would make the
   # covered side of the equality a restatement of what the rows assert, which is the very
-  # "asserted, not grounded" discipline this block replaces. A regressed arm then both fails
-  # its own row AND drops out of the covered set, so the equality reports it too.
+  # "asserted, not grounded" discipline this block replaces. What that buys, stated exactly:
+  # an arm regressing to print NOTHING drops out of the covered set, so the equality reports
+  # it alongside the row's own failure. It does NOT catch a RENAME (the new token joins both
+  # sides) or a MERGE of two arms onto one token (both sides lose the same element) — each of
+  # those is caught by the arm's own row going RED, not by the equality.
   printf '%s\n' "$3" >> "$SRP857/exercised.log"
   assert_eq "$1" "$2" "$3"
 }
@@ -1389,7 +1392,7 @@ rm -rf "$SRP857/bin"
 #                                      unexecutable. A DEVFLOW_<TOOL>-style override for the
 #                                      workpad.py path (the repo's established convention)
 #                                      would make it injectable.
-# would make it injectable. That change is out of scope here: it alters a shipped cloud
+# That change is out of scope here: it alters a shipped cloud
 # helper's contract. The arm still fails CLOSED onto the published token+exit contract; what
 # is undriven is its breadcrumb wording, and the declaration below keeps that gap visible
 # rather than letting an unexercised token pass as covered.
@@ -1397,13 +1400,13 @@ rm -rf "$SRP857/bin"
 srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
 srp857_expect "#857/#871 seed helper (S3): rc-2 with stderr -> SKIP api-error-id-failed (never CREATED)" "SKIP api-error-id-failed" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper (S3): SKIP api-error-id-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
-# id exit 1 (a real gh/parse failure) -> SKIP api-error. The token AND its exit code are
+# id exit 1 (a real gh/parse failure) -> SKIP api-error-id-failed. The token AND its exit code are
 # both asserted on each row: the token alone would stay green if an arm regressed to a
 # non-3 exit, and the exit code is half the helper's published contract.
 srp857_stub 1 "" "gh: boom" 0 ""
 srp857_expect "#857/#871 seed helper: id exit 1 -> SKIP api-error-id-failed" "SKIP api-error-id-failed" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper: id exit 1 SKIP api-error-id-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
-# create failing after a confirmed clean absence -> SKIP api-error.
+# create failing after a confirmed clean absence -> SKIP api-error-create-failed.
 srp857_stub 2 "" "" 1 ""
 srp857_expect "#857/#871 seed helper: create failure after clean absence -> SKIP api-error-create-failed" "SKIP api-error-create-failed" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper: create-failure SKIP api-error-create-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
@@ -1420,9 +1423,11 @@ assert_eq "#857 seed helper: positive control -- the same fixture RESUMEs with a
 srp857_stub 0 "" "" 0 ""
 srp857_expect "#857/#871 seed helper: id exit 0 with no printed id -> SKIP api-error-id-empty-id, never a bare RESUME" \
   "SKIP api-error-id-empty-id" "$(srp857_run 7 m)"
+assert_eq "#871 seed helper: SKIP api-error-id-empty-id exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 srp857_stub 2 "" "" 0 ""
 srp857_expect "#857/#871 seed helper: create exit 0 with no printed id -> SKIP api-error-create-empty-id, never a bare CREATED" \
   "SKIP api-error-create-empty-id" "$(srp857_run 7 m)"
+assert_eq "#871 seed helper: SKIP api-error-create-empty-id exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 # No silent path: every reachable arm prints exactly one non-empty token line.
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
@@ -1447,8 +1452,17 @@ import re, sys
 # exercised-token log; argv[4] = the newline-separated declared-undrivable tokens.
 # Prints ONE sorted, de-duplicated set, so neither side of the comparison is carved
 # out of a combined payload by a PATH tool whose absence would empty both at once.
-if sys.argv[1] in ('emitted', 'stray'):
+if sys.argv[1] in ('emitted', 'stray', 'exit3'):
     body = open(sys.argv[2], encoding='utf-8').read()
+    if sys.argv[1] == 'exit3':
+        # An INDEPENDENT enumeration of the refusal arms — control flow, not token text. The
+        # emitted/stray pair both key on the literal `SKIP `, so an arm added with no stdout
+        # token at all, or with a non-SKIP token, contributes to neither and leaves the two
+        # sides equal: the very silent decay this block exists to stop. Counting the helper's
+        # `exit 3` statements enumerates the same population by a signal the token regexes
+        # cannot see, and the row below asserts the two counts agree.
+        print(len(re.findall(r'^\s*exit 3\s*$', body, re.M)))
+        raise SystemExit(0)
     # re.M is load-bearing: without it `^`/`$` anchor to the whole string and findall over
     # the body returns nothing, which would empty the emitted set and make the equality row
     # below compare two empty sets — a vacuous pass. The >=8 control row catches that too.
@@ -1471,6 +1485,12 @@ print('\n'.join(sorted(out)))
 PY871A
 srp857_sets() { python3 "$SRP857/token-sets.py" "$1" "$LIB/../scripts/seed-review-progress.sh" "$SRP857/exercised.log" "$SRP857_UNDRIVABLE"; }
 SRP857_EMITTED="$(srp857_sets emitted)"
+# The independent-signal completeness row: every refusal arm exits 3, so the count of `exit 3`
+# statements is the arm population derived WITHOUT the token regexes. An arm added with no
+# stdout token — or one whose token is not `SKIP `-prefixed — raises this count while leaving
+# the emitted set unchanged, turning the row RED where the equality below would stay green.
+assert_eq "#871 the helper's refusal-arm count (its exit-3 statements, an independent signal) equals its emitted-token count" \
+  "$(srp857_sets exit3)" "$(printf '%s\n' "$SRP857_EMITTED" | grep -c .)"
 SRP857_COVERED="$(srp857_sets covered)"
 # The exit status rides in the compared value so a derivation that CRASHED (an unreadable
 # helper path, a syntax error) cannot present as "no stray tokens found" — an empty stdout
@@ -1513,16 +1533,28 @@ assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positio
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
   "$(pin_count 'workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err' "$ST_REV")"
-# (#871) The two rc TRAILERS are the fences' refusal discriminators, and the pins above stop
+# (#871) ADJUDICATION for the trailer pins below, stated rather than left to the COUNT_HELPERS
+# short-circuit: each protects a MACHINE-CONSUMED command form, not prose. The `seed-rc` literal
+# lives inside a ```bash fence that `extract-command-shapes.py` and `extract-command-heads.py`
+# both parse, and all three trailers are the exact statement text the agent emits to the cloud
+# permission matcher — a shape whose token ORDER changes what `$?` reports. That is the
+# `helper-contract` boundary class, not the wording-only class the pin policy prohibits.
+# The three rc TRAILERS are the fences' refusal discriminators, and the pins above stop
 # at the redirect — so deleting `; echo "seed-rc=$?"`, or transposing `create-rc` behind
 # `echo "wp=$WP"` (where `$?` would report that echo's constant 0 and every create failure
-# would read as success), leaves all three counts at 1. Pin each trailer at its own site, and
+# would read as success), leaves the positional counts at 1. Pin each trailer at its own site, and
 # pin the create sequence as ONE literal so the ORDER the prose calls load-bearing is what is
 # counted, not the mere presence of the tokens.
 assert_eq "#871 the SKILL.md primary seed statement carries its trailing seed-rc token" "1" \
   "$(pin_count 'review-wp.md ; echo "seed-rc=$?"' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback create statement emits create-rc, then the two-direction stderr token, then wp — in that order" "1" \
   "$(pin_count 'rv-create.err) ; echo "create-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-create.err ] && echo stderr=nonempty || echo stderr=empty ; echo "wp=$WP"' "$ST_REV")"
+# The fallback `id` statement carries the identical hazard and was the one trailer left
+# unpinned: transposing `echo "id-rc=$?"` behind `echo "wp=$WP"` makes every id failure read
+# as id-rc=0, and the agent then RESUMES against whatever `wp=` carried. Its existing
+# positional pin stops at the redirect and survives that transposition unchanged.
+assert_eq "#871 the SKILL.md fallback id statement emits id-rc, then the two-direction stderr token, then wp — in that order" "1" \
+  "$(pin_count 'rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty ; echo "wp=$WP"' "$ST_REV")"
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
 # bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr

@@ -101,10 +101,15 @@ them read as though they did (issue #871):
   review and implement tiers) are a separate measurement and do not qualify it.
 - `… | tee` — probe shape 10; **no per-row verdict is transcribed** in this file.
 - `tee <<'EOF'` — probe shape 6; **no per-row verdict is transcribed** in this file.
-- repo-relative **vendored-literal** helper paths — **unrecorded at the review tier**:
-  the rows that exercise the form (shapes 5 and 12) carry no annotated verdict, and
-  the only *measured* verdict for this form in the corpus is **implement-tier row I2**.
-  Cite it with that tier qualifier or not at all.
+- repo-relative **vendored-literal** helper paths — the **leading-token** form is
+  **unrecorded at the review tier**: the review rows that exercise it in leading-token
+  position (shapes 5 and 12) carry no annotated verdict. Two rows are evidence *about*
+  the form and neither measures that position: review **shape 18** recorded PERMITTED
+  (run 30310938175) for a vendored-literal helper path in **command-substitution
+  condition** position — confounding evidence that such a path executes on this tier,
+  not a measurement of the leading-token form — and **implement-tier row I2** is
+  PERMITTED for the leading-token form on the **other** tier. Cite whichever you mean
+  with its tier and its position, never as a bare review-tier "probe-proven".
 
 The skill's "Cloud command-shape discipline" section and the grounding block's
 command-shapes section carry the recipe. **Rule of thumb: two denials of a shape →
@@ -143,7 +148,7 @@ compound, and the cloud review matcher refused that compound outright —
 that find-or-create decision into the bundled helper
 `scripts/seed-review-progress.sh`, invoked as a leading-token
 statement (a form granted on the review profile, though its review-tier permitted-ness
-is unrecorded per the entry above; issue #871 appended a `; echo "seed-rc=$?"` trailer
+is unrecorded per the review-tier entry above; issue #871 appended a `; echo "seed-rc=$?"` trailer
 so a refusal of that statement is observable rather than silent), and R5 guarded against reintroducing the *bare* `if VAR=$(…)` /
 `elif VAR=$(…)` condition-substitution spelling as a stop-gap until the shape
 could be measured in isolation. Four `matcher-probe.yml` review rows added in
@@ -247,11 +252,11 @@ things about them (issue #871):
 **Every review-tier probe row for which no verdict is recorded ANYWHERE in
 `.github/workflows/matcher-probe.yml` — neither annotated on the row itself nor stated
 in that workflow's `Resolve allowed-tools` step comment — is likewise unrecorded**, and
-takes the same remedy. Both locations count, because the two measured rows this file
-cites keep their verdicts in the step comment rather than on the row: shape 15's DENIED
-and shape 9's `Write(.devflow/tmp/**)` PERMITTED. A predicate keyed on the row
-annotation alone would classify both as unrecorded and contradict this file's own
-entries. It is written as a predicate over the rows rather than a transcription of
+takes the same remedy. Both locations count, because verdicts are recorded in both places:
+shape 18's PERMITTED is annotated on its own row, while shape 15's DENIED and shape 9's
+`Write(.devflow/tmp/**)` PERMITTED live in the step comment. A predicate keyed on the
+row annotation alone would classify those latter two as unrecorded and contradict this
+file's own evidence table. It is written as a predicate over the rows rather than a transcription of
 today's row numbers, precisely so it cannot go stale when a row is added or a dispatch
 records a verdict — read the current answer off the workflow itself, checking both
 locations. Establish any of them with a post-merge
