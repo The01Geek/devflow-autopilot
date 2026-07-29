@@ -55,8 +55,15 @@ Use the **same identifier string** in `phase3_dispatched` that you write to each
 # inert). On failure warn (surfacing a missing `python3` / malformed config.json in the
 # Actions UI) and leave MAX_ITERS empty; the integer-check fallback below then supplies the
 # default 5. That fallback is also what makes a stripped-empty value fail-safe.
-if ! MAX_ITERS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.max_iterations 5 2>/tmp/devflow-maxiter.err); then
-  echo "::warning::devflow review-and-fix max_iterations read failed (config-get.sh rc≠0): $(cat /tmp/devflow-maxiter.err 2>/dev/null) — using default 5"
+# Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture,
+# so a resumed run cannot read a prior attempt's file. Repo-relative `.devflow/tmp/` is the
+# probe-permitted target (row 11); a bare system-temp redirect is matcher-denied.
+if ! mkdir -p .devflow/tmp; then
+  echo "::warning::devflow review-and-fix: could not create .devflow/tmp for the max_iterations read"
+fi
+rm -f .devflow/tmp/devflow-maxiter.err
+if ! MAX_ITERS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.max_iterations 5 2>.devflow/tmp/devflow-maxiter.err); then
+  echo "::warning::devflow review-and-fix max_iterations read failed (config-get.sh rc≠0): $(cat .devflow/tmp/devflow-maxiter.err 2>/dev/null) — using default 5"
 fi
 # Fallback to the default 5 on a resolver failure (empty stdout from the failed read above)
 # or a non-integer/empty value; clamp a configured value below 1 up to 1 so the loop always

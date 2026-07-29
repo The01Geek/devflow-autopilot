@@ -181,8 +181,14 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
    # Copilot CLI / Cursor / Codex CLI / Gemini CLI — would leave the rc empty and make the
    # fail check inert). On a resolver failure, warn and force ENABLED=false so the read
    # fails CLOSED (skips the trace) rather than masquerading as a deliberate flag-off.
-   if ! ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true 2>/tmp/devflow-et-flag.err); then
-     echo "::warning::devflow efficiency-trace gate read failed (config-get.sh rc≠0): $(cat /tmp/devflow-et-flag.err 2>/dev/null) — skipping trace"
+   # Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
+   # Repo-relative `.devflow/tmp/` is the probe-permitted target; a bare system-temp redirect is denied.
+   if ! mkdir -p .devflow/tmp; then
+     echo "::warning::devflow review-and-fix: could not create .devflow/tmp for the efficiency-trace gate read"
+   fi
+   rm -f .devflow/tmp/devflow-et-flag.err
+   if ! ENABLED=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_review_and_fix.efficiency_telemetry_enabled true 2>.devflow/tmp/devflow-et-flag.err); then
+     echo "::warning::devflow efficiency-trace gate read failed (config-get.sh rc≠0): $(cat .devflow/tmp/devflow-et-flag.err 2>/dev/null) — skipping trace"
      ENABLED=false
    fi
    ```
@@ -193,16 +199,21 @@ All derivation lives in `lib/efficiency-trace.jq` (a mechanical jq filter, no LL
 3. **Render the trace to chat.** Discriminate the trace's failure via a single-statement `if !` (redirecting its stderr to a temp file for the breadcrumb) so a real failure surfaces a reason rather than degrading silently to an empty skip. The trace is read-only (renders to chat); the **durable per-run record is no longer written into the working tree here** — it is derived and persisted to the telemetry branch by the single `--persist` call in "Persisting observability artifacts" below (issue #441), which reads these same run-scoped workpads:
    ```bash
    WORKPAD_DIR=".devflow/tmp/review/<slug>/<run-id>"   # run-scoped: the trace must read THIS run's iter-*.json, not a sibling run's
+   # Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
+   if ! mkdir -p .devflow/tmp; then
+     echo "::warning::devflow review-and-fix: could not create .devflow/tmp for the efficiency-trace render"
+   fi
+   rm -f .devflow/tmp/devflow-et.err
    # Render the Markdown trace to chat. Use ::warning:: (not a plain echo) so a
    # failure surfaces in the Actions UI on a headless run; and detect the
    # all-workpads-malformed case, where the helper exits 0 with empty stdout (the
    # `elif [ -z "$TRACE" ]` arm reports it) — print an explicit notice so it isn't a silent no-op.
    # `if !` reads the helper's OWN exit status — never a captured rc read in a later
    # statement (a cross-statement-variable-stripping inline-bash runner would leave it empty).
-   if ! TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>/tmp/devflow-et.err)"; then
-     echo "::warning::devflow efficiency-trace unavailable (rc≠0): $(cat /tmp/devflow-et.err 2>/dev/null)"
+   if ! TRACE="$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/efficiency-trace.sh --workpad-dir "$WORKPAD_DIR" --slug "<slug>" --mode trace 2>.devflow/tmp/devflow-et.err)"; then
+     echo "::warning::devflow efficiency-trace unavailable (rc≠0): $(cat .devflow/tmp/devflow-et.err 2>/dev/null)"
    elif [ -z "$TRACE" ]; then
-     echo "::warning::devflow efficiency-trace produced no output (all workpads unreadable/malformed?): $(cat /tmp/devflow-et.err 2>/dev/null)"
+     echo "::warning::devflow efficiency-trace produced no output (all workpads unreadable/malformed?): $(cat .devflow/tmp/devflow-et.err 2>/dev/null)"
    else
      printf '%s\n' "$TRACE"
    fi

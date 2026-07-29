@@ -84,11 +84,16 @@ SEARCH_DIRS="$SLUG_DIR"
 # 'discovery partial:' marker — otherwise `grep -q` below would route a discovery that never
 # ran to the PARTIAL arm and file from a stale persisted aggregate. Absent ⇒ grep non-zero ⇒
 # the else/failed arm ⇒ fail-closed.
-rm -f /tmp/devflow-dm.err
+# Ensure the scratch leaf exists before any capture write; rc-checked (never `|| true`
+# — a DENIED .devflow/tmp mkdir must fail loudly, mirroring lib/telemetry-branch.sh).
+if ! mkdir -p .devflow/tmp; then
+  echo "devflow: could not create .devflow/tmp for Phase 4.0.5 discovery scratch" >&2
+fi
+rm -f .devflow/tmp/devflow-dm.err
 DISCOVERY_STATE=""
-if MANIFESTS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py $SEARCH_DIRS 2>/tmp/devflow-dm.err); then
+if MANIFESTS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py $SEARCH_DIRS 2>.devflow/tmp/devflow-dm.err); then
     DISCOVERY_STATE=ok
-elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then
+elif grep -q 'devflow: discovery partial:' .devflow/tmp/devflow-dm.err; then
     # PARTIAL: at least one root failed traversal, at least one did not fail (`ok` or `absent`). Keep the
     # captured paths (bash assigns a $(…) capture even when the command exits non-zero) and file
     # from the clean roots, but record the failed root AND the honest limitation: once this run's
@@ -96,7 +101,7 @@ elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then
     # be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest
     # all-or-nothing), so recovering them means filing from that root's run-scoped manifest manually.
     DISCOVERY_STATE=partial
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat /tmp/devflow-dm.err); filing proceeds from the roots that did not fail (\`ok\`/\`absent\`; an \`absent\` root contributes nothing). The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat .devflow/tmp/devflow-dm.err); filing proceeds from the roots that did not fail (\`ok\`/\`absent\`; an \`absent\` root contributes nothing). The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
 else
     # FAILED or REFUSED: every root failed traversal, OR the capture produced NO OUTPUT AT ALL (a
     # likely matcher denial of this unproven capture shape). Blank MANIFESTS so the merge guard is
@@ -105,14 +110,14 @@ else
     # re-fed only by the next healthy run's PRIOR-first merge if one runs while the scratch persists).
     DISCOVERY_STATE=failed
     MANIFESTS=""
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery FAILED (every candidate root failed traversal, or the discovery command produced no output at all — a likely harness denial): $(cat /tmp/devflow-dm.err 2>/dev/null). No deferrals were filed this run; any persisted aggregate at ${AGG} was left intact — re-trigger Phase 4.0.5 deliberately to recover its deferrals."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery FAILED (every candidate root failed traversal, or the discovery command produced no output at all — a likely harness denial): $(cat .devflow/tmp/devflow-dm.err 2>/dev/null). No deferrals were filed this run; any persisted aggregate at ${AGG} was left intact — re-trigger Phase 4.0.5 deliberately to recover its deferrals."
 fi
 # Surface the helper's roots-echo line into the tool result on EVERY path (including the clean
 # one), so an absent-classified root is observable rather than silent (issue #555). "Every path"
 # assumes what this fence guarantees — a non-empty $SEARCH_DIRS: the helper's zero-argument usage
 # error (exit 2) returns BEFORE it emits any roots-echo. Best-effort — a missing line never blocks
 # the fence.
-grep 'devflow: discovery roots:' /tmp/devflow-dm.err || true
+grep 'devflow: discovery roots:' .devflow/tmp/devflow-dm.err || true
 if [ -n "$MANIFESTS" ]; then
     # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
     # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
@@ -168,26 +173,29 @@ if { [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n 
     # their numbers lost — on runs where nothing was filed at all (the #480 review).
     FILED_STATE=failed
     FILED_NUMBERS=""
+    # Delete any stale capture so a resumed run cannot read a prior attempt's stderr
+    # (the .devflow/tmp leaf was already created at the top of this fence).
+    rm -f .devflow/tmp/devflow-fd.err
     if FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$AGG" 2>/tmp/devflow-fd.err); then
+        --manifest "$AGG" 2>.devflow/tmp/devflow-fd.err); then
         FILED_NUMBERS="$FILED_OUT"
         FILED_STATE=filed
         # file-deferrals.py exits 0 even on PARTIAL success: a per-file group whose
         # `gh issue create` failed is dropped from the manifest, yet the helper still
         # exits 0. Surface that so the dropped findings (which won't reach the PR's
         # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
-        grep -q 'were dropped from manifest' /tmp/devflow-fd.err && \
-            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat /tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
-    elif grep -q 'already has follow_up' /tmp/devflow-fd.err; then
+        grep -q 'were dropped from manifest' .devflow/tmp/devflow-fd.err && \
+            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat .devflow/tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
+    elif grep -q 'already has follow_up' .devflow/tmp/devflow-fd.err; then
         FILED_STATE=idempotent
         "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
-    elif grep -q 'no deferrals' /tmp/devflow-fd.err; then
+    elif grep -q 'no deferrals' .devflow/tmp/devflow-fd.err; then
         FILED_STATE=none
         "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
-        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat /tmp/devflow-fd.err); no follow-up issues filed this run."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat .devflow/tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
     # Record the filed numbers AND print them — IN THIS FENCE, because this is the only
     # place `FILED_NUMBERS` exists. A shell variable does not survive into a later separate
@@ -308,13 +316,18 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 # CLOSED to the Blocked path. An rc-0 EMPTY extraction (gh ok, no Documentation Needed paths)
 # legitimately leaves DOC_NEEDED_PATHS empty for the no-op handled below. ($ISSUE_NUMBER is
 # substituted inline in the path exactly as in the gh command — no new cross-statement value.)
-if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err \
-   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err; then
+# Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
+if ! mkdir -p .devflow/tmp; then
+  echo "devflow: could not create .devflow/tmp for the Documentation Needed gate" >&2
+fi
+rm -f .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .devflow/tmp/devflow-docgate-gh.err
+if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err \
+   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err; then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction (see the Workpad Reference) and STOP the run.
 fi
-if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
-   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
+if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
+   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
@@ -366,13 +379,18 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 # survive on a stripping inline-bash runner. Each statement's `if ! A && ! B` reads its OWN
 # command's exit status inline (gh's, then the extractor's); read AND retry both failing →
 # fail CLOSED to Blocked; an rc-0 EMPTY extraction stays the genuine no-op signal.
-if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err \
-   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>/tmp/devflow-docgate-gh.err; then
+# Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
+if ! mkdir -p .devflow/tmp; then
+  echo "devflow: could not create .devflow/tmp for the Documentation Needed gate" >&2
+fi
+rm -f .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .devflow/tmp/devflow-docgate-gh.err
+if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err \
+   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err; then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
-if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
-   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
+if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
+   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
