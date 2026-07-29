@@ -48420,7 +48420,7 @@ assert_eq "#908 describe-pretooluse-probe: no-argument invocation exits 0 (best-
 assert_eq "#908 describe-pretooluse-probe: no-argument invocation leaves a stderr breadcrumb" "yes" \
   "$(bash "$DPP" 2>&1 >/dev/null | grep -qF 'no marker path argument' && echo yes || echo no)"
 assert_eq "#908 matcher-probe.yml routes the observation through the helper (invocation line)" "yes" \
-  "$(grep -qF 'bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"
+  "$(grep -qF 'bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"' "$REPO_ROOT/.github/workflows/matcher-probe.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line (not the bare helper name) so a regression that re-inlines the observation selector, the #370 pin-in-comment class, is caught
 
 echo "#908 resolve-guard-counts-file.sh (run-keyed/bare/glob counts-file selection — arm-driven)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -48446,7 +48446,7 @@ assert_eq "#908 resolve-guard-counts-file: an empty (zero-byte) store file is tr
 assert_eq "#908 resolve-guard-counts-file: a nonexistent TMP_DIR fails closed to exit 1, not a shell error" "rc=1" \
   "$(bash "$RGC" "/nonexistent/path/xyz-908" >/dev/null 2>&1; echo "rc=$?")"
 assert_eq "#908 devflow-runner.yml routes counts-file selection through the helper (invocation line)" "yes" \
-  "$(grep -qF 'if COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$REPO_ROOT/.github/workflows/devflow-runner.yml" && echo yes || echo no)"
+  "$(grep -qF 'if COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$REPO_ROOT/.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the run-keyed/bare/glob counts-file SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
 
 echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
 # ────────────────────────────────────────────────────────────────────────────
@@ -48454,19 +48454,19 @@ _908_RUNNER_YML="$REPO_ROOT/.github/workflows/devflow-runner.yml"
 _908_IMPLEMENT_YML="$REPO_ROOT/.github/workflows/devflow-implement.yml"
 _908_REVIEW_YML="$REPO_ROOT/.github/workflows/devflow-review.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
-  "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"
+  "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
-  "$(grep -qF 'pretooluse-shape-guard.py' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"
+  "$(grep -qF 'pretooluse-shape-guard.py' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins that the registered hook actually names the guard script under the PreToolUse event, not merely that a settings block exists
 assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
   "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
-  "$(grep -qF 'pretooluse-shape-guard.py' "$REPO_ROOT/scripts/harden-stop-hooks.sh" && echo yes || echo no)"
+  "$(grep -qF 'pretooluse-shape-guard.py' "$REPO_ROOT/scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's membership in the trusted-base HOOK_TARGETS closure, the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
 assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)" "yes" \
   "$(git -C "$REPO_ROOT" diff --quiet HEAD -- scripts/describe-denial-count.sh && echo yes || echo no)"
 assert_eq "#908: the permission_denials_count SUMMARY line is untouched by the new guard-visibility append" "yes" \
-  "$(grep -qF 'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' "$_908_REVIEW_YML" && echo yes || echo no)"
+  "$(grep -qF 'permission_denials_count: ${PERMISSION_DENIALS_COUNT}' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that the #431 assembler's line-bound permission_denials_count producer contract (scripts/build-experiment-records.py's DENIAL_SUMMARY_RE) survives byte-identical, since AC6 requires describe-denial-count.sh's three clauses stay unchanged
 assert_eq "#908: devflow-review.yml routes guard-visibility rendering through render-guard-visibility.sh" "yes" \
-  "$(grep -qF 'bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS"' "$_908_REVIEW_YML" && echo yes || echo no)"
+  "$(grep -qF 'bash "$RGV" "$PRETOOLUSE_GUARD_FIRED" "$PRETOOLUSE_GUARD_COUNTS" "$PERMISSION_DENIALS_COMMANDS"' "$_908_REVIEW_YML" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins that the un-neutralized, attacker-influenced denied-command text is routed through the neutralizing renderer rather than rendered raw into the check-run summary
 assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
   "$(git -C "$REPO_ROOT" diff --quiet HEAD -- docs/cloud-allowlist.md && echo yes || echo no)"
 # ────────────────────────────────────────────────────────────────────────────
