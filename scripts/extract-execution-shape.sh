@@ -102,6 +102,7 @@ _emit_unavailable() {
   printf 'tool_use: unavailable\n'
   printf 'subagent_type: unavailable\n'
   printf 'permission_denials: unavailable\n'
+  printf 'permission_denials_commands: unavailable\n'
   printf '\n## Structural key-paths (redacted; string leaves shown as type only)\n'
   # The reason is interpolated bare — never behind an "execution file ..." prefix — so a
   # jq-side degradation is not grammatically blamed on the file in the emitted RECORD
@@ -261,6 +262,77 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
                else "absent" end
            end
        end) as $p
+    # --- Denied-command emission (issue #805, Part 3). Derived INSIDE this pass, from the
+    # same $objs and behind the same $has_result-gated $p the count line reports, for two
+    # reasons a separate second jq pass got wrong.
+    #
+    # (1) UNKNOWN IS NOT ZERO. A pass with no completion gate publishes
+    # `{"commands":[],"total":0}` for a run whose denials were never established — an
+    # aborted run then emits `permission_denials: unavailable` on one line and `total: 0`
+    # on the next (a self-contradicting record), and the COUNT-ONLY degradation documented
+    # above (count carrier present, array absent — the frequent case) emits
+    # `permission_denials: present` beside `total: 0`, a definitive "zero denied commands"
+    # about a run that demonstrably had them. So the object is emitted ONLY when $p is a
+    # positive observation backed by an actual array carrier; `unavailable` otherwise, and
+    # the genuinely-zero `absent` case is the one that gets the empty object.
+    #
+    # (2) POSITION. The field is part of the header field block, immediately after the
+    # count it qualifies, on EVERY arm — `_emit_unavailable` emits it there too. Appending
+    # it after the structural-key-paths heading on the success arm only would put it in a
+    # different record position on the two arms, so a consumer parsing the header block up
+    # to the `##` heading would find it on `unavailable` runs and miss it on successful
+    # ones, inverting the field purpose.
+    #
+    # SINGLE-LINE by construction: `tojson` escapes every newline, so no post-hoc
+    # line-count check is needed to hold the $GITHUB_OUTPUT one-value contract.
+    #
+    # BOUNDS: a per-command LENGTH cap (500 chars) and a 40-ENTRY list cap — a length
+    # budget and an item-count budget, not two size budgets — each with its own explicit
+    # truncation marker.
+    #   NO NEUTRALIZING CONSUMER SHIPS YET. The ::-workflow-command and fence-breaking-
+    #   backtick neutralization and the fenced rendering are the RENDERING layer job, and
+    #   the devflow-runner.yml producer + devflow-review.yml check-run consumer that would
+    #   perform them are NOT in the tree at this revision. So this field currently carries
+    #   un-neutralized text, and any consumer added later MUST neutralize before rendering.
+    #   Treat that as a precondition on the consumer, not a property of this output.
+    #   NOTE the redaction consequence: the AC2 statement that every string leaf is
+    #   dropped now has exactly this one disclosed exception (docs/execution-file-shape.md).
+    # NOTE: no ASCII apostrophes in this comment — it sits inside a bash single-quoted
+    # jq program, where one would terminate the string (SC1011/SC1073).
+    | (any($objs[]; (.permission_denials? | type) == "array")) as $has_denial_array
+    | [ $objs[] | (.permission_denials? // empty)
+        | select(type == "array") | .[]
+        | (.tool_input.command? // .command? // empty)
+        | select(type == "string")
+        | if (length > 500) then (.[0:500] + " …[per-command-truncated]") else . end
+      ] as $cmds
+    # UNKNOWN IS NOT ZERO. A denials array that is non-empty but yields no extractable
+    # command — the harness carrying the text under a field other than .tool_input.command
+    # or .command, or under a non-string value — is an UNESTABLISHED extraction, not a
+    # genuine zero. Emitting {total: 0} there would read as "the run denied nothing that
+    # carried a command", steering a reader away from the real cause exactly as the
+    # permission_denials_count collapse did. So that shape emits `unavailable`. A PARTIAL
+    # extraction (some entries yield a command, some do not) is a disclosed residual: it
+    # still emits the commands it could extract, and `total` counts those rather than the
+    # array entries, so it under-reports rather than mis-reporting a zero.
+    | ([ $objs[] | (.permission_denials? // empty)
+         | select(type == "array") | .[] ] | length) as $denial_entries
+    # SELF-CONTRADICTORY CARRIERS (PR #906 review). $p can read "present" off a positive
+    # permission_denials_count while the array carrier is present but EMPTY (denial_entries
+    # == 0) — the count says the harness refused something, the array says it recorded
+    # nothing. That is not the natural zero-denial shape ($p would read "absent" there);
+    # it is two carriers disagreeing about the same event, so the safe reading is
+    # unestablished, the same posture as the count-collapse this helper already guards
+    # against — never a genuine {total: 0}.
+    | (if $p == "unavailable" then "unavailable"
+       elif $p == "absent" then ({commands: [], total: 0, truncated: false} | tojson)
+       elif ($has_denial_array | not) then "unavailable"
+       elif ($denial_entries == 0) then "unavailable"
+       elif ($cmds | length) == 0 then "unavailable"
+       else ({ commands: ($cmds[0:40]),
+               total: ($cmds | length),
+               truncated: (($cmds | length) > 40) } | tojson)
+       end) as $dc
     | det($has_result; $usage)    as $u
     | det($has_result; $timing)   as $w
     | det($has_result; $tooluse)  as $t
@@ -282,6 +354,7 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
         "tool_use: \($t)",
         "subagent_type: \($s)",
         "permission_denials: \($p)",
+        "permission_denials_commands: \($dc)",
         "",
         "## Structural key-paths (redacted; string leaves shown as type only)" ]
       + (if ($struct | length) > 0 then $struct else ["_(no object keys found)_"] end)
