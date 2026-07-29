@@ -484,7 +484,7 @@
       "owner": "unmodularized"
     },
     "scripts/seed-review-progress.sh": {
-      "note": "review live-progress seed find-or-create helper; driven per token outcome by the #857 run_sh_blocks block",
+      "note": "review live-progress seed find-or-create helper; driven per PER-ARM refusal token by the #857/#871 run_sh_blocks block, whose grounded-coverage row derives the emitted token set from this file's source",
       "owner": "unmodularized"
     },
     "scripts/stage-draft-write.py": {

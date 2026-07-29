@@ -91,12 +91,20 @@ Refused shapes in the cloud **review** runner:
 - interpreter heads (`python3`),
 - the unexpanded `"${CLAUDE_SKILL_DIR:-…}"` anchor as the **leading** token.
 
-Probe-proven **permitted** shapes (review tier):
+Permitted shapes (review tier) — **each with its own evidence status**, because the
+four do not rest on the same evidence and a single "probe-proven" heading over all of
+them read as though they did (issue #871):
 
-- the **Write tool** into `.devflow/tmp/**` (granted in the review profile),
-- `… | tee`,
-- `tee <<'EOF'`,
-- repo-relative **vendored-literal** helper paths.
+- the **Write tool** into `.devflow/tmp/**` (granted in the review profile) —
+  **PERMITTED, run 29111394360** (probe shape 9). This is the *orchestrator* grant;
+  the `PENDING` marker further down this file belongs to the separate
+  **dispatched-subagent** `Write` probe (issue #858) and does not qualify it.
+- `… | tee` — probe shape 10; **no per-row verdict is transcribed** in this file.
+- `tee <<'EOF'` — probe shape 6; **no per-row verdict is transcribed** in this file.
+- repo-relative **vendored-literal** helper paths — **unrecorded at the review tier**:
+  the rows that exercise the form (shapes 5 and 12) carry no annotated verdict, and
+  the only *measured* verdict for this form in the corpus is **implement-tier row I2**.
+  Cite it with that tier qualifier or not at all.
 
 The skill's "Cloud command-shape discipline" section and the grounding block's
 command-shapes section carry the recipe. **Rule of thumb: two denials of a shape →
@@ -216,14 +224,30 @@ at hop two through the `EXTENSION-STATUS: … resolved-root=…` field, is what 
 a failure observable rather than silent. Dispatch the job from the Actions tab and
 record the run id and verdict here.
 
-The review-tier verdicts for the probe job's **five helper-invocation-form rows** —
-the control row (shape 11), the repo-relative vendored-literal row (shape 12), the
-absolute-path row (shape 13), the repo-root `scripts/…` row (shape 14), and the
-repo-root row under the `Bash(scripts/*.sh:*)` glob (shape 15), which exercise a
-vendored helper as the leading token in five path/grant forms (the review job uses
-`config-get.sh` as that exemplar helper, not `load-prompt-extension.sh`) — are
-**unrecorded**: no PERMITTED/DENIED verdict for them appears in this table or in
-`run.sh`'s pin block. Establish them with a post-merge
+The probe job's **helper-invocation-form rows** exercise a vendored helper as the
+leading token in five path/grant forms (the review job uses `config-get.sh` as that
+exemplar helper, not `load-prompt-extension.sh`). Three of them — the control row
+(shape 11), the repo-relative vendored-literal row (shape 12) and the absolute-path
+row (shape 13) — are **unrecorded**: no PERMITTED/DENIED verdict for them appears in
+this table or in `run.sh`'s pin block. The remaining two are **not** unrecorded and
+are deliberately not folded into that statement, because the source states different
+things about them (issue #871):
+
+- **Shape 15** (the repo-root `scripts/…` row under the `Bash(scripts/*.sh:*)` glob)
+  is **measured DENIED — run 29135163829, PR #413**, per the `Resolve allowed-tools`
+  step comment in `.github/workflows/matcher-probe.yml` and the glob row in the table
+  above.
+- **Shape 14** (the repo-root `scripts/…` row without that glob) is DENIED **only per
+  that note's comparative clause** — it reads "the same DENIED as shape 14's ungranted
+  control" — and carries **no independently recorded row verdict of its own**.
+  Labelling both with one run id would state more than the source does.
+
+**Every review-tier probe row that carries no annotated verdict is likewise
+unrecorded**, and takes the same remedy. That is written here as a predicate over the
+rows rather than a transcription of today's row numbers, precisely so it cannot go
+stale when a row is added or a dispatch records a verdict — read the current answer
+off `.github/workflows/matcher-probe.yml` itself, where a measured row carries its
+verdict and its run id inline. Establish any of them with a post-merge
 `workflow_dispatch` run of `.github/workflows/matcher-probe.yml` (its only pre-merge
 trigger is a `pull_request` scoped to its own path, and `gh workflow run` is granted
 on no profile, so the run is not an acceptance criterion of the change that added

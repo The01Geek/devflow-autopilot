@@ -1305,6 +1305,17 @@ PYEOF
   chmod +x "$SRP857/scripts/workpad.py"
 }
 srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR $2=marker
+# (#871) Every refusal-token row asserts THROUGH this recorder, so the set of tokens the
+# driver rows exercise is a by-product of the rows rather than a hand-kept list beside them.
+# The grounded-coverage assertion at the end of this block compares that recorded set with
+# the set derived from the helper's own source, so a refusal arm added later — which would
+# otherwise route correctly through the prompt's token-PREFIX rule while carrying no
+# distinguishing token and no row — turns the suite RED until it gains both.
+: > "$SRP857/exercised.log"
+srp857_expect() {   # $1=label $2=expected refusal token $3=actual stdout
+  printf '%s\n' "$2" >> "$SRP857/exercised.log"
+  assert_eq "$1" "$2" "$3"
+}
 # RESUME: id exit 0 prints the comment id.
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: existing comment -> RESUME <id> stdout" "RESUME 999" "$(srp857_run 7 m)"
@@ -1315,21 +1326,21 @@ assert_eq "#857 seed helper: clean absence -> CREATED <id> stdout" "CREATED 1234
 assert_eq "#857 seed helper: CREATED exits 0" "0" "$(srp857_run 7 m >/dev/null; echo $?)"
 # S1: a non-numeric / empty PR number is refused BEFORE the id call.
 srp857_stub 0 "999" "" 0 ""   # stub would RESUME if reached — it must not be
-assert_eq "#857 seed helper (S1): empty PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '' m)"
-assert_eq "#857 seed helper (S1): non-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run abc m)"
-assert_eq "#857 seed helper (S1): leading-+ PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '+5' m)"
-assert_eq "#857 seed helper (S1): mixed-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '1a' m)"
+srp857_expect "#857 seed helper (S1): empty PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '' m)"
+srp857_expect "#857 seed helper (S1): non-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run abc m)"
+srp857_expect "#857 seed helper (S1): leading-+ PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '+5' m)"
+srp857_expect "#857 seed helper (S1): mixed-digit PR number -> SKIP not-numeric" "SKIP not-numeric" "$(srp857_run '1a' m)"
 # A NON-ASCII digit (Arabic-Indic five) is what separates the `*[!0-9]*` glob from a
 # unicode-aware digit test: python3's str.isdigit() accepts it, and workpad.py's own guard
 # is ASCII-only for exactly this reason. Without this row, widening either guard to a
 # unicode-aware test keeps every other row green.
-assert_eq "#857 seed helper (S1): non-ASCII digit PR number -> SKIP not-numeric (the ASCII-only guarantee)" \
+srp857_expect "#857 seed helper (S1): non-ASCII digit PR number -> SKIP not-numeric (the ASCII-only guarantee)" \
   "SKIP not-numeric" "$(srp857_run '٥' m)"
 assert_eq "#857 seed helper (S1): SKIP exits 3" "3" "$(srp857_run '' m >/dev/null; echo $?)"
 # S2: an unreadable / missing workpad.py never reaches the create arm.
 mv "$SRP857/scripts/workpad.py" "$SRP857/scripts/workpad.py.hidden"
-assert_eq "#857 seed helper (S2): missing workpad.py -> SKIP workpad-unreadable" "SKIP workpad-unreadable" "$(srp857_run 7 m)"
-assert_eq "#857 seed helper (S2): SKIP workpad-unreadable exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+srp857_expect "#857/#871 seed helper (S2): missing workpad.py -> SKIP workpad-unreadable-file" "SKIP workpad-unreadable-file" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S2): SKIP workpad-unreadable-file exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 mv "$SRP857/scripts/workpad.py.hidden" "$SRP857/scripts/workpad.py"
 # S2's OTHER arm: PRESENT-but-unreadable is [Errno 13], a distinct breadcrumb from the
 # missing-file [Errno 2] above. Attribute the rejection by its own breadcrumb, not just
@@ -1337,8 +1348,8 @@ mv "$SRP857/scripts/workpad.py.hidden" "$SRP857/scripts/workpad.py"
 chmod 000 "$SRP857/scripts/workpad.py"
 assert_eq "#857 seed helper (S2): the unreadable fixture is genuinely unreadable (positive control against a vacuous pass)" \
   "unreadable" "$([ -r "$SRP857/scripts/workpad.py" ] && echo readable || echo unreadable)"
-assert_eq "#857 seed helper (S2): present-but-unreadable workpad.py -> SKIP workpad-unreadable" \
-  "SKIP workpad-unreadable" "$(srp857_run 7 m)"
+srp857_expect "#857/#871 seed helper (S2): present-but-unreadable workpad.py -> SKIP workpad-unreadable-file" \
+  "SKIP workpad-unreadable-file" "$(srp857_run 7 m)"
 assert_eq "#857 seed helper (S2): present-but-unreadable names [Errno 13], not the missing-file [Errno 2]" \
   "yes" "$("$SRP857_SH" 7 m "$SRP857/body.md" 2>&1 >/dev/null | grep -q 'present but unreadable (\[Errno 13\])' && echo yes || echo no)"
 chmod 755 "$SRP857/scripts/workpad.py"
@@ -1348,56 +1359,117 @@ chmod 755 "$SRP857/scripts/workpad.py"
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
   "RESUME 999" "$(srp857_run 7 m)"
-# NOT driven, deliberately: the mktemp-failure arm (`ERRF` empty -> SKIP api-error).
-# Forcing mktemp to fail is not portable -- BSD/macOS mktemp ignores TMPDIR (verified),
-# so the only levers are root-dependent or GNU-only, both barred by this repo's
-# portability convention. The arm fails CLOSED onto the already-driven SKIP api-error
-# token+exit contract, so what is undriven is the breadcrumb wording alone.
+# NOT driven, deliberately -- the two arms the grounded-coverage assertion below declares
+# undrivable, each for a portability reason this repo's conventions bar working around:
+#   SKIP api-error-scratch-file        forcing mktemp to fail is not portable -- BSD/macOS
+#                                      mktemp ignores TMPDIR (verified), so the only levers
+#                                      are root-dependent or GNU-only.
+#   SKIP workpad-unreadable-script-dir reaching it needs the helper's OWN parent directory
+#                                      to be unsearchable, which also makes the helper
+#                                      itself unexecutable -- there is no state in which the
+#                                      arm runs and the resolution fails.
+# Both still fail CLOSED onto the published token+exit contract; what is undriven is each
+# arm's breadcrumb wording, and the declaration below keeps that gap visible rather than
+# letting an unexercised token pass as covered.
 # S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
 srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
-assert_eq "#857 seed helper (S3): rc-2 with stderr -> SKIP api-error (never CREATED)" "SKIP api-error" "$(srp857_run 7 m)"
-assert_eq "#857 seed helper (S3): SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+srp857_expect "#857/#871 seed helper (S3): rc-2 with stderr -> SKIP api-error-id-failed (never CREATED)" "SKIP api-error-id-failed" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper (S3): SKIP api-error-id-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 # id exit 1 (a real gh/parse failure) -> SKIP api-error. The token AND its exit code are
 # both asserted on each row: the token alone would stay green if an arm regressed to a
 # non-3 exit, and the exit code is half the helper's published contract.
 srp857_stub 1 "" "gh: boom" 0 ""
-assert_eq "#857 seed helper: id exit 1 -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
-assert_eq "#857 seed helper: id exit 1 SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+srp857_expect "#857/#871 seed helper: id exit 1 -> SKIP api-error-id-failed" "SKIP api-error-id-failed" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: id exit 1 SKIP api-error-id-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 # create failing after a confirmed clean absence -> SKIP api-error.
 srp857_stub 2 "" "" 1 ""
-assert_eq "#857 seed helper: create failure after clean absence -> SKIP api-error" "SKIP api-error" "$(srp857_run 7 m)"
-assert_eq "#857 seed helper: create-failure SKIP api-error exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
+srp857_expect "#857/#871 seed helper: create failure after clean absence -> SKIP api-error-create-failed" "SKIP api-error-create-failed" "$(srp857_run 7 m)"
+assert_eq "#857 seed helper: create-failure SKIP api-error-create-failed exits 3" "3" "$(srp857_run 7 m >/dev/null; echo $?)"
 # An empty run-keyed marker is refused at the boundary: an empty --marker would let a
 # config breadcrumb reach stderr and defeat S3's exit-2 emptiness discriminator, losing
 # the live comment on a genuine first write. Attributed by its own distinct token.
 srp857_stub 0 "999" "" 0 ""
-assert_eq "#857 seed helper: empty marker -> SKIP bad-marker" "SKIP bad-marker" "$(srp857_run 7 '')"
+srp857_expect "#857 seed helper: empty marker -> SKIP bad-marker" "SKIP bad-marker" "$(srp857_run 7 '')"
 assert_eq "#857 seed helper: SKIP bad-marker exits 3" "3" "$(srp857_run 7 '' >/dev/null; echo $?)"
 assert_eq "#857 seed helper: positive control -- the same fixture RESUMEs with a non-empty marker" \
   "RESUME 999" "$(srp857_run 7 m)"
 # exit 0 with an EMPTY printed id never becomes a bare `RESUME `/`CREATED ` — an empty
 # $WP would make every later patch call a silent no-op (the frozen-comment failure).
 srp857_stub 0 "" "" 0 ""
-assert_eq "#857 seed helper: id exit 0 with no printed id -> SKIP api-error, never a bare RESUME" \
-  "SKIP api-error" "$(srp857_run 7 m)"
+srp857_expect "#857/#871 seed helper: id exit 0 with no printed id -> SKIP api-error-id-empty-id, never a bare RESUME" \
+  "SKIP api-error-id-empty-id" "$(srp857_run 7 m)"
 srp857_stub 2 "" "" 0 ""
-assert_eq "#857 seed helper: create exit 0 with no printed id -> SKIP api-error, never a bare CREATED" \
-  "SKIP api-error" "$(srp857_run 7 m)"
+srp857_expect "#857/#871 seed helper: create exit 0 with no printed id -> SKIP api-error-create-empty-id, never a bare CREATED" \
+  "SKIP api-error-create-empty-id" "$(srp857_run 7 m)"
 # No silent path: every reachable arm prints exactly one non-empty token line.
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on every arm" "1" \
   "$(srp857_run 7 m | grep -c .)"
+# (#871) GROUNDED COVERAGE. The rows above are only as complete as the helper's arms, so
+# derive the emitted refusal-token vocabulary from the helper's OWN source and assert it
+# equals the set those rows exercised, widened by the two arms declared undrivable above.
+# A hand-written "these are all the arms" claim would decay silently, and the prompt's
+# token-PREFIX routing makes that decay quieter still — a new arm keeps routing correctly
+# while carrying neither a distinguishing token nor a test. Both sides are computed with
+# python3 (preflight-guaranteed) so the comparison never depends on a PATH tool that could
+# empty one side of it.
+SRP857_UNDRIVABLE="SKIP api-error-scratch-file
+SKIP workpad-unreadable-script-dir"
+assert_eq "#871 exactly two refusal arms are declared undrivable (a widening of the declaration is visible, not silent)" \
+  "2" "$(printf '%s\n' "$SRP857_UNDRIVABLE" | grep -c .)"
+cat > "$SRP857/token-sets.py" <<'PY871A'
+import re, sys
+# argv[1] = "emitted" | "covered"; argv[2] = the helper source; argv[3] = the
+# exercised-token log; argv[4] = the newline-separated declared-undrivable tokens.
+# Prints ONE sorted, de-duplicated set, so neither side of the comparison is carved
+# out of a combined payload by a PATH tool whose absence would empty both at once.
+if sys.argv[1] == 'emitted':
+    out = set(re.findall(r'^\s*echo "(SKIP [a-z0-9-]+)"\s*$',
+                         open(sys.argv[2], encoding='utf-8').read(), re.M))
+else:
+    out = {ln for ln in open(sys.argv[3], encoding='utf-8').read().splitlines() if ln}
+    out |= {ln for ln in sys.argv[4].splitlines() if ln}
+print('\n'.join(sorted(out)))
+PY871A
+srp857_sets() { python3 "$SRP857/token-sets.py" "$1" "$LIB/../scripts/seed-review-progress.sh" "$SRP857/exercised.log" "$SRP857_UNDRIVABLE"; }
+SRP857_EMITTED="$(srp857_sets emitted)"
+SRP857_COVERED="$(srp857_sets covered)"
+# A positive control on the derivation itself: an emitted set that came back EMPTY would
+# make the equality row below pass against an equally-empty covered set, so assert the
+# helper's own source yielded a non-trivial vocabulary before comparing the two.
+assert_eq "#871 the emitted-token derivation reads a non-trivial vocabulary out of the helper source" "yes" \
+  "$([ "$(printf '%s\n' "$SRP857_EMITTED" | grep -c .)" -ge 8 ] && echo yes || echo no)"
+assert_eq "#871 the helper's emitted refusal-token set equals the set the driver rows exercise (plus the declared-undrivable arms)" \
+  "$SRP857_EMITTED" "$SRP857_COVERED"
 # The CALL SITE's positional contract. The behavioral rows below drive the helper through
 # srp857_run, which hard-codes the argument order — so a transposed $MARKER and body path in
 # the SKILL.md fence (or a drop to two args) leaves every one of them green while every cloud
 # review silently loses its live comment on a SKIP bad-marker. The head extractor pins the
 # leading token only and is insensitive to arguments, so this is the one place the fence's
 # arity and order are checked.
+# The comment below documents WHY these three sites are a typed executable boundary; since
+# #871 converted them to pin_count it grants nothing — pin_count is in the pin gate's
+# COUNT_HELPERS short-circuit, so the sites are exempt by helper and the declaration is
+# rationale rather than an exemption. Two mechanisms that appear to do the same job would be
+# the confusing part, so this says which one actually does it.
 # structural-pin-ok: helper-contract -- the helper's three positional parameters are a typed
 # executable boundary between the shipped fence and scripts/seed-review-progress.sh; no
 # behavioral test can reach the fence, which is prompt text an agent emits.
+# pin_count matches with `grep -oF` — a LITERAL, not an ERE — so each pattern here is
+# de-escaped (`seed-review-progress.sh`, a plain `$`); a regex-escaped pattern would count 0.
 assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in that order" "1" \
-  "$(grep -c 'seed-review-progress\.sh "\$PR_NUMBER" "\$MARKER" \.devflow/tmp/review/<slug>/<run-id>/review-wp\.md' "$ST_REV")"
+  "$(pin_count 'seed-review-progress.sh "$PR_NUMBER" "$MARKER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md' "$ST_REV")"
+# (#871) The FALLBACK arm reproduces the same positional contract by hand — on the path taken
+# precisely when the primary helper has already failed — and was uncovered. Its `id` and
+# `create` statements live in a prose paragraph as inline backticked code rather than in a
+# fenced block, which is why each is authored as a pin_count call from the outset: a raw
+# presence assertion over prose resolves inside prose and hits pin-corpus-lint's
+# "typed structural declaration cannot exempt prose presence" arm, which no
+# `# structural-pin-ok:` declaration rescues.
+assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positionally and the marker behind --marker" "1" \
+  "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
+assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
+  "$(pin_count 'workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err' "$ST_REV")"
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
 # bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr
@@ -35064,9 +35136,19 @@ assert_eq "#401 shape-lint does NOT flag permitted shapes (capture, empty reset,
 # ── condition spellings are NOT asserted here: R1 flags them independently of R5 — its
 # ── capture carve-out only ever exempted `$( )`, not backticks — so they are outside this
 # ── retirement's scope.)
-printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=$(gh pr view 2); then' '```' > "$E363/s-r5-retired.md"
-assert_eq "#869 the retired \$()-condition-substitution shape stays desk-clean (reported by NO review rule now R5 is gone)" "0" \
-  "$(python3 "$ECS" "$E363/s-r5-retired.md" | grep -c '  R[0-9]  ')"
+# ── (#871) The fence carries a PLANTED POSITIVE CONTROL — a leading `cd`, which the
+# ── surviving R2 rule flags — and the row compares the extractor's FULL stdout against the
+# ── control's report line and nothing else. The predecessor row asserted only that the
+# ── flagged-line count was 0, a condition an empty file, a fence-less file and a mis-pathed
+# ── fixture all satisfy identically (each yields rc 0 and zero bytes), so it stayed green
+# ── whether or not the fixture was still being parsed. Comparing exact output fails in BOTH
+# ── directions: when the control stops being reported (the fixture stopped being parsed) and
+# ── when a `$()`-condition statement starts being reported (the retirement regressed). A
+# ── merely narrowed count would not — it would still range over inputs that emit nothing.
+printf '%s\n' '```bash' 'if WP="$(gh pr view 1)"; then' 'elif WP=$(gh pr view 2); then' 'cd /tmp && echo hi' '```' > "$E363/s-r5-retired.md"
+assert_eq "#869/#871 the retired \$()-condition-substitution shape stays desk-clean while the same fence's planted R2 control is still reported" \
+  "$E363/s-r5-retired.md:4  R2  cd /tmp" \
+  "$(python3 "$ECS" "$E363/s-r5-retired.md")"
 printf '%s\n' '```bash' 'somehelper.sh -n > .devflow/tmp/x.json' '```' > "$E363/s-ok2.md"
 assert_eq "#401 shape-lint does NOT flag a > redirect to an in-workspace .devflow/tmp target" "" \
   "$(python3 "$ECS" "$E363/s-ok2.md")"
