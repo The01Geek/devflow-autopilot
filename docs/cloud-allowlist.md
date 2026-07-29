@@ -230,6 +230,93 @@ on no profile, so the run is not an acceptance criterion of the change that adde
 this note). Until then, a refusal of the dispatched vendored-literal command is
 handled by the Phase-3 fail-closed refusal path, never assumed impossible.
 
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — review tier — PENDING the first PR-triggered run (issue #858)
+
+`.github/workflows/matcher-probe.yml` carries a **`subagent-write-review-probe`** job
+that measures whether a **dispatched subagent's** `Write` into `.devflow/tmp/**`
+succeeds under the review tier's **generated baseline joined with the `probe` job's own
+standing candidate extras** — not the shipped review profile alone, which is why the
+record reproduces the resolved literal verbatim rather than describing it. `Write(.devflow/tmp/**)` is granted for
+the **orchestrator** (the `Write(.devflow/tmp/**)` grant row in the review-tier evidence table above, PERMITTED from run `29111394360`; the probe exercises it as shape 9), but a grant proven
+for the dispatcher is `unestablished` for the **dispatchee** — CLAUDE.md's "Unknown is
+not zero". The job is **dedicated** (not a shape row in the `probe` job, whose session
+already writes to `.devflow/tmp/probe-09.txt`): its prompt instructs **no orchestrator
+write at all**, so a `Write` record in its execution file has exactly one *expected*
+author. That single-authorship is a **prompt-level** guarantee, not a technical
+restriction — the composed allowlist grants `Write(.devflow/tmp/**)` to the whole
+session, so the orchestrator retains the capability and simply is not asked to use it.
+The helper does not rest on the guarantee alone: where the execution file records parent
+chains at all, a parent-less (orchestrator-issued) `Write` naming the same file is
+detected and routes the run to `unestablished` rather than to a `DENIED` whose
+attribution that record would falsify.
+
+The job **consumes** the resolved review literal from the `probe` job via `needs:`
+(never a second `REVIEW=` assignment) and appends **`Task,Agent`** in its own
+hand-written `--allowed-tools` — both dispatch heads granted so the allowlist can never
+be what prevents the dispatch, keeping a null result attributable to the harness. `Task`
+is in no generated region or manifest; this grant enters no shipped profile. The
+dispatched `subagent_type` is the built-in `general-purpose` (no `--agents` block). The
+subagent makes a granted-head control call **before** the write and one **after** it, and
+`scripts/subagent-write-probe-verdict.py` derives a three-outcome verdict
+(**PERMITTED / DENIED / `unestablished`**) from the execution file's `permission_denials`,
+recorded `tool_use` inputs, and each call's `parent_tool_use_id`, corroborated by the
+on-disk side-effect file. It reports the two control facts **independently** —
+*recorded-at-all* and *chain-attributable* — never conjoined; the model's prose is never
+read. A state outside the measurable pair reports `unestablished` rather than `DENIED`,
+with one disclosed residual: a denial entry recording no `tool_name` at all and naming
+the side-effect filename is read as the write denial, because the per-entry denial shape
+is not yet recorded and no narrower attribution channel exists for it.
+
+Both signals are attributed **per recorded entry**, never over the concatenation of the
+run's entries: the write is the `Write` tool's own call naming the tier's side-effect
+filename — the payload marker alone is not enough, since a write of that payload to another
+path is not the write the probe asked about (a
+different tool merely *naming* that path is not the write, and a different tool's refusal
+quoting it is not the write's denial), and a parent-less marker call is the orchestrator's
+wherever the execution file records parent chains at all. The **denial** side carries the
+same filename requirement as its twin: a refused `Write` carrying only the payload and not
+the tier's side-effect filename was a write to some *other* path, so it routes to its own
+named `unestablished` reason rather than publishing a `DENIED` about a target whose
+permission was never attempted — and so does a refused `Write` naming **neither** the
+side-effect filename nor the payload, the entry shape the helper records as not yet
+observed: its text establishes nothing about what was refused, so the run says exactly that
+instead of falling through to a claim that no write was attempted. A multi-entry denial list holding both a dispatch refusal
+and a genuine `Write` denial still reports `DENIED` **provided a dispatch is also recorded
+in the file** — that conjunct is what the verdict requires, and with no recorded dispatch
+there is no dispatchee to attribute the denial to, so such a list reports `unestablished`.
+
+**This measurement is PENDING.** The implementing run added the job and this entry and
+deliberately did **not** dispatch the probe (its only pre-merge trigger is a same-repo
+`pull_request` scoped to the workflow's own path — so pushing this change to the
+implementing PR *does* fire it — and `gh workflow run` is granted on no profile). Record
+the verdict here from the **final pre-merge head commit** (a later push re-fires the
+workflow and invalidates a recorded head — the `paths:` filter does NOT narrow this: on a
+`pull_request` event GitHub evaluates `paths:` against the three-dot base…head diff, i.e.
+the files changed in the whole PR, and this PR changes `matcher-probe.yml`, so every
+subsequent push re-fires both paid probe jobs — including the commit that records this very
+verdict), naming the **ref** (the implementing branch —
+the job does not exist on the default branch until this merges), the **run id**, the
+**job id**, the **head commit**, and the **resolved `--allowed-tools` literal verbatim**
+alongside `--permission-mode acceptEdits`, model `claude-haiku-4-5-20251001`, and
+`--effort low`. A `PERMITTED` cites, by their two ids, the
+`tool_use`/`parent_tool_use_id` pair tying the `Write` to the job's dispatch, so a reader
+can re-verify the chain against the execution file; a `DENIED`'s attribution rests on the no-orchestrator-write prompt
+(the `permission_denials` per-entry shape is not yet recorded), and the run's **observed
+denial-entry shape** is recorded alongside — the read that upgrades the denial side from
+by-construction to measured. Commit the job's machine output beside
+`docs/execution-file-shape.observed.txt`, as that record establishes.
+
+This verdict is version-dependent and establishes nothing for a differently-defined
+subagent type or a later `claude-code-action` version: **re-probe** after any upgrade.
+**Scope caveat, carried in the emitted record itself:** the run uses
+`--permission-mode acceptEdits`, so a `PERMITTED` answers *"did the dispatched subagent's
+`Write` land under that permission mode?"* — it does not isolate the allowlist from the
+permission mode as the sole reason the write was allowed.
+
+| Tier | Verdict | Run id | Job id | Head commit | Ref |
+| --- | --- | --- | --- | --- | --- |
+| review | _pending first PR-triggered run_ | — | — | — | — |
+
 ---
 
 ## Probe evidence (implement tier) (issue #455)
@@ -376,6 +463,30 @@ this shape: a `scripts/*.py` / `lib/*.py` change iterates on the covering
 direct leading token so the *same* command works on the local and cloud tiers. Had
 the probe come back DENIED, the cloud tier would have kept the full-suite default
 and those tiers would have stayed local-only.
+
+### Dispatched-subagent `Write` into `.devflow/tmp/**` — implement tier — PENDING the first PR-triggered run (issue #858)
+
+`matcher-probe.yml` also carries a **`subagent-write-implement-probe`** job that measures
+the same dispatched-subagent `Write` fact on the **implement** tier — because a shape
+proven on the review tier is unproven here (the two are separately-probed allowlists). It
+is the structural twin of the review-tier job above: it **consumes** the resolved
+implement literal from the `implement-probe` job via `needs:` (never a second `IMPLEMENT=`
+assignment), appends `Task,Agent` in its own hand-written `--allowed-tools`, dispatches one
+built-in `general-purpose` subagent that writes `.devflow/tmp/subwrite-implement.txt`
+(the orchestrator writes nothing), and derives the three-outcome verdict with the same
+`scripts/subagent-write-probe-verdict.py --tier implement`.
+
+Note the two tiers' row numberings are independent — both contain rows numbered 8 and 9 —
+so the verdict record names its tier as data, and the helper carries a machine-consumed
+`tier` field for the same reason.
+
+**This measurement is PENDING**, on the same terms as the review-tier entry above: added
+but not dispatched, recorded from the final pre-merge head, version-dependent, re-probe
+after any `claude-code-action` upgrade.
+
+| Tier | Verdict | Run id | Job id | Head commit | Ref |
+| --- | --- | --- | --- | --- | --- |
+| implement | _pending first PR-triggered run_ | — | — | — | — |
 
 ---
 
