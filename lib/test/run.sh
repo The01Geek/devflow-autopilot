@@ -22592,12 +22592,15 @@ assert_eq "#404 trust: old PR-head resolution loop is gone" "0" \
   "$(grep -cF '.devflow/vendor/devflow/scripts/filter-runner-tools.sh scripts/filter-runner-tools.sh' "$RUNNER" || true)"
 assert_eq "#404 trust: FLOOR_HELPER wired to baseprovision floor_helper output" "1" \
   "$(grep -cF 'FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}' "$RUNNER" || true)"
-# VENDOR_SOURCE is wired to the same fresh-fetch gate at four sites: the tools
+# VENDOR_SOURCE is wired to the same fresh-fetch gate at five sites: the tools
 # step's deny-floor (#404), the #458 harden-stop-hooks step, the #505 compose step
-# (same trusted-source rank — the compose helper's rank-2 vendored fallback), and the
+# (same trusted-source rank — the compose helper's rank-2 vendored fallback), the
 # #874 baseprovision step, whose prompt-extension materialization ladder carries the
-# identical fetch-gated rank so a THIN install resolves a trusted helper at all.
-assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision)" "4" \
+# identical fetch-gated rank so a THIN install resolves a trusted helper at all, and
+# the #908 harden_guard step, which keys the SAME trust signal to decide whether the
+# vendored copy of the PreToolUse guard closure also needs hardening (a `fetch`
+# vendor tree is official-repo content this run; any other value is PR-head content).
+assert_eq "#404 trust: VENDOR_SOURCE wired to vendor step output (tools + #458 harden + #505 compose + #874 baseprovision + #908 harden_guard)" "5" \
   "$(grep -cF 'VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}' "$RUNNER" || true)"
 assert_eq "#404 trust: baseprovision materializes the floor from FETCH_HEAD" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh' "$RUNNER" || true)"
@@ -23547,12 +23550,15 @@ assert_eq "#458 workflow: harden step precedes Run Claude Code" "yes" \
 # the #404 floor-helper discipline — never the PR-head checkout.
 assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
-# Count is 2, not 1 (issue #908 review): the new "Harden PreToolUse guard closure"
-# step (id: harden_guard) reads its own GUARD_TARGETS closure from FETCH_HEAD with the
-# identical `git show "FETCH_HEAD:$t"` idiom — a second, legitimate occurrence of the
-# same trusted-source-read pattern this pin protects, not a drift.
-assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "2" \
+assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
   "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
+# The issue-#908 "Harden PreToolUse guard closure" step (id: harden_guard) performs the
+# same trusted-source read for its own GUARD_TARGETS closure, but over the PREFIXED
+# path variable `$vt` (repo-root and, when the vendored tree is not fetch-fresh, the
+# `.devflow/vendor/devflow/` copy) — so it is pinned separately rather than folded into
+# the `$t` count above, which stays scoped to harden_hooks' own TARGETS loop.
+assert_eq "#908 workflow: trusted guard-closure copies materialized from FETCH_HEAD" "1" \
+  "$(grep -cF 'git show "FETCH_HEAD:$vt"' "$RUNNER" || true)"
 # The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
 # gate re-opens PR-head tampering (same operative gate the #404 floor pins).
 # Fail-closed arm: when no trusted helper resolves, the step stubs every target
