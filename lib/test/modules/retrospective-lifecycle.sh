@@ -2964,6 +2964,23 @@ rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$
 assert_eq "#893 select: cap-withheld findings are disclosed to the withheld-file as {tag,cap}" "max_issues_per_run" \
   "$(jq -r '.[0].cap' "$TMP_SF/sf-wh.json" 2>/dev/null)"
 
+# select: the cap comparand GROWS incrementally within one call as findings are
+# accepted (`_filed_here`), not evaluated once against the pre-call snapshot. Three
+# legal findings (top-3-truncated from sf-f4.json: bb/3prs, cc/2prs, aa/1pr, ranked
+# descending) against --max-per-run 2 must file exactly the first 2 by rank and
+# withhold the 3rd — a regression that dropped the `_filed_here` increment would
+# file all 3 past the cap (every existing cap test here is all-or-nothing and would
+# not catch it).
+RL_SF_MIDCAP="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 2 --max-per-cat 99 --max-open 99 --withheld-file "$TMP_SF/sf-midcap-wh.json" 2>/dev/null)"
+assert_eq "#893 select: a mid-call cap (max-per-run 2 on 3 legal findings) files exactly 2" "2" \
+  "$(printf '%s' "$RL_SF_MIDCAP" | jq 'length')"
+assert_eq "#893 select: the mid-call cap files the top 2 by rank (bb then cc)" "tooling-gap-bb tooling-gap-cc" \
+  "$(printf '%s' "$RL_SF_MIDCAP" | jq -r '[.[].key] | join(" ")')"
+assert_eq "#893 select: the mid-call cap withholds exactly the 3rd-ranked finding (aa)" "1" \
+  "$(jq 'length' "$TMP_SF/sf-midcap-wh.json" 2>/dev/null)"
+assert_eq "#893 select: the withheld 3rd finding is named aa, not a wrong one" "tooling-gap-aa" \
+  "$(jq -r '.[0].tag' "$TMP_SF/sf-midcap-wh.json" 2>/dev/null)"
+
 # select: per-category comparand aggregates across a category's records (issue #891)
 # Two filed records of one category, each holding one open issue → per-cat base is 2.
 printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-a":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":1,"state":"filed"}]},"tooling-gap-b":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":2,"state":"filed"}]}},"dismissed":{}}' > "$TMP_SF/sf-agg-ov.json"

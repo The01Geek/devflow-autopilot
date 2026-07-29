@@ -994,7 +994,14 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             # no cap withhold and no top-three truncation — would otherwise leave NO
             # skip_records/blocker/withheld trace: it vanishes from the report,
             # indistinguishable from a clean week for that pattern. Record it here.
-            if [ "${FINDINGS_N:-0}" -eq 0 ] && [ ! -s ".devflow/tmp/withheld-${SLUG}.json" ] && [ ! -s ".devflow/tmp/dropped-${SLUG}.json" ]; then
+            # devflow_select_findings writes BOTH --dropped-file and --withheld-file
+            # unconditionally on its success path, defaulting each to the literal
+            # `[]` when nothing was dropped/withheld — so both files are always
+            # non-empty (2 bytes) and `[ ! -s … ]` is always false. Test ARRAY
+            # EMPTINESS BY CONTENT (jq 'length') instead of file size.
+            _WH_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/withheld-${SLUG}.json" 2>/dev/null || echo 0)"
+            _DR_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/dropped-${SLUG}.json" 2>/dev/null || echo 0)"
+            if [ "${FINDINGS_N:-0}" -eq 0 ] && [ "${_WH_N:-0}" -eq 0 ] && [ "${_DR_N:-0}" -eq 0 ]; then
                 skip_records+=("Pattern ${SLUG}: select-findings.sh selected 0 findings to file (no cap withhold, no top-three truncation) — every returned finding was individually dropped; see its stderr breadcrumbs for which check")
             fi
             _fi=0

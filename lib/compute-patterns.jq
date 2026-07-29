@@ -114,7 +114,7 @@ def occurrences_for($entries; $cat):
    # non-string, and an object-construction value that yields the empty stream
    # produces ZERO objects — the whole occurrence would vanish from occurrences[]
    # and occurrence_count would silently drop. The `// null` / `// []` fallbacks
-   # (mirroring the fixed_at form above) keep the element present with an
+   # (mirroring the fixed_at form used below) keep the element present with an
    # absent-value default. summary → null, descriptors → [], suggested_interventions
    # → [] on absent or wrong-typed.
    | {pr: .pr, ts: .merged_at, verdict: .verdict,
