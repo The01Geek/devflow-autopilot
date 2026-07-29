@@ -6945,9 +6945,9 @@ assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed mar
 # Cross-file identity, re-anchored to the surviving pair: the marker PREFIX the skill
 # seeds must be the prefix the workflow rebuilds. A rename of `devflow:review-progress`
 # on either side goes RED here rather than silently disabling the flip in production.
-assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; producer (skill) and consumer (devflow.yml flip step) must rebuild an identical prefix or the flip addresses no comment
+assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \
   "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; producer (skill) and consumer (devflow.yml flip step) must rebuild an identical prefix or the flip addresses no comment
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
