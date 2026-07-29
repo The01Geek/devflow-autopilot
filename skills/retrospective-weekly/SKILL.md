@@ -1003,8 +1003,8 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 fi
                 _fi=$((_fi + 1))
             done
-            # `filed_slugs` feeds Step 9's `devflow_annotate_patterns`, whose jq keys on
-            # the PATTERN's coarse `.tag // .slug` — the attribution category. A composed
+            # `filed_slugs` feeds Step 9's `devflow_annotate_patterns`, whose jq program
+            # indexes on the PATTERN's coarse `.tag // .slug` — the attribution category. A composed
             # `<category>-<subslug>` key can never equal that, so pushing composed keys
             # here would annotate every pattern this path filed as "not filed". Push the
             # coarse $SLUG once per pattern instead; the composed keys are already the
