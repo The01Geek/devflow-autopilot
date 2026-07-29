@@ -1,0 +1,122 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-29T00:00:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "2.6",
+  "current_substep": "run_shadow_fanout",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "AC1's assert_pin_unique fail-closed proven transitively via the pin_count sentinel/rc contract, not a dedicated driver (#810 forbids a new assert_pin_unique call site; final-pass reviewer deemed this a deliberate well-reasoned tradeoff).",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          65,
+          68
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "below-threshold"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Only the !-f (missing) branch exercised; the !-r (exists-but-unreadable) branch untested — defensible (flaky under root).",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          37,
+          41
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "below-threshold"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "below-threshold",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "below-threshold",
+      "skip_category": "below-threshold-parked",
+      "evidence": "parked-origin: below-threshold"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "shadow": {
+    "ran_at": "2026-07-29T00:08:00Z",
+    "reviewed_sha": "a912d2a",
+    "verdict": "APPROVE (one new Suggestion documented_falsehood, promoted and fixed in iter-2)",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "phase3_findings": [
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "documented_falsehood: run.sh:311-313 header (diff context region) and run.sh:2205 parenthetical falsified by the fail-closed change — should be reconciled in this same commit.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            311,
+            313
+          ],
+          "kind": "documented_falsehood"
+        }
+      }
+    ],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
+  },
+  "telemetry": "unavailable"
+}

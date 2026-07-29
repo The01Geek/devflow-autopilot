@@ -1,0 +1,41 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-29T00:10:00Z",
+  "fix_commit_sha": "37fa0ca",
+  "fix_files": [
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "promotion_provenance": "shadow",
+  "current_step": "loop-exit",
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [],
+  "phase3_findings": [],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "37fa0ca",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "shadow(documented_falsehood): run.sh:311-313 header still listed 'a missing/unreadable file' among cases collapsing to a canonical integer; falsified by the fail-closed change. Also run.sh:2205 parenthetical.",
+      "evidence": "reconciled both comments to the new unestablished/rc-1 fail-closed behavior; behavior-inert prose (Suggestion under Phase 4.1.5) but a documented_falsehood this change introduced"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 6,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "terminal_verdict": "APPROVE WITH ADVISORY NOTES",
+  "telemetry": "unavailable"
+}
