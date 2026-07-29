@@ -48456,11 +48456,11 @@ _908_REVIEW_YML="$LIB/../.github/workflows/devflow-review.yml"
 assert_eq "#908 AC1: devflow-runner.yml's claude-code-action step carries a settings: input" "yes" \
   "$(grep -qF 'settings: |' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the effectiveness channel AC1 requires: the claude-code-action settings input is what registers the PreToolUse hook with the review-tier runner
 assert_eq "#908 AC1: the settings input registers a PreToolUse hook naming the guard script" "yes" \
-  "$(grep -qF 'pretooluse-shape-guard.py' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins that the registered hook actually names the guard script under the PreToolUse event, not merely that a settings block exists
+  "$(grep -qF '/scripts/pretooluse-shape-guard.py\"' "$_908_RUNNER_YML" && grep -qF '"PreToolUse"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins the JSON hook-command string (trailing escaped quote makes the literal code-only, never a comment mention) so a regression that drops the guard from the hook body — while leaving prose referencing it elsewhere — is caught
 assert_eq "#908 AC1: devflow-implement.yml registers no settings input / PreToolUse guard" "yes" \
   "$(grep -qE 'settings:|PreToolUse' "$_908_IMPLEMENT_YML" && echo no || echo yes)"
 assert_eq "#908 AC2: HOOK_TARGETS (harden-stop-hooks.sh) already lists the guard script" "yes" \
-  "$(grep -qF 'pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's membership in the trusted-base HOOK_TARGETS closure, the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
+  "$(grep -qF 'stop-hook-probe.sh scripts/pretooluse-shape-guard.py' "$LIB/../scripts/harden-stop-hooks.sh" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the guard's adjacency inside the HOOK_ENTRY_TARGETS/HOOK_TARGETS assignment lines specifically (a code-only substring, never the file's prose comments mentioning the same script name), the AC2 precondition that makes the settings-input hook inert unless the script is a hardened/trusted target
 assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)" "yes" \
   "$(git -C "$REPO_ROOT" diff --quiet HEAD -- scripts/describe-denial-count.sh && echo yes || echo no)"
 assert_eq "#908: the permission_denials_count SUMMARY line is untouched by the new guard-visibility append" "yes" \
