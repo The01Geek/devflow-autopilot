@@ -308,9 +308,11 @@ assert_eq() {
 # occurrences would read as "1" / falsely-unique). Pure predicate — no RESULTS_FILE side
 # effect — so mutation proofs can assert on the raw count against a mutated temp copy
 # without polluting the suite tally. `-F` treats LITERAL as a fixed string (regex
-# metacharacters are literal). Always prints a SINGLE canonical integer: a present-file-
-# but-absent-literal, a missing/unreadable file, and a match all collapse to one line —
-# `grep -c .` counts the match lines `grep -oF` emitted (0 when none). On an absent literal
+# metacharacters are literal). For a READABLE file it prints a SINGLE canonical integer: a
+# present-file-but-absent-literal and a match both collapse to one line — `grep -c .` counts
+# the match lines `grep -oF` emitted (0 when none). A missing/unreadable file instead FAILS
+# CLOSED with the non-numeric sentinel `unestablished` (rc 1) — see the readability guard in
+# the body below (issue #926) — never a canonical `0`. On an absent literal
 # `grep -c .` both prints `0` and exits 1, so `|| n=0` DOES fire and reassigns the same `0` —
 # the captured value and the fallback coincide, so the result is a single clean `0` either
 # way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
@@ -320,8 +322,23 @@ assert_eq() {
 # options and error out to a spurious 0, silently misreading a present literal as absent. With
 # the `--` guard, pin_count (and therefore assert_pin_unique below) accepts a flag-shaped
 # literal — the case that previously forced a hand-guarded raw `grep -qF --` at the call site.
-pin_count() {  # literal file -> prints occurrence count (always a single integer)
+pin_count() {  # literal file -> occurrence count on a readable file; `unestablished` (rc 1) when the file cannot be read
   local n
+  # Fail CLOSED on an unreadable file (missing, moved, renamed, or unreadable),
+  # mirroring devflow_module_pin_count in lib/test/module-harness.sh: emit the
+  # non-numeric sentinel `unestablished` (NEVER `0`) and return 1, so every
+  # consuming assertion — assert_pin_unique below, and any zero-expected
+  # `assert_eq … "0" "$(pin_count …)"` (how this repo encodes prohibitions) —
+  # records a FAIL instead of passing vacuously. This readability guard runs
+  # BEFORE grep so the inner `2>/dev/null` stays narrow: it only suppresses grep's
+  # stderr for a file we HAVE confirmed readable, preserving the distinction
+  # between "the literal is genuinely absent from a file I read" (a clean `0`) and
+  # "I could not read the file at all" (`unestablished`, rc 1, with a breadcrumb).
+  if [ ! -f "$2" ] || [ ! -r "$2" ]; then
+    printf 'unestablished\n'
+    printf 'pin_count: unreadable file: %s\n' "$2" >&2
+    return 1
+  fi
   n="$(grep -oF -- "$1" "$2" 2>/dev/null | grep -c .)" || n=0
   printf '%s\n' "${n:-0}"
 }
@@ -506,6 +523,39 @@ fi
 assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the sentinel, not the repo root)" \
   "yes" "$GS_OK_VERDICT"
 [ -d "$GS_OK_DIR" ] && rm -rf "$GS_OK_DIR"
+# ── #926: pin_count fails CLOSED on an unreadable file ────────────────────────
+# pin_count() used to collapse a missing/unreadable file to `0`, so every
+# zero-expected assertion (`assert_eq … "0" "$(pin_count …)"` — how this repo
+# encodes prohibitions) passed VACUOUSLY once its target file was renamed, moved,
+# or deleted. The fix mirrors devflow_module_pin_count: emit the non-numeric
+# sentinel `unestablished` (rc 1) instead of `0`, so every consuming assertion —
+# including assert_pin_unique, whose PASS gate is exactly `count == "1"` — records
+# a FAIL. These controls drive the unreadable-file arm through a REAL consuming
+# assert_eq via probe_assert (which isolates the intentional RED from the suite
+# tally), and assert the recorded verdict — AC1/AC2/AC3. pin_count is a
+# count-helper, so these driver calls draw no #810 mutation-routing finding.
+PC_MISSING="$(mktemp -u)"   # a path guaranteed NOT to exist (mktemp -u: name only, no file)
+# AC1/AC2 (negative control): a zero-expected assert_eq over pin_count on a missing
+# file records a suite FAIL — the exact vacuous-pass shape the issue names.
+assert_eq "#926 pin_count: a zero-expected assertion over an unreadable file records a suite FAIL" \
+  "FAIL" "$(probe_assert assert_eq "#926 nc: zero-expected pin_count on unreadable file" "0" "$(pin_count "absent" "$PC_MISSING" 2>/dev/null)")"
+# Fail-closed contract at the helper boundary: unreadable file → sentinel + rc 1.
+# assert_pin_unique (PASS iff count == "1") therefore also fails closed on it — the
+# sentinel is neither "1" nor a real "0" — so it needs no separate driver call
+# (which would itself draw a #810 finding as a new source-presence pin site).
+PC_OUT="$(pin_count "absent" "$PC_MISSING" 2>/dev/null)"; PC_RC=$?
+assert_eq "#926 pin_count: unreadable file yields the non-numeric sentinel (never 0)" \
+  "unestablished" "$PC_OUT"
+assert_eq "#926 pin_count: unreadable file returns rc 1" "1" "$PC_RC"
+# AC3 (positive control): a READABLE file that genuinely lacks the literal still
+# yields a clean `0` and still passes a zero-expected assertion — the distinction
+# the fix must preserve.
+PC_READABLE="$(mktemp)"; printf 'present line\nother line\n' > "$PC_READABLE"
+assert_eq "#926 pin_count: a readable file genuinely lacking the literal still yields 0" \
+  "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")"
+assert_eq "#926 pin_count: a zero-expected assertion over a readable-but-absent literal still PASSES" \
+  "PASS" "$(probe_assert assert_eq "#926 pc: zero-expected pin_count on readable-absent" "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")")"
+rm -f "$PC_READABLE"
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
@@ -1530,8 +1580,9 @@ assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in t
 # `create` statements live in a prose paragraph as inline backticked code rather than in a
 # fenced block, which is why each is authored as a pin_count call from the outset: a raw
 # presence assertion over prose resolves inside prose and hits pin-corpus-lint's
-# "typed structural declaration cannot exempt prose presence" arm, which no
-# `# structural-pin-ok:` declaration rescues.
+# prose-resolution arm ("literal resolves into prose at <file>:<line>"), which no
+# `# structural-pin-ok:` declaration rescues — and, since #925 removed the count-helper
+# short-circuit, which a pin_count spelling no longer skips either.
 assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positionally and the marker behind --marker" "1" \
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
@@ -1543,8 +1594,9 @@ assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number the
 # tool reads that. `extract-command-heads.py` and `extract-command-shapes.py` parse the fence for
 # HEADS and SHAPES only; neither consumes the order. So the literal can change without breaking a
 # machine-consumed contract, which is the wording-only class this repo prohibits — and routing it
-# through `pin_count` would only have cleared the gate by the COUNT_HELPERS short-circuit rather
-# than by adjudication. Per CLAUDE.md's #843/#876 decision the compensating control is the
+# through `pin_count` only ever cleared the gate by the count-helper short-circuit rather
+# than by adjudication (a bypass #925 has since closed, so no pin_count spelling skips it now).
+# Per CLAUDE.md's #843/#876 decision the compensating control is the
 # merge-gating review pass, and that absence is the decision, not an oversight.
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
@@ -2152,8 +2204,8 @@ grep -vF "$PARKCAL_BMARK" "$SELF_SRC" > "$PINPROBE_NOMARK"
 assert_eq "AC3(e): deleting the region BEGIN marker turns its presence control RED (no vacuous AC2 pass)" \
   "0" "$(pin_count "$PARKCAL_BMARK" "$PINPROBE_NOMARK")"
 # Self-protect AC3(e) against its own vacuity: prove the strip removed ONLY the BEGIN marker —
-# the END marker must still count 1. Otherwise an empty/unreadable temp copy (pin_count folds a
-# grep error into 0) would satisfy the "0" above for the wrong reason, making this proof vacuous
+# the END marker must still count 1. Otherwise an emptied (but readable) temp copy — where
+# pin_count legitimately reads 0 — would satisfy the "0" above for the wrong reason, making this proof vacuous
 # in isolation rather than relying on the suite-level AC2 marker-presence controls to catch it.
 assert_eq "AC3(e): the strip removed ONLY the BEGIN marker (END marker still present — copy not emptied)" \
   "1" "$(pin_count "$PARKCAL_EMARK" "$PINPROBE_NOMARK")"
@@ -15105,9 +15157,13 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   # byte comparison: they establish that the pre-existing headings still render and
   # that the two new gated sections stay omitted, and they deliberately do NOT
   # establish section ordering, blank-line structure, or any pre-existing section's
-  # body bytes. The byte-level claim is established separately below, by rendering
-  # the same fixture through the PRE-CHANGE renderer at the merge-base and diffing
-  # the two outputs.
+  # body bytes. They assert the SEMANTIC contract for an old-shaped summary — which
+  # pre-existing headings render and which new gated sections stay omitted — and
+  # that contract is the standing guarantee. (A one-shot pre-merge byte-identity
+  # comparison against the merge-base renderer used to sit below these probes; it
+  # was retired in issue #924 once #894 merged, because comparing the current
+  # renderer against a merge-base that already carries the #894 sections is a
+  # tautology, and the presence probes here already hold the standing contract.)
   #
   # The fixture is deliberately given a `status: regressed` pattern, so the one
   # stated exception — a regressed entry in an old summary now also surfacing the
@@ -15130,83 +15186,6 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   assert_eq "audit-cap old summary: no truncations key → the truncation section is omitted" "false" \
     "$(echo "$REPORT894" | grep -q 'Stage B evidence truncated' && echo true || echo false)"
 
-  # ── #894 REAL byte-identity, against the pre-change renderer ────────────────
-  # The assertions above are presence probes; this one is the byte claim. Render the
-  # SAME old-shaped fixture through lib/render-report.sh as it stood at the merge-base
-  # with origin/main, and compare the two outputs BYTE FOR BYTE — so a reordered
-  # section, a changed blank-line structure, or a reworded body in any pre-existing
-  # section fails here even though every presence probe above still passes.
-  #
-  # Two normalisations, applied IDENTICALLY to both sides by one bash-builtin line
-  # filter (never `sed`/`awk` — a non-preflight PATH tool must not decide a SELECTION,
-  # and an absent one would empty the comparand and pass vacuously):
-  #   1. the `**Run finished:**` line, whose value is the wall clock at render time —
-  #      the two renders can straddle a second boundary, and a load-sensitive
-  #      assertion is a defect in the assertion, not a tolerable flake;
-  #   2. the `## Regressed patterns` block — its heading through the last line before
-  #      the next `## ` heading, which absorbs the section's own trailing blank while
-  #      leaving the blank that PRECEDED its heading to serve as the separator before
-  #      the following heading, exactly as in the base output. It is the one stated
-  #      exception, itself asserted by the presence probe above, so removing it here
-  #      does not weaken the claim.
-  # Everything else is compared verbatim.
-  #
-  # SCOPE: this is a ONE-SHOT PRE-MERGE gate, not a standing guarantee. It is
-  # meaningful only while the #894 change is unmerged, because its base side is the
-  # merge-base with origin/main; the tautology guard below detects the post-merge
-  # state and self-skips rather than passing vacuously.
-  #
-  # Self-skips when the base renderer cannot be materialised (a shallow clone, no
-  # origin/main, a `git show` failure) — a blocking-gate skip, never a silent pass.
-  rr_normalize() {  # stdin -> stdout; drops the timestamp line and the Regressed block
-    local rr_line rr_out="" rr_in_reg=0
-    while IFS= read -r rr_line; do
-      case "$rr_line" in
-        '**Run finished:**'*) continue ;;
-        '## Regressed patterns') rr_in_reg=1; continue ;;
-        '## '*) rr_in_reg=0 ;;
-      esac
-      [ "$rr_in_reg" -eq 1 ] && continue
-      rr_out="${rr_out}${rr_line}"$'\n'
-    done
-    printf '%s' "$rr_out"
-  }
-  RR_BASE_REF="$(git merge-base origin/main HEAD 2>/dev/null || true)"
-  RR_BASE_SRC=""
-  if [ -n "$RR_BASE_REF" ]; then
-    RR_BASE_SRC="$(git show "$RR_BASE_REF:lib/render-report.sh" 2>/dev/null || true)"
-  fi
-  RR_BASE_OUT=""
-  RR_BASE_DIR=""
-  if [ -n "$RR_BASE_SRC" ]; then
-    RR_BASE_DIR="$(mktemp -d)"
-    printf '%s\n' "$RR_BASE_SRC" > "$RR_BASE_DIR/render-report.sh"
-    # The base renderer sources resolve-jq.sh from beside ITSELF, so give it siblings.
-    cp "$LIB/resolve-jq.sh" "$RR_BASE_DIR/resolve-jq.sh" 2>/dev/null || true
-    cp "$LIB/resolve-bin.sh" "$RR_BASE_DIR/resolve-bin.sh" 2>/dev/null || true
-    RR_BASE_OUT="$(bash -c '. "$1/render-report.sh"; devflow_render_report "$2"' _ "$RR_BASE_DIR" "$SUM894" 2>/dev/null || true)"
-    rm -rf "$RR_BASE_DIR"
-  fi
-  # TAUTOLOGY GUARD. `git merge-base origin/main HEAD` resolves to a PRE-change
-  # renderer only while this work is unmerged. Once it lands, every branch's
-  # merge-base already carries the #894 sections, and this harness renders the
-  # current renderer against ITSELF — passing by construction while guarding
-  # nothing, with no signal that it stopped guarding. Detect that state from the
-  # base SOURCE (the marker the change introduced) and self-skip naming it, so the
-  # harness announces its own retirement instead of silently going vacuous.
-  RR_BASE_IS_POST=false
-  case "$RR_BASE_SRC" in *'## Filing queue'*) RR_BASE_IS_POST=true ;; esac
-  if [ "$RR_BASE_IS_POST" = true ]; then
-    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
-      "the merge-base renderer already carries the #894 sections, so this comparison would render the current renderer against itself — it is a ONE-SHOT PRE-MERGE gate and has now retired; re-anchor it to a checked-in golden fixture if a standing guarantee is wanted"
-  elif [ -z "$RR_BASE_OUT" ]; then
-    skip "audit-cap byte-identity vs the pre-change renderer" blocking-gate \
-      "could not render lib/render-report.sh from the merge-base with origin/main (no merge-base, git show failed, or the base renderer produced no output in isolation)"
-  else
-    assert_eq "audit-cap byte-identity: an old summary renders byte-identically to the pre-change renderer (timestamp + the Regressed section excepted)" \
-      "$(printf '%s\n' "$RR_BASE_OUT" | rr_normalize)" \
-      "$(printf '%s\n' "$REPORT894" | rr_normalize)"
-  fi
 )
 OSPR="$(bash "$LIB/open-state-pr.sh" --branch devflow/learnings-test --dry-run 2>/dev/null)"
 assert_eq "open-state-pr dry-run echoes DRYRUN" "true" "$(echo "$OSPR" | grep -q 'DRYRUN' && echo true || echo false)"
@@ -35968,17 +35947,36 @@ assert_eq "#480 an ESCAPED backslash before a quote does not flip the mask's par
 # ── matcher-probe's EXTRAS mirrors every probe-eligible config grant. A grant that is
 # ── intentionally config-only until a later matcher-probe run proves its command shape is
 # ── listed in `unproven_post_merge` below (currently none) so it stays closed and visible.
+# ── Issue #928: the workflow templates config's absolute workspace prefix off
+# ── ${{ github.workspace }} so matcher-probe.yml hardcodes no repo-derived path, while
+# ── the config key stays out of scope (trigger-time-resolved) and keeps its absolute
+# ── literals. The mirror therefore holds under exactly one transform — config's absolute
+# ── prefix ↔ the ${{ github.workspace }} expression — which this test derives from config
+# ── itself (no hardcoded path) and applies to `want` before comparing.
 assert_eq "#480 matcher-probe EXTRAS mirrors probe-eligible devflow_implement.allowed_tools" "SYNCED" \
   "$(python3 - "$LIB/../.github/workflows/matcher-probe.yml" "$LIB/../.devflow/config.json" <<'PY'
 import json, re, sys
 yml = open(sys.argv[1], encoding="utf-8").read()
 cfg = json.load(open(sys.argv[2], encoding="utf-8"))
 unproven_post_merge = set()
-want = [
+cfg_tokens = [
     token
     for token in cfg.get("devflow_implement", {}).get("allowed_tools", [])
     if token not in unproven_post_merge
 ]
+# Derive config's absolute workspace prefix from any absolute token (never hardcoded
+# here). The workflow templates that exact prefix off ${{ github.workspace }} (#928), so
+# apply the same substitution to `want`. When config carries no absolute token (the
+# post-merge state after the config key is itself migrated) abs_prefix is None and the
+# comparison degrades to identity — forward-compatible with no change here.
+WS = "${{ github.workspace }}"
+abs_prefix = None
+for t in cfg_tokens:
+    mm = re.match(r"Bash\((/.*?)/(?:scripts|lib)/", t)
+    if mm:
+        abs_prefix = mm.group(1)
+        break
+want = [t.replace(abs_prefix, WS) if abs_prefix else t for t in cfg_tokens]
 m = re.search(r"EXTRAS='([^']*)'", yml)
 if not m:
     print("EXTRAS-NOT-FOUND")

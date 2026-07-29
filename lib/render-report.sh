@@ -143,7 +143,8 @@ devflow_render_report() {
     # history), NOT a this-run event, so the heading deliberately carries no
     # "this run" time claim — unlike the run-scoped won't-fix re-raise section. An
     # old-shaped summary whose pre-existing `.patterns` carries a regressed entry
-    # therefore renders this section too (the one stated exception to byte-identity).
+    # therefore renders this section too — the one pre-existing-shape summary that
+    # also surfaces a section gated on a newer status.
     # Omitted when no pattern is regressed.
     local regressed_n
     # Same type-test + numeric-degrade guard the sections above use; the element
@@ -181,8 +182,8 @@ devflow_render_report() {
     # token-keyed line would go silent in the compound case). For an OBJECT summary it
     # renders whenever the summary carries AT LEAST ONE of the two operand keys —
     # which every run of the changed orchestrator does — and is omitted when it
-    # carries NEITHER (the pre-change summary shape), so byte-identity holds on an old
-    # summary. It is unconditional on any current run: not gated on withheld_patterns,
+    # carries NEITHER (the pre-change summary shape), so an old-shaped summary renders
+    # without this line. It is unconditional on any current run: not gated on withheld_patterns,
     # not on N>=M. A valid-JSON NON-object summary (`has()` is undefined there) takes
     # the same degrade-to-omitted path as any other probe failure below, rather than
     # aborting the render.
