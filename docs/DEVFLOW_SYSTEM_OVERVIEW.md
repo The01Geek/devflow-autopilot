@@ -43,7 +43,7 @@ gate. Two open defects describe the consequences and neither is close to landing
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/devflow:review` by comment**, and it is untouched. A
+**The supported review path is `/devflow:review` by comment**, and this change does not edit it. A
 repository collaborator with write, admin or maintain permission comments `/devflow:review`
 on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 `scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot

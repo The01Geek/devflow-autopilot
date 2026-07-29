@@ -6945,9 +6945,9 @@ assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed mar
 # Cross-file identity, re-anchored to the surviving pair: the marker PREFIX the skill
 # seeds must be the prefix the workflow rebuilds. A rename of `devflow:review-progress`
 # on either side goes RED here rather than silently disabling the flip in production.
-assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \
+assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; producer (skill) and consumer (devflow.yml flip step) must rebuild an identical prefix or the flip addresses no comment
   "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; the producer (the skill) and the consumer (devflow.yml's flip step) must rebuild the identical prefix or the flip silently addresses no comment
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
@@ -15749,7 +15749,7 @@ EOF
 # `git grep -l` reads the INDEX-plus-worktree tracked set, so it never descends into the
 # sibling checkouts under .claude/worktrees/ the way a repo-root-anchored recursive walk
 # would (issue #711).
-_936_ACTUAL="$(cd "$REPO_ROOT" && git grep -lF -- 'devflow-review.yml' \
+_936_ACTUAL="$(cd "$LIB/.." && git grep -lF -- 'devflow-review.yml' \
   | grep -vE '^(\.devflow/logs/|\.devflow/learnings/|\.changeset/|CHANGELOG\.md$)' | sort)"
 assert_eq "#936 surviving devflow-review.yml references match the checked-in allowlist exactly" \
   "$_936_EXPECTED" "$_936_ACTUAL"  # structural-pin-ok: generated-artifact-identity -- the allowlist IS the machine-consumed inventory of surviving references to a deleted workflow; its subject is the tree's path set, not prose wording

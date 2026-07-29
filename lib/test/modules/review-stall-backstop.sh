@@ -901,9 +901,9 @@ loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop
   # list precisely to prove this anchor survives it.
   # Scoped to the WORKFLOW copy loop by requiring devflow-implement on the same line, so an
   # unrelated future `for w in …` loop naming matcher-probe cannot false-RED this check.
-  grep -F -- 'for w in ' "$1" | grep -F -- 'devflow-implement' | grep -qF -- 'matcher-probe' && echo yes || echo no  # structural-pin-ok: routing-dispatch-contract -- install.sh's workflow copy loop IS the machine-consumed routing decision for which workflows reach a consumer repo; this predicate reads that one line to assert the repo-internal matcher probe is not among them
+  grep -F -- 'for w in ' "$1" | grep -F -- 'devflow-implement' | grep -qF -- 'matcher-probe' && echo yes || echo no
 }
-assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
+assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \  # structural-pin-ok: routing-dispatch-contract -- install.sh's workflow copy loop IS the machine-consumed routing decision for which workflows reach a consumer repo; this reads that one line to assert the repo-internal matcher probe is not among them
   "no" "$(loop_ships_probe801 "$INSTALL801")"
 _t801i="$(probe_tmp '#801 install-loop negative-assertion positive control')"
 sed -E 's/for w in devflow /for w in matcher-probe devflow /' "$INSTALL801" > "$_t801i"
