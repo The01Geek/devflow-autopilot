@@ -286,9 +286,14 @@ def _read_command(payload) -> str | None:
     """The Bash command string, or None for any shape the guard cannot classify.
 
     Every None path is a fail-open route to `defer`: valid JSON that is not an object, an
-    object with no `tool_input`, a `tool_input` that is not an object, or an object with
-    no `command` string."""
+    object whose `tool_name` is not `Bash`, an object with no `tool_input`, a `tool_input`
+    that is not an object, or an object with no `command` string. The `tool_name` check is
+    defense-in-depth: this guard is registered for `Bash` today, but any non-`Bash` tool
+    whose input happens to carry a `command`-shaped string field must not be classified as
+    a shell command if the matcher is ever registered more broadly."""
     if not isinstance(payload, dict):
+        return None
+    if payload.get("tool_name") != "Bash":
         return None
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
@@ -417,7 +422,9 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
             current = raw + 1
         store["arms"][arm] = current
         escalated = current >= 2
-        store["seen"][seen_key] = {"arm": arm, "escalated": escalated}
+        # Only `escalated` is ever read back (see the `prior.get("escalated")` read
+        # above) — no other field of a `seen` entry is consumed, so none is stored.
+        store["seen"][seen_key] = {"escalated": escalated}
         if len(store["seen"]) > _SEEN_MAX:
             # Drop the oldest-inserted keys (json round-trips insertion order).
             for stale in list(store["seen"])[: len(store["seen"]) - _SEEN_MAX]:

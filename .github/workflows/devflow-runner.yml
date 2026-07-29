@@ -1633,8 +1633,8 @@ jobs:
           # space-separated literal (no tr/sed — guard-class 2: a value deciding an
           # emitted result must not be derived through a non-preflight PATH tool).
           # Exact because displacement is all-or-nothing: the helper displaces every
-          # target on exit 0, else the inline arm stubs all ten, else the job failed
-          # before this point. The compose step (after this one) forwards this as
+          # target on exit 0, else the inline arm stubs every target, else the job
+          # failed before this point. The compose step (after this one) forwards this as
           # HARDENED_PATHS to the renderer, which routes listed-path HEAD verification
           # through `git show`.
           printf 'disposition=displaced\n' >> "$GITHUB_OUTPUT"

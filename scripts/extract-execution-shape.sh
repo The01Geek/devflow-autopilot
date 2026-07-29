@@ -317,10 +317,18 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
     # array entries, so it under-reports rather than mis-reporting a zero.
     | ([ $objs[] | (.permission_denials? // empty)
          | select(type == "array") | .[] ] | length) as $denial_entries
+    # SELF-CONTRADICTORY CARRIERS (PR #906 review). $p can read "present" off a positive
+    # permission_denials_count while the array carrier is present but EMPTY (denial_entries
+    # == 0) — the count says the harness refused something, the array says it recorded
+    # nothing. That is not the natural zero-denial shape ($p would read "absent" there);
+    # it is two carriers disagreeing about the same event, so the safe reading is
+    # unestablished, the same posture as the count-collapse this helper already guards
+    # against — never a genuine {total: 0}.
     | (if $p == "unavailable" then "unavailable"
        elif $p == "absent" then ({commands: [], total: 0, truncated: false} | tojson)
        elif ($has_denial_array | not) then "unavailable"
-       elif ($denial_entries > 0 and ($cmds | length) == 0) then "unavailable"
+       elif ($denial_entries == 0) then "unavailable"
+       elif ($cmds | length) == 0 then "unavailable"
        else ({ commands: ($cmds[0:40]),
                total: ($cmds | length),
                truncated: (($cmds | length) > 40) } | tojson)

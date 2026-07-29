@@ -22817,6 +22817,19 @@ assert_eq "#805 unknown-is-not-zero positive control: a genuinely EMPTY denials 
 assert_eq "#805 unknown-is-not-zero positive control: the empty-array shape is not swept into unavailable" "0" \
   "$(printf '%s\n' "$EES_805_EMPTY_OUT" | grep -c 'unavailable' || true)"
 rm -f "$EES_805_EMPTY"
+# SELF-CONTRADICTORY CARRIERS (PR #906 review): a positive permission_denials_count
+# coexisting with a present-but-EMPTY permission_denials array used to emit `total: 0` — a
+# genuine zero — because the array-empty shape alone reads as the natural absent case and
+# nothing checked the count against it. The count and the array disagree about the same
+# event, so this must report unavailable, distinct from the genuinely-empty positive
+# control above (count 0, array []) which stays total:0.
+EES_805_CONTRA="$(mktemp)"
+cat > "$EES_805_CONTRA" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[],"permission_denials_count":3}]
+EESEOF
+assert_eq "#906 self-contradictory carriers: positive count + empty array reports unavailable, not total 0" "1" \
+  "$(bash "$EES_805" "$EES_805_CONTRA" 2>/dev/null | grep -c '^permission_denials_commands: unavailable$' || true)"
+rm -f "$EES_805_CONTRA"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"
