@@ -746,22 +746,18 @@ offending call. It resolves through `extract-command-shapes.py`'s arm-level
 `classify_arms()` because the deny set is defined over **arms**, not rule ids
 (`classify()` collapses R3's two arms onto one token).
 
-**The review-tier `settings`-input registration is now wired (issue #908); the committed
-`.claude/settings.json` channel remains a maintainer prerequisite.** What ships is the
-guard body, its unit coverage, its hardening from the trusted base ref via the `#458`
-`HOOK_TARGETS` closure (its path is in both `HOOK_ENTRY_TARGETS` and `HOOK_TARGETS`), and
-— added by issue #908 — the `settings` input on `devflow-runner.yml`'s review-tier action
-step that makes the guard effective in a cloud review run, paired with an unconditional
-harden step that always materializes a trusted base copy of the guard closure (or stubs it
-inline, fail-closed) so registering through `settings` never executes PR-editable guard
-code in the secrets-bearing job. `devflow-implement.yml` registers no guard. What remains a
-**maintainer prerequisite** — deliberately outside issue #908's scope, because the harness
-denies agent writes under `.claude/` — is the `PreToolUse` key in the committed
-`.claude/settings.json`: the local/interactive registration channel, and what arms the
-`#458` relevance gate (`--wired-check` matches `HOOK_ENTRY_TARGETS` against the *trusted
-base* settings). Until that committed key lands the local/interactive channel is inert;
-the cloud review-tier channel is live as of this change, so the runtime behavior described
-below is observed there while remaining the guard's implemented contract locally.
+**Registration is not yet wired — the guard is inert at this revision.** What is shipped
+is the guard body, its unit coverage, and its hardening from the trusted base ref via the
+`#458` `HOOK_TARGETS` closure (its path is in both `HOOK_ENTRY_TARGETS` and
+`HOOK_TARGETS`). What is **not** shipped is either registration channel: no `PreToolUse`
+key in the committed `.claude/settings.json`, and no `settings` input on
+`devflow-runner.yml`'s review-tier action step. Both are required and must land together
+— the committed settings entry is what arms the `#458` relevance gate (`--wired-check`
+matches `HOOK_ENTRY_TARGETS` against the *trusted base* settings), while the `settings`
+input is what makes the guard effective in a run; registering through `settings` alone
+would execute PR-editable guard code in a secrets-bearing job. Until both land, every
+runtime behavior described below is the guard's implemented contract, not observed
+behavior.
 
 ### The deny set and each arm's permitted alternative (authoritative)
 
@@ -797,18 +793,16 @@ discipline, not a probe result). The guard **defers** these.
 
 ### PreToolUse probe evidence (Part 1)
 
-**The probe arm is authored (issue #908); its dispatch and evidence are recorded
-post-merge (issue #919).** `.github/workflows/matcher-probe.yml` now carries a
-`pretooluse-probe` arm that registers a `PreToolUse`/`Bash` hook via the `settings` input,
-writes `.devflow/tmp/pretooluse-probe-fired`, and reports `FIRED`/`NOT-FIRED` (absent =
-established negative) and `REASON-DELIVERED`/`REASON-ABSENT`. It establishes, by
-observation, whether a `PreToolUse` hook fires under `claude-code-action` and whether its
-`permissionDecisionReason` reaches the engine transcript. The guard's own firing behavior is
+**The probe arm is not yet authored.** `.github/workflows/matcher-probe.yml` carries no
+`pretooluse-probe` arm at this revision — it is to be added alongside the registration
+above. Once added it will establish, by observation, whether a `PreToolUse` hook fires
+under `claude-code-action` (`FIRED`/`NOT-FIRED`) and whether its
+`permissionDecisionReason` reaches the engine transcript
+(`REASON-DELIVERED`/`REASON-ABSENT`). The guard's own firing behavior is
 resolved from the workflow definition and is **not** observable inside the implementing
 pull request's own run, so the probe is dispatched **after merge** and its run id +
 three-way result, plus one review run's per-arm denial counts against the
-run-30138268273 baseline of five `/tmp`-redirect denials, are recorded here then (issue
-#919 owns that dispatch and fills the row below):
+run-30138268273 baseline of five `/tmp`-redirect denials, are recorded here then:
 
 | Probe run id | Firing verdict | Reason-delivery verdict | Per-arm denial counts (review run) |
 | --- | --- | --- | --- |
