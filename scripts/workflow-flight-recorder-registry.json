@@ -48,12 +48,12 @@
     },
     "review-trigger-helpers": {
       "path": "lib/test/modules/review-trigger-helpers.sh",
-      "minimum_assertions": 401,
+      "minimum_assertions": 277,
       "description": "Focused review and implement trigger-helper contracts: parse-engine-error.sh, surface-execution-diagnostics.sh (#329) with its workflow wiring (#331), the execution-transcript artifact config key and scrub/gate hardening (#409), resolve-implement-trigger.sh, dedupe-implement-run.sh, authorize-actor.sh, detect-standalone-command.sh and resolve-command-trigger.sh"
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
-      "minimum_assertions": 190,
+      "minimum_assertions": 181,
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), and the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the docs/implement-skill.md verdict mirror)"
     },
     "experiment-records": {

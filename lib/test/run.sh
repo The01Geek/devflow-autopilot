@@ -6947,7 +6947,7 @@ assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed mar
 # on either side goes RED here rather than silently disabling the flip in production.
 assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \
   "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"
+     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; the producer (the skill) and the consumer (devflow.yml's flip step) must rebuild the identical prefix or the flip silently addresses no comment
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
@@ -15271,7 +15271,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # in advance to a measured set of low-risk sections, and what follows was not in it.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 401; then
+  "review-trigger-helpers" 277; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15701,6 +15701,13 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # version-consolidate CONSUMES and DELETES its files on merge, so an allowlist entry naming
 # one would rot RED on main the moment it landed.
 #
+# Disclosed residual on one allowlisted path. scripts/describe-denial-count.sh's header comment
+# still names devflow-review.yml in the present tense, and issue #936 deliberately did NOT
+# rewrite it: the #908 AC6 pin below asserts that file is byte-unmodified relative to the
+# merge-base with origin/main, so any edit — including a tense correction — turns that pin RED.
+# Re-scoping someone else's guard was out of scope here, so the stale tense is recorded as a
+# known exception rather than silently fixed or silently ignored.
+#
 # Accepted residual, stated rather than discovered later: this pins the FILENAME form only.
 # The bare `devflow-review` is a config KEY, not a filename, and legitimately survives in
 # .devflow/config.example.json, .devflow/config.json and .devflow/config.schema.json (each
@@ -15732,12 +15739,11 @@ lib/test/mutation-pin-corpus-adjudications.tsv
 lib/test/run.sh
 lib/test/test_verification_baseline.py
 scripts/build-experiment-records.py
+scripts/describe-denial-count.sh
 scripts/post-review-backstop-comment.sh
 scripts/render-guard-visibility.sh
 scripts/workflow-flight-recorder-registry.json
 skills/implement/phases/phase-4-documentation.md
-skills/review/SKILL.md
-skills/review/phases/phase-4-4-github-post.md
 EOF
 )"
 # `git grep -l` reads the INDEX-plus-worktree tracked set, so it never descends into the
@@ -15755,7 +15761,7 @@ mkdir -p "$_936_CTRL_DIR/sub"
 printf 'see .github/workflows/devflow-review.yml\n' > "$_936_CTRL_DIR/sub/planted.md"
 assert_eq "#936 allowlist comparison detects a reference from an unlisted path (positive control)" "differs" \
   "$([ "$(cd "$_936_CTRL_DIR" && grep -rlF -- 'devflow-review.yml' . | sed 's|^\./||' | sort)" != "$_936_EXPECTED" ] \
-     && echo differs || echo same)"
+     && echo differs || echo same)"  # tree-walk-ok: the walk is rooted at this control's own mktemp -d sandbox holding exactly one planted file, never at the repository root, so it cannot reach a sibling worktree; the real comparison above sources its population from git grep
 rm -rf "$_936_CTRL_DIR"
 
 
@@ -26292,18 +26298,21 @@ VP_PLACEMENT="$(awk '
   /uses:[[:space:]]*\.\/\.github\/actions\/vendor-plugin/ { if (seen) ok++; else bad++ }
   END { print (ok+0)"/"(bad+0) }
 ' "$REPO_ROOT"/.github/workflows/*.yml)"
-assert_eq "vendor: vendor-plugin runs after checkout in all eight plugin jobs" "8/0" "$VP_PLACEMENT"
+# Count-free in the "bad" dimension and self-deriving in the "ok" one (issue #936 removed a
+# workflow and with it two vendor-plugin jobs, rotting the old hardcoded 8): assert that NO
+# job places vendor-plugin before its checkout, and — so the check can never pass vacuously
+# on a tree with zero such jobs — that at least one job places it correctly.
+assert_eq "vendor: no plugin job runs vendor-plugin before its checkout" "0" "${VP_PLACEMENT##*/}"
+assert_eq "vendor: at least one plugin job runs vendor-plugin after its checkout (non-vacuous)" "yes" \
+  "$([ "${VP_PLACEMENT%%/*}" -gt 0 ] && echo yes || echo no)"
 
-# AC3 finalize_check drift-guard: the dismiss call must be preceded by an
-# explicit executability check so a vendoring miss (absent script, exit 127)
-# is reported distinctly from a present-but-errored run. A workflow-level grep
-# guard (the script-absent branch cannot be exercised by the shell harness):
-# the `[ ! -x … ]` test and a distinct "absent" warning string must both be
-# present in devflow-review.yml.
-assert_eq "review: finalize_check guards dismiss with [ -x ] before invoking" "1" \
-  "$(grep -c '\[ ! -x "\$DISMISS" \]' "$REVIEW_WF" || true)"
-assert_eq "review: finalize_check emits a distinct script-absent warning" "1" \
-  "$(grep -c 'dismiss-stale-rejections.sh absent — vendoring did not materialize it' "$REVIEW_WF" || true)"
+# AC3's finalize_check dismiss drift-guard is RETIRED (issue #936). Its two pins — the
+# `[ ! -x "$DISMISS" ]` executability test and the distinct "vendoring did not materialize
+# it" warning — asserted content inside .github/workflows/devflow-review.yml's
+# finalize_check, and that workflow is no longer in the tree. scripts/dismiss-stale-rejections.sh
+# is RETAINED: unlike the three helpers retired with the tier, it has a surviving invoker
+# (the review engine's Phase 0.3.6 blocker-recheck reaches it from the comment-triggered
+# path), and its own unit coverage sits above this block, unchanged.
 
 # devflow_version pin (AC7): declared in the schema and present in the example.
 assert_eq "vendor: schema declares devflow_version string" "string" \
@@ -32827,7 +32836,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 190; then
+  "review-stall-backstop" 181; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
