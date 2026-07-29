@@ -23,7 +23,7 @@
     },
     "capability-profiles": {
       "path": "lib/test/modules/capability-profiles.sh",
-      "minimum_assertions": 61,
+      "minimum_assertions": 62,
       "description": "Focused #561 capability-profile manifest generator: --check clean pass, manifest and region adversarial matrices, planted-defect controls, idempotency/determinism, no-runtime-read, PR #588 hardening, and the #555 implement-tier bundled-helper grant-flow CLAUDE.md pins"
     },
     "regenerate-artifacts": {
@@ -53,7 +53,7 @@
     },
     "review-stall-backstop": {
       "path": "lib/test/modules/review-stall-backstop.sh",
-      "minimum_assertions": 181,
+      "minimum_assertions": 182,
       "description": "Focused cloud-review stall-backstop coverage: the #408 no-verdict auto-resume backstop (request-review-backstop.sh, its devflow.yml wiring and grounding-block coupling), the #414 post-and-annotate helper extraction (post-review-backstop-comment.sh plus the ScheduleWakeup and agents-seam probe verdict readers), and the #812 CLAUDE_CODE_DISABLE_BACKGROUND_TASKS harness-floor probe verdict reader (background-tasks-probe-verdict.py) including the #839 additive coverage (denial-side tool-name net, main() side-output arms and EXECUTION_FILE fallback, and the docs/implement-skill.md verdict mirror)"
     },
     "experiment-records": {
