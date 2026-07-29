@@ -576,9 +576,15 @@ serially.
 
 The enriched pattern object now carries every occurrence's
 `summary`/`descriptors`/`suggested_interventions` (issue #893), and the largest
-category has ~199 occurrences, so — beyond the single scalar read that names its own
-file (`SLUG`, below) — it must **not** travel through a herestring, and never
-through an inline prompt interpolation.
+category's occurrence count can run into the hundreds, so — beyond the single scalar read that names its own
+file (`SLUG`, below) — extracting a SCALAR field (`SLUG`, `TAG`, `CATEGORY`,
+`TOTAL`) off the object must **not** travel through a second/third herestring,
+and never through an inline prompt interpolation; each is read from the on-disk
+`pattern-${SLUG}.json` file instead. This scalar-extraction restriction does not
+by itself cover `devflow_select_audit_bundles` below, which receives the whole
+in-memory `$pattern` object once as a bounded positional argument (neither a
+herestring nor an interpolation) — cheap because the object is already resident,
+not because the restriction reaches that call.
 
 **`SLUG` names the file every later step reads, so it is derived — and that file
 written — before any other field is read off the pattern object:**
