@@ -15743,14 +15743,17 @@ scripts/describe-denial-count.sh
 scripts/post-review-backstop-comment.sh
 scripts/render-guard-visibility.sh
 scripts/workflow-flight-recorder-registry.json
-skills/implement/phases/phase-4-documentation.md
 EOF
 )"
 # `git grep -l` reads the INDEX-plus-worktree tracked set, so it never descends into the
 # sibling checkouts under .claude/worktrees/ the way a repo-root-anchored recursive walk
 # would (issue #711).
+# LC_ALL=C pins the collation: the checked-in list is in C order (uppercase before lowercase),
+# while a UTF-8 locale's sort ignores case and punctuation and interleaves README.md and the
+# docs/ paths differently. Unpinned, this assertion passes or fails on the runner's locale
+# rather than on the tree's path set.
 _936_ACTUAL="$(cd "$LIB/.." && git grep -lF -- 'devflow-review.yml' \
-  | grep -vE '^(\.devflow/logs/|\.devflow/learnings/|\.changeset/|CHANGELOG\.md$)' | sort)"
+  | grep -vE '^(\.devflow/logs/|\.devflow/learnings/|\.changeset/|CHANGELOG\.md$)' | LC_ALL=C sort)"
 assert_eq "#936 surviving devflow-review.yml references match the checked-in allowlist exactly" \
   "$_936_EXPECTED" "$_936_ACTUAL"  # structural-pin-ok: generated-artifact-identity -- the allowlist IS the machine-consumed inventory of surviving references to a deleted workflow; its subject is the tree's path set, not prose wording
 # Positive control: the comparison must be able to say "differs". A file carrying a fresh
