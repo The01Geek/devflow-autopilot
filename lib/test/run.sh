@@ -1461,7 +1461,10 @@ if sys.argv[1] in ('emitted', 'stray', 'exit3'):
         # sides equal: the very silent decay this block exists to stop. Counting the helper's
         # `exit 3` statements enumerates the same population by a signal the token regexes
         # cannot see, and the row below asserts the two counts agree.
-        print(len(re.findall(r'^\s*exit 3\s*$', body, re.M)))
+        # The optional `;;` is load-bearing: one refusal arm terminates a `case` branch, so
+        # anchoring on a bare `exit 3` line undercounts the population by exactly that arm and
+        # the row below would then fail against a correct helper.
+        print(len(re.findall(r'^\s*exit 3\s*(?:;;)?\s*$', body, re.M)))
         raise SystemExit(0)
     # re.M is load-bearing: without it `^`/`$` anchor to the whole string and findall over
     # the body returns nothing, which would empty the emitted set and make the equality row
