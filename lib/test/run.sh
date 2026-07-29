@@ -18488,6 +18488,45 @@ assert_eq "et-fresh(R2): the unestablished-base breadcrumb fires" "yes" \
   "$(printf '%s' "$ETF2_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
 rm -rf "$ETF2_REPO"
 
+# et-fresh(R2b, issue #916) — base ESTABLISHED but the telemetry-branch fetch is
+# UNESTABLISHED (_DEVFLOW_TELEMETRY_FETCH_STATUS=failed) → synthesis declines,
+# mirroring the base-ref guard. The fixture makes the two statuses diverge: origin
+# is reachable and main is pushed (base refresh succeeds → established), while a
+# same-named `devflow-telemetry` branch exists on origin holding a NON-.devflow/logs/
+# path, so do_persist fetches it, devflow_telemetry_verify_store FAILS, and the
+# fetch status is set to `failed`. Before #916 this synthesized (base established +
+# a matching fix commit + an empty exclusion set from the un-advanced local ref) and
+# could re-attribute an already-recorded commit; now it declines: no iter-*.json, and
+# the telemetry-fetch decline breadcrumb fires — textually distinct from the
+# base-ref-unestablished one (which must NOT fire, proving it is the telemetry guard,
+# not the base guard, that declined). --persist still exits 0.
+ETF2B_ORIGIN="$(git_sandbox "et-fresh R2b origin")"; git -C "$ETF2B_ORIGIN" init --bare -q
+ETF2B_REPO="$(git_sandbox "et-fresh R2b repo")"
+git -C "$ETF2B_REPO" init -q
+git -C "$ETF2B_REPO" config user.email t@e.com; git -C "$ETF2B_REPO" config user.name t
+git -C "$ETF2B_REPO" commit --allow-empty -qm base; git -C "$ETF2B_REPO" branch -M main
+git -C "$ETF2B_REPO" remote add origin "$ETF2B_ORIGIN"; git -C "$ETF2B_REPO" push -q origin main
+# A same-named telemetry branch that is NOT a valid store (a top-level non-.devflow/logs
+# file) → verify_store fails → _DEVFLOW_TELEMETRY_FETCH_STATUS=failed.
+git -C "$ETF2B_REPO" checkout -q -b devflow-telemetry
+printf x > "$ETF2B_REPO/not-a-store"; git -C "$ETF2B_REPO" add not-a-store
+git -C "$ETF2B_REPO" commit -qm "not a telemetry store"
+git -C "$ETF2B_REPO" push -q origin devflow-telemetry
+git -C "$ETF2B_REPO" checkout -q main
+git -C "$ETF2B_REPO" checkout -q -b feat
+printf a > "$ETF2B_REPO/a"; git -C "$ETF2B_REPO" add a
+git -C "$ETF2B_REPO" commit -qm "fix: address review findings (iteration 1)"
+ETF2B_WPD="$ETF2B_REPO/.devflow/tmp/review/pr-2b/run-t"; mkdir -p "$ETF2B_WPD"
+ETF2B_ERR="$( ( cd "$ETF2B_REPO" && bash "$LIB/efficiency-trace.sh" --persist --workpad-dir "$ETF2B_WPD" --slug pr-2b ) 2>&1 1>/dev/null )"; ETF2B_RC=$?
+assert_eq "et-fresh(R2b): base-established+telemetry-failed still exits 0" "0" "$ETF2B_RC"
+assert_eq "et-fresh(R2b): failed telemetry fetch declines — NO iter-*.json written" "no" \
+  "$([ -e "$ETF2B_WPD/iter-1.json" ] && echo yes || echo no)"
+assert_eq "et-fresh(R2b): the telemetry-fetch decline breadcrumb fires" "yes" \
+  "$(printf '%s' "$ETF2B_ERR" | grep -qF 'telemetry-branch fetch is UNESTABLISHED' && echo yes || echo no)"
+assert_eq "et-fresh(R2b): the base-ref-unestablished breadcrumb does NOT fire (proves the telemetry guard declined, not the base guard)" "no" \
+  "$(printf '%s' "$ETF2B_ERR" | grep -qF 'base ref is UNESTABLISHED' && echo yes || echo no)"
+rm -rf "$ETF2B_ORIGIN" "$ETF2B_REPO"
+
 # et-fresh(R3) — NO origin remote at all → synthesis PROCEEDS and writes its record;
 # exit 0. Pins the arm that keeps every no-origin et-synth fixture green (a revert to
 # a decline-on-missing-origin spec turns this RED).
