@@ -3126,8 +3126,9 @@ assert_eq "#893 select: a missing required --findings-file returns exactly rc 2"
 assert_eq "#893 select: a missing required --findings-file emits nothing on stdout" "" "$RL_SF_MISSING"
 assert_eq "#893 select: the missing-argument breadcrumb names it" "true" \
   "$(grep -qF 'missing required argument' "$TMP_SF/sf-missing.err" && echo true || echo false)"
-RL_SF_UNKNOWN="$( ( . "$RL_SF"; devflow_select_findings --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 --bogus-flag x ) 2>"$TMP_SF/sf-unknown.err" )"; RL_SF_UNKNOWN_RC=$?
+RL_SF_UNKNOWN="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 --bogus-flag x 2>"$TMP_SF/sf-unknown.err")"; RL_SF_UNKNOWN_RC=$?
 assert_eq "#893 select: an unknown argument returns exactly rc 2" "2" "$RL_SF_UNKNOWN_RC"
+assert_eq "#893 select: an unknown argument emits nothing on stdout" "" "$RL_SF_UNKNOWN"
 assert_eq "#893 select: the unknown-argument breadcrumb names the flag" "true" \
   "$(grep -qF -- 'unknown argument '\''--bogus-flag'\''' "$TMP_SF/sf-unknown.err" && echo true || echo false)"
 # rc-1 positive control on the SAME kind of split: the data/owner withhold path
@@ -3151,7 +3152,7 @@ done
 exec jq "$@"
 SHIM
 chmod +x "$TMP_SF/selective-fail-jq.sh"
-RL_SF_JQFAIL="$( ( . "$RL_SF"; DEVFLOW_JQ="$TMP_SF/selective-fail-jq.sh" devflow_select_findings --category tooling-gap --findings-file "$TMP_SF/sf-alias-f.json" --overrides "$TMP_SF/sf-alias-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 ) 2>"$TMP_SF/sf-jqfail.err" )"; RL_SF_JQFAIL_RC=$?
+RL_SF_JQFAIL="$(DEVFLOW_JQ="$TMP_SF/selective-fail-jq.sh" rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-alias-f.json" --overrides "$TMP_SF/sf-alias-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-jqfail.err")"; RL_SF_JQFAIL_RC=$?
 assert_eq "#893 select: an alias-lookup jq failure returns non-zero (withhold)" "true" "$([ "$RL_SF_JQFAIL_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "#893 select: an alias-lookup jq failure emits nothing on stdout" "" "$RL_SF_JQFAIL"
 assert_eq "#893 select: the alias-lookup jq failure breadcrumb names the alias lookup" "true" \
