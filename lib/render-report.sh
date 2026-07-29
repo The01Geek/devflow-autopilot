@@ -342,8 +342,11 @@ devflow_render_report() {
     elif [ "$issues_count" -gt 0 ]; then
         # Name each filed issue by its filing KEY and its CATEGORY (issue #893): a
         # finding now files under an opaque `<category>-<subslug>` key, so the bare
-        # `tag` alone no longer tells the maintainer which category it bounds. Fall
-        # back to `.tag` for a legacy bare-category entry that carries no `.key`.
+        # `tag` alone no longer tells the maintainer which category it bounds. Both
+        # producers (the findings-array path and the legacy bare-category path) now
+        # emit `.key` on every entry; `// .tag` is defensive against an
+        # externally-authored or historical entry shape that predates this
+        # convention, not a live producer arm.
         _rr_emit intervention_issues '(.intervention_issues // [] | map(select(type == "object")))[]
             | "- `\(.key // .tag // "(unnamed)")`"
               + (((.category | strings) // "") | if . != "" then " (category: `\(.)`)" else "" end)

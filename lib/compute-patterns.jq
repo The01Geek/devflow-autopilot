@@ -132,7 +132,10 @@ def descriptors_for($entries; $cat):
    # string or object here); an unguarded `(.descriptors // [])[]` aborts the whole
    # weekly derivation on `Cannot iterate over string` (issue #893).
    | (((.descriptors | arrays) // [])[])]
-  | map(select(. != null and . != "")) | unique;
+  # `select(. != null and . != "")` alone lets a non-string element (a number, an
+  # object) through — neither null nor "" — into the category-level union. `strings`
+  # narrows to string elements first, which also subsumes the null/"" exclusion.
+  | map(select(. | strings | length > 0)) | unique;
 
 def fixes_for($entries; $cat):
   [$entries[]

@@ -914,7 +914,10 @@ shell command). Then:
   existing malformed blocker; file nothing.
 
 You increment `filed_this_run` once per **issue filed** (not per pattern), and append
-each filed finding's composed key to `filed_slugs` for Step 9's annotation.
+the pattern's coarse tag `$SLUG` — once per pattern that filed anything, never the
+composed key — to `filed_slugs` for Step 9's annotation: `devflow_annotate_patterns`
+indexes on the pattern view's own coarse `.tag // .slug`, which a composed
+`<category>-<subslug>` key can never equal.
 
 ```bash
 # The wrapper precheck is a SEPARATE single-statement branch (no rc variable carried
@@ -984,6 +987,16 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 done < <($LIB/../scripts/run-jq.sh -c '.[]' < ".devflow/tmp/dropped-${SLUG}.json")
             fi
             FINDINGS_N="$(printf '%s' "$TO_FILE" | $LIB/../scripts/run-jq.sh 'length')"
+            # Every per-finding DROP inside devflow_select_findings (absent/empty
+            # subslug, empty title/body, composer rejection, illegal grammar, an
+            # in-call duplicate key) is a stderr-only breadcrumb, not a structured
+            # channel. A pattern whose findings all drop that way — but which raised
+            # no cap withhold and no top-three truncation — would otherwise leave NO
+            # skip_records/blocker/withheld trace: it vanishes from the report,
+            # indistinguishable from a clean week for that pattern. Record it here.
+            if [ "${FINDINGS_N:-0}" -eq 0 ] && [ ! -s ".devflow/tmp/withheld-${SLUG}.json" ] && [ ! -s ".devflow/tmp/dropped-${SLUG}.json" ]; then
+                skip_records+=("Pattern ${SLUG}: select-findings.sh selected 0 findings to file (no cap withhold, no top-three truncation) — every returned finding was individually dropped; see its stderr breadcrumbs for which check")
+            fi
             _fi=0
             _pattern_filed=0   # reset PER PATTERN — a stale 1 from the previous pattern
                                # would annotate this one as filed on a run that filed nothing
@@ -1021,7 +1034,21 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
                 [ -n "$_FIRST_CAP" ] && withheld+=("$($LIB/../scripts/run-jq.sh -nc --arg tag "$SLUG" --arg cap "$_FIRST_CAP" '{tag:$tag,cap:$cap}')")
             fi
         else
-            blockers+=("Pattern ${SLUG}: select-findings.sh withheld every finding (cap owner unsourceable, or overrides unreadable/unmigrated — see its ::error:: breadcrumb) — nothing filed")
+            # devflow_select_findings returns 2 for a wiring/argument fault (a
+            # required flag missing or empty, or the findings file itself unreadable
+            # — never reached on this path in practice, since 8a/8b already write
+            # it) and 1 for every withhold-everything condition it decides on the
+            # pattern's own data (cap owner unsourceable, overrides
+            # unreadable/unmigrated, a canonicalization or comparand failure, or the
+            # filing-key composer being unavailable). Branch on the code so a wiring
+            # regression in THIS call site is not misreported as ordinary
+            # back-pressure — the two causes point the reader at different fixes.
+            _SF_RC=$?
+            if [ "$_SF_RC" -eq 2 ]; then
+                blockers+=("Pattern ${SLUG}: select-findings.sh refused the call (wiring/argument fault, exit 2) — see its ::error:: breadcrumb for the missing/empty flag; nothing filed")
+            else
+                blockers+=("Pattern ${SLUG}: select-findings.sh withheld every finding (cap owner unsourceable, or overrides unreadable/unmigrated — see its ::error:: breadcrumb) — nothing filed")
+            fi
         fi
     fi
 

@@ -2846,6 +2846,17 @@ assert_eq "#893 enrich: a wrong-typed summary defaults to null" "null" \
 assert_eq "#893 enrich: a wrong-typed summary leaves the occurrence present (count 1)" "1" \
   "$(printf '%s' "$RL_ENR_BVIEW" | jq -r '."tooling-gap".occurrence_count')"
 
+# descriptors_for: a non-string element in .descriptors (a number, an object) is
+# neither null nor "" and must not survive into the category-level union — only
+# `select(. != null and . != "")` would let it through (a receiving-review
+# reception fix, PR #904).
+RL_ENR_MIXED='{"kind":"implementation","pr":2,"merged_at":"2026-01-01T00:00:00Z","verdict":"imperfect","categories":["tooling-gap"],"descriptors":["real descriptor",42,{"x":1},null,""]}'
+RL_ENR_MVIEW="$(rl_cp "$RL_ENR_MIXED" '{"schema_version":3,"patterns":{},"dismissed":{}}')"
+assert_eq "#893 descriptors_for: a non-string element is excluded from the category union" "1" \
+  "$(printf '%s' "$RL_ENR_MVIEW" | jq -r '."tooling-gap".descriptors | length')"
+assert_eq "#893 descriptors_for: the surviving element is the real string descriptor" "real descriptor" \
+  "$(printf '%s' "$RL_ENR_MVIEW" | jq -r '."tooling-gap".descriptors[0]')"
+
 # ── select-findings: helper setup ────────────────────────────────────────────
 # TMP_SF is this block's runtime scratch handle (the same mktemp -d dir as $RL_TMP).
 # The greps below read what THIS run produced — devflow_select_findings' captured
@@ -2969,6 +2980,53 @@ assert_eq "#893 select: an unmigrated overrides file emits nothing on stdout" ""
 RL_SF_ABS="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$RL_TMP/does-not-exist.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_ABS_RC=$?
 assert_eq "#893 select: an absent overrides file withholds (non-zero, no key coined)" "true" "$([ "$RL_SF_ABS_RC" -ne 0 ] && echo true || echo false)"
 assert_eq "#893 select: an absent overrides file emits nothing on stdout" "" "$RL_SF_ABS"
+
+# select: an EMPTY (zero-byte, present) overrides file withholds distinctly from an
+# absent one — the `[ ! -s ]` arm of the same guard.
+: > "$TMP_SF/sf-empty-ov.json"
+RL_SF_EMPTYOV="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-empty-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_EMPTYOV_RC=$?
+assert_eq "#893 select: a zero-byte overrides file withholds (non-zero)" "true" "$([ "$RL_SF_EMPTYOV_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#893 select: a zero-byte overrides file emits nothing on stdout" "" "$RL_SF_EMPTYOV"
+
+# select: an UNREADABLE (present, non-zero-byte, permission-denied) overrides file
+# withholds distinctly from absent/empty — the `[ ! -r ]` arm of the same guard.
+printf '%s' '{"schema_version":3,"patterns":{},"dismissed":{}}' > "$TMP_SF/sf-unreadable-ov.json"
+chmod 000 "$TMP_SF/sf-unreadable-ov.json"
+if [ ! -r "$TMP_SF/sf-unreadable-ov.json" ]; then
+    RL_SF_UNREAD="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-unreadable-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>/dev/null)"; RL_SF_UNREAD_RC=$?
+    assert_eq "#893 select: an unreadable overrides file withholds (non-zero)" "true" "$([ "$RL_SF_UNREAD_RC" -ne 0 ] && echo true || echo false)"
+    assert_eq "#893 select: an unreadable overrides file emits nothing on stdout" "" "$RL_SF_UNREAD"
+else
+    # Running as root (or on a filesystem where chmod 000 doesn't deny the owner's
+    # own read) makes this arm unobservable — skip rather than assert a false premise.
+    skip "#893 select: an unreadable overrides file withholds" host-capability "chmod 000 did not deny read access in this environment (root or a permissive filesystem)"
+fi
+chmod 644 "$TMP_SF/sf-unreadable-ov.json"
+
+# select: a subslug that canonicalizes to the EMPTY STRING (pure punctuation, e.g.
+# "!!!") is a genuine compose-filing-key.sh REJECTION (its own hard-reject arm,
+# exit 2) — distinct from the missing/non-executable composer case tested above.
+printf '%s' '[{"subslug":"!!!","title":"X","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$TMP_SF/sf-composereject.json"
+RL_SF_CR="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-composereject.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-cr.err")"
+assert_eq "#893 select: a subslug canonicalizing to empty is dropped (composer rejection)" "0" \
+  "$(printf '%s' "$RL_SF_CR" | jq 'length')"
+assert_eq "#893 select: the composer-rejection drop names compose-filing-key.sh as the source" "true" \
+  "$(grep -qF 'compose-filing-key.sh rejected subslug' "$TMP_SF/sf-cr.err" && echo true || echo false)"
+
+# select: the alias-DISTINCTNESS negative — the load-bearing half of the alias
+# contract. A subslug differing from an existing record's subslug by even ONE
+# token must stay DISTINCT and compose its own key, never alias onto it. Without
+# this negative, a signature comparison that accidentally matched too broadly
+# (e.g. dropped a token, or ignored word order in a way that over-collapses)
+# would pass every existing alias-POSITIVE test while still merging distinct
+# sub-patterns undetected.
+printf '%s' '{"schema_version":3,"patterns":{"tooling-gap-slow-suite":{"category":"tooling-gap","state":"filed","fixed_at":null,"provenance":"2026-01-01T00:00:00Z","meta_issues":[{"number":12,"url":"https://x/issues/12","state":"filed","closedAt":null}]}},"dismissed":{}}' > "$TMP_SF/sf-distinct-ov.json"
+printf '%s' '[{"subslug":"suite-slow-timeout","title":"Distinct","body":"b","evidence_prs":[1],"rationale":"r"}]' > "$TMP_SF/sf-distinct-f.json"
+RL_SF_DIST="$(rl_sf --category tooling-gap --findings-file "$TMP_SF/sf-distinct-f.json" --overrides "$TMP_SF/sf-distinct-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-dist.err")"
+assert_eq "#893 select: a subslug differing by one token stays distinct (no alias)" "tooling-gap-suite-slow-timeout" \
+  "$(printf '%s' "$RL_SF_DIST" | jq -r '.[0].key')"
+assert_eq "#893 select: the distinct-subslug case emits no alias breadcrumb" "false" \
+  "$(grep -qF 'aliased finding' "$TMP_SF/sf-dist.err" && echo true || echo false)"
 
 # select: an unsourceable cap owner withholds and returns non-zero, printing nothing
 # Copy select-findings WITHOUT filing-decisions.sh beside it → the source fails and
