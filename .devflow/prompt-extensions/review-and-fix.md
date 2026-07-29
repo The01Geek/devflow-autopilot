@@ -24,7 +24,13 @@ A wording-only pin is a test whose protected literal can change without changing
 behavior and without breaking a machine-consumed contract. Flag every newly added wording-only,
 secondary-prose, documentation-presence, advisory-heading, or comment-presence pin as an
 **Important** finding, whether it uses a pin helper or a raw text-presence assertion. A
-`# structural-pin-ok:` comment does not make prose executable.
+`# structural-pin-ok:` comment does not make prose executable. This "whether it uses a pin
+helper" scope is now enforced mechanically, not by review alone: `mutation-routing-worktree`
+reports a **new or modified** count-helper pin (`pin_count` / `devflow_module_pin_count`) whose
+literal resolves into prose exactly as it reports the equivalent static-helper or raw-`grep` pin
+(issue #925 — helper identity selects no exemption). The pre-existing population is grandfathered
+(only changed sites are adjudicated), so the clause is enforced for new and modified sites; an
+unmodified prose pin that predates the rule is not retroactively failed.
 
 An operative prompt regression instead uses an ordinary executable test over the
 rendered or consumed prompt and demonstrates that test going RED when the behavior

@@ -688,6 +688,189 @@ class PinCorpusLint810Tests(unittest.TestCase):
             )
         self.assertEqual([], findings)
 
+    def test_count_helper_prose_pin_is_reported_like_a_static_one(self):
+        # Issue #925: a pin_count whose literal resolves into prose is reported
+        # exactly as the equivalent static-helper pin, and the finding names the
+        # literal, the prose file:line it resolved into, and that the helper does
+        # not change the verdict.
+        for helper in ("pin_count", "devflow_module_pin_count"):
+            with self.subTest(helper=helper), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                target = root / "docs/x.md"
+                target.parent.mkdir(parents=True)
+                target.write_text(
+                    "# Heading\n\nThe trailer form is written here.\n",
+                    encoding="utf-8",
+                )
+                source = (
+                    "F=\"$LIB/../docs/x.md\"\n"
+                    f"{helper} 'trailer form is written' \"$F\""
+                )
+                findings = self.mod.scan_changed_sources(
+                    {"lib/test/a.sh": source},
+                    {"lib/test/a.sh": ""},
+                    one_file_diff("lib/test/a.sh", "", source),
+                    repo_root=root,
+                )
+                self.assertEqual(1, len(findings))
+                self.assertIn("trailer form is written", findings[0])
+                self.assertIn("resolves into prose", findings[0])
+                self.assertIn("docs/x.md:3", findings[0])
+                self.assertIn(f"the {helper} helper does not change", findings[0])
+
+    def test_count_helper_machine_consumed_literal_with_declaration_passes(self):
+        # The counterpart to the prose case: a count-helper pin over a genuinely
+        # machine-consumed literal (a fenced token) that carries a valid typed
+        # declaration is GREEN — the same scrutiny every typed pin takes.
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fenced token is parsed by a consumer"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
+            source = (
+                "F=\"$LIB/../docs/x.md\"\n"
+                f"pin_count 'MACHINE SENTINEL' \"$F\"  {marker}"
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual([], findings)
+
+    def test_count_helper_prose_pin_red_first_real_regression(self):
+        # AC3: the exact pin PR #923 removed — a pin_count over a command-form
+        # trailer that lives in visible prose. WITH the pin present the gate
+        # reports it (RED); with it absent the gate is clean (GREEN). Both
+        # observations are recorded here so the RED-first proof is durable.
+        literal = 'review-wp.md ; echo "seed-rc=$?"'
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "skills/review/SKILL.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "# Review\n\nSeed the comment with "
+                'seed-review-progress.sh ... review-wp.md ; echo "seed-rc=$?"\n'
+                "so a refusal is observable.\n",
+                encoding="utf-8",
+            )
+            # RED: the removed pin, reintroduced, is reported.
+            with_pin = (
+                "ST_REV=\"$LIB/../skills/review/SKILL.md\"\n"
+                f"pin_count '{literal}' \"$ST_REV\""
+            )
+            red = self.mod.scan_changed_sources(
+                {"lib/test/run.sh": with_pin},
+                {"lib/test/run.sh": ""},
+                one_file_diff("lib/test/run.sh", "", with_pin),
+                repo_root=root,
+            )
+            self.assertEqual(1, len(red))
+            self.assertIn(literal, red[0])
+            self.assertIn("resolves into prose", red[0])
+            # GREEN: with the pin removed, the same tree is clean.
+            without_pin = "ST_REV=\"$LIB/../skills/review/SKILL.md\"\n"
+            green = self.mod.scan_changed_sources(
+                {"lib/test/run.sh": without_pin},
+                {"lib/test/run.sh": ""},
+                one_file_diff("lib/test/run.sh", "", without_pin),
+                repo_root=root,
+            )
+            self.assertEqual([], green)
+
+    def test_unmodified_count_helper_prose_pin_is_grandfathered(self):
+        # AC4/AC5: an existing count-helper prose pin the change does not touch is
+        # not scanned (grandfathered → GREEN); the SAME site, once modified, takes
+        # the full adjudication (RED).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "# Heading\n\nThe trailer form is written here.\n",
+                encoding="utf-8",
+            )
+            pin_source = (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "pin_count 'trailer form is written' \"$F\""
+            )
+            # Unmodified: the diff touches an unrelated file, so the pin site is
+            # not in scope and draws no finding.
+            grandfathered = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": pin_source},
+                {"lib/test/a.sh": pin_source},
+                one_file_diff("lib/test/other.sh", "", "echo unrelated"),
+                repo_root=root,
+            )
+            self.assertEqual([], grandfathered)
+            # Modified: the same pin site now appears in the diff and is reported.
+            modified = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": pin_source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", pin_source),
+                repo_root=root,
+            )
+            self.assertEqual(1, len(modified))
+            self.assertIn("resolves into prose", modified[0])
+
+    def test_undeclared_count_helper_over_machine_content_requires_declaration(self):
+        # The discriminating test for #925: an UNDECLARED count-helper pin over
+        # genuinely machine-consumed (fenced) content is now RED for a missing
+        # declaration — exactly as a static-helper pin is. This is the case that
+        # would silently pass again if the count-helper short-circuit were
+        # reintroduced, and unlike the declared-machine GREEN test it does NOT
+        # also pass on the pre-#925 code.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
+            source = (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "pin_count 'MACHINE SENTINEL' \"$F\""
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual(1, len(findings))
+        self.assertIn("missing structural declaration", findings[0])
+        self.assertNotIn("resolves into prose", findings[0])
+
+    def test_count_helper_prose_pin_in_hash_comment_target_is_reported(self):
+        # Helper-neutrality across the COMMENT_HASH_EXTS branch too: a pin_count
+        # whose literal resolves into a `#` comment of a .sh target is reported
+        # with the prose file:line, just like the markdown branch.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "lib/x.sh"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "printf '%s\\n' runtime\n# advisory phrase in a comment\n",
+                encoding="utf-8",
+            )
+            source = (
+                "F=\"$LIB/../lib/x.sh\"\n"
+                "pin_count 'advisory phrase in a comment' \"$F\""
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual(1, len(findings))
+        self.assertIn("resolves into prose", findings[0])
+        self.assertIn("lib/x.sh:2", findings[0])
+        self.assertIn("pin_count helper does not change", findings[0])
+
     def test_direct_inline_repository_file_is_a_raw_presence_pin(self):
         source = (
             "assert_eq \"wording\" \"yes\" "
@@ -3648,7 +3831,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
             clean_rc, clean_stdout, clean_stderr = self._public_rc(root)
             self.assertEqual(3, clean_rc, clean_stderr)
-            self.assertIn("cannot exempt prose presence", clean_stdout)
+            self.assertIn("resolves into prose", clean_stdout)
 
             target.write_text(
                 "```text\nSTATIC PIN PROSE\n```\n",
@@ -3656,7 +3839,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             dirty_rc, dirty_stdout, dirty_stderr = self._public_rc(root)
             self.assertEqual(3, dirty_rc, dirty_stderr)
-            self.assertIn("cannot exempt prose presence", dirty_stdout)
+            self.assertIn("resolves into prose", dirty_stdout)
 
     def test_authorized_retired_revival_cannot_launder_committed_prose_target(self):
         literal = "Step 3.6 fresh-context audit"
@@ -3721,7 +3904,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
 
             rc, stdout, stderr = self._public_rc(root)
             self.assertEqual(3, rc, stderr)
-            self.assertIn("cannot exempt prose presence", stdout)
+            self.assertIn("resolves into prose", stdout)
 
     def test_worktree_target_snapshot_detects_byte_mode_and_path_races(self):
         for mutation in ("bytes", "mode", "path"):
