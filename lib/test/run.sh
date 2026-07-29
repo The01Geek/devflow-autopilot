@@ -6942,12 +6942,12 @@ assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed revie
   "$REVIEW_BUNDLE"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
   'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
-# Cross-file identity, re-anchored to the surviving pair: the marker PREFIX the skill
-# seeds must be the prefix the workflow rebuilds. A rename of `devflow:review-progress`
-# on either side goes RED here rather than silently disabling the flip in production.
-assert_eq "#356 marker: the marker prefix the skill seeds is the prefix devflow.yml rebuilds" "yes" \
-  "$(grep -qF '<!-- devflow:review-progress run=' "$REVIEW_BUNDLE" \
-     && grep -qF '<!-- devflow:review-progress run=' "$M356_DEVFLOW_YML" && echo yes || echo no)"  # structural-pin-ok: machine-sentinel-provenance -- the HTML-comment marker is the machine sentinel workpad.py locates the run-keyed review-progress comment by; producer (skill) and consumer (devflow.yml flip step) must rebuild an identical prefix or the flip addresses no comment
+# The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
+# against each other. Issue #936 removed the second copy with devflow-review.yml, and no
+# separate prefix assertion replaces it: the two assert_pin_unique calls above already pin
+# the producer's seeded literal and the consumer's rebuilt literal in full, and the shared
+# `<!-- devflow:review-progress run=` prefix is a substring of both — so a rename on either
+# side turns one of them RED without a third, weaker check.
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
 assert_eq "#356: fetch-pr-context.sh strips the full Status glyph set (incl. 💥 and 🛑)" "yes" \
