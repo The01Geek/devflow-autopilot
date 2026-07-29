@@ -11,7 +11,7 @@ Source baseline: `2e9283f4` (`origin/main` after issue #745 landed).
 
 The extracted region was **11 consecutive box-comment sections** in
 `lib/test/run.sh` spanning 2,058 lines. It ran from the section
-`parse-engine-error.sh (#249 execution-log is_error parser)` through
+`derive-review-verdict.sh (#249 HEAD-scoped, fail-closed verdict deriver)` through
 `resolve-command-trigger.sh` inclusive. **It stops there deliberately:** the tranche
 was scoped in advance to a measured set of low-risk sections, and the sections past
 `resolve-command-trigger.sh` were not part of it. Its assertion floor is recorded once, in
@@ -23,6 +23,8 @@ drift out of it silently.
 
 | Contract group | Former `lib/test/run.sh` section | Module destination | Representative contract |
 | --- | --- | --- | --- |
+| Review verdict derivation | `derive-review-verdict.sh (#249 …)` | `review-trigger-helpers.sh` / verdict section | the deriver is HEAD-scoped and fails closed — an unresolvable comment set yields no verdict, never a default pass |
+| Review preconditions | `derive-review-preconditions.sh (#304 …)` | preconditions section | branch-freshness and other-CI-green gating, including the unestablished-measurement arms |
 | Engine-error parsing | `parse-engine-error.sh (#249 …)` | engine-error section | the execution-log `is_error` parser feeding `engine_is_error` |
 | Execution diagnostics | `surface-execution-diagnostics.sh (#329 …)` + `workflow wiring: … (#331)` | diagnostics section | the run summary and permission-denials surfacer honors `DEVFLOW_JQ` and degrades to "No diagnostics available" rather than a bare-`jq` read |
 | Execution transcript | `execution transcript artifact: config key + scrub/gate hardening (#409)` | transcript section | the default-OFF polarity and the fail-closed transcript clamp, both proved by mutation |

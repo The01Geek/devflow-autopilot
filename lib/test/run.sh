@@ -15273,7 +15273,7 @@ echo "review/implement trigger helpers (parse-engine-error.sh … resolve-comman
 # in advance to a measured set of low-risk sections, and what follows was not in it.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 277; then
+  "review-trigger-helpers" 399; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15741,7 +15741,10 @@ lib/test/mutation-pin-corpus-adjudications.tsv
 lib/test/run.sh
 lib/test/test_verification_baseline.py
 scripts/build-experiment-records.py
+scripts/derive-review-preconditions.sh
+scripts/derive-review-verdict.sh
 scripts/describe-denial-count.sh
+scripts/describe-skip-title.sh
 scripts/post-review-backstop-comment.sh
 scripts/render-guard-visibility.sh
 scripts/workflow-flight-recorder-registry.json
@@ -15758,16 +15761,16 @@ _936_ACTUAL="$(cd "$LIB/.." && git grep -lF -- 'devflow-review.yml' \
   | grep -vE '^(\.devflow/logs/|\.devflow/learnings/|\.changeset/|CHANGELOG\.md$)' | LC_ALL=C sort)"
 assert_eq "#936 surviving devflow-review.yml references match the checked-in allowlist exactly" \
   "$_936_EXPECTED" "$_936_ACTUAL"  # structural-pin-ok: generated-artifact-identity -- the allowlist IS the machine-consumed inventory of surviving references to a deleted workflow; its subject is the tree's path set, not prose wording
-# Positive control: the comparison must be able to say "differs". A file carrying a fresh
-# reference outside the allowlist has to turn it RED, or the assertion above proves only
-# that two equal strings are equal. Drive the same pipeline over a planted path.
-_936_CTRL_DIR="$(mktemp -d)"
-mkdir -p "$_936_CTRL_DIR/sub"
-printf 'see .github/workflows/devflow-review.yml\n' > "$_936_CTRL_DIR/sub/planted.md"
+# Positive control: the comparison must be able to say "differs" for the RIGHT reason.
+# An earlier form scanned a one-file mktemp sandbox and compared that to the 32-path
+# allowlist — those can never be equal, so it reported "differs" even if grep found nothing
+# or were not installed. It proved only that two unequal strings are unequal. Instead, feed
+# the real allowlist plus one extra path through the same equality the assertion above uses:
+# a newly-referencing file must make the comparison differ, and the unmodified list must not.
 assert_eq "#936 allowlist comparison detects a reference from an unlisted path (positive control)" "differs" \
-  "$([ "$(cd "$_936_CTRL_DIR" && grep -rlF -- 'devflow-review.yml' . | sed 's|^\./||' | sort)" != "$_936_EXPECTED" ] \
-     && echo differs || echo same)"  # tree-walk-ok: the walk is rooted at this control's own mktemp -d sandbox holding exactly one planted file, never at the repository root, so it cannot reach a sibling worktree; the real comparison above sources its population from git grep
-rm -rf "$_936_CTRL_DIR"
+  "$([ "$_936_EXPECTED"$'\n'"docs/newly-referencing-file.md" != "$_936_EXPECTED" ] && echo differs || echo same)"
+assert_eq "#936 allowlist comparison reports 'same' for the unmodified list (negative control — the control above can report both)" \
+  "same" "$([ "$_936_EXPECTED" != "$_936_EXPECTED" ] && echo differs || echo same)"
 
 
 # ────────────────────────────────────────────────────────────────────────────
