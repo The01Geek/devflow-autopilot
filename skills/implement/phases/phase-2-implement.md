@@ -74,7 +74,7 @@ If the recorded classification is **bug-report**, you must capture a *reproducti
 - a quoted error log / stack trace from a real run, or
 - a recorded shell command (with output) that demonstrates the failure.
 
-Write the evidence to a temp file, then: `workpad.py update $ISSUE_NUMBER --status Reproducing --set-reproduction-file /tmp/repro-${ISSUE_NUMBER}.md --tick-progress "reproduction captured" --note "captured reproduction signal"`. (The helper inserts `## Reproduction` after `## Acceptance Criteria` if it doesn't yet exist.)
+Write the evidence with the **Write tool** to `.devflow/tmp/repro-${ISSUE_NUMBER}.md` (ensure the `.devflow/tmp` directory exists first — this is a prose directive with no fence to hold a `mkdir`), then: `workpad.py update $ISSUE_NUMBER --status Reproducing --set-reproduction-file .devflow/tmp/repro-${ISSUE_NUMBER}.md --tick-progress "reproduction captured" --note "captured reproduction signal"`. (The helper inserts `## Reproduction` after `## Acceptance Criteria` if it doesn't yet exist.)
 
 **Temporary proof edits are allowed** when they raise confidence in the reproduction (e.g. inserting a `console.log`, hardcoding a request payload, tweaking a build input). Every temporary proof edit MUST be reverted before the implementation commit in 2.5, and the fact that you made one must be recorded in the workpad's `Reproduction` section so reviewers can follow the evidence.
 
@@ -126,7 +126,7 @@ Two of the cleanup lenses that the Phase 3.2 `/simplify` pass would otherwise fl
 
 Fold the result into the plan: name the helpers to reuse (with `file:line`) in the relevant plan steps, and pick the altitude before writing the steps. This is a planning gate, not a code edit — it changes *what you will write*, so it must precede the plan write below.
 
-After planning (either path), write the plan steps as `- [ ]` checkboxes to a temp file, then `workpad.py update $ISSUE_NUMBER --replace-plan-file /tmp/plan-${ISSUE_NUMBER}.md`.
+After planning (either path), write the plan steps as `- [ ]` checkboxes with the **Write tool** to `.devflow/tmp/plan-${ISSUE_NUMBER}.md` (ensure the `.devflow/tmp` directory exists first — a prose directive with no fence to hold a `mkdir`), then `workpad.py update $ISSUE_NUMBER --replace-plan-file .devflow/tmp/plan-${ISSUE_NUMBER}.md`.
 
 #### 2.2.5 Scope-Adjustment Rule (multi-PR issues)
 
@@ -138,11 +138,11 @@ If discovery and planning revealed that the issue's deliverables span more than 
 
 Steps when scoping down:
 
-1. Write the narrowed AC list (only in-scope checkboxes, verbatim) to a temp file, e.g. `/tmp/narrowed-acs-${ISSUE_NUMBER}.md`.
+1. Write the narrowed AC list (only in-scope checkboxes, verbatim) with the **Write tool** to `.devflow/tmp/narrowed-acs-${ISSUE_NUMBER}.md` (ensure the `.devflow/tmp` directory exists first — a prose directive with no fence to hold a `mkdir`).
 2. Apply the change atomically:
    ```bash
    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER \
-       --replace-acs-file /tmp/narrowed-acs-${ISSUE_NUMBER}.md \
+       --replace-acs-file .devflow/tmp/narrowed-acs-${ISSUE_NUMBER}.md \
        --scope-decision-deferred pending "{the deferred criterion's text, verbatim}" \
        --note "scope decision: {which subset this PR delivers}. Deferred (verbatim): {list}. Will be tracked in follow-up issue(s) filed in Phase 4.0."
    ```

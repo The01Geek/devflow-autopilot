@@ -97,6 +97,13 @@ CLI:
       process substitution — in ASSIGNMENT, ARGUMENT, or CONDITION position. (Row I6
       measured the ASSIGNMENT spelling; the others are the same shape, unmeasured, and
       flagged deliberately — a guard that knows one spelling of what it forbids is a hole.)
+  IR5 a `>`/`>>`/`2>`/`&>` redirect — attached or space-separated — whose target begins
+      with `/tmp/` (issue #915). Mirrors the review tier's R3 REDIRECT arm exactly, by
+      calling the same module-level `_redirect_violation`, so both profiles share one
+      tested target-extraction path. IR5 does NOT inherit R3's `cat`-headed heredoc arm
+      (row 12 records a plain heredoc write PERMITTED on this tier). Its arm scope and
+      the "a later PERMITTED probe does not retire it" rationale are stated in full in
+      the implement-tier NON-GOALS block below.
 """
 
 from __future__ import annotations
@@ -233,7 +240,7 @@ def _preprocess(block: str, carry_comments: bool = False) -> tuple[list[str], li
         cleaned = out[i]
         # BLANK ONLY ON AGREEMENT between the per-line mask and the carry-state mask. Blanking is
         # the one preprocessing act that DELETES code from the scan, so its false-positive
-        # direction is a silent GREEN on every rule downstream (R1-R4, IR1-IR3) — the worst
+        # direction is a silent GREEN on every rule downstream (R1-R4, IR1-IR5) — the worst
         # failure this file can have. The two masks are each blind where the other sees, so for
         # blanking the fail-closed combination is their INTERSECTION, not their union (the loop
         # scan, whose miss only hides a loop keyword, correctly unions instead):
@@ -544,7 +551,7 @@ _REVIEW_ARM_TABLE = (
 
 REVIEW_ARMS = frozenset(arm for arm, _rule, _pred in _REVIEW_ARM_TABLE)
 REVIEW_RULES = frozenset(rule for _arm, rule, _pred in _REVIEW_ARM_TABLE)
-IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3", "IR4"})
+IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3", "IR4", "IR5"})
 
 
 def classify(statement: str) -> list[str]:
@@ -659,6 +666,14 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 #    whether the matcher permits it is precisely UNMEASURED. Not flagged on no evidence; disclosed
 #    rather than silently missing. A probe row would settle it.
 #  * `select … in` is not matched (never probed, never written here).
+#  * IR5 (issue #915) flags a `/tmp/`-targeted redirect on the strength of row 11's
+#    proven-permitted `.devflow/tmp/` ALTERNATIVE, NOT a measured denial of each redirect
+#    arm: only the spaced-stdout `> /tmp/f` (row 10) is measured DENIED on this tier, and
+#    the attached `2>/tmp/f`/`&>/tmp/f` arms are unmeasured. A later probe returning
+#    PERMITTED for one of those arms does NOT narrow or retire IR5 — the rule keeps engine
+#    scratch on the one target form measured permitted, so a second permitted form does not
+#    make `/tmp` acceptable. IR5 also does NOT inherit R3's cat-heredoc arm (row 12 records
+#    a plain heredoc write PERMITTED here), so it calls `_redirect_violation` alone.
 #  * IR3's rescan of an UNQUOTED heredoc body is LINE-SCOPED: it re-reads each expanding body
 #    line on its own, so a capture whose `$(` opens on one body line and whose helper name sits
 #    on the NEXT is not flagged. (A multi-line capture in ordinary code IS caught — the statement
@@ -1108,6 +1123,12 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
                 if _leading_cd(statement):
                     lineno = _attribute_line(statement, start, len(block_lines), lines)
                     seen.add((lineno, "IR4", statement.strip()))
+                # IR5: a `/tmp/`-targeted redirect (issue #915). Shares R3's
+                # `_redirect_violation` target-extraction; the arm scope and its
+                # heredoc exclusion are stated once in the NON-GOALS block above.
+                if _redirect_violation(statement):
+                    lineno = _attribute_line(statement, start, len(block_lines), lines)
+                    seen.add((lineno, "IR5", statement.strip()))
                 if not _label_capture_violation(statement):
                     continue
                 lineno = _attribute_line(statement, start, len(block_lines), lines)

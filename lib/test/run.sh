@@ -4340,11 +4340,11 @@ assert_pin_unique "#254: Phase 4.0.5 keeps the aggregate at the pr-<N> slug path
 # reader routing gains fail-closed arms. Pin the discovery statement, the sentinel field,
 # the extended filing guard, roots-echo surfacing, and the two routing arms.
 assert_pin_unique "#555: Phase 4.0.5 discovers manifests through the fail-closed helper" \
-  'discover-deferral-manifests.py $SEARCH_DIRS 2>/tmp/devflow-dm.err' "$P4_FILE"
+  'discover-deferral-manifests.py $SEARCH_DIRS 2>.devflow/tmp/devflow-dm.err' "$P4_FILE"  # structural-pin-ok: helper-contract -- the discovery helper's stderr capture path is a typed executable boundary between the fence and discover-deferral-manifests.py; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: Phase 4.0.5 initializes DISCOVERY_STATE empty before the discovery statement (the #480 sentinel-operand rule)" \
   'DISCOVERY_STATE=""' "$P4_FILE"
 assert_pin_unique "#555: Phase 4.0.5 discriminates the partial marker with the file-deferrals.py grep idiom" \
-  "elif grep -q 'devflow: discovery partial:' /tmp/devflow-dm.err; then" "$P4_FILE"
+  "elif grep -q 'devflow: discovery partial:' .devflow/tmp/devflow-dm.err; then" "$P4_FILE"  # structural-pin-ok: helper-contract -- the partial-discovery marker is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 assert_pin_unique "#555: the failed/refused arm blanks MANIFESTS so the merge guard is unambiguously false" \
   'DISCOVERY_STATE=failed' "$P4_FILE"
 assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with :- like filing=" \
@@ -4352,7 +4352,7 @@ assert_pin_unique "#555: the sentinel carries the discovery= field, guarded with
 assert_pin_unique "#555: the filing guard requires a successful discovery (a persisted prior aggregate must not drive filing on a failed/refused discovery)" \
   '{ [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n "$AGG" ] && [ -s "$AGG" ]' "$P4_FILE"
 assert_pin_unique "#555: the fence surfaces the helper roots-echo into the tool result on every path" \
-  "grep 'devflow: discovery roots:' /tmp/devflow-dm.err || true" "$P4_FILE"
+  "grep 'devflow: discovery roots:' .devflow/tmp/devflow-dm.err || true" "$P4_FILE"  # structural-pin-ok: helper-contract -- the discovery roots-echo grep is a typed executable boundary between the fence and discover-deferral-manifests.py's stderr protocol; the #915 move off cloud-denied /tmp changed the literal's text but not the contract it protects.
 # ── issue #555 (review finding): a bundled helper granted as a vendored-literal LEADING
 # TOKEN is exec'd by path — no `python3`/`bash` wrapper is available, because an interpreter
 # head is ungranted on the cloud tiers. Without the exec bit such a call dies rc 126 on every
@@ -9480,9 +9480,9 @@ assert_pin_unique "#185: Phase 4.1 Stage 2 Blocked arm names the missing-content
 assert_eq "#284 fix-loop: Phase 4.1 gh body read is if!-guarded in BOTH stages" \
   "2" "$(pin_count 'if ! gh issue view $ISSUE_NUMBER --json body' "$IMPL_SKILL")"
 assert_eq "#284 fix-loop: Phase 4.1 gh writes the body to a fixed temp file (read+retry x2 stages)" \
-  "4" "$(pin_count '> /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>' "$IMPL_SKILL")"
+  "4" "$(pin_count '> .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>' "$IMPL_SKILL")"
 assert_eq "#284 fix-loop: Phase 4.1 extractor reads that temp file (read+retry x2 stages)" \
-  "4" "$(pin_count 'extract-doc-needed-paths.sh < /tmp/devflow-docgate-body-$ISSUE_NUMBER.txt' "$IMPL_SKILL")"
+  "4" "$(pin_count 'extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt' "$IMPL_SKILL")"
 assert_eq "#284 fix-loop: Phase 4.1 no longer carries the old GH_RC/HELPER_RC capture-then-read recipe" \
   "0" "$(pin_count 'GH_RC=$?' "$IMPL_SKILL")"
 # The ISSUE_BODY value-hop the shadow flagged, and the pipefail-option form the fix-delta gate
@@ -35664,14 +35664,17 @@ fi
 # when it was filed. Issue #834's unconditional consumer-prompt-extension handoff sentence
 # — an addition the Phase 4.1 dispatch requires on every run, so it cannot be routed behind
 # a conditional progressively-loaded reference — does not fit inside the residual headroom
-# #815's move happened to leave, so the ceiling is re-registered here at the trimmed
-# post-#834 measurement with NO added slack: the next edit that grows this file goes RED and
-# must register its own raise, exactly as #815 intended. It is pinned rather than rendered
+# #815's move happened to leave, so the ceiling was re-registered at the trimmed
+# post-#834 measurement of 97729. Issue #915's cloud-denied-/tmp scratch relocation adds a
+# rc-checked `mkdir -p .devflow/tmp` guard ahead of the discovery capture, which does not fit
+# inside that headroom either, so the ceiling is raised again here, at the post-#915
+# measurement, with NO added slack: the next edit that grows this file goes RED and must
+# register its own raise, exactly as #815 intended. It is pinned rather than rendered
 # because a rendered figure would move with the file and enforce nothing. Provenance, both
 # measured deltas, and the raise rationale:
 # docs/cutovers/issue-815-deferred-ac-followups-relocate.md.
 assert_eq "#815 phase-4-documentation.md is at or below the byte ceiling the move authorises" "yes" \
-  "$([ "$(wc -c < "$I480_P4")" -le 97729 ] && echo yes || echo no)"
+  "$([ "$(wc -c < "$I480_P4")" -le 99031 ] && echo yes || echo no)"
 # The stub's prose contract elements — that it asks the predicate before deciding, reads
 # the reference through this file's own entry-gate anchor, and degrades rather than halting
 # on a failed read — carry NO pin. Every mutation those sentences admit rewrites the one
