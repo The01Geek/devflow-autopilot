@@ -66,15 +66,37 @@ restore.
 
 ## Install (and update) the cloud tier
 
-Run this from the root of your repository — it installs the workflows, composite
+**Only the cloud tier needs this installer.** Installing the DevFlow *plugin* —
+`/plugin install devflow@devflow-marketplace`, or `claude plugin install
+devflow@devflow-marketplace` — runs no installer script at all and needs none.
+`install.sh` exists solely to add the optional GitHub Actions tier described on
+this page; skip it if you only want the `/devflow:*` skills in your editor.
+
+Run it from the root of your repository — it installs the workflows, composite
 actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and is
-**idempotent, so the same command updates** to the latest later:
+**idempotent** — re-running it at a newer release tag is also how you update. It
+writes changes into your repository, so download it, read it, then run the file you
+read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
-# pin a version instead of tracking main:
-#   curl -fsSL .../install.sh | DEVFLOW_REF=v1.2.0 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh -o devflow-install.sh
+# review devflow-install.sh, then:
+DEVFLOW_REF=v2.26.2 bash devflow-install.sh
 ```
+
+Both refs are pinned to the same **release tag**, so the install is reproducible.
+The URL ref fixes which *installer bytes* you review and run; `DEVFLOW_REF`
+(default `main`, and it accepts a tag, a SHA, or a branch) fixes which ref the
+installer clones its payload from — pinning the URL alone still leaves the payload
+tracking `main`. Substitute a newer tag in both places to install a newer version;
+[the Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest)
+or `gh release list --repo The01Geek/devflow-autopilot --limit 5` names the current
+one. Omit `DEVFLOW_REF` only if you deliberately want to track the moving `main`
+branch. Piping the download straight into `bash` also works
+(`curl -fsSL <pinned-url> | DEVFLOW_REF=<same-tag> bash`) but skips the review step,
+so it is not the recommended form. See
+[Installing & updating](install.md#pinning-the-installer) for the same guidance
+alongside the local-tier install.
 
 Then review with `git diff` and commit. `.devflow/config.json` ships with a
 working default for every value — edit it only to customize.
