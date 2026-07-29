@@ -4,6 +4,23 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.25.3] — 2026-07-29
+
+### Changed
+Let Stage B name sub-patterns and file one issue per finding, ranked and capped (issue #893).
+
+- `lib/compute-patterns.jq` now carries each occurrence's own `summary`, `descriptors`, and `suggested_interventions` (with absent- and wrong-typed-field defaults that never drop the occurrence or lower `occurrence_count`), so Stage B clusters sub-patterns from the on-disk pattern object instead of reopening every context bundle.
+- New `lib/select-findings.sh` owns which Stage B findings become filings on the findings-array path (a deployed subagent still returning a bare `{title, body}` keeps the existing coexistence path, which derives its own cap verdict): it composes and legality-checks each filing key through the #891 composer, collapses subslug churn onto an existing lifecycle record by a deterministic **subslug** token-set alias, ranks tight clusters ahead of grab-bags (descending evidence-PR count) and truncates to the top three, and asks the shipped `devflow_filing_cap_verdict` for each finding's cap decision. The alias signature is taken over the subslug rather than the composed key, so a subslug that repeats one of its category's own tokens stays a distinct sub-pattern instead of silently merging onto that category's existing record; the final key is re-checked against the `[A-Za-z0-9_-]+` grammar *after* aliasing, so a record set holding an illegal key withholds the finding rather than filing against it. It withholds (never files uncapped) when the cap owner cannot be sourced or the overrides file is absent/unreadable/unmigrated.
+- When Stage B returns more than three findings, the run report names the pattern and how many were dropped by the top-three truncation (previously the count reached stderr only).
+- Stage B (`skills/retrospective-audit`) now returns a ranked `findings` array of one to three elements — each with its own `subslug`, `title`, `body`, `evidence_prs`, and `rationale` — and the weekly orchestrator files one issue per selected finding under an opaque `<category>-<subslug>` key, so sub-patterns get their own keys and lifecycle instead of being lost to prose.
+- The run report names each filed issue by both its filing key and its category.
+- `lib/select-findings.sh` drops a finding with an absent/empty title or body, drops a second finding that composes or aliases onto a key already accepted earlier in the same selection, distinguishes a missing/non-executable filing-key composer from a rejected subslug, and validates `--filed-this-run` before the arithmetic that feeds it into the cap verdict — each withholding rather than silently filing a malformed or duplicate issue. The legacy `{title, body}` coexistence path regained the per-category/open-total comparand guards it had before this change.
+
+## [2.25.2] — 2026-07-29
+
+### Added
+- **Make DevFlow's working-directory contract explicit and enforced.** Adds the canonical page `docs/working-directory-contract.md` (vendored to consumers) stating that on the cloud tiers the run begins at the `actions/checkout` workspace root and the Bash tool's working directory persists across calls — which is why every granted helper literal is repo-relative and no DevFlow surface emits a leading `cd` — and that the local/interactive tier re-anchors instead (`git rev-parse --show-toplevel` for the `.devflow/` readers, `BASH_SOURCE` for `scripts/*.sh` helpers). Revokes `Bash(cd:*)` from `devflow_implement.allowed_tools` (and the matcher-probe implement `EXTRAS` mirror), adds the implement-profile desk lint `IR4` (a leading `cd` in a scanned prompt surface now fails at the desk), points the four affected skills at the new page, and corrects the `cd`-evidence drift in `docs/DEVFLOW_SYSTEM_OVERVIEW.md` and `docs/cloud-allowlist.md`. (#855)
+
 ## [2.25.1] — 2026-07-29
 
 ### Changed
