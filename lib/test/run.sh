@@ -22793,6 +22793,30 @@ assert_eq "#805 bounds: total reports every extracted denial, not the capped sli
 assert_eq "#805 bounds: truncated flags the total-cap overflow" "1" \
   "$(printf '%s\n' "$EES_805_CAP_OUT" | grep -c '"truncated":true' || true)"
 rm -f "$EES_805_CAP"
+# UNKNOWN IS NOT ZERO (issue #805 review round 3). A NON-EMPTY denials array that yields no
+# extractable command — the harness carrying the text under some other field, or under a
+# non-string value — is an unestablished extraction. Publishing `total: 0` there would
+# assert "this run denied nothing carrying a command" about a run that denied two things,
+# the same collapse `permission_denials_count` is forbidden from making. Both non-extract
+# shapes are driven, each against an EMPTY-array positive control on the same helper so a
+# blanket `unavailable` cannot satisfy them.
+EES_805_UNK="$(mktemp)"
+cat > "$EES_805_UNK" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[{"tool_name":"Bash","argv":["echo","hi"]},{"tool_name":"Bash","tool_input":{"command":{"nested":"not-a-string"}}}],"permission_denials_count":2}]
+EESEOF
+assert_eq "#805 unknown-is-not-zero: a non-empty denials array yielding no extractable command reports unavailable, not total 0" "1" \
+  "$(bash "$EES_805" "$EES_805_UNK" 2>/dev/null | grep -c '^permission_denials_commands: unavailable$' || true)"
+rm -f "$EES_805_UNK"
+EES_805_EMPTY="$(mktemp)"
+cat > "$EES_805_EMPTY" <<'EESEOF'
+[{"type":"assistant"},{"type":"result","permission_denials":[],"permission_denials_count":0}]
+EESEOF
+EES_805_EMPTY_OUT="$(bash "$EES_805" "$EES_805_EMPTY" 2>/dev/null | grep '^permission_denials_commands: ' || true)"
+assert_eq "#805 unknown-is-not-zero positive control: a genuinely EMPTY denials array still reports total 0, not unavailable" "1" \
+  "$(printf '%s\n' "$EES_805_EMPTY_OUT" | grep -c '"total":0' || true)"
+assert_eq "#805 unknown-is-not-zero positive control: the empty-array shape is not swept into unavailable" "0" \
+  "$(printf '%s\n' "$EES_805_EMPTY_OUT" | grep -c 'unavailable' || true)"
+rm -f "$EES_805_EMPTY"
 
 # ── Adversarial drive over the full closure. Helper builders. ──────────────────
 HSH_TMP="$(mktemp -d)"

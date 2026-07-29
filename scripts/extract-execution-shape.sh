@@ -306,9 +306,21 @@ if ! BODY=$("$DEVFLOW_JQ" -rs '
         | select(type == "string")
         | if (length > 500) then (.[0:500] + " …[per-command-truncated]") else . end
       ] as $cmds
+    # UNKNOWN IS NOT ZERO. A denials array that is non-empty but yields no extractable
+    # command — the harness carrying the text under a field other than .tool_input.command
+    # or .command, or under a non-string value — is an UNESTABLISHED extraction, not a
+    # genuine zero. Emitting {total: 0} there would read as "the run denied nothing that
+    # carried a command", steering a reader away from the real cause exactly as the
+    # permission_denials_count collapse did. So that shape emits `unavailable`. A PARTIAL
+    # extraction (some entries yield a command, some do not) is a disclosed residual: it
+    # still emits the commands it could extract, and `total` counts those rather than the
+    # array entries, so it under-reports rather than mis-reporting a zero.
+    | ([ $objs[] | (.permission_denials? // empty)
+         | select(type == "array") | .[] ] | length) as $denial_entries
     | (if $p == "unavailable" then "unavailable"
        elif $p == "absent" then ({commands: [], total: 0, truncated: false} | tojson)
        elif ($has_denial_array | not) then "unavailable"
+       elif ($denial_entries > 0 and ($cmds | length) == 0) then "unavailable"
        else ({ commands: ($cmds[0:40]),
                total: ($cmds | length),
                truncated: (($cmds | length) > 40) } | tojson)

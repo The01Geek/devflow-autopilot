@@ -20732,18 +20732,29 @@ assert_eq("#805 guard: an ARMED guard emits no failed-open breadcrumb (stderr co
 # escalation never fired again) and `true`, which passes `isinstance(x, int)` because bool
 # subclasses int (so it escalated on the FIRST denial). Both now fail toward escalating,
 # which costs a sentence of remediation text rather than disarming the control.
-for _sname, _store, _want_repeat in [
-    ('object (well-formed, count 1)', {'arms': {'R3-tmp': 1}, 'seen': {}}, True),
-    ('object (well-formed, count 0)', {'arms': {'R3-tmp': 0}, 'seen': {}}, False),
-    ('valid-falsy: arms absent entirely', {'seen': {}}, False),
-    ('scalar count as digit STRING', {'arms': {'R3-tmp': '9'}, 'seen': {}}, True),
-    ('bool count (true) — bool subclasses int', {'arms': {'R3-tmp': True}, 'seen': {}}, True),
-    ('negative count', {'arms': {'R3-tmp': -5}, 'seen': {}}, True),
-    ('float count', {'arms': {'R3-tmp': 2.5}, 'seen': {}}, True),
-    ('array where an object is expected', {'arms': [], 'seen': []}, False),
-    ('wrong-type seen entry', {'arms': {'R3-tmp': 1}, 'seen': {'x': 'not-a-dict'}}, True),
-    ('top-level array', [1, 2, 3], False),
-    ('top-level scalar', 7, False),
+#
+# The WHOLE-FILE shapes carry the same posture as the field-level ones (issue #805 review
+# round 3): a store that EXISTS but cannot be read back structurally used to `pass`
+# silently and start fresh, which reset every arm to zero and disarmed the escalation for
+# the rest of the run — the less-safe direction. Those rows now expect BOTH an escalation
+# and a named stderr breadcrumb; `_want_corrupt_crumb` pins the breadcrumb so a row cannot
+# satisfy `_want_repeat` by some unrelated path. Only an ABSENT store starts fresh
+# silently, which is the genuine first call of a run rather than corruption.
+for _sname, _store, _want_repeat, _want_corrupt_crumb in [
+    ('object (well-formed, count 1)', {'arms': {'R3-tmp': 1}, 'seen': {}}, True, False),
+    ('object (well-formed, count 0)', {'arms': {'R3-tmp': 0}, 'seen': {}}, False, False),
+    ('valid-falsy: arms absent entirely', {'seen': {}}, False, False),
+    ('scalar count as digit STRING', {'arms': {'R3-tmp': '9'}, 'seen': {}}, True, False),
+    ('bool count (true) — bool subclasses int', {'arms': {'R3-tmp': True}, 'seen': {}}, True, False),
+    ('negative count', {'arms': {'R3-tmp': -5}, 'seen': {}}, True, False),
+    ('float count', {'arms': {'R3-tmp': 2.5}, 'seen': {}}, True, False),
+    ('array where an object is expected', {'arms': [], 'seen': []}, True, True),
+    # `seen` IS an object here — only one of its ENTRIES is wrong-typed, which the
+    # per-entry read already tolerates — so this is a field-level shape, not whole-file
+    # corruption, and it takes no corrupt-store breadcrumb.
+    ('wrong-type seen entry', {'arms': {'R3-tmp': 1}, 'seen': {'x': 'not-a-dict'}}, True, False),
+    ('top-level array', [1, 2, 3], True, True),
+    ('top-level scalar', 7, True, True),
 ]:
     _rig_s = _GuardRig()
     _rig_s.run(_payload('echo hi', tid=f'seed-{_sname}'))  # create .devflow/tmp
@@ -20753,13 +20764,51 @@ for _sname, _store, _want_repeat in [
               (0, 'deny'), (_res_s.rc, _res_s.decision))
     assert_eq(f"#805 guard: malformed counter store '{_sname}' escalation verdict",
               _want_repeat, 'REPEAT' in _res_s.reason)
-# A truncated / non-JSON store is the same class and must not crash the guard.
+    assert_eq(f"#805 guard: malformed counter store '{_sname}' corrupt-store breadcrumb",
+              _want_corrupt_crumb,
+              'denial-counter store' in _res_s.stderr)
+# A truncated / non-JSON store is the same CORRUPT class: it must not crash the guard, and
+# it must escalate + breadcrumb rather than silently restart the counters at zero.
 _rig_s2 = _GuardRig()
 _rig_s2.run(_payload('echo hi', tid='seed-trunc'))
 (_rig_s2.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json').write_text(
     '{"arms": {"R3-tmp":', encoding='utf-8')
-assert_eq("#805 guard: a truncated counter store still DENIES (fresh store, no crash)",
-          'deny', _rig_s2.run(_payload('echo x > /tmp/f', tid='trunc')).decision)
+_res_s2 = _rig_s2.run(_payload('echo x > /tmp/f', tid='trunc'))
+assert_eq("#805 guard: a truncated counter store still DENIES (no crash), escalates, and "
+          "names itself on stderr rather than silently resetting the counters",
+          ('deny', True, True),
+          (_res_s2.decision, 'REPEAT' in _res_s2.reason,
+           'could not be read back' in _res_s2.stderr))
+# Positive control for the whole corrupt-store block: an ABSENT store on an otherwise
+# identical rig is the genuine first call — it must NOT escalate and must NOT breadcrumb,
+# so the assertions above are attributable to the corruption and not to any first-denial
+# path. Without this control a guard that escalated on every first denial would pass them.
+_rig_s3 = _GuardRig()
+_rig_s3.run(_payload('echo hi', tid='seed-absent'))
+_res_s3 = _rig_s3.run(_payload('echo x > /tmp/f', tid='absent'))
+assert_eq("#805 guard: ABSENT counter store (positive control) — first denial DENIES "
+          "without escalating and without a corrupt-store breadcrumb",
+          ('deny', False, False),
+          (_res_s3.decision, 'REPEAT' in _res_s3.reason,
+           'denial-counter store' in _res_s3.stderr))
+# An UNREADABLE (present but not openable) store is the third corrupt shape — a distinct
+# code path from non-JSON bytes (OSError, not ValueError). Skipped when running as root,
+# where a 0o000 mode does not deny a read.
+if _os.geteuid() != 0:
+    _rig_s4 = _GuardRig()
+    _rig_s4.run(_payload('echo hi', tid='seed-unreadable'))
+    _unreadable = _rig_s4.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json'
+    _unreadable.write_text('{"arms": {}, "seen": {}}', encoding='utf-8')
+    _unreadable.chmod(0o000)
+    try:
+        _res_s4 = _rig_s4.run(_payload('echo x > /tmp/f', tid='unreadable'))
+        assert_eq("#805 guard: an UNREADABLE counter store DENIES, escalates, and names "
+                  "itself on stderr (OSError arm, distinct from the non-JSON arm)",
+                  ('deny', True, True),
+                  (_res_s4.decision, 'REPEAT' in _res_s4.reason,
+                   'could not be read back' in _res_s4.stderr))
+    finally:
+        _unreadable.chmod(0o600)
 
 # ── tool_use_id-ABSENT counting path (issue #805 review). Without a fallback key this
 # branch incremented on EVERY invocation, so a re-fired hook escalated on the engine's
@@ -20833,6 +20882,66 @@ _rig_rk3.run(_payload('echo x > /tmp/f', tid='rk3'))
 assert_eq("#805 guard: with NO run id the store degrades to the workspace-scoped "
           "filename (the local/interactive tier)", (1, []),
           ((_rig_rk3.counts() or {}).get('arms', {}).get('R3-tmp'), _rig_rk3.store_names()))
+
+# `_run_key` SANITIZE-TO-EMPTY (issue #805 review round 3). A run id whose every character
+# is outside the filename-safe alphabet must be treated as ABSENT, not as an empty key: an
+# empty key would compose the filename `pretooluse-guard-counts-.json`, a third store shape
+# distinct from both the run-keyed and the workspace-scoped one. Driven with a run id made
+# only of rejected characters, asserting the WORKSPACE-scoped filename is written and no
+# run-keyed file appears at all.
+_rig_rk4 = _GuardRig()
+_rig_rk4.run(_payload('echo x > /tmp/f', tid='rk4'), env_extra={'GITHUB_RUN_ID': '///'})
+assert_eq("#805 guard: a run id that sanitizes to EMPTY is treated as absent — the "
+          "workspace-scoped store is written and no run-keyed file is created",
+          (1, []),
+          ((_rig_rk4.counts() or {}).get('arms', {}).get('R3-tmp'), _rig_rk4.store_names()))
+# Positive control on the same shape: a run id carrying at least one accepted character
+# DOES key the store, so the assertion above is attributable to the sanitizing and not to
+# the environment being ignored wholesale.
+_rig_rk5 = _GuardRig()
+_rig_rk5.run(_payload('echo x > /tmp/f', tid='rk5'), env_extra={'GITHUB_RUN_ID': '//a//'})
+assert_eq("#805 guard: sanitize positive control — a run id with one accepted character "
+          "still keys the store (to the sanitized value)",
+          (['pretooluse-guard-counts-a.json'], None),
+          (_rig_rk5.store_names(), _rig_rk5.counts()))
+
+# `_SEEN_MAX` OVERFLOW EVICTION (issue #805 review round 3). The `seen` idempotency map is
+# bounded; on overflow the OLDEST-inserted keys are dropped, which costs at worst a
+# re-count of a long-superseded call and never a decision. Driven by pre-seeding the store
+# with more than `_SEEN_MAX` synthetic keys and asserting the map is capped afterwards and
+# the denial still lands.
+_SEEN_MAX_805 = 512
+_rig_sm = _GuardRig()
+_rig_sm.run(_payload('echo hi', tid='seed-seenmax'))
+_rig_sm.write_counts({
+    'arms': {'R3-tmp': 1},
+    'seen': {f'synthetic-{i}': {'arm': 'R3-tmp', 'escalated': True}
+             for i in range(_SEEN_MAX_805 + 20)},
+})
+_res_sm = _rig_sm.run(_payload('echo x > /tmp/f', tid='seenmax-new'))
+_seen_after = (_rig_sm.counts() or {}).get('seen', {})
+assert_eq("#805 guard: a `seen` map over _SEEN_MAX is capped back to the bound on write",
+          _SEEN_MAX_805, len(_seen_after))
+assert_eq("#805 guard: eviction drops the OLDEST-inserted keys and keeps the newest — the "
+          "just-written key survives and the first synthetic key is gone",
+          (True, False),
+          ('seenmax-new' in _seen_after, 'synthetic-0' in _seen_after))
+assert_eq("#805 guard: `seen` eviction never costs the DECISION — the command is still "
+          "denied, exit 0", (0, 'deny'), (_res_sm.rc, _res_sm.decision))
+# Positive control: a store whose `seen` map is comfortably under the bound is NOT evicted,
+# so the cap assertions above are attributable to the overflow rather than to the guard
+# rewriting `seen` from scratch on every call.
+_rig_sm2 = _GuardRig()
+_rig_sm2.run(_payload('echo hi', tid='seed-seenmax-ctl'))
+_rig_sm2.write_counts({
+    'arms': {'R3-tmp': 1},
+    'seen': {f'synthetic-{i}': {'arm': 'R3-tmp', 'escalated': True} for i in range(5)},
+})
+_rig_sm2.run(_payload('echo x > /tmp/f', tid='seenmax-ctl-new'))
+_seen_ctl = (_rig_sm2.counts() or {}).get('seen', {})
+assert_eq("#805 guard: seen-eviction positive control — an under-bound map is preserved "
+          "in full and the new key is appended", (6, True),
+          (len(_seen_ctl), 'synthetic-0' in _seen_ctl))
 
 print()
 print(f"{PASS} passed, {FAIL} failed")

@@ -49,7 +49,29 @@ verbatim; the observed schema places untrusted content in value positions, not k
 > artifact by hand. They are the engine's own emitted Bash rather than arbitrary prompt or
 > repository content, but a command can still quote attacker-influencable text, and the
 > `::`-workflow-command / fence-breaking-backtick neutralization is the *rendering*
-> layer's job — no such consumer ships yet.
+> layer's job — and no consumer of **this field** ships yet: nothing in the tree reads
+> `permission_denials_commands` at this revision, so the precondition binds whoever adds
+> the first reader (the `devflow-runner.yml` job output and the `devflow-review.yml`
+> check-run summary are the intended ones). Scope note, so this is not read as "no denial
+> text is rendered anywhere": the maintainer-run `matcher-probe.yml` already writes raw
+> `permission_denials` entries into its own step summary, from its own independent walk of
+> the execution file rather than from this field. That path is out of scope here — its
+> input is maintainer-authored and `::` sequences are not interpreted in a step summary —
+> but it is why "no consumer ships yet" is a statement about this field, not about the
+> repository's rendering of denial text in general.
+>
+> **The field's three values — `unknown` is never `0`.** It emits `unavailable` when the
+> extraction was not established: the execution file itself is unavailable, no
+> `permission_denials` array is present, **or** a non-empty denials array yields no
+> extractable command (the harness carrying the text under a field other than
+> `.tool_input.command`/`.command`, or under a non-string value). It emits
+> `{"commands": [...], "total": N, "truncated": bool}` only when the extraction ran — with
+> `total: 0` reserved for a run that genuinely denied nothing. A consumer must therefore
+> render `unavailable` as *unestablished*, never as "this run denied nothing that carried
+> a command", the same three-way discipline `permission_denials_count` carries. One
+> disclosed residual: a *partial* extraction (some entries yield a command, some do not)
+> emits the commands it could extract and counts those in `total`, so it under-reports
+> rather than reporting a false zero.
 >
 > **Consequence for committed evidence:** the statement below that
 > `docs/execution-file-shape.observed.txt` is "redaction-safe by construction" holds for

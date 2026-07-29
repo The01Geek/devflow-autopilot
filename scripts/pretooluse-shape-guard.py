@@ -313,11 +313,14 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
       a stderr breadcrumb — the guard emits its (base) decision WITHOUT incrementing
       rather than blocking the tool call.
 
-    THE STORE IS A BEST-EFFORT PARSER over an agent-writable path, so every field it reads
-    back is shape-checked, and a shape it cannot trust fails toward ESCALATING rather than
-    toward resetting: a corrupt counter that silently restarts at 1 disarms the escalation
-    for the rest of the run, while an over-eager escalation costs only an extra sentence
-    of remediation text.
+    THE STORE IS A BEST-EFFORT PARSER over an agent-writable path, so the whole-file shape
+    AND every field it reads back are shape-checked, and a shape it cannot trust fails
+    toward ESCALATING rather than toward resetting: a corrupt counter that silently
+    restarts at 1 disarms the escalation for the rest of the run, while an over-eager
+    escalation costs only an extra sentence of remediation text. An ABSENT store is the one
+    shape that starts fresh silently — that is the genuine first call of a run, not
+    corruption — while an unreadable, non-JSON, non-object, or structurally malformed store
+    breadcrumbs and escalates.
 
     `fcntl` is imported lazily so a platform without it raises HERE — inside the call the
     caller wraps — rather than at module import. Per the module docstring's fail-open
@@ -352,14 +355,45 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
             )
             return (False, False)
         store: dict = {"arms": {}, "seen": {}}
+        # ABSENT is not MALFORMED. An absent store is the genuine first call of a run and
+        # starts fresh silently. A store that EXISTS but cannot be read back structurally
+        # (unreadable file, non-JSON bytes, a JSON non-object, or an `arms`/`seen` member
+        # that is not an object) is corrupt: starting fresh there would silently reset
+        # every arm to zero and disarm the repeat-escalation for the rest of the run, which
+        # is the less-safe direction the field-level shape checks below deliberately avoid.
+        # So corruption takes the SAME posture as a corrupt per-arm count — treat it as at
+        # least one prior denial, and say so — rather than the absent case's silent reset.
+        store_corrupt = False
         try:
             with open(store_path, encoding="utf-8") as fh:
                 loaded = json.load(fh)
-            if isinstance(loaded, dict):
-                store["arms"] = loaded.get("arms") if isinstance(loaded.get("arms"), dict) else {}
-                store["seen"] = loaded.get("seen") if isinstance(loaded.get("seen"), dict) else {}
-        except (OSError, ValueError):
-            pass  # absent / malformed store — start fresh (fail toward re-counting)
+        except FileNotFoundError:
+            loaded = None  # genuine first call for this run — start fresh, no breadcrumb
+        except (OSError, ValueError) as exc:
+            loaded = None
+            store_corrupt = True
+            sys.stderr.write(
+                "devflow: pretooluse-shape-guard: denial-counter store "
+                f"('{store_path}') exists but could not be read back "
+                f"({type(exc).__name__}); treating every arm as having at least one prior "
+                "denial rather than resetting the escalation\n"
+            )
+        if loaded is not None:
+            if not isinstance(loaded, dict):
+                store_corrupt = True
+            else:
+                for member in ("arms", "seen"):
+                    value = loaded.get(member)
+                    if isinstance(value, dict):
+                        store[member] = value
+                    elif value is not None:
+                        store_corrupt = True
+            if store_corrupt:
+                sys.stderr.write(
+                    "devflow: pretooluse-shape-guard: denial-counter store "
+                    f"('{store_path}') is structurally malformed; treating every arm as "
+                    "having at least one prior denial rather than resetting the escalation\n"
+                )
         prior = store["seen"].get(seen_key)
         if prior is not None:
             escalated = bool(prior.get("escalated")) if isinstance(prior, dict) else False
@@ -369,8 +403,10 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
         # `true` would read as the count 1 and escalate on the FIRST denial. Exclude it
         # explicitly, and treat every other non-int (a string "9", a float, a list) as a
         # corrupt count meaning "at least one prior denial" rather than as a reset to 1.
-        if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
-            if raw != 0:
+        if store_corrupt or isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+            if raw != 0 and not store_corrupt:
+                # The corrupt-store breadcrumb was already emitted above; do not repeat it
+                # per arm. Only the field-level corruption needs its own named signal here.
                 sys.stderr.write(
                     "devflow: pretooluse-shape-guard: denial counter for "
                     f"{arm} is not a non-negative int ({type(raw).__name__}); treating it "
@@ -386,8 +422,23 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
             # Drop the oldest-inserted keys (json round-trips insertion order).
             for stale in list(store["seen"])[: len(store["seen"]) - _SEEN_MAX]:
                 del store["seen"][stale]
-        with open(store_path, "w", encoding="utf-8") as fh:
-            json.dump(store, fh)
+        # PERSISTENCE FAILURE MUST NOT SWALLOW AN ALREADY-COMPUTED ESCALATION. The verdict
+        # above was decided from the state actually read back; letting an unwritable store
+        # (a read-only mount, a 0o000 store file, a full disk) propagate out would hand the
+        # caller "no escalation" — the same silent disarm the corrupt-store arm exists to
+        # stop, and reached by exactly the shapes that produce a corrupt store in the first
+        # place. So the write failure costs only PERSISTENCE, is named on stderr, and
+        # reports `incremented=False` so no caller records a count that was never stored.
+        try:
+            with open(store_path, "w", encoding="utf-8") as fh:
+                json.dump(store, fh)
+        except OSError as exc:
+            sys.stderr.write(
+                "devflow: pretooluse-shape-guard: denial-counter store "
+                f"('{store_path}') could not be written back ({type(exc).__name__}); the "
+                f"escalation verdict for {arm} still stands but was not persisted\n"
+            )
+            return (escalated, False)
         return (escalated, True)
     finally:
         try:

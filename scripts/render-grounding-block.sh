@@ -204,8 +204,10 @@ ${ALLOWED_TOOLS}
 >   (\`VAR=value cmd\` — capture with \`VAR=\$(cmd)\` or pass the value as an argument
 >   instead). The first two are covered by no runtime guard at all; the third is the
 >   \`R1\` arm of the issue-#805 shape guard's deny set, which denies it at runtime
->   wherever that guard is registered. These three produced 5 of one review run's 18
->   denials.
+>   wherever that guard is registered. Together these three shapes accounted for 5 of the
+>   18 denials in one observed review run — a tally over these three shapes only, which
+>   does not include, and is not the same count as, the \`/tmp\`-redirect denials recorded
+>   for run \`30138268273\` elsewhere in this repo.
 > - **Hard rule: after two denials of a shape, switch to a permitted alternative above
 >   — never iterate variants of the denied shape.** Iterating denied variants is what
 >   exhausts the run and ends it with no verdict.
