@@ -1,6 +1,7 @@
 ---
 name: retrospective-audit
-description: "Stage B of /devflow:retrospective-weekly: given the bundled context of every occurrence PR for one recurring pattern, re-derive the root cause and return a single {title, body} JSON issue spec — no edits, no worktree. Invoked as a subagent — do not call it directly."
+description: "Stage B of /devflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return a single {title, body} JSON issue spec — no edits, no worktree. Invoked as a subagent — do not call it directly."
+disable-model-invocation: true
 ---
 
 # retrospective-audit — Stage B Issue-Spec Brief
@@ -9,7 +10,7 @@ You are the optimizer side of the devflow self-improving loop, invoked as a **su
 
 You are given:
 
-1. An array of context-bundle paths — one per occurrence PR (same schema `fetch-pr-context.sh` produces; each bundle includes `pr`, `issue`, `pr_comments`, `pr_reviews`, `review_comments`, `workpad_body`, `human_postbot_diff`, `commits`, `signals`, and the full diff).
+1. An array of context-bundle paths — a **most-recent-first subset** of the pattern's occurrence PRs, bounded by `audit_bundle_cap` (same schema `fetch-pr-context.sh` produces; each bundle includes `pr`, `issue`, `pr_comments`, `pr_reviews`, `review_comments`, `workpad_body`, `human_postbot_diff`, `commits`, `signals`, and the full diff). The dispatch prompt states how many bundles you received (*delivered*) versus how many occurrences the pattern has (*total*); the pattern metadata's `occurrences[]` (item 2) remains the authoritative full list.
 2. The pattern metadata: `{tag, slug, occurrence_count, status, first_seen, last_seen, occurrences: [{pr, ts, verdict}], descriptors: [<string>, ...]}` — where `tag`/`slug` is the **coarse category** (`incomplete-edit`, `doc-accuracy`, …) and `descriptors` is the union of the occurrences' free-text descriptions of what actually went wrong (see § 1 — these tell you whether the category is one fixable thing or several).
 3. Read `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/intervention-surfaces.md` for candidate surfaces to propose against.
 
@@ -110,6 +111,7 @@ The `body` you return is filed verbatim as the GitHub issue, so it must read lik
 
 ## 🔁 Retrospective provenance
 - **Pattern:** `<tag>` · first seen <first_seen> · last seen <last_seen> · <occurrence_count> occurrences · status: <status>
+- **Evidence base:** this root cause was re-derived from <delivered> of <occurrence_count> occurrence bundles (Stage B's bundle set is a most-recent-first subset bounded by `audit_bundle_cap`; the `occurrences[]` list below is the authoritative full history). When <delivered> equals <occurrence_count>, state that every occurrence bundle was read.
 - **Motivating PRs:** <links to every occurrence PR>
 - **Root cause (re-derived from primary sources):** <your § 1 paragraph; flag any divergences from the retrospective summaries>
 - **Counterfactual:** <your § 3 paragraph>

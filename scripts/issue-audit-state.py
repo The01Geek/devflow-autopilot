@@ -1694,6 +1694,15 @@ def _validate_ledger(doc, rnd, num):
         if status not in _LEDGER_STATUSES:
             raise StateError(f'round {num} findings entry {pos} names a status outside '
                              f'the canonical set: {status!r}')
+        # issue #889: the optional quoted-draft-line coordinate. Absent is legal (a
+        # finding the auditor did not anchor to a draft line); present-but-wrong-shape
+        # is corrupt, the same absent-legal / present-validated pattern the other
+        # per-finding fields follow.
+        qdl = entry.get('quoted_draft_line')
+        if qdl is not None and (not isinstance(qdl, int) or isinstance(qdl, bool)
+                                or qdl < 1):
+            raise StateError(f'round {num} findings entry {pos} quoted_draft_line '
+                             f'{qdl!r} is not a positive integer')
         ingested = entry.get('ingested_status')
         if ingested not in ('unresolved', 'resolved'):
             raise StateError(f'round {num} findings entry {pos} ingested_status '
@@ -6025,16 +6034,33 @@ def _ingest_ledger(must_revise, unresolved):
     ledger = []
     for idx, line in enumerate(lines, start=1):
         status = None
+        raw_draft_line = None
         for candidate in _LEDGER_PREFIXES:
             prefix = f'{candidate}: '
             if line.startswith(prefix):
                 status, summary = candidate, line[len(prefix):]
                 break
+            # issue #889: a line may carry the draft line the auditor quoted as the
+            # line it attacks, as an OPTIONAL `<status>@<n>: <summary>` coordinate. The
+            # plain prefix is checked first, so a summary that itself begins `@n: ` is
+            # never mis-captured. The coordinate is draft-space (a line number in the
+            # draft), never a repository path:line. The ACCEPTED SET is the unpadded
+            # decimal form only: the digits are captured as TEXT here so a zero-padded
+            # `@007` can be refused loudly below rather than silently normalized to `7`
+            # — a silent normalization accepts a coordinate the author did not write
+            # and leaves no breadcrumb saying so.
+            m = re.match(re.escape(candidate) + r'@(\d+): ', line)
+            if m is not None:
+                status, raw_draft_line = candidate, m.group(1)
+                summary = line[m.end():]
+                break
         if status is None:
             _fail('record-adjudication',
                   f'ledger line {idx} carries no status prefix (ledger-status-prefix); '
                   f'each line must begin with '
-                  + ' or '.join(repr(f'{c}: ') for c in _LEDGER_PREFIXES))
+                  + ' or '.join(repr(f'{c}: ') for c in _LEDGER_PREFIXES)
+                  + ' (an optional draft-line coordinate may follow the status as '
+                    '`@<n>`)')
         summary = summary.strip()
         if not summary:
             _fail('record-adjudication',
@@ -6056,6 +6082,22 @@ def _ingest_ledger(must_revise, unresolved):
                   f're-issue the call')
         entry = {'id': idx, 'summary': summary, 'status': status,
                  'ingested_status': status}
+        if raw_draft_line is not None:
+            # The accepted set is the UNPADDED decimal form of a 1-based line number.
+            # `@0` is refused as no line number; `@007` is refused as padded rather
+            # than normalized to `7`.
+            if len(raw_draft_line) > 1 and raw_draft_line.startswith('0'):
+                _fail('record-adjudication',
+                      f'ledger line {idx} carries a zero-padded draft-line coordinate '
+                      f'@{raw_draft_line} (ledger-draft-line-format); write the 1-based '
+                      f'draft line unpadded and re-issue the call')
+            draft_line = int(raw_draft_line)
+            if draft_line < 1:
+                _fail('record-adjudication',
+                      f'ledger line {idx} carries a non-positive draft-line coordinate '
+                      f'@{draft_line} (ledger-draft-line-range); a quoted draft line is '
+                      f'a 1-based line number in the draft')
+            entry['quoted_draft_line'] = draft_line
         if status == 'resolved':
             entry['ingest_provenance'] = _LEDGER_INGESTED_RESOLVED
         ledger.append(entry)
