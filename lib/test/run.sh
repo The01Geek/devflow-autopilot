@@ -308,9 +308,11 @@ assert_eq() {
 # occurrences would read as "1" / falsely-unique). Pure predicate — no RESULTS_FILE side
 # effect — so mutation proofs can assert on the raw count against a mutated temp copy
 # without polluting the suite tally. `-F` treats LITERAL as a fixed string (regex
-# metacharacters are literal). Always prints a SINGLE canonical integer: a present-file-
-# but-absent-literal, a missing/unreadable file, and a match all collapse to one line —
-# `grep -c .` counts the match lines `grep -oF` emitted (0 when none). On an absent literal
+# metacharacters are literal). For a READABLE file it prints a SINGLE canonical integer: a
+# present-file-but-absent-literal and a match both collapse to one line — `grep -c .` counts
+# the match lines `grep -oF` emitted (0 when none). A missing/unreadable file instead FAILS
+# CLOSED with the non-numeric sentinel `unestablished` (rc 1) — see the readability guard in
+# the body below (issue #926) — never a canonical `0`. On an absent literal
 # `grep -c .` both prints `0` and exits 1, so `|| n=0` DOES fire and reassigns the same `0` —
 # the captured value and the fallback coincide, so the result is a single clean `0` either
 # way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
@@ -2200,8 +2202,8 @@ grep -vF "$PARKCAL_BMARK" "$SELF_SRC" > "$PINPROBE_NOMARK"
 assert_eq "AC3(e): deleting the region BEGIN marker turns its presence control RED (no vacuous AC2 pass)" \
   "0" "$(pin_count "$PARKCAL_BMARK" "$PINPROBE_NOMARK")"
 # Self-protect AC3(e) against its own vacuity: prove the strip removed ONLY the BEGIN marker —
-# the END marker must still count 1. Otherwise an empty/unreadable temp copy (pin_count folds a
-# grep error into 0) would satisfy the "0" above for the wrong reason, making this proof vacuous
+# the END marker must still count 1. Otherwise an emptied (but readable) temp copy — where
+# pin_count legitimately reads 0 — would satisfy the "0" above for the wrong reason, making this proof vacuous
 # in isolation rather than relying on the suite-level AC2 marker-presence controls to catch it.
 assert_eq "AC3(e): the strip removed ONLY the BEGIN marker (END marker still present — copy not emptied)" \
   "1" "$(pin_count "$PARKCAL_EMARK" "$PINPROBE_NOMARK")"
