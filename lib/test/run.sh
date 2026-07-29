@@ -1310,7 +1310,11 @@ srp857_run() { "$SRP857_SH" "$1" "$2" "$SRP857/body.md" 2>/dev/null; }   # $1=PR
 # The grounded-coverage assertion at the end of this block states what that buys.
 : > "$SRP857/exercised.log"
 srp857_expect() {   # $1=label $2=expected refusal token $3=actual stdout
-  printf '%s\n' "$2" >> "$SRP857/exercised.log"
+  # Log the OBSERVED token, not the expected one: logging the expectation would make the
+  # covered side of the equality a restatement of what the rows assert, which is the very
+  # "asserted, not grounded" discipline this block replaces. A regressed arm then both fails
+  # its own row AND drops out of the covered set, so the equality reports it too.
+  printf '%s\n' "$3" >> "$SRP857/exercised.log"
   assert_eq "$1" "$2" "$3"
 }
 # RESUME: id exit 0 prints the comment id.
@@ -1356,25 +1360,39 @@ chmod 755 "$SRP857/scripts/workpad.py"
 srp857_stub 0 "999" "" 0 ""
 assert_eq "#857 seed helper (S2): positive control -- the same fixture RESUMEs once readable" \
   "RESUME 999" "$(srp857_run 7 m)"
-# NOT driven -- the two arms the grounded-coverage assertion below declares undrivable.
-# Each is undrivable GIVEN THE HELPER'S CURRENT DESIGN, not intrinsically, so name what
-# would change that rather than leaving the gap reading as environmental:
-#   SKIP api-error-scratch-file        the helper reaches for a system temp file, and forcing
-#                                      mktemp to fail is not portable -- BSD/macOS mktemp
-#                                      ignores TMPDIR (verified), so the only levers are
-#                                      root-dependent or GNU-only. Capturing the id stderr
-#                                      beside the caller-supplied body file instead would
-#                                      retire the arm outright.
+# The scratch-file arm IS drivable, and driving it beats declaring it: the helper calls a
+# BARE `mktemp` resolved on PATH, so a PATH-shadowing stub that exits 1 reaches the arm on any
+# POSIX host -- no root, no GNU flag, and no dependence on whether this host's mktemp honors
+# TMPDIR (BSD/macOS does not). The stub lives in the sandbox beside the workpad.py stub the
+# block already writes.
+mkdir -p "$SRP857/bin"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "$SRP857/bin/mktemp"
+chmod +x "$SRP857/bin/mktemp"
+# Positive control FIRST: with the shadowing stub on PATH the helper must still reach its
+# normal outcome when mktemp SUCCEEDS -- otherwise a stub that broke something unrelated
+# (a shadowed binary the helper needs, a PATH that lost /usr/bin) would let the refusal row
+# below pass on the wrong rejection. Point the stub at a real temp file for this control.
+printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$TMPDIR/srp857-ok"; : > "$TMPDIR/srp857-ok"' > "$SRP857/bin/mktemp"
+srp857_stub 0 "999" "" 0 ""
+assert_eq "#871 seed helper (mktemp arm): positive control -- a PATH-shadowed mktemp that SUCCEEDS still RESUMEs" \
+  "RESUME 999" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "$SRP857/bin/mktemp"
+srp857_expect "#871 seed helper: the id-stderr scratch file could not be created -> SKIP api-error-scratch-file" \
+  "SKIP api-error-scratch-file" "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m)"
+assert_eq "#871 seed helper: SKIP api-error-scratch-file exits 3" "3" \
+  "$(TMPDIR="$SRP857" PATH="$SRP857/bin:$PATH" srp857_run 7 m >/dev/null; echo $?)"
+rm -rf "$SRP857/bin"
+# NOT driven -- the one arm the grounded-coverage assertion below declares undrivable:
 #   SKIP workpad-unreadable-script-dir the helper self-anchors on BASH_SOURCE, so reaching
 #                                      this arm needs its OWN parent directory to be
 #                                      unsearchable -- which also makes the helper
 #                                      unexecutable. A DEVFLOW_<TOOL>-style override for the
 #                                      workpad.py path (the repo's established convention)
 #                                      would make it injectable.
-# Both changes are out of scope here: each alters a shipped cloud helper's contract. Both
-# arms still fail CLOSED onto the published token+exit contract; what is undriven is each
-# arm's breadcrumb wording, and the declaration below keeps that gap visible rather than
-# letting an unexercised token pass as covered.
+# would make it injectable. That change is out of scope here: it alters a shipped cloud
+# helper's contract. The arm still fails CLOSED onto the published token+exit contract; what
+# is undriven is its breadcrumb wording, and the declaration below keeps that gap visible
+# rather than letting an unexercised token pass as covered.
 # S3: exit 2 WITH stderr is an interpreter-level exit, NOT a clean absence — the #384 defect.
 srp857_stub 2 "" "boom: [Errno 2]" 0 "1234"
 srp857_expect "#857/#871 seed helper (S3): rc-2 with stderr -> SKIP api-error-id-failed (never CREATED)" "SKIP api-error-id-failed" "$(srp857_run 7 m)"
@@ -1411,20 +1429,18 @@ assert_eq "#857 seed helper: no silent path — stdout is one non-empty line on 
   "$(srp857_run 7 m | grep -c .)"
 # (#871) GROUNDED COVERAGE. The rows above are only as complete as the helper's arms, so
 # derive the emitted refusal-token vocabulary from the helper's OWN source and assert it
-# equals the set those rows exercised, widened by the two arms declared undrivable above.
+# equals the set those rows exercised, widened by the one arm declared undrivable above.
 # A hand-written "these are all the arms" claim would decay silently, and the prompt's
 # token-PREFIX routing makes that decay quieter still — a new arm keeps routing correctly
 # while carrying neither a distinguishing token nor a test. Both sides are computed with
 # python3 (preflight-guaranteed) so the comparison never depends on a PATH tool that could
 # empty one side of it.
-SRP857_UNDRIVABLE="SKIP api-error-scratch-file
-SKIP workpad-unreadable-script-dir"
+SRP857_UNDRIVABLE="SKIP workpad-unreadable-script-dir"
 # Compare the declaration against its exact expected value rather than counting its rows: a
 # count restates the literal's own content as a number and rots on any edit to it, and it
 # would miss a SUBSTITUTION (one token swapped for another) entirely.
-assert_eq "#871 the declared-undrivable set is exactly the two named arms (a widening OR a substitution is visible, not silent)" \
-  "SKIP api-error-scratch-file
-SKIP workpad-unreadable-script-dir" "$SRP857_UNDRIVABLE"
+assert_eq "#871 the declared-undrivable set is exactly the one named arm (a widening OR a substitution is visible, not silent)" \
+  "SKIP workpad-unreadable-script-dir" "$SRP857_UNDRIVABLE"
 cat > "$SRP857/token-sets.py" <<'PY871A'
 import re, sys
 # argv[1] = "emitted" | "covered"; argv[2] = the helper source; argv[3] = the
@@ -1456,14 +1472,17 @@ PY871A
 srp857_sets() { python3 "$SRP857/token-sets.py" "$1" "$LIB/../scripts/seed-review-progress.sh" "$SRP857/exercised.log" "$SRP857_UNDRIVABLE"; }
 SRP857_EMITTED="$(srp857_sets emitted)"
 SRP857_COVERED="$(srp857_sets covered)"
+# The exit status rides in the compared value so a derivation that CRASHED (an unreadable
+# helper path, a syntax error) cannot present as "no stray tokens found" — an empty stdout
+# with a non-zero rc would otherwise satisfy a bare empty-string comparison.
 assert_eq "#871 every SKIP token in the helper's code is written in the shape the emitted-set derivation recognises (an unrecognised spelling is RED, not invisible)" \
-  "" "$(srp857_sets stray)"
+  "rc=0|" "$(printf 'rc=%s|%s' "$(srp857_sets stray >/dev/null 2>&1; echo $?)" "$(srp857_sets stray 2>/dev/null)")"
 # A positive control on the derivation itself: an emitted set that came back EMPTY would
 # make the equality row below pass against an equally-empty covered set, so assert the
 # helper's own source yielded a non-trivial vocabulary before comparing the two.
 assert_eq "#871 the emitted-token derivation reads a non-trivial vocabulary out of the helper source" "yes" \
   "$([ "$(printf '%s\n' "$SRP857_EMITTED" | grep -c .)" -ge 8 ] && echo yes || echo no)"
-assert_eq "#871 the helper's emitted refusal-token set equals the set the driver rows exercise (plus the declared-undrivable arms)" \
+assert_eq "#871 the helper's emitted refusal-token set equals the set the driver rows exercise (plus the declared-undrivable arm)" \
   "$SRP857_EMITTED" "$SRP857_COVERED"
 # The CALL SITE's positional contract. The behavioral rows below drive the helper through
 # srp857_run, which hard-codes the argument order — so a transposed $MARKER and body path in
@@ -1471,11 +1490,11 @@ assert_eq "#871 the helper's emitted refusal-token set equals the set the driver
 # review silently loses its live comment on a SKIP bad-marker. The head extractor pins the
 # leading token only and is insensitive to arguments, so this is the one place the fence's
 # arity and order are checked.
-# The comment below documents WHY these three sites are a typed executable boundary; since
-# #871 converted them to pin_count it grants nothing — pin_count is in the pin gate's
-# COUNT_HELPERS short-circuit, so the sites are exempt by helper and the declaration is
-# rationale rather than an exemption. Two mechanisms that appear to do the same job would be
-# the confusing part, so this says which one actually does it.
+# The declaration below documents WHY the site immediately under it is a typed executable
+# boundary; since #871 converted that site to pin_count it grants nothing — pin_count is in
+# the pin gate's COUNT_HELPERS short-circuit, so the site is exempt by helper and the
+# declaration is rationale rather than an exemption. Two mechanisms that appear to do the
+# same job would be the confusing part, so this says which one actually does it.
 # structural-pin-ok: helper-contract -- the helper's three positional parameters are a typed
 # executable boundary between the shipped fence and scripts/seed-review-progress.sh; no
 # behavioral test can reach the fence, which is prompt text an agent emits.
@@ -1494,6 +1513,16 @@ assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positio
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
   "$(pin_count 'workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err' "$ST_REV")"
+# (#871) The two rc TRAILERS are the fences' refusal discriminators, and the pins above stop
+# at the redirect — so deleting `; echo "seed-rc=$?"`, or transposing `create-rc` behind
+# `echo "wp=$WP"` (where `$?` would report that echo's constant 0 and every create failure
+# would read as success), leaves all three counts at 1. Pin each trailer at its own site, and
+# pin the create sequence as ONE literal so the ORDER the prose calls load-bearing is what is
+# counted, not the mere presence of the tokens.
+assert_eq "#871 the SKILL.md primary seed statement carries its trailing seed-rc token" "1" \
+  "$(pin_count 'review-wp.md ; echo "seed-rc=$?"' "$ST_REV")"
+assert_eq "#871 the SKILL.md fallback create statement emits create-rc, then the two-direction stderr token, then wp — in that order" "1" \
+  "$(pin_count 'rv-create.err) ; echo "create-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-create.err ] && echo stderr=nonempty || echo stderr=empty ; echo "wp=$WP"' "$ST_REV")"
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
 # bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr

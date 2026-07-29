@@ -96,9 +96,9 @@ four do not rest on the same evidence and a single "probe-proven" heading over a
 them read as though they did (issue #871):
 
 - the **Write tool** into `.devflow/tmp/**` (granted in the review profile) —
-  **PERMITTED, run 29111394360** (probe shape 9). This is the *orchestrator* grant;
-  the `PENDING` marker further down this file belongs to the separate
-  **dispatched-subagent** `Write` probe (issue #858) and does not qualify it.
+  **PERMITTED, run 29111394360** (probe shape 9). This is the *orchestrator* grant; the two
+  `PENDING` **dispatched-subagent** `Write` entries further down this file (issue #858,
+  review and implement tiers) are a separate measurement and do not qualify it.
 - `… | tee` — probe shape 10; **no per-row verdict is transcribed** in this file.
 - `tee <<'EOF'` — probe shape 6; **no per-row verdict is transcribed** in this file.
 - repo-relative **vendored-literal** helper paths — **unrecorded at the review tier**:
@@ -141,8 +141,10 @@ compound, and the cloud review matcher refused that compound outright —
 **measured 8/8 refusals across 6 PRs** (issue #857), each with the harness string
 `Contains shell syntax (string) that cannot be statically analyzed`. The fix moved
 that find-or-create decision into the bundled helper
-`scripts/seed-review-progress.sh` (a single leading-token statement the matcher
-permits), and R5 guarded against reintroducing the *bare* `if VAR=$(…)` /
+`scripts/seed-review-progress.sh`, invoked as a leading-token
+statement (a form granted on the review profile, though its review-tier permitted-ness
+is unrecorded per the entry above; issue #871 appended a `; echo "seed-rc=$?"` trailer
+so a refusal of that statement is observable rather than silent), and R5 guarded against reintroducing the *bare* `if VAR=$(…)` /
 `elif VAR=$(…)` condition-substitution spelling as a stop-gap until the shape
 could be measured in isolation. Four `matcher-probe.yml` review rows added in
 PR #864 (a `;`-joined multi-statement command, a multi-line `if`/`else`/`fi`, an
@@ -242,12 +244,17 @@ things about them (issue #871):
   control" — and carries **no independently recorded row verdict of its own**.
   Labelling both with one run id would state more than the source does.
 
-**Every review-tier probe row that carries no annotated verdict is likewise
-unrecorded**, and takes the same remedy. That is written here as a predicate over the
-rows rather than a transcription of today's row numbers, precisely so it cannot go
-stale when a row is added or a dispatch records a verdict — read the current answer
-off `.github/workflows/matcher-probe.yml` itself, where a measured row carries its
-verdict and its run id inline. Establish any of them with a post-merge
+**Every review-tier probe row for which no verdict is recorded ANYWHERE in
+`.github/workflows/matcher-probe.yml` — neither annotated on the row itself nor stated
+in that workflow's `Resolve allowed-tools` step comment — is likewise unrecorded**, and
+takes the same remedy. Both locations count, because the two measured rows this file
+cites keep their verdicts in the step comment rather than on the row: shape 15's DENIED
+and shape 9's `Write(.devflow/tmp/**)` PERMITTED. A predicate keyed on the row
+annotation alone would classify both as unrecorded and contradict this file's own
+entries. It is written as a predicate over the rows rather than a transcription of
+today's row numbers, precisely so it cannot go stale when a row is added or a dispatch
+records a verdict — read the current answer off the workflow itself, checking both
+locations. Establish any of them with a post-merge
 `workflow_dispatch` run of `.github/workflows/matcher-probe.yml` (its only pre-merge
 trigger is a `pull_request` scoped to its own path, and `gh workflow run` is granted
 on no profile, so the run is not an acceptance criterion of the change that added
