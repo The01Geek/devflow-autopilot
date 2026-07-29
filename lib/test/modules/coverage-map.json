@@ -1750,6 +1750,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "871": {
+      "note": "per-arm refusal-token rows and the grounded-coverage equality row for scripts/seed-review-progress.sh (co-located with the #857 block), the exact-output R5-successor row over s-r5-retired.md, and the pin_count positional-contract assertions over the primary fence and the fallback arm",
+      "owner": "unmodularized"
+    },
     "874": {
       "note": "",
       "owner": "unmodularized"
