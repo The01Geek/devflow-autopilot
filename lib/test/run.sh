@@ -23358,7 +23358,11 @@ assert_eq "#458 workflow: harden step precedes Run Claude Code" "yes" \
 # the #404 floor-helper discipline — never the PR-head checkout.
 assert_eq "#458 workflow: helper materialized from FETCH_HEAD (trusted base ref)" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh' "$RUNNER" || true)"
-assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" \
+# Count is 2, not 1 (issue #908 review): the new "Harden PreToolUse guard closure"
+# step (id: harden_guard) reads its own GUARD_TARGETS closure from FETCH_HEAD with the
+# identical `git show "FETCH_HEAD:$t"` idiom — a second, legitimate occurrence of the
+# same trusted-source-read pattern this pin protects, not a drift.
+assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "2" \
   "$(grep -cF 'git show "FETCH_HEAD:$t"' "$RUNNER" || true)"
 # The vendored helper fallback is accepted ONLY on a fresh fetch — dropping that
 # gate re-opens PR-head tampering (same operative gate the #404 floor pins).
@@ -23366,11 +23370,18 @@ assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "1" 
 # inline (never the PR-head copy) and warns.
 assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
   "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
-assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "1" \
+# Count is 2, not 1 (issue #908 review): harden_guard's own stub_guard() also writes
+# this exact exit-0 bash stub for its GUARD_TARGETS closure, independent of this
+# harden_hooks step's fail-closed arm.
+assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "2" \
   "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
 # The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
 # write_stub) so the `> "$d"` never writes THROUGH the link into its resolved target.
-assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "1" \
+# Count is 3, not 1 (issue #908 review): harden_guard applies this SAME check in TWO
+# of its own branches (the trusted-copy displacement loop AND its stub_guard()
+# fallback) — both independently need it, since either is reachable depending on
+# whether the base fetch succeeds — plus this step's own single occurrence.
+assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing (no write-through)" "3" \
   "$(grep -cF '[ -L "$d" ] && rm -f "$d"' "$RUNNER" || true)"
 # LAST-RESORT arm must be genuinely fail-CLOSED (issue #460): if the inline stub WRITE
 # itself fails (a wholly-unwritable dest), the PR-head hook script REMAINS — warning and
@@ -24364,14 +24375,15 @@ assert_eq "provision: malformed/non-object base config warns + read-only (basepr
 # Trust boundary: the flag and setup block come from the base ref. BASE_REF is
 # sourced from the trusted event payload, fetched from origin, and read out of
 # FETCH_HEAD — never the checked-out PR head.
-# THREE sites read the trusted BASE_REF from the event payload and fetch it: the
-# baseprovision step, the #458 harden-stop-hooks step, and the #874 baseversion step
-# (all under the same trusted-source rule). The #874 step fetches independently rather
-# than relying on another step's FETCH_HEAD surviving — reading FETCH_HEAD outside the
-# branch that established it is the misattribution that trust rule exists to prevent.
-assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden + #874 baseversion)" "3" \
+# FOUR sites read the trusted BASE_REF from the event payload and fetch it (issue #908
+# review: was three before the new harden_guard step): the baseprovision step, the
+# #458 harden-stop-hooks step, the #874 baseversion step, and the #908 harden_guard
+# step (all under the same trusted-source rule — the guard's own trusted-copy
+# displacement needs its own independent fetch, for the same reason #874's baseversion
+# step does not rely on another step's FETCH_HEAD surviving).
+assert_eq "provision: base ref from trusted event payload (baseprovision + #458 harden + #874 baseversion + #908 harden_guard)" "4" \
   "$(grep -c 'github.event.pull_request.base.ref || github.event.repository.default_branch' "$RUNNER" || true)"
-assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden + #874 baseversion)" "3" \
+assert_eq "provision: base config fetched from origin BASE_REF (baseprovision + #458 harden + #874 baseversion + #908 harden_guard)" "4" \
   "$(grep -c 'git fetch --depth=1 origin "\$BASE_REF"' "$RUNNER" || true)"
 # Two readers of the trusted base config: baseprovision (provision_env, allowed_tools,
 # setup) and the #874 baseversion step (devflow_version).
@@ -48619,7 +48631,7 @@ def idx(want):
         if v == want:
             return i
     return -1
-hg, hh, rc = idx("harden_guard"), idx("harden_hooks"), idx("Run Claude Code")
+hg, hh, rc = idx("harden_guard"), idx("harden_hooks"), idx("claude")
 print("yes" if (hg >= 0 and hh >= 0 and rc >= 0 and hg < hh < rc) else "no")
 PY
 ) || _908_HG_ORDER="no"

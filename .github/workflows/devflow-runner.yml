@@ -1470,9 +1470,13 @@ jobs:
           if [ "$ok" -ne 1 ]; then
             echo "::warning::harden-guard: could not materialize a trusted base copy of the PreToolUse guard closure (base-ref fetch or git-show failure); stubbing it inline (fail-closed) so no PR-head copy of it can execute in this secrets-bearing job." >&2
             stub_guard
-            printf 'disposition=stubbed\n' >> "$GITHUB_OUTPUT"
+            # "guard-" prefixed, distinct from harden_hooks' own disposition= values
+            # (issue #908 review) — the two steps' outputs are otherwise unrelated, and
+            # an unprefixed literal here would collide with the #504 AC1 uniqueness pin
+            # on harden_hooks' own displaced-disposition output below.
+            printf 'disposition=guard-stubbed\n' >> "$GITHUB_OUTPUT"
           else
-            printf 'disposition=displaced\n' >> "$GITHUB_OUTPUT"
+            printf 'disposition=guard-displaced\n' >> "$GITHUB_OUTPUT"
           fi
 
       # helper scripts/harden-stop-hooks.sh, executed ONLY from a TRUSTED source
