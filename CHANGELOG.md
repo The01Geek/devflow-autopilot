@@ -4,6 +4,11 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.25.4] — 2026-07-29
+
+### Changed
+Fixed: `synthesize_iter_workpads()` now declines synthesis (rc 3, no record written) when the pre-synthesis telemetry-branch fetch did not succeed (`_DEVFLOW_TELEMETRY_FETCH_STATUS` is `failed`/`unattempted`), mirroring the existing `_DEVFLOW_BASE_REF_STATUS` guard. Previously, a run whose telemetry fetch failed or was unattempted built the fix-commit exclusion set from an incomplete local ref and synthesized anyway, which could re-attribute a fix commit an earlier run already recorded (cross-PR telemetry double-booking). Existing misattributed records on `devflow-telemetry` are left as-is (fix-forward only).
+
 ## [2.25.3] — 2026-07-29
 
 ### Changed
