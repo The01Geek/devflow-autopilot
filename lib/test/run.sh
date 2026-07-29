@@ -47830,7 +47830,7 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   # Module-group log: two per-module summaries → summed; failures collected.
   printf '%s\n' \
     'Module harness-python-guards: 40 passed, 0 failed' \
-    'Module capability-profiles: 62 passed, 2 failed' \
+    'Module capability-profiles: 61 passed, 2 failed' \
     'Failure recap:' \
     '  - some/thing broke' \
     '  - another failure' \
@@ -47882,7 +47882,7 @@ if [ -n "$E877_TDIR" ] && [ -d "$E877_TDIR" ]; then
   # log (e.g. a failing meta-test dumping a run-module subprocess's captured stdout)
   # is NOT summed on top of run.sh's real summary — the count stays run.sh's alone.
   printf '%s\n' \
-    'Module capability-profiles: 62 passed, 2 failed' \
+    'Module capability-profiles: 61 passed, 2 failed' \
     '50 passed, 0 failed' \
     > "$E877_TDIR/mono-collide.log"
   python3 "$E877_TALLY" extract --shard monolith --tier monolith --log "$E877_TDIR/mono-collide.log" --rc 0 --out "$E877_TDIR/t-collide" >/dev/null 2>&1
