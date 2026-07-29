@@ -3114,5 +3114,52 @@ assert_eq "#893 select: an empty --filed-this-run emits nothing on stdout" "" "$
 assert_eq "#893 select: the empty --filed-this-run breadcrumb names the flag" "true" \
   "$(grep -qF -- '--filed-this-run is not a non-negative integer' "$TMP_SF/sf-ftr.err" && echo true || echo false)"
 
+# select: rc-2 (wiring/argument fault) vs rc-1 (data/owner withhold) — Step 8c
+# branches its blocker message on `_SF_RC -eq 2`, and every existing negative test
+# only asserted `-ne 0`. Pin `-eq 2` on the missing-required-argument and
+# unknown-argument paths, and `-eq 1` on the empty --filed-this-run path above,
+# so a regression flipping either return code between 1 and 2 is caught rather
+# than misreporting a wiring fault as ordinary back-pressure.
+assert_eq "#893 select: an empty --filed-this-run returns exactly rc 2 (wiring fault), not rc 1" "2" "$RL_SF_BADFTR_RC"
+RL_SF_MISSING="$(rl_sf --category tooling-gap --findings-file "" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 2>"$TMP_SF/sf-missing.err")"; RL_SF_MISSING_RC=$?
+assert_eq "#893 select: a missing required --findings-file returns exactly rc 2" "2" "$RL_SF_MISSING_RC"
+assert_eq "#893 select: a missing required --findings-file emits nothing on stdout" "" "$RL_SF_MISSING"
+assert_eq "#893 select: the missing-argument breadcrumb names it" "true" \
+  "$(grep -qF 'missing required argument' "$TMP_SF/sf-missing.err" && echo true || echo false)"
+RL_SF_UNKNOWN="$( ( . "$RL_SF"; devflow_select_findings --category tooling-gap --findings-file "$TMP_SF/sf-f4.json" --overrides "$TMP_SF/sf-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 --bogus-flag x ) 2>"$TMP_SF/sf-unknown.err" )"; RL_SF_UNKNOWN_RC=$?
+assert_eq "#893 select: an unknown argument returns exactly rc 2" "2" "$RL_SF_UNKNOWN_RC"
+assert_eq "#893 select: the unknown-argument breadcrumb names the flag" "true" \
+  "$(grep -qF -- 'unknown argument '\''--bogus-flag'\''' "$TMP_SF/sf-unknown.err" && echo true || echo false)"
+# rc-1 positive control on the SAME kind of split: the data/owner withhold path
+# (absent overrides, already tested above) returns exactly rc 1, distinct from 2.
+assert_eq "#893 select: an absent overrides file (data withhold) returns exactly rc 1, not rc 2" "1" "$RL_SF_ABS_RC"
+
+# select: an alias-lookup jq EXECUTION ERROR (not a clean empty match) withholds
+# the finding — fails CLOSED — rather than being coerced to "no existing record"
+# and composing a fresh key past a real alias (a receiving-review reception fix,
+# PR #904). A selective-fail jq shim fails ONLY the alias-lookup program (its
+# distinctive `tokset` function name) and delegates every other jq call in the
+# same run to the real jq — attributing the rejection to the alias lookup
+# specifically, not to an earlier unrelated jq call in the same function.
+cat > "$TMP_SF/selective-fail-jq.sh" <<'SHIM'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    *tokset*) echo "selective-fail-jq: forced failure for a tokset (alias-lookup) program" >&2; exit 1 ;;
+  esac
+done
+exec jq "$@"
+SHIM
+chmod +x "$TMP_SF/selective-fail-jq.sh"
+RL_SF_JQFAIL="$( ( . "$RL_SF"; DEVFLOW_JQ="$TMP_SF/selective-fail-jq.sh" devflow_select_findings --category tooling-gap --findings-file "$TMP_SF/sf-alias-f.json" --overrides "$TMP_SF/sf-alias-ov.json" --status open --filed-this-run 0 --max-per-run 99 --max-per-cat 99 --max-open 99 ) 2>"$TMP_SF/sf-jqfail.err" )"; RL_SF_JQFAIL_RC=$?
+assert_eq "#893 select: an alias-lookup jq failure returns non-zero (withhold)" "true" "$([ "$RL_SF_JQFAIL_RC" -ne 0 ] && echo true || echo false)"
+assert_eq "#893 select: an alias-lookup jq failure emits nothing on stdout" "" "$RL_SF_JQFAIL"
+assert_eq "#893 select: the alias-lookup jq failure breadcrumb names the alias lookup" "true" \
+  "$(grep -qF 'alias-lookup query' "$TMP_SF/sf-jqfail.err" && echo true || echo false)"
+# Positive control on the SAME fixture: with the real jq (no shim), this exact
+# fixture aliases cleanly (already asserted above as "#893 select: equal subslug
+# token sets alias onto the existing key") — so the failure above is attributable
+# to the shim's forced jq error, not to some unrelated defect in the fixture.
+
 rm -rf "$RL_TMP"
 trap - RETURN

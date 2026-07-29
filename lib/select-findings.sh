@@ -76,8 +76,13 @@ fi
 # set {gap, slow, tooling}) and silently merges two distinct sub-patterns onto one
 # lifecycle record. The existing side's subslug is recovered by stripping the
 # canonical `<category>-` prefix from its stored key; a key that does NOT carry that
-# prefix (a bare-category legacy record, or a digest-suffixed key whose subslug the
-# truncation destroyed) is not comparable by subslug and is never aliased onto.
+# prefix (a bare-category legacy record) is not comparable by subslug and is never
+# aliased onto by the prefix check. A digest-suffixed key (compose-filing-key.sh's
+# truncation arm) DOES still carry the `<category>-` prefix for a short-enough
+# category — it is excluded instead by the SEPARATE token-set inequality: its
+# stripped remainder is a truncated-prefix-plus-digest, whose token set essentially
+# never equals a real subslug's, so it is never aliased onto in practice though not
+# by construction.
 #
 # `unique` also makes the signature a token SET, not a multiset: a subslug repeating
 # a token (`slow-slow`) shares a signature with one carrying it once (`slow`). That
@@ -288,7 +293,16 @@ devflow_select_findings() {
         # `<category>-` prefix stripped; a record whose key does not carry that prefix
         # is not comparable by subslug and is skipped rather than aliased onto.
         local _existing_key
-        _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg pre "$_cat_canon" --arg sub "$_subslug" '
+        # Distinguish a jq EXECUTION ERROR from a clean empty match. `|| _existing_key=""`
+        # alone reads a thrown/aborted query the same as "no existing record" — fail
+        # OPEN exactly where the alias exists to prevent a duplicate: a churned
+        # subslug would compose a fresh key and file a second issue instead of
+        # aliasing onto the real one, on an already-parsed, schema-3-validated
+        # overrides file where a throw should never happen but a coding error
+        # upstream (or a future jq version's stricter typing) could still trigger
+        # one. Withhold the finding on a jq failure, matching the sibling
+        # `_cat_canon` derivation's `return 1` on the same class of failure.
+        if ! _existing_key="$("$DEVFLOW_JQ" -r --arg cat "$category" --arg pre "$_cat_canon" --arg sub "$_subslug" '
             def tokset: ascii_downcase | [splits("[^a-z0-9]+")] | map(select(length>0)) | unique | join("-");
             ($pre + "-") as $prefix
             | ($sub | tokset) as $sig
@@ -297,7 +311,10 @@ devflow_select_findings() {
               | select((.value.category // "") == $cat)
               | select(.key | startswith($prefix))
               | select(((.key | ltrimstr($prefix)) | tokset) == $sig)
-              | .key ] | .[0] // ""' "$overrides" 2>/dev/null)" || _existing_key=""
+              | .key ] | .[0] // ""' "$overrides" 2>/dev/null)"; then
+            echo "::error::select-findings: the alias-lookup query over '${overrides}' exited non-zero for subslug '${_subslug}' — the alias decision is unestablished, so every finding is withheld for this pattern rather than risking a duplicate issue past an unresolved alias" >&2
+            return 1
+        fi
         if [ -n "$_existing_key" ] && [ "$_existing_key" != "$_key" ]; then
             echo "select-findings: aliased finding subslug '${_subslug}' (key '${_key}') onto the existing lifecycle record '${_existing_key}' of category '${category}' — equal subslug token set, no second issue" >&2
             _key="$_existing_key"
