@@ -20895,6 +20895,35 @@ assert_eq("#805 guard: a run id that sanitizes to EMPTY is treated as absent —
           "workspace-scoped store is written and no run-keyed file is created",
           (1, []),
           ((_rig_rk4.counts() or {}).get('arms', {}).get('R3-tmp'), _rig_rk4.store_names()))
+# The end-to-end assertion above pins the CONTRACT but is absorbed by defence in depth:
+# `_store_names` also treats a falsy key as absent, so mutating `_run_key`'s return alone
+# leaves the filename unchanged. Drive `_run_key` directly so the sanitize-to-None line has
+# its own attributable coverage, with a non-empty control on the same call.
+_gm805 = importlib.util.module_from_spec(
+    importlib.util.spec_from_file_location('_pretooluse_guard_805', _GUARD_SRC))
+_gm805.__spec__.loader.exec_module(_gm805)
+
+
+def _run_key_under(env):
+    _saved = {k: _os.environ.get(k) for k in ('GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT')}
+    try:
+        for k in _saved:
+            _os.environ.pop(k, None)
+        _os.environ.update(env)
+        return _gm805._run_key()
+    finally:
+        for k, v in _saved.items():
+            _os.environ.pop(k, None)
+            if v is not None:
+                _os.environ[k] = v
+
+
+assert_eq("#805 guard: _run_key returns None (not '') when every character of the run id "
+          "is rejected by the filename-safe alphabet", None,
+          _run_key_under({'GITHUB_RUN_ID': '///'}))
+assert_eq("#805 guard: _run_key control — a run id with accepted characters survives "
+          "sanitizing rather than being rejected wholesale", '9a',
+          _run_key_under({'GITHUB_RUN_ID': '/9/a/'}))
 # Positive control on the same shape: a run id carrying at least one accepted character
 # DOES key the store, so the assertion above is attributable to the sanitizing and not to
 # the environment being ignored wholesale.
