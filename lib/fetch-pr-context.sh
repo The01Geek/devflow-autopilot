@@ -497,6 +497,11 @@ REVIEW_VERDICTS="$(echo "$PR_COMMENTS_RAW" | "$DEVFLOW_JQ" --slurpfile reviews "
     # Guard both payloads to arrays before iterating: a non-array comments payload
     # (stdin `.`) or a non-array reviews payload ($reviews[0]) would otherwise abort
     # the whole filter on `.[]` (external structured format — fail closed to empty).
+    # Defense-in-depth: both payloads are already normalized to arrays upstream by
+    # the sections-7/8 jq add-or-empty slurp, so this guard is not reachable via the
+    # producer path (no producer-driven test can drive it); it is kept as a
+    # fail-closed floor in case that normalization ever changes or the filter is
+    # reused directly.
     (if type == "array" then . else [] end) as $comments
     | (if ($reviews[0] | type) == "array" then $reviews[0] else [] end) as $reviews_arr
     | (

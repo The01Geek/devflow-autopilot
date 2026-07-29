@@ -12438,6 +12438,13 @@ assert_eq "union: timestamp-less APPROVE never clears a timestamped REJECT" "tru
 # AC13: identical timestamps order the review last (comment then review).
 assert_eq "union: identical timestamp → review orders last" "pr_comment pr_review" \
   "$(_uv '[{"body":"## Verdict: APPROVE","created_at":"2026-01-01T00:00:00Z"}]' '[{"state":"COMMENTED","body":"## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_srcs)"
+# AC13 consequence on review_reject_outstanding: because the review orders LAST on an
+# identical timestamp, a same-timestamp APPROVE *review* clears a REJECT *comment* — the
+# decided tie-break direction (a same-second cross-source tie is inherently ambiguous at
+# GitHub's 1s granularity; the issue's Potential Gotchas accept this ordering skew rather
+# than correcting it). Pin the signal consequence, not just the sequence.
+assert_eq "union: identical timestamp, APPROVE review after REJECT comment → rro false (AC13 tie-break)" "false" \
+  "$(_uv '[{"body":"## Verdict: REJECT","created_at":"2026-01-01T00:00:00Z"}]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_rro)"
 # AC4: multiple verdict headings in one body → one entry per heading.
 assert_eq "union: two headings in one review body → 2 entries" "APPROVE REJECT" \
   "$(_uv '[]' '[{"state":"COMMENTED","body":"## Verdict: APPROVE\nmid\n## Verdict: REJECT","submitted_at":"2026-01-01T00:00:00Z"}]' | _uv_verds)"
@@ -47482,13 +47489,14 @@ echo "#783 argjson-transport guard: corpus-sized retrospective jq operands use -
 E783_LINT="$LIB/test/lint-argjson-transport.py"
 assert_eq "#783 lint helper exists" "yes" "$([ -f "$E783_LINT" ] && echo yes || echo no)"
 
-# Live gate: the three shipped aggregating helpers carry no unmarked --argjson.
+# Live gate: the four in-scope helpers carry no unmarked --argjson (issue #895
+# added lib/fetch-pr-context.sh to the IN_SCOPE set — see lint-argjson-transport.py).
 E783_OUT="$(python3 "$E783_LINT" 2>&1)"; E783_RC=$?
-assert_eq "#783 the three real aggregating helpers audit clean (no unmarked --argjson)" "rc=0" \
+assert_eq "#783 the four in-scope helpers audit clean (no unmarked --argjson)" "rc=0" \
   "$([ "$E783_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$E783_RC" "$E783_OUT")"
-assert_eq "#783 the real-file run audited exactly the 3 in-scope files" "yes" \
+assert_eq "#783 the real-file run audited exactly the 4 in-scope files" "yes" \
   "$(printf '%s' "$E783_OUT" | python3 -c 'import re,sys
-m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==3 else "no")')"
+m=re.search(r"audited (\d+) of", sys.stdin.read()); print("yes" if m and int(m.group(1))==4 else "no")')"
 
 # Positive control: the lint MUST report RED on an unmarked --argjson (the E2BIG
 # regression) and GREEN on the marked / converted / block-marked / prose-mention
