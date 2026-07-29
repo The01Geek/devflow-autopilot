@@ -2999,7 +2999,8 @@ if [ ! -r "$TMP_SF/sf-unreadable-ov.json" ]; then
 else
     # Running as root (or on a filesystem where chmod 000 doesn't deny the owner's
     # own read) makes this arm unobservable — skip rather than assert a false premise.
-    skip "#893 select: an unreadable overrides file withholds" host-capability "chmod 000 did not deny read access in this environment (root or a permissive filesystem)"
+    module_host_capability_skip "#893 select: an unreadable overrides file withholds" \
+      "chmod 000 did not deny read access in this environment (root or a permissive filesystem)" 2
 fi
 chmod 644 "$TMP_SF/sf-unreadable-ov.json"
 
