@@ -818,6 +818,59 @@ class PinCorpusLint810Tests(unittest.TestCase):
             self.assertEqual(1, len(modified))
             self.assertIn("resolves into prose", modified[0])
 
+    def test_undeclared_count_helper_over_machine_content_requires_declaration(self):
+        # The discriminating test for #925: an UNDECLARED count-helper pin over
+        # genuinely machine-consumed (fenced) content is now RED for a missing
+        # declaration — exactly as a static-helper pin is. This is the case that
+        # would silently pass again if the count-helper short-circuit were
+        # reintroduced, and unlike the declared-machine GREEN test it does NOT
+        # also pass on the pre-#925 code.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("```text\nMACHINE SENTINEL\n```\n", encoding="utf-8")
+            source = (
+                "F=\"$LIB/../docs/x.md\"\n"
+                "pin_count 'MACHINE SENTINEL' \"$F\""
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual(1, len(findings))
+        self.assertIn("missing structural declaration", findings[0])
+        self.assertNotIn("resolves into prose", findings[0])
+
+    def test_count_helper_prose_pin_in_hash_comment_target_is_reported(self):
+        # Helper-neutrality across the COMMENT_HASH_EXTS branch too: a pin_count
+        # whose literal resolves into a `#` comment of a .sh target is reported
+        # with the prose file:line, just like the markdown branch.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "lib/x.sh"
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                "printf '%s\\n' runtime\n# advisory phrase in a comment\n",
+                encoding="utf-8",
+            )
+            source = (
+                "F=\"$LIB/../lib/x.sh\"\n"
+                "pin_count 'advisory phrase in a comment' \"$F\""
+            )
+            findings = self.mod.scan_changed_sources(
+                {"lib/test/a.sh": source},
+                {"lib/test/a.sh": ""},
+                one_file_diff("lib/test/a.sh", "", source),
+                repo_root=root,
+            )
+        self.assertEqual(1, len(findings))
+        self.assertIn("resolves into prose", findings[0])
+        self.assertIn("lib/x.sh:2", findings[0])
+        self.assertIn("pin_count helper does not change", findings[0])
+
     def test_direct_inline_repository_file_is_a_raw_presence_pin(self):
         source = (
             "assert_eq \"wording\" \"yes\" "
