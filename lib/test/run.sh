@@ -23392,7 +23392,10 @@ assert_eq "#460 workflow: inline stub arm unlinks a symlink dest before writing 
 # exiting 0 would let `Run Claude Code` proceed with a PR-controlled hook intact in this
 # secrets-bearing job (fail-OPEN). On any un-stubbable target the step must FAIL (exit 1)
 # after the loop so the job aborts BEFORE the engine runs.
-assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "1" \
+# Count is 2, not 1 (issue #908 review): harden_guard's own stub_guard() mirrors this
+# exact checked-write-failure-flag pattern for its own GUARD_TARGETS closure,
+# independent of this harden_hooks step's fail-closed arm.
+assert_eq "#460 workflow: inline stub-write failure sets a failure flag (not a bare warn-and-proceed)" "2" \
   "$(grep -cF 'stub_failed=1' "$RUNNER" || true)"
 assert_eq "#460 workflow: un-stubbable target fails the step with a fail-closed ::error::" "1" \
   "$(grep -c 'Failing the job BEFORE Run Claude Code so no PR-controlled Stop hook fires' "$RUNNER" || true)"
@@ -48763,7 +48766,7 @@ PY
   esac
   assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" "$_908_gh2_ok"
   assert_eq "#908 review: displaced_join wires harden_guard's displaced_paths as a third producer" "yes" \
-    "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
+    "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.guard_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
 fi
 # ────────────────────────────────────────────────────────────────────────────
 

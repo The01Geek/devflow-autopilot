@@ -1523,7 +1523,7 @@ jobs:
           # here, by design — the job has already failed).
           _908_gd="GUARDDISP_EOF_$(date +%s%N)_$$"
           {
-            printf 'displaced_paths<<%s\n' "$_908_gd"
+            printf 'guard_paths<<%s\n' "$_908_gd"
             printf '%s\n' $GUARD_TARGETS
             printf '%s\n' "$_908_gd"
           } >> "$GITHUB_OUTPUT"
@@ -1810,7 +1810,7 @@ jobs:
           # displaced/stubbed GUARD_TARGETS. It runs unconditionally, so this is
           # non-empty on every run — including the harden_hooks-skipped consumer-repo
           # arm, which is exactly when this producer's disclosure matters most.
-          GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}
+          GUARD_PATHS: ${{ steps.harden_guard.outputs.guard_paths }}
         run: |
           set -euo pipefail
           _j_d="JOINED_EOF_$(date +%s%N)_$$"
