@@ -499,8 +499,12 @@ def _cat_heredoc_violation(statement: str) -> bool:
 # the suite RED; its companion `a planted control exists for every rule id`
 # assertion turns the reverse drift RED — a rule added to a finder and to these
 # sets without a control.
-def _cd_violation(statement: str) -> bool:
-    """R2's arm predicate: a leading `cd`."""
+def _leading_cd(statement: str) -> bool:
+    """A statement whose command HEAD is `cd` — review R2 and implement IR4 are the
+    same underlying "no leading `cd`" rule, so both call this one predicate rather
+    than each inlining the head test (which would let the two profiles' notion of a
+    leading `cd` drift). `cd` in argument position, and a `cd`-prefixed head like
+    `cdparanoia`, do not match."""
     head = _heads._head_of(statement)
     return bool(head and head[0] == "cd")
 
@@ -532,7 +536,7 @@ def _interpreter_violation(statement: str) -> bool:
 # name.
 _REVIEW_ARM_TABLE = (
     ("R1", "R1", _assignment_violation),
-    ("R2", "R2", _cd_violation),
+    ("R2", "R2", _leading_cd),
     ("R3-tmp", "R3", _redirect_violation),
     ("R3-heredoc", "R3", _cat_heredoc_violation),
     ("R4", "R4", _interpreter_violation),
@@ -540,7 +544,7 @@ _REVIEW_ARM_TABLE = (
 
 REVIEW_ARMS = frozenset(arm for arm, _rule, _pred in _REVIEW_ARM_TABLE)
 REVIEW_RULES = frozenset(rule for _arm, rule, _pred in _REVIEW_ARM_TABLE)
-IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3"})
+IMPLEMENT_RULES = frozenset({"IR1", "IR2", "IR3", "IR4"})
 
 
 def classify(statement: str) -> list[str]:
@@ -1096,6 +1100,14 @@ def find_implement_violations(text: str) -> list[tuple[int, str, str]]:
         for carry in (False, True):
             clean_lines, expanding = _preprocess(block, carry_comments=carry)
             for statement in _statements_from_lines(clean_lines):
+                # IR4 — a leading `cd` (issue #855). The Bash tool's cwd persists
+                # across calls and every granted helper literal is repo-relative, so
+                # a leading `cd` moves the working directory out from under every
+                # later helper. Shares the `_leading_cd` predicate with review R2, so
+                # the two profiles' notion of a leading `cd` cannot drift.
+                if _leading_cd(statement):
+                    lineno = _attribute_line(statement, start, len(block_lines), lines)
+                    seen.add((lineno, "IR4", statement.strip()))
                 if not _label_capture_violation(statement):
                     continue
                 lineno = _attribute_line(statement, start, len(block_lines), lines)
