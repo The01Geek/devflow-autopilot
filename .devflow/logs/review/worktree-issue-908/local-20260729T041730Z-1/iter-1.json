@@ -1,0 +1,46 @@
+{
+  "iter": 1,
+  "current_step": "2",
+  "current_substep": "collected",
+  "checklist_count": 35,
+  "verification_summary": {
+    "pass_count": 31,
+    "fail_count": 4,
+    "inconclusive_count": 0,
+    "lite_count": 3,
+    "agent_count": 32,
+    "normalized_count": 0,
+    "field_defect_fail_count": 0
+  },
+  "fails": [
+    {
+      "id": "VC-21",
+      "category": "test_mock_alignment",
+      "summary": "run.sh AC6/AC8 unchanged-ness assertions use `git diff --quiet HEAD` instead of comparing to origin/main, making them vacuous once committed",
+      "file": "lib/test/run.sh",
+      "inaccuracy_scope": "source_authored_text"
+    },
+    {
+      "id": "VC-22",
+      "category": "test_mock_alignment",
+      "summary": "run.sh negative-grep assertion for devflow-implement.yml (`settings:|PreToolUse`) is unanchored and could false-positive on an unrelated settings: key",
+      "file": "lib/test/run.sh",
+      "inaccuracy_scope": "source_authored_text"
+    },
+    {
+      "id": "VC-29",
+      "category": "absolute_claim",
+      "summary": "devflow-runner.yml comment claims a closed two-branch counts disambiguation, but a third state (FIRED=true + resolver helper script absent) falls through the outer else and leaves RAW=unavailable, contradicting the claimed positively-known {}",
+      "file": ".github/workflows/devflow-runner.yml",
+      "inaccuracy_scope": "source_authored_text"
+    },
+    {
+      "id": "VC-31",
+      "category": "absolute_claim",
+      "summary": "render-guard-visibility.sh's jq gsub(\"::\"; \": :\") is non-overlapping and leaves a residual `::` on odd-length colon runs (e.g. \":::\" -> \"- : ::\"), falsifying the docstring's 'cannot read as a workflow-command token' guarantee; also \\r is not neutralized (secondary, undisclosed scope)",
+      "file": "scripts/render-guard-visibility.sh",
+      "inaccuracy_scope": "source_authored_text"
+    }
+  ],
+  "telemetry": "unavailable"
+}
