@@ -308,9 +308,11 @@ assert_eq() {
 # occurrences would read as "1" / falsely-unique). Pure predicate — no RESULTS_FILE side
 # effect — so mutation proofs can assert on the raw count against a mutated temp copy
 # without polluting the suite tally. `-F` treats LITERAL as a fixed string (regex
-# metacharacters are literal). Always prints a SINGLE canonical integer: a present-file-
-# but-absent-literal, a missing/unreadable file, and a match all collapse to one line —
-# `grep -c .` counts the match lines `grep -oF` emitted (0 when none). On an absent literal
+# metacharacters are literal). For a READABLE file it prints a SINGLE canonical integer: a
+# present-file-but-absent-literal and a match both collapse to one line — `grep -c .` counts
+# the match lines `grep -oF` emitted (0 when none). A missing/unreadable file instead FAILS
+# CLOSED with the non-numeric sentinel `unestablished` (rc 1) — see the readability guard in
+# the body below (issue #926) — never a canonical `0`. On an absent literal
 # `grep -c .` both prints `0` and exits 1, so `|| n=0` DOES fire and reassigns the same `0` —
 # the captured value and the fallback coincide, so the result is a single clean `0` either
 # way (no double-"0"). An absent literal thus yields a clean 0 (the helper below then fails
@@ -320,8 +322,23 @@ assert_eq() {
 # options and error out to a spurious 0, silently misreading a present literal as absent. With
 # the `--` guard, pin_count (and therefore assert_pin_unique below) accepts a flag-shaped
 # literal — the case that previously forced a hand-guarded raw `grep -qF --` at the call site.
-pin_count() {  # literal file -> prints occurrence count (always a single integer)
+pin_count() {  # literal file -> occurrence count on a readable file; `unestablished` (rc 1) when the file cannot be read
   local n
+  # Fail CLOSED on an unreadable file (missing, moved, renamed, or unreadable),
+  # mirroring devflow_module_pin_count in lib/test/module-harness.sh: emit the
+  # non-numeric sentinel `unestablished` (NEVER `0`) and return 1, so every
+  # consuming assertion — assert_pin_unique below, and any zero-expected
+  # `assert_eq … "0" "$(pin_count …)"` (how this repo encodes prohibitions) —
+  # records a FAIL instead of passing vacuously. This readability guard runs
+  # BEFORE grep so the inner `2>/dev/null` stays narrow: it only suppresses grep's
+  # stderr for a file we HAVE confirmed readable, preserving the distinction
+  # between "the literal is genuinely absent from a file I read" (a clean `0`) and
+  # "I could not read the file at all" (`unestablished`, rc 1, with a breadcrumb).
+  if [ ! -f "$2" ] || [ ! -r "$2" ]; then
+    printf 'unestablished\n'
+    printf 'pin_count: unreadable file: %s\n' "$2" >&2
+    return 1
+  fi
   n="$(grep -oF -- "$1" "$2" 2>/dev/null | grep -c .)" || n=0
   printf '%s\n' "${n:-0}"
 }
@@ -506,6 +523,39 @@ fi
 assert_eq "#161 git_sandbox: a normal call returns a real isolated dir (not the sentinel, not the repo root)" \
   "yes" "$GS_OK_VERDICT"
 [ -d "$GS_OK_DIR" ] && rm -rf "$GS_OK_DIR"
+# ── #926: pin_count fails CLOSED on an unreadable file ────────────────────────
+# pin_count() used to collapse a missing/unreadable file to `0`, so every
+# zero-expected assertion (`assert_eq … "0" "$(pin_count …)"` — how this repo
+# encodes prohibitions) passed VACUOUSLY once its target file was renamed, moved,
+# or deleted. The fix mirrors devflow_module_pin_count: emit the non-numeric
+# sentinel `unestablished` (rc 1) instead of `0`, so every consuming assertion —
+# including assert_pin_unique, whose PASS gate is exactly `count == "1"` — records
+# a FAIL. These controls drive the unreadable-file arm through a REAL consuming
+# assert_eq via probe_assert (which isolates the intentional RED from the suite
+# tally), and assert the recorded verdict — AC1/AC2/AC3. pin_count is a
+# count-helper, so these driver calls draw no #810 mutation-routing finding.
+PC_MISSING="$(mktemp -u)"   # a path guaranteed NOT to exist (mktemp -u: name only, no file)
+# AC1/AC2 (negative control): a zero-expected assert_eq over pin_count on a missing
+# file records a suite FAIL — the exact vacuous-pass shape the issue names.
+assert_eq "#926 pin_count: a zero-expected assertion over an unreadable file records a suite FAIL" \
+  "FAIL" "$(probe_assert assert_eq "#926 nc: zero-expected pin_count on unreadable file" "0" "$(pin_count "absent" "$PC_MISSING" 2>/dev/null)")"
+# Fail-closed contract at the helper boundary: unreadable file → sentinel + rc 1.
+# assert_pin_unique (PASS iff count == "1") therefore also fails closed on it — the
+# sentinel is neither "1" nor a real "0" — so it needs no separate driver call
+# (which would itself draw a #810 finding as a new source-presence pin site).
+PC_OUT="$(pin_count "absent" "$PC_MISSING" 2>/dev/null)"; PC_RC=$?
+assert_eq "#926 pin_count: unreadable file yields the non-numeric sentinel (never 0)" \
+  "unestablished" "$PC_OUT"
+assert_eq "#926 pin_count: unreadable file returns rc 1" "1" "$PC_RC"
+# AC3 (positive control): a READABLE file that genuinely lacks the literal still
+# yields a clean `0` and still passes a zero-expected assertion — the distinction
+# the fix must preserve.
+PC_READABLE="$(mktemp)"; printf 'present line\nother line\n' > "$PC_READABLE"
+assert_eq "#926 pin_count: a readable file genuinely lacking the literal still yields 0" \
+  "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")"
+assert_eq "#926 pin_count: a zero-expected assertion over a readable-but-absent literal still PASSES" \
+  "PASS" "$(probe_assert assert_eq "#926 pc: zero-expected pin_count on readable-absent" "0" "$(pin_count "definitely-absent-literal" "$PC_READABLE")")"
+rm -f "$PC_READABLE"
 # ────────────────────────────────────────────────────────────────────────────
 echo "classify-pr-kind.jq"
 # ────────────────────────────────────────────────────────────────────────────
@@ -2152,8 +2202,8 @@ grep -vF "$PARKCAL_BMARK" "$SELF_SRC" > "$PINPROBE_NOMARK"
 assert_eq "AC3(e): deleting the region BEGIN marker turns its presence control RED (no vacuous AC2 pass)" \
   "0" "$(pin_count "$PARKCAL_BMARK" "$PINPROBE_NOMARK")"
 # Self-protect AC3(e) against its own vacuity: prove the strip removed ONLY the BEGIN marker —
-# the END marker must still count 1. Otherwise an empty/unreadable temp copy (pin_count folds a
-# grep error into 0) would satisfy the "0" above for the wrong reason, making this proof vacuous
+# the END marker must still count 1. Otherwise an emptied (but readable) temp copy — where
+# pin_count legitimately reads 0 — would satisfy the "0" above for the wrong reason, making this proof vacuous
 # in isolation rather than relying on the suite-level AC2 marker-presence controls to catch it.
 assert_eq "AC3(e): the strip removed ONLY the BEGIN marker (END marker still present — copy not emptied)" \
   "1" "$(pin_count "$PARKCAL_EMARK" "$PINPROBE_NOMARK")"
