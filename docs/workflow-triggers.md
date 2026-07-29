@@ -34,9 +34,17 @@ self-trigger a DevFlow review — a repository collaborator must post the commen
 
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
-leaves the three files in place and your auto-review keeps working exactly as before. That
-also means such a repository **remains exposed to the #930 and #920 defects for as long as
-`workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Removing the tier
+leaves the three files in place and your auto-review keeps working. That continues to hold
+across a plugin upgrade only because **every helper those workflows call is still shipped**
+even though nothing in DevFlow's own tree reaches them any more: `install.sh` re-stamps
+`devflow_version` to the installed commit, so re-running the installer keeps your workflow
+files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
+underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
+which would report every review `incomplete` and wedge every pull request behind a required
+check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
+silently drops the freshness and CI-green gates. That is why those helpers are retained rather
+than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
+as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Removing the tier
 is a manual step:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
