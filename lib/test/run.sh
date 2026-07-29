@@ -1536,28 +1536,16 @@ assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positio
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
 assert_eq "#871 the SKILL.md fallback arm's create call passes the PR number then the body-file path" "1" \
   "$(pin_count 'workpad.py create "$PR_NUMBER" .devflow/tmp/review/<slug>/<run-id>/review-wp.md 2>.devflow/tmp/review/<slug>/<run-id>/rv-create.err' "$ST_REV")"
-# (#871) ADJUDICATION for the trailer pins below, stated rather than left to the COUNT_HELPERS
-# short-circuit: each protects a MACHINE-CONSUMED command form, not prose. The `seed-rc` literal
-# lives inside a ```bash fence that `extract-command-shapes.py` and `extract-command-heads.py`
-# both parse, and all three trailers are the exact statement text the agent emits to the cloud
-# permission matcher — a shape whose token ORDER changes what `$?` reports. That is the
-# `helper-contract` boundary class, not the wording-only class the pin policy prohibits.
-# The three rc TRAILERS are the fences' refusal discriminators, and the pins above stop
-# at the redirect — so deleting `; echo "seed-rc=$?"`, or transposing `create-rc` behind
-# `echo "wp=$WP"` (where `$?` would report that echo's constant 0 and every create failure
-# would read as success), leaves the positional counts at 1. Pin each trailer at its own site, and
-# pin the create sequence as ONE literal so the ORDER the prose calls load-bearing is what is
-# counted, not the mere presence of the tokens.
-assert_eq "#871 the SKILL.md primary seed statement carries its trailing seed-rc token" "1" \
-  "$(pin_count 'review-wp.md ; echo "seed-rc=$?"' "$ST_REV")"
-assert_eq "#871 the SKILL.md fallback create statement emits create-rc, then the two-direction stderr token, then wp — in that order" "1" \
-  "$(pin_count 'rv-create.err) ; echo "create-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-create.err ] && echo stderr=nonempty || echo stderr=empty ; echo "wp=$WP"' "$ST_REV")"
-# The fallback `id` statement carries the identical hazard and was the one trailer left
-# unpinned: transposing `echo "id-rc=$?"` behind `echo "wp=$WP"` makes every id failure read
-# as id-rc=0, and the agent then RESUMES against whatever `wp=` carried. Its existing
-# positional pin stops at the redirect and survives that transposition unchanged.
-assert_eq "#871 the SKILL.md fallback id statement emits id-rc, then the two-direction stderr token, then wp — in that order" "1" \
-  "$(pin_count 'rv-id.err) ; echo "id-rc=$?" ; [ -s .devflow/tmp/review/<slug>/<run-id>/rv-id.err ] && echo stderr=nonempty || echo stderr=empty ; echo "wp=$WP"' "$ST_REV")"
+# (#871) The rc TRAILERS (`seed-rc`, `create-rc`, `id-rc`) are deliberately NOT pinned. A review
+# pass proposed pinning them — the pins above stop at the redirect, so deleting a trailer or
+# transposing one behind `echo "wp=$WP"` leaves their counts unchanged — and pins were briefly
+# added. They are removed: the thing such a pin protects is the trailers' token ORDER, and no
+# tool reads that. `extract-command-heads.py` and `extract-command-shapes.py` parse the fence for
+# HEADS and SHAPES only; neither consumes the order. So the literal can change without breaking a
+# machine-consumed contract, which is the wording-only class this repo prohibits — and routing it
+# through `pin_count` would only have cleared the gate by the COUNT_HELPERS short-circuit rather
+# than by adjudication. Per CLAUDE.md's #843/#876 decision the compensating control is the
+# merge-gating review pass, and that absence is the decision, not an oversight.
 # ARGUMENT FORWARDING. The rows above stub workpad.py on `sys.argv[1]` alone, so nothing
 # above constrains WHAT the helper passes. That matters most for `--marker`: the SKIP
 # bad-marker guard exists because an empty --marker lets a config breadcrumb reach stderr
