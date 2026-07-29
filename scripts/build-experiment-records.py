@@ -864,9 +864,10 @@ def _parse_denial_summary(summary):
     the label's own line, never a following line (only space/tab may separate label and
     token, so no line terminator, `\n` or otherwise, is ever crossed; raw docstring so that
     `\n` renders literally) — is exactly an all-digit string or the literal
-    `unavailable`; that mirrored the producer contract of the auto PR-triggered review tier's
-    `finalize_check` (`devflow-review.yml`, withheld from this release per issue #936
-    interpolates a digit-string or the literal `unavailable`), a coupled producer↔reader pair.
+    `unavailable`; that mirrored the producer contract of `finalize_check` in the auto
+    PR-triggered review tier (`devflow-review.yml`, withheld from this release per issue
+    #936), which interpolated a digit-string or the literal `unavailable` — a coupled
+    producer↔reader pair whose producer half no longer ships.
     `label_seen` is True whenever the label appears at all, even with a blank/malformed value,
     so phase 2 of `_resolve_denials` routes a seen-but-invalid label to `unparseable` rather
     than a fabricated value. A blank/garbage value yields (None, True); no label yields

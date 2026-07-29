@@ -894,6 +894,19 @@ unset _site801 _t801p
 # "no", never that it can ever say "yes". Both halves are single-line-scoped by construction:
 # the sibling structural pin above asserts the whole loop line verbatim, so a wrapped or
 # array-built rewrite of that line turns THAT pin RED first.
+loop_ships_probe801_term() {  # file, term -> yes|no : term named on the copy-loop line
+  # The shared line scanner. Both the non-vacuity check and the absence check route through
+  # it, so they cannot disagree about which line "the copy loop" is or how a match is spelled.
+  local _line
+  while IFS= read -r _line; do
+    case "$_line" in
+      *"for w in "*)
+        case "$_line" in *"$2"*) echo yes; return 0 ;; esac
+        ;;
+    esac
+  done < "$1"
+  echo no
+}
 loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop line
   # Anchor on the loop HEAD (`for w in`), not on `for w in devflow`: anchoring on the first
   # workflow name is itself order-dependent, so a reordered list would slip the anchor and the
@@ -919,7 +932,17 @@ loop_ships_probe801() {  # file -> yes|no : matcher-probe named on the copy-loop
   done < "$1"
   echo no
 }
-assert_eq "#801 install-loop-unchanged: the scoping term is still on install.sh's copy-loop line (the check above is not vacuous)" "yes" "$(grep -F -- 'for w in ' "$INSTALL801" | grep -qF -- 'devflow-implement' && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- install.sh's workflow copy loop IS the machine-consumed routing decision for which workflows reach a consumer repo, and this asserts the term the sibling absence check scopes itself by is actually present on that line
+# Non-vacuity: the absence check below scopes itself by a term that must actually be on the
+# copy-loop line. Driven through the SAME line scanner the absence check uses — a second,
+# differently-spelled matcher here could disagree with the helper it is meant to validate,
+# and would re-introduce the PATH-tool dependency the helper deliberately dropped. A fixture
+# with the term stripped must read "no", which is what makes the "yes" below meaningful.
+_t801v="$(probe_tmp '#801 install-loop non-vacuity fixture')"
+sed -E 's/for w in devflow devflow-implement/for w in devflow/' "$INSTALL801" > "$_t801v"
+assert_eq "#801 install-loop-unchanged: the scoping term is still on install.sh's copy-loop line (the check below is not vacuous)" \
+  "yes" "$(loop_ships_probe801_term "$INSTALL801" devflow-implement)"
+assert_eq "#801 install-loop-unchanged: stripping the scoping term from the loop makes the same scanner read 'no' (the non-vacuity check can fail)" \
+  "no" "$(loop_ships_probe801_term "$_t801v" devflow-implement)"
 assert_eq "#801 install-loop-unchanged: matcher-probe.yml stays absent from the workflow copy loop" \
   "no" "$(loop_ships_probe801 "$INSTALL801" devflow-implement)"
 _t801i="$(probe_tmp '#801 install-loop negative-assertion positive control')"

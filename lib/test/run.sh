@@ -15263,11 +15263,13 @@ assert_eq "dismissal failure → exit 1" "1" "$DSR_RC"
 rm -f "$DSR_STUB"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-command-trigger.sh)"
+echo "review/implement trigger helpers (parse-engine-error.sh … resolve-command-trigger.sh)"
 # ────────────────────────────────────────────────────────────────────────────
-# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746): the 11
-# consecutive former sections from "derive-review-verdict.sh" through
-# "resolve-command-trigger.sh". It stops there deliberately — the tranche was scoped
+# Extracted to lib/test/modules/review-trigger-helpers.sh (issue #746) as 11 consecutive
+# former sections. The first two of those — covering derive-review-verdict.sh and
+# derive-review-preconditions.sh — were retired with their helpers when issue #936 withheld
+# the auto PR-triggered review tier, so the live span now runs from "parse-engine-error.sh"
+# through "resolve-command-trigger.sh". It stops there deliberately — the tranche was scoped
 # in advance to a measured set of low-risk sections, and what follows was not in it.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
@@ -15792,7 +15794,27 @@ echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
 # (a file that would be asserted both parameterized and hardcoded). Without that check
 # the groups are three arbitrary lists, and a workflow added to none of them is silently
 # uncovered, which is exactly how `agents-seam-probe.yml` sat outside both pre-#936 loops.
-_582_SHIPPED="devflow devflow-implement"
+# The shipped group is DERIVED from install.sh's copy loop, never transcribed: that loop is
+# the source of truth for which workflows reach a consumer repo, and issue #936 is precisely
+# a change to it. A hand-copied list here could drift from the installer in either direction
+# with nothing going RED — including the one regression this issue most needs caught, a
+# `devflow-review` put back into the loop. Derived with builtins (a non-preflight PATH tool
+# must not decide a comparison value, CLAUDE.md guard-class 2); an unparseable loop leaves
+# the list empty, which the non-vacuity assertion below turns RED rather than passing.
+_582_SHIPPED=""
+while IFS= read -r _582_l; do
+  case "$_582_l" in
+    "for w in "*"; do")
+      _582_l="${_582_l#for w in }"
+      _582_SHIPPED="${_582_l%; do}"
+      break
+      ;;
+  esac
+done < "$LIB/../install.sh"
+assert_eq "#936/#582: install.sh's workflow copy loop ships exactly devflow + devflow-implement" \
+  "devflow devflow-implement" "$_582_SHIPPED"
+assert_eq "#936/#582: the withheld auto-review tier is absent from install.sh's copy loop" \
+  "absent" "$(case " $_582_SHIPPED " in *" devflow-review "*|*" devflow-runner "*|*" telemetry-push "*) echo present ;; *) echo absent ;; esac)"
 _582_RETAINED="devflow-runner telemetry-push"
 _582_INTERNAL="ci matcher-probe version-consolidate pages agents-seam-probe"
 # Exhaustive-and-disjoint: compare the on-disk basename set against the three lists
@@ -32839,7 +32861,7 @@ echo "#408 cloud review no-verdict auto-resume backstop + #414 post-and-annotate
 # module re-derives REPO_ROOT and rebuilds the review-engine bundle itself;
 # see its .inventory.md for the coverage map back to this location.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-stall-backstop.sh" \
-  "review-stall-backstop" 182; then
+  "review-stall-backstop" 183; then
   printf 'ERROR: review-stall-backstop boundary could not record its result\n'
   exit 1
 fi
@@ -33095,7 +33117,11 @@ assert_eq "#312: workflow endpoint↔permission lint is clean on the current tre
 WF_MUT_DIR="$(git_sandbox "#312: wf-lint mutation proof temp dir")"
 mkdir -p "$WF_MUT_DIR/.github/workflows" "$WF_MUT_DIR/scripts" 2>/dev/null || true
 cp "$WF_DIR"/*.yml "$WF_MUT_DIR/.github/workflows/" 2>/dev/null || true
-cp "$LIB/../scripts"/*.sh "$WF_MUT_DIR/scripts/" 2>/dev/null || true
+# Only the one helper the mutated `command:` job attributes `checks` through. Copying the
+# whole scripts/ dir made wf_perm_lint resolve ~52 basenames instead of 1 and spawn a
+# subshell per (job, basename) hit — measured at ~1.8s per suite run for no extra coverage,
+# since the assertion needs exactly this helper's attribution.
+cp "$LIB/../scripts/summarize-ci-checks.sh" "$WF_MUT_DIR/scripts/" 2>/dev/null || true
 # Portable (macOS/BSD) first-match-within-a-block edit: track whether we are inside the
 # `command:` job and drop only that block's `checks: read`.
 awk '
