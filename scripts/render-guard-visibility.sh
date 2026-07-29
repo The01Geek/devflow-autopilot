@@ -112,7 +112,11 @@ else
   echo "- per-arm denial counts: unavailable"
 fi
 
-echo "- denied commands (neutralized for rendering — backticks stripped, every \`:\` spaced, newlines shown as ⏎ — never the raw text):"
+# Suggestion (issue #908 review): the colon-spacing neutralization below also mangles
+# any `https://` (or similar) substring inside a denied command — acceptable for a
+# lossy neutralized display, but worth disclosing up front so it doesn't read as a
+# rendering bug.
+echo "- denied commands (neutralized for rendering — backticks stripped, every \`:\` spaced [including inside URLs like \`https:// \`], newlines shown as ⏎ — never the raw text):"
 
 # Parse the denied-commands object. As with the counts block above, parse-validity and
 # emptiness are two SEPARATE signals: {"commands":[],...} is a positively-known zero

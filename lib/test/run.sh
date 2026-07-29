@@ -48621,6 +48621,15 @@ assert_eq "#908 render-guard-visibility: an odd-length (3) colon run leaves no r
 RGV_ODD5="$(bash "$RGV" true '{}' '{"commands":["a:::::b"],"total":1,"truncated":false}' 2>/dev/null)"
 assert_eq "#908 render-guard-visibility: an odd-length (5) colon run leaves no residual :: (issue #908 review regression lock)" "yes" \
   "$(printf '%s' "$RGV_ODD5" | grep -qF '::' && echo no || echo yes)"
+# Suggestion (issue #908 review): the "total unavailable" truncation branch — a
+# truncated list whose producer omitted/mistyped `.total` — was previously untested
+# (only the total-present path was exercised).
+RGV_TRUNC_NOTOTAL_SHOWING="$(bash "$RGV" true '{}' '{"commands":["a"],"truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: truncated + missing total + non-empty commands renders 'total unavailable, showing N'" "yes" \
+  "$(printf '%s' "$RGV_TRUNC_NOTOTAL_SHOWING" | grep -qF '_(list truncated — total unavailable, showing 1)_' && echo yes || echo no)"
+RGV_TRUNC_BADTOTAL="$(bash "$RGV" true '{}' '{"commands":["a"],"total":"not-a-number","truncated":true}' 2>/dev/null)"
+assert_eq "#908 render-guard-visibility: a non-numeric .total (string) is treated the same as a missing total, not coerced" "yes" \
+  "$(printf '%s' "$RGV_TRUNC_BADTOTAL" | grep -qF '_(list truncated — total unavailable, showing 1)_' && echo yes || echo no)"
 # UNKNOWN IS NOT ZERO on the denied-commands axis too (issue #908 review, corroborated
 # by multiple Phase-3 agents): a valid-but-empty commands array is the COMMON, healthy
 # "guard fired, denied nothing" shape extract-execution-shape.sh emits on every clean
@@ -48731,6 +48740,16 @@ printf 'not json' > "$DPP_TMP/exec-bad.json"
 DPP_UNPARSEABLE="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-bad.json" 2>/dev/null)"
 assert_eq "#908 describe-pretooluse-probe: unparseable exec file renders unavailable, never REASON-ABSENT" "yes" \
   "$(printf '%s' "$DPP_UNPARSEABLE" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+# Suggestion (issue #908 review): the FIRED-but-empty-exec-file arm — a marker present
+# but a zero-byte execution file — was previously untested.
+: > "$DPP_TMP/exec-empty.json"
+DPP_FIRED_EMPTYEXEC="$(bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-empty.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: FIRED marker + zero-byte exec file renders reason-delivery unavailable" "yes" \
+  "$(printf '%s' "$DPP_FIRED_EMPTYEXEC" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
+# Suggestion (issue #908 review): the jq-not-runnable arm was previously untested.
+DPP_JQ_NOTRUNNABLE="$(DEVFLOW_JQ=/nonexistent/not-a-real-jq-908 bash "$DPP" "$DPP_TMP/fired-marker" "$DPP_TMP/exec-with-reason.json" 2>/dev/null)"
+assert_eq "#908 describe-pretooluse-probe: an unrunnable DEVFLOW_JQ renders reason-delivery unavailable, never a false REASON-ABSENT" "yes" \
+  "$(printf '%s' "$DPP_JQ_NOTRUNNABLE" | grep -qF 'reason delivery: **unavailable**' && echo yes || echo no)"
 bash "$DPP" >/dev/null 2>&1
 assert_eq "#908 describe-pretooluse-probe: no-argument invocation exits 0 (best-effort renderer)" "0" "$?"
 assert_eq "#908 describe-pretooluse-probe: no-argument invocation leaves a stderr breadcrumb" "yes" \
@@ -48781,6 +48800,13 @@ RGC_D2="$(mktemp -d)"
 echo '{"arms":{}}' > "$RGC_D2/pretooluse-guard-counts.json"
 assert_eq "#908 resolve-guard-counts-file: bare legacy name resolves when no run id is supplied" "yes" \
   "$([ "$(bash "$RGC" "$RGC_D2" "" "")" = "$RGC_D2/pretooluse-guard-counts.json" ] && echo yes || echo no)"
+# Suggestion (issue #908 review): the RUN_ID-set/ATTEMPT-empty candidate name
+# (`pretooluse-guard-counts-<id>.json`, no attempt segment) was previously untested —
+# only the id+attempt and bare-legacy shapes had direct coverage.
+RGC_D6="$(mktemp -d)"
+echo '{"arms":{"R1":1}}' > "$RGC_D6/pretooluse-guard-counts-424242.json"
+assert_eq "#908 resolve-guard-counts-file: RUN_ID set + ATTEMPT empty resolves the id-only candidate name" "yes" \
+  "$([ "$(bash "$RGC" "$RGC_D6" 424242 "")" = "$RGC_D6/pretooluse-guard-counts-424242.json" ] && echo yes || echo no)"
 RGC_D3="$(mktemp -d)"
 echo '{"arms":{}}' > "$RGC_D3/pretooluse-guard-counts-99999-2.json"
 assert_eq "#908 resolve-guard-counts-file: glob fallback finds a mismatched run-keyed store" "yes" \
@@ -48828,11 +48854,53 @@ assert_eq "#908 resolve-guard-counts-file: a nonexistent TMP_DIR fails closed to
   "$(bash "$RGC" "/nonexistent/path/xyz-908" >/dev/null 2>&1; echo "rc=$?")"
 assert_eq "#908 devflow-runner.yml routes counts-file selection through the helper (invocation line)" "yes" \
   "$(grep -qF 'COUNTS_FILE=$(bash "$RGC" .devflow/tmp' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the run-keyed/bare/glob counts-file SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
-# The consuming step must distinguish the resolver's exit 1 (no store) from its exit 2
-# (zero-byte, unestablished): an `if cmd` compound collapses both onto "false" and would
-# route a known-BROKEN measurement into the known-zero `{}` arm.
-assert_eq "#908 devflow-runner.yml captures the resolver rc so exit 2 routes away from the known-zero arm" "yes" \
-  "$(grep -qF 'elif [ "$RGC_RC" -eq 2 ]; then' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the zero-byte arm is what keeps a partial/interrupted counts write from being rendered as a positively-known zero; collapsing it back into the exit-1 arm reopens the confirmatory review's false-zero defect
+# issue #908 review, Important finding #2 (resolved): the RGC_RC -> outcome ROUTING
+# (parse / zero-byte / known-zero / unavailable) moved out of inline YAML into
+# scripts/route-guard-counts-outcome.sh, a suite-drivable helper — see the block
+# below for its own behavioral coverage. This pin now only asserts devflow-runner.yml
+# still DELEGATES to that helper rather than reinlining the routing.
+assert_eq "#908 devflow-runner.yml delegates RGC_RC/FIRED routing to route-guard-counts-outcome.sh" "yes" \
+  "$(grep -qF 'OUTCOME_OUT=$(bash "$ROUTE" "$RGC_RC" "$FIRED")' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the RGC_RC/FIRED -> outcome SELECTION logic stays delegated to the suite-drivable helper rather than reinlined into untested YAML
+
+echo "#908 route-guard-counts-outcome.sh (RGC_RC/FIRED -> counts outcome routing — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+ROUTE_GCO="$REPO_ROOT/scripts/route-guard-counts-outcome.sh"
+assert_eq "#908 route-guard-counts-outcome: rc=0 routes to parse regardless of FIRED" "parse" \
+  "$(bash "$ROUTE_GCO" 0 false | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=2 (zero-byte store) routes to zero-byte with a message, never known-zero" "yes" \
+  "$(out=$(bash "$ROUTE_GCO" 2 true); [ "$(printf '%s\n' "$out" | sed -n '1p')" = "zero-byte" ] && [ -n "$(printf '%s\n' "$out" | sed -n '2p')" ] && echo yes || echo no)"
+# CONFIRMATORY-REVIEW REGRESSION LOCK (issue #908): rc=1 with FIRED=true is a
+# POSITIVELY-known zero (the heartbeat proves the guard ran, the resolver positively
+# found no store) — the one case allowed to render `{}`.
+assert_eq "#908 route-guard-counts-outcome: rc=1 AND FIRED=true is the only known-zero arm" "known-zero" \
+  "$(bash "$ROUTE_GCO" 1 true | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=1 AND FIRED=false is unavailable, NOT known-zero" "unavailable" \
+  "$(bash "$ROUTE_GCO" 1 false | sed -n '1p')"
+# The `-eq 1` in the known-zero test is load-bearing: a present-but-unrunnable helper
+# (rc 126/127) must NOT collapse into the known-zero arm just because FIRED=true —
+# that would turn "our tooling could not run" into a confident zero.
+assert_eq "#908 route-guard-counts-outcome: rc=126 (present-but-unrunnable) with FIRED=true still routes to unavailable, not known-zero" "unavailable" \
+  "$(bash "$ROUTE_GCO" 126 true | sed -n '1p')"
+assert_eq "#908 route-guard-counts-outcome: rc=126 emits a non-empty diagnostic message" "yes" \
+  "$([ -n "$(bash "$ROUTE_GCO" 126 true | sed -n '2p')" ] && echo yes || echo no)"
+
+echo "#908 extract-denied-command-line.sh (permission_denials_commands: line SELECTION — arm-driven)"
+# ────────────────────────────────────────────────────────────────────────────
+EDC_HELPER="$REPO_ROOT/scripts/extract-denied-command-line.sh"
+assert_eq "#908 extract-denied-command-line: finds the value when the block carries the line" "found
+[\"rm -rf /\"]" \
+  "$(printf 'permission_denials_count: 3\npermission_denials_commands: ["rm -rf /"]\n' | bash "$EDC_HELPER" 0)"
+assert_eq "#908 extract-denied-command-line: reports not-found when the block carries no such line" "not-found" \
+  "$(printf 'permission_denials_count: 3\n' | bash "$EDC_HELPER" 0 | sed -n '1p')"
+# rc-nonzero must NOT parse the block, even when it happens to carry a well-formed
+# line — a truncated/partial upstream run must never be published as authoritative
+# (issue #908 confirmatory review).
+assert_eq "#908 extract-denied-command-line: a nonzero EES_RC never parses the block, even if it looks well-formed" "rc-nonzero" \
+  "$(printf 'permission_denials_commands: ["x"]\n' | bash "$EDC_HELPER" 1 | sed -n '1p')"
+assert_eq "#908 extract-denied-command-line: empty stdin reports not-found, not a shell error" "not-found" \
+  "$(printf '' | bash "$EDC_HELPER" 0 | sed -n '1p')"
+assert_eq "#908 devflow-runner.yml delegates permission_denials_commands SELECTION to extract-denied-command-line.sh" "yes" \
+  "$(grep -qF 'EDC_OUT=$(printf' "$LIB/../.github/workflows/devflow-runner.yml" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- pins the workflow-to-helper invocation line so the permission_denials_commands SELECTION stays delegated to the suite-drivable helper rather than reinlined into untested YAML
 
 echo "#908 devflow-runner.yml / devflow-review.yml PreToolUse guard wiring (statically verifiable, issue #908 AC1/AC2/AC6)"
 # ────────────────────────────────────────────────────────────────────────────

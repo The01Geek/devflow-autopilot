@@ -1432,6 +1432,23 @@ jobs:
           # Same TRUSTED base ref the harden_hooks step below reads — never a
           # PR-controlled input.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
+          # issue #908 review (Important/security, resolved): the registered PreToolUse
+          # hook tries the VENDORED guard path FIRST (`.devflow/vendor/devflow/scripts/
+          # pretooluse-shape-guard.py`) and only falls back to the repo-root path when
+          # the vendored one is absent. Hardening only the repo-root GUARD_TARGETS left
+          # a consumer repo that COMMITS its vendored plugin (vendor_source=committed,
+          # which #402/#404 treats as PR-author-editable/untrusted) with NOTHING
+          # hardened: none of the three repo-root paths exist there, so the absent-both-
+          # sides skip fired — yet the hook still executed that vendored, PR-head-
+          # controlled copy in this secrets-bearing job on every Bash call. VENDOR_SOURCE
+          # (this job's own `vendor` step output, declared before this step) is the same
+          # trust signal scripts/filter-runner-tools.sh's own floor resolution keys on:
+          # a `fetch` value means the vendored tree was cloned from the OFFICIAL repo
+          # this run, at the pinned devflow_version, into a gitignored directory the PR
+          # can never edit — trusted, no hardening needed. Any other value
+          # (`committed`/`self`) means the vendored tree is PR-head content, so it gets
+          # the identical trusted-base-copy-or-stub treatment as the repo-root targets.
+          VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
           set +e
           set -uo pipefail
@@ -1443,6 +1460,23 @@ jobs:
           # the other two hardened, reopening the exact hole this step exists to close.
           GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+          # PREFIX_TOKENS holds one token per closure copy the running hook command can
+          # reach: ROOT (the repo-root copy, empty path prefix) always, plus VENDOR (the
+          # `.devflow/vendor/devflow/`-prefixed copy) whenever it is NOT freshly fetched
+          # from the official repo this run (VENDOR_SOURCE != fetch) — see the
+          # VENDOR_SOURCE env comment above for why `fetch` is the one trusted value.
+          # Tokens (not a raw empty-string-capable list) sidestep plain-shell
+          # word-splitting dropping an empty "root" entry.
+          PREFIX_TOKENS="ROOT"
+          if [ "${VENDOR_SOURCE:-}" != "fetch" ]; then
+            PREFIX_TOKENS="$PREFIX_TOKENS VENDOR"
+          fi
+          prefix_for_token() {
+            case "$1" in
+              ROOT) printf '%s' "" ;;
+              VENDOR) printf '%s' ".devflow/vendor/devflow/" ;;
+            esac
+          }
           # Shadow-review finding (issue #908 review, early shadow trigger): the stub
           # write itself must be VERIFIED, not merely attempted — an unverified write
           # is a silent fail-open in exactly the "wholly unwritable path" case this
@@ -1457,74 +1491,83 @@ jobs:
           ACTED=""
           stub_guard() {
             stub_failed=0
-            for t in $GUARD_TARGETS; do
-              d="$ROOT/$t"
-              # Nothing at this path in the working tree means there is no copy — PR-head
-              # or otherwise — that could execute, so there is nothing to stub. Skipping
-              # is what keeps a CONSUMER repo (where none of these DevFlow-internal paths
-              # exist) from having phantom scripts/ and lib/test/ files created in its
-              # checkout, plus a spurious ::warning:: on every auto-review — the issue-#502
-              # class. Fail-closed is preserved: the hazard this arm exists to close is a
-              # PR-controlled file that EXISTS, and that case still takes the stub below.
-              # `-e` FOLLOWS symlinks, so it reads a DANGLING symlink as "nothing here"
-              # (issue #908 confirmatory review, Critical/security): a PR-added broken
-              # symlink at a guard path would be neither displaced nor stubbed, and
-              # materializing its target later in the job would reopen PR-controlled
-              # execution in this secrets-bearing job. Pair it with `-L`, which sees the
-              # link itself, so only a genuinely-absent path is skipped.
-              if [ ! -e "$d" ] && [ ! -L "$d" ]; then
-                continue
-              fi
-              mkdir -p "${d%/*}" 2>/dev/null || true
-              # Unlink a symlink dest first: a `>` write through a PR-controlled symlink
-              # would land the stub bytes at the link's resolved target, leaving the
-              # symlink itself at the hook path (and, for an absolute link, writing
-              # outside the workspace) — mirrors harden_hooks' own symlink handling.
-              [ -L "$d" ] && rm -f "$d" 2>/dev/null
-              if [ "${t##*.}" = "py" ]; then
-                _stub_ok=0; printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$d" 2>/dev/null && _stub_ok=1
-              else
-                _stub_ok=0; printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null && _stub_ok=1
-              fi
-              if [ "$_stub_ok" -eq 1 ]; then
-                chmod +x "$d" 2>/dev/null || true
-                ACTED="$ACTED $t"
-              else
-                stub_failed=1
-                echo "::warning::harden-guard: could not stub '$t' (wholly unwritable); the PR-head copy MAY REMAIN." >&2
-              fi
+            for _tok in $PREFIX_TOKENS; do
+              _prefix="$(prefix_for_token "$_tok")"
+              for t in $GUARD_TARGETS; do
+                vt="${_prefix}${t}"
+                d="$ROOT/$vt"
+                # Nothing at this path in the working tree means there is no copy — PR-head
+                # or otherwise — that could execute, so there is nothing to stub. Skipping
+                # is what keeps a CONSUMER repo (where none of these DevFlow-internal paths
+                # exist) from having phantom scripts/ and lib/test/ files created in its
+                # checkout, plus a spurious ::warning:: on every auto-review — the issue-#502
+                # class. Fail-closed is preserved: the hazard this arm exists to close is a
+                # PR-controlled file that EXISTS, and that case still takes the stub below.
+                # `-e` FOLLOWS symlinks, so it reads a DANGLING symlink as "nothing here"
+                # (issue #908 confirmatory review, Critical/security): a PR-added broken
+                # symlink at a guard path would be neither displaced nor stubbed, and
+                # materializing its target later in the job would reopen PR-controlled
+                # execution in this secrets-bearing job. Pair it with `-L`, which sees the
+                # link itself, so only a genuinely-absent path is skipped.
+                if [ ! -e "$d" ] && [ ! -L "$d" ]; then
+                  continue
+                fi
+                mkdir -p "${d%/*}" 2>/dev/null || true
+                # Unlink a symlink dest first: a `>` write through a PR-controlled symlink
+                # would land the stub bytes at the link's resolved target, leaving the
+                # symlink itself at the hook path (and, for an absolute link, writing
+                # outside the workspace) — mirrors harden_hooks' own symlink handling.
+                [ -L "$d" ] && rm -f "$d" 2>/dev/null
+                if [ "${t##*.}" = "py" ]; then
+                  _stub_ok=0; printf '#!/usr/bin/env python3\nimport sys\nsys.exit(0)\n' > "$d" 2>/dev/null && _stub_ok=1
+                else
+                  _stub_ok=0; printf '#!/usr/bin/env bash\nexit 0\n' > "$d" 2>/dev/null && _stub_ok=1
+                fi
+                if [ "$_stub_ok" -eq 1 ]; then
+                  chmod +x "$d" 2>/dev/null || true
+                  ACTED="$ACTED $vt"
+                else
+                  stub_failed=1
+                  echo "::warning::harden-guard: could not stub '$vt' (wholly unwritable); the PR-head copy MAY REMAIN." >&2
+                fi
+              done
             done
             return "$stub_failed"
           }
           ok=0
           if [ -n "${BASE_REF:-}" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
             ok=1
-            for t in $GUARD_TARGETS; do
-              d="$ROOT/$t"
-              if raw=$(git show "FETCH_HEAD:$t" 2>/dev/null); then
-                [ -L "$d" ] && rm -f "$d" 2>/dev/null
-                if ! printf '%s\n' "$raw" > "$d" 2>/dev/null; then
-                  ok=0
+            for _tok in $PREFIX_TOKENS; do
+              _prefix="$(prefix_for_token "$_tok")"
+              for t in $GUARD_TARGETS; do
+                vt="${_prefix}${t}"
+                d="$ROOT/$vt"
+                if raw=$(git show "FETCH_HEAD:$vt" 2>/dev/null); then
+                  [ -L "$d" ] && rm -f "$d" 2>/dev/null
+                  mkdir -p "${d%/*}" 2>/dev/null || true
+                  if ! printf '%s\n' "$raw" > "$d" 2>/dev/null; then
+                    ok=0
+                  else
+                    ACTED="$ACTED $vt"
+                  fi
+                elif [ ! -e "$d" ] && [ ! -L "$d" ]; then
+                  # `-L` pairs with `-e` for the dangling-symlink shape — see stub_guard().
+                  # Absent on the trusted base ref AND absent from the PR-head working
+                  # tree: there is no copy of this target anywhere, so no PR-controlled
+                  # bytes can execute and there is nothing to displace. This is the
+                  # CONSUMER-repo shape (these three paths are DevFlow-repo-internal;
+                  # a consumer vendors the plugin under .devflow/vendor/devflow/), and
+                  # without this arm every consumer auto-review took the stub path,
+                  # emitting a spurious deployment-fault ::warning:: and creating phantom
+                  # scripts/ and lib/test/ files in the consumer's checkout — the
+                  # issue-#502 class. The working-tree half of the predicate is what keeps
+                  # this security-preserving: a target the PR ADDS is present at "$d", so
+                  # it fails this test and still routes to the fail-closed stub arm.
+                  :
                 else
-                  ACTED="$ACTED $t"
+                  ok=0
                 fi
-              elif [ ! -e "$d" ] && [ ! -L "$d" ]; then
-                # `-L` pairs with `-e` for the dangling-symlink shape — see stub_guard().
-                # Absent on the trusted base ref AND absent from the PR-head working
-                # tree: there is no copy of this target anywhere, so no PR-controlled
-                # bytes can execute and there is nothing to displace. This is the
-                # CONSUMER-repo shape (these three paths are DevFlow-repo-internal;
-                # a consumer vendors the plugin under .devflow/vendor/devflow/), and
-                # without this arm every consumer auto-review took the stub path,
-                # emitting a spurious deployment-fault ::warning:: and creating phantom
-                # scripts/ and lib/test/ files in the consumer's checkout — the
-                # issue-#502 class. The working-tree half of the predicate is what keeps
-                # this security-preserving: a target the PR ADDS is present at "$d", so
-                # it fails this test and still routes to the fail-closed stub arm.
-                :
-              else
-                ok=0
-              fi
+              done
             done
           fi
           if [ "$ok" -ne 1 ]; then
@@ -2548,39 +2591,51 @@ jobs:
             # to DIFFERENT arms, and an `if cmd` compound collapses both onto "false".
             RGC_RC=0
             COUNTS_FILE=$(bash "$RGC" .devflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}") || RGC_RC=$?
-            if [ "$RGC_RC" -eq 0 ]; then
-              JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
-              [ -f "$JQ" ] || JQ=lib/resolve-jq.sh
-              # shellcheck source=../../lib/resolve-jq.sh
-              . "$JQ" 2>/dev/null || echo "::notice::resolve-jq.sh could not be sourced; using bare 'jq' for guard-counts parsing (best-effort)."
-              : "${DEVFLOW_JQ:=jq}"
-              # Confirmatory-review finding (issue #908 review, iteration 3): `.arms // {}`
-              # treats jq's ONLY falsy values (null/false) as "absent, use {}" — so a
-              # malformed producer shape {"arms": false} would silently render as a
-              # genuine zero rather than degrading to unavailable, the exact "unknown is
-              # not zero" collapse this file's own convention forbids elsewhere. Type-check
-              # instead: only a genuine object is accepted; anything else (including a
-              # stray `false`) falls through to empty, same as a missing key.
-              PARSED=$("$DEVFLOW_JQ" -c 'if (.arms? | type) == "object" then .arms else empty end' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
-              [ -n "$PARSED" ] && RAW="$PARSED"
-            elif [ "$RGC_RC" -eq 2 ]; then
-              # A store exists but is zero-byte: a partial/interrupted write of a real
-              # deny record. RAW stays `unavailable` — never the known-zero arm below.
-              echo "::warning::resolve-guard-counts-file.sh found a zero-byte counts store under .devflow/tmp (partial or interrupted write); per-arm denial counts reported as unavailable rather than as a zero."
-            elif [ "$RGC_RC" -eq 1 ] && [ "$FIRED" = true ]; then
-              # Helper ran, POSITIVELY reported no store file (its contracted exit 1),
-              # AND the heartbeat proves the guard did fire this run — a positively-known
-              # zero, not an unestablished measurement.
-              #
-              # The `-eq 1` is load-bearing (issue #908 confirmatory review): the earlier
-              # bare `elif [ "$FIRED" = true ]` caught EVERY rc outside {0,2}, including
-              # 126/127 from a present-but-unrunnable or partially-vendored helper. That
-              # turned "our tooling could not run" into a confident zero — the same
-              # unknown-is-not-zero collapse this block's own header forbids, and the
-              # `[ -f "$RGC" ]` guard above covers only ABSENT, never present-but-unrunnable.
-              RAW='{}'
-            elif [ "$RGC_RC" -ne 1 ]; then
-              echo "::notice::resolve-guard-counts-file.sh exited $RGC_RC (present but unrunnable, or an unexpected status); per-arm denial counts reported as unavailable rather than as a zero."
+            # issue #908 review, Important finding #2: the RGC_RC -> outcome ROUTING is
+            # delegated to route-guard-counts-outcome.sh (a suite-drivable extraction,
+            # per CLAUDE.md's inline-shell-extraction convention) rather than reimplemented
+            # as an inline `if`/`elif` chain, so a regressed arm order or comparison fails
+            # the suite instead of only structural grep pins.
+            ROUTE=.devflow/vendor/devflow/scripts/route-guard-counts-outcome.sh
+            [ -f "$ROUTE" ] || ROUTE=scripts/route-guard-counts-outcome.sh
+            if [ -f "$ROUTE" ]; then
+              OUTCOME_OUT=$(bash "$ROUTE" "$RGC_RC" "$FIRED")
+              OUTCOME=$(printf '%s\n' "$OUTCOME_OUT" | sed -n '1p')
+              OUTCOME_MSG=$(printf '%s\n' "$OUTCOME_OUT" | sed -n '2p')
+              case "$OUTCOME" in
+                parse)
+                  JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
+                  [ -f "$JQ" ] || JQ=lib/resolve-jq.sh
+                  # shellcheck source=../../lib/resolve-jq.sh
+                  . "$JQ" 2>/dev/null || echo "::notice::resolve-jq.sh could not be sourced; using bare 'jq' for guard-counts parsing (best-effort)."
+                  : "${DEVFLOW_JQ:=jq}"
+                  # Confirmatory-review finding (issue #908 review, iteration 3): `.arms // {}`
+                  # treats jq's ONLY falsy values (null/false) as "absent, use {}" — so a
+                  # malformed producer shape {"arms": false} would silently render as a
+                  # genuine zero rather than degrading to unavailable, the exact "unknown is
+                  # not zero" collapse this file's own convention forbids elsewhere. Type-check
+                  # instead: only a genuine object is accepted; anything else (including a
+                  # stray `false`) falls through to empty, same as a missing key.
+                  PARSED=$("$DEVFLOW_JQ" -c 'if (.arms? | type) == "object" then .arms else empty end' "$COUNTS_FILE" 2>/dev/null) || PARSED=""
+                  [ -n "$PARSED" ] && RAW="$PARSED"
+                  ;;
+                zero-byte)
+                  # A store exists but is zero-byte: a partial/interrupted write of a real
+                  # deny record. RAW stays `unavailable` — never the known-zero arm below.
+                  [ -n "$OUTCOME_MSG" ] && echo "::warning::$OUTCOME_MSG"
+                  ;;
+                known-zero)
+                  # Helper ran, POSITIVELY reported no store file (its contracted exit 1),
+                  # AND the heartbeat proves the guard did fire this run — a positively-known
+                  # zero, not an unestablished measurement.
+                  RAW='{}'
+                  ;;
+                *)
+                  [ -n "$OUTCOME_MSG" ] && echo "::notice::$OUTCOME_MSG"
+                  ;;
+              esac
+            else
+              echo "::notice::route-guard-counts-outcome.sh absent; per-arm denial counts unavailable (best-effort)."
             fi
           else
             echo "::notice::resolve-guard-counts-file.sh absent; per-arm denial counts unavailable (best-effort)."
@@ -2614,27 +2669,33 @@ jobs:
             # fixed, applied here too (issue #908 confirmatory review).
             EES_RC=0
             BLOCK=$(bash "$EES" "${EXECUTION_FILE:-}") || EES_RC=$?
-            _found=0
-            if [ "$EES_RC" -ne 0 ]; then
-              # Do NOT parse $BLOCK on a failed run: a truncated or partial
-              # `permission_denials_commands` line would otherwise be published as
-              # authoritative while the notice says the detail is unavailable — the
-              # notice and the value contradicting each other (issue #908 confirmatory
-              # review). VALUE stays `unavailable`.
-              echo "::notice::extract-execution-shape.sh exited non-zero (rc=$EES_RC); denied-command detail unavailable (best-effort)."
+            # issue #908 review, Important finding #3 (resolved): the
+            # `permission_denials_commands:` line SELECTION moved out of this inline
+            # `case`/here-string loop into extract-denied-command-line.sh, a
+            # suite-drivable helper (CLAUDE.md's inline-shell-extraction convention).
+            EDC=.devflow/vendor/devflow/scripts/extract-denied-command-line.sh
+            [ -f "$EDC" ] || EDC=scripts/extract-denied-command-line.sh
+            if [ -f "$EDC" ]; then
+              EDC_OUT=$(printf '%s\n' "$BLOCK" | bash "$EDC" "$EES_RC")
+              EDC_STATUS=$(printf '%s\n' "$EDC_OUT" | sed -n '1p')
+              case "$EDC_STATUS" in
+                found)
+                  VALUE=$(printf '%s\n' "$EDC_OUT" | sed -n '2p')
+                  ;;
+                rc-nonzero)
+                  # Do NOT parse $BLOCK on a failed run: a truncated or partial
+                  # `permission_denials_commands` line would otherwise be published as
+                  # authoritative while the notice says the detail is unavailable — the
+                  # notice and the value contradicting each other (issue #908
+                  # confirmatory review). VALUE stays `unavailable`.
+                  echo "::notice::extract-execution-shape.sh exited non-zero (rc=$EES_RC); denied-command detail unavailable (best-effort)."
+                  ;;
+                *)
+                  echo "::notice::extract-execution-shape.sh ran cleanly but emitted no permission_denials_commands line; denied-command detail unavailable (best-effort)."
+                  ;;
+              esac
             else
-              while IFS= read -r _line; do
-                case "$_line" in
-                  "permission_denials_commands: "*)
-                    VALUE="${_line#permission_denials_commands: }"
-                    _found=1
-                    break
-                    ;;
-                esac
-              done <<<"$BLOCK"
-            fi
-            if [ "$_found" -eq 0 ] && [ "$EES_RC" -eq 0 ]; then
-              echo "::notice::extract-execution-shape.sh ran cleanly but emitted no permission_denials_commands line; denied-command detail unavailable (best-effort)."
+              echo "::notice::extract-denied-command-line.sh absent; denied-command detail unavailable (best-effort)."
             fi
           else
             echo "::notice::extract-execution-shape.sh absent; denied-command detail unavailable (best-effort)."
