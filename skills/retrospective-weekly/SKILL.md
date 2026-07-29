@@ -998,7 +998,7 @@ elif $LIB/../scripts/run-jq.sh -e '(.findings | type) == "array"' < ".devflow/tm
             # unconditionally on its success path, defaulting each to the literal
             # `[]` when nothing was dropped/withheld — so both files are always
             # non-empty (2 bytes) and `[ ! -s … ]` is always false. Test ARRAY
-            # EMPTINESS BY CONTENT (jq 'length') instead of file size.
+            # EMPTINESS BY CONTENT via run-jq.sh's length count, not by file size.
             _WH_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/withheld-${SLUG}.json" 2>/dev/null || echo 0)"
             _DR_N="$($LIB/../scripts/run-jq.sh 'length' < ".devflow/tmp/dropped-${SLUG}.json" 2>/dev/null || echo 0)"
             if [ "${FINDINGS_N:-0}" -eq 0 ] && [ "${_WH_N:-0}" -eq 0 ] && [ "${_DR_N:-0}" -eq 0 ]; then
