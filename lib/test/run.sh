@@ -48731,9 +48731,9 @@ PY
   # exists to still cover. Behavioral: re-run the success-arm fixture and assert the
   # GITHUB_OUTPUT carries all three GUARD_TARGETS under displaced_paths.
   assert_eq "#908 harden_guard: publishes displaced_paths for the success arm (shadow-review regression lock)" "yes" \
-    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out1.txt" && echo yes || echo no)"
+    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out1.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out1.txt" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- the target is this fixture's own GITHUB_OUTPUT capture file (a mktemp'd sandbox artifact, not repo prose), asserting the harden_guard step's displaced_paths output actually carries the GUARD_TARGETS closure
   assert_eq "#908 harden_guard: publishes displaced_paths for the stubbed arm too" "yes" \
-    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out2.txt" && echo yes || echo no)"
+    "$(grep -qF 'scripts/pretooluse-shape-guard.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-shapes.py' "$HG_FIX/gh_out2.txt" && grep -qF 'lib/test/extract-command-heads.py' "$HG_FIX/gh_out2.txt" && echo yes || echo no)"  # structural-pin-ok: helper-contract -- same as above, the fail-closed/stubbed arm's fixture GITHUB_OUTPUT capture, not repo prose
   assert_eq "#908 review: displaced_join wires harden_guard's displaced_paths as a third producer" "yes" \
     "$(grep -qF 'GUARD_PATHS: ${{ steps.harden_guard.outputs.displaced_paths }}' "$_908_RUNNER_YML" && grep -qF '[ -n "$GUARD_PATHS" ] && printf' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: cross-file-phase-contract -- pins that harden_guard's displacement reaches the joined hardened_paths output the grounding-block renderer reads, so a reviewing agent is told these three files are trusted-base/stub bytes rather than reading them as untouched PR-head content
 fi
