@@ -23370,9 +23370,13 @@ assert_eq "#458 workflow: trusted hook copies materialized from FETCH_HEAD" "2" 
 # inline (never the PR-head copy) and warns.
 assert_eq "#458 workflow: fail-closed inline stub arm present (no trusted helper)" "1" \
   "$(grep -c 'no TRUSTED helper resolved' "$RUNNER" || true)"
-# Count is 2, not 1 (issue #908 review): harden_guard's own stub_guard() also writes
-# this exact exit-0 bash stub for its GUARD_TARGETS closure, independent of this
-# harden_hooks step's fail-closed arm.
+# Count is 2, not 1 (issue #908 review, fix-delta gate attribution correction): the
+# second occurrence is source-only, not currently exercised — harden_guard's own
+# stub_guard() carries this exact exit-0 bash-stub literal for a NON-.py GUARD_TARGETS
+# member, a branch every current member (all .py) takes the python3-stub sibling
+# branch instead of. The pin still legitimately guards against source-level drift of
+# this literal (this repo's structural-pin-ok convention), it is just not proof the
+# branch runs today.
 assert_eq "#458 workflow: fail-closed inline stub writes exit-0 stubs" "2" \
   "$(grep -cF "printf '#!/usr/bin/env bash\\nexit 0\\n' > \"\$d\"" "$RUNNER" || true)"
 # The inline stub arm unlinks a symlink dest first (issue #460 SHADOW, mirrors the helper's
@@ -48616,8 +48620,12 @@ echo "#908 review finding: harden_guard step — the PreToolUse guard's own trus
 # unchanged).
 assert_eq "#908 review: harden_guard step exists in devflow-runner.yml" "yes" \
   "$(grep -qE '^\s*id: harden_guard\s*$' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- pins that the unconditional guard-hardening step exists; its absence reopens the settings-input security gap this block documents
-assert_eq "#908 review: harden_guard's GUARD_TARGETS covers both the guard and its dynamic import" "yes" \
-  "$(grep -qF 'GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the exact closure the security fix must displace/stub; a dropped member (esp. extract-command-shapes.py, imported at runtime via importlib) leaves a PR-controlled file reachable even when the guard script itself is hardened
+# issue #908 review, fix-delta gate (iteration 1): the closure is THREE files, not
+# two — lib/test/extract-command-shapes.py's own module top level (unconditional on
+# import) dynamically loads lib/test/extract-command-heads.py, so it must be hardened
+# too or it stays PR-controlled even with the other two members displaced.
+assert_eq "#908 review: harden_guard's GUARD_TARGETS covers the guard and its FULL transitive dynamic-import closure" "yes" \
+  "$(grep -qF 'GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"' "$_908_RUNNER_YML" && echo yes || echo no)"  # structural-pin-ok: schema-config-vocabulary -- pins the exact THREE-file closure the security fix must displace/stub; a dropped member (this pin was fix-delta-gate-caught missing lib/test/extract-command-heads.py, imported at runtime by extract-command-shapes.py's own top level) leaves a PR-controlled file reachable even when the other two are hardened
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _908_HG_ORDER=$(python3 - "$_908_RUNNER_YML" <<'PY'
 import sys, yaml
@@ -48658,6 +48666,7 @@ PY
   mkdir -p "$HG_FIX/origin/scripts" "$HG_FIX/origin/lib/test"
   echo "TRUSTED_GUARD" > "$HG_FIX/origin/scripts/pretooluse-shape-guard.py"
   echo "TRUSTED_SHAPES" > "$HG_FIX/origin/lib/test/extract-command-shapes.py"
+  echo "TRUSTED_HEADS" > "$HG_FIX/origin/lib/test/extract-command-heads.py"
   git -C "$HG_FIX/origin" init -q 2>/dev/null
   git -C "$HG_FIX/origin" add -A 2>/dev/null
   git -C "$HG_FIX/origin" -c user.email=t@t -c user.name=t commit -qm base 2>/dev/null
@@ -48666,24 +48675,33 @@ PY
   mkdir -p "$HG_FIX/ws/scripts" "$HG_FIX/ws/lib/test"
   echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX/ws/scripts/pretooluse-shape-guard.py"
   echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX/ws/lib/test/extract-command-heads.py"
   ( cd "$HG_FIX/ws" && BASE_REF=main GITHUB_OUTPUT="$HG_FIX/gh_out1.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX/out1.log" 2>&1
   assert_eq "#908 harden_guard errexit: the step survives GitHub's default bash -e {0} shell" "0" "$?"
   assert_eq "#908 harden_guard: base-fetch success displaces the PR-head guard with the trusted base copy" "yes" \
     "$(grep -qF 'MALICIOUS_PR_HEAD_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: base-fetch success displaces the PR-head dynamic-import dependency too" "yes" \
     "$(grep -qF 'MALICIOUS_PR_HEAD_SHAPES' "$HG_FIX/ws/lib/test/extract-command-shapes.py" && echo no || echo yes)"
+  # Fix-delta gate finding (issue #908 review, iteration 1): extract-command-heads.py
+  # is the THIRD, transitively-imported closure member — regression-lock it too, not
+  # only the two directly-named files.
+  assert_eq "#908 harden_guard: base-fetch success displaces the PR-head transitive-import dependency too (fix-delta gate regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_HEADS' "$HG_FIX/ws/lib/test/extract-command-heads.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: displaced content is the TRUSTED base copy, not a stub" "yes" \
     "$(diff -q "$HG_FIX/origin/scripts/pretooluse-shape-guard.py" "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" >/dev/null 2>&1 && echo yes || echo no)"
   # Fail-closed arm: base ref cannot be fetched (a deleted/unreachable base) — the
   # PR-head bytes must never survive; they are stubbed inline instead.
   echo "MALICIOUS_PR_HEAD_GUARD" > "$HG_FIX/ws/scripts/pretooluse-shape-guard.py"
   echo "MALICIOUS_PR_HEAD_SHAPES" > "$HG_FIX/ws/lib/test/extract-command-shapes.py"
+  echo "MALICIOUS_PR_HEAD_HEADS" > "$HG_FIX/ws/lib/test/extract-command-heads.py"
   ( cd "$HG_FIX/ws" && BASE_REF=nonexistent-branch-xyz-908 GITHUB_OUTPUT="$HG_FIX/gh_out2.txt" bash -e "$HG_SCRIPT" ) >"$HG_FIX/out2.log" 2>&1
   assert_eq "#908 harden_guard errexit: the fail-closed arm also survives bash -e {0}" "0" "$?"
   assert_eq "#908 harden_guard: an unreachable base ref stubs the PR-head guard (fail-closed), never leaves it intact" "yes" \
     "$(grep -qF 'MALICIOUS_PR_HEAD_GUARD' "$HG_FIX/ws/scripts/pretooluse-shape-guard.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: an unreachable base ref stubs the dynamic-import dependency too" "yes" \
     "$(grep -qF 'MALICIOUS_PR_HEAD_SHAPES' "$HG_FIX/ws/lib/test/extract-command-shapes.py" && echo no || echo yes)"
+  assert_eq "#908 harden_guard: an unreachable base ref stubs the transitive-import dependency too (fix-delta gate regression lock)" "yes" \
+    "$(grep -qF 'MALICIOUS_PR_HEAD_HEADS' "$HG_FIX/ws/lib/test/extract-command-heads.py" && echo no || echo yes)"
   assert_eq "#908 harden_guard: the fail-closed stub warns rather than silently succeeding" "1" \
     "$(grep -c 'could not materialize a trusted base copy' "$HG_FIX/out2.log" || true)"
 fi

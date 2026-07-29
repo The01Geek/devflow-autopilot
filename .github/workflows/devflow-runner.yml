@@ -1434,7 +1434,13 @@ jobs:
         run: |
           set +e
           set -uo pipefail
-          GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py"
+          # Fix-delta gate finding (issue #908 review, iteration 1): lib/test/extract-command-shapes.py
+          # itself, at its OWN module top level (unconditional on import, not merely referenced
+          # in a comment), dynamically loads lib/test/extract-command-heads.py via the same
+          # importlib pattern — so the guard's real trust closure is THREE files deep, not two.
+          # Dropping this third member would leave it PR-head/attacker-controlled even with
+          # the other two hardened, reopening the exact hole this step exists to close.
+          GUARD_TARGETS="scripts/pretooluse-shape-guard.py lib/test/extract-command-shapes.py lib/test/extract-command-heads.py"
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           stub_guard() {
             for t in $GUARD_TARGETS; do
