@@ -138,6 +138,19 @@ fi
 # reconciles — a pattern with a `filed` meta-issue derives status `filed` and is
 # not actionable; this cooldown is the within-window guard against re-filing the
 # same open issue twice inside one window.)
+#
+# KNOWN GAP (issue #893): $OPEN_ISSUE_MAP and the cooldown_active lookup below are
+# keyed by the PATTERN's own coarse `.slug`. A findings-array filing (lib/select-
+# findings.sh) meta-issues under a composed `<category>-<subslug>` key instead, so
+# a cooldown-window issue filed on the findings-array path is invisible to this
+# lookup: this.slug never equals that composed key, so $has_issue is always false
+# for it. In practice the pattern-level `status` exclusion (filed/dismissed
+# patterns are already non-actionable before this cooldown runs) masks the gap for
+# most patterns; a pattern that regresses back to actionable status inside the
+# cooldown window on the findings-array path is the case this misses. Not fixed
+# here: scoping cooldown per-composed-key would need the same category-aggregating
+# read select-findings.sh's per-category cap already performs, which is a larger
+# change than this reception pass's scope.
 # Split the fetch from the jq so a gh failure (auth/rate-limit/network) and a
 # non-JSON body each get a SPECIFIC breadcrumb naming the cause — the same
 # fail-loud discipline meta-issue.sh's de-dupe lookup uses — instead of an opaque

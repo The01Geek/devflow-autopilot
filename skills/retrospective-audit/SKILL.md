@@ -17,7 +17,7 @@ You are given:
 Your only stdout output is **exactly one** JSON object carrying a `findings` array of one to three sub-pattern findings (see § 5). Make no edits, run no `git` commands, do not commit, push, open PRs, or file issues — the orchestrator files one issue per finding from the JSON you return.
 
 **Hard rules:**
-- One pattern per invocation. One proposed change. No bundled fixes.
+- One pattern per invocation. One proposed change **per finding** (up to three findings, see § 5). No bundled fixes.
 - You **propose**; you do not implement. Never edit the working tree.
 - Build the JSON with `jq -n` (§ 6) — never hand-write or heredoc JSON.
 
@@ -162,4 +162,4 @@ BODY1="$(mktemp)"; BODY2="$(mktemp)"   # one per finding — never a fixed share
    ]}'
 ```
 
-Emit **one** array element when the category is a single fixable thing, up to **three** when it lumps distinct sub-patterns — dominant first. These scratch files are only within-subagent buffers; each body travels back to the orchestrator via the stdout `findings` array, which the orchestrator re-extracts to its own per-finding files. Print the `jq` output and stop.
+This worked example shows the **two-finding** case; it is a pattern to adapt, not a fixed arity. For **one** finding, drop the `sub2`/`t2`/`b2`/`prs2`/`r2` flags, the second `mktemp`, and the second array element — the `jq` filter has one element in `findings`. For **three**, add a third `sub3`/`t3`/`b3`/`prs3`/`r3` flag group, a third `mktemp`, and a third array element, following the same shape. Emit **one** array element when the category is a single fixable thing, up to **three** when it lumps distinct sub-patterns — dominant first. These scratch files are only within-subagent buffers; each body travels back to the orchestrator via the stdout `findings` array, which the orchestrator re-extracts to its own per-finding files. Print the `jq` output and stop.

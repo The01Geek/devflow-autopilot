@@ -25,8 +25,13 @@
 #   - On stdout it prints a JSON array of the findings to file, each shaped
 #     {key, subslug, title, body, evidence_prs, rationale, category}, in the order
 #     they should be filed (descending evidence-PR count). Report/breadcrumb lines
-#     (dropped-illegal, truncated, empty, malformed, withheld-by-cap, aliased) go to
-#     stderr with a `select-findings:` prefix the orchestrator relays.
+#     (dropped-illegal, truncated, withheld-by-cap, aliased) go to stderr with a
+#     `select-findings:` prefix the orchestrator relays. The `empty` (a Stage B
+#     result whose `findings` array has zero elements) and `malformed` (neither a
+#     `findings` array nor a legacy `{title, body}` pair) report kinds are NOT
+#     emitted by this helper — this function is never reached on either shape, since
+#     the caller (Step 8c) branches on the overall result shape before calling in;
+#     those two report lines are Step 8c's own.
 #   - Prints NOTHING on stdout and RETURNS non-zero when lib/filing-decisions.sh
 #     cannot be sourced (a missing cap owner withholds rather than files uncapped),
 #     and when the overrides file is absent/unreadable/unmigrated (an unreadable
@@ -131,6 +136,17 @@ devflow_select_findings() {
         echo "::error::select-findings: missing required argument (--category='${category}' --findings-file='${findings_file}' --overrides='${overrides}') — withholding every finding for this pattern" >&2
         return 2
     fi
+    # `filed_this_run` feeds `$(( filed_this_run + _filed_here ))` below; an empty or
+    # unset value is silently coerced to 0 by bash arithmetic (unlike a non-numeric
+    # string, which errors) — laundering an unestablished per-run count into a valid-
+    # looking 0 before devflow_filing_cap_verdict ever sees it, resetting the per-run
+    # cap comparand rather than reporting it unestablished. Validate it here, the same
+    # way the other numeric cap operands are validated.
+    case "$filed_this_run" in
+        ''|*[!0-9]*)
+            echo "::error::select-findings: --filed-this-run is not a non-negative integer (got '${filed_this_run}') — withholding every finding for this pattern rather than filing past the per-run cap on a laundered zero" >&2
+            return 2 ;;
+    esac
     if [ ! -r "$findings_file" ]; then
         echo "::error::select-findings: findings file '${findings_file}' is unreadable — withholding every finding for this pattern" >&2
         return 2
@@ -229,7 +245,28 @@ devflow_select_findings() {
             i=$(( i + 1 )); continue
         fi
 
-        # Compose the opaque filing key through the #891 composer.
+        # An absent or empty title/body was previously defaulted to "" and filed
+        # anyway: an empty title surfaces only as a misattributed "meta-issue.sh
+        # failed" blocker downstream, and an empty body files a real GitHub issue
+        # with no content — silently, since only subslug was validated. Drop it here
+        # instead, with its own breadcrumb naming which field was missing.
+        _title="$("$DEVFLOW_JQ" -r '.title // "" | if type=="string" then . else "" end' <<<"$_f" 2>/dev/null)" || _title=""
+        _body="$("$DEVFLOW_JQ" -r '.body // "" | if type=="string" then . else "" end' <<<"$_f" 2>/dev/null)" || _body=""
+        if [ -z "$_title" ] || [ -z "$_body" ]; then
+            echo "select-findings: dropped a finding of category '${category}' subslug '${_subslug}' with an absent or empty title and/or body (title empty: $([ -z "$_title" ] && echo yes || echo no), body empty: $([ -z "$_body" ] && echo yes || echo no))" >&2
+            i=$(( i + 1 )); continue
+        fi
+
+        # Compose the opaque filing key through the #891 composer. Precheck it is
+        # present and executable BEFORE invoking it — the same discipline Step 8a
+        # applies to run-jq.sh — so an absent helper, a lost +x bit, or a poisoned
+        # deployment aborts with its own cause instead of being folded into the
+        # "illegal subslug" breadcrumb below, which would misdiagnose an
+        # infrastructure failure as a rejected input and silently drop every finding.
+        if [ ! -x "$_SF_HERE/compose-filing-key.sh" ]; then
+            echo "::error::select-findings: '$_SF_HERE/compose-filing-key.sh' is missing or not executable — the filing-key composer is unavailable; withholding every finding for this pattern rather than attributing the drop to a rejected input" >&2
+            return 1
+        fi
         local _key
         if ! _key="$("$_SF_HERE/compose-filing-key.sh" "$category" "$_subslug" 2>/dev/null)"; then
             echo "select-findings: dropped a finding of category '${category}' — compose-filing-key.sh rejected subslug '${_subslug}' (illegal or empties after canonicalization)" >&2
@@ -276,6 +313,16 @@ devflow_select_findings() {
                 echo "select-findings: dropped a finding of category '${category}' — the aliased existing record key '${_key}' falls outside the [A-Za-z0-9_-]+ grammar (the record set holds an illegal key; the finding is withheld rather than filed against it)" >&2
                 i=$(( i + 1 )); continue ;;
         esac
+
+        # A second finding within this same call that composes to (or aliases onto)
+        # a key already accepted into `_out` — two subslugs canonicalizing to the
+        # same key, or both aliasing onto the same existing record — would otherwise
+        # be accepted twice, double-counting it in `_filed_here`/`filed_this_run` and
+        # in `intervention_issues`. Drop the duplicate rather than filing it again.
+        if "$DEVFLOW_JQ" -e --arg key "$_key" 'any(.[]; .key == $key)' <<<"$_out" >/dev/null 2>&1; then
+            echo "select-findings: dropped a finding of category '${category}' subslug '${_subslug}' — key '${_key}' was already accepted earlier in this same selection (duplicate composed key or shared alias target)" >&2
+            i=$(( i + 1 )); continue
+        fi
 
         # Cap decision — from the SHIPPED owner, no cap arm of our own. The comparands
         # grow with _filed_here (issues this call already accepted).

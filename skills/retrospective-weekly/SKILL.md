@@ -1034,7 +1034,15 @@ elif $LIB/../scripts/run-jq.sh -e '.title and .body' < ".devflow/tmp/result-${SL
       exit 1
     }
     PER_CAT="$(devflow_open_filed_for_category .devflow/learnings/overrides.json "$CATEGORY")"
+    case "$PER_CAT" in
+      ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the per-category filed count for category '$CATEGORY' (got '$PER_CAT') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+           exit 1 ;;
+    esac
     OPEN_TOTAL="$(devflow_open_filed_total .devflow/learnings/overrides.json)"
+    case "$OPEN_TOTAL" in
+      ''|*[!0-9]*) echo "::error::retrospective Step 8c: could not derive the total filed count (got '$OPEN_TOTAL') — the overrides file is missing, unreadable, or malformed; aborting rather than withholding every pattern behind an invalid-operand verdict that would read as back-pressure" >&2
+           exit 1 ;;
+    esac
     VERDICT="$(devflow_filing_cap_verdict "$STATUS" "$filed_this_run" "$MAX_PER_RUN" "$PER_CAT" "$MAX_PER_CAT" "$OPEN_TOTAL" "$MAX_OPEN")"
     if [ "$VERDICT" = file ]; then
         $LIB/../scripts/run-jq.sh -r '.body' < ".devflow/tmp/result-${SLUG}.json" > ".devflow/tmp/issue-body-${SLUG}.md"
