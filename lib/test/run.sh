@@ -27228,7 +27228,7 @@ rm -rf "$VS_COMMIT" "$VS_SELF" "$VS_REMOTE" "$VS_FETCH" "$VS_FETCH_SHA" \
        "$VS_PREC" "$VS_DECOY" "$VS_DECOY_DEST"
 
 # ────────────────────────────────────────────────────────────────────────────
-echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tree)"
+echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tree + marketplace entry)"
 # ────────────────────────────────────────────────────────────────────────────
 # The root `claude plugin validate` resolves the MARKETPLACE manifest and never examines the
 # plugin tree, so unparseable component frontmatter shipped green. These checks close that hole:
@@ -27237,7 +27237,9 @@ echo "#671 packaging validation (agent/skill frontmatter + manifests + plugin tr
 #     prerequisites), NOT gated on the claude CLI; (2) a malformed fixture proves the parser
 #     rejects the exact defect (an unquoted `description` scalar containing ": "); (3) the full
 #     `claude plugin validate --strict` runs over a staged plugin-only tree when the CLI is
-#     present, else self-skips as blocking-gate.
+#     present, else self-skips as blocking-gate; (4) the SAME validator runs in MARKETPLACE mode
+#     over a staged copy of .claude-plugin/marketplace.json, which block (3) structurally cannot
+#     reach — see that block's own header for why the two are separate rather than unified.
 
 # (1) frontmatter structured-parse gate. The frontmatter half is lib/test/validate-frontmatter.py
 # (extracted so the suite can drive its empty-corpus / unparseable / missing-key branches against
@@ -27486,6 +27488,113 @@ if command -v claude >/dev/null 2>&1; then
   unset -f devflow_pkg_fixture devflow_pkg_validate_rc devflow_pkg_descent_arm
 else
   skip "#671 claude plugin validate --strict (plugin tree + descent matrix)" blocking-gate "claude CLI not on PATH — neither the plugin-tree strict validation NOR the frontmatter descent matrix (the executable backing for ci.yml's descent claim) was run (CI installs it, see the shard job in .github/workflows/ci.yml; install the CLI locally to arm this gate at the desk)"
+fi
+
+# (4) MARKETPLACE-MODE `claude plugin validate --strict`. Block (3) above deliberately stages a
+# tree with NO marketplace.json beside plugin.json, which selects PLUGIN mode — so nothing in
+# this suite ever ran the validator over .claude-plugin/marketplace.json itself. That left the
+# marketplace ENTRY covered only by a json.load() parse, the description byte-equality pin (2d)
+# and the staging pin (2e): a drifted `plugins[0].version` (the field a version bump must carry
+# forward) is invisible to all four, while the CLI diagnoses it precisely — and at install time
+# plugin.json wins, so the entry's version is silently ignored rather than loudly wrong.
+# Mode is selected by WHAT THE VALIDATED DIRECTORY CONTAINS: a `.claude-plugin/marketplace.json`
+# routes to marketplace mode. This block therefore stages BOTH manifests; the version cross-check
+# needs plugin.json present as the comparand, so staging marketplace.json alone would make the
+# whole matrix vacuous. The real .claude-plugin/marketplace.json is never mutated — every case,
+# including the passing one, runs against a copy under mktemp -d.
+if command -v claude >/dev/null 2>&1; then
+  PKG_MKT="$(mktemp -d)"
+  [ -n "$PKG_MKT" ] && [ -d "$PKG_MKT" ] || { printf 'FATAL: mktemp -d failed for the #671 marketplace fixture\n' >&2; exit 1; }
+  PKG_MKT_JSON="$PKG_MKT/tree/.claude-plugin/marketplace.json"
+  devflow_pkg_mkt_stage() {  # restage pristine copies of BOTH real manifests
+    rm -rf "${PKG_MKT:?}/tree"
+    # Fail CLOSED on a staging failure, exactly as the descent fixture does: a half-staged tree
+    # is rejected for the wrong reason and would read as a passing negative arm.
+    mkdir -p "$PKG_MKT/tree/.claude-plugin" \
+      || { printf 'FATAL: #671 marketplace fixture staging failed (mkdir)\n' >&2; exit 1; }
+    cp "$REPO_ROOT/.claude-plugin/marketplace.json" "$PKG_MKT_JSON" \
+      || { printf 'FATAL: #671 marketplace fixture staging failed (marketplace.json copy)\n' >&2; exit 1; }
+    cp "$REPO_ROOT/.claude-plugin/plugin.json" "$PKG_MKT/tree/.claude-plugin/plugin.json" \
+      || { printf 'FATAL: #671 marketplace fixture staging failed (plugin.json copy)\n' >&2; exit 1; }
+  }
+  # Same version-asymmetry caveat as the descent helper above: CI pins the CLI, the desk does not,
+  # so replay the validator's own output (naming the observed CLI version) on an UNEXPECTED rc.
+  devflow_pkg_mkt_validate_rc() {  # $1 = expected rc; $2 = tree to validate (default: the staged one)
+    local _out _rc _tree="${2:-$PKG_MKT/tree}"
+    _out="$(claude plugin validate --strict "$_tree" 2>&1)"; _rc=$?
+    [ "$_rc" = "${1-}" ] || printf 'claude %s: marketplace validate rc=%s\n%s\n' \
+      "$(claude --version 2>/dev/null || echo '(version unavailable)')" "$_rc" "$_out" >&2
+    echo "$_rc"
+  }
+
+  # (4a) Positive control over the REAL, unmodified entry. Both a zero exit AND the
+  # 'Validation passed' line, for the same reason block (3) requires both.
+  devflow_pkg_mkt_stage
+  PKG_MKT_OUT="$(claude plugin validate --strict "$PKG_MKT/tree" 2>&1)"; PKG_MKT_RC=$?
+  [ "$PKG_MKT_RC" -eq 0 ] || printf '%s\n' "$PKG_MKT_OUT"
+  assert_eq "#671 marketplace: claude plugin validate --strict passes on the real staged marketplace entry" "yes" \
+    "$( { [ "$PKG_MKT_RC" -eq 0 ] && printf '%s' "$PKG_MKT_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+  # (4b) Prove the run actually reached MARKETPLACE mode. Without this, a future CLI (or a
+  # staging regression that drops marketplace.json) would silently downgrade every arm below to
+  # plugin mode and (4a) would still be green while gating nothing about the entry.
+  assert_eq "#671 marketplace: the staged tree selects marketplace mode (the CLI names the marketplace manifest it validated)" "yes" \
+    "$(printf '%s' "$PKG_MKT_OUT" | grep -qF 'Validating marketplace manifest:' && echo yes || echo no)"
+
+  # (4c) Drive one adversarial shape: restage, assert the pristine fixture is VALID (per-arm
+  # positive control — same argument as the descent matrix: a fixture that degrades midway would
+  # otherwise yield green negative arms proving nothing), apply the mutation, assert rejection.
+  # Args: <label> <self-contained python3 -c program taking the manifest path as argv[1]>
+  devflow_pkg_mkt_arm() {
+    local _label="$1" _prog="$2"
+    devflow_pkg_mkt_stage
+    assert_eq "#671 marketplace positive control ($_label): staged entry is valid BEFORE the mutation" "0" \
+      "$(devflow_pkg_mkt_validate_rc 0)"
+    python3 -c "$_prog" "$PKG_MKT_JSON" \
+      || { printf 'FATAL: #671 marketplace mutation failed to apply (%s)\n' "$_label" >&2; exit 1; }
+    assert_eq "#671 marketplace: $_label is rejected (exit 1)" "1" "$(devflow_pkg_mkt_validate_rc 1)"
+  }
+
+  # The motivating shape: the entry's version drifting from plugin.json's. This is the one the
+  # consolidator's `git add` list (2e) exists to prevent and that nothing here could catch.
+  devflow_pkg_mkt_arm "an entry version that drifts from plugin.json's" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d["plugins"][0]["version"]="9.9.9";json.dump(d,open(p,"w"))'
+  # Malformed-shape rows for a hand-editable JSON manifest: a missing required key at both
+  # nesting levels, a wrong-typed container, an unknown field (--strict promotes the warning),
+  # and a well-typed but invalid value.
+  devflow_pkg_mkt_arm "a missing plugins[0].name" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d["plugins"][0].pop("name");json.dump(d,open(p,"w"))'
+  devflow_pkg_mkt_arm "a missing top-level marketplace name" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d.pop("name");json.dump(d,open(p,"w"))'
+  devflow_pkg_mkt_arm "a wrong-typed plugins field (string, not array)" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d["plugins"]="nope";json.dump(d,open(p,"w"))'
+  devflow_pkg_mkt_arm "an unknown top-level field" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d["bogusField"]=1;json.dump(d,open(p,"w"))'
+  devflow_pkg_mkt_arm "a plugin name that is not kebab-case" \
+    'import json,sys;p=sys.argv[1];d=json.load(open(p));d["plugins"][0]["name"]="Bad Name!";json.dump(d,open(p,"w"))'
+
+  # (4d) Differential control for the MODE claim, independent of the CLI's wording in (4b).
+  # Same directory, same plugin.json, same mutated marketplace.json — but with the entry file
+  # removed the CLI takes the plugin-mode path and returns 0. That is precisely why block (3)'s
+  # staged tree could not see this defect, and it is asserted rather than argued so a future CLI
+  # that starts reading a sibling marketplace.json in plugin mode reddens here instead of
+  # quietly making these two blocks redundant.
+  devflow_pkg_mkt_stage
+  python3 -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["plugins"][0]["version"]="9.9.9";json.dump(d,open(p,"w"))' \
+    "$PKG_MKT_JSON" || { printf 'FATAL: #671 marketplace differential mutation failed to apply\n' >&2; exit 1; }
+  assert_eq "#671 marketplace differential: the drifted entry is rejected while marketplace.json is present" "1" \
+    "$(devflow_pkg_mkt_validate_rc 1)"
+  rm -f "$PKG_MKT_JSON"
+  assert_eq "#671 marketplace differential: the same tree passes once marketplace.json is gone (plugin mode is blind to the entry)" "0" \
+    "$(devflow_pkg_mkt_validate_rc 0)"
+
+  # Known non-detections at the pinned CLI version, recorded so a later reader does not assume
+  # this gate is total: a `plugins[0].source` pointing at a nonexistent directory, and a
+  # `plugins[0].description` drifting from plugin.json's, both validate clean. The description
+  # case is already covered by the byte-equality pin (2d); the source case is uncovered.
+  rm -rf "$PKG_MKT"
+  unset -f devflow_pkg_mkt_stage devflow_pkg_mkt_validate_rc devflow_pkg_mkt_arm
+else
+  skip "#671 claude plugin validate --strict (marketplace entry)" blocking-gate "claude CLI not on PATH — the marketplace-mode strict validation of .claude-plugin/marketplace.json (positive control + the entry-version-drift and malformed-shape matrix) was not run (CI installs it, see the shard job in .github/workflows/ci.yml; install the CLI locally to arm this gate at the desk)"
 fi
 
 # ────────────────────────────────────────────────────────────────────────────

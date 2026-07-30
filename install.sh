@@ -34,12 +34,16 @@
 # your repo. (Local editor use is different again: add the github marketplace with
 # autoUpdate — see docs/cloud-setup.md.)
 #
-# Usage, from the root of your repo:
-#   curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/main/install.sh | bash
-#   # pin a version / point at a fork:
-#   DEVFLOW_REF=v1.2.0 DEVFLOW_REPO=The01Geek/devflow-autopilot bash install.sh
+# Usage, from the root of your repo. Download-read-run is the documented form:
+# fetch this file at a PINNED ref — a release tag such as v2.26.2, or a commit
+# SHA; never mutable main — read it, then run the copy you read. docs/install.md
+# carries the current pinned one-liner; docs/cloud-setup.md the full guide.
+#   curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/<ref>/install.sh -o devflow-install.sh
+#   DEVFLOW_REF=<ref> bash devflow-install.sh
+#   # point at a fork (DEVFLOW_REF defaults to main, so pin it too):
+#   DEVFLOW_REF=<ref> DEVFLOW_REPO=<owner>/<repo> bash devflow-install.sh
 #   # commit the plugin tree instead of fetching it at runtime:
-#   DEVFLOW_VENDOR=1 bash install.sh
+#   DEVFLOW_VENDOR=1 bash devflow-install.sh
 # ============================================================================
 set -euo pipefail
 
