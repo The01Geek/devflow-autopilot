@@ -1367,8 +1367,18 @@ unset -f ci749_field
 # behavioral read, and no other assertion in this module, in lib/test/run.sh, or in any sibling
 # module mentions `--search-space` — so a revert to the hardcoded internal-docs location, or one
 # dropping the Steps-1-and-2 read, is caught by the review pass over the SKILL prose, not here.
+#
+# READ THIS BEFORE TOUCHING THE CALL BELOW. Its trailing declaration still says "the behavioral
+# read is pinned by the two rows below"; that is stale (#885 retired those rows) and it is
+# deliberately left stale, because the declaration CANNOT be corrected. The #810 gate classifies
+# a site whose physical lines are in the diff's added set, so any edit to those two lines pulls
+# this site into scope — and it then fails on `typed structural declaration target cannot be
+# inspected` ($CI_DV is a concatenated in-module bundle the lint cannot resolve) as well as on
+# the category, which predates #885 and is not one of the eight legal ones. Editing the marker
+# text therefore turns the required gate RED with no valid form available. This paragraph is the
+# correction; the marker is frozen until the target becomes inspectable.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
-  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; this pin covers the declaration only — the behavioral read carries no pin anywhere since #885
+  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
