@@ -37,6 +37,7 @@ PIN_CORPUS_SOURCES = (
     "lib/test/modules/regenerate-artifacts.sh",
     "lib/test/modules/review-stall-backstop.sh",
     "lib/test/modules/review-trigger-helpers.sh",
+    "lib/test/modules/review-and-fix-contract.sh",
 )
 DEFAULT_SOURCES = PIN_CORPUS_SOURCES
 EXISTENCE_HELPERS = frozenset(
@@ -186,6 +187,64 @@ def _portable_target(target: str | None, lib: str) -> str | None:
         return target
 
 
+def source_existence_helpers(text: str) -> tuple[frozenset[str], dict]:
+    """Existence helpers callable in one source, plus the specs to resolve them.
+
+    A focused module may route its pins through a module-private wrapper rather
+    than calling the shared API directly (issue #946): ``review-and-fix-contract.sh``
+    defines ``_raf_pin_unique``, so with only the built-in ``EXISTENCE_HELPERS``
+    names known, every one of its pins is invisible to the census.
+
+    The wrapper is resolved by reusing ``pin-corpus-lint.py``'s existing
+    ``helper_specs_for_source`` inference rather than by naming ``_raf_pin_unique``
+    here.  Which of that function's two mechanisms actually fires matters, and it
+    is *not* the positional/``$@``-forwarding fixpoint: ``_raf_pin_unique``'s body
+    calls ``assert_eq`` on a ``_raf_pin_count`` command substitution, and neither
+    callee is a known helper, so the forwarding pass never reaches it (it reports
+    no wrapper origin line, unlike the forwarding wrappers in ``run.sh`` and
+    ``create-issue-contract.sh``).  What resolves it is that function's name-only
+    fallback over ``STATIC_PRESENCE_WRAPPER_SUFFIXES``, which assigns the shared
+    ``(literal, file)`` argument shape used by ``assert_pin_unique`` — the shape
+    ``_raf_pin_unique <assertion-name> <literal> <file>`` genuinely has.  This
+    reader therefore admits exactly the wrappers that fallback names, applying
+    the same suffix convention rather than a second, divergent rule.  Scoping the
+    admission to that suffix set is load-bearing: ``helper_specs_for_source``
+    also infers count-family wrappers (``run.sh``'s ``pf545_illegal_count``,
+    ``create-issue-contract.sh``'s ``ci749_iface``), and admitting those would
+    silently move sites into the existence census that were never in it.
+    """
+    specs, _, _ = PCL.helper_specs_for_source(text)
+    wrappers = {}
+    for name, spec in specs.items():
+        if name in PCL.HELPERS or not name.endswith(
+            PCL.STATIC_PRESENCE_WRAPPER_SUFFIXES
+        ):
+            continue
+        # Admit only a spec this reader's own extraction pass can resolve.
+        # ``PCL.extract_pins`` skips a spec whose literal selector is not a
+        # positional index (a fixed-literal wrapper) — so admitting one here would
+        # make the two passes disagree: the shared pass would drop the site while
+        # this reader's physical-token loop still counted it, and the cardinality
+        # reconciliation below would then raise a "mismatch" naming the wrong
+        # cause. Reject it at the seam instead, so the diagnostic names the real
+        # problem. Dropping it silently is NOT the alternative: a wrapper whose
+        # name claims the presence convention but whose shape is not the resolvable
+        # one is an inconsistency a human must look at, and silence would let its
+        # pins escape the census entirely.
+        if not isinstance(spec[0], int):
+            raise ValueError(
+                f"presence-suffixed wrapper {name!r} infers a fixed-literal spec "
+                f"({spec!r}); the census can only resolve a positional-literal "
+                "wrapper. Rename it out of "
+                f"{PCL.STATIC_PRESENCE_WRAPPER_SUFFIXES!r} or give it the "
+                "<assertion-name> <literal> <file> shape."
+            )
+        wrappers[name] = spec
+    resolvable = {name: PCL.HELPERS[name] for name in EXISTENCE_HELPERS}
+    resolvable.update(wrappers)
+    return frozenset(EXISTENCE_HELPERS) | frozenset(wrappers), resolvable
+
+
 def extract_existence_sites(
     text: str,
     source_file: str,
@@ -193,10 +252,11 @@ def extract_existence_sites(
     overrides: dict[str, str],
 ) -> list[Site]:
     """Extract one record per existence-only call, paired to shared extraction."""
+    existence_helpers, helper_specs = source_existence_helpers(text)
     shared = {
         (pin["lineno"], pin["helper"]): pin
-        for pin in PCL.extract_pins(text, lib, overrides)
-        if pin["helper"] in EXISTENCE_HELPERS
+        for pin in PCL.extract_pins(text, lib, overrides, helper_specs=helper_specs)
+        if pin["helper"] in existence_helpers
     }
     path_vars, literal_vars = PCL.build_var_maps(text, lib, overrides)
     physical = text.split("\n")
@@ -209,7 +269,7 @@ def extract_existence_sites(
         if not tokens:
             continue
         helper = _raw_token(tokens[0])
-        if helper not in EXISTENCE_HELPERS:
+        if helper not in existence_helpers:
             continue
         if re.match(r"^\w+\s*\(\)", stripped):
             continue
@@ -226,7 +286,7 @@ def extract_existence_sites(
             )
             if assertion_name is None:
                 assertion_name = _raw_token(args[0])
-        _, file_idx, default_file = PCL.HELPERS[helper]
+        _, file_idx, default_file = helper_specs[helper]
         target_defaulted = file_idx >= len(args) and default_file is not None
         span = PCL.site_physical_lines(physical, lineno, logical)
         result.append(
@@ -514,8 +574,11 @@ def _out_of_scope_counts(
         if raw is None:
             continue
         text = raw.decode("utf-8")
-        for pin in PCL.extract_pins(text, lib, overrides):
-            if pin["helper"] not in EXISTENCE_HELPERS:
+        outside_helpers, outside_specs = source_existence_helpers(text)
+        for pin in PCL.extract_pins(
+            text, lib, overrides, helper_specs=outside_specs
+        ):
+            if pin["helper"] not in outside_helpers:
                 continue
             sites += 1
             if pin["literal"] is not None:
