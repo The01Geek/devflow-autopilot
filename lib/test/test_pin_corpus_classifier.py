@@ -151,6 +151,81 @@ assert_pin_unique() { :; }
         self.assertTrue(rows[1].target_defaulted)
         self.assertEqual("/__pin_corpus_runtime__/MAXI_SKILL", rows[1].resolved_target)
 
+    def test_module_private_presence_wrapper_is_a_census_site(self):
+        # Break caught (issue #946): a module routing its pins through a private
+        # presence wrapper had no census row at all, so the retirement gate could
+        # not answer for any of them. A count-family wrapper must stay OUT, or
+        # sites that were never existence pins would silently join the census.
+        source = """\
+_raf_pin_count() {
+  grep -oF -- "$1" "$2" | grep -c .
+}
+_raf_pin_unique() {
+  assert_eq "$1" "1" "$(_raf_pin_count "$2" "$3")"
+}
+raf_illegal_count() {
+  pin_count 'fixed literal' "$1"
+}
+_raf_pin_unique "wrapped" 'alpha' "$LIB/a.md"
+assert_pin_unique "plain" 'beta' "$LIB/b.md"
+assert_eq "counted" "0" "$(raf_illegal_count "$LIB/c.md")"
+"""
+        helpers, specs = self.mod.source_existence_helpers(source)
+        self.assertIn("_raf_pin_unique", helpers)
+        self.assertNotIn("_raf_pin_count", helpers)
+        self.assertNotIn("raf_illegal_count", helpers)
+        # The sibling suffix earns the same admission — the convention is the pair,
+        # not just the one member review-and-fix-contract.sh happens to use.
+        present_helpers, present_specs = self.mod.source_existence_helpers(
+            "_mod_pin_present() {\n"
+            '  assert_eq "$1" "yes" "$(grep_present "$2" "$3")"\n'
+            "}\n"
+            "_mod_pin_present \"named\" 'gamma' \"$LIB/g.md\"\n"
+        )
+        self.assertIn("_mod_pin_present", present_helpers)
+        self.assertEqual((1, 2, None), present_specs["_mod_pin_present"])
+        self.assertEqual((1, 2, None), specs["_raf_pin_unique"])
+        rows = self.mod.extract_existence_sites(
+            source, "lib/test/modules/example.sh", "/repo/lib", {}
+        )
+        self.assertEqual(
+            ["_raf_pin_unique", "assert_pin_unique"], [row.helper for row in rows]
+        )
+        self.assertEqual("wrapped", rows[0].assertion_name)
+        self.assertEqual("alpha", rows[0].literal)
+        self.assertEqual("lib/a.md", rows[0].resolved_target)
+        self.assertFalse(rows[0].target_defaulted)
+        self.assertEqual(
+            "lib/test/modules/review-and-fix-contract.sh",
+            self.mod.PIN_CORPUS_SOURCES[-1],
+        )
+
+    def test_presence_suffixed_fixed_literal_wrapper_is_rejected_at_the_seam(self):
+        # A wrapper whose NAME claims the presence convention but whose inferred
+        # spec carries a fixed literal instead of a positional index cannot be
+        # resolved by the shared extraction pass, which skips it. Admitting it
+        # would make the two passes disagree and surface as a cardinality
+        # "mismatch" naming the wrong cause; dropping it silently would let its
+        # pins escape the census. Both are wrong, so admission raises — and the
+        # message must name the wrapper and the shape it needs.
+        source = """\
+_bad_pin_unique() {
+  pin_count 'a fixed literal' "$1"
+}
+_bad_pin_unique "$LIB/x.md"
+"""
+        with self.assertRaises(ValueError) as caught:
+            self.mod.source_existence_helpers(source)
+        message = str(caught.exception)
+        self.assertIn("_bad_pin_unique", message)
+        self.assertIn("fixed-literal spec", message)
+        # Negative control: the same body under a name outside the suffix set is
+        # simply not a presence wrapper, and must NOT raise.
+        helpers, _ = self.mod.source_existence_helpers(
+            source.replace("_bad_pin_unique", "_bad_counter")
+        )
+        self.assertNotIn("_bad_counter", helpers)
+
     def test_override_name_recovery_binds_synthetic_nontracked_paths(self):
         source = """\
 _PCL_ARGS=(
@@ -573,6 +648,12 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             "0 sites in 0 unselected candidate sources",
             metadata["out-of-scope"],
         )
+        # This alternation is an INDEPENDENT restatement of the census's
+        # existence-helper population, so it names each helper literally rather
+        # than importing the module's own set. `_raf_pin_unique` is
+        # review-and-fix-contract.sh's module-private presence wrapper (issue
+        # #946); the trailing `[[:space:]]` keeps its `_raf_pin_unique()`
+        # definition line out of the count, since only call sites are census rows.
         grep = subprocess.run(
             [
                 "git",
@@ -580,7 +661,8 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                 "-nE",
                 (
                     "^[[:space:]]*(assert_pin_unique|assert_pin_red_on_removal|"
-                    "devflow_module_pin_unique|devflow_module_pin_present)"
+                    "devflow_module_pin_unique|devflow_module_pin_present|"
+                    "_raf_pin_unique)"
                     "[[:space:]]"
                 ),
                 revision,
