@@ -63,6 +63,27 @@ authoring time:
   scan exits 0. The lower-level ``mutation-routing`` synthetic-fixture command
   remains for legacy self-tests.
 
+  **The static classifier ROUTES; it does not judge (issue #948).** For a changed
+  site whose declaration grammar is valid, it walks an ordered three-step ladder:
+  (1) a program in ``scripts/**``, ``lib/**`` (non-test) or ``.github/**``
+  demonstrably reads the literal or a distinctive token it names — pass, no human
+  needed; (2) otherwise, the delta-gated ledger
+  ``lib/test/pin-corpus-adjudications.tsv`` already records this literal as
+  ``boundary`` **and** the site carries a valid ``# structural-pin-ok:``
+  declaration — pass, honouring the tag as a *pointer to an authorized decision*;
+  (3) neither — report the finding. Step 1 can only ever route a site to step 2
+  (a grep-shaped consumer search misses a generic consumer by construction, so
+  "found none" means "ask the ledger", never "reject"), and step 2 fails closed:
+  an absent, unestablished or non-``boundary`` ledger row never satisfies it, and
+  an unreadable ledger is an infrastructure failure long before this ladder runs.
+  The real control over step 2 is therefore not this classifier but the review of
+  ledger changes, which is separately delta-gated and needs an exact branch
+  manifest — do not read the ladder as the gate getting smarter. The ladder is
+  scoped to the RETAINED population: a *retired* wording literal's revival keeps
+  its pre-#948 contract (deliberate authorization plus a genuinely machine-shaped
+  target), since both ladder steps rest on the very boundary row that contract
+  says cannot on its own make a revival valid.
+
 **Fail-closed:** a call site the scanner cannot resolve statically (the literal
 interpolates a variable it cannot resolve, or the target file is a variable with
 no ``--var`` binding and no ``$LIB``-relative assignment) is COUNTED and reported
@@ -1130,6 +1151,147 @@ STRUCTURAL_PIN_CATEGORIES = frozenset(
         "cross-file-phase-contract",
     }
 )
+
+# ── Step 1 of the issue-948 routing ladder: does a program demonstrably read it? ──
+#
+# The corpus is the tracked machine-consumer surface: `scripts/**`, `lib/**`
+# excluding the suite's own `lib/test/**`, and `.github/**`. `docs/**`, `skills/**`
+# and the repository's markdown are deliberately NOT consumers — a sentence
+# reappearing in prose is the very thing the policy retired.
+MACHINE_CONSUMER_PATH_PREFIXES = ("scripts/", "lib/", ".github/")
+MACHINE_CONSUMER_EXCLUDED_PREFIXES = ("lib/test/",)
+
+# A "distinctive token" is a machine-identifier-shaped word: >= 8 characters,
+# >= 3 letters, and at least one of these shapes. The shape requirement is the
+# whole point of the rule — a common English word (however long) is NOT
+# distinctive, so an unrelated file mentioning "configuration" or "verdict" can
+# never satisfy step 1. Two-segment kebab words that read as ordinary English
+# ("fail-closed", "best-effort") are excluded on purpose: a kebab token qualifies
+# only with a digit or a third segment.
+_DISTINCTIVE_TOKEN_TRIM = "\"'`(),;:.*!?[]{}<>|&"
+_DOTTED_TOKEN_RE = re.compile(r"[A-Za-z0-9][.][A-Za-z0-9]")
+# The accepted shapes, each paired with the name it is known by in the docs. One
+# hit qualifies the token; which shape matched is not part of the answer (the
+# evidence string names the matched TOKEN, which is what makes a step-1 pass
+# attributable), so the names are documentation of a closed set, not routing.
+_DISTINCTIVE_TOKEN_SHAPES = (
+    ("snake", lambda token: "_" in token),
+    ("path", lambda token: "/" in token),
+    ("marker", lambda token: ":" in token),
+    ("flag", lambda token: token.startswith("--")),
+    ("dotted", lambda token: _DOTTED_TOKEN_RE.search(token) is not None),
+    (
+        "numbered",
+        lambda token: "-" in token and any(ch.isdigit() for ch in token),
+    ),
+    (
+        "kebab",
+        lambda token: len([part for part in token.split("-") if len(part) >= 2]) >= 3,
+    ),
+)
+
+
+def is_machine_consumer_path(path):
+    """True for a repo-relative path in the step-1 machine-consumer corpus."""
+    if path.startswith(MACHINE_CONSUMER_EXCLUDED_PREFIXES):
+        return False
+    return path.startswith(MACHINE_CONSUMER_PATH_PREFIXES)
+
+
+def distinctive_consumer_tokens(literal):
+    """Return the machine-identifier-shaped tokens of ``literal``, in order.
+
+    Whitespace-split, then trimmed of surrounding quoting/sentence punctuation
+    (an interior ``:``/``.``/``-`` is part of the token and is never trimmed).
+    A literal with no such token yields ``()`` — which routes its pin to step 2
+    rather than rejecting it.
+    """
+    if not literal:
+        return ()
+    tokens = []
+    for raw in literal.split():
+        token = raw.strip(_DISTINCTIVE_TOKEN_TRIM)
+        if len(token) < 8 or token in tokens:
+            continue
+        if sum(1 for ch in token if ch.isalpha()) < 3:
+            continue
+        if any(matches(token) for _, matches in _DISTINCTIVE_TOKEN_SHAPES):
+            tokens.append(token)
+    return tuple(tokens)
+
+
+def _consumer_token_pattern(tokens):
+    """One boundary-anchored alternation over ``tokens`` (single-pass search)."""
+    if not tokens:
+        return None
+    return re.compile(
+        r"(?<![\w-])(?:"
+        + "|".join(re.escape(token) for token in tokens)
+        + r")(?![\w-])"
+    )
+
+
+def build_machine_consumer_corpus(consumer_sources):
+    """Return the ordered ``(path, operative_text)`` step-1 corpus.
+
+    ``consumer_sources`` maps repo-relative path to raw file text. Only
+    consumer-surface paths are kept, and for ``#``-comment languages the comment
+    regions are SUBTRACTED: a literal quoted in a ``lib/*.sh`` comment is not a
+    program reading it. That subtraction can only move a site from step 1 to
+    step 2, which is the safe direction.
+    """
+    corpus = []
+    for path in sorted(consumer_sources or ()):
+        if not is_machine_consumer_path(path):
+            continue
+        text = consumer_sources[path]
+        if os.path.splitext(path)[1].lower() in COMMENT_HASH_EXTS:
+            lines = text.split("\n")
+            spans = {lineno: comment for lineno, comment in hash_comment_regions(lines)}
+            text = _strip_line_spans(lines, spans)
+        corpus.append((path, text))
+    return tuple(corpus)
+
+
+def machine_consumer_evidence(literal, corpus):
+    """Return step-1 evidence that a program reads ``literal``, else ``None``.
+
+    Evidence is either the whole literal occurring in a consumer file's operative
+    text, or one of its distinctive tokens occurring there as a whole token. A
+    ``None`` return means only "no consumer was FOUND" — a generic consumer (a
+    helper that walks a routing table row by row, a renderer driven by a manifest)
+    names no individual literal, so this search misses it by construction and its
+    answer routes to step 2 instead of rejecting the pin.
+    """
+    if not literal or not corpus:
+        return None
+    tokens = distinctive_consumer_tokens(literal)
+    pattern = _consumer_token_pattern(tokens)
+    for path, text in corpus:
+        if literal in text:
+            return f"{path} contains the pinned literal"
+        if pattern is None:
+            continue
+        match = pattern.search(text)
+        if match is not None:
+            return f"{path} contains the distinctive token {match.group(0)!r}"
+    return None
+
+
+def ledger_records_boundary(literal_key, current_adjudications):
+    """Step 2: True only when the ledger's current state reads ``boundary``.
+
+    Fails closed by construction: an unestablished ledger (``None``), an empty
+    one, an absent row, and a row in any other bucket all return False. The
+    production caller never reaches here with an unreadable ledger at all —
+    ``analyze_adjudication_changes`` raises ``InfrastructureError`` first — so
+    there is no path on which unreadability becomes a pass.
+    """
+    if literal_key is None or not current_adjudications:
+        return False
+    state = current_adjudications.get(literal_key)
+    return state is not None and state[0] == "boundary"
+
 
 # This population is intentionally committed and independent of the registry. The
 # production gate compares the two sets exactly, so registering a new focused module
@@ -3200,10 +3362,17 @@ def scan_changed_sources(
     adjudication_delta=None,
     current_adjudications=None,
     target_loader=None,
+    consumer_sources=None,
 ):
-    """Classify changed complete sites and return blocking finding strings."""
+    """Classify changed complete sites and return blocking finding strings.
+
+    ``consumer_sources`` is the step-1 machine-consumer corpus (repo-relative
+    path -> raw text). Omitting it leaves step 1 finding nothing, which routes
+    every site to step 2 — the fail-toward-step-2 direction the ladder requires.
+    """
     adjudication_delta = adjudication_delta or {}
     current_adjudications = current_adjudications or {}
+    consumer_corpus = build_machine_consumer_corpus(consumer_sources)
     revival_authorizations = frozenset(revival_authorizations)
     patches = parse_unified_diff(difftext)
     new_candidates = []
@@ -3355,28 +3524,84 @@ def scan_changed_sources(
                 f"{inspection_error}"
             )
             continue
+        # A declaration that is PRESENT but ungrammatical is a declaration error,
+        # decided ahead of the routing ladder and never routed around: an unknown
+        # category, an empty rationale or a duplicated marker is reported whatever
+        # the ladder would have answered (issue #948 keeps this arm exactly as it
+        # was — the ~35 standing pins on a pre-vocabulary free-text category stay
+        # findings until someone edits the category into a legal one).
+        if (
+            site.declaration_error is not None
+            and site.declaration_error != "missing structural declaration"
+        ):
+            findings.append(
+                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
+                f"{site.helper or site.family}\t"
+                f"{site.literal or '<unresolved-literal>'}\t{site.declaration_error}"
+            )
+            continue
+        # ── The issue-948 three-step routing ladder, in order ──────────────────
+        # This is ROUTING, not judging. Step 1 asks a mechanical question and can
+        # only ever route DOWN to step 2; step 2 defers to an authorization that
+        # was granted elsewhere (the delta-gated ledger, whose review is the real
+        # control); step 3 is the residue the policy exists to remove. Reordering
+        # these three arms silently changes verdicts, which is why every arm and
+        # the order itself is driven from lib/test/test_pin_corpus_lint.py.
+        #
+        # SCOPE. The ladder governs the RETAINED population #948 is about. A
+        # RETIRED wording literal reaching this point has already cleared the
+        # revival block above, and its documented contract (CONTRIBUTING.md: a
+        # revival needs deliberate authorization AND a *genuine* declared
+        # structural boundary) is exactly the pre-#948 prose test — a boundary
+        # row alone must not make a revival valid, and both ladder steps rest on
+        # such a row. So a retired literal keeps the pre-#948 behavior verbatim.
+        ladder_applies = literal_key not in retired_literal_keys
+        # Step 1: a program demonstrably reads the literal. No human needed.
+        if (
+            ladder_applies
+            and machine_consumer_evidence(site.literal, consumer_corpus) is not None
+        ):
+            continue
+        declared = site.declaration is not None and site.declaration_error is None
+        # Step 2: the ledger already records this literal as a boundary, and the
+        # site's own `# structural-pin-ok:` tag POINTS AT that decision. Both
+        # halves are required — a tag alone cannot self-grant legitimacy, and a
+        # ledger row alone leaves the reader of the pin no reason at the site.
         prose_resolution = _literal_prose_resolution(
             site, repo_root, target_loader
         )
         if prose_resolution is not None:
+            ledger_boundary = ledger_records_boundary(
+                literal_key, current_adjudications
+            )
+            if ladder_applies and declared and ledger_boundary:
+                continue
             prose_target, prose_line = prose_resolution
-            findings.append(
-                f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
-                f"{site.helper or site.family}\t{site.literal}\t"
+            detail = (
                 f"literal resolves into prose at {prose_target}:{prose_line}; "
                 f"the {site.helper or site.family} helper does not change the "
                 "verdict"
             )
-            continue
-        if site.declaration is not None and site.declaration_error is None:
-            continue
-        if site.declaration_error != "missing structural declaration":
-            detail = site.declaration_error
+            if ladder_applies:
+                missing = []
+                if not declared:
+                    missing.append(
+                        "the site carries no valid '# structural-pin-ok:' declaration"
+                    )
+                if not ledger_boundary:
+                    missing.append(
+                        "the adjudication ledger records no boundary decision for "
+                        "this literal"
+                    )
+                detail += "; no program consumer reads it and " + " and ".join(missing)
             findings.append(
                 f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
-                f"{site.helper or site.family}\t{site.literal or '<unresolved-literal>'}\t{detail}"
+                f"{site.helper or site.family}\t{site.literal}\t{detail}"
             )
             continue
+        if declared:
+            continue
+        # Step 3: no consumer, no authorized decision to point at.
         detail = site.declaration_error or "wording-only presence pin"
         findings.append(
             f"MUTATION-ROUTING\t{site.source_path}:{site.line_start}\t"
@@ -3761,6 +3986,45 @@ def _read_source_blob(repo_root, revision, path, git_runner):
         _run_git_bytes(git_runner, repo_root, "show", f"{revision}:{path}"),
         f"scanned source {revision}:{path}",
     )
+
+
+def load_machine_consumer_sources(repo_root, git_runner=subprocess.run):
+    """Read the tracked step-1 machine-consumer corpus from the worktree.
+
+    The population comes from an index-reading ``git ls-files`` with no
+    ``--others`` (the issue-#711 rule: a repository-root-anchored recursive walk
+    would descend into sibling worktrees under ``.claude/worktrees/``). Contents
+    come from the WORKTREE, and the same corpus serves both the committed-HEAD
+    and worktree passes: a consumer added in the same uncommitted change as its
+    pin is a normal in-progress state, and since the worktree pass shares the
+    corpus anyway, splitting it per revision would change no reachable verdict
+    except to red-flag that state. An untracked consumer file is NOT in the
+    corpus, and an unreadable or non-UTF-8 one is skipped with a stderr
+    breadcrumb — both route their pins to step 2, never to a pass.
+    """
+    listing = _run_git(
+        git_runner,
+        repo_root,
+        "ls-files",
+        "--",
+        *MACHINE_CONSUMER_PATH_PREFIXES,
+    )
+    sources = {}
+    skipped = []
+    for path in filter(None, listing.splitlines()):
+        if not is_machine_consumer_path(path):
+            continue
+        try:
+            sources[path] = (Path(repo_root) / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            skipped.append(f"{path}: {type(exc).__name__}")
+    if skipped:
+        sys.stderr.write(
+            "MUTATION-ROUTING-CONSUMER-CORPUS-SKIPPED\t"
+            + ", ".join(sorted(skipped))
+            + "\n"
+        )
+    return sources
 
 
 def _read_worktree_source(repo_root, path, expected_mode=None):
@@ -4277,6 +4541,7 @@ def scan_static_pin_changes(
     worktree_target_loader, verify_worktree_targets = _worktree_target_loader(
         repo_root
     )
+    consumer_sources = load_machine_consumer_sources(repo_root, git_runner)
     source_findings = scan_changed_sources(
         head_sources,
         base_sources,
@@ -4287,6 +4552,7 @@ def scan_static_pin_changes(
         adjudication_delta=adjudication_analysis.delta,
         current_adjudications=adjudication_analysis.current,
         target_loader=head_target_loader,
+        consumer_sources=consumer_sources,
     )
     source_findings.extend(
         scan_changed_sources(
@@ -4299,6 +4565,7 @@ def scan_static_pin_changes(
             adjudication_delta=adjudication_analysis.delta,
             current_adjudications=adjudication_analysis.current,
             target_loader=worktree_target_loader,
+            consumer_sources=consumer_sources,
         )
     )
     verify_worktree_targets()
