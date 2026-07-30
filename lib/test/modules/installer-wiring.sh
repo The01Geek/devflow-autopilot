@@ -1072,7 +1072,7 @@ m["name"] = "fixture-plugin-two"
 json.dump(m, open(mp, "w"), indent=2)
 ip = root + "/lib/plugin-identity.json"
 i = json.load(open(ip))
-i["plugin_aliases"] = [previous]
+i["plugin_aliases"] = [previous] + [a for a in i.get("plugin_aliases", []) if a != previous]
 i["marketplace_aliases"] = [i["marketplace_canonical"]]
 i["marketplace_canonical"] = "fixture-market-two"
 json.dump(i, open(ip, "w"), indent=2)
@@ -1112,8 +1112,27 @@ assert_eq "installer-upgrade identity: an unrelated marketplace/plugin registrat
 # settings, so the migration report stays silent: the report is driven by an INTERSECTION
 # of the declared superseded ids with what the consumer actually registered, not by the
 # mere existence of a declared alias.
+# Driven over its OWN consumer, registering only identifiers the shipped installer does
+# not declare superseded. Reusing the scenario-11 consumer would silently stop testing
+# this the moment the shipped identity declares a real alias: that consumer registers
+# `devflow@devflow-marketplace` precisely so the arm above can see it reported, so the
+# intersection would be non-empty and the "reports nothing" premise false.
+IU_C11B="$(_iu_consumer nosuperseded)"
+_iu_run "$IU_C11B" >/dev/null
+mkdir -p "$IU_C11B/.claude"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/.claude/settings.json"
+json.dump({"extraKnownMarketplaces": {"unrelated-market": {"source": {"source": "github", "repo": "someone/else"}}},
+           "enabledPlugins": {"other@unrelated-market": True}},
+          open(p, "w"), indent=2)
+' "$IU_C11B"
 assert_eq "installer-upgrade identity: the shipped installer reports nothing superseded when none of its declared superseded ids is registered" "no" \
-  "$(printf '%s' "$(_iu_run "$IU_C11" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
+  "$(printf '%s' "$(_iu_run "$IU_C11B" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
+# Non-vacuity control: the shipped installer really does declare a superseded id, so the
+# silence above is an empty INTERSECTION and not an empty declared set.
+assert_eq "installer-upgrade identity: the shipped installer declares a non-empty superseded plugin-spec set" "yes" \
+  "$(_iu_out_matches "$(cat "$IU_INSTALL")" "^DEVFLOW_SUPERSEDED_PLUGIN_SPECS='[^']+'")"
 
 rm -rf "$IU_P11"
 

@@ -3845,14 +3845,14 @@ finally:
 # agent_overrides property keys (minus `default`). A tenth subagent added to the
 # schema but not here (or vice versa) breaks config/dispatch/telemetry alignment.
 #
-# Compared over the CANONICAL namespace rather than over KNOWN_AGENTS directly.
-# KNOWN_AGENTS is `every accepted plugin namespace x every leaf`, so declaring a
-# plugin alias in lib/plugin-identity.json legitimately widens it, while the
-# schema declares only the canonical-namespaced keys. Equating the two would make
-# this guard fail on any declared alias — an alias-list assumption, not a drift
-# signal. The property actually under guard is the LEAF set, and pinning it
-# through the canonical namespace keeps it exactly: a leaf added on one side and
-# not the other still breaks this, on any alias configuration.
+# Compared over EVERY accepted namespace, not just the canonical one. The schema
+# enumerates a key per accepted namespace under `additionalProperties: false`, so
+# a consumer's already-committed alias-namespaced override keeps validating across
+# a plugin rename — the frozen-key guarantee. The expectation is DERIVED from the
+# declared namespaces (never a hand-listed alias set), so it stays a drift signal
+# rather than an alias-list assumption: the property actually under guard is the
+# LEAF set, and a leaf added on one side and not the other still breaks this on
+# any alias configuration.
 _schema_path = SCRIPTS.parent / '.devflow' / 'config.schema.json'
 with open(_schema_path) as _sf:
     _schema = json.load(_sf)
@@ -3861,8 +3861,9 @@ _schema_keys = set(
 )
 with open(SCRIPTS.parent / '.claude-plugin' / 'plugin.json') as _pjf:
     _CANON_NS = json.load(_pjf)["name"] + ":"
-assert_eq("schema agent_overrides keys == the canonical-namespaced leaves + 'default'",
-          {_CANON_NS + _leaf for _leaf in _rro.AGENT_LEAVES} | {"default"}, _schema_keys)
+assert_eq("schema agent_overrides keys == every accepted namespace x the leaves + 'default'",
+          {_ns + _leaf for _ns in _rro.AGENT_NAMESPACES for _leaf in _rro.AGENT_LEAVES}
+          | {"default"}, _schema_keys)
 # …and the canonical namespace really is one the resolver accepts, so the guard
 # above is comparing against a live roster rather than a string it made up.
 assert_eq("resolve: the canonical namespace is an accepted agent namespace",
