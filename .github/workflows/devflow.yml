@@ -226,11 +226,11 @@ jobs:
           fi
           case "$CMD" in
             /prflow:review-and-fix)
-              echo "::notice::/devflow:review-and-fix has no auto path; not deduping."
+              echo "::notice::/prflow:review-and-fix has no auto path; not deduping."
               exit 0 ;;
             /prflow:review) : ;;
             *)
-              echo "::notice::Not a standalone /devflow:review request; nothing to dedupe."
+              echo "::notice::Not a standalone /prflow:review request; nothing to dedupe."
               exit 0 ;;
           esac
 
@@ -312,7 +312,7 @@ jobs:
             # step below (under the optional downscoped App token); this step
             # keeps only the queries + decision on github.token.
             echo "head=$HEAD" >> "$GITHUB_OUTPUT"
-            echo "::notice::Suppressed manual /devflow:review for PR #$PR (in-flight check=$IC run=$IR)."
+            echo "::notice::Suppressed manual /prflow:review for PR #$PR (in-flight check=$IC run=$IR)."
             exit 0
           fi
           echo "::notice::No in-flight auto review for PR #$PR HEAD $HEAD; manual review proceeds."
@@ -371,11 +371,15 @@ jobs:
   # /devflow:* command + target number to synthesise. Coarse event matching
   # stays in this job's `if:` so irrelevant events never spin a runner.
   #
-  # PARTITION INVARIANT: every branch negates `@claude` and `/devflow:implement`.
-  # `@claude …` is ceded to Anthropic's claude.yml; `/devflow:implement` is the
-  # heavy path (devflow-implement.yml). `/devflow:review` substring-matches
-  # `/devflow:review-and-fix`, so both are covered by the review clause and the
-  # resolver disambiguates. Triggers fire ONLY on real comment/review bodies —
+  # PARTITION INVARIANT: every branch negates `@claude` and the implement command
+  # in BOTH accepted namespaces. `@claude …` is ceded to Anthropic's claude.yml;
+  # `/prflow:implement` (and the transitional `/devflow:implement`) is the heavy
+  # path (devflow-implement.yml). The positive set and the exclusion set are one
+  # coupled pair — a namespace added to either MUST be added to both in the same
+  # commit, or a comment naming implement in one namespace and a light command in
+  # the other fires this workflow AND devflow-implement.yml. `/prflow:review`
+  # substring-matches `/prflow:review-and-fix`, so both are covered by the review
+  # clause and the resolver disambiguates. Triggers fire ONLY on real comment/review bodies —
   # never on an issue/PR description, so a command merely *quoted* in a
   # description cannot start a run.
   gate:
@@ -1340,9 +1344,9 @@ jobs:
             echo "::warning::flip review-progress: flip-review-progress-failed.sh absent at $FLIP_HELPER; review-progress comment not flipped to '❌ Review failed'"
           fi
 
-      # ── No-verdict auto-resume backstop for the manual /devflow:review path
+      # ── No-verdict auto-resume backstop for the manual /prflow:review path
       # (issue #408). The review-side sibling of the devflow-review.yml
-      # finalize_check backstop: when a manual `/devflow:review` run died with no
+      # finalize_check backstop: when a manual `/prflow:review` run died with no
       # verdict (engine is_error, or the claude step failed — a cancelled run is
       # superseded, not a benign stall, so it is excluded), fire a bounded
       # `/devflow:review` re-trigger authored by a freshly minted App token. The

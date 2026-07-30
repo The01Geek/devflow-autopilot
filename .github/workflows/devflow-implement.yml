@@ -1,13 +1,14 @@
 name: DevFlow (implement)
 
 # `run-name` embeds the issue thread the command was posted on so the gate's
-# duplicate check can recognise a second /devflow:implement on the same thread
+# duplicate check can recognise a second /prflow:implement on the same thread
 # while a run is in flight (see scripts/dedupe-implement-run.sh). Quoted because
 # the value contains characters YAML would otherwise mis-parse.
 run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 
-# Heavy listener for /devflow:implement. Fires ONLY on a BARE `/devflow:implement
-# <#>` real comment on an ISSUE — a genuine user action. It is issues-only: a PR
+# Heavy listener for /prflow:implement (the transitional /devflow:implement is
+# accepted for the alias window). Fires ONLY on a BARE `/prflow:implement <#>`
+# real comment on an ISSUE — a genuine user action. It is issues-only: a PR
 # comment is also an `issue_comment` in GitHub's API, but the gate `if:` requires
 # `github.event.issue.pull_request == null` and the resolver re-checks via
 # IS_PULL_REQUEST, so a comment on a pull request never starts a run (this is
@@ -17,9 +18,9 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 # `@claude`, and there is NO label trigger.
 #
 # Why bare-command only: this workflow runs claude-code-action in AGENT mode
-# with an explicit, synthesised `/devflow:implement <n>` prompt (the `gate` job
+# with an explicit, synthesised `/prflow:implement <n>` prompt (the `gate` job
 # resolves the number). Agent mode needs no trigger phrase. The gate `if:`
-# negates `@claude`, so an `@claude /devflow:implement` comment is ceded to
+# negates `@claude`, so an `@claude /prflow:implement` comment is ceded to
 # Anthropic's stock claude.yml (TAG mode) — an anti-pattern, since that listener
 # has no DevFlow plugin — and the two workflows can never double-fire. DevFlow
 # never touches claude.yml.
@@ -29,7 +30,7 @@ run-name: "DevFlow implement (issue ${{ github.event.issue.number }})"
 # access) before the heavy `claude` job runs. See scripts/resolve-implement-trigger.sh.
 #
 # This workflow reads `devflow_implement.effort` (e.g. "high") so the planning +
-# write-the-tests phases get more reasoning budget than the light `/devflow:*`
+# write-the-tests phases get more reasoning budget than the light `/prflow:*`
 # flows in devflow.yml, without inflating every command's cost.
 #
 # Keep the plugin_marketplaces, plugins, and claude_args sections in sync with
