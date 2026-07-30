@@ -1,0 +1,15 @@
+{
+  "canonical_root": "/home/runner/work/devflow-autopilot/devflow-autopilot/skills/review/SKILL.md",
+  "root_hash": "c0b5c4b3c14a916f2d6a16995e59832b3d28b2a5",
+  "references": {
+    "skills/review/phases/phase-0-setup.md": "9056d59ae70e0503d414f9a1f949d04d206f8245",
+    "skills/review/phases/phase-0-3-6-blocker-recheck.md": "8c2b9450d06c42cc3bedcf7f511e31d085c4abb2",
+    "skills/review/phases/phase-0-6-stale-prose-lint.md": "d9e2fad59c09c67e7d288e404986748196f03486",
+    "skills/review/phases/phase-1-checklist.md": "676a2225d65a4a93ff4e4a0817b9ac67df1f65d1",
+    "skills/review/phases/phase-2-verification.md": "d6bfa30dc7fd264d3476dad6c9351d3c1e68990c",
+    "skills/review/phases/phase-3-agents.md": "e451ca90f3e9b59ed0232dd6d7f0989e671022db",
+    "skills/review/phases/phase-4-verdict.md": "9f27b177722e2ec7146c380247ebca670c1b2fae",
+    "skills/review/phases/phase-4-1-7-stale-adjudication.md": "a250b9b6e42cbb1cd32b9f8a8c5cca944855f8b9",
+    "skills/review/phases/phase-4-4-github-post.md": "21f827cba127e71ffc2c9beecfc67d3117c391a2"
+  }
+}
