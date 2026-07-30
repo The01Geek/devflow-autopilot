@@ -28729,7 +28729,7 @@ print("yes" if sys.argv[2] in m.KNOWN_AGENTS else "no")
 # tracks the dispatch, not any mention. Derived (not pinned per id) for the reasons stated at
 # `dispatched_roster_missing`; the row names any missing agent.
 # shellcheck disable=SC2086  # deliberate word-split: PRT_AGENTS is the space-separated roster
-assert_eq "#141 review engine dispatches every roster agent via its **devflow:<name>** prompt block (derived; names any missing id)" \
+assert_eq "#141 review engine dispatches every roster agent via its **prflow:<name>** prompt block (derived; names any missing id)" \
   "" "$(dispatched_roster_missing "$REVIEW_BUNDLE" '\*\*prflow:[a-z0-9-]+\*\*' '**prflow:' '**' $PRT_AGENTS)"
 # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster in its
 # phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s negative scan
