@@ -57,7 +57,14 @@
 #   - no recorded digest (an installation predating the manifest, or a skipped-version
 #     jump) -> provenance UNVERIFIED -> preserved the same way, unless the bytes already
 #     equal the new version, in which case nothing changes and the digest is recorded;
-#   - absent (you deleted it) -> recreated.
+#   - your file's CURRENT bytes cannot be digested at all (no working python3 — stock
+#     Windows / Git-Bash before the shim provisioner — an unreadable file, a read error
+#     inside a composite-action directory) -> provenance UNESTABLISHED -> preserved the
+#     same way, and the manifest is not rewritten. Reported distinctly from UNVERIFIED
+#     because the remedy differs: resolve python3, then re-run for a real comparison;
+#   - absent (you deleted it) -> recreated. Whether a path EXISTS is decided by a bash
+#     builtin test, upstream of python3, so a missing interpreter can never make a file
+#     you have look absent — the defect this ordering exists to prevent.
 # `.devflow/config.json` is never rewritten by this mechanism at all — the shared
 # scaffolder only backfills keys the example gained.
 #
@@ -477,7 +484,7 @@ devflow_recorded_digest() {
 # it could not compute, so a classifier that inferred absence from emptiness read
 # "no python3 on this host" as "the consumer has none of these files" and clobbered
 # every one of them. A present path whose digest cannot be established is
-# `unverified` — preserved, sidecar written, reported — which is what the header's
+# `unreadable` — preserved, sidecar written, reported — which is what the header's
 # fail-safe guarantee has always promised.
 #
 # `[ -e ]` follows symlinks, so a DANGLING symlink at $rel is not `-e` while it is
