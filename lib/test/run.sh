@@ -3391,8 +3391,12 @@ assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-ana
 # This targets phase-0-setup.md directly so the unchanged profile-table row
 # cannot be satisfied by copies elsewhere in the concatenated bundle.
 P05_SETUP="$LIB/../skills/review/phases/phase-0-setup.md"
-# The profile-table row this change does NOT amend — a surface-presence pin over unamended
-# text (assert_pin_unique), carrying a structural-pin-ok declaration (mutation-routing gate #666).
+# The profile-table row this change does NOT amend. Its declaration states the routing contract
+# its ledger row records (mutation-routing gate #666). The assertion NAME below still reads
+# "surface presence over unamended text": that wording is stale, and it is left alone on purpose
+# — an assertion name is a frozen identity in the retirement manifests, so renaming one needs a
+# declaration in lib/test/pin-identity-refreshes.tsv, which is a different operation from
+# correcting a declaration and is out of scope here.
 assert_pin_unique "#769: small_diff AND config_only profile-table row present (surface presence over unamended text)" \
   'Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`.' "$P05_SETUP"  # structural-pin-ok: routing-dispatch-contract -- the review-profile table row that routes the small_diff AND config_only combination
 # #194(B) requires a named PASS and a raised assertion count; the exact-one checks below
