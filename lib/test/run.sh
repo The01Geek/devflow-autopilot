@@ -31,12 +31,20 @@ case "$SUITE_PLUGIN_SPEC" in
   *) echo "run.sh: could not derive the canonical plugin spec from lib/plugin_identity.py (got '$SUITE_PLUGIN_SPEC'); refusing to run rather than compare against a malformed enabledPlugins key" >&2; exit 1 ;;
 esac
 
-# The CANONICAL agent/skill namespace (`<plugin>:`), likewise derived. Pins that assert a
-# DISPATCH site in a prompt surface interpolate this instead of spelling the namespace:
+# The CANONICAL agent/skill namespace (`<plugin>:`), likewise derived. Grep-based dispatch
+# assertions interpolate this instead of spelling the namespace:
 # dispatch resolves under the canonical name only, so a literal here would have to be
 # chased on every plugin rename — and, worse, a stale literal keeps passing against the
 # alias form it names while the real dispatch site has moved. Fails LOUD for the same
 # reason as the spec above.
+#
+# NOT for `assert_pin_unique` literals: the #810 pin corpus keys each adjudication row on
+# the sha256 of the pin's LITERAL text, and its shell parser resolves only the variable
+# forms it knows. Interpolating this variable into a pin literal makes the extracted
+# literal unresolvable, orphaning that pin's adjudication row and failing the corpus
+# closure check. Pin literals therefore stay spelled out, and a rename re-keys their
+# adjudication rows (carrying bucket + rationale across unchanged) — that re-key is the
+# corpus's designed cost of being literal-keyed, not an accident to engineer around.
 SUITE_AGENT_NS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1 || true)"
 case "$SUITE_AGENT_NS" in
   *:) : ;;
@@ -1318,7 +1326,7 @@ assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model overr
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence as a
 # static prompt contract.
 assert_pin_unique "#425(rev): iteration-1 / standalone / absent-signal all exclude nothing (default-off)" \
-  "On fix-loop iteration 1, in standalone \`/${SUITE_AGENT_NS}review\`, and when the iteration signal is absent/unresolvable, **exclude nothing**" "$ST_REV"
+  'On fix-loop iteration 1, in standalone `/prflow:review`, and when the iteration signal is absent/unresolvable, **exclude nothing**' "$ST_REV"
 # each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
 # resolver-failure) — a wrong default here would silently loosen/tighten the policy while
 # the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
@@ -1844,7 +1852,7 @@ assert_pin_unique "#550: verification_evidence caveat names the completion-evide
   'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
 # Dispatch surfaces reference the plugin-qualified copy explicitly.
 assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
-  "\`${SUITE_AGENT_NS}receiving-code-review\`" "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  '`prflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
 # AC7 — interpreter-faithful probe rule in the Implement extension.
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
@@ -3407,7 +3415,7 @@ assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT
   "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
 # The re-sweep retains its existing comment-analyzer dispatch.
 assert_pin_unique "#167 re-sweep: re-dispatches the existing comment-analyzer agent" \
-  "Re-dispatch \`${SUITE_AGENT_NS}comment-analyzer\`" "$MAXI_SKILL"
+  'Re-dispatch `prflow:comment-analyzer`' "$MAXI_SKILL"
 # ── issue #769: the Phase 0.5 signal contract (engine_self_modifying is checklist-only;
 # small_diff scales no part of the roster). Sited beside the detect_all_audit row pins above.
 # This targets phase-0-setup.md directly so the unchanged profile-table row
