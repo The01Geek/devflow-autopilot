@@ -331,6 +331,15 @@ generated artifact separately. The source/retirement commit is intentionally
 non-green while the artifact is absent, so never leave that intermediate commit as
 the PR head.
 
+Skipping that refresh is no longer undetectable (issue #962). The classifier resolves the
+adjudication table **at the census's recorded revision**, so regenerating the census against
+that revision faithfully reproduces the rationales it already carries however far the working
+tree's table has moved on. `test_frozen_inventory_matches_its_recorded_revision` therefore
+repeats its byte-comparison a second time with the working tree's table substituted, and
+names the drifting row and column when the two disagree. Editing the table without
+regenerating the census is RED — so a rationale correction is a census refresh, not a
+one-file edit.
+
 **Refreshing a frozen pin identity (issue #843).** Renaming a retained pin is a different
 operation from retiring one, and it uses a different mechanism. The residual prose-pin
 manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
