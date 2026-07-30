@@ -13,4 +13,4 @@ type: Fixed
   two-commit census refresh is RED, with the drifting row and column named instead of a
   whole-file diff; a companion mutation control drives the same regeneration with one rationale
   changed each run, so the comparison cannot be satisfied vacuously. The two-commit
-  inventory-free protocol itself is unchanged. (#962)
+  inventory-free protocol itself is unchanged. (#967)
