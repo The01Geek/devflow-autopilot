@@ -168,6 +168,24 @@ an executable structural boundary and must carry
 `routing-dispatch-contract`, `lifecycle-state-transition`,
 `generated-artifact-identity`, or `cross-file-phase-contract`.
 
+**The marker is a declaration required of a NEW or CHANGED pin — it is not a retention
+badge you can retrofit onto the standing population (issue #885).** The gate scopes the
+requirement to a site whose every physical line is in the diff's added set, and it runs
+the prose-resolution check *before* the declaration check: a pin whose literal resolves
+into visible Markdown prose draws
+`literal resolves into prose at <target>:<line>` **regardless of any declaration**.
+A large majority of the retained pins resolve that way (a past-time snapshot, not a
+live figure: 229 of them measured on the post-sweep population at the #885 sweep
+commit, kept as provenance for the probe below and deliberately not re-rendered) — they
+are retained because a tool or consumer reads the *thing the literal names* (a marker, a
+grant-matched invocation shape, a schema field set), a distinction the lint's
+prose boundary cannot see. So adding a marker to one of those turns the required gate
+RED and its only gate-satisfying disposition would be deletion, which the recorded
+adjudication contradicts. The per-pin retention record therefore lives where it is
+delta-gated and auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in
+the census — and not as several hundred uncoupled copies in source comments. Touch a
+retained pin's lines only when you are prepared to answer the gate for it.
+
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
 branch change manifest; prior decisions remain available through Git history, the
@@ -214,7 +232,9 @@ question always retains:
    it exactly as it is to a `git grep`. That blind spot under-counts in the one
    direction that wrongly authorizes removal, so an unconfirmed literal retains.
 3. **`counted_occurrences < 2` and any other `bucket_final`** — including `boundary`,
-   the value every row currently carries. A tool or consumer reads the target (a
+   the value every row carries between one re-adjudication pass and the next, so this
+   is the arm that catches every single-home pin outside such a pass. A tool or
+   consumer reads the target (a
    marker a tool parses, a routing-table row a module reconciles, a
    generated-artifact identity, a typed executable boundary), so **retain** the pin
    under the `# structural-pin-ok:` rule above.
@@ -232,21 +252,32 @@ are read by nobody but the agent. The third (`291(AC4)`, the
 1** instead — same retention, different reason and a coupled copy-removal
 requirement. Do not generalize one `#291` pin's arm to the others.
 
-**Current state — arm 2 selects a real population (issue #885).** The census is no
-longer boundary-only: the #885 re-adjudication pass walked every mechanically
-prose-bucketed site, confirmed per site whether any tool or consumer reads the pinned
-literal, and moved the ones nothing reads into `prose-sole-copy`. Arm 2 therefore
-selects those rows and arm 3 no longer catches every single-home pin. Arm 2's
-condition still reads the *recorded* `bucket_final` rather than an in-the-moment
-judgment about who reads the prose, because the record is what a later reader can
-audit — and changing a site's adjudication is itself delta-gated (below), so the
-record cannot drift ahead of an authorization. **The realized partition is asserted,
-not merely described.** `test_final_inventory_realizes_only_authorized_buckets` in
-`lib/test/test_residual_prose_retirement_manifest.py` holds the shipped census to the
-legal bucket set and holds every prose-bucketed row to arm 2's own precondition — a
-`counted_occurrences` matching its bucket, and an explicit maintainer rationale rather
-than the classifier's mechanical fallback — so a prose bucket can never appear on a
-row arm 2 would not have authorized. It is arm 2's coupled site.
+**Current state — arm 2 is proven reachable, and its population is empty again (issue
+#885).** Arm 2 selected nothing until #885, because every census row was adjudicated
+`boundary`. #885's re-adjudication pass walked every mechanically prose-bucketed site,
+confirmed per site whether any tool or consumer reads the pinned literal, and moved the
+ones nothing reads into `prose-sole-copy` — and the sweep that immediately followed
+retired exactly those pins. **A retired site's row goes with it** (a stale
+`literal:` key makes the classifier error), so the census is boundary-only once more
+and arm 2 again selects nothing *today*. That is a drained population, not an unreached
+arm: read the arm-2 authorization record in history — the census as of the
+re-adjudication commit, plus the `pin-corpus-adjudication-changes` bundles, which name
+every key that moved and every key that went. Expect the same shape next time: a
+prose-bucketed population exists only between a re-adjudication and the sweep it
+authorizes.
+
+Arm 2's condition reads the *recorded* `bucket_final` rather than an in-the-moment
+judgment about who reads the prose, because the record is what a later reader can audit
+— and changing a site's adjudication is itself delta-gated (below), so the record
+cannot drift ahead of an authorization.
+`test_final_inventory_realizes_only_authorized_buckets` in
+`lib/test/test_residual_prose_retirement_manifest.py` is arm 2's coupled site: it holds
+the shipped census to the legal bucket set, and holds every prose-bucketed row to arm
+2's own precondition — a `counted_occurrences` matching its bucket, and an explicit
+maintainer rationale rather than the classifier's mechanical fallback. Stated honestly:
+with the population drained, that per-row half currently ranges over an empty set, so
+it constrains the *next* re-adjudication rather than proving anything about the tree
+today. Do not read it as live coverage of arm 2.
 
 Two limits on that population are worth knowing before you read a missing row as
 permission. A site adjudicated `boundary` in the #885 pass was adjudicated **on
