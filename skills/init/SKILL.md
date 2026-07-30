@@ -53,7 +53,7 @@ Keeping the DevFlow plugin auto-updated otherwise needs a hand-edited Claude Cod
 
 With no argument it targets the current repo root and **deep-merges** the marketplace registration into `.claude/settings.json`, **additively and without clobbering anything you already set** (the user's value wins at every depth — same no-clobber discipline as the config scaffolder):
 
-- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/devflow-autopilot`, `autoUpdate: true`) and `enabledPlugins["prflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically.
+- `extraKnownMarketplaces["devflow-marketplace"]` (a `github` source for `The01Geek/prflow`, `autoUpdate: true`) and `enabledPlugins["prflow@devflow-marketplace"] = true`, so Claude Code keeps the DevFlow plugin updated automatically.
 
 It is **local/interactive-tier only** — the cloud (CI) tier uses claude-code-action's own allowlist profile and consumes no local marketplace install, so this helper is **not** wired into the shared scaffolder and a cloud-only `install.sh` run writes no `.claude/settings.json`. It is **idempotent** (re-running after the keys exist changes nothing) and writes **no** `permissions.defaultMode`.
 

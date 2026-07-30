@@ -80,7 +80,7 @@
 # fetch this file at a PINNED ref — a release tag (vN.N.N), or a commit
 # SHA; never mutable main — read it, then run the copy you read. docs/install.md
 # carries the current pinned one-liner; docs/cloud-setup.md the full guide.
-#   curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/<ref>/install.sh -o devflow-install.sh
+#   curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/<ref>/install.sh -o devflow-install.sh
 #   DEVFLOW_REF=<ref> bash devflow-install.sh
 #   # point at a fork (DEVFLOW_REF defaults to main, so pin it too):
 #   DEVFLOW_REF=<ref> DEVFLOW_REPO=<owner>/<repo> bash devflow-install.sh
@@ -100,7 +100,7 @@
 # ============================================================================
 set -euo pipefail
 
-REPO="${DEVFLOW_REPO:-The01Geek/devflow-autopilot}"
+REPO="${DEVFLOW_REPO:-The01Geek/prflow}"
 REF="${DEVFLOW_REF:-main}"
 
 # Argument parsing lives in the installer BODY (below the DEVFLOW_SELFTEST return),
@@ -1058,7 +1058,7 @@ devflow_apply_all() (
 {
   "\$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "$DEVFLOW_MARKETPLACE_CANONICAL",
-  "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by devflow-autopilot/install.sh.",
+  "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by prflow/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
   "allowCrossMarketplaceDependenciesOn": [],
   "plugins": [
@@ -1067,7 +1067,7 @@ devflow_apply_all() (
       "source": "./.devflow/vendor/devflow",
       "description": "End-to-end dev workflow: /devflow:implement, /devflow:review + /devflow:review-and-fix, the /devflow:docs suite, /devflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
-      "homepage": "https://github.com/The01Geek/devflow-autopilot",
+      "homepage": "https://github.com/The01Geek/prflow",
       "category": "development"
     }
   ]

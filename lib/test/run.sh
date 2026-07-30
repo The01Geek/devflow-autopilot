@@ -27714,7 +27714,7 @@ echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
 # .claude/settings.json — additive, non-clobbering, idempotent — and is invoked
 # only from /devflow:init (never from scaffold-config.sh / install.sh). It writes
 # extraKnownMarketplaces[devflow-marketplace] (autoUpdate true + a github source
-# for The01Geek/devflow-autopilot) and enabledPlugins[<the canonical plugin spec>]
+# for The01Geek/prflow) and enabledPlugins[<the canonical plugin spec>]
 # = true; it never writes permissions.defaultMode and never writes the
 # CLAUDE_CODE_ENABLE_AUTO_MODE env var — that var is honored only from user scope
 # (~/.claude/settings.json) / managed settings, so writing it to the PROJECT file
@@ -27740,7 +27740,7 @@ assert_eq "pls: fresh → marketplace autoUpdate true (AC1)" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → marketplace source is github (AC1)" "github" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.source' "$PLS_SF" 2>/dev/null)"
-assert_eq "pls: fresh → marketplace repo The01Geek/devflow-autopilot (AC1)" "The01Geek/devflow-autopilot" \
+assert_eq "pls: fresh → marketplace repo The01Geek/prflow (AC1)" "The01Geek/prflow" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.repo' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → enabledPlugins devflow true (AC1)" "true" \
   "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_SF" 2>/dev/null)"
@@ -27885,7 +27885,7 @@ assert_eq "pls: deep wrong-typed source → breadcrumb names the source path" "y
 # back to true and this fails. (The earlier keep test only covers ABSENT DevFlow
 # keys, which an inverted merge would still add — so it cannot catch a flip.)
 PLS_NODEFAULT="$(mktemp -d)"; mkdir -p "$PLS_NODEFAULT/.claude"
-printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":false}},"enabledPlugins":{"%s":false}}' "$SUITE_PLUGIN_SPEC" \
+printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/prflow"},"autoUpdate":false}},"enabledPlugins":{"%s":false}}' "$SUITE_PLUGIN_SPEC" \
   > "$PLS_NODEFAULT/.claude/settings.json"
 bash "$PLS" "$PLS_NODEFAULT" >/dev/null 2>&1; PLS_ND_RC=$?
 PLS_ND_SF="$PLS_NODEFAULT/.claude/settings.json"
@@ -41763,7 +41763,7 @@ _505_run marketplaces '{"extraKnownMarketplaces":{"nosrc":{"autoUpdate":true}}}'
 assert_eq "#505 AC3: no source object breadcrumb" "yes" "$(_505_grep_err 'has no source object')"
 
 # ── production fixture (provision-local-settings.sh DEFAULTS) → both modes emit nothing ──
-_505_PROD="$(printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":true}},"enabledPlugins":{"%s":true}}' "$SUITE_PLUGIN_SPEC")"
+_505_PROD="$(printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/prflow"},"autoUpdate":true}},"enabledPlugins":{"%s":true}}' "$SUITE_PLUGIN_SPEC")"
 _505_run plugins "$_505_PROD"
 assert_eq "#505 AC: production fixture plugins empty (fresh /devflow:init)" "" "$_OUT"
 assert_eq "#505 AC: production fixture plugins no breadcrumb" "" "$_ERR"

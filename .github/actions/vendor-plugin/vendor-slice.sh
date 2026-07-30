@@ -23,7 +23,7 @@
 #   DEVFLOW_REF        git ref to fetch (REQUIRED on the fetch branch); a branch,
 #                      tag, or commit SHA. Sourced from .devflow/config.json
 #                      `devflow_version` by the workflows.
-#   DEVFLOW_REPO       owner/name to fetch from (default The01Geek/devflow-autopilot).
+#   DEVFLOW_REPO       owner/name to fetch from (default The01Geek/prflow).
 #   DEVFLOW_REPO_URL   full clone URL (default https://github.com/$DEVFLOW_REPO.git);
 #                      overridable so tests can clone a local fixture offline.
 #   DEVFLOW_DEST       destination dir (default .devflow/vendor/devflow); overridable for tests.
@@ -140,7 +140,7 @@ devflow_vendor_main() {
   [ -n "${DEVFLOW_REF:-}" ] || devflow_vendor_die \
     "no plugin in the checkout and DEVFLOW_REF (config devflow_version) is unset — refusing to track mutable main. Set .devflow/config.json devflow_version to a tag, branch, or commit SHA."
   local repo url tmp
-  repo="${DEVFLOW_REPO:-The01Geek/devflow-autopilot}"
+  repo="${DEVFLOW_REPO:-The01Geek/prflow}"
   url="${DEVFLOW_REPO_URL:-https://github.com/${repo}.git}"
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064

@@ -1089,7 +1089,7 @@ mkdir -p "$IU_C11/.claude"
 python3 -c '
 import json, sys
 p = sys.argv[1] + "/.claude/settings.json"
-json.dump({"extraKnownMarketplaces": {"devflow-marketplace": {"source": {"source": "github", "repo": "The01Geek/devflow-autopilot"}, "autoUpdate": True},
+json.dump({"extraKnownMarketplaces": {"devflow-marketplace": {"source": {"source": "github", "repo": "The01Geek/prflow"}, "autoUpdate": True},
                                       "unrelated-market": {"source": {"source": "github", "repo": "someone/else"}}},
            "enabledPlugins": {"devflow@devflow-marketplace": True, "other@unrelated-market": True}},
           open(p, "w"), indent=2)

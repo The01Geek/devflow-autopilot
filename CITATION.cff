@@ -11,10 +11,10 @@ authors:
   - family-names: Radman
     given-names: Daniel
     email: daniel@radman.ai
-repository-code: "https://github.com/The01Geek/devflow-autopilot"
-url: "https://github.com/The01Geek/devflow-autopilot"
+repository-code: "https://github.com/The01Geek/prflow"
+url: "https://github.com/The01Geek/prflow"
 license: MIT
-version: 2.28.0
+version: 2.28.1
 keywords:
   - claude-code
   - agentic-ai

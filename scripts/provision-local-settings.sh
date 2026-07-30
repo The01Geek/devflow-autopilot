@@ -14,7 +14,7 @@
 # It deep-merges the DevFlow marketplace registration into the project settings,
 # additively and WITHOUT clobbering any value the user already set:
 #   - extraKnownMarketplaces["devflow-marketplace"]  (a github source for
-#       The01Geek/devflow-autopilot + autoUpdate:true) and
+#       The01Geek/prflow + autoUpdate:true) and
 #       enabledPlugins["prflow@devflow-marketplace"]=true, so Claude Code keeps
 #       the DevFlow plugin updated.
 #
@@ -90,7 +90,7 @@ if ! DEFAULTS="$(printf '%s' "$IDENTITY_JSON" | "$DEVFLOW_JQ" '
   {
     extraKnownMarketplaces: {
       (.marketplace_canonical): {
-        source: { source: "github", repo: "The01Geek/devflow-autopilot" },
+        source: { source: "github", repo: "The01Geek/prflow" },
         autoUpdate: true
       }
     },
