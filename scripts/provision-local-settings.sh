@@ -65,19 +65,55 @@ if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
   exit 2
 fi
 
-# The DevFlow defaults as a JSON literal. The merge below is `$defaults *
-# $existing`, so the user's value wins at every depth and only keys they have
-# not set are filled. permissions.defaultMode is intentionally absent, and no
-# env var is written — see the auto-mode NOTE in the header.
-DEFAULTS='{
-  "extraKnownMarketplaces": {
-    "devflow-marketplace": {
-      "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
-      "autoUpdate": true
-    }
-  },
-  "enabledPlugins": { "devflow@devflow-marketplace": true }
-}'
+# The identifiers this script writes are DERIVED from the single identity source
+# (lib/plugin-identity.json + .claude-plugin/plugin.json) through lib/plugin_identity.py
+# — the one reader — never spelled as literals here, so a change to the declared
+# identifier set reaches this provisioner without it being re-edited. python3 is a
+# hard DevFlow prerequisite (lib/preflight.sh), so this is a preflight-guaranteed
+# derivation, not a non-preflight PATH tool deciding what gets written.
+# FAILS CLOSED: an unestablished identifier set writes nothing (exit 2) rather than
+# guessing a key name and provisioning a marketplace registration that never resolves.
+DEVFLOW_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib"
+if ! IDENTITY_JSON="$(python3 "$DEVFLOW_LIB_DIR/plugin_identity.py" --json 2>/dev/null)" \
+   || [ -z "$IDENTITY_JSON" ]; then
+  warn "the accepted plugin/marketplace identifier set could not be established from lib/plugin-identity.json + .claude-plugin/plugin.json (run 'python3 $DEVFLOW_LIB_DIR/plugin_identity.py --json' to see why); left $SETTINGS unchanged and provisioned nothing."
+  exit 2
+fi
+
+# The DevFlow defaults, composed from the derived canonical identifiers. The merge
+# below is `$defaults * $existing`, so the user's value wins at every depth and only
+# keys they have not set are filled. permissions.defaultMode is intentionally absent,
+# and no env var is written — see the auto-mode NOTE in the header.
+# `if !` so a jq failure here fails CLOSED instead of leaving DEFAULTS empty and
+# feeding `--argjson defaults ""` into the guard below.
+if ! DEFAULTS="$(printf '%s' "$IDENTITY_JSON" | "$DEVFLOW_JQ" '
+  {
+    extraKnownMarketplaces: {
+      (.marketplace_canonical): {
+        source: { source: "github", repo: "The01Geek/devflow-autopilot" },
+        autoUpdate: true
+      }
+    },
+    enabledPlugins: { (.canonical_plugin_spec): true }
+  }')" || [ -z "$DEFAULTS" ]; then
+  warn "could not compose the DevFlow settings defaults from the resolved plugin identity; left $SETTINGS unchanged and provisioned nothing."
+  exit 2
+fi
+
+# SUPERSEDED identifiers — every accepted identifier that is not the canonical one.
+# A rename declares the previous id as an alias, and a repo provisioned under that
+# previous id would otherwise keep BOTH registrations forever: Claude Code would
+# install the plugin twice under two ids. So provisioning also MIGRATES, removing the
+# superseded marketplace entry and the superseded enabledPlugins specs. Empty while no
+# alias is declared, which makes this a strict no-op today.
+if ! SUPERSEDED="$(printf '%s' "$IDENTITY_JSON" | "$DEVFLOW_JQ" -c '
+  . as $i
+  | { markets: $i.marketplace_names[1:],
+      specs:   [ $i.plugin_specs[] | select(. != $i.canonical_plugin_spec) ] }')" \
+   || [ -z "$SUPERSEDED" ]; then
+  warn "could not derive the superseded plugin/marketplace identifiers from the resolved plugin identity; left $SETTINGS unchanged and provisioned nothing."
+  exit 2
+fi
 
 # Resolve the existing settings into a JSON value to merge against.
 #   - absent file                  -> start from {} (create it)
@@ -158,6 +194,27 @@ if [ -n "$BAD_SHAPE" ]; then
   exit 2
 fi
 
+# MIGRATION — drop any SUPERSEDED registration before merging, so a repo provisioned
+# under a previously-declared identifier is not left with two live registrations of the
+# same plugin. Only the two DevFlow-owned containers are touched, and only for keys in
+# the derived superseded set: a user's unrelated marketplace/plugin entry is never
+# removed. Both containers are object-or-absent by the type-guard above; the `type`
+# tests keep this correct if that guard is ever relaxed. `$EXISTING_ORIG` keeps the
+# pre-migration value so the "nothing changed" comparison and the delta labels below
+# still describe the real EXISTING->written delta (a pure removal must count as a
+# change). No-op while no alias is declared.
+EXISTING_ORIG="$EXISTING"
+if ! EXISTING="$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" --argjson sup "$SUPERSEDED" '
+  (if (.extraKnownMarketplaces | type) == "object"
+     then .extraKnownMarketplaces |= with_entries(.key as $k | select(($sup.markets | index($k)) == null))
+     else . end)
+  | (if (.enabledPlugins | type) == "object"
+       then .enabledPlugins |= with_entries(.key as $k | select(($sup.specs | index($k)) == null))
+       else . end)')"; then
+  warn "could not remove the superseded DevFlow registrations from $SETTINGS (migration probe failed); left it unchanged and provisioned nothing."
+  exit 2
+fi
+
 # The merge cannot fail post-guard ($existing is a validated object whose every
 # DevFlow object-path is object-or-absent, $defaults is a fixed valid object, so
 # `*` always succeeds), but guard it anyway so an unanticipated jq failure
@@ -169,7 +226,7 @@ fi
 
 # Only write on a real change (idempotent — no mtime churn on a re-run). Compare
 # canonical (sorted) forms so formatting differences never read as a change.
-if [ "$(printf '%s' "$EXISTING" | "$DEVFLOW_JQ" -S .)" = "$(printf '%s' "$MERGED" | "$DEVFLOW_JQ" -S .)" ]; then
+if [ "$(printf '%s' "$EXISTING_ORIG" | "$DEVFLOW_JQ" -S .)" = "$(printf '%s' "$MERGED" | "$DEVFLOW_JQ" -S .)" ]; then
   log ".claude/settings.json already has the DevFlow keys; nothing changed."
   exit 0
 fi
@@ -204,11 +261,18 @@ trap - EXIT
 # exit status `set -e` cannot observe), so a jq hiccup here degrades to the generic
 # success message with a warning rather than silently. The write already succeeded
 # (atomic mv above), so a delta-probe failure cannot corrupt provisioning.
+# The probed marker keys are the DERIVED canonical ones plus every superseded id the
+# migration may have removed, so the breadcrumb names a removal as accurately as an
+# addition.
 added_raw=""
-if ! added_raw="$("$DEVFLOW_JQ" -nr --argjson e "$EXISTING" --argjson m "$MERGED" '
-  [ {l: "extraKnownMarketplaces[devflow-marketplace]", p: ["extraKnownMarketplaces", "devflow-marketplace"]},
-    {l: "enabledPlugins[devflow@devflow-marketplace]",  p: ["enabledPlugins", "devflow@devflow-marketplace"]} ]
-  | map(select(($e | getpath(.p)) != ($m | getpath(.p))) | .l) | .[]')"; then
+if ! added_raw="$("$DEVFLOW_JQ" -nr --argjson e "$EXISTING_ORIG" --argjson m "$MERGED" \
+  --argjson id "$IDENTITY_JSON" --argjson sup "$SUPERSEDED" '
+  ( [ ["extraKnownMarketplaces", $id.marketplace_canonical],
+      ["enabledPlugins", $id.canonical_plugin_spec] ]
+    + [ $sup.markets[] | ["extraKnownMarketplaces", .] ]
+    + [ $sup.specs[]   | ["enabledPlugins", .] ] )
+  | map(. as $p | select(($e | getpath($p)) != ($m | getpath($p))) | ($p[0] + "[" + $p[1] + "]"))
+  | .[]')"; then
   warn "provisioned $SETTINGS but could not summarize which keys changed (delta probe failed)."
   added_raw=""
 fi
