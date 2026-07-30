@@ -174,6 +174,13 @@ from typing import NamedTuple
 # quote pin literals and would otherwise be reported as spurious destinations.
 RELOC_DEFAULT_EXCLUDES = (".devflow/vendor/", ".devflow/tmp/")
 
+# Machine-consumed sentinel (issue #967): written to stderr by
+# ``scan_static_pin_changes`` only after both static-classifier passes have
+# completed, so a caller can tell "the gate ran and was clean" from "a
+# precondition raised and the gate never ran". Coupled to the assertion in
+# ``lib/test/run.sh``; change both together.
+STATIC_SCAN_COMPLETED_MARKER = "MUTATION-ROUTING-STATIC-SCAN-COMPLETED"
+
 # (literal_arg_index, file_arg_index, default_file_var).  Indices are 0-based
 # over the call's arguments AFTER the helper name.  A file index past the actual
 # arg list means the optional file arg was omitted -> use default_file_var.
@@ -5029,6 +5036,18 @@ def scan_static_pin_changes(
     )
     verify_worktree_targets()
     unique_findings = list(dict.fromkeys(source_findings))
+    # Positive completion breadcrumb (issue #967). Every precondition this function
+    # runs first — the adjudication-table currency check among them — raises
+    # InfrastructureError, which aborts BEFORE the two `scan_changed_sources` calls
+    # above. That is the correct fail-closed direction, but it is indistinguishable
+    # at the caller from any other rc-2 exit, so a branch that tripped a precondition
+    # reported "infrastructure failure" while the static classifier silently did not
+    # run at all — and the policy findings it would have reported stayed invisible
+    # across whole sessions. This line is written only on the path where BOTH passes
+    # completed, so its ABSENCE is the caller's evidence that the classifier was
+    # skipped rather than clean. `lib/test/run.sh` asserts on it; the two are a
+    # coupled pair, and `lib/test/test_pin_corpus_lint.py` drives both directions.
+    sys.stderr.write(STATIC_SCAN_COMPLETED_MARKER + "\n")
     return adjudication_analysis.findings + unique_findings
 
 
