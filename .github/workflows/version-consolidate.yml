@@ -144,12 +144,31 @@ jobs:
               git diff --name-only
               exit 1
             fi
+            # Derive the tag version BEFORE the push, on its own assignment statement.
+            # Two reasons, both fail-direction. (1) Inside the `{ echo …; } >> $GITHUB_OUTPUT`
+            # group a command substitution's failure is invisible to `set -e` — the `echo`
+            # itself succeeds — so a non-zero `--print-version` would have emitted
+            # `pushed=true` with an EMPTY `version`, the gated tag step would then run with
+            # an empty BUMP_VERSION, publish-release.sh would die, and the run would end with
+            # the bump pushed to main and NO tag: precisely the "docs pin a tag that does not
+            # exist" drift this workflow exists to prevent, reached through a swallowed error.
+            # As an assignment it is a simple command, so `set -e` observes the failure.
+            # (2) Deriving it before `git commit`/`git push` means such a fault aborts while
+            # the tree is still local and the reset-and-retry loop can be re-entered safely,
+            # rather than after the one irreversible step.
+            new_version="$(python3 scripts/version_pins.py --print-version)"
+            # Belt-and-braces for a hypothetical exit-0-but-silent producer: an empty version
+            # must never reach the tag step, where it becomes an untagged pushed bump.
+            if [ -z "$new_version" ]; then
+              echo "::error::version_pins.py --print-version produced an empty version; refusing to push an untaggable bump"
+              exit 1
+            fi
             git commit -m "chore: bump version (consolidate changesets)"
             if git push origin HEAD:main; then
               echo "Pushed version bump on attempt $attempt."
               {
                 echo "pushed=true"
-                echo "version=$(python3 scripts/version_pins.py --print-version)"
+                echo "version=$new_version"
                 echo "notes=$NOTES"
               } >> "$GITHUB_OUTPUT"
               exit 0
@@ -160,7 +179,7 @@ jobs:
           exit 1
 
       # Tag the bump commit and publish its Release. Gated on the push having happened, so a
-      # no-pending-changesets run stays a clean no-op. The branch selection and every message
+      # no-pending-changesets run stays a clean no-op. The arm selection and every message
       # live in the helper (CLAUDE.md: inline workflow shell that selects a branch is extracted
       # so lib/test/run.sh can drive each arm); the helper is idempotent and verifies the tag
       # resolves on the remote afterwards — the network half of the release-pin drift guard.

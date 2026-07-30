@@ -21,7 +21,9 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
-It writes nothing else — staging and the ``chore: bump version`` commit are the workflow's job.
+It writes nothing else into the repository — staging and the ``chore: bump version`` commit
+are the workflow's job. (The two opt-in ``$RUNNER_TEMP`` side channels documented below live
+outside the repository tree by design, so they are not exceptions to that.)
 
 Two optional side-channel outputs exist for the workflow, both written **outside** the
 repository (``$RUNNER_TEMP``) so they never enter the commit: ``--emit-entry-to`` writes

@@ -78,8 +78,28 @@ esac
 
 TAG="v$VERSION"
 
+# Three-way remote-tag probe. `git ls-remote --exit-code` distinguishes its own two
+# answers: 0 = the ref resolves, 2 = the query succeeded and matched nothing. ANY other
+# status is the query itself failing (no network, bad remote, auth), which is NOT
+# evidence of absence — folding it into "absent" would route a connectivity blip into
+# the create/POST path and misattribute a probe-time problem to the mutation.
+# Echoes the status; the callers branch on it.
+_tag_probe() {
+  local rc=0
+  git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$TAG" >/dev/null 2>&1 || rc=$?
+  printf '%s\n' "$rc"
+}
+
 # ── 1. The annotated tag ────────────────────────────────────────────────────────────
-if git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$TAG" >/dev/null 2>&1; then
+_PROBE="$(_tag_probe)"
+case "$_PROBE" in
+  2) : ;;  # queried cleanly, no such tag — fall through to create it
+  0) : ;;  # already there
+  *) printf '::error::Could not determine whether %s exists on %s (git ls-remote exited ' "$TAG" "$REMOTE"
+     printf '%s). Refusing to guess: an unreachable remote is not evidence the tag is absent.\n' "$_PROBE"
+     exit 1 ;;
+esac
+if [ "$_PROBE" = "0" ]; then
   printf '::notice::%s already exists on %s — leaving it alone.\n' "$TAG" "$REMOTE"
 else
   # Annotated (not lightweight): a release tag carries its own object, date and message,
@@ -97,11 +117,18 @@ fi
 # ── 2. Tag-existence verification (the network half of the drift guard) ─────────────
 # A `git push` that reports success is not proof the ref landed — verify against the
 # remote, because the commit we just pushed documents this tag as installable.
-if git ls-remote --exit-code --tags "$REMOTE" "refs/tags/$TAG" >/dev/null 2>&1; then
+_PROBE="$(_tag_probe)"
+if [ "$_PROBE" = "0" ]; then
   printf '::notice::Verified %s resolves on %s.\n' "$TAG" "$REMOTE"
-else
+elif [ "$_PROBE" = "2" ]; then
   printf '::error::%s does not resolve on %s after the tag push — the docs in this ' "$TAG" "$REMOTE"
   printf 'bump pin a release tag that does not exist.\n'
+  exit 1
+else
+  # The verification query failed. Unknown is not "verified" — fail closed, but say which
+  # of the two it is, so the operator retries the probe rather than hunting a lost ref.
+  printf '::error::Could not verify %s on %s (git ls-remote exited %s). The tag push ' "$TAG" "$REMOTE" "$_PROBE"
+  printf 'reported success but the verification query itself failed; re-run to re-probe.\n'
   exit 1
 fi
 
@@ -123,13 +150,23 @@ fi
 set -- api --method POST "repos/$REPO/releases" \
   -f "tag_name=$TAG" -f "name=$TAG" \
   -F draft=false -F prerelease=false -f make_latest=true
-if [ -n "$NOTES_FILE" ] && [ -s "$NOTES_FILE" ]; then
-  set -- "$@" -F "body=@$NOTES_FILE"
-else
-  # No assembled entry reached us. Publish anyway with a pointer rather than failing the
-  # job over notes: the tag — the thing the docs pin — is already correct.
-  printf '::warning::No release notes body for %s; publishing with a CHANGELOG pointer.\n' "$TAG"
+# Both fallback causes publish the same pointer body — but they are NOT the same event and
+# must not read as one. "No --notes-file was passed" is a caller CHOICE (a `--release`-only
+# invocation, a hand re-run) and is unremarkable. "A --notes-file was named but is absent or
+# empty" is an UPSTREAM ANOMALY: the consolidator's `--emit-entry-to` side channel produced
+# nothing, which means the CHANGELOG entry assembly it shares with the bump misbehaved —
+# smoothing that into the same normal-looking fallback hides a real defect behind a warning
+# that reads like routine configuration.
+if [ -z "$NOTES_FILE" ]; then
+  printf '::notice::No --notes-file passed for %s; publishing with a CHANGELOG pointer.\n' "$TAG"
   set -- "$@" -f "body=See CHANGELOG.md for the [$VERSION] entry."
+elif [ ! -s "$NOTES_FILE" ]; then
+  printf '::warning::Release notes file %s is absent or empty, but was requested for %s — ' "$NOTES_FILE" "$TAG"
+  printf 'the consolidator emitted no CHANGELOG entry body. Publishing with a CHANGELOG '
+  printf 'pointer; investigate the --emit-entry-to side channel.\n'
+  set -- "$@" -f "body=See CHANGELOG.md for the [$VERSION] entry."
+else
+  set -- "$@" -F "body=@$NOTES_FILE"
 fi
 
 if "$DEVFLOW_GH" "$@" >/dev/null; then

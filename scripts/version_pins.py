@@ -19,10 +19,11 @@ release behind. This module closes that loop from both ends:
   assembly phase, so the pin rewrite lands **in the same commit as the bump** and the
   tagged tree is self-consistent — the docs at tag ``vN`` say ``vN``.
 * ``--check`` is driven by ``lib/test/run.sh`` as an ordinary executable test: every
-  derived pin site must agree with ``plugin.json``. It is purely local (no network,
-  no ``gh``, no ``git``), so it runs in the offline suite. The complementary
-  *tag-existence* assertion needs the network and therefore lives in
-  ``version-consolidate.yml`` (``scripts/publish-release.sh``), not here.
+  derived pin site must agree with ``plugin.json``. It is **offline** — no network and
+  no ``gh`` — so it runs in the network-free suite; its one subprocess is a local
+  ``git ls-files`` (see *Scanned population* below), which reads the index and touches
+  nothing remote. The complementary *tag-existence* assertion does need the network and
+  therefore lives in ``version-consolidate.yml`` (``scripts/publish-release.sh``).
 
 **The site set is DERIVED, never enumerated.** A new documentation page that pins the
 installer is picked up because it matches one of the two patterns above — there is no
@@ -33,16 +34,36 @@ checked-in list of files to forget to extend. Two consequences worth knowing:
   re-quoting the version (the repo's single-source-of-truth default), so no prose
   copy exists for this tool to miss.
 * A version-shaped token that is **not** one of those two forms is not a release pin
-  and is left alone — a vendored tool version (``SHELLCHECK_VERSION: v0.11.0``), an
+  and is left alone — a vendored tool version (``SHELLCHECK v0.11.0``), an
   upstream runner version (``Copilot CLI v1.0.67``), a spec URL
   (``semver.org/spec/v2.0.0.html``) or a historical migration note (``v2.8.12``).
 
-**Scanned population.** A filesystem walk from the repo root, pruning:
+**Scanned population — two sources, chosen by ENTRY POINT, not by circumstance.**
 
-* ``.git``, ``node_modules``, ``__pycache__`` — VCS/tooling internals.
-* ``.claude`` — this repo's working mode puts sibling git worktrees under
-  ``.claude/worktrees/``; a root-anchored walk would descend into another branch's
-  checkout and report findings that vary between runs on the same commit (issue #711).
+*The CLI* (``--check``, ``--list``, ``--rewrite``) sources its population from an
+**index-reading ``git ls-files``** — no ``--others`` — and fails closed (exit 2) when
+that enumeration cannot be established. This is the repo's issue-#711 convention, and
+it is a *structural* property rather than a blocklist: a checker whose answer depends
+on untracked host state is a checker that goes red locally and green on a fresh CI
+checkout, varying between runs on the same commit. A filesystem walk cannot have that
+property — every exclusion list it carries is a blocklist that the next untracked
+directory defeats. DevFlow's own review scratch (``.devflow/tmp/``, which holds a
+cached ``diff.patch`` carrying both pin forms at arbitrary versions) is the instance
+that proved it; the index population removes the whole class, scratch dirs that do
+not exist yet included.
+
+*The library* (``find_pin_sites``/``render_rewrites`` called with no explicit
+population) falls back to a **filesystem walk** from ``root``. That is the path
+``scripts/consolidate-changesets.py`` takes, and it is deliberate: the consolidator
+makes no ``git`` calls (issue #290), so it stays unit-testable against a plain temp
+directory. Soundness there rests on *where it runs* — the merge-time bump runs in a
+fresh ``actions/checkout`` with no untracked scratch — not on the exclusion list. A
+caller that wants the index population passes it explicitly.
+
+Both populations then drop the same non-pin content:
+
+* ``.git``, ``.claude``, ``node_modules``, ``__pycache__`` — VCS/tooling internals,
+  plus (``.claude``) this repo's sibling-git-worktree root.
 * ``.changeset/`` and ``CHANGELOG.md`` — release *history*. Past entries name past
   versions on purpose and must never be rewritten forward.
 * ``.devflow/learnings/`` and ``.devflow/logs/`` — machine-appended corpora that quote
@@ -59,8 +80,9 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import subprocess
 import sys
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 # The two machine-recognizable release-pin forms. Each pattern captures the semver in a
 # `version` group and preserves everything else, so a rewrite is surgical.
@@ -101,12 +123,18 @@ class VersionPinError(Exception):
     """A structural fault — an unreadable manifest, a malformed version, an OS error."""
 
 
+# The closed vocabulary of PIN_PATTERNS' names, so a renamed/typo'd pattern label is a
+# compile-visible break at the PinSite construction site rather than a silent cross-site
+# mismatch (every consumer — the --list output, the drift diagnostic — reads this string).
+PatternName = Literal["raw-url", "devflow-ref"]
+
+
 class PinSite(NamedTuple):
     """One derived release-pin occurrence."""
 
     relpath: str
     lineno: int
-    pattern: str
+    pattern: PatternName
     version: str
 
 
@@ -118,9 +146,22 @@ def _is_excluded(relpath: str) -> bool:
 
 
 def iter_scanned_files(root: str) -> "list[str]":
-    """Return the repo-relative paths of every file in the scanned population, sorted."""
+    """Return the repo-relative paths of the WALK population, sorted.
+
+    The library default (see the module docstring): git-free, so the consolidator that
+    calls ``render_rewrites`` keeps its issue-#290 no-``git`` contract and its temp-dir
+    unit tests. The CLI does **not** use this — it uses ``resolve_index_population``.
+    """
+
+    def _boom(exc: OSError) -> None:
+        # os.walk's default onerror=None DISCARDS a directory-listing error and simply
+        # omits that subtree, so a drifted pin under an unreadable directory would be
+        # invisible and --check would print "all agree" over a tree it never fully read.
+        # Mirror _read_text_or_none's file-level fail-closed handling instead.
+        raise VersionPinError(f"{getattr(exc, 'filename', root)}: cannot list: {exc}")
+
     found: "list[str]" = []
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, onerror=_boom):
         rel_dir = os.path.relpath(dirpath, root)
         if rel_dir == ".":
             rel_dir = ""
@@ -140,6 +181,54 @@ def iter_scanned_files(root: str) -> "list[str]":
     return found
 
 
+def _is_pruned_path(relpath: str) -> bool:
+    """True when any path component is a pruned directory name (the walk's prune rule,
+    re-expressed for a flat path list so both populations drop the same content)."""
+    return any(part in PRUNED_DIR_NAMES for part in relpath.replace(os.sep, "/").split("/"))
+
+
+def resolve_index_population(root: str) -> "list[str]":
+    """Return the repo-relative INDEX population — ``git ls-files``, no ``--others``.
+
+    This is the issue-#711 contract and the CLI's only population. It fails **closed**:
+    a missing ``git``, a ``root`` that is not a work tree, a non-zero ``git``, or an
+    empty enumeration all raise ``VersionPinError`` (exit 2) rather than degrading to a
+    filesystem walk. A silent fallback would restore exactly the untracked-host-state
+    dependence this function exists to remove — the guard would go quiet in precisely
+    the situation where it can no longer establish what it is guarding.
+    """
+    try:
+        res = subprocess.run(
+            ["git", "-C", root, "ls-files", "-z", "--cached"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise VersionPinError(
+            f"{root}: cannot enumerate the tracked files with git ls-files: {exc}"
+        ) from exc
+    if res.returncode != 0:
+        detail = res.stderr.decode("utf-8", "replace").strip() or f"rc {res.returncode}"
+        raise VersionPinError(
+            f"{root}: git ls-files failed ({detail}); the scanned population is "
+            "index-derived and is never inferred from a filesystem walk"
+        )
+    raw = res.stdout.decode("utf-8", "replace")
+    paths = sorted(p for p in raw.split("\0") if p)
+    if not paths:
+        raise VersionPinError(f"{root}: git ls-files reported no tracked files")
+    # A path in the index but absent from the working tree (a staged delete, a submodule
+    # gitlink, a dangling symlink) carries no pin text to read. Dropping it here keeps the
+    # read path's OSError arm meaning "a file that IS there could not be read".
+    return [
+        p
+        for p in paths
+        if not _is_excluded(p)
+        and not _is_pruned_path(p)
+        and os.path.isfile(os.path.join(root, p))
+    ]
+
+
 def _read_text_or_none(path: str) -> "str | None":
     """Read ``path`` as UTF-8 text; return ``None`` when it is not decodable text.
 
@@ -155,10 +244,14 @@ def _read_text_or_none(path: str) -> "str | None":
         raise VersionPinError(f"{path}: cannot read: {exc}") from exc
 
 
-def find_pin_sites(root: str) -> "list[PinSite]":
-    """Derive every release-pin occurrence under ``root``, in stable scan order."""
+def find_pin_sites(root: str, files: "list[str] | None" = None) -> "list[PinSite]":
+    """Derive every release-pin occurrence under ``root``, in stable scan order.
+
+    ``files`` is the repo-relative population to scan; ``None`` selects the git-free
+    walk (see the module docstring's entry-point split).
+    """
     sites: "list[PinSite]" = []
-    for rel in iter_scanned_files(root):
+    for rel in iter_scanned_files(root) if files is None else files:
         text = _read_text_or_none(os.path.join(root, rel))
         if text is None:
             continue
@@ -203,18 +296,23 @@ def _rewrite_text(text: str, new_version: str) -> str:
     return text
 
 
-def render_rewrites(root: str, new_version: str) -> "dict[str, str]":
+def render_rewrites(
+    root: str, new_version: str, files: "list[str] | None" = None
+) -> "dict[str, str]":
     """Return ``{absolute path: new text}`` for every file whose pins need moving.
 
     Pure read + assemble — **no writes**. This mirrors ``consolidate-changesets.py``'s
     read-before-write contract: the consolidator proves every output is assemblable in
     memory before it touches disk, so a read fault can never leave a half-bumped tree.
     Files already at ``new_version`` are omitted, so a no-op bump writes nothing.
+
+    ``files`` defaults to the git-free walk, which is what the consolidator gets; the
+    CLI's ``--rewrite`` passes the index population explicitly.
     """
     if not VERSION_RE.match(new_version):
         raise VersionPinError(f"{new_version!r} is not an N.N.N version string")
     rewrites: "dict[str, str]" = {}
-    for rel in iter_scanned_files(root):
+    for rel in iter_scanned_files(root) if files is None else files:
         abspath = os.path.join(root, rel)
         text = _read_text_or_none(abspath)
         if text is None:
@@ -236,10 +334,28 @@ def _write_rewrites(rewrites: "dict[str, str]") -> None:
             raise VersionPinError(f"{path}: cannot write: {exc}") from exc
 
 
-def check(root: str, out=sys.stdout, err=sys.stderr) -> int:
-    """Assert every derived pin site agrees with the manifest. 0 clean, 1 on drift."""
+def check(
+    root: str, files: "list[str] | None" = None, out=sys.stdout, err=sys.stderr
+) -> int:
+    """Assert every derived pin site agrees with the manifest. 0 clean, 1 on drift.
+
+    An **empty** site set is a fault, not a clean pass. ``drifted`` is empty both when
+    every pin agrees and when the derivation found nothing at all, so a pattern
+    regression, a docs restructure that reflows the pinned command, or an over-broadened
+    exclusion set would silence this guard and the merge-time ``render_rewrites`` at the
+    same moment — the guard passing loudest exactly where it has stopped working. The
+    floor makes that state exit 2 instead.
+    """
     expected = read_manifest_version(root)
-    sites = find_pin_sites(root)
+    sites = find_pin_sites(root, files)
+    if not sites:
+        raise VersionPinError(
+            "the derivation found NO pinned release-tag site — an empty site set is a "
+            "fault, not a clean tree. Both derived patterns matching nothing means the "
+            "merge-time bump would silently repin nothing either; check whether a pin "
+            "was reworded out of the two machine-recognizable forms, or the scanned "
+            "population was narrowed past the docs that carry them"
+        )
     drifted = [s for s in sites if s.version != expected]
     if drifted:
         err.write(
@@ -295,20 +411,24 @@ def main(argv: "list[str] | None" = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if args.list:
-            for site in find_pin_sites(args.root):
-                print(f"{site.relpath}:{site.lineno}\t{site.pattern}\tv{site.version}")
-            return 0
         if args.print_version:
+            # Reads the manifest only — no population to enumerate, so it stays usable
+            # (and `git`-free) wherever a checkout's index is not the question.
             print(read_manifest_version(args.root))
             return 0
+        # Every population-scanning CLI mode is index-sourced and fails closed (#711).
+        files = resolve_index_population(args.root)
+        if args.list:
+            for site in find_pin_sites(args.root, files):
+                print(f"{site.relpath}:{site.lineno}\t{site.pattern}\tv{site.version}")
+            return 0
         if args.rewrite:
-            rewrites = render_rewrites(args.root, args.rewrite)
+            rewrites = render_rewrites(args.root, args.rewrite, files)
             _write_rewrites(rewrites)
             for path in sorted(rewrites):
                 print(os.path.relpath(path, args.root))
             return 0
-        return check(args.root)
+        return check(args.root, files)
     except VersionPinError as exc:
         sys.stderr.write(f"version_pins.py: {exc}\n")
         return 2
