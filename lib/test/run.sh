@@ -1561,8 +1561,10 @@ assert_eq "#857 the SKILL.md seed fence passes PR_NUMBER, MARKER, BODY_FILE in t
 # `create` statements live in a prose paragraph as inline backticked code rather than in a
 # fenced block, which is why each is authored as a pin_count call from the outset: a raw
 # presence assertion over prose resolves inside prose and hits pin-corpus-lint's
-# prose-resolution arm ("literal resolves into prose at <file>:<line>"), which no
-# `# structural-pin-ok:` declaration rescues — and, since #925 removed the count-helper
+# prose-resolution arm ("literal resolves into prose at <file>:<line>"), which a
+# `# structural-pin-ok:` declaration rescues only in company with a `boundary` row in the
+# delta-gated adjudication ledger (the issue-#948 step-2 pointer contract — a declaration
+# on its own never did and still cannot) — and, since #925 removed the count-helper
 # short-circuit, which a pin_count spelling no longer skips either.
 assert_eq "#871 the SKILL.md fallback arm's id call passes the PR number positionally and the marker behind --marker" "1" \
   "$(pin_count 'workpad.py id "$PR_NUMBER" --marker "$MARKER" 2>.devflow/tmp/review/<slug>/<run-id>/rv-id.err' "$ST_REV")"
