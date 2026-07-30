@@ -11503,7 +11503,7 @@ echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku overrid
 assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 5, and carries an effort key" \
   "ok" \
   "$(jq -r '
-      (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
+      (.devflow_review.agent_overrides["prflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
         elif (($d.model // "") != "claude-sonnet-5") then "not-sonnet"
         elif ($d | has("effort") | not) then "no-effort"
@@ -26564,7 +26564,7 @@ assert_eq "vendor: install.sh copies the vendor-plugin composite action" "1" \
   "$(grep -cE 'for a in .*vendor-plugin' "$REPO_ROOT/install.sh" || true)"
 # AC8 placement drift-guard: the vendor-plugin composite action reads files at
 # ./.github/actions/…, so the repo must be checked out BEFORE it runs in every
-# plugin-using job (eight across the five workflows). Scan each workflow, reset the
+# plugin-using job, in every workflow that has one. Scan each workflow, reset the
 # "checkout seen" flag at each 2-space job/section boundary, and tally each
 # vendor-plugin use as ok only if an actions/checkout preceded it in the same job.
 VP_PLACEMENT="$(awk '

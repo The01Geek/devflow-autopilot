@@ -3906,7 +3906,7 @@ with open(_example_cfg_path) as _ecf:
 assert_eq("#425 config.example.json: code-reviewer override carries iterations first-only",
           "first-only",
           _example_cfg["devflow_review"]["agent_overrides"]
-          ["devflow:code-reviewer"].get("iterations"))
+          ["prflow:code-reviewer"].get("iterations"))
 
 # Migration: the documented schema-rejection of a stale externally-namespaced override key
 # (PR #143 review, Major #1 + Minor #1). CHANGELOG/migration-doc prose promise that a stale

@@ -12,7 +12,7 @@ rows grow:
 
 - `.devflow/prompt-extensions/review-and-fix.md` (+1,307 bytes / +173 words) — gains the
   `## Review-bundle ceiling self-apply (issue #618)` section: the authorization for a
-  `/devflow:review-and-fix` run to self-apply the escape-valve procedure on a growth breach, the
+  `/prflow:review-and-fix` run to self-apply the escape-valve procedure on a growth breach, the
   `measured + 60` / four-mirror mechanic, the direct-`CLAUDE.md`-edit carve-out (a this-repo-scoped
   sibling of #366), the growth-only scope, and the pointer to the full decision record in
   `docs/review-bundle-budget.md`.

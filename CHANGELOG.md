@@ -1,8 +1,74 @@
 # Changelog
 
-All notable changes to DevFlow are documented here. The format follows
+All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [2.28.3] — 2026-07-30
+
+### Changed
+### Fixed
+
+- Cloud setup docs no longer describe `devflow-review.yml`, a workflow that is not in the
+  tree. `docs/cloud-setup.md` had named it among "the five consumer-shipped workflows" and
+  its workflow inventory gave an install instruction ("edit that list when installing") for
+  a file that does not exist. The true shipped set is **two** workflows — `devflow.yml` and
+  `devflow-implement.yml` — and the inventory now states which entries `install.sh` copies,
+  which belong to this repository only, and which are the retained withheld-tier files.
+  `docs/DEVFLOW_SYSTEM_OVERVIEW.md` carried the same stale count and is reconciled.
+- README requirements no longer overstate the PyYAML dependency. It is a lazy import in a
+  single helper, reached only when a pull-request body already carries a deferred-findings
+  block, and the review engine logs and steps over its absence with all findings intact.
+- The withheld auto-review tier disclosure is reworded to state its actual disposition —
+  the feature was withdrawn rather than abandoned, and a fresh install is unaffected — and
+  moved below the fold, with the removal procedure spelled out.
+
+### Changed
+
+- Skill descriptions shown in the skill picker use the current product name: `init`,
+  `receiving-code-review` and `requesting-code-review`. The `/devflow:implement` alias in
+  the `implement` skill's description is retained deliberately — it is still a live trigger.
+- `docs/DEVFLOW_SYSTEM_OVERVIEW.md` no longer carries a hand-maintained version literal
+  (it read `2.4.3` against a shipped `2.28.1`); it points at `plugin.json` instead.
+- `CHANGELOG.md`'s live header uses the current product name. Dated entries are unchanged.
+- The README gained an `install` anchor so the published one-pager's call-to-action lands
+  on the install instructions rather than the top of the page.
+
+## [2.28.2] — 2026-07-30
+
+### Fixed
+- **A new user's first command works again: the documented install identifier is now
+  `prflow@devflow-marketplace`.** The plugin was renamed `devflow` → `prflow` and the rename
+  swept every executable surface, but the human-facing surfaces were left behind — `README.md`
+  and `docs/` still told a reader to run `claude plugin install devflow@devflow-marketplace`,
+  which fails on a clean install with `Plugin "devflow" not found in marketplace
+  "devflow-marketplace"`. The marketplace `renames` map migrates an *already-installed* plugin;
+  it is not an install-time alias. All nine documented install sites across `README.md`,
+  `docs/install.md`, `docs/cloud-setup.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` now name
+  `prflow@devflow-marketplace`, and both `README.md` and `docs/install.md` explain why the
+  marketplace keeps the `devflow-marketplace` name (the `renames` map is scoped per
+  marketplace, so renaming it would strand every existing install).
+- **Every documented command is now `/prflow:`.** README's quick start, the skills table, the
+  end-to-end workflow diagram and all of `docs/` used the retired `/devflow:` local-command
+  namespace. The README's namespacing note previously gave inverted advice — *"always use the
+  `/devflow:`-prefixed form"* — and now states the split correctly: **local** slash commands are
+  `/prflow:` only, because a skill's namespace is the plugin name, while **cloud comment
+  triggers accept both** namespaces during the alias window. `docs/workflow-triggers.md` states
+  that dual acceptance where the trigger surface is documented.
+- **Two dead documentation links are repointed.** `docs/external/release-notes.md` cited
+  issues #930 and #920 at the pre-rename `The01Geek/devflow-autopilot` path, which now returns
+  404; both point at `The01Geek/prflow` and were re-verified live.
+- **Product naming and scaffolded config.** `README.md`, `CITATION.cff`, `CONTRIBUTING.md`,
+  `SECURITY.md`, `LICENSES/README.md`, the `docs/` corpus and the vendored agent descriptions
+  now say **PRFlow**. `.devflow/config.example.json` — what `/prflow:init` scaffolds into a new
+  repository — and the `config.schema.json` descriptions an editor surfaces no longer seed the
+  stale `devflow:` agent namespace or document `/devflow:` commands.
+- **Deliberately unchanged:** the `devflow-marketplace` marketplace name, the `.devflow/`
+  directory, `DEVFLOW_*` environment variables, `devflow_*` config keys, the `<!-- devflow:* -->`
+  markers, the reserved `DevFlow` provenance label, the `Devflow Reflection` / `Devflow Review`
+  markers, the workflow filenames, the `lib + python tests` check name, and the
+  `devflow-autopilot` GitHub App, which is a separate identity that has not been renamed.
+  `CHANGELOG.md` and `.devflow/learnings/**` are dated historical records and keep the old name.
 
 ## [2.28.1] — 2026-07-30
 

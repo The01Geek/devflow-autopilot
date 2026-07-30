@@ -11,7 +11,7 @@ kind: relocate
   699 lines: that was the true size when the issue was filed, and a concurrently-merged PR
   added 256 bytes to §4.1 before this branch merged the base. Both figures are correct at
   their own moment; the merge-base figure is the one this move's delta is measured against. The orchestrator's Phase 4 entry-gate
-  reads the whole file on every `/devflow:implement` run, and re-reads it at each mid-phase
+  reads the whole file on every `/prflow:implement` run, and re-reads it at each mid-phase
   re-anchor, so section 4.0's bytes were paid by every run and re-paid by every re-anchor —
   including the runs whose predicate could not fire.
 
@@ -53,7 +53,7 @@ falsify the record. The counter is `wc -c`.
 ## Ceiling raise — issue #834 (registered per the #656 enforcement-constant exception)
 
 Issue #834 appends a consumer prompt-extension by-path handoff sentence to the Phase 4.1
-`devflow:docs` dispatch in `skills/implement/phases/phase-4-documentation.md`. The addition
+`prflow:docs` dispatch in `skills/implement/phases/phase-4-documentation.md`. The addition
 is **unconditional** — every Phase 4.1 run dispatches that subagent, and the child cannot
 resolve its own skill anchor — so it is not routable behind a conditional
 progressively-loaded reference the way section 4.0 was: a gate that always fires saves no

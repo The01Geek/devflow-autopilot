@@ -34,7 +34,7 @@ that a direct pass loads. The deferral-routing and non-binding-directive pins st
 ## Justification
 
 Issue #620's AC12 placed the guard in the review-and-fix scoping prose, so it governed **loop runs
-only**. A direct `/devflow:receiving-code-review` pass consumes the very same Addendum rule (the
+only**. A direct `/prflow:receiving-code-review` pass consumes the very same Addendum rule (the
 extension's *Re-read the live issue spec* section) with no editor-authority qualification — the
 mirror image of the gap #620 closed. The altitude reviewer on PR #633 raised it; it was routed
 here.

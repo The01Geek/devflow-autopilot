@@ -1,9 +1,9 @@
-# `/devflow:review-and-fix` subagent effectiveness telemetry
+# `/prflow:review-and-fix` subagent effectiveness telemetry
 
 **Skill:** `skills/review-and-fix/references/loop-exit.md` (Loop Exit, *Subagent effectiveness trace*; the reference the thin `skills/review-and-fix/SKILL.md` root routes to at loop termination — see issue #530)
 **Derivation:** `lib/efficiency-trace.jq` + `lib/efficiency-trace.sh`
 
-When `/devflow:review-and-fix` runs, its fix loop dispatches a lot of subagents per iteration —
+When `/prflow:review-and-fix` runs, its fix loop dispatches a lot of subagents per iteration —
 up to six Phase-3 review agents (four always-on plus two structurally-gated analyzers) plus the
 Phase-2 checklist verifiers, re-run across as many iterations as the configurable cap allows
 (`devflow_review_and_fix.max_iterations`, default 5), plus a shadow pass (the parent-orchestrated convergence audit — see
@@ -105,7 +105,7 @@ than printing a bare "0 verifiers":
 | `agent-only` / `mixed` | verifier subagents dispatched | "Checklist verifiers: N lite, M agent." |
 | `none-recorded` | no skip reason and zero items recorded | "Checklist verifiers: none recorded for this iteration." (the one posture that flags a genuine instrumentation gap) |
 
-`/devflow:review-and-fix` now writes the `checklist[]` array (with each item's `verification_mode`)
+`/prflow:review-and-fix` now writes the `checklist[]` array (with each item's `verification_mode`)
 and the `telemetry` key to every `iter-<N>.json` workpad whenever Phase 1+2 ran. When no phase
 figures were established, the writer emits the literal string `"unavailable"`; it never omits the
 key or writes JSON null. The persistence backstop applies the same marker to absent/null keys on
@@ -195,7 +195,7 @@ A run with zero readable iterations (catastrophic early failure) writes **no rec
 than a contentless skeleton — symmetric with the flag-off contract.
 
 **The durable store is a dedicated telemetry branch (issue #441).** Every writable run — local
-and cloud, `/devflow:review-and-fix` **and** standalone `/devflow:review` — persists its record
+and cloud, `/prflow:review-and-fix` **and** standalone `/prflow:review` — persists its record
 and durable workpad copy to a single long-lived **orphan branch, `devflow-telemetry`** (name
 configurable via `telemetry.branch`). The branch shares no history with `main` and is never
 merged into it. The persist step (`lib/efficiency-trace.sh --persist`) writes each run's
@@ -251,21 +251,21 @@ that uploaded workflow artifact, not on-disk retention** — the runner filesyst
 any later step could read it, so on-disk retention cannot help there. A degraded persist's on-disk
 staging-root retention (below) helps a **local** run, where the filesystem persists.
 
-**Headless persistence.** `/devflow:review-and-fix` invokes `config-get.sh` and
+**Headless persistence.** `/prflow:review-and-fix` invokes `config-get.sh` and
 `efficiency-trace.sh` **directly** (resolving to a `.devflow/vendor/devflow/…` path), the same way
-`/devflow:implement` invokes its helpers — never `bash <path>`. Resolved-path allow-list entries
+`/prflow:implement` invokes its helpers — never `bash <path>`. Resolved-path allow-list entries
 match on the command's leading token after expansion, so a `bash`-prefixed command would start with
 `bash`, match nothing, prompt, and be denied on a headless run (silently skipping the trace). Direct
 invocation requires `lib/efficiency-trace.sh` to be committed with its executable bit, and **every**
-workflow allow-list under which `/devflow:review-and-fix`'s Loop Exit runs to carry
+workflow allow-list under which `/prflow:review-and-fix`'s Loop Exit runs to carry
 `Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. Two workflows qualify, because the loop's
 Loop Exit runs on both entry paths:
 
-- `.github/workflows/devflow.yml` — the inline allow-list for the `/devflow:review-and-fix` comment
+- `.github/workflows/devflow.yml` — the inline allow-list for the `/prflow:review-and-fix` comment
   path.
-- `.github/workflows/devflow-implement.yml` — the heavy `/devflow:implement` path (partitioned out of
-  `devflow.yml`, which carries the comment-trigger routing). `/devflow:implement` Phase 3.3 invokes
-  `/devflow:review-and-fix --push-each-iteration`, which runs the full Loop Exit, so this workflow's
+- `.github/workflows/devflow-implement.yml` — the heavy `/prflow:implement` path (partitioned out of
+  `devflow.yml`, which carries the comment-trigger routing). `/prflow:implement` Phase 3.3 invokes
+  `/prflow:review-and-fix --push-each-iteration`, which runs the full Loop Exit, so this workflow's
   allow-list needs the entry too — alongside the `config-get.sh` entry it already carries.
 
 The slim `review` profile in `devflow-runner.yml` is read-only and never runs the Loop Exit, so it
@@ -279,20 +279,20 @@ Both live under `devflow_review_and_fix` in `.devflow/config.json`
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `efficiency_telemetry_enabled` | boolean | `true` | Master gate. When `false`, the loop renders no trace and persists no effectiveness record to the telemetry branch. |
-| `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/devflow:review-and-fix` itself (the record carries it forward). |
+| `efficiency_cut_candidate_min_dispatch` | integer | `3` | Minimum dispatch count before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; **consumed by the follow-up cross-run analyzer**, not by `/prflow:review-and-fix` itself (the record carries it forward). |
 
 The telemetry-store branch is configured separately, at the top level of `.devflow/config.json`:
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.devflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — DevFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
+| `telemetry.branch` | string | `devflow-telemetry` | Name of the long-lived orphan branch every writable run persists its observability artifacts to (issue #441). Auto-created on first use; verified to be a telemetry store (its tip tree holds only `.devflow/logs/`-shaped paths) before appending. Keep every workflow `push:` trigger branch-filtered so a push to it runs no CI — PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch. |
 
 **Acting on the trace.** The telemetry above tells you *which* subagents earn their cost; the
 per-subagent `devflow_review.agent_overrides` block is the lever to *act* on it — move a mechanical
 pass to a cheaper model / lower effort, or pin a high-value reviewer to a stronger model / higher
 effort. When the trace shows an agent earns its cost on the first pass but adds nothing unique on
 later fix-loop iterations, its optional `iterations: "first-only"` key (default-off) drops it from
-the Phase-3 roster on `/devflow:review-and-fix` iterations ≥ 2 — a positional cost lever, distinct
+the Phase-3 roster on `/prflow:review-and-fix` iterations ≥ 2 — a positional cost lever, distinct
 from the model/effort levers (see [review-agent-overrides.md](review-agent-overrides.md)). The
 override keys are byte-identical to the subagent identifiers the engine dispatches
 under: the six Phase-3 keys are the `phase3_dispatched` / finding `agent` identifiers used
@@ -316,7 +316,7 @@ normal verdict. The trace is observability, never a gate — it must never abort
 
 ## Non-droppable persistence (the self-check + `--persist` backstop)
 
-Best-effort persistence has a failure mode: when `/devflow:review-and-fix` is driven
+Best-effort persistence has a failure mode: when `/prflow:review-and-fix` is driven
 **interactively/inline** by an orchestrator rather than as a discrete end-to-end invocation, the
 agent can follow the engine's *substance* (review, shadow, fixes) but silently drop the Loop Exit
 *bookkeeping* — the per-iteration workpad write, the record derivation, the durable copy, and the
@@ -366,7 +366,7 @@ parity; the cloud row is a full field sweep, the local row is a token-realness c
 So *"no backstop **can** reconstruct the cost half"* is **not true**, and repeating it steered three
 issues' worth of work (#170, #381, #426) into building ever-more-elaborate floors fed by operands the
 agent had to volunteer, while the harness was emitting the same data, deterministically, the whole
-time. The honest statement was the weaker one: **no backstop DevFlow *shipped* reconstructed it** — a
+time. The honest statement was the weaker one: **no backstop PRFlow *shipped* reconstructed it** — a
 gap in what we built, not a law of the platform. An agent-independent (class-(c)) cost floor is
 **buildable on both tiers**, and **#475 builds the cloud half** (the Layer-4 harness-side cost floor,
 below): on the cloud tier `--persist` now reconstructs cost from the full observed field set above.
@@ -393,7 +393,7 @@ tool, never a shell `>`/heredoc redirect** (which the cloud sandbox denies into 
 is what keeps the effectiveness half recoverable even when the instrumented loop is left; a cloud
 `claude-code-action` permission/sandbox denial is never license to abandon the loop. (This asymmetry
 is worth noting: the read-only `review` runner runs under `--permission-mode acceptEdits`, but the
-`/devflow:implement` job deliberately does **not** — so the implement seam relies on single-statement
+`/prflow:implement` job deliberately does **not** — so the implement seam relies on single-statement
 leading-token helper forms and the Write tool for scratch, not a broadened permission grant.)
 
 **Layer 2 — self-check + incremental capture (portable, agent-executed).**
@@ -438,7 +438,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   tracked working tree. With `--workpad-dir`/`--slug` it persists one run; without them it
   **discovers** every `.devflow/tmp/review/<slug>/<run-id>/` run dir and persists each — a dir holding
   `iter-*.json` directly, a workpad-less dir via the Layer-3+ synthesis floor below. As of issue #441
-  standalone `/devflow:review` runs (`source == "review"`) are **no longer skipped** — they persist
+  standalone `/prflow:review` runs (`source == "review"`) are **no longer skipped** — they persist
   through this same path to the same branch (their Phase 4.5 step invokes `--persist` too), unifying
   every writable run into one store. It is **idempotent**: the record filename is run-id-keyed and its
   presence is tested **on the branch** (an existing record is never re-derived, so its `generated_at`
@@ -502,7 +502,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   > self-modifying action. The boundary an agent cannot cross is widening its own
   > `permissions.allow` allowlist — that is what stops an agent granting itself new
   > capabilities. The **hook wiring** in this same file is not covered by that boundary:
-  > editing the `hooks` block is an ordinary file write, so a `/devflow:implement` run may
+  > editing the `hooks` block is an ordinary file write, so a `/prflow:implement` run may
   > add or change a hook entry (and the classifier may still deny it, in which case the run
   > routes the change to a human rather than skipping it silently). It ships committed in
   > this repo (`.claude/settings.json`); the `--persist` mode it calls and the cloud-tier
@@ -511,8 +511,8 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   `.claude/` from the **base** branch before installing plugins, so a PR branch's `.claude/` hook is
   discarded for that PR's own cloud run, and the cloud guarantee must **never** depend on the hook.
   Instead the cloud writable workflows — **`.github/workflows/devflow.yml`** (the
-  `/devflow:review-and-fix` comment path's `command` job) and **`.github/workflows/devflow-implement.yml`**
-  (the `/devflow:implement` path) — invoke `--persist`
+  `/prflow:review-and-fix` comment path's `command` job) and **`.github/workflows/devflow-implement.yml`**
+  (the `/prflow:implement` path) — invoke `--persist`
   unconditionally (`if: always()`, best-effort) in a workflow step **after** `Run Claude Code`. As of
   issue #441 the helper owns the entire write: it commits to the telemetry branch via git plumbing
   and pushes it with a fetch/re-parent retry loop, so the former before/after-`HEAD` gate and bare
@@ -543,8 +543,8 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   passes the resulting `DEVFLOW_EXECUTION_COST` / `DEVFLOW_EXECUTION_PR` / `DEVFLOW_COMMAND_CLASS` on
   the `bash "$HELPER" --persist` line. See **Layer 4** above.
 
-- *`/devflow:implement` Phase 3.3 inline backstop (agent-executed).* `/devflow:implement` drives
-  `/devflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
+- *`/prflow:implement` Phase 3.3 inline backstop (agent-executed).* `/prflow:implement` drives
+  `/prflow:review-and-fix` **inline in the orchestrator's own context** (Phase 3.3), so its Loop Exit
   runs in-context and can be dropped exactly like any other interactive/inline drive. To close that
   seam without waiting for a harness-tier caller, `phase-3-review.md` runs `--persist` directly
   (resolved via the portable skill-dir anchor as `…/../../lib/efficiency-trace.sh`, best-effort `|| true`) the moment
@@ -576,7 +576,7 @@ leading-token helper forms and the Write tool for scratch, not a broadened permi
   detector degrades to whole-tree presence and emits a distinct `::warning::` naming that degrade,
   since it can then mask a real loss behind a leftover file). The detector counts every NEW
   `iter-*.json` unconditionally — there is no longer a `source == "review"` skip for it to be
-  "regardless of" (issue #441 removed it, unifying standalone `/devflow:review` onto this same
+  "regardless of" (issue #441 removed it, unifying standalone `/prflow:review` onto this same
   `--persist` path) — and in any case, at this inline seam the review-and-fix loop just driven is
   what writes the tree, so a foreign review-sourced dir being the sole new occupant is not a
   reachable in-flow shape. The no-new-inputs case above only catches a dropped *Loop Exit*
@@ -698,7 +698,7 @@ real record carries, none of which is recoverable **from the fix commits**.
   candidate is offline-indistinguishable from the legitimate run — the phase-3.3 targeted-first
   call is the mitigation); within one slug, a stale earlier run-id that is the only candidate
   receives the record (right slug, wrong run-id; the sha exclusion still prevents any
-  double-count); and a workpad-less dir left by a standalone `/devflow:review` run synthesizes
+  double-count); and a workpad-less dir left by a standalone `/prflow:review` run synthesizes
   under the default `source: "review-and-fix"` (a synthesized workpad carries no `source` field).
   Two further residual windows come from the base-ref refresh (issue #532): (d) the **no-`origin`
   stale-local-base window** — a repo with no `origin` remote has no refresh mechanism, so synthesis
@@ -743,7 +743,7 @@ self-check warning maximize capture, but it remains irreducibly agent-dependent)
 ### Shadow synthesis floor (issue #426)
 
 `--persist` carries a second, narrower synthesis floor for the **shadow** block, sibling to the
-iter floor above. The shadow pass (`/devflow:review-and-fix` Step 2.6) appends a `shadow` block to
+iter floor above. The shadow pass (`/prflow:review-and-fix` Step 2.6) appends a `shadow` block to
 the triggering iter's workpad, but that block can drop entirely (the issue-304 drop shape), leaving
 a promotion with no record of whether a predecessor shadow ran. A promoted successor now carries
 `promotion_provenance`, which separates shadow precedence from the broader `loop_role`:
@@ -936,7 +936,7 @@ A PR **observed** to be unmerged is a clean exclusion and exits 0 — observed-u
 unestablished are never conflated in either direction.
 
 **CLI surface.** Invoked bare, the assembler resolves everything from the repo root and needs no
-arguments — that is how `/devflow:retrospective-weekly` calls it. The flags exist for re-runs and
+arguments — that is how `/prflow:retrospective-weekly` calls it. The flags exist for re-runs and
 tests: `--prs <n,n,…>` forces specific PRs into the candidate set (the re-run path after a partial
 failure, since an unestablished PR never enters the store and so is not re-selected on its own),
 `--dry-run` assembles and reports without writing the store, and `--repo-root` / `--store` /
@@ -981,13 +981,13 @@ open work this issue does **not** supersede — the cut-candidate aggregation th
 `experiment-records.jsonl` **join** (above), which is the measurement substrate those analyzers will
 read; it does not itself compute cut candidates or weekly recommendations.
 
-(Standalone `/devflow:review` was previously listed here as out of scope; it now produces its own
-per-run record and live trace — see **Standalone /devflow:review** below.)
+(Standalone `/prflow:review` was previously listed here as out of scope; it now produces its own
+per-run record and live trace — see **Standalone /prflow:review** below.)
 
-## Standalone /devflow:review
+## Standalone /prflow:review
 
-`/devflow:review` (the single-pass engine, no fix loop) produces the same observability as
-`/devflow:review-and-fix`, surfaced through a **live progress comment** on the PR and — on a writable
+`/prflow:review` (the single-pass engine, no fix loop) produces the same observability as
+`/prflow:review-and-fix`, surfaced through a **live progress comment** on the PR and — on a writable
 run — a per-run record. Two differences from the fix-loop case:
 
 **Review-mode effectiveness derivation.** Standalone review never applies a fix, so its records have
@@ -1002,10 +1002,10 @@ keying on presence would mis-route such an agent into the fix-loop branch and do
 `corroborating` = a contributing finding ≥2 agents raised, `noise` = the agent raised findings but
 none contributed, `null` = dispatched but silent. The buckets and precedence are
 identical to the fix-loop's; only the "did it count?" signal differs. Records produced by
-`/devflow:review-and-fix` (which carry `fix_decision`, not `contributed_to_verdict`) keep the
+`/prflow:review-and-fix` (which carry `fix_decision`, not `contributed_to_verdict`) keep the
 applied-fix derivation unchanged.
 
-**`source` field.** Every record carries `source` — `"review"` for standalone `/devflow:review`,
+**`source` field.** Every record carries `source` — `"review"` for standalone `/prflow:review`,
 `"review-and-fix"` (the default when absent) for the fix loop. Both write into the same
 `.devflow/logs/efficiency/` store, so `source` (not the filename) is what a cross-run analyzer uses
 to segment by originating skill. (The two skills key the filename differently — review-and-fix by
@@ -1013,7 +1013,7 @@ to segment by originating skill. (The two skills key the filename differently �
 `source` is the segmentation key, the filename scheme is free to differ.)
 
 **Live progress comment + read-only cloud.** In PR mode (and when
-`devflow_review.live_progress_comment_enabled` is `true`, the default), `/devflow:review` authors a
+`devflow_review.live_progress_comment_enabled` is `true`, the default), `/prflow:review` authors a
 `devflow:review-progress` comment incrementally — a blueprint of the phases, then
 per-phase results and each Phase-3 agent's findings as they land, finalizing with the verdict, the
 full report, and the telemetry summary + effectiveness trace. One such comment is seeded **per review

@@ -1,6 +1,6 @@
 # Cutover record — issue #792: final-byte audit coverage
 
-**What changed.** `/devflow:create-issue`'s Step 3.6 audit lifecycle gained a reported axis
+**What changed.** `/prflow:create-issue`'s Step 3.6 audit lifecycle gained a reported axis
 answering whether the bytes that would actually be **filed** carry a `VERDICT: FILE` from a round
 dispatched against those exact bytes, plus an exact-byte safety pass offered at the last moment
 that question can be answered truthfully.
