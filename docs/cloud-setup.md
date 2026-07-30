@@ -1367,7 +1367,7 @@ or belongs to the withheld auto-review tier.
 | `devflow.yml` | **yes** | Light `/prflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-implement.yml` | **yes** | Runs `/prflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `ci.yml` | no — this repository only | Runs PRFlow's own test suite | — |
-| `devflow-runner.yml` | no — withheld tier | Reusable runner (`workflow_call`) — a read-only job that only the withheld `devflow-review.yml` ever called. Retained in this repository (unreachable but shipped inside the plugin payload) so an already-installed consumer copy still resolves; `install.sh` does not copy it | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-runner.yml` | no — withheld tier | Reusable runner (`workflow_call`) — a read-only job that only the withheld `devflow-review.yml` ever called. Retained in this repository — unreachable, but kept so the tier stays reconstructable and so the helpers an already-installed consumer copy calls are never swept as dead code. `install.sh` does not copy it, and the vendored plugin slice excludes `.github/` entirely | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `telemetry-push.yml` | no — withheld tier | Trusted relay for the auto-review tier's staged telemetry. Retained on the same terms as `devflow-runner.yml` | — |
 
 **`devflow-review.yml` is not in this tree at all.** It was the auto-review caller and
