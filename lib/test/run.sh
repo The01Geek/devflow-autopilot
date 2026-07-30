@@ -15239,11 +15239,94 @@ echo "workflow partition invariant"
 # workflow and Anthropic's claude.yml. Covers devflow.yml (review/pr-description)
 # and devflow-implement.yml (/devflow:implement).
 WF="$LIB/../.github/workflows"
+# The scanned namespace set is DERIVED from the declared plugin identity, never
+# hardcoded: a guard spelling one namespace gives zero assurance for the other, and
+# goes fully vacuous the moment the transitional namespace is retired. Built with
+# bash builtins (no `tr`/`cut`) because it SELECTS what gets scanned — a missing
+# non-preflight PATH tool would silently empty it and pass by inspecting nothing.
+SUITE_CMD_NS=""
+while IFS= read -r _cmd_ns; do
+  case "$_cmd_ns" in
+    "" ) : ;;
+    *) SUITE_CMD_NS="$SUITE_CMD_NS $_cmd_ns" ;;
+  esac
+done <<EOF
+$(python3 "$LIB/plugin_identity.py" --plugin-names 2>/dev/null || true)
+EOF
+case "$SUITE_CMD_NS" in
+  *[!\ ]*) : ;;
+  *) echo "run.sh: could not derive the accepted command namespaces from lib/plugin_identity.py; refusing to run rather than assert the partition invariant against an empty namespace set" >&2; exit 1 ;;
+esac
 for f in devflow devflow-implement; do
-  bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/devflow:(review|pr-description|implement)'\)" "$WF/$f.yml" \
-        | grep -v "@claude" || true)"
-  assert_eq "partition: $f.yml /devflow triggers all negate @claude" "" "$bad"
+  for ns in $SUITE_CMD_NS; do
+    # NON-VACUITY FIRST: the scan must actually match trigger lines for THIS
+    # namespace. Without this, dropping the namespace from the workflow turns the
+    # @claude assertion below into a check over an empty set — it would pass by
+    # inspecting nothing, which is the exact failure class this guard exists to catch.
+    hits="$(grep -cE "contains\((github\.event[^)]*),[[:space:]]*'/$ns:(review|pr-description|implement)'\)" "$WF/$f.yml" || true)"
+    assert_eq "partition: $f.yml carries at least one /$ns: command trigger (guard is non-vacuous)" \
+      "yes" "$([ "${hits:-0}" -gt 0 ] && echo yes || echo no)"
+    bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/$ns:(review|pr-description|implement)'\)" "$WF/$f.yml" \
+          | grep -v "@claude" || true)"
+    assert_eq "partition: $f.yml /$ns triggers all negate @claude" "" "$bad"
+  done
 done
+
+# ── devflow.yml TRIGGER-GATE coverage (#965 review, Important 1) ─────────────
+# The gate `if:` is upstream of every resolver the dsc:/rct: suites cover — those
+# exercise detect-standalone-command.sh / resolve-command-trigger.sh, which only
+# ever run AFTER this gate has already decided to start the workflow. So both
+# halves of the namespace widening were previously untested, and both fail SILENTLY:
+#   * drop /prflow:review from the positive set -> canonical review comments never
+#     trigger the workflow at all (no run, no error, nothing to notice);
+#   * drop the /prflow:implement negation -> a /prflow:implement comment fires BOTH
+#     devflow.yml and devflow-implement.yml, breaking the partition invariant.
+# Asserted per-clause over all three event arms, because a disjunct dropped from
+# one arm leaves the other two green.
+GATE_YML="$WF/devflow.yml"
+# Echoes the gate clause lines that do NOT match $2 — empty means every clause carries it.
+gate_clauses_missing() {  # $1=file $2=ERE every gate clause must match
+  grep -nE "github\.event_name == '" "$1" | grep -vE "$2" || true
+}
+GATE_CLAUSE_COUNT="$(grep -cE "github\.event_name == '" "$GATE_YML" || true)"
+assert_eq "trigger-gate: devflow.yml gate carries all three event clauses" "3" "$GATE_CLAUSE_COUNT"
+# Half 1 — the POSITIVE set accepts the canonical namespace on every clause.
+assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:review" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:review'\)")"
+assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:pr-description" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:pr-description'\)")"
+# Half 2 — the EXCLUSION set negates the canonical heavy path on every clause.
+assert_eq "trigger-gate: every devflow.yml clause EXCLUDES /prflow:implement" \
+  "" "$(gate_clauses_missing "$GATE_YML" "!contains\([^)]*'/prflow:implement'\)")"
+# The transitional namespace stays covered on both halves for the alias window.
+assert_eq "trigger-gate: every devflow.yml clause accepts /devflow:review" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/devflow:review'\)")"
+assert_eq "trigger-gate: every devflow.yml clause EXCLUDES /devflow:implement" \
+  "" "$(gate_clauses_missing "$GATE_YML" "!contains\([^)]*'/devflow:implement'\)")"
+# PLANTED-DEFECT CONTROLS: each assertion above must actually RED on the defect it
+# claims to catch. A green row over an expression that can no longer match proves
+# nothing, so each control first asserts the mutation really changed the file.
+TG_TMP="$(mktemp -d)"
+# Control A — the positive half: break the /prflow:review disjunct.
+sed "s|contains(github.event.comment.body, '/prflow:review')|contains(github.event.comment.body, '/planted:review')|g" \
+  "$GATE_YML" > "$TG_TMP/no-positive.yml"
+assert_eq "trigger-gate CONTROL A: the positive-half mutation really changed the gate" \
+  "no" "$(cmp -s "$GATE_YML" "$TG_TMP/no-positive.yml" && echo yes || echo no)"
+assert_eq "trigger-gate CONTROL A: dropping /prflow:review from a clause turns the positive check RED" \
+  "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-positive.yml" "contains\([^)]*'/prflow:review'\)")" ] && echo yes || echo no)"
+# Control B — the exclusion half: remove the /prflow:implement negation (the double-fire).
+sed "s| && !contains(github.event.comment.body, '/prflow:implement')||g" \
+  "$GATE_YML" > "$TG_TMP/no-negation.yml"
+assert_eq "trigger-gate CONTROL B: the exclusion-half mutation really changed the gate" \
+  "no" "$(cmp -s "$GATE_YML" "$TG_TMP/no-negation.yml" && echo yes || echo no)"
+assert_eq "trigger-gate CONTROL B: dropping the /prflow:implement negation turns the exclusion check RED" \
+  "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-negation.yml" "!contains\([^)]*'/prflow:implement'\)")" ] && echo yes || echo no)"
+# Control C — the extractor itself is not matching everything: a token absent from
+# every clause must be reported missing on all three, so an always-empty result
+# (which would make every row above vacuously green) is ruled out.
+assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on all three" \
+  "3" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
+rm -rf "$TG_TMP"
 
 # The label trigger is gone: neither workflow may listen on `labeled`.
 for f in devflow devflow-implement; do
