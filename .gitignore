@@ -19,6 +19,17 @@
 # per-checkout diagnostics, not a relayed record (see docs/efficiency-trace.md) —
 # keep it out of the tree so a run's flight events are never committed.
 /.devflow/logs/verification-flight/
+# Per-run review workpads. These lived in the tree before issue #441 moved the
+# durable copies to the devflow-telemetry branch, which is now their canonical
+# home; lib/efficiency-trace.sh reads them from there and keeps the working-tree
+# glob only as a compatibility fallback for a consumer's pre-#441 archive. The
+# tracked copies were internal per-iteration noise inside a plugin payload that
+# a marketplace /plugin install copies wholesale, so they were
+# untracked (every one of them, and every fix_commit_sha they recorded, is
+# preserved on that branch). This entry must come AFTER the !/.devflow/logs/
+# negation above, which would otherwise re-include them and leave `git status`
+# permanently dirty — which self-skips the #434 stale-prose gate.
+/.devflow/logs/review/
 # Committed config template + schema (shipped). The LIVE .devflow/config.json is
 # NOT re-included by a negation below, so the /.devflow/* rule above would ignore a
 # fresh one — but this repo TRACKS its config.json anyway: it was force-added with
@@ -64,3 +75,14 @@ venv/
 *.private.md
 # Superpowers-skill working docs (brainstorm specs/plans) — private, never publish.
 /docs/superpowers/
+
+# Published GitHub Pages content. It lives on the gh-pages branch, which is the
+# Pages publishing source (build type "deploy from a branch"); main no longer
+# carries it. A marketplace /plugin install shallow-clones this repository and
+# copies the whole subtree unfiltered, so these built one-pagers were 4.26 MB of
+# a 10.64 MB packed clone shipped to every installing user for no runtime reason.
+/docs/site/
+# One-off past-time evidence record for issue #556's live-agent verification arms.
+# Nothing reads it; its fixtures are deliberate prompt-injection payloads that an
+# automated scanner flags out of context, so it is kept locally rather than shipped.
+/docs/evidence/issue-608/
