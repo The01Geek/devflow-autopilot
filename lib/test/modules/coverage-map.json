@@ -755,10 +755,6 @@
       "note": "",
       "owner": "unmodularized"
     },
-    "241": {
-      "note": "",
-      "owner": "unmodularized"
-    },
     "242": {
       "note": "",
       "owner": "unmodularized"
@@ -1367,10 +1363,6 @@
       "note": "",
       "owner": "unmodularized"
     },
-    "558": {
-      "note": "",
-      "owner": "unmodularized"
-    },
     "559": {
       "note": "",
       "owner": "create-issue-contract"
@@ -1641,7 +1633,7 @@
     },
     "749": {
       "note": "",
-      "owner": "unmodularized"
+      "owner": "create-issue-contract"
     },
     "754": {
       "note": "",
