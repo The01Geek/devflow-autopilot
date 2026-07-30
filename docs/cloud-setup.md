@@ -780,7 +780,7 @@ convention.
 (`devflow-runner.yml`) and the manual `/prflow:review` command (`devflow.yml`) —
 uses the `DevFlow-Reviewer` installation token when `vars.DEVFLOW_REVIEWER_APP_ID`
 is set, otherwise `github-actions[bot]` (`GITHUB_TOKEN`). The review path **never**
-uses the primary `devflow-autopilot` App token. Since implement authors PRs as the
+uses the primary `prflow-implementer` App token. Since implement authors PRs as the
 primary App (or `github-actions[bot]` when no App is configured), the review
 identity is structurally distinct from the author on every configured setup, so
 Phase 4.4's formal review posts instead of failing self-review. `/prflow:pr-description`
