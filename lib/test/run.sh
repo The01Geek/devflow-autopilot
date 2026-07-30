@@ -27202,14 +27202,19 @@ done
 #     must pass CLEAN. No output is filtered, so ANY other finding — at the root or anywhere in
 #     the payload — reddens it. It is also what establishes that arm A's failure had one cause:
 #     a second offender hiding behind the known one cannot survive both arms. (Not a warning
-#     COUNT: the CLI emits one `Found N warning` block per offending file, so two offenders read
-#     as two `Found 1 warning` blocks and a count assertion would be unsound.)
+#     COUNT: the CLI emits one `Found N warning` block PER OFFENDING FILE, so two offenders read
+#     as two `Found 1 warning` blocks and a count assertion would be unsound. Observed directly
+#     on CLI 2.1.220 against a synthetic two-offender tree — `CLAUDE.md` and `CLAUDE.local.md`
+#     at the root of the same plugin printed two separate `Found 1 warning` blocks, never a
+#     single `Found 2 warnings`. That is one observed version, not a documented CLI contract.)
 #   arm C (planted-defect control): a SECOND, DIFFERENT root-level offender added to arm B's tree
 #     must still be rejected, proving the exception is that one path and not a blanket tolerance
 #     for root warnings.
 # BRITTLENESS, stated rather than hidden: arms A and C match the CLI's prose (`root: <file> at
-# the plugin root`), the most structural identifier it offers — `claude plugin validate` has no
-# machine-readable output mode (checked: its --help lists only --strict). A CLI upgrade that
+# the plugin root`), the most structural identifier it offers — `claude plugin validate` exposes
+# no machine-readable output mode to key on instead: on CLI 2.1.220 its `--help` lists exactly two
+# options, `-h, --help` and `--strict`, with no --json/--format among them. That is an observation
+# of one version's help text, not a guarantee no such flag exists or will appear. A CLI upgrade that
 # rewords the diagnostic reddens A and C loudly and accurately while arm B keeps its coverage
 # intact. Same trade-off and same resolution as block (4)'s `Validating marketplace manifest:`
 # mode assertion. CI pins the CLI (CLAUDE_CLI_VERSION in ci.yml) while the desk runs whatever the
@@ -27218,6 +27223,13 @@ done
 if command -v claude >/dev/null 2>&1; then
   PKG_STAGE="$(mktemp -d)"
   [ -n "$PKG_STAGE" ] && [ -d "$PKG_STAGE" ] || { printf 'FATAL: mktemp -d failed for the #671 payload staging tree\n' >&2; exit 1; }
+  # Registered with the whole-run EXIT-trap registry at its creation site, not merely removed by
+  # the trailing `rm -rf`: every FATAL `exit 1` between here and that line skips the removal, and
+  # an unregistered temp is exactly the early-exit leak class the registry header records PR #539
+  # as having fixed. The trailing `rm -rf` stays — it frees the tree at the normal end of the
+  # block rather than at process exit — and a second removal of an already-removed path is a
+  # silent no-op, so the two do not conflict.
+  _suite_tmp_dir "$PKG_STAGE"
   # The allowlisted root path: present in arm A, withheld in arm B. Single source for both the
   # staging exclusion and the warning text the arms match, so the two cannot drift apart.
   PKG_ALLOWLISTED_ROOT='CLAUDE.md'
@@ -27251,6 +27263,49 @@ if command -v claude >/dev/null 2>&1; then
   done
   assert_eq "#671 packaging: the staged payload tree withholds marketplace.json, so PLUGIN mode stays selected" "no" \
     "$([ -e "$PKG_STAGE/.claude-plugin/marketplace.json" ] && echo yes || echo no)"
+
+  # NO-SYMLINKS probe — the enforced form of the staging comment's "no link leaves the tree".
+  # Plain `cp` (no -R/-P) dereferences, so a tracked symlink lands as its content; that was
+  # asserted only in prose, and prose cannot notice a future `cp -P`/`cp -a` or a staging rewrite
+  # that starts preserving links. A link that survived staging would let its TARGET's content be
+  # validated while the shipped payload carries the link instead — content smuggled past the gate.
+  #
+  # Builtin-only by construction (the guard-class-2 rule): this value DECIDES an asserted result,
+  # and a `find … -type l` would answer "clean" by printing nothing on a host lacking `find`,
+  # which lib/preflight.sh does not guarantee. A `**` glob is neither `find` nor `grep -r`, and
+  # its root is a mktemp staging tree rather than the repository, so it needs no
+  # `# tree-walk-ok:` marker. globstar reports a symlinked directory rather than descending
+  # THROUGH it, so the walk cannot loop.
+  devflow_pkg_first_symlink() (  # $1 = tree root; echoes the first symlink's path relative to it, else nothing
+    [ -d "$1" ] || { printf 'NOT-A-DIRECTORY\n'; return; }
+    _pkg_root="$1"   # `set --` below overwrites $1, so the root is captured before the glob
+    set +f           # a glob-disabled caller would otherwise leave the pattern literal
+    shopt -s globstar dotglob nullglob 2>/dev/null
+    # Fail CLOSED on a shell without globstar: `**` degrades to a single-level `*` there, which
+    # reports a NESTED link as absent — the probe silently passing over its own blind spot.
+    shopt -q globstar || { printf 'GLOBSTAR-UNAVAILABLE\n'; return; }
+    set -- "$_pkg_root"/**
+    for _pkg_p; do
+      [ -L "$_pkg_p" ] && { printf '%s\n' "${_pkg_p#"$_pkg_root"/}"; return; }
+    done
+  )
+  assert_eq "#671 packaging: the staged payload tree contains NO symlinks (a link could smuggle content past the validated tree)" "" \
+    "$(devflow_pkg_first_symlink "$PKG_STAGE")"
+  # Negative control. The assertion above passes vacuously if the probe can never report anything
+  # — a quoting slip, globstar not taking, a loop that tests the wrong operand — so plant one link
+  # and require the probe to NAME it. Planted NESTED on purpose: the single-level degradation the
+  # globstar guard above rejects would miss exactly this shape and leave the arm green.
+  ln -s ../plugin.json "$PKG_STAGE/.claude-plugin/devflow-symlink-control" \
+    || { printf 'FATAL: #671 no-symlink probe could not plant its control link\n' >&2; exit 1; }
+  assert_eq "#671 packaging: the no-symlink probe NAMES a planted nested link (it can fail, and says where)" \
+    ".claude-plugin/devflow-symlink-control" "$(devflow_pkg_first_symlink "$PKG_STAGE")"
+  rm -f "$PKG_STAGE/.claude-plugin/devflow-symlink-control" \
+    || { printf 'FATAL: #671 no-symlink probe could not remove its control link\n' >&2; exit 1; }
+  # Restored state is asserted, not assumed: a surviving control link is an extra root-adjacent
+  # file the arms below would validate, so arm B's clean-pass claim would be about a different
+  # tree than the one staged.
+  assert_eq "#671 packaging: the control link is removed again, so the arms below validate the staged tree itself" "" \
+    "$(devflow_pkg_first_symlink "$PKG_STAGE")"
 
   # Publishes BOTH the rc and the validator's output through globals, and is called as a plain
   # statement — never in a command substitution, which would run it in a subshell and drop the
@@ -27294,7 +27349,7 @@ if command -v claude >/dev/null 2>&1; then
     "$(printf '%s' "$PKG_C_OUT" | grep -qF 'root: CLAUDE.local.md at the plugin root' && echo yes || echo no)"
 
   rm -rf "$PKG_STAGE"
-  unset -f devflow_pkg_payload_validate
+  unset -f devflow_pkg_payload_validate devflow_pkg_first_symlink
 
   # (3b) The gate above is only worth arming if strict validation actually DESCENDS into the
   # component trees rather than stopping at the manifest — that is the claim ci.yml's install
@@ -27307,6 +27362,7 @@ if command -v claude >/dev/null 2>&1; then
   # passing negative test while proving nothing about descent.
   PKG_DESC="$(mktemp -d)"
   [ -n "$PKG_DESC" ] && [ -d "$PKG_DESC" ] || { printf 'FATAL: mktemp -d failed for the #671 descent fixture\n' >&2; exit 1; }
+  _suite_tmp_dir "$PKG_DESC"   # same early-exit leak class as PKG_STAGE above: the fixture rebuilder FATALs past the trailing `rm -rf`
   devflow_pkg_fixture() {  # rebuild the valid synthetic plugin tree from scratch
     rm -rf "${PKG_DESC:?}/tree"
     # Fail CLOSED on a rebuild failure. A silently half-built fixture is rejected by the
@@ -27403,6 +27459,7 @@ fi
 if command -v claude >/dev/null 2>&1; then
   PKG_MKT="$(mktemp -d)"
   [ -n "$PKG_MKT" ] && [ -d "$PKG_MKT" ] || { printf 'FATAL: mktemp -d failed for the #671 marketplace fixture\n' >&2; exit 1; }
+  _suite_tmp_dir "$PKG_MKT"    # same early-exit leak class as PKG_STAGE above: the restaging helper FATALs past the trailing `rm -rf`
   PKG_MKT_JSON="$PKG_MKT/tree/.claude-plugin/marketplace.json"
   devflow_pkg_mkt_stage() {  # restage pristine copies of BOTH real manifests
     rm -rf "${PKG_MKT:?}/tree"
