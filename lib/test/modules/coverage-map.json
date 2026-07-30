@@ -418,6 +418,10 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/publish-release.sh": {
+      "note": "issue #949 merge-time tag + GitHub Release publisher; every arm driven from the #949 block in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/react-to-trigger.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -537,7 +541,7 @@
       "owner": "unmodularized"
     },
     "scripts/subagent-write-probe-verdict.py": {
-      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file \u2014 asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
+      "note": "issue #858 subagent-Write probe verdict helper (PERMITTED/DENIED/unestablished). Pure function over a parsed execution file — asserted inline from lib/test/run.sh (the #858 block), matching the agents-seam/background-tasks/env-propagation probe-verdict precedents; no `focused_test`, which is what routes a change to it to the full suite rather than to a focused module.",
       "owner": "unmodularized"
     },
     "scripts/summarize-ci-checks.sh": {
@@ -573,6 +577,10 @@
       "note": "issue #527 verification-launch baseline analyzer; driven by lib/test/test_verification_baseline.py + its block in the harness-python-guards module",
       "owner": "harness-python-guards"
     },
+    "scripts/version_pins.py": {
+      "note": "issue #949 derived pinned-release-tag sites; driven from the #949 block in lib/test/run.sh",
+      "owner": "unmodularized"
+    },
     "scripts/workflow_flight_recorder.py": {
       "focused_test": "lib/test/test_workflow_flight_recorder.py",
       "note": "",
@@ -584,7 +592,7 @@
       "owner": "unmodularized"
     }
   },
-  "generated_by": "lib/test/coverage_map_guard.py \u2014 its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
+  "generated_by": "lib/test/coverage_map_guard.py — its shared label derivation (derive_labels) owns the run_sh_blocks half: arm 9 derives the label set from lib/test/run.sh and every lib/test/modules/*.sh at assertion-name position, fails the suite RED on a run.sh label with no entry and on a fully-extracted label misattributed to 'unmodularized', and `python3 lib/test/coverage_map_guard.py . --fix` is the hand-invoked repair.",
   "non_code_exempt": [
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
@@ -1764,7 +1772,7 @@
       "owner": "unmodularized"
     },
     "858": {
-      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent \u2014 so the RecursionError arm specifically is not pinned.",
+      "note": "Inline run.sh assertions driving every VERDICT arm of scripts/subagent-write-probe-verdict.py (the dispatched-subagent Write probe verdict), on both the flat and the production envelope-nested execution-file shapes, plus the matcher-probe.yml job-structure checks; unmodularized like its probe-verdict siblings. The parse OSError arm and the GITHUB_STEP_SUMMARY append (both directions) ARE driven. Genuinely undriven: main()'s catch-all except-Exception fallback table, and the _VERDICTS closed-vocabulary fallback. The deep-nesting fixture asserts the degraded CONTRACT (exit 0, unestablished, a named cause) rather than which guard fired, because that is platform-dependent — so the RecursionError arm specifically is not pinned.",
       "owner": "unmodularized"
     },
     "869": {
@@ -1840,6 +1848,10 @@
       "owner": "unmodularized"
     },
     "936": {
+      "note": "",
+      "owner": "unmodularized"
+    },
+    "949": {
       "note": "",
       "owner": "unmodularized"
     },

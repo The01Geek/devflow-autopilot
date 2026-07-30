@@ -14,10 +14,21 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * rewrites ``.claude-plugin/plugin.json``'s ``version`` by that increment,
   * rewrites ``CITATION.cff``'s ``version`` to the same value (when the file is present),
   * rewrites the ``marketplace.json`` plugin entry's ``version`` to the same value (when present),
+  * rewrites every **derived** pinned-release-tag site (the installer download URL and
+    ``DEVFLOW_REF=`` payload ref in the docs) to ``v<new version>`` — see
+    ``scripts/version_pins.py``, which owns the derivation — so the tagged tree is
+    self-consistent and the docs at tag ``vN`` say ``vN`` (issue #949),
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
 It writes nothing else — staging and the ``chore: bump version`` commit are the workflow's job.
+
+Two optional side-channel outputs exist for the workflow, both written **outside** the
+repository (``$RUNNER_TEMP``) so they never enter the commit: ``--emit-entry-to`` writes
+the assembled CHANGELOG entry body (the GitHub Release notes) and ``--emit-write-set-to``
+writes one repo-relative path per line for every file this run rewrote. The write set is
+what lets the workflow stage a **derived** pin-rewrite set explicitly, without resorting
+to ``git add -A``.
 
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
@@ -44,6 +55,14 @@ import re
 import sys
 from datetime import datetime, timezone
 from typing import NamedTuple
+
+# version_pins owns the DERIVATION of the pinned-release-tag site set (no hardcoded file
+# list). Python already puts this script's directory on sys.path[0], but be explicit so an
+# invocation through a symlink or a wrapper still resolves the sibling module.
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+import version_pins  # noqa: E402
 
 # Single source of the ordered bump domain: _BUMP_RANK is DERIVED from VALID_BUMPS (mirroring
 # the CANONICAL_TYPES → _TYPE_BY_LOWER pattern below), so adding a bump value cannot desync the
@@ -327,7 +346,12 @@ def _render_changelog(changelog_path: str, entry: str) -> str:
     return "".join(lines[:insert_at]) + block + "".join(lines[insert_at:])
 
 
-def consolidate(root: str, date: str) -> int:
+def consolidate(
+    root: str,
+    date: str,
+    entry_out: "str | None" = None,
+    write_set_out: "str | None" = None,
+) -> int:
     changeset_dir = os.path.join(root, ".changeset")
     manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
     changelog_path = os.path.join(root, "CHANGELOG.md")
@@ -383,6 +407,15 @@ def consolidate(root: str, date: str) -> int:
         if os.path.exists(marketplace_path)
         else None
     )
+    # Pinned release-tag sites (issue #949). The site set is DERIVED by version_pins from
+    # two machine-recognizable forms, so a documentation page added later cannot silently
+    # escape the bump. Same read-before-write treatment: render_rewrites only reads and
+    # assembles, so a read fault aborts before the first write rather than leaving the
+    # tagged tree half-bumped — the docs at tag vN must say vN.
+    try:
+        pin_rewrites = version_pins.render_rewrites(root, new_version)
+    except version_pins.VersionPinError as exc:
+        raise ChangesetError(f"pinned release-tag sites: {exc}") from exc
 
     _write_text(manifest_path, new_manifest)
     _write_text(changelog_path, new_changelog)
@@ -390,15 +423,34 @@ def consolidate(root: str, date: str) -> int:
         _write_text(citation_path, new_citation)
     if new_marketplace is not None:
         _write_text(marketplace_path, new_marketplace)
+    for pin_path in sorted(pin_rewrites):
+        _write_text(pin_path, pin_rewrites[pin_path])
     for path in pending:
         try:
             os.remove(path)
         except OSError as exc:
             raise ChangesetError(f"{path}: cannot delete consumed changeset: {exc}") from exc
 
+    # Side channels for the workflow, written outside the repo so they never enter the
+    # commit. Both are written LAST: they describe a consolidation that already happened,
+    # and a fault here must not be mistaken for a half-applied bump.
+    if entry_out:
+        _write_text(entry_out, entry)
+    if write_set_out:
+        written = [manifest_path, changelog_path]
+        if new_citation is not None:
+            written.append(citation_path)
+        if new_marketplace is not None:
+            written.append(marketplace_path)
+        written.extend(pin_rewrites)
+        rels = sorted(os.path.relpath(p, root) for p in written)
+        _write_text(write_set_out, "".join(f"{r}\n" for r in rels))
+
     print(
         f"consolidated {len(pending)} changeset(s): {current} -> {new_version} "
-        f"(highest bump: {highest}); prepended CHANGELOG entry and removed consumed files"
+        f"(highest bump: {highest}); prepended CHANGELOG entry, rewrote "
+        f"{len(pin_rewrites)} file(s) carrying pinned release-tag sites, and removed "
+        "consumed files"
     )
     return 0
 
@@ -415,12 +467,31 @@ def main(argv: "list[str] | None" = None) -> int:
         default=None,
         help="Entry date as YYYY-MM-DD (default: today, UTC)",
     )
+    parser.add_argument(
+        "--emit-entry-to",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Also write the assembled CHANGELOG entry body to PATH (the GitHub Release "
+            "notes). Point it OUTSIDE the repository so it never enters the bump commit."
+        ),
+    )
+    parser.add_argument(
+        "--emit-write-set-to",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Also write one repo-relative path per line for every file this run rewrote, "
+            "so the workflow can stage a derived set explicitly instead of 'git add -A'. "
+            "Point it OUTSIDE the repository."
+        ),
+    )
     args = parser.parse_args(argv)
     date = args.date or datetime.now(timezone.utc).date().isoformat()
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
         return _fatal(f"--date {date!r} is not YYYY-MM-DD")
     try:
-        return consolidate(args.root, date)
+        return consolidate(args.root, date, args.emit_entry_to, args.emit_write_set_to)
     except ChangesetError as exc:
         return _fatal(str(exc))
     except OSError as exc:

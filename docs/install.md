@@ -132,20 +132,20 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.3/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.26.2 bash devflow-install.sh
+DEVFLOW_REF=v2.26.3 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
-**Why the version appears twice — and how to move it.** `v2.26.2` is a **release tag**, so both commands resolve to the same immutable commit every time you run them. Two independent things get pinned, and they are separate on purpose:
+**Why the version appears twice — and how to move it.** The version in both lines above is a **release tag**, so both commands resolve to the same immutable commit every time you run them. Two independent things get pinned, and they are separate on purpose:
 
 - the **URL ref** decides which *installer bytes* you download and read. A `.../main/install.sh` URL would hand you a different script on every fetch, so the thing you reviewed is not guaranteed to be the thing you ran.
 - **`DEVFLOW_REF`** (a documented `install.sh` environment variable, default `main`) decides which ref the installer *clones its payload from* — the workflows, composite actions and templates it copies in — and it accepts a tag, a commit SHA, or a branch name. Pinning the URL alone is not enough: an unset `DEVFLOW_REF` still pulls the payload from the moving `main`. Setting both to the same tag makes the whole install reproduce one release.
 
 To install a newer version, substitute a newer tag in both places. Find the current release on the [Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest), or from the shell with `gh release list --repo The01Geek/devflow-autopilot --limit 5`. Leave `DEVFLOW_REF` unset only if you deliberately want to track the moving `main` branch.
 
-Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devflow_version` with the exact commit SHA it resolved, so the plugin your *workflows* fetch at runtime is reproducible even if you left `DEVFLOW_REF` unset. (A `devflow_version` you hand-set to a non-SHA value — a tag like `v2.26.2`, or `main` to track the branch — is preserved rather than re-stamped; see the `devflow_version` notes in [`cloud-setup.md`](cloud-setup.md).)
+Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devflow_version` with the exact commit SHA it resolved, so the plugin your *workflows* fetch at runtime is reproducible even if you left `DEVFLOW_REF` unset. (A `devflow_version` you hand-set to a non-SHA value — a release tag, or `main` to track the branch — is preserved rather than re-stamped; see the `devflow_version` notes in [`cloud-setup.md`](cloud-setup.md).)
 
 <details>
 <summary>Piping straight to <code>bash</code> (not recommended)</summary>
@@ -153,8 +153,8 @@ Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devfl
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh \
-  | DEVFLOW_REF=v2.26.2 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.3/install.sh \
+  | DEVFLOW_REF=v2.26.3 bash
 ```
 
 </details>
