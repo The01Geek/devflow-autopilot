@@ -3284,6 +3284,75 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             self.assertEqual((0, "", ""), self._public_rc(root))
 
+    def test_step_one_consumer_passes_the_public_worktree_ladder(self):
+        # End-to-end proof of the issue-948 step-1 WIRING: the corpus population
+        # is an index-reading `git ls-files` over scripts/, lib/ (non-test) and
+        # .github/, and its contents come from the worktree. An UNDECLARED pin
+        # over a literal a tracked scripts/ program reads is clean; the identical
+        # pin is RED when that program's only mention is a comment. Note the pin's
+        # own target (lib/test/static-pin-fixture.sh) also carries the literal and
+        # cannot satisfy step 1 — the suite is excluded from the corpus.
+        for body, expected_rc in (
+            ('grep -qF "STATIC_PIN_FIXTURE=1" "$1"\n', 0),
+            ("# only a comment mentions STATIC_PIN_FIXTURE=1\n", 3),
+        ):
+            with self.subTest(rc=expected_rc), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                self._repo(root)
+                subprocess.run(
+                    ["git", "switch", "-qc", "topic"], cwd=root, check=True
+                )
+                consumer = root / "scripts/read-fixture-token.sh"
+                consumer.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+                subprocess.run(
+                    ["git", "add", "scripts/read-fixture-token.sh"],
+                    cwd=root,
+                    check=True,
+                )
+                subprocess.run(
+                    ["git", "commit", "-qm", "add consumer"], cwd=root, check=True
+                )
+                source = root / "lib/test/run.sh"
+                source.write_text(
+                    source.read_text(encoding="utf-8")
+                    + "\nassert_pin_unique 'consumed pin' 'STATIC_PIN_FIXTURE=1' "
+                    + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                    encoding="utf-8",
+                )
+                rc, stdout, stderr = self._public_rc(root)
+                self.assertEqual(expected_rc, rc, stdout + stderr)
+
+    def test_unreadable_ledger_is_infrastructure_not_a_step_two_pass(self):
+        # The fail-closed control for step 2 at the production boundary: a ledger
+        # the gate cannot read is an infrastructure failure (rc 2), never an
+        # empty-but-fine ledger and never a pass. The appended pin is one that
+        # exits 0 on a readable ledger, so rc 2 here is attributable.
+        marker = (
+            "# structural-pin-ok: machine-sentinel-provenance -- "
+            "the fixture token is consumed as an executable sentinel"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            table = root / "lib/test/pin-corpus-adjudications.tsv"
+            table.write_bytes(
+                b"adjudication_key\tbucket_final\trationale\n\xff\xfe not utf-8\n"
+            )
+            subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "commit", "-qm", "unreadable ledger"], cwd=root, check=True
+            )
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'typed static pin' 'STATIC_PIN_FIXTURE=1' "
+                + f"\"$LIB/test/static-pin-fixture.sh\"  {marker}\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(2, rc, stdout + stderr)
+
     # ── cross-repository memo-leak probes ──────────────────────────────────
     #
     # The linter and census memos live for the process, and _public_rc runs
@@ -4184,6 +4253,353 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                     [],
                     self.mod.scan_retired_mutation_population(root),
                 )
+
+
+class PinRoutingLadder948Tests(unittest.TestCase):
+    """The issue-948 three-step routing ladder: every arm, and the arm ORDER.
+
+    A reordered ladder changes verdicts silently, so each test names the arm it
+    exercises and asserts the DECIDING message rather than only the count. The
+    fixture literal is a whitespace-bearing visible Markdown sentence, i.e. one
+    the lint classifies as prose — before #948 that classification ran first and
+    returned unconditionally, so no declaration and no ledger row could be
+    reached for it. Every step-2 test below is therefore a case that could not
+    pass at all before this change.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+
+    MARKER = (
+        "# structural-pin-ok: cross-file-phase-contract -- "
+        "the sentence spells the command shape a cloud grant must match"
+    )
+    INVALID_MARKER = "# structural-pin-ok: contract-presence over skill prose -- why"
+    LITERAL = "re-opens the diff at every --verdict-threshold value"
+    TARGET = "skills/review/SKILL.md"
+    RATIONALE = "maintainer adjudication: declared security or interface boundary"
+
+    def _fixture(self, td, *, marker="", literal=None, target_text=None):
+        """Write the prose target and return (repo_root, pin source text)."""
+        literal = literal or self.LITERAL
+        root = Path(td)
+        target = root / self.TARGET
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            target_text
+            or f"# Review\n\nThe fix loop {literal} so the pass is observable.\n",
+            encoding="utf-8",
+        )
+        source = (
+            f'F="$LIB/../{self.TARGET}"\n'
+            f"assert_pin_unique \"threshold\" '{literal}' \"$F\""
+            + (f"  {marker}" if marker else "")
+        )
+        return root, source
+
+    def _scan(self, root, source, **kwargs):
+        return self.mod.scan_changed_sources(
+            {"lib/test/a.sh": source},
+            {"lib/test/a.sh": ""},
+            one_file_diff("lib/test/a.sh", "", source),
+            repo_root=root,
+            **kwargs,
+        )
+
+    def _key(self, literal=None):
+        return self.mod._literal_adjudication_key(literal or self.LITERAL)
+
+    def _ledger(self, bucket="boundary", literal=None):
+        return {self._key(literal): (bucket, self.RATIONALE)}
+
+    # ── Step 1: a program demonstrably reads it ────────────────────────────
+    def test_step_one_passes_with_no_tag_and_no_ledger_row(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            consumer = {
+                "scripts/derive-verdict.sh": (
+                    "#!/usr/bin/env bash\n"
+                    f"grep -qF '{self.LITERAL}' \"$1\" || exit 1\n"
+                )
+            }
+            self.assertEqual([], self._scan(root, source, consumer_sources=consumer))
+            # RED-first control: the identical site with no consumer corpus is a
+            # finding, so the pass above is attributable to step 1 alone.
+            unrouted = self._scan(root, source)
+            self.assertEqual(1, len(unrouted))
+            self.assertIn("resolves into prose", unrouted[0])
+
+    def test_step_one_accepts_a_distinctive_token_not_only_the_whole_literal(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            consumer = {
+                "scripts/derive-verdict.sh": 'THRESHOLD_FLAG="--verdict-threshold"\n'
+            }
+            self.assertEqual([], self._scan(root, source, consumer_sources=consumer))
+
+    def test_step_one_ignores_a_common_word_in_an_unrelated_file(self):
+        # The negative control for the token rule. This literal carries no
+        # machine-identifier-shaped token: "configuration" and "documentation"
+        # are long, but a plain English word is never distinctive, and
+        # "fail-closed" is a two-segment kebab word the rule excludes on purpose.
+        literal = "the configuration documentation stays fail-closed"
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td, literal=literal)
+            consumer = {
+                "scripts/unrelated.sh": (
+                    "printf 'configuration documentation fail-closed verdict\\n'\n"
+                )
+            }
+            findings = self._scan(root, source, consumer_sources=consumer)
+            self.assertEqual(1, len(findings))
+            self.assertIn("no program consumer reads it", findings[0])
+
+    def test_step_one_ignores_a_mention_that_is_only_a_comment(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            consumer = {"scripts/derive-verdict.sh": f"# quotes {self.LITERAL}\n"}
+            findings = self._scan(root, source, consumer_sources=consumer)
+            self.assertEqual(1, len(findings))
+            self.assertIn("no program consumer reads it", findings[0])
+
+    def test_step_one_corpus_excludes_the_suite_and_prose_surfaces(self):
+        for path in (
+            "lib/test/other-module.sh",
+            "docs/cloud-allowlist.md",
+            "skills/review/phases/phase-4-verdict.md",
+            "CONTRIBUTING.md",
+        ):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td)
+                findings = self._scan(
+                    root, source, consumer_sources={path: f"x {self.LITERAL} y\n"}
+                )
+                self.assertEqual(1, len(findings))
+
+    def test_distinctive_token_shapes_are_machine_identifiers(self):
+        qualifying = (
+            "DEVFLOW_BASH",
+            "scripts/workpad.py",
+            "devflow:workpad",
+            "--tick-progress",
+            "config-get.sh",
+            "phase-4-verdict",
+            "mutation-routing-worktree",
+        )
+        for token in qualifying:
+            with self.subTest(token=token):
+                self.assertEqual(
+                    (token,), self.mod.distinctive_consumer_tokens(f"see {token} here")
+                )
+        non_qualifying = (
+            "configuration",
+            "documentation",
+            "fail-closed",
+            "best-effort",
+            "INCONCLUSIVE",
+            "verdict",
+            "2026-07-29",
+        )
+        for token in non_qualifying:
+            with self.subTest(token=token):
+                self.assertEqual(
+                    (), self.mod.distinctive_consumer_tokens(f"see {token} here")
+                )
+
+    # ── Step 2: the ledger already recorded this literal as a boundary ──────
+    def test_step_two_passes_a_prose_pin_with_a_tag_and_a_boundary_row(self):
+        # The case that is impossible before #948: a prose-resolving literal
+        # whose retention was adjudicated, tagged at the site.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td, marker=self.MARKER)
+            self.assertEqual(
+                [],
+                self._scan(root, source, current_adjudications=self._ledger()),
+            )
+
+    def test_step_two_rejects_a_tag_with_no_ledger_row(self):
+        # The anti-self-grant control: a tag is a POINTER to an authorized
+        # decision, so tagging your own pin cannot make it legitimate.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td, marker=self.MARKER)
+            findings = self._scan(root, source, current_adjudications={})
+            self.assertEqual(1, len(findings))
+            self.assertIn("records no boundary decision", findings[0])
+            self.assertNotIn("no valid '# structural-pin-ok:'", findings[0])
+
+    def test_step_two_rejects_a_ledger_row_with_no_tag(self):
+        # DELIBERATE DECISION: the ledger row alone does NOT pass. Step 2 needs
+        # both halves. Retrofitting tags onto the standing retained population is
+        # out of scope precisely because the gate only asks when a site's own
+        # lines change — and when they do, the reader of that line is owed the
+        # reason at the site. This also keeps the change a pure loosening for
+        # TAGGED pins and never a loosening for untagged ones.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            findings = self._scan(root, source, current_adjudications=self._ledger())
+            self.assertEqual(1, len(findings))
+            self.assertIn("no valid '# structural-pin-ok:'", findings[0])
+            self.assertNotIn("records no boundary decision", findings[0])
+
+    def test_step_two_rejects_a_row_in_any_other_bucket(self):
+        for bucket in (
+            "prose-sole-copy",
+            "prose-multi-copy",
+            "required-copy",
+            "suite-internal",
+            "generated",
+            "config-key",
+        ):
+            with self.subTest(bucket=bucket), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td, marker=self.MARKER)
+                findings = self._scan(
+                    root, source, current_adjudications=self._ledger(bucket)
+                )
+                self.assertEqual(1, len(findings))
+                self.assertIn("records no boundary decision", findings[0])
+
+    def test_step_two_fails_closed_on_an_unestablished_ledger(self):
+        # An unreadable ledger must never silently satisfy step 2. In production
+        # it cannot even reach here (analyze_adjudication_changes raises first —
+        # see StaticPinWorktreeCompositionTests.test_unreadable_ledger_*), and at
+        # this boundary an unestablished or empty state is refused, not assumed.
+        for label, ledger in (("unestablished", None), ("empty", {})):
+            with self.subTest(ledger=label), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td, marker=self.MARKER)
+                findings = self._scan(root, source, current_adjudications=ledger)
+                self.assertEqual(1, len(findings))
+                self.assertIn("records no boundary decision", findings[0])
+
+    def test_a_different_literals_boundary_row_does_not_carry_over(self):
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td, marker=self.MARKER)
+            findings = self._scan(
+                root,
+                source,
+                current_adjudications=self._ledger(literal="an unrelated sentence"),
+            )
+            self.assertEqual(1, len(findings))
+            self.assertIn("records no boundary decision", findings[0])
+
+    # ── Step 3, and the arms that precede the ladder ────────────────────────
+    def test_a_wording_only_pin_with_nothing_behind_it_is_still_a_finding(self):
+        # The positive control that the policy did not get weaker.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            findings = self._scan(root, source, consumer_sources={})
+            self.assertEqual(1, len(findings))
+            self.assertIn("resolves into prose", findings[0])
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "docs/x.md"
+            target.parent.mkdir(parents=True)
+            target.write_text("```text\nMACHINE_SENTINEL\n```\n", encoding="utf-8")
+            source = (
+                'F="$LIB/../docs/x.md"\n'
+                "assert_pin_unique \"sentinel\" 'MACHINE_SENTINEL' \"$F\""
+            )
+            findings = self._scan(root, source, current_adjudications=self._ledger())
+            self.assertEqual(1, len(findings))
+            self.assertIn("missing structural declaration", findings[0])
+
+    def test_an_invalid_category_is_a_finding_ahead_of_the_whole_ladder(self):
+        # Arm ORDER: declaration grammar is decided BEFORE routing, so neither a
+        # program consumer nor a boundary row routes around a malformed tag. The
+        # ~35 standing pins on a pre-vocabulary category therefore stay findings
+        # (fixing them is issue-948-out-of-scope follow-up work).
+        for marker in (
+            self.INVALID_MARKER,
+            "# structural-pin-ok: helper-contract --   ",
+            "# structural-pin-ok: -- no category at all",
+        ):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td, marker=marker)
+                findings = self._scan(
+                    root,
+                    source,
+                    consumer_sources={
+                        "scripts/derive-verdict.sh": f"grep -qF '{self.LITERAL}' x\n"
+                    },
+                    current_adjudications=self._ledger(),
+                )
+                self.assertEqual(1, len(findings))
+                self.assertNotIn("resolves into prose", findings[0])
+
+    def test_each_configuration_selects_its_documented_arm(self):
+        """One site, every configuration, the deciding arm named in each verdict.
+
+        This is the arm-order driver: a reordered ladder moves at least one row.
+        """
+        consumer = {"scripts/derive-verdict.sh": f"grep -qF '{self.LITERAL}' x\n"}
+        cases = (
+            # (marker, consumer corpus, ledger, expected deciding fragment)
+            ("valid", True, "boundary", None),
+            ("valid", False, "boundary", None),
+            ("none", True, "boundary", None),
+            ("none", True, None, None),
+            ("valid", False, None, "records no boundary decision"),
+            ("none", False, "boundary", "no valid '# structural-pin-ok:'"),
+            ("none", False, None, "no program consumer reads it"),
+            ("invalid", True, "boundary", "unknown structural category"),
+        )
+        for marker, with_consumer, bucket, expected in cases:
+            label = f"marker={marker} consumer={with_consumer} ledger={bucket}"
+            with self.subTest(label), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(
+                    td,
+                    marker={
+                        "valid": self.MARKER,
+                        "invalid": self.INVALID_MARKER,
+                        "none": "",
+                    }[marker],
+                )
+                findings = self._scan(
+                    root,
+                    source,
+                    consumer_sources=consumer if with_consumer else {},
+                    current_adjudications=self._ledger(bucket) if bucket else {},
+                )
+                if expected is None:
+                    self.assertEqual([], findings, label)
+                else:
+                    self.assertEqual(1, len(findings), label)
+                    self.assertIn(expected, findings[0], label)
+
+    def test_a_retired_literal_keeps_the_pre_948_revival_contract(self):
+        # SCOPE: the ladder governs the RETAINED population. An authorized
+        # revival of a RETIRED wording literal still requires a genuinely
+        # machine-shaped target, because both ladder steps rest on the same
+        # boundary row that contract says cannot alone authorize a revival. Here
+        # the site has everything the ladder would want — valid tag, boundary
+        # row, a program consumer — and is still reported, with no ladder clause.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td, marker=self.MARKER)
+            key = self._key()
+            state = ("boundary", self.RATIONALE)
+            authorization = self.mod.RevivalAuthorization(
+                "lib/test/a.sh",
+                "static-helper",
+                "assert_pin_unique",
+                key,
+                self.TARGET,
+                "cross-file-phase-contract",
+                self.MARKER.split(" -- ", 1)[1],
+            )
+            findings = self._scan(
+                root,
+                source,
+                retired_literal_keys=frozenset({key}),
+                revival_authorizations=frozenset({authorization}),
+                adjudication_delta={key: (None, state)},
+                current_adjudications={key: state},
+                consumer_sources={
+                    "scripts/derive-verdict.sh": f"grep -qF '{self.LITERAL}' x\n"
+                },
+            )
+            self.assertEqual(1, len(findings))
+            self.assertIn("resolves into prose", findings[0])
+            self.assertNotIn("no program consumer reads it", findings[0])
 
 
 if __name__ == "__main__":
