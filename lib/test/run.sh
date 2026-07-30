@@ -27166,25 +27166,133 @@ for pkg_w in .claude-plugin/plugin.json CHANGELOG.md CITATION.cff .claude-plugin
     "$(printf '%s' "$PKG_VC_ADD" | grep -qF " $pkg_w" && echo yes || echo no)"
 done
 
-# (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
-# manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
-# plugin.json + real copies of the component dirs (no marketplace.json beside it, no symlinks
-# leaving the tree — cp of real files, per the security-skip constraint) and validate that path.
+# (3) full `claude plugin validate --strict` over the SHIPPED PAYLOAD tree.
+#
+# A marketplace `/plugin install` ships the WHOLE repo subtree, so the tree validated here has to
+# be the tree consumers actually receive. The earlier shape staged only plugin.json + the
+# component dirs, which excluded every ROOT file — and the root is exactly where this repo's one
+# strict offender lives. The gate was therefore green by CONSTRUCTION (it omitted the only file
+# that fails) rather than because the payload is clean: a blind spot, not a pass.
+#
+# INCLUSION RULE, derived rather than hardcoded: every path in the git INDEX (`git ls-files`,
+# no --others — the #711 tree-enumeration convention; a working-tree walk would descend into the
+# sibling worktrees under .claude/worktrees/ and stage another branch's checkout), MINUS
+# `.claude-plugin/marketplace.json`. Paths are copied one at a time with plain `cp`, so a tracked
+# symlink would land as its dereferenced content — no link leaves the tree, which is the
+# security-skip constraint the older `cp -R` form satisfied by copying real files.
+#
+# That single exclusion is NOT a payload judgement. Mode is selected by WHAT THE VALIDATED
+# DIRECTORY CONTAINS: a `.claude-plugin/marketplace.json` beside plugin.json routes the CLI to
+# MARKETPLACE mode, which block (4) below owns with its own staged fixture. Withholding that one
+# path is what keeps PLUGIN mode selected here — pointing the validator at the repo root instead
+# would silently turn this gate into a duplicate of block (4) rather than simplifying it.
+#
+# KNOWN-WARNING EXCEPTION. `CLAUDE.md` at the plugin root is inert for plugin consumers, so
+# --strict warns on it; it is this repo's own project memory and stays where it is. The exception
+# is expressed STRUCTURALLY — one named path withheld from staging, inside a differential pair —
+# never as a text filter over validator output, so no unrelated finding can be swallowed by a
+# loose match. Each arm fails for its own distinct reason:
+#   arm A (obsolescence detector): the tree AS SHIPPED must STILL FAIL, naming that exact
+#     warning. An expected-failure that stops failing is a defect — if the file moves, or the CLI
+#     drops or reworks the diagnostic, this arm reddens rather than letting the exception quietly
+#     outlive its cause.
+#   arm B (positive control, and the real gate): the same tree with ONLY that one path withheld
+#     must pass CLEAN. No output is filtered, so ANY other finding — at the root or anywhere in
+#     the payload — reddens it. It is also what establishes that arm A's failure had one cause:
+#     a second offender hiding behind the known one cannot survive both arms. (Not a warning
+#     COUNT: the CLI emits one `Found N warning` block per offending file, so two offenders read
+#     as two `Found 1 warning` blocks and a count assertion would be unsound.)
+#   arm C (planted-defect control): a SECOND, DIFFERENT root-level offender added to arm B's tree
+#     must still be rejected, proving the exception is that one path and not a blanket tolerance
+#     for root warnings.
+# BRITTLENESS, stated rather than hidden: arms A and C match the CLI's prose (`root: <file> at
+# the plugin root`), the most structural identifier it offers — `claude plugin validate` has no
+# machine-readable output mode (checked: its --help lists only --strict). A CLI upgrade that
+# rewords the diagnostic reddens A and C loudly and accurately while arm B keeps its coverage
+# intact. Same trade-off and same resolution as block (4)'s `Validating marketplace manifest:`
+# mode assertion. CI pins the CLI (CLAUDE_CLI_VERSION in ci.yml) while the desk runs whatever the
+# host has, so a reword reddens locally first — the helper below replays the validator's own
+# output and names the observed version so the cause is not re-derived by hand.
 if command -v claude >/dev/null 2>&1; then
   PKG_STAGE="$(mktemp -d)"
-  mkdir -p "$PKG_STAGE/.claude-plugin"
-  cp "$REPO_ROOT/.claude-plugin/plugin.json" "$PKG_STAGE/.claude-plugin/plugin.json"
-  for d in agents skills commands hooks; do
-    [ -e "$REPO_ROOT/$d" ] && cp -R "$REPO_ROOT/$d" "$PKG_STAGE/$d"
+  [ -n "$PKG_STAGE" ] && [ -d "$PKG_STAGE" ] || { printf 'FATAL: mktemp -d failed for the #671 payload staging tree\n' >&2; exit 1; }
+  # The allowlisted root path: present in arm A, withheld in arm B. Single source for both the
+  # staging exclusion and the warning text the arms match, so the two cannot drift apart.
+  PKG_ALLOWLISTED_ROOT='CLAUDE.md'
+  PKG_STAGE_N=0; PKG_STAGE_SKIPPED=0
+  while IFS= read -r -d '' pkg_f; do
+    case "$pkg_f" in .claude-plugin/marketplace.json) PKG_STAGE_SKIPPED=$((PKG_STAGE_SKIPPED + 1)); continue ;; esac
+    # `${f%/*}` yields the file itself when the path holds no slash, so mkdir-ing it
+    # unconditionally would create a DIRECTORY named after every root-level file and land the
+    # copy one level too deep — silently dropping the whole root, which is the very blind spot
+    # this block exists to close. Guard on the path actually having a directory component.
+    case "$pkg_f" in
+      */*) mkdir -p "$PKG_STAGE/${pkg_f%/*}" \
+             || { printf 'FATAL: #671 payload staging failed (mkdir for %s)\n' "$pkg_f" >&2; exit 1; } ;;
+    esac
+    cp "$REPO_ROOT/$pkg_f" "$PKG_STAGE/$pkg_f" \
+      || { printf 'FATAL: #671 payload staging failed (cp %s)\n' "$pkg_f" >&2; exit 1; }
+    PKG_STAGE_N=$((PKG_STAGE_N + 1))
+  done < <(git -C "$REPO_ROOT" ls-files -z)
+
+  # Fail CLOSED on a half-staged tree. Arm B ASSERTS A PASS, so a tree that lost its component
+  # dirs — or the root file arm A needs — would validate clean for the wrong reason and read as
+  # a green gate over nothing. Probes are presence checks on representative payload members and
+  # on the one deliberate omission, deliberately count-free: a staged-file-count literal would
+  # rot on the next file added to the repo.
+  assert_eq "#671 packaging: the payload staging loop copied files (a silently empty tree cannot masquerade as a clean pass)" "yes" \
+    "$([ "$PKG_STAGE_N" -gt 0 ] && echo yes || echo no)"
+  assert_eq "#671 packaging: exactly one tracked path is withheld from the payload tree (marketplace.json)" "1" "$PKG_STAGE_SKIPPED"
+  for pkg_probe in .claude-plugin/plugin.json "$PKG_ALLOWLISTED_ROOT" README.md install.sh skills agents lib scripts docs LICENSES; do
+    assert_eq "#671 packaging: the staged payload tree carries $pkg_probe" "yes" \
+      "$([ -e "$PKG_STAGE/$pkg_probe" ] && echo yes || echo no)"
   done
-  PKG_VAL_OUT="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"; PKG_VAL_RC=$?
-  [ "$PKG_VAL_RC" -eq 0 ] || printf '%s\n' "$PKG_VAL_OUT"
-  # Require BOTH a zero exit AND the 'Validation passed' line (the AC's expected output). The
-  # exit code is the authoritative signal — an OR fallback on the string alone would pass green
-  # on a non-zero exit whose output merely contained a per-component 'Validation passed' line.
-  assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
-    "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+  assert_eq "#671 packaging: the staged payload tree withholds marketplace.json, so PLUGIN mode stays selected" "no" \
+    "$([ -e "$PKG_STAGE/.claude-plugin/marketplace.json" ] && echo yes || echo no)"
+
+  # Publishes BOTH the rc and the validator's output through globals, and is called as a plain
+  # statement — never in a command substitution, which would run it in a subshell and drop the
+  # captured output while the rc still looked right. Every arm below asserts on the output as
+  # well as the rc, so that silent loss would leave three arms failing for no visible reason.
+  devflow_pkg_payload_rc=''
+  devflow_pkg_payload_out=''
+  devflow_pkg_payload_validate() {  # $1 = expected rc; sets devflow_pkg_payload_rc / _out
+    devflow_pkg_payload_out="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"
+    devflow_pkg_payload_rc=$?
+    [ "$devflow_pkg_payload_rc" = "${1-}" ] || printf 'claude %s: payload validate rc=%s (expected %s)\n%s\n' \
+      "$(claude --version 2>/dev/null || echo '(version unavailable)')" \
+      "$devflow_pkg_payload_rc" "${1-}" "$devflow_pkg_payload_out" >&2
+  }
+
+  # arm A — the exception's own obsolescence detector.
+  devflow_pkg_payload_validate 1; PKG_A_RC="$devflow_pkg_payload_rc"; PKG_A_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm A: the payload tree AS SHIPPED still fails --strict (an expected-failure that stopped failing would mean the exception is obsolete)" "1" "$PKG_A_RC"
+  assert_eq "#671 packaging arm A: that failure is the allowlisted root-$PKG_ALLOWLISTED_ROOT warning, named by the CLI" "yes" \
+    "$(printf '%s' "$PKG_A_OUT" | grep -qF "root: $PKG_ALLOWLISTED_ROOT at the plugin root" && echo yes || echo no)"
+
+  # arm B — apply the exception (withhold that one path) and require a CLEAN pass. Require BOTH
+  # a zero exit AND the 'Validation passed' line: the exit code is authoritative, and an OR
+  # fallback on the string alone would pass green on a non-zero exit whose output merely
+  # contained a per-component 'Validation passed' line.
+  rm -f "$PKG_STAGE/$PKG_ALLOWLISTED_ROOT" \
+    || { printf 'FATAL: #671 payload arm B could not withhold %s\n' "$PKG_ALLOWLISTED_ROOT" >&2; exit 1; }
+  devflow_pkg_payload_validate 0; PKG_B_RC="$devflow_pkg_payload_rc"; PKG_B_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm B: claude plugin validate --strict passes on the staged payload tree once the one allowlisted root path is withheld" "yes" \
+    "$( { [ "$PKG_B_RC" -eq 0 ] && printf '%s' "$PKG_B_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+
+  # arm C — planted-defect control. A DIFFERENT root offender on purpose: a filter keyed loosely
+  # on `root:` would swallow this one, and the CLI's message for it is not the allowlisted text,
+  # so the arm distinguishes "this exact path is tolerated" from "root warnings are tolerated".
+  printf '%s\n' 'planted root-level offender for the #671 known-warning exception control' \
+    > "$PKG_STAGE/CLAUDE.local.md" \
+    || { printf 'FATAL: #671 payload arm C could not plant its root-level offender\n' >&2; exit 1; }
+  devflow_pkg_payload_validate 1; PKG_C_RC="$devflow_pkg_payload_rc"; PKG_C_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm C: a second, different root-level offender is still rejected (the exception is one path, not any root warning)" "1" "$PKG_C_RC"
+  assert_eq "#671 packaging arm C: the rejection names the PLANTED offender rather than the allowlisted one" "yes" \
+    "$(printf '%s' "$PKG_C_OUT" | grep -qF 'root: CLAUDE.local.md at the plugin root' && echo yes || echo no)"
+
   rm -rf "$PKG_STAGE"
+  unset -f devflow_pkg_payload_validate
 
   # (3b) The gate above is only worth arming if strict validation actually DESCENDS into the
   # component trees rather than stopping at the manifest — that is the claim ci.yml's install
