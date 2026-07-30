@@ -1104,9 +1104,11 @@ assert_eq "max_iterations clamp: resolver failure (rc≠0) → 5"  "5"  "$(maxi_
 
 # Drift guard: maxi_clamp above is a hand-maintained copy of the review-and-fix inline
 # clamp, so the clamp assertions would keep passing even if the *shipped* clamp in
-# references/loop-control.md were edited — and the bundle pins that used to catch exactly that
-# (the negative-aware regex, the below-1 floor, the default-5 fallback) are gone, so such an
-# edit now ships desk-green against this copy.
+# references/loop-control.md were edited. #885 retired the pins here that used to catch that,
+# but the guarantee did NOT move to nobody: the negative-aware regex, the below-1 floor and the
+# default-5 fallback are each still pinned in lib/test/modules/review-and-fix-contract.sh
+# against a bundle that includes loop-control.md, so a shipped-clamp edit fails there. Do not
+# re-add a duplicate pin here on the strength of this paragraph — check that module first.
 # #530: review-and-fix is now a thin root + references/*.md. The literal-pin corpus below
 # targets the whole shipped bundle, so MAXI_SKILL/ST_RAF resolve against a byte-faithful
 # concatenation of the shipped root + every reference (the whole POST-split skill surface,
@@ -1836,8 +1838,16 @@ assert_eq "#379(AC8): requesting-code-review negative checks use a readable non-
 
 # Drift guard: what this region still asserts is the mutation-check rule's two coupled
 # sites (the review-and-fix rule and the implement test-writing phase that references it).
-# The park-calibration gate's own phrases carry no pin any more, so a paraphrase that guts
-# that gate is undetected here. Each phrase below must still be gate-unique: a whole-file
+# #885 retired the park-calibration pins that used to live here. Most of that gate is still
+# guarded elsewhere — lib/test/modules/review-and-fix-contract.sh pins the gate heading, the
+# clean sentinel, the Step-2.5 re-routing and the Step-4.5 early exit. What genuinely lost all
+# coverage is narrower: the two explicit firing-site handoffs and the Loop-Exit
+# no-sentinel-means-non-convergence rule, which are agent-executed routing prose the review
+# pass now covers. CAUTION for a later sweep: both pins left in this region belong to the
+# mutation-check rule, so retiring them empties the region, turns the non-empty control below
+# RED, and makes deleting the region look like the fix — which would also discard
+# count_raw_skill_guards_in_region and the AC3(b*) mutation proofs bound to it.
+# Each phrase below must still be gate-unique: a whole-file
 # scan would stay GREEN even with the rule deleted if the literal also appeared elsewhere
 # (the PR #154 vacuous-guard hole). assert_pin_unique (PR #155) makes that mechanical — it
 # FAILs unless the literal occurs EXACTLY ONCE in the resolved SKILL — so a paraphrase, OR
@@ -1847,7 +1857,7 @@ assert_eq "#379(AC8): requesting-code-review negative checks use a readable non-
 # SCOPE (stated honestly, not over-claimed): the meta-test further below enforces
 # helper-routing ONLY for the SKILL pins inside the PARKCAL_GUARD_REGION delimiters — it
 # is a bounded guarantee over the park-calibration guard family, NOT a repo-wide claim
-# that every raw SKILL guard (the maxi_clamp pins above, the DEF_SKILL/INIT_SKILL families)
+# that every raw SKILL guard (the DEF_SKILL/INIT_SKILL families further below)
 # routes through assert_pin_unique. A new park-calibration guard belongs in this region and
 # must use the helper; widening the meta-test to other families is deliberately out of
 # scope for issue #155 (converting non-unique literals elsewhere risks unrelated RED).
@@ -2360,7 +2370,8 @@ assert_eq "378(R6): receiving-code-review R6 rule stays repo-agnostic (no repo t
 # ── Meta-test (#157, AC2): widen the raw-guard audit from the park-calibration
 # region fence to the WHOLE suite. #155 enforced helper-routing ONLY inside the
 # PARKCAL_GUARD_REGION; the maxi_clamp / DEF_SKILL / IMPL_SKILL / INIT_SKILL /
-# RA_SKILL / RW_SKILL / FDROOT guard families outside it could still ship a vacuous
+# RA_SKILL / RW_SKILL / FDROOT guard families outside it (the family list as it stood at
+# #157 — maxi_clamp's own raw SKILL guards were since retired by #885) could still ship a vacuous
 # whole-file presence check (the PR #154 hole) with nothing to catch it. Now every
 # raw presence/absence GUARD pin anywhere in this file must EITHER route through
 # assert_pin_unique (so it carries no bare grep) OR carry an explicit per-line
@@ -2580,6 +2591,18 @@ assert_eq "loop_role #170: SKILL.md no longer claims 'legibility-only' (note + S
 # through assert_pin_unique inside the FIXDELTA region (the meta-test above enforces the
 # assert_pin_unique-only invariant for this region too), so a non-gate-unique literal FAILS
 # by construction. Needles are apostrophe-free (the asserts single-quote them).
+# #885 retired most of what this region used to pin, and the residue is uneven. Still covered:
+# the gate's core shape is twinned in lib/test/modules/review-and-fix-contract.sh (fires every
+# iteration, narrows to this iteration's cumulative delta, exactly one bounded re-dispatch,
+# no-fix iteration skips it), and the supersession guard's authority MECHANISM is still pinned
+# here (retrievable operand, the editor-identity read, author_association excluded, arm order).
+# What this region no longer pins at all, with no twin anywhere: the gate's per-arm outcome
+# routing (surviving Critical/Important re-fix, promote-on-cap, at-cap carry into the shadow,
+# advisory Suggestion/Minor, not-counted-toward-the-cap), its blinding detail and its
+# failure/degradation arms (delta-base breadcrumb, whole-run fail-open to the shadow), the
+# supersession guard's unestablished-identity arms (failed/denied read, absent permission,
+# truncated edit page), and the #312 implement-phase surface items. Those are agent-executed
+# routing prose the review pass now covers; do not read a green region as covering them.
 # FIXDELTA_GUARD_REGION_BEGIN — every SKILL pin until the END marker MUST use assert_pin_unique (meta-tested above)
 assert_pin_unique "fix-delta gate: capped at 2 inner attempts" \
   'capped at 2 inner attempts' "$MAXI_SKILL"
@@ -2692,7 +2715,10 @@ assert_pin_unique "#620/#640: supersession guard excludes author_association as 
 # position directly: the arm's byte offset must precede the branch's. python3 (a preflight
 # prerequisite) does the offset arithmetic — a value deciding an assertion must not route through a
 # non-preflight PATH tool. Both offsets must resolve: a `-1` from either `find` fails the check
-# closed rather than comparing against a sentinel.
+# closed rather than comparing against a sentinel. Residual since #885: both literals lost their
+# uniqueness pins with the retired presence pins, and `.find` takes the FIRST match — so a later
+# duplicate mention of either phrase would silently retarget this comparison. Each occurs exactly
+# once in the extension today, so the check is non-vacuous; nothing now enforces that.
 assert_eq "#620/#640: the failed-read arm precedes the write/admin branch it governs" "yes" \
   "$(python3 -c 'import sys
 s=open(sys.argv[1],encoding="utf-8").read()
@@ -13524,8 +13550,14 @@ assert_pin_unique "#446: SKILL forbids a boolean-only fallback (string 'true' mu
 assert_pin_unique "#446: SKILL fallbacks anchor the config path to the git repo root (#295 contract)" \
   'anchoring the config path to the git repo root the same way `config-get.sh` does' "$CI446_SKILL"
 # Reason-selection guards (Finding: config-unreadable vs tier-disabled conflation on the fallback
-# path). Pin the operative clauses so a regression that buckets a merely-absent config as
-# "unreadable" turns RED.
+# path). What the two pins below actually assert is narrower than that finding: that the gate
+# states a one-line withheld reason at all, and that a distinct *config unreadable* reason exists.
+# #885 retired the pin on the clause that ruled the conflation OUT ("unconfigured on every rung**,
+# never "unreadable") in references/step-4-present-create.md, and no module carries a twin — so
+# a SKILL-side revert that re-buckets a merely-absent config as "unreadable" is no longer pinned
+# anywhere. Only the resolver-side property the *config unreadable* reason rests on is still
+# guarded, executably, by the eight-shape config-get block below (absent/false/wrong-type read as
+# the false default at exit 0; malformed JSON alone exits non-zero).
 assert_pin_unique "#446: offer gate prints a one-line withheld-offer reason (never silent)" \
   'When the gate withholds the prompt, print a one-line reason naming the exact failed condition' "$CI446_SKILL"
 assert_pin_unique "#446: withheld-offer config-unreadable reason is kept distinct from tier-disabled" \
@@ -32354,7 +32386,9 @@ assert_eq "#284 shadow-fix: Phase 4.1 no longer carries the old HELPER_RC extrac
 # `="?\$\(`-anchored absence detectors above cannot see its reintroduction (#284 shadow review,
 # 2nd pass). Pin the removed rc tokens directly so a straight revert of either record-write block
 # — which would re-inert the `[ "$RECORD_RC" -ne 0 ]` check on a value-stripping runner — turns
-# the suite RED; the positive `; then`-form pins below back them so a revert fails two ways.
+# the suite RED. Only the review engine's `--mode trace` gate still carries a positive
+# `; then`-form pin below to back its absence pin (its review-and-fix peer was retired by #885),
+# so a revert of the review-and-fix side fails one way only.
 assert_eq "#284 shadow-fix: review-and-fix record gate no longer carries the old RECORD_RC capture" \
   "0" "$(pin_count 'RECORD_RC=$?' "$ST_RAF")"
 assert_eq "#284 shadow-fix: review record gate no longer carries the old R_RC capture" \
@@ -32364,7 +32398,8 @@ assert_eq "#284 shadow-fix: review record gate no longer carries the old R_RC ca
 # persisted to the telemetry branch by a best-effort `efficiency-trace.sh --persist || true`
 # call, which carries no rc gate to discriminate. The two former single-statement-if
 # record-gate positive pins were removed with those blocks; the RECORD_RC/R_RC absence pins
-# above still hold, and the `--mode trace` gates keep their own #284 single-statement-if pins.)
+# above still hold, and the review engine's `--mode trace` gate keeps its own #284
+# single-statement-if pin — its review-and-fix peer does not, since #885.)
 # (2) POSITIVE-form pins (AC5): the new single-statement `if !` idiom is present at the
 # receiving-code-review and review threshold reads (routed through assert_pin_unique — no bare
 # grep on the line). The review-and-fix FIX_THRESHOLD/MAX_ITERS/TRACE sites carry no positive
@@ -32374,10 +32409,12 @@ assert_pin_unique "#284 positive: review verdict-threshold discriminates via sin
 # (The review live-comment 3-way `elif [ "$?" -eq 2 ] …` pin was retired with the seed
 # prompt fence in issue #857 — the find-or-create decision, including its inline exit-code
 # read, now lives in scripts/seed-review-progress.sh and is driven behaviorally above.)
-# The efficiency-trace render reads are the QUOTED command-substitution sites the absence
-# detector previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(`
-# idiom positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended
-# absence detector and this positive pin.
+# An efficiency-trace render read is a QUOTED command-substitution site the absence detector
+# previously could not see (#284 shadow review) — pin the migrated `if ! VAR="$(` idiom
+# positively so a straight revert to `VAR="$(…)"; VAR_RC=$?` fails BOTH the extended absence
+# detector and this positive pin. Scope after #885: only the review engine's render read is
+# pinned this way; the review-and-fix render read carries no positive pin any more, and no
+# module twins it, so a revert there is caught by the extended absence detector alone.
 assert_pin_unique "#284 positive: review trace render discriminates via single-statement if! (quoted)" 'if ! TELEM="$(' "$ST_REV"
 # The Phase 4.1 Stage-2 cumulative-diff read is also `if !`-guarded (git's own exit status
 # inline), symmetric to the gh|extractor guard; pin its positive form and prove the old

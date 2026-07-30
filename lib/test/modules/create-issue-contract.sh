@@ -1359,11 +1359,16 @@ ci749_field 'Search space surveyed'
 ci749_field 'Duty statuses'
 ci749_field 'Bearing observations'
 unset -f ci749_field
-# AC26 — the search-space operand extends the previously closed flag-then-topic grammar, and
-# BOTH execution steps read it. The no-operand default is stated, so an absent operand is a
-# defined behavior rather than an unbounded survey by omission.
+# AC26 — the search-space operand extends the previously closed flag-then-topic grammar. The
+# SKILL also states that both execution steps read the operand and states the no-operand default,
+# but this pin asserts NEITHER of those claims — it asserts only that the one-line grammar
+# declaration, the peer's invocation contract as the create-issue dispatcher composes calls
+# against it, survives verbatim and exactly once. #885 retired the rows that pinned the operand's
+# behavioral read, and no other assertion in this module, in lib/test/run.sh, or in any sibling
+# module mentions `--search-space` — so a revert to the hardcoded internal-docs location, or one
+# dropping the Steps-1-and-2 read, is caught by the review pass over the SKILL prose, not here.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
-  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
+  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; this pin covers the declaration only — the behavioral read carries no pin anywhere since #885
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
