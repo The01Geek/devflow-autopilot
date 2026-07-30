@@ -1874,19 +1874,19 @@ dsc_num() { printf '%s' "$1" | bash "$DSC" | sed -n 's/^number=//p'; }
 
 # --- Standalone forms FIRE (command resolves) -------------------------------
 assert_eq "dsc: bare /devflow:review fires" \
-  "/devflow:review" "$(dsc_cmd '/devflow:review')"
+  "/prflow:review" "$(dsc_cmd '/devflow:review')"
 assert_eq "dsc: /devflow:review 42 → number 42" \
   "42" "$(dsc_num '/devflow:review 42')"
 assert_eq "dsc: /devflow:review #42 → number 42 (# stripped)" \
   "42" "$(dsc_num '/devflow:review #42')"
 assert_eq "dsc: review-and-fix disambiguation (never bare review)" \
-  "/devflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix')"
+  "/prflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix')"
 assert_eq "dsc: /devflow:pr-description fires" \
-  "/devflow:pr-description" "$(dsc_cmd '/devflow:pr-description')"
+  "/prflow:pr-description" "$(dsc_cmd '/devflow:pr-description')"
 assert_eq "dsc: up to three leading spaces still fires" \
-  "/devflow:review" "$(dsc_cmd '   /devflow:review')"
+  "/prflow:review" "$(dsc_cmd '   /devflow:review')"
 assert_eq "dsc: command alone on line 2 of a multi-line body fires" \
-  "/devflow:review" "$(dsc_cmd "$(printf 'hello world\n/devflow:review\nbye')")"
+  "/prflow:review" "$(dsc_cmd "$(printf 'hello world\n/devflow:review\nbye')")"
 
 # --- Non-invoking forms are DECLINED (empty command) ------------------------
 assert_eq "dsc: leading prose declined" \
@@ -1912,14 +1912,14 @@ assert_eq "dsc: reported PR-review-body prose mention declined" \
 # CRLF: GitHub delivers comment/review bodies with \r\n line endings; a trailing
 # \r must not make an end-anchored standalone command silently decline.
 assert_eq "dsc: CRLF-terminated bare command still fires" \
-  "/devflow:review" "$(dsc_cmd "$(printf '/devflow:review\r')")"
+  "/prflow:review" "$(dsc_cmd "$(printf '/devflow:review\r')")"
 assert_eq "dsc: CRLF-terminated command keeps its number" \
   "42" "$(dsc_num "$(printf '/devflow:review 42\r')")"
 assert_eq "dsc: CRLF multi-line body — standalone command on its own \\r\\n line fires" \
-  "/devflow:review" "$(dsc_cmd "$(printf 'kick it off\r\n/devflow:review\r\nthanks\r')")"
+  "/prflow:review" "$(dsc_cmd "$(printf 'kick it off\r\n/devflow:review\r\nthanks\r')")"
 # Case-insensitivity is documented; pin it so a dropped tolower() goes RED.
 assert_eq "dsc: uppercase /DEVFLOW:REVIEW fires (case-insensitive), canonical token emitted" \
-  "/devflow:review" "$(dsc_cmd '/DEVFLOW:REVIEW')"
+  "/prflow:review" "$(dsc_cmd '/DEVFLOW:REVIEW')"
 assert_eq "dsc: mixed-case command keeps its number" \
   "7" "$(dsc_num '/Devflow:Review 7')"
 # Mismatched fence type: a ~~~ line inside a ``` block (or vice versa) is literal
@@ -1930,9 +1930,32 @@ assert_eq "dsc: backtick-fence line inside a tilde fence does not expose the com
   "" "$(dsc_cmd "$(printf '%s\n' '~~~' '```' '/devflow:review' '~~~')")"
 # review-and-fix with an explicit #number resolves the number (was only pinned for review).
 assert_eq "dsc: review-and-fix #number resolves both command and number" \
-  "/devflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix #9')"
+  "/prflow:review-and-fix" "$(dsc_cmd '/devflow:review-and-fix #9')"
 assert_eq "dsc: review-and-fix #number — number extracted" \
   "9" "$(dsc_num '/devflow:review-and-fix #9')"
+
+# --- Dual-namespace acceptance: BOTH input namespaces resolve, and the emitted
+# token is always the canonical one. Every fixture above feeds the transitional
+# `/devflow:` alias, so these pin the CANONICAL input arm — without them the
+# accept-both alternation could regress to alias-only and stay green. The
+# emit-canonical half is the load-bearing one: devflow.yml compares this token
+# with `startsWith`, and one of those comparisons selects the review credential.
+assert_eq "dsc: canonical /prflow:review fires, emits canonical" \
+  "/prflow:review" "$(dsc_cmd '/prflow:review')"
+assert_eq "dsc: canonical /prflow:review-and-fix fires, emits canonical" \
+  "/prflow:review-and-fix" "$(dsc_cmd '/prflow:review-and-fix')"
+assert_eq "dsc: canonical /prflow:pr-description fires, emits canonical" \
+  "/prflow:pr-description" "$(dsc_cmd '/prflow:pr-description')"
+assert_eq "dsc: canonical namespace keeps its number" \
+  "42" "$(dsc_num '/prflow:review #42')"
+assert_eq "dsc: uppercase canonical /PRFLOW:REVIEW fires (case-insensitive)" \
+  "/prflow:review" "$(dsc_cmd '/PRFLOW:REVIEW')"
+# Negative control: the alternation accepts exactly two namespaces, not any
+# `*flow:` prefix — so the pattern cannot have been widened to a wildcard.
+assert_eq "dsc: an unrelated /xflow: namespace is NOT accepted" \
+  "" "$(dsc_cmd '/xflow:review')"
+assert_eq "dsc: a bare /flow: namespace is NOT accepted" \
+  "" "$(dsc_cmd '/flow:review')"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "resolve-command-trigger.sh"
@@ -1959,7 +1982,7 @@ OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
 assert_eq "rct: review w/ explicit number → should_run" \
   "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
 assert_eq "rct: review w/ explicit number → command" \
-  "command=/devflow:review 42" "$(echo "$OUT" | grep '^command=')"
+  "command=/prflow:review 42" "$(echo "$OUT" | grep '^command=')"
 
 # 2. review-and-fix disambiguation, STANDALONE form. (Rewritten for issue #314:
 # the old assertion fed the prose-wrapped "please run /devflow:review-and-fix
@@ -1970,14 +1993,14 @@ OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
   REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="7" \
   TRIGGER_TEXT="/devflow:review-and-fix" bash "$RCT")"
 assert_eq "rct: standalone review-and-fix beats review substring → command" \
-  "command=/devflow:review-and-fix 7" "$(echo "$OUT" | grep '^command=')"
+  "command=/prflow:review-and-fix 7" "$(echo "$OUT" | grep '^command=')"
 
 # 3. pr-description, no explicit number → falls back to the context number.
 OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
   REPO="o/r" GH_TOKEN="x" CONTEXT_NUMBER="13" \
   TRIGGER_TEXT="/devflow:pr-description" bash "$RCT")"
 assert_eq "rct: pr-description falls back to context number → command" \
-  "command=/devflow:pr-description 13" "$(echo "$OUT" | grep '^command=')"
+  "command=/prflow:pr-description 13" "$(echo "$OUT" | grep '^command=')"
 
 # 4. No devflow command present → should_run=false.
 OUT="$(PATH="$RCT_STUB:$PATH" ACTOR="devflow-bot" ALLOWED_BOTS="devflow-bot" \
@@ -2052,7 +2075,7 @@ rct_run "$(printf 'Here is the PR summary.\n\n/devflow:review 42\n\nthanks')"
 assert_eq "rct #314: standalone command on its own line in a multi-line body fires" \
   "should_run=true" "$(echo "$RCT_OUT" | grep '^should_run=')"
 assert_eq "rct #314: …and resolves the explicit number" \
-  "command=/devflow:review 42" "$(echo "$RCT_OUT" | grep '^command=')"; rm -f "$RCT_ERR"
+  "command=/prflow:review 42" "$(echo "$RCT_OUT" | grep '^command=')"; rm -f "$RCT_ERR"
 
 # 10. Self-marker decline (defense-in-depth), asserted BEFORE authorization:
 # the review-progress marker prefix and the workpad marker each decline with a
