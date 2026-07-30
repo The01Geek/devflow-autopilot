@@ -22171,67 +22171,340 @@ assert_eq "#409 item8: deny-floor helper resolution is repo-root-anchored (#295)
 assert_eq "provision: empty-after-strip warns build-aware review has no tools" "1" \
   "$(grep -c 'build-aware review is enabled with NO build tools' "$RUNNER" || true)"
 
-# ── #927: plugin.json `name` is a trust/routing discriminator with no ─────────
-# cross-assertion against the REAL manifest. Tracked sites gate on the literal
-# `devflow` via the ERE `"name"[[:space:]]*:[[:space:]]*"devflow"`:
-# devflow-runner.yml's base-ref-repo (self-repo) trusted-source fallback, which
-# gates materialization of the deny-floor helper and other trusted helpers (it is
-# the `elif` fallback after the base-ref-vendored branch, which carries no
-# name-check); vendor-slice.sh's `self`-branch discriminator; and install.sh's
-# legacy prune. Every existing test writes its own `{"name":"devflow"}` fixture,
-# so the suite would stay green if the manifest's `name` and these discriminators
-# ever diverged — silently flipping the vendor trust ladder self→fetch. Derive
-# every discriminator literal from tracked source (never a hand-transcribed
-# count — the self-referential-ordinal rule; a new site written in this same ERE
-# shape enters the set automatically) and assert each equals the name in the real
-# manifest, not a fixture. Coverage boundary: the derivation is coupled to this
-# canonical `[[:space:]]*` grep shape — a future name-check written in a
-# different-but-equivalent shape (a literal-space grep, `jq -e '.name=="…"'`)
-# would be an unguarded discriminator this block does not see.
+# ── #927 / name-agnostic identity: the accepted plugin-identifier set is ──────
+# DERIVED from one source, and nothing re-spells it as a literal.
+#
+# History: the trust/routing discriminators (vendor-slice.sh's `self` branch,
+# devflow-runner.yml's five FETCH_HEAD-gated trusted-source arms, install.sh's
+# legacy prune) each carried the plugin name as an inline ERE literal with no
+# cross-assertion against the real manifest, so the suite would have stayed green
+# if the manifest and the discriminators ever diverged — silently flipping the
+# vendor trust ladder self->fetch. #927 added the cross-assertion. The set is now
+# derived instead: `lib/plugin_identity.py` resolves
+# `.claude-plugin/plugin.json` + `lib/plugin-identity.json` into the accepted
+# names, the runtime consumers read it live, and the three surfaces that
+# structurally cannot (they inspect the very tree under examination, or run
+# curl-piped with no repo) carry a GENERATED region compiled by
+# `lib/generate-plugin-identity.py`.
+#
+# What this block guards, in order:
+#   G1  the reader agrees with the real manifests (both of them);
+#   G2  the generator's `--check` passes — every baked region matches the source;
+#   G3  NON-VACUITY, the defect this rewrite could have introduced: `--check`
+#       trivially passes over an empty region table, so assert the table resolves
+#       a real, on-disk, banner-carrying region for every expected discriminator
+#       file, and that each baked payload actually names every accepted name;
+#   G4  no hand-written discriminator literal survives anywhere in tracked source;
+#   G5  negative controls, both directions — manifest-side drift and
+#       discriminator-side drift each turn `--check` RED;
+#   G6  a declared alias actually reaches all three baked regions (the whole
+#       point of the mechanism), and the resulting ERE accepts it.
 P927_ROOT="$LIB/.."
-P927_MANIFEST="$P927_ROOT/.claude-plugin/plugin.json"
-# The manifest name is read with python3 (a preflight-guaranteed JSON parser),
-# never a grep of the manifest — the whole point is to compare a REAL parsed
-# value against the discriminators. Fails closed to empty on a read error, which
-# the non-empty assertion below turns RED.
-P927_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$P927_MANIFEST" 2>/dev/null || true)"
-assert_eq "#927: the real .claude-plugin/plugin.json carries a non-empty name" "yes" \
-  "$([ -n "$P927_NAME" ] && echo yes || echo no)"
-# Derive the discriminator literals: `git grep` (tracked-only, so worktree-immune
-# per issue #711 — never a repo-root recursive walk; `git -C` keeps git the sole
-# rc-bearer, never a `cd && git grep` that short-circuits to a fail-open empty).
-# Match the ERE discriminator SHAPE in source and extract the trailing quoted
-# literal from each hit. lib/test/ is excluded so this block's own regex text
-# cannot self-match. Adding a new discriminator site is caught with no count to
-# update (AC3): its literal simply joins P927_LITS.
-P927_LITS="$(git -C "$P927_ROOT" grep -hoE '"name"\[\[:space:\]\]\*:\[\[:space:\]\]\*"[^"]+"' -- ':(exclude)lib/test/' | sed -E 's/.*"([^"]+)"$/\1/')"
-P927_COUNT="$(printf '%s\n' "$P927_LITS" | grep -c . || true)"
-# Non-vacuity: the derivation must find the known discriminator sites, else the
-# extraction regex has rotted and every equality below would pass over an empty
-# set. (Not a hand-transcribed exact count — a lower bound that only proves the
-# grep still resolves something.)
-assert_eq "#927: discriminator-literal derivation resolves at least one tracked site (non-vacuous)" "yes" \
-  "$([ "$P927_COUNT" -ge 1 ] && echo yes || echo no)"
-# AC1 — the core cross-assertion: every derived discriminator literal equals the
-# real manifest name. Count literals that are NOT the manifest name; expect 0.
-P927_MISMATCH="$(printf '%s\n' "$P927_LITS" | grep -vxF "$P927_NAME" | grep -c . || true)"
-assert_eq "#927: every discriminator literal equals the real plugin.json name ($P927_NAME)" "0" \
-  "$P927_MISMATCH"
-# AC2 — negative control (drift is caught RED, not asserted only on the happy
-# path), both directions:
-#  (a) manifest-side drift — the same comparison against a MUTATED manifest name
-#      flags every discriminator as a mismatch (rename the manifest's `name` and
-#      the rank-1 trust gate stops matching).
-P927_NEG_A="$(printf '%s\n' "$P927_LITS" | grep -vxF "${P927_NAME}-drifted" | grep -c . || true)"
-assert_eq "#927 negative control (manifest drift): a renamed manifest name mismatches every discriminator literal" "$P927_COUNT" \
-  "$P927_NEG_A"
-#  (b) discriminator-side drift — a single discriminator whose literal diverges
-#      from the manifest (the vendor-slice `self`-branch hazard) is flagged.
-#      Inject one bogus literal into the derived set; exactly one must mismatch.
-P927_NEG_B="$(printf '%s\nnot-devflow\n' "$P927_LITS" | grep -vxF "$P927_NAME" | grep -c . || true)"
-assert_eq "#927 negative control (discriminator drift): a divergent discriminator literal is flagged against the manifest name" "1" \
-  "$P927_NEG_B"
-unset P927_ROOT P927_MANIFEST P927_NAME P927_LITS P927_COUNT P927_MISMATCH P927_NEG_A P927_NEG_B
+P927_GEN="$P927_ROOT/lib/generate-plugin-identity.py"
+P927_READER="$P927_ROOT/lib/plugin_identity.py"
+
+# G1 — the reader's canonicals equal the REAL manifests, parsed independently
+# with python3 (never a grep of the manifest: the whole point is to compare a
+# real parsed value against what the discriminators will accept).
+P927_MAN_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' \
+  "$P927_ROOT/.claude-plugin/plugin.json" 2>/dev/null || true)"
+P927_MKT_NAME="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' \
+  "$P927_ROOT/.claude-plugin/marketplace.json" 2>/dev/null || true)"
+assert_eq "#927 G1: the real .claude-plugin/plugin.json carries a non-empty name" "yes" \
+  "$([ -n "$P927_MAN_NAME" ] && echo yes || echo no)"
+assert_eq "#927 G1: the real .claude-plugin/marketplace.json carries a non-empty name" "yes" \
+  "$([ -n "$P927_MKT_NAME" ] && echo yes || echo no)"
+assert_eq "#927 G1: the identity reader's canonical plugin name is the manifest's" "$P927_MAN_NAME" \
+  "$(python3 -c '
+import json, subprocess, sys
+out = subprocess.run([sys.executable, sys.argv[1], "--json"], capture_output=True, text=True)
+print(json.loads(out.stdout)["plugin_canonical"] if out.returncode == 0 else "<error>")
+' "$P927_READER" 2>/dev/null || echo '<error>')"
+# marketplace_canonical lives in lib/plugin-identity.json because
+# devflow_copy_slice removes marketplace.json from the vendored slice, so a
+# consumer-tree run could never read it. That makes it a COUPLED copy — gate it.
+assert_eq "#927 G1: lib/plugin-identity.json marketplace_canonical == the real marketplace.json name" "$P927_MKT_NAME" \
+  "$(python3 -c '
+import json, subprocess, sys
+out = subprocess.run([sys.executable, sys.argv[1], "--json"], capture_output=True, text=True)
+print(json.loads(out.stdout)["marketplace_canonical"] if out.returncode == 0 else "<error>")
+' "$P927_READER" 2>/dev/null || echo '<error>')"
+
+# G2 — the baked regions match the source. This is the gate a rename relies on.
+P927_CHECK_RC=0
+python3 "$P927_GEN" --check >/dev/null 2>&1 || P927_CHECK_RC=$?
+assert_eq "#927 G2: generate-plugin-identity.py --check passes (no baked-region drift)" "0" "$P927_CHECK_RC"
+
+# G3 — NON-VACUITY. `--check` over an empty region table passes while covering
+# nothing, so prove the table resolves real files that really carry a banner.
+# Derived from the generator's own REGIONS table (never a hand-transcribed list:
+# a new region joins automatically), then verified against the tracked tree with
+# an index-reading `git ls-files` (issue #711 — no repository-root walk).
+P927_REGION_FILES="$(python3 -c '
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve().parent))
+import importlib.util
+spec = importlib.util.spec_from_file_location("gpi", sys.argv[1])
+mod = importlib.util.module_from_spec(spec); spec.loader.exec_module(mod)
+for r in mod.REGIONS:
+    print(r["file"])
+' "$P927_GEN" 2>/dev/null || true)"
+P927_REGION_COUNT="$(printf '%s\n' "$P927_REGION_FILES" | grep -c . || true)"
+# A lower bound, not a transcribed exact count: it only proves the table is not
+# empty and still covers at least the three structural bake sites.
+assert_eq "#927 G3: the generator's region table resolves at least the three bake sites (non-vacuous)" "yes" \
+  "$([ "$P927_REGION_COUNT" -ge 3 ] && echo yes || echo no)"
+P927_BAD_REGION=0
+while IFS= read -r _f; do
+  [ -n "$_f" ] || continue
+  # tracked, on disk, and carrying exactly one begin banner + one end marker.
+  if [ -z "$(git -C "$P927_ROOT" ls-files -- "$_f")" ]; then P927_BAD_REGION=$((P927_BAD_REGION+1)); continue; fi
+  if [ "$(grep -c '^[[:space:]]*# devflow-plugin-identity:begin ' "$P927_ROOT/$_f" || true)" != "1" ]; then
+    P927_BAD_REGION=$((P927_BAD_REGION+1)); continue
+  fi
+  if [ "$(grep -c '^[[:space:]]*# devflow-plugin-identity:end$' "$P927_ROOT/$_f" || true)" != "1" ]; then
+    P927_BAD_REGION=$((P927_BAD_REGION+1)); continue
+  fi
+  # …and its payload must actually name EVERY accepted plugin name. A region
+  # that resolved to a file but baked an empty/partial alternation would satisfy
+  # every structural check above while accepting nothing.
+  while IFS= read -r _n; do
+    [ -n "$_n" ] || continue
+    grep -q "DEVFLOW_PLUGIN_NAME_ERE.*[\"(|]${_n}[\")|]" "$P927_ROOT/$_f" \
+      || P927_BAD_REGION=$((P927_BAD_REGION+1))
+  done <<< "$(python3 "$P927_READER" --plugin-names 2>/dev/null || true)"
+done <<< "$P927_REGION_FILES"
+assert_eq "#927 G3: every generator region is a tracked file carrying one banner pair and every accepted name" "0" \
+  "$P927_BAD_REGION"
+
+# G4 — no hand-written discriminator literal survives. The pre-rewrite shape was
+# `"name"[[:space:]]*:[[:space:]]*"<bare-name>"` with no alternation group; that
+# exact shape must now appear nowhere in tracked source outside lib/test/ (which
+# carries this rule's own statement text and the fixtures below).
+P927_STRAY="$(git -C "$P927_ROOT" grep -cE '"name"\[\[:space:\]\]\*:\[\[:space:\]\]\*"[A-Za-z0-9_-]+"' \
+  -- ':(exclude)lib/test/' 2>/dev/null | grep -c . || true)"
+assert_eq "#927 G4: no hand-written (non-derived) plugin-name discriminator literal remains in tracked source" "0" \
+  "$P927_STRAY"
+
+# G4b — the workflow/probe PLUGIN-SPEC literals. Unlike a discriminator, a
+# `plugins:` install spec names exactly one published id, so dual-accept is
+# meaningless there and generation would buy nothing; what those literals owe is
+# equality with the manifests. Enumerate every DevFlow-owned `<plugin>@<market>`
+# spec across tracked workflows and require each to be the canonical spec.
+# (`scripts/resolve-extra-plugins.sh`'s baked-baseline skip sets are covered
+# behaviorally by the #513 I2 coupled-site block, which drives each baked YAML
+# entry through the real helper.)
+P927_CANON_SPEC="$(python3 "$P927_READER" --canonical-plugin-spec 2>/dev/null || true)"
+P927_MKT_ALT="$(python3 "$P927_READER" --marketplace-names 2>/dev/null | tr '\n' '|' || true)"
+P927_MKT_ALT="${P927_MKT_ALT%|}"
+P927_SPEC_BAD="$(git -C "$P927_ROOT" grep -hoE "[A-Za-z0-9_-]+@(${P927_MKT_ALT})" \
+  -- '.github/workflows/*.yml' 2>/dev/null | grep -vxF "$P927_CANON_SPEC" | grep -c . || true)"
+P927_SPEC_OK="$(git -C "$P927_ROOT" grep -hoE "[A-Za-z0-9_-]+@(${P927_MKT_ALT})" \
+  -- '.github/workflows/*.yml' 2>/dev/null | grep -cxF "$P927_CANON_SPEC" || true)"
+assert_eq "#927 G4b non-vacuity: the workflow plugin-spec derivation resolves real canonical-spec literals" "yes" \
+  "$([ "$P927_SPEC_OK" -ge 1 ] && echo yes || echo no)"
+assert_eq "#927 G4b: every DevFlow plugin-spec literal in a tracked workflow equals the canonical <plugin>@<marketplace>" "0" \
+  "$P927_SPEC_BAD"
+
+# ── G5/G6 — drift and alias propagation, driven over a real temp plugin root ──
+# A throwaway copy of the identity-bearing files, so every mutation below is
+# exercised end-to-end through the generator rather than simulated in a string.
+p927_root() {
+  local d; d="$(mktemp -d)"
+  mkdir -p "$d/lib" "$d/.claude-plugin" "$d/.github/actions/vendor-plugin" "$d/.github/workflows"
+  cp "$P927_ROOT/lib/plugin_identity.py" "$P927_ROOT/lib/generate-plugin-identity.py" \
+     "$P927_ROOT/lib/plugin-identity.json" "$d/lib/"
+  cp "$P927_ROOT/.claude-plugin/plugin.json" "$d/.claude-plugin/"
+  cp "$P927_ROOT/install.sh" "$d/"
+  cp "$P927_ROOT/.github/actions/vendor-plugin/vendor-slice.sh" "$d/.github/actions/vendor-plugin/"
+  cp "$P927_ROOT/.github/workflows/devflow-runner.yml" "$d/.github/workflows/"
+  printf '%s' "$d"
+}
+p927_check() { local rc=0; python3 "$1/lib/generate-plugin-identity.py" --check >/dev/null 2>&1 || rc=$?; echo "$rc"; }
+
+# G5(a) — manifest-side drift: rename the manifest's `name` and the baked
+# regions no longer describe it. (Left unguarded this is the silent trust-ladder
+# flip: the rank-1 self/base-ref gate stops matching the repo it protects.)
+P927_D1="$(p927_root)"
+assert_eq "#927 G5a: a pristine temp plugin root passes --check" "0" "$(p927_check "$P927_D1")"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/.claude-plugin/plugin.json"
+d = json.load(open(p)); d["name"] = d["name"] + "-drifted"
+json.dump(d, open(p, "w"))
+' "$P927_D1"
+assert_eq "#927 G5a negative control: a renamed manifest name turns --check RED" "1" "$(p927_check "$P927_D1")"
+
+# G5(b) — discriminator-side drift: hand-edit ONE baked region (the
+# vendor-slice `self`-branch hazard) and the check must flag it.
+P927_D2="$(p927_root)"
+python3 -c '
+import re, sys
+p = sys.argv[1] + "/.github/actions/vendor-plugin/vendor-slice.sh"
+t = open(p).read()
+t = re.sub(r"DEVFLOW_PLUGIN_NAME_ERE=.*", "DEVFLOW_PLUGIN_NAME_ERE=\x27\"name\"[[:space:]]*:[[:space:]]*\"(impostor)\"\x27", t, count=1)
+open(p, "w").write(t)
+' "$P927_D2"
+assert_eq "#927 G5b negative control: one hand-edited baked discriminator turns --check RED" "1" "$(p927_check "$P927_D2")"
+
+# G5(c) — a dropped alias key is unestablished, not "no aliases": the reader
+# fails closed rather than silently narrowing the accepted set.
+P927_D3="$(p927_root)"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p)); d.pop("plugin_aliases")
+json.dump(d, open(p, "w"))
+' "$P927_D3"
+# rc 2 (not 1) is the correct code: this is a SOURCE defect, not baked-region
+# drift — the check distinguishes the two so a remedy is not misdirected.
+assert_eq "#927 G5c: a missing plugin_aliases key fails closed (reader errors, --check RED)" "2" "$(p927_check "$P927_D3")"
+
+# G6 — alias propagation: declaring one alias must reach EVERY baked region and
+# produce an ERE that accepts both the canonical name and the alias while still
+# rejecting an unrelated one. This is the property the whole mechanism exists
+# for, and it is asserted behaviorally (the ERE is run against real manifests),
+# not by reading the generator's intent back out of itself.
+P927_D4="$(p927_root)"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p)); d["plugin_aliases"] = ["p927alias"]
+json.dump(d, open(p, "w"))
+' "$P927_D4"
+assert_eq "#927 G6: an added alias makes the baked regions stale until regenerated" "1" "$(p927_check "$P927_D4")"
+python3 "$P927_D4/lib/generate-plugin-identity.py" >/dev/null 2>&1 || true
+assert_eq "#927 G6: regenerating after the alias restores --check" "0" "$(p927_check "$P927_D4")"
+P927_ALIAS_SITES=0
+for _f in install.sh .github/actions/vendor-plugin/vendor-slice.sh .github/workflows/devflow-runner.yml; do
+  grep -q 'DEVFLOW_PLUGIN_NAME_ERE.*p927alias' "$P927_D4/$_f" && P927_ALIAS_SITES=$((P927_ALIAS_SITES+1))
+done
+assert_eq "#927 G6: the declared alias reached all three baked discriminator sites" "3" "$P927_ALIAS_SITES"
+# Behavioral: run the generated ERE against real manifest bytes.
+P927_ERE="$(python3 "$P927_D4/lib/plugin_identity.py" --plugin-name-ere 2>/dev/null || true)"
+P927_FIX="$(mktemp -d)"
+printf '{"name": "%s"}\n' "$P927_MAN_NAME"  > "$P927_FIX/canonical.json"
+printf '{"name":"p927alias"}\n'             > "$P927_FIX/alias.json"
+printf '{"name":"p927alias-suffixed"}\n'    > "$P927_FIX/near-miss.json"
+printf '{"name":"unrelated-plugin"}\n'      > "$P927_FIX/foreign.json"
+p927_match() { grep -Eq "$P927_ERE" "$P927_FIX/$1" && echo yes || echo no; }
+assert_eq "#927 G6 behavior: the derived ERE accepts the canonical manifest name" "yes" "$(p927_match canonical.json)"
+assert_eq "#927 G6 behavior: the derived ERE accepts the declared alias" "yes" "$(p927_match alias.json)"
+assert_eq "#927 G6 behavior: the derived ERE rejects a name the alias is only a prefix of" "no" "$(p927_match near-miss.json)"
+assert_eq "#927 G6 behavior: the derived ERE rejects an unrelated plugin name" "no" "$(p927_match foreign.json)"
+# …and an ERE metacharacter in a declared name is refused outright rather than
+# baked into an alternation where it would silently widen the discriminator.
+P927_D5="$(p927_root)"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p)); d["plugin_aliases"] = [".*"]
+json.dump(d, open(p, "w"))
+' "$P927_D5"
+assert_eq "#927 G6: an ERE-metacharacter alias is refused (never widens the discriminator)" "2" "$(p927_check "$P927_D5")"
+
+unset P927_ROOT P927_GEN P927_READER P927_MAN_NAME P927_MKT_NAME P927_CHECK_RC
+unset P927_REGION_FILES P927_REGION_COUNT P927_BAD_REGION P927_STRAY
+unset P927_D1 P927_D2 P927_D3 P927_D4 P927_D5 P927_ALIAS_SITES P927_ERE P927_FIX
+unset -f p927_root p927_check p927_match
+
+# ── identity: the runtime-derived consumers ──────────────────────────────────
+# The three helpers that CAN read the identity source at runtime do, and their
+# accepted sets widen with a declared alias without any of them being re-edited.
+# Driven over a temp plugin root exactly like the block above.
+PIDR="$(mktemp -d)"
+mkdir -p "$PIDR/lib" "$PIDR/.claude-plugin"
+cp "$LIB/../lib/plugin_identity.py" "$LIB/../lib/plugin-identity.json" \
+   "$LIB/../lib/resolve-jq.sh" "$LIB/../lib/resolve-bin.sh" "$PIDR/lib/"
+cp "$LIB/../.claude-plugin/plugin.json" "$PIDR/.claude-plugin/"
+cp -R "$LIB/../scripts" "$PIDR/scripts"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p))
+d["plugin_aliases"] = ["pidalias"]
+d["marketplace_aliases"] = ["pidalias-marketplace"]
+json.dump(d, open(p, "w"))
+' "$PIDR"
+
+# resolve-review-overrides.py — the closed agent_overrides allowlist accepts the
+# alias namespace and still rejects an unrelated one (it is a CLOSED list: the
+# widening must be exactly the declared alias, not "anything").
+pid_unknown() {
+  python3 "$PIDR/scripts/resolve-review-overrides.py" --config-get /usr/bin/false "$1" 2>&1 \
+    | grep -c "is not a known" || true
+}
+assert_eq "identity: agent_overrides accepts the canonical namespace" "0" "$(pid_unknown "devflow:code-reviewer")"
+assert_eq "identity: agent_overrides accepts a declared alias namespace" "0" "$(pid_unknown "pidalias:code-reviewer")"
+assert_eq "identity: agent_overrides still rejects an undeclared namespace" "1" "$(pid_unknown "impostor:code-reviewer")"
+assert_eq "identity: agent_overrides still rejects an unknown leaf under an accepted namespace" "1" \
+  "$(pid_unknown "pidalias:not-a-real-agent")"
+
+# resolve-extra-plugins.sh — a consumer settings file naming the ALIAS spec must
+# be treated as DevFlow's own (silently skipped, already installed by the baked
+# baseline) instead of emitted as a third-party plugin to compose.
+PIDS="$(mktemp -d)"
+cat > "$PIDS/settings.json" <<'PIDJSON'
+{
+  "extraKnownMarketplaces": {
+    "pidalias-marketplace": { "source": { "source": "github", "repo": "x/y" } },
+    "other-market": { "source": { "source": "github", "repo": "a/b" } }
+  },
+  "enabledPlugins": {
+    "pidalias@pidalias-marketplace": true,
+    "third-party@other-market": true
+  }
+}
+PIDJSON
+assert_eq "identity: resolve-extra-plugins skips the alias plugin spec as DevFlow's own" "" \
+  "$(bash "$PIDR/scripts/resolve-extra-plugins.sh" plugins "$PIDS/settings.json" 2>/dev/null | grep 'pidalias' || true)"
+assert_eq "identity: resolve-extra-plugins still emits a genuine third-party plugin" "third-party@other-market" \
+  "$(bash "$PIDR/scripts/resolve-extra-plugins.sh" plugins "$PIDS/settings.json" 2>/dev/null)"
+assert_eq "identity: resolve-extra-plugins skips the alias marketplace, keeps the foreign one" "https://github.com/a/b.git" \
+  "$(bash "$PIDR/scripts/resolve-extra-plugins.sh" marketplaces "$PIDS/settings.json" 2>/dev/null)"
+
+# provision-local-settings.sh — provisioning MIGRATES: it writes the canonical
+# registration and removes the superseded (alias) one, so a repo provisioned
+# under a previously-declared id is never left with two live registrations.
+PIDP="$(mktemp -d)"
+mkdir -p "$PIDP/.claude"
+cp "$PIDS/settings.json" "$PIDP/.claude/settings.json"
+bash "$PIDR/scripts/provision-local-settings.sh" "$PIDP" >/dev/null 2>&1 || true
+pid_have() { python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+print("yes" if sys.argv[3] in (d.get(sys.argv[2]) or {}) else "no")
+' "$PIDP/.claude/settings.json" "$1" "$2"; }
+assert_eq "identity: provisioning removes the superseded marketplace registration" "no" \
+  "$(pid_have extraKnownMarketplaces pidalias-marketplace)"
+assert_eq "identity: provisioning removes the superseded enabledPlugins spec" "no" \
+  "$(pid_have enabledPlugins "pidalias@pidalias-marketplace")"
+assert_eq "identity: provisioning writes the canonical marketplace registration" "yes" \
+  "$(pid_have extraKnownMarketplaces "$(python3 "$PIDR/lib/plugin_identity.py" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["marketplace_canonical"])')")"
+assert_eq "identity: provisioning writes the canonical enabledPlugins spec" "yes" \
+  "$(pid_have enabledPlugins "$(python3 "$PIDR/lib/plugin_identity.py" --canonical-plugin-spec)")"
+assert_eq "identity: provisioning leaves an unrelated marketplace untouched" "yes" \
+  "$(pid_have extraKnownMarketplaces other-market)"
+assert_eq "identity: provisioning leaves an unrelated plugin untouched" "yes" \
+  "$(pid_have enabledPlugins "third-party@other-market")"
+# …and it FAILS CLOSED (exit 2, file byte-for-byte unchanged) when the identity
+# source cannot be established — never guessing a key name.
+PIDF="$(mktemp -d)"
+mkdir -p "$PIDF/.claude"
+printf '{"a":1}\n' > "$PIDF/.claude/settings.json"
+PIDBROKEN="$(mktemp -d)"
+mkdir -p "$PIDBROKEN/lib" "$PIDBROKEN/.claude-plugin"
+cp -R "$PIDR/scripts" "$PIDBROKEN/scripts"
+cp "$PIDR/lib/plugin_identity.py" "$PIDR/lib/resolve-jq.sh" "$PIDR/lib/resolve-bin.sh" "$PIDBROKEN/lib/"
+cp "$PIDR/.claude-plugin/plugin.json" "$PIDBROKEN/.claude-plugin/"   # no lib/plugin-identity.json
+PIDF_RC=0
+bash "$PIDBROKEN/scripts/provision-local-settings.sh" "$PIDF" >/dev/null 2>&1 || PIDF_RC=$?
+assert_eq "identity: provisioning fails closed (exit 2) when the identity source is unreadable" "2" "$PIDF_RC"
+assert_eq "identity: the fail-closed provisioning run left the settings file byte-for-byte unchanged" '{"a":1}' \
+  "$(cat "$PIDF/.claude/settings.json")"
+
+unset PIDR PIDS PIDP PIDF PIDBROKEN PIDF_RC
+unset -f pid_unknown pid_have
 
 # ── #402: deny-floor helper — direct adversarial-matrix drive ────────────────
 # filter-runner-tools.sh is the AUTHORITATIVE deny-list floor. Drive it directly

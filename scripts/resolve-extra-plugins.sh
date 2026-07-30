@@ -40,8 +40,11 @@
 #       claude-md-management@claude-plugins-official, devflow@devflow-marketplace):
 #       silent skip (already installed by the baseline).
 #     - key with no @marketplace suffix: breadcrumb, not emitted.
-#     - key whose plugin name (the part before @) is "devflow": silent skip (always
-#       installed via the baked devflow@devflow-marketplace).
+#     - key whose plugin name (the part before @) is one of DevFlow's own accepted
+#       plugin names: silent skip (always installed via the baked baseline spec).
+#       That accepted set — and the DevFlow half of the two sets above — is derived
+#       from lib/plugin-identity.json + .claude-plugin/plugin.json via
+#       lib/plugin_identity.py, never spelled as a literal in this helper.
 #     - key whose marketplace suffix is outside the known set — the union of
 #       claude-plugins-official, devflow-marketplace, and the names of github-kind
 #       extraKnownMarketplaces entries in the same file WHOSE repo is a non-empty
@@ -80,11 +83,20 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-DEVFLOW_MODE="$mode" DEVFLOW_SETTINGS="$settings_path" python3 -c '
+# The plugin/marketplace identifier sets below are DERIVED from the single identity
+# source (lib/plugin-identity.json + .claude-plugin/plugin.json) via lib/plugin_identity.py,
+# never spelled as literals here. lib/ is a sibling of scripts/ in both the source repo and
+# a vendored .devflow/vendor/devflow/ tree, so this path holds on every tier. Passed via env
+# (like DEVFLOW_MODE/DEVFLOW_SETTINGS) so no path traverses shell quoting.
+DEVFLOW_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib"
+
+DEVFLOW_MODE="$mode" DEVFLOW_SETTINGS="$settings_path" DEVFLOW_LIB_DIR="$DEVFLOW_LIB_DIR" python3 -c '
 import json, os, sys
 
 mode = os.environ.get("DEVFLOW_MODE", "")
 settings_path = os.environ.get("DEVFLOW_SETTINGS", "")
+
+sys.path.insert(0, os.environ.get("DEVFLOW_LIB_DIR", ""))
 
 
 def warn(msg):
@@ -155,14 +167,35 @@ else:
     market_kinds = {}
 
 
-BAKED_PLUGINS = frozenset((
+# DevFlow own-identity sets, derived from lib/plugin_identity.py (see the shell
+# preamble). A failure to establish them is NOT degraded to a guess: this helper
+# is best-effort by contract, so it names the defect and emits nothing, leaving the
+# composing step with exactly the baked baseline.
+try:
+    import plugin_identity
+    _ident = plugin_identity.load()
+except Exception as exc:
+    warn("the accepted plugin-identifier set could not be established from "
+         "lib/plugin-identity.json + .claude-plugin/plugin.json (" + str(exc)
+         + "); emitting nothing")
+    sys.exit(0)
+
+DEVFLOW_PLUGIN_NAMES = frozenset(_ident["plugin_names"])
+DEVFLOW_PLUGIN_SPECS = frozenset(_ident["plugin_specs"])
+DEVFLOW_MARKETPLACES = frozenset(_ident["marketplace_names"])
+
+# The non-DevFlow half of the baked baseline stays a literal: those are third-party
+# plugin ids this project does not own and no rename of ours can move.
+FOREIGN_BAKED_PLUGINS = frozenset((
     "code-review@claude-plugins-official",
     "claude-md-management@claude-plugins-official",
-    "devflow@devflow-marketplace",
 ))
+FOREIGN_BASE_MARKETPLACES = frozenset(("claude-plugins-official",))
+
+BAKED_PLUGINS = FOREIGN_BAKED_PLUGINS | DEVFLOW_PLUGIN_SPECS
 # The baked-baseline marketplace names — used both as the plugins-mode known set and the
-# marketplaces-mode silent-skip set; the two concepts are the same two baseline names.
-BASE_MARKETPLACES = frozenset(("claude-plugins-official", "devflow-marketplace"))
+# marketplaces-mode silent-skip set; the two concepts are the same baseline names.
+BASE_MARKETPLACES = FOREIGN_BASE_MARKETPLACES | DEVFLOW_MARKETPLACES
 
 if mode == "plugins":
     ep = data.get("enabledPlugins")
@@ -191,7 +224,7 @@ if mode == "plugins":
             warn("enabledPlugins entry " + repr(key) + " has no @marketplace suffix; not emitted")
             continue
         plugin_name, _, market = key.partition("@")
-        if plugin_name == "devflow":
+        if plugin_name in DEVFLOW_PLUGIN_NAMES:
             continue
         if market not in known:
             if market in github_market_bad_repo:

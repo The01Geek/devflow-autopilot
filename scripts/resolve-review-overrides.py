@@ -68,6 +68,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 VALID_EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
@@ -87,21 +88,46 @@ VALID_ITERATIONS = ("first-only",)
 # scalar/array entry the operator hand-edited in.
 _OBJECT_SENTINEL = "[object Object]"
 
-# The nine review-engine subagent identifiers. Byte-identical to the schema
-# property keys and the dispatch ids in skills/review/SKILL.md; the six Phase-3
-# ids additionally match the telemetry strings (phase3_dispatched / finding
-# `agent`) in skills/review-and-fix/SKILL.md.
-KNOWN_AGENTS = (
-    "devflow:checklist-generator",
-    "devflow:checklist-deduper",
-    "devflow:checklist-verifier",
-    "devflow:code-reviewer",
-    "devflow:silent-failure-hunter",
-    "devflow:comment-analyzer",
-    "devflow:type-design-analyzer",
-    "devflow:pr-test-analyzer",
-    "devflow:requesting-code-review",
+# The nine review-engine subagent LEAF ids — the part after the plugin
+# namespace. Byte-identical to the leaf of each schema property key and of each
+# dispatch id in skills/review/SKILL.md; the six Phase-3 ids additionally match
+# the telemetry strings (phase3_dispatched / finding `agent`) in
+# skills/review-and-fix/SKILL.md.
+AGENT_LEAVES = (
+    "checklist-generator",
+    "checklist-deduper",
+    "checklist-verifier",
+    "code-reviewer",
+    "silent-failure-hunter",
+    "comment-analyzer",
+    "type-design-analyzer",
+    "pr-test-analyzer",
+    "requesting-code-review",
 )
+
+# `agent_overrides` keys are namespaced by the plugin id (`<plugin>:<leaf>`), and
+# this allowlist is CLOSED — an unrecognized key is reported as drift. The
+# accepted namespace set is therefore derived from the single identity source
+# (lib/plugin-identity.json + .claude-plugin/plugin.json) rather than spelled as
+# a literal here, so every declared identifier resolves without this file being
+# re-edited. lib/ is a sibling of scripts/ in both the source repo and a vendored
+# .devflow/vendor/devflow/ tree, so the import path holds on every tier.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+try:
+    import plugin_identity as _plugin_identity
+
+    AGENT_NAMESPACES = tuple(_plugin_identity.agent_namespaces())
+    IDENTITY_ERROR = None
+except Exception as _exc:  # pragma: no cover - exercised via the degraded-path test
+    # DEGRADED, and said out loud. This allowlist only produces an advisory
+    # drift warning, so the honest degradation is to stop claiming an id is
+    # unknown (which would be a fabricated diagnosis) — never to guess a
+    # namespace. Every other resolution path is unaffected.
+    AGENT_NAMESPACES = ()
+    IDENTITY_ERROR = str(_exc)
+
+# The resolved closed allowlist: every accepted namespace crossed with every leaf.
+KNOWN_AGENTS = tuple(ns + leaf for ns in AGENT_NAMESPACES for leaf in AGENT_LEAVES)
 
 
 def _entry_for(raw, agent, default_entry=None):
@@ -556,7 +582,20 @@ def main(argv=None):
     # A dispatched id not in the known roster is almost always a drift between
     # SKILL.md's hardcoded strings and the canonical roster, or an operator typo
     # in agent_overrides — warn (don't abort) so it isn't a silent no-op.
-    unknown = list(dict.fromkeys(a for a in args.agents if a not in KNOWN_AGENTS))
+    # When the identity source could not be read the accepted-namespace set is
+    # unestablished, NOT empty — calling every dispatched id "unknown" would be a
+    # fabricated diagnosis (unknown is not zero). Report the real defect once and
+    # emit no per-agent drift warnings.
+    if not KNOWN_AGENTS:
+        unknown = []
+        sys.stderr.write(
+            "::warning::resolve-review-overrides: the accepted plugin-namespace "
+            "set could not be established from lib/plugin-identity.json + "
+            f".claude-plugin/plugin.json ({IDENTITY_ERROR}); the subagent-id drift "
+            "check is skipped this run. Overrides still resolve normally.\n"
+        )
+    else:
+        unknown = list(dict.fromkeys(a for a in args.agents if a not in KNOWN_AGENTS))
 
     raw, read_warnings = read_raw(args.agents, args.config_get, args.config)
     result, resolve_warnings = resolve_overrides(raw, args.agents)
