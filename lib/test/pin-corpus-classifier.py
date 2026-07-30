@@ -214,12 +214,32 @@ def source_existence_helpers(text: str) -> tuple[frozenset[str], dict]:
     silently move sites into the existence census that were never in it.
     """
     specs, _, _ = PCL.helper_specs_for_source(text)
-    wrappers = {
-        name: spec
-        for name, spec in specs.items()
-        if name not in PCL.HELPERS
-        and name.endswith(PCL.STATIC_PRESENCE_WRAPPER_SUFFIXES)
-    }
+    wrappers = {}
+    for name, spec in specs.items():
+        if name in PCL.HELPERS or not name.endswith(
+            PCL.STATIC_PRESENCE_WRAPPER_SUFFIXES
+        ):
+            continue
+        # Admit only a spec this reader's own extraction pass can resolve.
+        # ``PCL.extract_pins`` skips a spec whose literal selector is not a
+        # positional index (a fixed-literal wrapper) — so admitting one here would
+        # make the two passes disagree: the shared pass would drop the site while
+        # this reader's physical-token loop still counted it, and the cardinality
+        # reconciliation below would then raise a "mismatch" naming the wrong
+        # cause. Reject it at the seam instead, so the diagnostic names the real
+        # problem. Dropping it silently is NOT the alternative: a wrapper whose
+        # name claims the presence convention but whose shape is not the resolvable
+        # one is an inconsistency a human must look at, and silence would let its
+        # pins escape the census entirely.
+        if not isinstance(spec[0], int):
+            raise ValueError(
+                f"presence-suffixed wrapper {name!r} infers a fixed-literal spec "
+                f"({spec!r}); the census can only resolve a positional-literal "
+                "wrapper. Rename it out of "
+                f"{PCL.STATIC_PRESENCE_WRAPPER_SUFFIXES!r} or give it the "
+                "<assertion-name> <literal> <file> shape."
+            )
+        wrappers[name] = spec
     resolvable = {name: PCL.HELPERS[name] for name in EXISTENCE_HELPERS}
     resolvable.update(wrappers)
     return frozenset(EXISTENCE_HELPERS) | frozenset(wrappers), resolvable

@@ -174,6 +174,16 @@ assert_eq "counted" "0" "$(raf_illegal_count "$LIB/c.md")"
         self.assertIn("_raf_pin_unique", helpers)
         self.assertNotIn("_raf_pin_count", helpers)
         self.assertNotIn("raf_illegal_count", helpers)
+        # The sibling suffix earns the same admission — the convention is the pair,
+        # not just the one member review-and-fix-contract.sh happens to use.
+        present_helpers, present_specs = self.mod.source_existence_helpers(
+            "_mod_pin_present() {\n"
+            '  assert_eq "$1" "yes" "$(grep_present "$2" "$3")"\n'
+            "}\n"
+            "_mod_pin_present \"named\" 'gamma' \"$LIB/g.md\"\n"
+        )
+        self.assertIn("_mod_pin_present", present_helpers)
+        self.assertEqual((1, 2, None), present_specs["_mod_pin_present"])
         self.assertEqual((1, 2, None), specs["_raf_pin_unique"])
         rows = self.mod.extract_existence_sites(
             source, "lib/test/modules/example.sh", "/repo/lib", {}
@@ -189,6 +199,32 @@ assert_eq "counted" "0" "$(raf_illegal_count "$LIB/c.md")"
             "lib/test/modules/review-and-fix-contract.sh",
             self.mod.PIN_CORPUS_SOURCES[-1],
         )
+
+    def test_presence_suffixed_fixed_literal_wrapper_is_rejected_at_the_seam(self):
+        # A wrapper whose NAME claims the presence convention but whose inferred
+        # spec carries a fixed literal instead of a positional index cannot be
+        # resolved by the shared extraction pass, which skips it. Admitting it
+        # would make the two passes disagree and surface as a cardinality
+        # "mismatch" naming the wrong cause; dropping it silently would let its
+        # pins escape the census. Both are wrong, so admission raises — and the
+        # message must name the wrapper and the shape it needs.
+        source = """\
+_bad_pin_unique() {
+  pin_count 'a fixed literal' "$1"
+}
+_bad_pin_unique "$LIB/x.md"
+"""
+        with self.assertRaises(ValueError) as caught:
+            self.mod.source_existence_helpers(source)
+        message = str(caught.exception)
+        self.assertIn("_bad_pin_unique", message)
+        self.assertIn("fixed-literal spec", message)
+        # Negative control: the same body under a name outside the suffix set is
+        # simply not a presence wrapper, and must NOT raise.
+        helpers, _ = self.mod.source_existence_helpers(
+            source.replace("_bad_pin_unique", "_bad_counter")
+        )
+        self.assertNotIn("_bad_counter", helpers)
 
     def test_override_name_recovery_binds_synthetic_nontracked_paths(self):
         source = """\
