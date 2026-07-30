@@ -1,6 +1,6 @@
-# DevFlow working-directory contract
+# PRFlow working-directory contract
 
-Every DevFlow bundled-helper invocation on the cloud tiers is a **repo-relative
+Every PRFlow bundled-helper invocation on the cloud tiers is a **repo-relative
 literal** — `.devflow/vendor/devflow/scripts/…` (and `.devflow/vendor/devflow/lib/…`),
 or the repo-root `scripts/…` / `lib/…` form in a self-repo checkout — because that
 is the only form the harness permission matcher grants (see
@@ -10,7 +10,7 @@ working directory a **load-bearing precondition** for the whole engine, and this
 page is the single canonical statement of what that precondition is and where it
 holds.
 
-The rule this page exists to state, up front: **no DevFlow surface emits a leading
+The rule this page exists to state, up front: **no PRFlow surface emits a leading
 `cd`.** A statement whose first token is `cd` (a "leading `cd`") moves the shell's
 working directory, and because the Bash tool's working directory **persists across
 calls** (see below), every later repo-relative helper then resolves against the
@@ -24,7 +24,7 @@ a `cd`, a `VAR=value` prefix, or a `bash <path>` wrapper).
 
 On the cloud tiers (`devflow-runner.yml`, `devflow.yml`, `devflow-implement.yml`):
 
-- `actions/checkout` places the run at the **workspace root**, and no DevFlow job
+- `actions/checkout` places the run at the **workspace root**, and no PRFlow job
   overrides it — there is no `working-directory:` on any step and no job `cd`s. So
   the run **begins at the repository root**, which is the directory every
   repo-relative helper literal resolves against.
@@ -42,9 +42,9 @@ from some other directory, so the only safe posture is to never leave the root.
 ## Local and interactive tier — no working-directory guarantee
 
 The local and interactive tier carries **no** such guarantee. A consumer invokes
-DevFlow from any directory, on Windows, macOS, or Linux, across several runners
+PRFlow from any directory, on Windows, macOS, or Linux, across several runners
 (Claude Code, Copilot CLI, Cursor, Codex CLI, Gemini CLI). Nothing pins the shell
-to the repository root. DevFlow therefore does not depend on cwd on this tier; it
+to the repository root. PRFlow therefore does not depend on cwd on this tier; it
 **re-anchors** instead, through two mechanisms:
 
 - **`git rev-parse --show-toplevel` resolution used by the `.devflow/` readers.**
@@ -67,7 +67,7 @@ vendored to.
 
 ## Why the rule is an authoring rule, not a matcher claim
 
-The no-`cd` rule is stated as an **authoring rule** — "no DevFlow surface emits a
+The no-`cd` rule is stated as an **authoring rule** — "no PRFlow surface emits a
 leading `cd`" — and **not** as a claim that a matcher refuses one. The PR #847
 review incident (run 30222310785) recorded a leading `cd` **executing** on the
 review tier, where `Bash(cd:*)` is already ungranted, so an ungranted `cd` head

@@ -11497,7 +11497,7 @@ echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku overrid
 assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 5, and carries an effort key" \
   "ok" \
   "$(jq -r '
-      (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
+      (.devflow_review.agent_overrides["prflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
         elif (($d.model // "") != "claude-sonnet-5") then "not-sonnet"
         elif ($d | has("effort") | not) then "no-effort"

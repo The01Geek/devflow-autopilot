@@ -26,7 +26,7 @@ run can end with **no verdict at all**).
 
 - **Auto-review path**: the `review` profile's `TOOLS='…'` line in
   `.github/workflows/devflow-runner.yml`.
-- **Manual `/devflow:review` comment path**: `devflow.yml`'s hoisted `TOOLS='…'`
+- **Manual `/prflow:review` comment path**: `devflow.yml`'s hoisted `TOOLS='…'`
   (the `Resolve allowed-tools` step, consumed by `claude_args` **and** by the
   injected block alike, so the two cannot drift).
 
@@ -555,7 +555,7 @@ source (#275) and resolves it at runtime — so it stays **prose-discipline**.
 
 ## Implement-profile head guard + inline-engine surface (issue #484)
 
-Phase 3 of `/devflow:implement` runs the review engine **inline** under
+Phase 3 of `/prflow:implement` runs the review engine **inline** under
 `devflow-implement.yml`'s baked `--allowed-tools` (**not** the review profile), so
 **every helper the normal inline flow can reach needs an implement-profile
 grant** — the review engine is shared.
@@ -677,7 +677,7 @@ literals.
 
 ### Implement-tier bundled-helper grant flow (issue #555)
 
-A bundled helper that a `/devflow:implement` fence invokes — the §4.0.5-class
+A bundled helper that a `/prflow:implement` fence invokes — the §4.0.5-class
 case, e.g. `scripts/discover-deferral-manifests.py` — is granted by adding its
 vendored-literal token
 `Bash(.devflow/vendor/devflow/scripts/<helper>:*)` (the **row-I2-proven** explicit

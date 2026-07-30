@@ -44,7 +44,7 @@ acceptance criterion of the issue rather than elaboration:
    are restated verbatim so the relaxation is scoped to *when* the suite runs, never to *what*
    counts as clean.
 4. **The unweakened cloud rule** — `review-and-fix.md` and `implement.md` each restate that the
-   cloud `/devflow:implement` in-env gate (issue #405) is unchanged and never waits on or cites
+   cloud `/prflow:implement` in-env gate (issue #405) is unchanged and never waits on or cites
    CI. Without it, the parallel-push allowance reads as tier-agnostic and would license exactly
    the CI-citing behavior #405 forbids.
 

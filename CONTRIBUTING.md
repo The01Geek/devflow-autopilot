@@ -1,14 +1,14 @@
-# Contributing to DevFlow
+# Contributing to PRFlow
 
-Thanks for your interest in improving DevFlow! This guide covers the basics.
+Thanks for your interest in improving PRFlow! This guide covers the basics.
 
 ## Repository layout
 
-DevFlow is a single Claude Code plugin published at the repository root:
+PRFlow is a single Claude Code plugin published at the repository root:
 
 ```
 .claude-plugin/   plugin.json + marketplace.json (manifests)
-skills/           the /devflow:implement, /devflow:review, /devflow:docs, … skills (SKILL.md each)
+skills/           the /prflow:implement, /prflow:review, /prflow:docs, … skills (SKILL.md each)
 agents/           subagent definitions
 lib/              shell + jq helpers for the retrospective loop, plus lib/test/
 scripts/          Python + shell CLIs (workpad.py, config-get.sh, …)
@@ -23,7 +23,7 @@ docs/             cloud-setup guide and other docs
 
 Run `bash lib/preflight.sh` to verify your environment.
 
-**Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every DevFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
+**Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every PRFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
 
 ```bash
 bash scripts/provision-python3-shim.sh --apply
@@ -82,7 +82,7 @@ tree is committed, so do not re-run the complete suite mid-iteration just to
 clear it. When the complete suite does run and fails, read its terminal
 `Failure recap` from the captured output rather than relaunching it. The operative statement of this
 policy for agent runs lives in the prompt extensions under
-`.devflow/prompt-extensions/`; the cloud `/devflow:implement` in-env gate
+`.devflow/prompt-extensions/`; the cloud `/prflow:implement` in-env gate
 (issue #405) is untouched by it.
 
 Each module is also executed by the full suite through the fail-closed
@@ -418,7 +418,7 @@ the emitted `conflict-path`/`conflict-sibling` paths is an ordinary hand-merge, 
 `--list` that cannot run — or that emits no `artifact`/`conflict-class` lines — means
 needs-human-reconciliation and stop, never a guessed hand-merge.
 
-Autonomous `/devflow:implement`, `/devflow:review-and-fix`, and `/devflow:receiving-code-review`
+Autonomous `/prflow:implement`, `/prflow:review-and-fix`, and `/prflow:receiving-code-review`
 runs apply this automatically: the rule lives, byte-identical, in the three
 `.devflow/prompt-extensions/` files, and each skill's in-run conflict arm carries a generic
 pointer to it. Adding a new artifact row therefore extends the conflict rule with no prompt
@@ -591,7 +591,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   that: it invokes the helper identically on every tier. When you **add a new skill**, copy this step verbatim (substituting the
   new skill's directory name) so it inherits the convention, **and** add the new skill's
   name plus a one-line hint to the prompt-extension scaffold list in
-  `scripts/scaffold-config.sh` — `/devflow:init` scaffolds one inert
+  `scripts/scaffold-config.sh` — `/prflow:init` scaffolds one inert
   `<skill-name>.md.example` per skill, so a new skill needs a matching example. Two
   coverage tests in `lib/test/run.sh` enforce both halves: one enumerates every
   `skills/*/SKILL.md` and fails if a skill omits the standardized step, and the
@@ -600,7 +600,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
 - **A skill loads the extensions its behavior draws on — usually one, sometimes more
   (issue #620).** The step above is a floor, not a cap: a skill that applies *another*
   skill's principles without invoking that skill loads that skill's extension too, so the
-  policy follows the behavior rather than the invocation. `/devflow:review-and-fix` is the
+  policy follows the behavior rather than the invocation. `/prflow:review-and-fix` is the
   instance — its preamble loads `review-and-fix` and then `receiving-code-review`, because
   the fix loop applies those principles without ever invoking that skill. When you add or
   change a skill, ask which other skills' principles it applies un-invoked. The rule and
@@ -637,7 +637,7 @@ resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.
 
 ### Versioning (changesets)
 
-DevFlow versions itself with changesets so concurrent PRs never collide on the `version` line
+PRFlow versions itself with changesets so concurrent PRs never collide on the `version` line
 or the top of `CHANGELOG.md`. Each PR adds a `.changeset/*.md`; when it merges to `main`, the
 `version-consolidate` GitHub Action (`.github/workflows/version-consolidate.yml`),
 running `scripts/consolidate-changesets.py`, bumps

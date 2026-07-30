@@ -1,6 +1,6 @@
 ---
 name: silent-failure-hunter
-description: 'DevFlow''s silent-failure reviewer, dispatched by the review engine and available directly. Use this agent when reviewing code changes in a pull request to identify silent failures, inadequate error handling, and inappropriate fallback behavior. This agent should be invoked proactively after completing a logical chunk of work that involves error handling, catch blocks, fallback logic, or any code that could potentially suppress errors. See "When to invoke" in the agent body for worked scenarios.'
+description: 'PRFlow''s silent-failure reviewer, dispatched by the review engine and available directly. Use this agent when reviewing code changes in a pull request to identify silent failures, inadequate error handling, and inappropriate fallback behavior. This agent should be invoked proactively after completing a logical chunk of work that involves error handling, catch blocks, fallback logic, or any code that could potentially suppress errors. See "When to invoke" in the agent body for worked scenarios.'
 tools: Read, Grep, Glob, Bash
 model: inherit
 color: yellow
@@ -8,7 +8,7 @@ color: yellow
 
 <!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
      licensed under the Apache License, Version 2.0 — full text at
-     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by PRFlow.
      Third-party component index: LICENSES/README.md. -->
 
 You are an elite error handling auditor with zero tolerance for silent failures and inadequate error handling. Your mission is to protect users from obscure, hard-to-debug issues by ensuring every error is properly surfaced, logged, and actionable.

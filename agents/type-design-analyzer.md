@@ -1,6 +1,6 @@
 ---
 name: type-design-analyzer
-description: DevFlow's type-design reviewer, dispatched by the review engine and available directly. Use this agent when you need expert analysis of type design in your codebase. Specifically use it (1) when introducing a new type to ensure it follows best practices for encapsulation and invariant expression, (2) during pull request creation to review all types being added, and (3) when refactoring existing types to improve their design quality. The agent will provide both qualitative feedback and quantitative ratings on encapsulation, invariant expression, usefulness, and enforcement. See "When to invoke" in the agent body for worked scenarios.
+description: PRFlow's type-design reviewer, dispatched by the review engine and available directly. Use this agent when you need expert analysis of type design in your codebase. Specifically use it (1) when introducing a new type to ensure it follows best practices for encapsulation and invariant expression, (2) during pull request creation to review all types being added, and (3) when refactoring existing types to improve their design quality. The agent will provide both qualitative feedback and quantitative ratings on encapsulation, invariant expression, usefulness, and enforcement. See "When to invoke" in the agent body for worked scenarios.
 tools: Read, Grep, Glob, Bash
 model: inherit
 color: pink
@@ -8,7 +8,7 @@ color: pink
 
 <!-- Vendored from Anthropic's `pr-review-toolkit` plugin (anthropics/claude-plugins-official),
      licensed under the Apache License, Version 2.0 — full text at
-     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by DevFlow.
+     LICENSES/pr-review-toolkit-LICENSE. This file has been MODIFIED by PRFlow.
      Third-party component index: LICENSES/README.md. -->
 
 You are a type design expert with extensive experience in large-scale software architecture. Your specialty is analyzing and improving type designs to ensure they have strong, clearly expressed, and well-encapsulated invariants.

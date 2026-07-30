@@ -7,9 +7,9 @@ kind: growth
 
 Each of the mandatory census rows listed below grows by one `## Batched artifact regeneration` section. The defining site is the `for _ra_ext in …` pin loop in `lib/test/run.sh`, which pins every listed surface — a count stated here would be a mirror-fact that rots if a fourth surface is added:
 
-- `.devflow/prompt-extensions/implement.md` — the `/devflow:implement` entry surface, loaded
+- `.devflow/prompt-extensions/implement.md` — the `/prflow:implement` entry surface, loaded
   unconditionally by its `load-prompt-extension.sh` step.
-- `.devflow/prompt-extensions/review-and-fix.md` — the `/devflow:review-and-fix` entry surface,
+- `.devflow/prompt-extensions/review-and-fix.md` — the `/prflow:review-and-fix` entry surface,
   loaded unconditionally by its SKILL.md `load-prompt-extension.sh` step.
 - `.devflow/prompt-extensions/receiving-code-review.md` — loaded whenever the
   receiving-code-review skill itself loads (interactive invocations and description-matched
@@ -35,7 +35,7 @@ rare path would be absent at exactly the moment the pass is due, which is the fa
 
 Every named surface is grown rather than one, because each is the unconditional entry surface of a
 distinct loop that induces this drift, and none of them is loaded by the others. In
-particular, `/devflow:review-and-fix` cites the receiving-code-review skill by *principles* only —
+particular, `/prflow:review-and-fix` cites the receiving-code-review skill by *principles* only —
 a prose citation, not a guaranteed skill load — so the receiving-code-review extension alone would
 not reach the flagship fix loop.
 
@@ -43,9 +43,9 @@ not reach the flagship fix loop.
 > Two statements above described the load topology as it stood at this cutover and no longer hold:
 > the `receiving-code-review` extension's load condition (the third bullet under **Files**) and the
 > "none of them is loaded by the others" premise in the paragraph immediately above. Issue #620 added
-> a second `load-prompt-extension.sh` call to the `/devflow:review-and-fix` preamble, so that
+> a second `load-prompt-extension.sh` call to the `/prflow:review-and-fix` preamble, so that
 > extension now also loads unconditionally on every entry through that preamble — the standalone
-> loop, the `/devflow:implement` Phase 3 inline run, and the Step 2.6 shadow entry. The flagship fix
+> loop, the `/prflow:implement` Phase 3 inline run, and the Step 2.6 shadow entry. The flagship fix
 > loop therefore *is* reached by the receiving extension today. The decision recorded here is left
 > as written: it was sound on the topology of its time, and this note corrects the premise without
 > re-litigating whether the resulting duplication is still wanted.
