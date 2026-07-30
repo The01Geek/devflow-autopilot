@@ -85,7 +85,11 @@ jobs:
       # population off a run's own NOTE lines rather than from this comment, which is a
       # dated observation exactly like the figure above.
       #
-      # The gate is not cosmetic. It stages a plugin-only tree and validates it, and
+      # The gate is not cosmetic. It stages the SHIPPED PAYLOAD — the tracked index minus
+      # .claude-plugin/marketplace.json, whose presence would route the CLI to marketplace
+      # mode instead — so root files are validated too, and the one known root warning is
+      # allowlisted as a withheld path inside a differential pair rather than by filtering
+      # validator output (see the block's own comment in lib/test/run.sh for the arms). And
       # that validation DESCENDS into the skills/ and agents/ trees rather than stopping
       # at the manifest: a malformed-YAML, absent, or empty frontmatter block exits 1 —
       # and so does one that parses cleanly but omits a required key, which is the shape

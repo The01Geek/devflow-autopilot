@@ -27173,25 +27173,188 @@ for pkg_w in .claude-plugin/plugin.json CHANGELOG.md CITATION.cff .claude-plugin
     "$(printf '%s' "$PKG_VC_ADD" | grep -qF " $pkg_w" && echo yes || echo no)"
 done
 
-# (3) full `claude plugin validate --strict` over the plugin tree. The repo root holds BOTH
-# manifests and the CLI resolves the marketplace one, so stage a temp dir holding ONLY
-# plugin.json + real copies of the component dirs (no marketplace.json beside it, no symlinks
-# leaving the tree — cp of real files, per the security-skip constraint) and validate that path.
+# (3) full `claude plugin validate --strict` over the SHIPPED PAYLOAD tree.
+#
+# A marketplace `/plugin install` ships the WHOLE repo subtree, so the tree validated here has to
+# be the tree consumers actually receive. The earlier shape staged only plugin.json + the
+# component dirs, which excluded every ROOT file — and the root is exactly where this repo's one
+# strict offender lives. The gate was therefore green by CONSTRUCTION (it omitted the only file
+# that fails) rather than because the payload is clean: a blind spot, not a pass.
+#
+# INCLUSION RULE, derived rather than hardcoded: every path in the git INDEX (`git ls-files`,
+# no --others — the #711 tree-enumeration convention; a working-tree walk would descend into the
+# sibling worktrees under .claude/worktrees/ and stage another branch's checkout), MINUS
+# `.claude-plugin/marketplace.json`. Paths are copied one at a time with plain `cp`, so a tracked
+# symlink would land as its dereferenced content — no link leaves the tree, which is the
+# security-skip constraint the older `cp -R` form satisfied by copying real files.
+#
+# That single exclusion is NOT a payload judgement. Mode is selected by WHAT THE VALIDATED
+# DIRECTORY CONTAINS: a `.claude-plugin/marketplace.json` beside plugin.json routes the CLI to
+# MARKETPLACE mode, which block (4) below owns with its own staged fixture. Withholding that one
+# path is what keeps PLUGIN mode selected here — pointing the validator at the repo root instead
+# would silently turn this gate into a duplicate of block (4) rather than simplifying it.
+#
+# KNOWN-WARNING EXCEPTION. `CLAUDE.md` at the plugin root is inert for plugin consumers, so
+# --strict warns on it; it is this repo's own project memory and stays where it is. The exception
+# is expressed STRUCTURALLY — one named path withheld from staging, inside a differential pair —
+# never as a text filter over validator output, so no unrelated finding can be swallowed by a
+# loose match. Each arm fails for its own distinct reason:
+#   arm A (obsolescence detector): the tree AS SHIPPED must STILL FAIL, naming that exact
+#     warning. An expected-failure that stops failing is a defect — if the file moves, or the CLI
+#     drops or reworks the diagnostic, this arm reddens rather than letting the exception quietly
+#     outlive its cause.
+#   arm B (positive control, and the real gate): the same tree with ONLY that one path withheld
+#     must pass CLEAN. No output is filtered, so ANY other finding — at the root or anywhere in
+#     the payload — reddens it. It is also what establishes that arm A's failure had one cause:
+#     a second offender hiding behind the known one cannot survive both arms. (Not a warning
+#     COUNT: the CLI emits one `Found N warning` block PER OFFENDING FILE, so two offenders read
+#     as two `Found 1 warning` blocks and a count assertion would be unsound. Observed directly
+#     on CLI 2.1.220 against a synthetic two-offender tree — `CLAUDE.md` and `CLAUDE.local.md`
+#     at the root of the same plugin printed two separate `Found 1 warning` blocks, never a
+#     single `Found 2 warnings`. That is one observed version, not a documented CLI contract.)
+#   arm C (planted-defect control): a SECOND, DIFFERENT root-level offender added to arm B's tree
+#     must still be rejected, proving the exception is that one path and not a blanket tolerance
+#     for root warnings.
+# BRITTLENESS, stated rather than hidden: arms A and C match the CLI's prose (`root: <file> at
+# the plugin root`), the most structural identifier it offers — `claude plugin validate` exposes
+# no machine-readable output mode to key on instead: on CLI 2.1.220 its `--help` lists exactly two
+# options, `-h, --help` and `--strict`, with no --json/--format among them. That is an observation
+# of one version's help text, not a guarantee no such flag exists or will appear. A CLI upgrade that
+# rewords the diagnostic reddens A and C loudly and accurately while arm B keeps its coverage
+# intact. Same trade-off and same resolution as block (4)'s `Validating marketplace manifest:`
+# mode assertion. CI pins the CLI (CLAUDE_CLI_VERSION in ci.yml) while the desk runs whatever the
+# host has, so a reword reddens locally first — the helper below replays the validator's own
+# output and names the observed version so the cause is not re-derived by hand.
 if command -v claude >/dev/null 2>&1; then
   PKG_STAGE="$(mktemp -d)"
-  mkdir -p "$PKG_STAGE/.claude-plugin"
-  cp "$REPO_ROOT/.claude-plugin/plugin.json" "$PKG_STAGE/.claude-plugin/plugin.json"
-  for d in agents skills commands hooks; do
-    [ -e "$REPO_ROOT/$d" ] && cp -R "$REPO_ROOT/$d" "$PKG_STAGE/$d"
+  [ -n "$PKG_STAGE" ] && [ -d "$PKG_STAGE" ] || { printf 'FATAL: mktemp -d failed for the #671 payload staging tree\n' >&2; exit 1; }
+  # Registered with the whole-run EXIT-trap registry at its creation site, not merely removed by
+  # the trailing `rm -rf`: every FATAL `exit 1` between here and that line skips the removal, and
+  # an unregistered temp is exactly the early-exit leak class the registry header records PR #539
+  # as having fixed. The trailing `rm -rf` stays — it frees the tree at the normal end of the
+  # block rather than at process exit — and a second removal of an already-removed path is a
+  # silent no-op, so the two do not conflict.
+  _suite_tmp_dir "$PKG_STAGE"
+  # The allowlisted root path: present in arm A, withheld in arm B. Single source for both the
+  # staging exclusion and the warning text the arms match, so the two cannot drift apart.
+  PKG_ALLOWLISTED_ROOT='CLAUDE.md'
+  PKG_STAGE_N=0; PKG_STAGE_SKIPPED=0
+  while IFS= read -r -d '' pkg_f; do
+    case "$pkg_f" in .claude-plugin/marketplace.json) PKG_STAGE_SKIPPED=$((PKG_STAGE_SKIPPED + 1)); continue ;; esac
+    # `${f%/*}` yields the file itself when the path holds no slash, so mkdir-ing it
+    # unconditionally would create a DIRECTORY named after every root-level file and land the
+    # copy one level too deep — silently dropping the whole root, which is the very blind spot
+    # this block exists to close. Guard on the path actually having a directory component.
+    case "$pkg_f" in
+      */*) mkdir -p "$PKG_STAGE/${pkg_f%/*}" \
+             || { printf 'FATAL: #671 payload staging failed (mkdir for %s)\n' "$pkg_f" >&2; exit 1; } ;;
+    esac
+    cp "$REPO_ROOT/$pkg_f" "$PKG_STAGE/$pkg_f" \
+      || { printf 'FATAL: #671 payload staging failed (cp %s)\n' "$pkg_f" >&2; exit 1; }
+    PKG_STAGE_N=$((PKG_STAGE_N + 1))
+  done < <(git -C "$REPO_ROOT" ls-files -z)
+
+  # Fail CLOSED on a half-staged tree. Arm B ASSERTS A PASS, so a tree that lost its component
+  # dirs — or the root file arm A needs — would validate clean for the wrong reason and read as
+  # a green gate over nothing. Probes are presence checks on representative payload members and
+  # on the one deliberate omission, deliberately count-free: a staged-file-count literal would
+  # rot on the next file added to the repo.
+  assert_eq "#671 packaging: the payload staging loop copied files (a silently empty tree cannot masquerade as a clean pass)" "yes" \
+    "$([ "$PKG_STAGE_N" -gt 0 ] && echo yes || echo no)"
+  assert_eq "#671 packaging: exactly one tracked path is withheld from the payload tree (marketplace.json)" "1" "$PKG_STAGE_SKIPPED"
+  for pkg_probe in .claude-plugin/plugin.json "$PKG_ALLOWLISTED_ROOT" README.md install.sh skills agents lib scripts docs LICENSES; do
+    assert_eq "#671 packaging: the staged payload tree carries $pkg_probe" "yes" \
+      "$([ -e "$PKG_STAGE/$pkg_probe" ] && echo yes || echo no)"
   done
-  PKG_VAL_OUT="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"; PKG_VAL_RC=$?
-  [ "$PKG_VAL_RC" -eq 0 ] || printf '%s\n' "$PKG_VAL_OUT"
-  # Require BOTH a zero exit AND the 'Validation passed' line (the AC's expected output). The
-  # exit code is the authoritative signal — an OR fallback on the string alone would pass green
-  # on a non-zero exit whose output merely contained a per-component 'Validation passed' line.
-  assert_eq "#671 packaging: claude plugin validate --strict passes on the staged plugin tree" "yes" \
-    "$( { [ "$PKG_VAL_RC" -eq 0 ] && printf '%s' "$PKG_VAL_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+  assert_eq "#671 packaging: the staged payload tree withholds marketplace.json, so PLUGIN mode stays selected" "no" \
+    "$([ -e "$PKG_STAGE/.claude-plugin/marketplace.json" ] && echo yes || echo no)"
+
+  # NO-SYMLINKS probe — the enforced form of the staging comment's "no link leaves the tree".
+  # Plain `cp` (no -R/-P) dereferences, so a tracked symlink lands as its content; that was
+  # asserted only in prose, and prose cannot notice a future `cp -P`/`cp -a` or a staging rewrite
+  # that starts preserving links. A link that survived staging would let its TARGET's content be
+  # validated while the shipped payload carries the link instead — content smuggled past the gate.
+  #
+  # Builtin-only by construction (the guard-class-2 rule): this value DECIDES an asserted result,
+  # and a `find … -type l` would answer "clean" by printing nothing on a host lacking `find`,
+  # which lib/preflight.sh does not guarantee. A `**` glob is neither `find` nor `grep -r`, and
+  # its root is a mktemp staging tree rather than the repository, so it needs no
+  # `# tree-walk-ok:` marker. globstar reports a symlinked directory rather than descending
+  # THROUGH it, so the walk cannot loop.
+  devflow_pkg_first_symlink() (  # $1 = tree root; echoes the first symlink's path relative to it, else nothing
+    [ -d "$1" ] || { printf 'NOT-A-DIRECTORY\n'; return; }
+    _pkg_root="$1"   # `set --` below overwrites $1, so the root is captured before the glob
+    set +f           # a glob-disabled caller would otherwise leave the pattern literal
+    shopt -s globstar dotglob nullglob 2>/dev/null
+    # Fail CLOSED on a shell without globstar: `**` degrades to a single-level `*` there, which
+    # reports a NESTED link as absent — the probe silently passing over its own blind spot.
+    shopt -q globstar || { printf 'GLOBSTAR-UNAVAILABLE\n'; return; }
+    set -- "$_pkg_root"/**
+    for _pkg_p; do
+      [ -L "$_pkg_p" ] && { printf '%s\n' "${_pkg_p#"$_pkg_root"/}"; return; }
+    done
+  )
+  assert_eq "#671 packaging: the staged payload tree contains NO symlinks (a link could smuggle content past the validated tree)" "" \
+    "$(devflow_pkg_first_symlink "$PKG_STAGE")"
+  # Negative control. The assertion above passes vacuously if the probe can never report anything
+  # — a quoting slip, globstar not taking, a loop that tests the wrong operand — so plant one link
+  # and require the probe to NAME it. Planted NESTED on purpose: the single-level degradation the
+  # globstar guard above rejects would miss exactly this shape and leave the arm green.
+  ln -s ../plugin.json "$PKG_STAGE/.claude-plugin/devflow-symlink-control" \
+    || { printf 'FATAL: #671 no-symlink probe could not plant its control link\n' >&2; exit 1; }
+  assert_eq "#671 packaging: the no-symlink probe NAMES a planted nested link (it can fail, and says where)" \
+    ".claude-plugin/devflow-symlink-control" "$(devflow_pkg_first_symlink "$PKG_STAGE")"
+  rm -f "$PKG_STAGE/.claude-plugin/devflow-symlink-control" \
+    || { printf 'FATAL: #671 no-symlink probe could not remove its control link\n' >&2; exit 1; }
+  # Restored state is asserted, not assumed: a surviving control link is an extra root-adjacent
+  # file the arms below would validate, so arm B's clean-pass claim would be about a different
+  # tree than the one staged.
+  assert_eq "#671 packaging: the control link is removed again, so the arms below validate the staged tree itself" "" \
+    "$(devflow_pkg_first_symlink "$PKG_STAGE")"
+
+  # Publishes BOTH the rc and the validator's output through globals, and is called as a plain
+  # statement — never in a command substitution, which would run it in a subshell and drop the
+  # captured output while the rc still looked right. Every arm below asserts on the output as
+  # well as the rc, so that silent loss would leave three arms failing for no visible reason.
+  devflow_pkg_payload_rc=''
+  devflow_pkg_payload_out=''
+  devflow_pkg_payload_validate() {  # $1 = expected rc; sets devflow_pkg_payload_rc / _out
+    devflow_pkg_payload_out="$(claude plugin validate --strict "$PKG_STAGE" 2>&1)"
+    devflow_pkg_payload_rc=$?
+    [ "$devflow_pkg_payload_rc" = "${1-}" ] || printf 'claude %s: payload validate rc=%s (expected %s)\n%s\n' \
+      "$(claude --version 2>/dev/null || echo '(version unavailable)')" \
+      "$devflow_pkg_payload_rc" "${1-}" "$devflow_pkg_payload_out" >&2
+  }
+
+  # arm A — the exception's own obsolescence detector.
+  devflow_pkg_payload_validate 1; PKG_A_RC="$devflow_pkg_payload_rc"; PKG_A_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm A: the payload tree AS SHIPPED still fails --strict (an expected-failure that stopped failing would mean the exception is obsolete)" "1" "$PKG_A_RC"
+  assert_eq "#671 packaging arm A: that failure is the allowlisted root-$PKG_ALLOWLISTED_ROOT warning, named by the CLI" "yes" \
+    "$(printf '%s' "$PKG_A_OUT" | grep -qF "root: $PKG_ALLOWLISTED_ROOT at the plugin root" && echo yes || echo no)"
+
+  # arm B — apply the exception (withhold that one path) and require a CLEAN pass. Require BOTH
+  # a zero exit AND the 'Validation passed' line: the exit code is authoritative, and an OR
+  # fallback on the string alone would pass green on a non-zero exit whose output merely
+  # contained a per-component 'Validation passed' line.
+  rm -f "$PKG_STAGE/$PKG_ALLOWLISTED_ROOT" \
+    || { printf 'FATAL: #671 payload arm B could not withhold %s\n' "$PKG_ALLOWLISTED_ROOT" >&2; exit 1; }
+  devflow_pkg_payload_validate 0; PKG_B_RC="$devflow_pkg_payload_rc"; PKG_B_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm B: claude plugin validate --strict passes on the staged payload tree once the one allowlisted root path is withheld" "yes" \
+    "$( { [ "$PKG_B_RC" -eq 0 ] && printf '%s' "$PKG_B_OUT" | grep -qF 'Validation passed'; } && echo yes || echo no)"
+
+  # arm C — planted-defect control. A DIFFERENT root offender on purpose: a filter keyed loosely
+  # on `root:` would swallow this one, and the CLI's message for it is not the allowlisted text,
+  # so the arm distinguishes "this exact path is tolerated" from "root warnings are tolerated".
+  printf '%s\n' 'planted root-level offender for the #671 known-warning exception control' \
+    > "$PKG_STAGE/CLAUDE.local.md" \
+    || { printf 'FATAL: #671 payload arm C could not plant its root-level offender\n' >&2; exit 1; }
+  devflow_pkg_payload_validate 1; PKG_C_RC="$devflow_pkg_payload_rc"; PKG_C_OUT="$devflow_pkg_payload_out"
+  assert_eq "#671 packaging arm C: a second, different root-level offender is still rejected (the exception is one path, not any root warning)" "1" "$PKG_C_RC"
+  assert_eq "#671 packaging arm C: the rejection names the PLANTED offender rather than the allowlisted one" "yes" \
+    "$(printf '%s' "$PKG_C_OUT" | grep -qF 'root: CLAUDE.local.md at the plugin root' && echo yes || echo no)"
+
   rm -rf "$PKG_STAGE"
+  unset -f devflow_pkg_payload_validate devflow_pkg_first_symlink
 
   # (3b) The gate above is only worth arming if strict validation actually DESCENDS into the
   # component trees rather than stopping at the manifest — that is the claim ci.yml's install
@@ -27204,6 +27367,7 @@ if command -v claude >/dev/null 2>&1; then
   # passing negative test while proving nothing about descent.
   PKG_DESC="$(mktemp -d)"
   [ -n "$PKG_DESC" ] && [ -d "$PKG_DESC" ] || { printf 'FATAL: mktemp -d failed for the #671 descent fixture\n' >&2; exit 1; }
+  _suite_tmp_dir "$PKG_DESC"   # same early-exit leak class as PKG_STAGE above: the fixture rebuilder FATALs past the trailing `rm -rf`
   devflow_pkg_fixture() {  # rebuild the valid synthetic plugin tree from scratch
     rm -rf "${PKG_DESC:?}/tree"
     # Fail CLOSED on a rebuild failure. A silently half-built fixture is rejected by the
@@ -27300,6 +27464,7 @@ fi
 if command -v claude >/dev/null 2>&1; then
   PKG_MKT="$(mktemp -d)"
   [ -n "$PKG_MKT" ] && [ -d "$PKG_MKT" ] || { printf 'FATAL: mktemp -d failed for the #671 marketplace fixture\n' >&2; exit 1; }
+  _suite_tmp_dir "$PKG_MKT"    # same early-exit leak class as PKG_STAGE above: the restaging helper FATALs past the trailing `rm -rf`
   PKG_MKT_JSON="$PKG_MKT/tree/.claude-plugin/marketplace.json"
   devflow_pkg_mkt_stage() {  # restage pristine copies of BOTH real manifests
     rm -rf "${PKG_MKT:?}/tree"
@@ -29762,6 +29927,589 @@ assert_eq "#290 .changeset/README.md exists" "yes" \
   "$([ -f "$FDROOT/.changeset/README.md" ] && echo yes || echo no)"
 assert_eq "#290 .changeset/README documents the bump frontmatter key" "yes" \
   "$(grep -qiF 'bump' "$FDROOT/.changeset/README.md" && echo yes || echo no)"
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#953 pinned release-tag sites: derivation, drift guard, bump rewrite, tag/release"
+# ────────────────────────────────────────────────────────────────────────────
+# The install docs pin a release tag in two machine-recognizable forms (the installer
+# download URL and DEVFLOW_REF=). Nothing coupled them to plugin.json, so a merge-time bump
+# left them a release behind. scripts/version_pins.py DERIVES that site set (never a
+# hardcoded file list, so a documentation page added later cannot escape), the consolidator
+# rewrites it in the same commit as the bump, and scripts/publish-release.sh tags the result.
+#
+# Everything below is an executable test over the real interfaces, with a negative control
+# for each guard — no wording pins. The tag-EXISTENCE half needs the network and therefore
+# lives in the workflow, not here: this suite is network-free by contract.
+VP="$FDROOT/scripts/version_pins.py"
+assert_eq "#953 version_pins.py exists" "yes" "$([ -f "$VP" ] && echo yes || echo no)"
+assert_eq "#953 version_pins.py is executable" "yes" "$([ -x "$VP" ] && echo yes || echo no)"
+
+# ── The live invariant: this repository's own pins agree with its own manifest. ──────
+python3 "$VP" --root "$FDROOT" --check >/dev/null 2>&1; VP_RC=$?
+assert_eq "#953 live repo: every derived pin site agrees with plugin.json" "0" "$VP_RC"
+# Non-vacuity: a pattern that silently stopped matching would make --check pass over an
+# EMPTY site set. Require the live derivation to find sites, and both forms among them.
+VP_LIVE="$(python3 "$VP" --root "$FDROOT" --list 2>/dev/null)"
+assert_eq "#953 live repo: the derivation is non-empty (a pattern that matches nothing cannot pass vacuously)" "yes" \
+  "$([ -n "$VP_LIVE" ] && echo yes || echo no)"
+for vp_form in raw-url devflow-ref; do
+  assert_eq "#953 live repo: the derivation covers the $vp_form pin form" "yes" \
+    "$(printf '%s\n' "$VP_LIVE" | grep -qF "	$vp_form	" && echo yes || echo no)"
+done
+# --print-version is what the workflow derives the tag name from; it must equal the manifest.
+assert_eq "#953 --print-version equals plugin.json's version" \
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$FDROOT/.claude-plugin/plugin.json")" \
+  "$(python3 "$VP" --root "$FDROOT" --print-version)"
+
+# ── Fixture tree: derivation scope, the drift guard, and its negative control. ───────
+# The CLI's population is index-derived (issue #711), so a fixture must be a real git repo
+# with its files in the index. `git add` alone is enough — `git ls-files --cached` reads the
+# index, never a commit — which also keeps the fixture cheap (no identity config needed).
+vp_index() { git -C "$1" add -A >/dev/null 2>&1; }
+
+vp_repo() {  # -> prints an isolated fake repo root carrying both pin forms
+  local d; d="$(mktemp -d)"
+  mkdir -p "$d/.claude-plugin" "$d/docs" "$d/lib/test" "$d/.changeset" "$d/.devflow/logs" \
+           "$d/.devflow/vendor/devflow/docs" "$d/.devflow/learnings" "$d/.claude/worktrees/wt/docs"
+  printf '{\n  "name": "devflow",\n  "version": "3.1.4"\n}\n' > "$d/.claude-plugin/plugin.json"
+  printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
+    > "$d/docs/install.md"
+  # Version-shaped tokens that are NOT release pins: a spec URL, a vendored tool version,
+  # an upstream runner version, a historical migration note. None may be rewritten.
+  printf 'semver.org/spec/v2.0.0.html SHELLCHECK v0.11.0 Copilot CLI v1.0.67 migration v2.8.12\n' \
+    > "$d/docs/history.md"
+  # A non-UTF-8 (binary) file carrying pin-shaped BYTES. Not decodable text, therefore not a
+  # pin site: it must be skipped, never fail the scan and never be rewritten.
+  printf 'DEVFLOW_REF=v0.0.9 \377\376\000\001 binary asset\n' > "$d/docs/logo.bin"
+  # Excluded populations, each carrying a deliberately stale pin.
+  printf 'DEVFLOW_REF=v0.0.1 quoted release history\n' > "$d/CHANGELOG.md"
+  printf 'DEVFLOW_REF=v0.0.2 suite fixture (the negative control for this very guard)\n' > "$d/lib/test/fx.md"
+  # README.md, not a synthetic changeset: `.changeset/*.md` is a consumable population, so
+  # an unparseable file there would (correctly) fail the consolidator before this fixture
+  # could test anything. README.md is the one exempt name.
+  printf 'DEVFLOW_REF=v0.0.3 contributor doc in the changeset dir\n' > "$d/.changeset/README.md"
+  printf 'DEVFLOW_REF=v0.0.4 machine-appended corpus\n' > "$d/.devflow/logs/x.md"
+  # A materialized copy of some OTHER release of the plugin — the most realistic carrier of
+  # a stale pin, and the one whose accidental inclusion would make every scan drift-red.
+  printf 'DEVFLOW_REF=v0.0.5 vendored copy of another release\n' > "$d/.devflow/vendor/devflow/docs/install.md"
+  printf 'DEVFLOW_REF=v0.0.6 machine-appended learnings corpus\n' > "$d/.devflow/learnings/p.md"
+  # The issue-#711 sibling-worktree guard: another branch's checkout under .claude/worktrees/.
+  printf 'DEVFLOW_REF=v0.0.7 another branch checkout\n' > "$d/.claude/worktrees/wt/docs/install.md"
+  git -C "$d" init -q >/dev/null 2>&1
+  vp_index "$d"
+  printf '%s\n' "$d"
+}
+
+VPD="$(vp_repo)"
+python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
+assert_eq "#953 fixture: a self-consistent tree passes --check" "0" "$?"
+VPL="$(python3 "$VP" --root "$VPD" --list)"
+assert_eq "#953 fixture: derives exactly the two real pin sites" "2" \
+  "$(printf '%s\n' "$VPL" | grep -c 'docs/install.md')"
+for vp_excluded in CHANGELOG.md lib/test .changeset .devflow/logs .devflow/vendor .devflow/learnings .claude/worktrees; do
+  assert_eq "#953 fixture: the excluded population $vp_excluded contributes no pin site" "0" \
+    "$(printf '%s\n' "$VPL" | grep -cF "$vp_excluded")"
+done
+assert_eq "#953 fixture: a version-shaped token that is not a release pin is not a site" "0" \
+  "$(printf '%s\n' "$VPL" | grep -cF 'history.md')"
+# A non-UTF-8 file is skipped as non-text: not a site, and not a scan failure either.
+assert_eq "#953 fixture: a non-UTF-8 file carrying pin-shaped bytes is skipped, not a site" "0" \
+  "$(printf '%s\n' "$VPL" | grep -cF 'logo.bin')"
+rm -rf "$VPD"
+
+# ── Issue #711: the CLI population is the INDEX, so untracked host state cannot decide
+# ── the answer. The regression this replaces: DevFlow's own review scratch under
+# ── .devflow/tmp/ holds a cached diff.patch carrying BOTH pin forms at arbitrary
+# ── versions, so a repo-root filesystem walk made --check RED on any developer machine
+# ── mid-review while a fresh CI checkout stayed green — the exact locally-red/CI-green,
+# ── run-to-run-varying divergence CLAUDE.md's #711 convention exists to prevent.
+# ── This is a CLASS control, not a .devflow/tmp/ one: the file is invisible because it is
+# ── untracked, so a scratch directory nobody has invented yet is covered by the same fact.
+VPD="$(vp_repo)"
+mkdir -p "$VPD/.devflow/tmp/review" "$VPD/some-future-scratch-dir"
+printf 'raw.githubusercontent.com/o/r/v0.0.1/install.sh\nDEVFLOW_REF=v0.0.2\n' \
+  > "$VPD/.devflow/tmp/review/diff.patch"
+printf 'DEVFLOW_REF=v0.0.3 a scratch dir no exclusion list names\n' \
+  > "$VPD/some-future-scratch-dir/notes.md"
+python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
+assert_eq "#953 #711: untracked scratch carrying drifted pins does not redden --check" "0" "$?"
+VPL="$(python3 "$VP" --root "$VPD" --list)"
+for vp_scratch in .devflow/tmp some-future-scratch-dir; do
+  assert_eq "#953 #711: the untracked path $vp_scratch is absent from the derived population" "0" \
+    "$(printf '%s\n' "$VPL" | grep -cF "$vp_scratch")"
+done
+# ...and the guard is NOT merely blind: staling a TRACKED site in the same tree still reddens,
+# so the control above is exclusion-by-tracking, not a disabled check.
+printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
+  > "$VPD/docs/install.md"
+python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
+assert_eq "#953 #711: a TRACKED drifted pin in that same tree still fails --check" "1" "$?"
+rm -rf "$VPD"
+
+# The index population fails CLOSED. A root that is not a git work tree cannot be enumerated
+# from the index, and the CLI must say so (exit 2) rather than silently degrading to the walk
+# — a silent fallback would restore the untracked-host-state dependence just removed.
+VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
+printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
+printf 'DEVFLOW_REF=v3.1.4\n' > "$VPD/docs/install.md"
+python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
+assert_eq "#953 #711: a non-git root exits 2 (fails closed, never degrades to a walk)" "2" "$?"
+assert_eq "#953 #711: that fault names the index-derived population contract" "1" \
+  "$(grep -c 'index-derived' "$VPD/out")"
+# --print-version reads only the manifest, so it stays usable where no index exists: the
+# workflow derives the tag name from it, and coupling that to an enumeration would be gratuitous.
+assert_eq "#953 #711: --print-version needs no index (the workflow's tag derivation)" "3.1.4" \
+  "$(python3 "$VP" --root "$VPD" --print-version)"
+rm -rf "$VPD"
+
+# ── FAIL-CLOSED FLOOR: an EMPTY site set is a fault, not a clean pass. `drifted` is empty
+# ── both when every pin agrees and when the derivation matched nothing at all, so a pattern
+# ── regression would silence this guard AND the merge-time render_rewrites at the same
+# ── moment — the guard passing loudest exactly where it has stopped working.
+VPD="$(mktemp -d)"; mkdir -p "$VPD/.claude-plugin" "$VPD/docs"
+printf '{ "version": "3.1.4" }\n' > "$VPD/.claude-plugin/plugin.json"
+printf 'A documentation page with no release pin in either machine-recognizable form.\n' \
+  > "$VPD/docs/install.md"
+git -C "$VPD" init -q >/dev/null 2>&1; vp_index "$VPD"
+python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1
+assert_eq "#953 vacuity floor: a derivation that matches NOTHING exits 2, never a clean 0" "2" "$?"
+assert_eq "#953 vacuity floor: the diagnostic says an empty site set is a fault" "1" \
+  "$(grep -c 'empty site set is a fault' "$VPD/out")"
+# Positive control: the SAME tree with one real pin added passes, so the floor is a floor and
+# not a check that now rejects everything.
+printf 'DEVFLOW_REF=v3.1.4 payload ref\n' >> "$VPD/docs/install.md"; vp_index "$VPD"
+python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
+assert_eq "#953 vacuity floor: one real pin site is enough to pass (the floor is not a wall)" "0" "$?"
+rm -rf "$VPD"
+
+# ── The --rewrite CLI mode: the only disk-writing entry point, and its OSError fault arm. ──
+VPD="$(vp_repo)"
+VP_OUT="$(python3 "$VP" --root "$VPD" --rewrite 3.2.0)"
+assert_eq "#953 --rewrite: both pin forms in the tracked doc move to the new version" "yes" \
+  "$([ "$(grep -cF 'githubusercontent.com/o/r/v3.2.0/' "$VPD/docs/install.md")" = "1" ] &&
+    [ "$(grep -cF 'DEVFLOW_REF=v3.2.0' "$VPD/docs/install.md")" = "1" ] && echo yes || echo no)"
+assert_eq "#953 --rewrite: prints exactly the files it changed" "docs/install.md" "$VP_OUT"
+assert_eq "#953 --rewrite: a file with no pin is never listed and never touched" "0" \
+  "$(printf '%s\n' "$VP_OUT" | grep -cF 'history.md')"
+# An excluded/untracked population is not rewritten either — --rewrite shares --check's
+# population, so the two can never disagree about what the pin set is.
+assert_eq "#953 --rewrite: the vendored copy of another release is left alone" "1" \
+  "$(grep -cF 'DEVFLOW_REF=v0.0.5' "$VPD/.devflow/vendor/devflow/docs/install.md")"
+# Idempotent: a second --rewrite to the same version writes nothing (files already at it are
+# omitted from the write set — the documented no-op-bump claim).
+assert_eq "#953 --rewrite: re-running at the same version is a no-op (empty write set)" "" \
+  "$(python3 "$VP" --root "$VPD" --rewrite 3.2.0)"
+assert_eq "#953 --rewrite: rejects a malformed version before any write (exit 2)" "2" \
+  "$(python3 "$VP" --root "$VPD" --rewrite 'not-a-version' >/dev/null 2>&1; echo $?)"
+# The write fault arm: _write_rewrites maps an OSError to VersionPinError -> exit 2 with a
+# named path, never a bare traceback. Injected deterministically (a chmod cannot express the
+# fault as root or on a permissive filesystem).
+VP_RC="$(python3 -c "
+import importlib.util as u, sys
+s=u.spec_from_file_location('vp','$VP'); m=u.module_from_spec(s); s.loader.exec_module(m)
+_real=open
+def boom(path, *a, **k):
+    if str(path).endswith('docs/install.md') and 'w' in (a[0] if a else k.get('mode','r')):
+        raise OSError('injected write fault')
+    return _real(path, *a, **k)
+m.open = boom
+sys.exit(m.main(['--root','$VPD','--rewrite','3.3.0']))
+" 2>"$VPD/werr"; echo $?)"
+assert_eq "#953 --rewrite: a write OSError exits 2" "2" "$VP_RC"
+assert_eq "#953 --rewrite: that fault names the unwritable path" "1" \
+  "$(grep -cF 'docs/install.md: cannot write: injected write fault' "$VPD/werr")"
+assert_eq "#953 --rewrite: no bare traceback on a write fault" "0" "$(grep -cF 'Traceback' "$VPD/werr")"
+rm -rf "$VPD"
+
+# NEGATIVE CONTROL for the offline drift guard: stale ONE site of the two and the guard must
+# go RED, naming that site. This is the exact regression the guard exists for.
+VPD="$(vp_repo)"
+printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
+  > "$VPD/docs/install.md"
+python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1; VP_RC=$?
+assert_eq "#953 drift negative control: one stale pin site fails --check (exit 1)" "1" "$VP_RC"
+assert_eq "#953 drift negative control: the diagnostic names the drifted file, line and pattern" "1" \
+  "$(grep -cF 'docs/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
+assert_eq "#953 drift negative control: the still-correct sibling site is NOT reported" "0" \
+  "$(grep -c 'devflow-ref' "$VPD/out")"
+rm -rf "$VPD"
+
+# A structurally broken manifest is a fault (exit 2), never a silent clean pass.
+VPD="$(vp_repo)"; printf '{ "name": "devflow" }\n' > "$VPD/.claude-plugin/plugin.json"
+python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
+assert_eq "#953 fixture: a manifest with no version key exits 2 (fault, not clean)" "2" "$?"
+rm -rf "$VPD"
+VPD="$(vp_repo)"; printf '{ "version": "not-a-version" }\n' > "$VPD/.claude-plugin/plugin.json"
+python3 "$VP" --root "$VPD" --check >/dev/null 2>&1
+assert_eq "#953 fixture: a non-N.N.N manifest version exits 2" "2" "$?"
+rm -rf "$VPD"
+
+# ── The bump rewrites every derived pin site, in the consolidator's own run. ─────────
+VPD="$(vp_repo)"
+printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.4/install.sh -o i.sh\nDEVFLOW_REF=v3.1.4 bash i.sh\n' \
+  > "$VPD/docs/install.md"
+# A SECOND documentation page, added after the fact — the derived-set property under test.
+printf 'Also pinned: DEVFLOW_REF=v3.1.4 for the payload.\n' > "$VPD/docs/late-arrival.md"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n\n### Fixed\n- old (#1)\n' > "$VPD/CHANGELOG.md"
+printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 \
+  --emit-entry-to "$VPD/notes.out" --emit-write-set-to "$VPD/ws.out" >/dev/null 2>&1
+assert_eq "#953 bump: the manifest moved to 3.1.5" "3.1.5" "$(cs_ver "$VPD")"
+assert_eq "#953 bump: the URL pin moved in the same run" "1" \
+  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md")"
+assert_eq "#953 bump: the DEVFLOW_REF pin moved in the same run" "1" \
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/install.md")"
+assert_eq "#953 bump: a doc added later is covered because the site set is DERIVED, not listed" "1" \
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/late-arrival.md")"
+# Index the later-added page before re-checking: the CLI's population is the index (#711),
+# so leaving it untracked would make this assertion pass by not looking at it.
+vp_index "$VPD"
+assert_eq "#953 bump: the tree is self-consistent afterwards (the tagged tree's docs say vN)" "0" \
+  "$(python3 "$VP" --root "$VPD" --check >/dev/null 2>&1; echo $?)"
+# The write set is what the workflow stages; an omitted pin file is silently discarded by
+# the next `git reset --hard`, so every rewritten file must appear in it.
+for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/install.md docs/late-arrival.md; do
+  assert_eq "#953 bump: --emit-write-set-to names the rewritten file $vp_w" "1" \
+    "$(grep -cxF "$vp_w" "$VPD/ws.out")"
+done
+assert_eq "#953 bump: --emit-write-set-to does NOT name a file the run never wrote" "0" \
+  "$(grep -cF 'docs/history.md' "$VPD/ws.out")"
+assert_eq "#953 bump: --emit-entry-to writes the assembled entry heading (the Release notes body)" "1" \
+  "$(grep -cF '## [3.1.5]' "$VPD/notes.out")"
+assert_eq "#953 bump: --emit-entry-to carries the changeset prose into that body" "1" \
+  "$(grep -cF 'Bumped.' "$VPD/notes.out")"
+# Side channels are opt-in: without the flags nothing extra is written (the unit tests above
+# call the consolidator without them, and the repo must never gain stray output files).
+rm -rf "$VPD"
+VPD="$(vp_repo)"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG.md"
+printf -- '---\nbump: patch\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
+python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 >/dev/null 2>&1
+assert_eq "#953 bump: the side channels are opt-in (no stray files without the flags)" "yes" \
+  "$([ ! -e "$VPD/notes.out" ] && [ ! -e "$VPD/ws.out" ] && echo yes || echo no)"
+rm -rf "$VPD"
+
+# A pin-rewrite fault must abort BEFORE any write, preserving the consolidator's
+# read-before-write atomicity: the pin render is the LAST assembly step, so a fault there is
+# the one most likely to be mis-ordered after the first write. Injected deterministically
+# (the same monkeypatch technique the #298 OSError-backstop test uses) rather than through a
+# chmod, which cannot express the fault as root or on a permissive filesystem.
+VPD="$(vp_repo)"
+printf '# Changelog\n\nPreamble.\n\n## [3.1.4] - 2026-07-03\n' > "$VPD/CHANGELOG.md"
+printf -- '---\nbump: patch\n---\n\n- Bumped. (#953)\n' > "$VPD/.changeset/a.md"
+VP_RC="$(python3 -c "
+import importlib.util as u, sys
+s=u.spec_from_file_location('c','$CS_SCRIPT'); m=u.module_from_spec(s); s.loader.exec_module(m)
+def boom(root, version): raise m.version_pins.VersionPinError('docs/install.md: injected read fault')
+m.version_pins.render_rewrites = boom
+sys.exit(m.main(['--root','$VPD','--date','2026-07-30']))
+" 2>"$VPD/out"; echo $?)"
+assert_eq "#953 pin-rewrite fault: exits 2" "2" "$VP_RC"
+assert_eq "#953 pin-rewrite fault: the diagnostic names the file" "1" \
+  "$(grep -cF 'docs/install.md: injected read fault' "$VPD/out")"
+assert_eq "#953 pin-rewrite fault: no bare traceback" "0" "$(grep -cF 'Traceback' "$VPD/out")"
+assert_eq "#953 pin-rewrite fault: the manifest is left unbumped (aborts before any write)" "3.1.4" \
+  "$(cs_ver "$VPD")"
+assert_eq "#953 pin-rewrite fault: the changeset is NOT consumed" "yes" \
+  "$([ -f "$VPD/.changeset/a.md" ] && echo yes || echo no)"
+rm -rf "$VPD"
+
+# ── scripts/publish-release.sh: every branch of the tag + Release selection. ─────────
+# Extracted from the workflow precisely so each arm is drivable here. `git` is stubbed on
+# PATH and `gh` through DEVFLOW_GH, so nothing touches the network.
+PR953="$FDROOT/scripts/publish-release.sh"
+assert_eq "#953 publish-release.sh exists and is executable" "yes" \
+  "$([ -x "$PR953" ] && echo yes || echo no)"
+
+pr953_env() {  # -> prints a scratch dir holding the git/gh stubs and their call logs
+  local d; d="$(mktemp -d)"; mkdir -p "$d/bin"
+  # `git push` records the landed ref in a STATE FILE rather than an env var, so the
+  # parent-visible effect of a push is real: the post-push `ls-remote` verification then
+  # observes what the push actually did, which is the whole point of that probe.
+  cat > "$d/bin/git" <<'PR953GIT'
+#!/usr/bin/env bash
+printf '%s\n' "git $*" >> "$PR953_LOG"
+case "$1 $2" in
+  # `git ls-remote --exit-code` has THREE answers: 0 resolves, 2 queried-and-absent, and
+  # anything else is the query itself failing (128 for an unreachable remote). The helper
+  # must not fold the third into "absent", so the stub can produce it on demand.
+  "ls-remote --exit-code")
+    [ "${PR953_LSREMOTE_ERRORS:-0}" = "1" ] && exit 128
+    [ -f "$PR953_STATE" ] && exit 0; exit 2 ;;
+esac
+case "$1" in
+  tag)  exit 0 ;;
+  push)
+    [ "${PR953_PUSH_FAILS:-0}" = "1" ] && exit 1
+    # A push that reports success without the ref landing — the exact silent failure the
+    # verification probe exists to catch.
+    [ "${PR953_PUSH_DOES_NOT_LAND:-0}" = "1" ] && exit 0
+    : > "$PR953_STATE"; exit 0 ;;
+esac
+exit 0
+PR953GIT
+  cat > "$d/bin/gh" <<'PR953GH'
+#!/usr/bin/env bash
+printf '%s\n' "gh $*" >> "$PR953_LOG"
+case "$*" in
+  *"releases/tags/"*) [ "${PR953_RELEASE_EXISTS:-0}" = "1" ] && exit 0; exit 1 ;;
+esac
+[ "${PR953_RELEASE_POST_FAILS:-0}" = "1" ] && exit 1
+exit 0
+PR953GH
+  chmod +x "$d/bin/git" "$d/bin/gh"
+  printf '%s\n' "$d"
+}
+
+PRD="$(pr953_env)"
+
+# Arm 1 (the happy path): no tag on the remote → create it, push it, verify it, publish.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: fresh tag — exit 0 (tag created, verified, Release published)" "0" "$VP_RC"
+assert_eq "#953 publish-release: fresh tag — an ANNOTATED tag is created (never lightweight)" "1" \
+  "$(grep -cF 'git tag -a v9.9.9' "$PRD/log")"
+assert_eq "#953 publish-release: fresh tag — the tag ref is pushed" "1" \
+  "$(grep -cF 'git push origin refs/tags/v9.9.9' "$PRD/log")"
+
+# Arm 1b (NEGATIVE CONTROL for the network half of the drift guard): the push reports
+# success but the ref never lands → the run must go RED, and no Release may be published
+# against a tag the install docs pin but that does not exist.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_PUSH_DOES_NOT_LAND=1 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: a push that does not land fails closed (exit 1)" "1" "$VP_RC"
+assert_eq "#953 publish-release: the unverified-tag error names the pin consequence" "1" \
+  "$(grep -cF 'does not resolve on origin' "$PRD/out")"
+assert_eq "#953 publish-release: an unverified tag publishes NO Release" "0" \
+  "$(grep -c 'api --method POST' "$PRD/log")"
+
+# Arm 2: the tag already resolves on the remote → leave it alone, still publish the Release.
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_RELEASE_EXISTS=0 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: existing tag — exit 0 (idempotent, a re-run never fails on done work)" "0" "$VP_RC"
+assert_eq "#953 publish-release: existing tag — no second tag object is created" "0" \
+  "$(grep -c 'git tag' "$PRD/log")"
+assert_eq "#953 publish-release: existing tag — the Release is still published as latest" "1" \
+  "$(grep -cF 'make_latest=true' "$PRD/log")"
+assert_eq "#953 publish-release: the Release is created through REST gh api" "1" \
+  "$(grep -cF 'api --method POST repos/o/r/releases' "$PRD/log")"
+assert_eq "#953 publish-release: never through gh release porcelain (org-scoped GraphQL fails silently under a repo-scoped token)" "0" \
+  "$(grep -c 'gh release create' "$PRD/log")"
+
+# Arm 3: a Release for the tag already exists → leave it alone (no duplicate POST).
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_RELEASE_EXISTS=1 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: existing Release — exit 0 and no duplicate POST" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -c 'api --method POST' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+
+# Arm 4: --release never → the tag is created and verified, but no Release is published.
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --release never >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: --release never — exit 0 with no gh call at all" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+
+# Arm 5: the tag push itself fails → loud, and the Release is never attempted.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_PUSH_FAILS=1 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: tag push failure — exit 1, no Release attempted" "yes" \
+  "$([ "$VP_RC" -eq 1 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+
+# Arm 6: the Release POST fails → loud, naming the stale releases/latest consequence.
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_RELEASE_POST_FAILS=1 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: Release POST failure — exit 1" "1" "$VP_RC"
+assert_eq "#953 publish-release: Release POST failure — the diagnostic names the stale releases/latest link" "1" \
+  "$(grep -cF 'releases/latest' "$PRD/out")"
+
+# Arm 7: input validation — a malformed version never reaches git.
+for vp_bad in "" "2.26" "2.26.3.1" "v2.26.3" "2..3" "abc"; do
+  : > "$PRD/log"; : > "$PRD/state"
+  PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+    PATH="$PRD/bin:$PATH" "$PR953" --version "$vp_bad" --repo o/r >/dev/null 2>&1; VP_RC=$?
+  assert_eq "#953 publish-release: rejects the malformed version '$vp_bad' (exit 2, no git call)" "yes" \
+    "$([ "$VP_RC" -eq 2 ] && [ ! -s "$PRD/log" ] && echo yes || echo no)"
+done
+# ...and a well-formed one is accepted, so the validator is not vacuously rejecting.
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 10.0.11 --repo o/r --release never >/dev/null 2>&1
+assert_eq "#953 publish-release: accepts a well-formed version (the validator is not vacuous)" "0" "$?"
+assert_eq "#953 publish-release: --release rejects an unknown mode" "2" \
+  "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" PATH="$PRD/bin:$PATH" \
+     "$PR953" --version 1.2.3 --repo o/r --release sometimes >/dev/null 2>&1; echo $?)"
+
+# Arm 8: the remote-tag PROBE itself fails (unreachable remote / auth), which is NOT evidence
+# the tag is absent. Folding that into "absent" would route a connectivity blip into the
+# create-and-POST path and blame the mutation for a probe-time problem.
+: > "$PRD/log"; rm -f "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" PR953_LSREMOTE_ERRORS=1 DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: an ERRORED tag probe is not read as absent (exit 1)" "1" "$VP_RC"
+assert_eq "#953 publish-release: the errored probe refuses to guess rather than creating a tag" "yes" \
+  "$([ "$(grep -c 'git tag' "$PRD/log")" -eq 0 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+assert_eq "#953 publish-release: the errored-probe diagnostic reports the probe's own status" "1" \
+  "$(grep -cF 'git ls-remote exited 128' "$PRD/out")"
+
+# Arm 9: the real production Release body — a --notes-file that EXISTS and is non-empty is
+# uploaded as the body, not smoothed into the pointer fallback. Every other arm here takes the
+# fallback, so without this one the actual shipped path is never exercised.
+: > "$PRD/log"; : > "$PRD/state"
+printf '## [9.9.9] - 2026-07-30\n\n### Fixed\n- A real assembled entry.\n' > "$PRD/notes.md"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --notes-file "$PRD/notes.md" \
+  >"$PRD/out" 2>&1; VP_RC=$?
+assert_eq "#953 publish-release: a non-empty notes file is uploaded as the Release body" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cF "body=@$PRD/notes.md" "$PRD/log")" -eq 1 ] && echo yes || echo no)"
+assert_eq "#953 publish-release: a real notes body never takes the CHANGELOG-pointer fallback" "0" \
+  "$(grep -cF 'See CHANGELOG.md' "$PRD/log")"
+
+# Arm 10: the two fallback CAUSES are distinct events and must not read as one. "No
+# --notes-file was passed" is a caller choice; "--notes-file was named but is absent/empty"
+# means the consolidator's --emit-entry-to side channel produced nothing — an upstream
+# anomaly that must not hide behind a routine-looking warning.
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1
+assert_eq "#953 publish-release: no --notes-file is a notice, not a warning (a caller choice)" "yes" \
+  "$([ "$(grep -c '::notice::No --notes-file' "$PRD/out")" -eq 1 ] &&
+    [ "$(grep -c '::warning::' "$PRD/out")" -eq 0 ] && echo yes || echo no)"
+: > "$PRD/log"; : > "$PRD/state"
+PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
+  PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 --repo o/r --notes-file "$PRD/absent.md" \
+  >"$PRD/out" 2>&1
+assert_eq "#953 publish-release: a REQUESTED but empty/absent notes file warns as an upstream anomaly" "yes" \
+  "$([ "$(grep -c '::warning::' "$PRD/out")" -eq 1 ] &&
+    [ "$(grep -cF -- '--emit-entry-to' "$PRD/out")" -eq 1 ] && echo yes || echo no)"
+assert_eq "#953 publish-release: both fallback causes still publish (notes never fail the job)" "1" \
+  "$(grep -cF 'See CHANGELOG.md' "$PRD/log")"
+
+# Arm 11: publishing needs a repository. Absent both --repo and GITHUB_REPOSITORY the helper
+# dies (exit 2) rather than composing `repos//releases`.
+: > "$PRD/log"; : > "$PRD/state"
+assert_eq "#953 publish-release: no --repo and no GITHUB_REPOSITORY exits 2 before any gh call" "yes" \
+  "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" GITHUB_REPOSITORY='' DEVFLOW_GH="$PRD/bin/gh" \
+     PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 >/dev/null 2>&1
+     [ "$?" -eq 2 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+rm -rf "$PRD"
+
+# ── Workflow wiring: the coupled sites this suite cannot reach by execution. ─────────
+# Read the workflow into a variable and assert against THAT (the same idiom the #671
+# staging-list block uses), so each assertion is about the extracted content rather than a
+# source-presence grep over a shipped file.
+VP_WF="$(cat "$CS_WF")"
+# Without this call the helper's every arm is tested above and none of them ever runs: the
+# workflow is its sole caller.
+assert_eq "#953 workflow invokes the extracted tag/Release helper" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'scripts/publish-release.sh')"
+# The pin-rewrite set is derived, so it cannot be enumerated in the staging list; it can only
+# be staged from the consolidator's own write-set file. Without it the docs repin is discarded
+# by the next `git reset --hard` and the tagged tree ships stale install commands.
+assert_eq "#953 workflow asks the consolidator for its write set" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF -- '--emit-write-set-to')"
+assert_eq "#953 workflow stages every path in that write set" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'git add -- "$staged_path"')"
+# The fail-closed backstop over any consolidator write neither staging list reached.
+assert_eq "#953 workflow fails closed on a consolidator write that was not staged" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'the consolidator wrote files that were not staged')"
+# The tag/Release step must be gated on the push having happened, or a no-pending-changesets
+# run would tag whatever main already points at.
+assert_eq "#953 workflow gates the tag step on the bump having been pushed" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF "steps.consolidate.outputs.pushed == 'true'")"
+
+# ── The consolidate step's own shell, EXTRACTED from the YAML and DRIVEN. ────────────
+# The tag version must be derived on its own assignment statement, BEFORE the push. Inside
+# a `{ echo "version=$(…)"; } >> "$GITHUB_OUTPUT"` group a command substitution's failure is
+# invisible to `set -e` — the `echo` succeeds — so a broken --print-version emitted
+# `pushed=true` with an EMPTY version, the gated tag step then ran with an empty
+# BUMP_VERSION, publish-release.sh died, and the run ended with the bump pushed to main and
+# NO tag: the "docs pin a tag that does not exist" drift this whole workflow exists to
+# prevent, reached through a swallowed error. A grep for the shape cannot catch a
+# reintroduction; running the step can.
+VP_WFD="$(mktemp -d)"; mkdir -p "$VP_WFD/bin" "$VP_WFD/tmp"
+python3 -c "
+import sys, yaml
+wf = yaml.safe_load(open(sys.argv[1]))
+run = next(s['run'] for s in wf['jobs']['consolidate']['steps'] if s.get('id') == 'consolidate')
+open(sys.argv[2], 'w').write(run)
+" "$CS_WF" "$VP_WFD/consolidate.sh"
+assert_eq "#953 workflow drive: the consolidate step's shell is extractable" "yes" \
+  "$([ -s "$VP_WFD/consolidate.sh" ] && echo yes || echo no)"
+cat > "$VP_WFD/bin/git" <<'VPWFGIT'
+#!/usr/bin/env bash
+printf '%s\n' "git $*" >> "$VPWF_LOG"
+case "$1 $2" in
+  "status --porcelain") printf ' M CHANGELOG.md\n'; exit 0 ;;  # always dirty: a bump happened
+  "diff --name-only")   exit 0 ;;                              # nothing unstaged: backstop clean
+esac
+exit 0
+VPWFGIT
+cat > "$VP_WFD/bin/python3" <<'VPWFPY'
+#!/usr/bin/env bash
+printf '%s\n' "python3 $*" >> "$VPWF_LOG"
+case "$*" in
+  *consolidate-changesets.py*)
+    prev=""
+    for a in "$@"; do
+      case "$prev" in
+        --emit-entry-to)     printf 'notes body\n' > "$a" ;;
+        --emit-write-set-to) printf 'CHANGELOG.md\n' > "$a" ;;
+      esac
+      prev="$a"
+    done
+    exit 0 ;;
+  *version_pins.py*--print-version*)
+    [ "${VPWF_PV_FAILS:-0}" = "1" ] && exit 3
+    printf '%s\n' "${VPWF_PV_OUT-7.7.7}"
+    exit 0 ;;
+esac
+exit 0
+VPWFPY
+chmod +x "$VP_WFD/bin/git" "$VP_WFD/bin/python3"
+
+# Arm A (happy path): the bump is pushed and BOTH outputs are populated.
+: > "$VP_WFD/log"; : > "$VP_WFD/out"
+VPWF_LOG="$VP_WFD/log" RUNNER_TEMP="$VP_WFD/tmp" GITHUB_OUTPUT="$VP_WFD/out" \
+  PATH="$VP_WFD/bin:$PATH" bash "$VP_WFD/consolidate.sh" >/dev/null 2>&1; VP_RC=$?
+assert_eq "#953 workflow drive: the happy path exits 0 and reports pushed=true" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 1 ] && echo yes || echo no)"
+assert_eq "#953 workflow drive: the happy path publishes the derived version, not an empty one" "1" \
+  "$(grep -cx 'version=7.7.7' "$VP_WFD/out")"
+# The ordering that makes the fault survivable: derive BEFORE the irreversible push.
+assert_eq "#953 workflow drive: --print-version is called before the push, not after it" "yes" \
+  "$([ "$(grep -n -- '--print-version' "$VP_WFD/log" | head -1 | cut -d: -f1)" \
+      -lt "$(grep -n 'git push origin HEAD:main' "$VP_WFD/log" | head -1 | cut -d: -f1)" ] &&
+    echo yes || echo no)"
+
+# Arm B (the regression): --print-version FAILS. The step must go red with nothing pushed —
+# never `pushed=true` with an empty version.
+: > "$VP_WFD/log"; : > "$VP_WFD/out"
+VPWF_LOG="$VP_WFD/log" VPWF_PV_FAILS=1 RUNNER_TEMP="$VP_WFD/tmp" GITHUB_OUTPUT="$VP_WFD/out" \
+  PATH="$VP_WFD/bin:$PATH" bash "$VP_WFD/consolidate.sh" >/dev/null 2>&1; VP_RC=$?
+assert_eq "#953 workflow drive: a failing --print-version fails the step (never swallowed)" "yes" \
+  "$([ "$VP_RC" -ne 0 ] && echo yes || echo no)"
+assert_eq "#953 workflow drive: a failing --print-version pushes NOTHING (no untagged bump)" "0" \
+  "$(grep -c 'git push origin HEAD:main' "$VP_WFD/log")"
+assert_eq "#953 workflow drive: a failing --print-version emits no pushed=true output" "0" \
+  "$(grep -cx 'pushed=true' "$VP_WFD/out")"
+
+# Arm C: an exit-0-but-empty --print-version is the same hazard by another route, and the
+# explicit non-empty guard catches it.
+: > "$VP_WFD/log"; : > "$VP_WFD/out"
+VPWF_LOG="$VP_WFD/log" VPWF_PV_OUT="" RUNNER_TEMP="$VP_WFD/tmp" GITHUB_OUTPUT="$VP_WFD/out" \
+  PATH="$VP_WFD/bin:$PATH" bash "$VP_WFD/consolidate.sh" >"$VP_WFD/stepout" 2>&1; VP_RC=$?
+assert_eq "#953 workflow drive: an EMPTY derived version fails the step and pushes nothing" "yes" \
+  "$([ "$VP_RC" -ne 0 ] && [ "$(grep -c 'git push origin HEAD:main' "$VP_WFD/log")" -eq 0 ] &&
+    [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 0 ] && echo yes || echo no)"
+assert_eq "#953 workflow drive: the empty-version error names the untaggable bump it refused" "1" \
+  "$(grep -c 'refusing to push an untaggable bump' "$VP_WFD/stepout")"
+rm -rf "$VP_WFD"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"
@@ -35818,6 +36566,70 @@ else:
     print("SYNCED" if got == want else f"DRIFT: probe={got} config={want}")
 PY
 )"
+# ── #928 (deferred half): devflow-implement.yml re-anchors the hosted-runner
+# ── workspace prefix in devflow_implement.allowed_tools onto the live
+# ── $GITHUB_WORKSPACE before splicing it into --allowed-tools. The prefix embeds
+# ── the repository name TWICE, so a rename would leave every such token matching
+# ── nothing — and an ungranted head is SILENTLY denied, so the loss surfaces as a
+# ── run that quietly does less, never as an error.
+# ──
+# ── These assertions drive the jq program EXTRACTED FROM THE WORKFLOW ITSELF, so
+# ── they measure the shipped expression rather than a copy that could drift.
+I928_JQ="$E363/allowed-tools-extra.jq"
+python3 - "$IMPL_YML" "$I928_JQ" <<'PY'
+import re, sys
+line = next(
+    (l for l in open(sys.argv[1], encoding="utf-8") if "allowed_tools_extra=$(" in l),
+    None,
+)
+if line is None:
+    sys.exit("allowed_tools_extra extraction line not found")
+m = re.search(r"jq -r --arg ws \"\$GITHUB_WORKSPACE\" '(.*)'\)\"", line)
+if not m:
+    sys.exit("jq program not found in the expected --arg ws shape")
+open(sys.argv[2], "w", encoding="utf-8").write(m.group(1))
+PY
+assert_eq "#928 the allowed_tools_extra jq program is extractable from devflow-implement.yml (the pins below are not vacuous)" "yes" \
+  "$([ -s "$I928_JQ" ] && echo yes || echo no)"
+# The transform is a NO-OP today: $GITHUB_WORKSPACE already equals the literal the
+# tokens carry, so the resolved allowlist is byte-identical to the pre-#928 program.
+I928_CUR="/home/runner/work/devflow-autopilot/devflow-autopilot"
+assert_eq "#928 re-anchoring is byte-identical to the untransformed join at the CURRENT workspace" \
+  "$(jq -r '.devflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end' "$LIB/../.devflow/config.json")" \
+  "$(jq -r --arg ws "$I928_CUR" -f "$I928_JQ" "$LIB/../.devflow/config.json")"
+# After a rename every workspace-absolute token follows the workspace; none is left stale.
+I928_REN="$(jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ" "$LIB/../.devflow/config.json")"
+assert_eq "#928 after a repo rename no token retains the stale workspace prefix" "0" \
+  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+assert_eq "#928 after a repo rename every workspace-absolute token is re-anchored (count preserved)" \
+  "$(jq -r '[.devflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.devflow/config.json")" \
+  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'work/renamed/renamed')"
+# Scope: only GitHub's hosted-workspace shape is rewritten. A deliberate
+# out-of-workspace absolute grant must survive untouched, or this transform would
+# silently revoke a consumer's grant while claiming to protect one.
+assert_eq "#928 an out-of-workspace absolute grant is NOT re-anchored" ",Bash(/usr/local/bin/foo:*)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Bash(/usr/local/bin/foo:*)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+assert_eq "#928 a repo-relative grant is NOT re-anchored" ",Bash(scripts/x.sh:*)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Bash(scripts/x.sh:*)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+# The pattern is anchored at `^Bash(` — a workspace path in a non-Bash tool spec, or
+# anywhere but the start, is left alone rather than half-rewritten.
+assert_eq "#928 the rewrite is anchored at ^Bash( — a non-Bash tool spec is untouched" ",Read(/home/runner/work/a/b/x)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Read(/home/runner/work/a/b/x)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+# Fail-closed on an unset workspace: the identity branch keeps the tokens as authored
+# rather than rewriting them to a root-anchored `Bash(/scripts/…)` that matches nothing.
+assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE selects the identity branch (never a root-anchored token)" "0" \
+  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.devflow/config.json" | tr ',' '\n' | grep -c '^Bash(/scripts/')"
+assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE leaves the authored tokens intact" \
+  "$(jq -r '[.devflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.devflow/config.json")" \
+  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.devflow/config.json" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+# Empty/absent-key shapes still collapse to "" (no stray leading comma reaching the splice).
+for _i928_shape in '{}' '{"devflow_implement":{"allowed_tools":null}}' '{"devflow_implement":{"allowed_tools":[]}}'; do
+  assert_eq "#928 an empty/absent allowlist still yields the empty string ($_i928_shape)" "" \
+    "$(printf '%s' "$_i928_shape" | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+done
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \
@@ -48675,8 +49487,23 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # review-profile lock) still names it as the sanctioned neutralizing renderer.
 # Same origin/main-relative fix as the AC6 pin above (issue #908 review) — a
 # HEAD-relative diff is vacuous once this PR's own commits land.
-assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
-  "$([ -n "$_908_MB" ] && git -C "$REPO_ROOT" diff --quiet "$_908_MB" -- docs/cloud-allowlist.md && echo yes || echo no)"
+#
+# NARROWED to its own stated subject. This pin was a whole-file
+# `git diff --quiet <merge-base> -- docs/cloud-allowlist.md`, which discharged
+# #908's AC8 on #908's branch but, once merged, generalized into a standing
+# prohibition on ANY branch editing that page at all — including the additions this
+# very file's cloud-allowlist rules tell an author to make there. That is a
+# completed-AC self-check outliving its issue, not an invariant: the page is the
+# canonical home for probe evidence and grant flows and is meant to grow.
+#
+# What AC8 actually protected is fabrication — a change quietly converting a
+# PENDING placeholder into a recorded verdict it never measured, which is the
+# "Unknown is not zero" failure applied to probe evidence. That is what is pinned
+# now: every placeholder entry still declares itself PENDING. Legitimate additions
+# elsewhere on the page pass; silently promoting a placeholder to a measurement
+# goes RED, which is the regression the original pin existed to catch.
+assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "3" \
+  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/cloud-allowlist.md")"
 # ────────────────────────────────────────────────────────────────────────────
 
 echo "#908 review finding: harden_guard step — the PreToolUse guard's own trusted-source displacement is unconditional"

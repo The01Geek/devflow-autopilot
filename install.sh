@@ -62,7 +62,7 @@
 # scaffolder only backfills keys the example gained.
 #
 # Usage, from the root of your repo. Download-read-run is the documented form:
-# fetch this file at a PINNED ref — a release tag such as v2.26.2, or a commit
+# fetch this file at a PINNED ref — a release tag (vN.N.N), or a commit
 # SHA; never mutable main — read it, then run the copy you read. docs/install.md
 # carries the current pinned one-liner; docs/cloud-setup.md the full guide.
 #   curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/<ref>/install.sh -o devflow-install.sh
