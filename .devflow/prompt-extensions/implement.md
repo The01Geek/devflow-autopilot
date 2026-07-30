@@ -1,8 +1,8 @@
-# DevFlow repo — operative policy for `/devflow:implement`
+# DevFlow repo — operative policy for `/prflow:implement`
 
 This repository (the DevFlow plugin itself) manages its own version and runs under a
 permission classifier that routinely blocks shell invocations, so apply the following
-when implementing an issue here. The base `/devflow:implement` skill is
+when implementing an issue here. The base `/prflow:implement` skill is
 versioning-agnostic and environment-agnostic by design — this extension is DevFlow's
 opt-in, and it is the **operative** repo policy (edit this file to change it).
 
@@ -40,7 +40,7 @@ replaces the old version↔`CHANGELOG` presence check).
 **When to write it.** Decide the increment once the committed diff is concrete (record the
 decision in the workpad so it survives context compaction), then add the `.changeset/*.md`
 file **after the draft PR exists but before the review pass** — so the prose can cite the PR
-number and the changeset lands inside the diff that `/simplify` and `/devflow:review-and-fix`
+number and the changeset lands inside the diff that `/simplify` and `/prflow:review-and-fix`
 review. Name the file after the branch or issue (e.g. `issue-290-<slug>.md`) so it never
 collides with a concurrent PR's. The Phase 4.3 clean-tree backstop is the final guard that
 the changeset never ends up uncommitted.
@@ -53,7 +53,7 @@ prefix to **confirm a version bump happened** — it then reads the authoritativ
 leave stale) and reconciles that version's CHANGELOG entry, or no-ops if no such commit
 exists. **Note the consequence for DevFlow's own PRs:** because the bump commit is now created
 at merge time on `main` (not on the feature branch), Step 4b's branch-scoped
-`origin/main..HEAD` scan legitimately finds no bump commit during `/devflow:implement` and
+`origin/main..HEAD` scan legitimately finds no bump commit during `/prflow:implement` and
 no-ops — that reconciliation stays live only for consumer repos that still bump in-PR. Here,
 CHANGELOG correctness rests on the in-diff changeset prose, which the Phase 2.3.4a self-claim
 sweep and Phase 4.2 keep aligned with the shipped diff. The producer of the subject is now the
@@ -189,11 +189,11 @@ The final gate is preserved, and on the local/interactive tier it is parallelize
 Before a completion or PR-ready claim, push to trigger CI and start the full local run at the same time; the push is NOT gated on the local run finishing.
 The **claim** is gated on it: read the local run's summary before you make one. A nonzero failure tally, a nonempty skip tally, or a run that never started (denied, blocked, or unreached) is not a completion — report the failure detail and iterate, and say so explicitly rather than letting the already-landed push stand as the claim.
 The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
-The cloud `/devflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive-tier rule only. The final full-suite obligation binds the cloud tier too: a cloud completion claim rests on that in-env `bash lib/test/run.sh` (or a covering focused module) plus every required lint gate, run in the cloud run's own environment — not on any CI result the run never saw.
+The cloud `/prflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive-tier rule only. The final full-suite obligation binds the cloud tier too: a cloud completion claim rests on that in-env `bash lib/test/run.sh` (or a covering focused module) plus every required lint gate, run in the cloud run's own environment — not on any CI result the run never saw.
 
 **Local/interactive tier — capture the parallel full-suite launch and record a `Verification evidence:` marker (issue #719).** Because the parallelized gate launches the full local run *concurrently* with the CI-triggering push — not serialized behind it as the pre-#707 gate was — a launch that is denied, blocked, or never reached leaves no trace, so "push, nothing to read, claim made" is otherwise indistinguishable from "push, ran the suite, read a clean summary, claim made". To make the two distinguishable, on the **local/interactive tier** capture the full-suite launch to a named file under `.devflow/tmp/`, merging stderr — `bash lib/test/run.sh > .devflow/tmp/verification-<ISSUE_NUMBER>.log 2>&1` — because most of `run.sh`'s FAIL sites write their detail to stderr, so a stdout-only capture loses the majority of it, while a `>` redirect still preserves the process exit code (a `tee` pipe would not, absent `pipefail`). Then, before the completion claim, record the exact marker literal `Verification evidence:` in the workpad through `scripts/workpad.py` — a bullet carrying the run's **pass, fail, and skip tallies** and the **captured file's path**. A launch that never started then produces an **absent capture file**, and a completion claim without the marker is an **inspectable** defect rather than an indistinguishable one — the refused-launch terminal is legible in the workpad, not only in prose.
 
-Record the marker with the **`note`** reflection kind (`scripts/workpad.py update <ISSUE_NUMBER> --reflection-kind note --reflection "Verification evidence: …"`): `note` is the only kind `lib/cheap-gate.jq` does not treat as friction, so a marker recorded as any other kind would flip an otherwise-clean run and make the retrospective gate fire on exactly the runs that complied. **Fallback channel when there is no workpad:** a direct reception pass on a branch with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad, so record the marker in the **PR description** instead; a run with **neither** a workpad nor a PR names that terminal explicitly and reports the evidence as **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement** — the capture file and the workpad bullet are what a later reader, a reviewer, and the retrospective inspect; no gate in this change consumes them. `lib/cheap-gate.jq` is deliberately **not** wired to the marker, because its input population is merged watched-author PRs — predominantly cloud `/devflow:implement` runs, the population this local/interactive scoping excludes by name — so a clause there would evaluate out-of-coverage on nearly every workpad and be itself a guard that reads as armed and cannot fail, the exact shape #719 removes. Runtime enforcement is deferred to the named follow-up **issue #730**, scoped to a consumer whose input population actually contains local/interactive runs. The cloud tiers keep the issue-#405 in-env verification rule unchanged and gain **no** capture obligation: on those tiers — and only there — the command-shape matchers refuse output-redirect and command-substitution capture shapes even when the head is granted (issues #401/#455), which is precisely why the capture obligation above is scoped to the local/interactive tier, where those same shapes run normally; a denied capture would produce exactly the artifact signature of a never-started run — destroying the mechanism's only discriminator on the tier where it would be least visible.
+Record the marker with the **`note`** reflection kind (`scripts/workpad.py update <ISSUE_NUMBER> --reflection-kind note --reflection "Verification evidence: …"`): `note` is the only kind `lib/cheap-gate.jq` does not treat as friction, so a marker recorded as any other kind would flip an otherwise-clean run and make the retrospective gate fire on exactly the runs that complied. **Fallback channel when there is no workpad:** a direct reception pass on a branch with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad, so record the marker in the **PR description** instead; a run with **neither** a workpad nor a PR names that terminal explicitly and reports the evidence as **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement** — the capture file and the workpad bullet are what a later reader, a reviewer, and the retrospective inspect; no gate in this change consumes them. `lib/cheap-gate.jq` is deliberately **not** wired to the marker, because its input population is merged watched-author PRs — predominantly cloud `/prflow:implement` runs, the population this local/interactive scoping excludes by name — so a clause there would evaluate out-of-coverage on nearly every workpad and be itself a guard that reads as armed and cannot fail, the exact shape #719 removes. Runtime enforcement is deferred to the named follow-up **issue #730**, scoped to a consumer whose input population actually contains local/interactive runs. The cloud tiers keep the issue-#405 in-env verification rule unchanged and gain **no** capture obligation: on those tiers — and only there — the command-shape matchers refuse output-redirect and command-substitution capture shapes even when the head is granted (issues #401/#455), which is precisely why the capture obligation above is scoped to the local/interactive tier, where those same shapes run normally; a denied capture would produce exactly the artifact signature of a never-started run — destroying the mechanism's only discriminator on the tier where it would be least visible.
 
 ## Interpreter-faithful probes — probe under the shell the artifact actually runs under
 
@@ -220,11 +220,11 @@ and two reviewers with zero defects found.
 
 ## Dogfood every run — capture process-improvement signal (standing side task)
 
-This repository runs `/devflow:implement` under DevFlow's **own** engine, so every run
+This repository runs `/prflow:implement` under DevFlow's **own** engine, so every run
 here is a live test of that engine. Treat improving DevFlow as a standing **side task** of
 this run, second only to shipping the issue itself: while you work the four phases, actively
 watch the process and record what you learn so future implement runs are better. The weekly
-`/devflow:retrospective-weekly` loop mines exactly these notes — a `## Devflow Reflection`
+`/prflow:retrospective-weekly` loop mines exactly these notes — a `## Devflow Reflection`
 bullet is the mechanism by which a friction you hit today becomes a fix tomorrow.
 
 **What to capture** (in the `## Devflow Reflection` section, as you go — do not batch to the
@@ -293,7 +293,7 @@ is guidance, not a gate — there is no byte census, ceiling, or cutover artifac
 
 `CLAUDE.md`'s "Editing any skill file" convention mandates the `superpowers:writing-skills`
 RED/GREEN discipline before any `SKILL.md` edit, and this repo extends that mandate to its
-**prompt-surface** files. An autonomous `/devflow:implement` run must **not** invoke
+**prompt-surface** files. An autonomous `/prflow:implement` run must **not** invoke
 `writing-skills` through the **Skill tool** mid-phase — a mid-phase Skill-tool call is a tail
 call that adopts the nested skill's flow as the run's whole task and strands the run (the
 engine's #362 exclusionary Skill rule, which this extension preserves **unchanged**:

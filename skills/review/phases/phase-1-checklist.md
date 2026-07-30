@@ -20,7 +20,7 @@ Count the changed files. If 10 or fewer, launch one checklist-generator agent. I
 
   (`awk` is a granted head and an **in-workspace `>` redirect of a granted head** is a permitted shape — Phase 4.5's `> .devflow/tmp/…/iter-1.json` is the precedent — so it adds **no** allowlist entry. It deliberately avoids Phase 0.2's `| tee` form, which would echo the slice into the orchestrator's context — the exact per-pass transit this change removes; here the generator Reads the slice by *path*.)
 
-**Fail-closed fallback (guard-class 2).** `awk` is not a preflight-guaranteed tool, so a batch's slice is usable only when the authoring command **both** exited 0 **and** left a non-empty file — hence the `&&`-chain: gated on `awk`'s **own exit status** first, then the `test -s` non-empty check (a **bash builtin** — never another PATH tool). Gate on exit status, never output shape alone — `test -s` ("is the file non-empty?") admits strictly more than "did `awk` write the whole slice?": a partial write (`ENOSPC`, quota, a killed `awk`) leaves a **non-empty but truncated** slice it waves through, and the batch would review a thinned surface with missing files silently unrepresented. **On `slice-failed` — a non-zero `awk`/redirect exit, or a missing/empty slice — fall back to passing the full `diff.patch` path for that batch** (coverage preserved, savings forfeited), and record the fallback in the run's telemetry notes (`step_2_6`/`phase_1` in `/devflow:review-and-fix`; chat in standalone). A fallback batch relies on the generator's retained scope instruction (items only for this batch's listed files) so the full diff cannot inflate cross-batch duplicates.
+**Fail-closed fallback (guard-class 2).** `awk` is not a preflight-guaranteed tool, so a batch's slice is usable only when the authoring command **both** exited 0 **and** left a non-empty file — hence the `&&`-chain: gated on `awk`'s **own exit status** first, then the `test -s` non-empty check (a **bash builtin** — never another PATH tool). Gate on exit status, never output shape alone — `test -s` ("is the file non-empty?") admits strictly more than "did `awk` write the whole slice?": a partial write (`ENOSPC`, quota, a killed `awk`) leaves a **non-empty but truncated** slice it waves through, and the batch would review a thinned surface with missing files silently unrepresented. **On `slice-failed` — a non-zero `awk`/redirect exit, or a missing/empty slice — fall back to passing the full `diff.patch` path for that batch** (coverage preserved, savings forfeited), and record the fallback in the run's telemetry notes (`step_2_6`/`phase_1` in `/prflow:review-and-fix`; chat in standalone). A fallback batch relies on the generator's retained scope instruction (items only for this batch's listed files) so the full diff cannot inflate cross-batch duplicates.
 
 The residual window is narrow and named: a write error `awk` neither reports nor exits non-zero on still yields a truncated slice. The mechanism thus routes only *observable* slice-authoring failures to the full diff — it does not promise "never a thinned review surface."
 
@@ -44,9 +44,9 @@ If the merged-and-deduped checklist exceeds **100** items, sort by priority and 
 
 **Sub-cap on rank 1:** `issue_acceptance` items occupy **at most 25** of the 100 kept items, and the remaining 75 are filled from ranks 2 through 6 in the order above. Without this sub-cap an issue carrying dozens of criteria lets rank 1 consume the whole cap and evict the `absolute_claim`, `dependency_interaction`, and `test_mock_alignment` items this section calls the load-bearing signal — rank 1 had no producer until Phase 1.2 gained its acceptance-criteria block, so the eviction is a new hazard, not a historical one. An `issue_acceptance` item dropped by this sub-cap is counted in the drop summary's `by_category` map under the `issue_acceptance` key exactly like any other drop.
 
-Drop items below the cap — a cost cap: every item triggers a verifier subagent in Phase 2. Medium PRs have produced 150+ items on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; issue_acceptance kept: {A} of 25; priority kept: issue-acceptance, dependency_interaction, ...).` so the reader sees which categories took the hit, not merely that coverage was truncated. That announcement reports the `issue_acceptance kept: {A} of 25` count alongside the per-category drops, so a reader sees the sub-cap acting rather than inferring it. (In `/devflow:review-and-fix` mode this data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/devflow:review` runs the chat announcement is the only surface.)
+Drop items below the cap — a cost cap: every item triggers a verifier subagent in Phase 2. Medium PRs have produced 150+ items on doc-heavy diffs, but the load-bearing signal (cross-boundary contracts, mock-vs-real divergence, issue acceptance) is usually captured well within 100. Announce the cap in chat: `Capped checklist at 100 of {N} items (dropped {M} items by category: dependency_interaction: K1, api_contract: K2, ...; issue_acceptance kept: {A} of 25; priority kept: issue-acceptance, dependency_interaction, ...).` so the reader sees which categories took the hit, not merely that coverage was truncated. That announcement reports the `issue_acceptance kept: {A} of 25` count alongside the per-category drops, so a reader sees the sub-cap acting rather than inferring it. (In `/prflow:review-and-fix` mode this data also lands in the workpad's `cap_drops` block and the report's `## Coverage` section; in standalone `/prflow:review` runs the chat announcement is the only surface.)
 
-**Record what was dropped.** When the cap fires, return a per-category summary of dropped items so the orchestrator can surface coverage gaps (the fix-loop wrapper also records it in the workpad — see `cap_drops` in `/devflow:review-and-fix`'s workpad schema). Compute and return alongside the truncated checklist:
+**Record what was dropped.** When the cap fires, return a per-category summary of dropped items so the orchestrator can surface coverage gaps (the fix-loop wrapper also records it in the workpad — see `cap_drops` in `/prflow:review-and-fix`'s workpad schema). Compute and return alongside the truncated checklist:
 
 ```json
 {
@@ -61,13 +61,13 @@ Drop items below the cap — a cost cap: every item triggers a verifier subagent
 }
 ```
 
-where `M` is the total dropped count (`N - 100`) and per-category counts sum to `M`. If the cap did not fire, return `{"count": 0, "by_category": {}}`. The orchestrator stores this for the `## Coverage` report section in `/devflow:review-and-fix` and the standalone `/devflow:review` chat announcement.
+where `M` is the total dropped count (`N - 100`) and per-category counts sum to `M`. If the cap did not fire, return `{"count": 0, "by_category": {}}`. The orchestrator stores this for the `## Coverage` report section in `/prflow:review-and-fix` and the standalone `/prflow:review` chat announcement.
 
 ### 1.2 Launch checklist-generator agent(s)
 
 **Dispatch barrier.** Every subagent dispatch described here is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/review/SKILL.md`) — read the requirement there; it is deliberately not restated here.
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-generator"`. First resolve overrides for `devflow:checklist-generator` per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` as the Agent tool's `model` override.
+Use the **Agent tool** with `subagent_type: "prflow:checklist-generator"`. First resolve overrides for `prflow:checklist-generator` per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` as the Agent tool's `model` override.
 
 Pass the following prompt — carrying the slice's **file path** (from Phase 1.1), never inline diff content:
 ```
@@ -105,7 +105,7 @@ The block below is this PR's specification — not background, and not the narra
 </acceptance_criteria>
 ```
 
-**If the caller is `/devflow:review-and-fix` on iteration N≥2** (the fix-loop wrapper supplies `prior_checklist` from `iter-<N-1>.json`), append this to the prompt:
+**If the caller is `/prflow:review-and-fix` on iteration N≥2** (the fix-loop wrapper supplies `prior_checklist` from `iter-<N-1>.json`), append this to the prompt:
 
 ```
 This is iteration N (N≥2) of an auto-fix loop. The previous iteration's verification checklist is supplied below. Operate in variance-recovery mode per your agent contract (Step 2b):
@@ -137,13 +137,13 @@ Output: `Generated {N} verification checklist items.`
 
 When Phase 1 ran a single generator batch, skip this phase entirely — there are no cross-batch duplicates to resolve.
 
-When Phase 1 ran in 2+ batches, dedupe via the `devflow:checklist-deduper` agent, not manually. Manual cross-batch dedup is bias-prone (real-run telemetry: collapsing ~70 items to ~40 by hand consistently dropped 3–6 distinct items per run).
+When Phase 1 ran in 2+ batches, dedupe via the `prflow:checklist-deduper` agent, not manually. Manual cross-batch dedup is bias-prone (real-run telemetry: collapsing ~70 items to ~40 by hand consistently dropped 3–6 distinct items per run).
 
 Output: `Phase 1.5/4: Deduping checklist across {B} batches...`
 
 ### 1.5.1 Launch the deduper agent
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-deduper"`. Resolve overrides for `devflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` as the Agent tool's `model` override.
+Use the **Agent tool** with `subagent_type: "prflow:checklist-deduper"`. Resolve overrides for `prflow:checklist-deduper` per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` as the Agent tool's `model` override.
 
 Concatenate the raw checklist items from all batches into a single JSON array. Preserve each item's original `id` and tag it with its source batch so traceability survives — prefix each `id` with `batch{K}:` (e.g. `batch1:VC-3`, `batch2:VC-1`) before passing to the deduper.
 

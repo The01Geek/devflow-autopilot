@@ -43064,6 +43064,72 @@ assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
+# A qualified subagent id in prompt prose is a dispatch string whose namespace half is
+# the plugin name, so a plugin rename that misses one ships a review engine whose
+# reviewers resolve to nothing — a `coverage: "not_verified"` verdict with no
+# diagnosis, not a loud failure. Unlike the agent_overrides config keys (a closed
+# allowlist that accepts every declared namespace), dispatch accepts the canonical
+# namespace only, and this is the sole check that reads it.
+# ────────────────────────────────────────────────────────────────────────────
+echo "subagent dispatch-namespace guard"
+DNS_LINT="$LIB/test/lint-subagent-dispatch-namespace.py"
+
+# Real-tree run: clean, AND a positive surface tally so a collapsed audit (a broken
+# population, an is_audited that matches nothing) cannot read as clean.
+DNS_OUT="$(python3 "$DNS_LINT" --root "$LIB/.." 2>&1)"; DNS_RC=$?
+assert_eq "dispatch-ns: clean on the tree as it stands" "rc=0" \
+  "$([ "$DNS_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$DNS_RC" "$DNS_OUT")"
+assert_eq "dispatch-ns: the real-tree run audited a positive number of prompt surfaces" "yes" \
+  "$(printf '%s' "$DNS_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) prompt", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Positive control: a prompt surface carrying a STALE-namespace dispatch id must go
+# red. Without this the clean run above is unfalsifiable — an audit that flags nothing
+# ever would satisfy it. The fixture supplies only the surface; the dispatchable-leaf
+# set and the canonical namespace come from the real plugin, so the fixture needs no
+# agents/ tree of its own. The stale namespace is composed at runtime from the real
+# alias namespace rather than hardcoded, so this control cannot rot into a tautology
+# if the alias set changes.
+DNS_FIXROOT="$(git_sandbox 'dispatch-ns fixture root')"
+mkdir -p "$DNS_FIXROOT/skills/fixture" 2>/dev/null
+# The alias namespace (the declared non-canonical one) is by definition a namespace
+# that does not dispatch — exactly what the guard must reject. Both namespaces are
+# read from the identity reader rather than hardcoded, so this control cannot rot
+# into a tautology if the declared set changes.
+DNS_ALIAS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | tail -n1)"
+DNS_CANON="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1)"
+assert_eq "dispatch-ns: the fixture's two namespaces resolved and differ" "yes" \
+  "$([ -n "$DNS_ALIAS" ] && [ -n "$DNS_CANON" ] && [ "$DNS_ALIAS" != "$DNS_CANON" ] && echo yes || echo no)"
+printf '%s\n' 'skills/fixture/SKILL.md' > "$DNS_FIXROOT/list.txt" 2>/dev/null
+dns_run() {  # <namespace> <leaf> -> "rc=<n>|<output>"
+  local out rc
+  printf 'Dispatch %s%s now.\n' "$1" "$2" > "$DNS_FIXROOT/skills/fixture/SKILL.md" 2>/dev/null
+  out="$(python3 "$DNS_LINT" --root "$DNS_FIXROOT" --files-from "$DNS_FIXROOT/list.txt" 2>&1)"
+  rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+DNS_BAD="$(dns_run "$DNS_ALIAS" code-reviewer)"
+assert_eq "dispatch-ns: a stale-namespace dispatch id in a prompt surface goes red" "nonzero" \
+  "$(case "$DNS_BAD" in 'rc=0|'*) printf 'ZERO | %s' "$DNS_BAD" ;; *) printf 'nonzero' ;; esac)"
+assert_eq "dispatch-ns: the diagnosis names the offending id and the remedy" "yes" \
+  "$(printf '%s' "$DNS_BAD" | grep -qF "${DNS_ALIAS}code-reviewer" \
+     && printf '%s' "$DNS_BAD" | grep -qF "${DNS_CANON}code-reviewer" \
+     && echo yes || echo no)"
+# Negative control on the SAME fixture: the canonical namespace is accepted, so the
+# red above is the namespace VERDICT and not merely "the fixture surface was read".
+assert_eq "dispatch-ns: the same surface with the canonical namespace is clean" "rc=0" \
+  "$(printf '%s' "$(dns_run "$DNS_CANON" code-reviewer)" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+# A leaf that is NOT dispatchable stays out of scope even under the alias namespace —
+# this is what keeps plain skill/command references from being swept into the gate.
+assert_eq "dispatch-ns: a non-dispatchable leaf under the alias namespace is not flagged" "rc=0" \
+  "$(printf '%s' "$(dns_run "$DNS_ALIAS" some-unrelated-slug)" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+rm -rf "$DNS_FIXROOT"
+unset DNS_LINT DNS_OUT DNS_RC DNS_FIXROOT DNS_ALIAS DNS_CANON DNS_BAD
+unset -f dns_run
+
+# ────────────────────────────────────────────────────────────────────────────
 # #834 subagent extension-handoff lint (lib/test/lint-subagent-extension-handoff.py).
 # The registry (lib/subagent-dispatch-sites.json) is the authority; the lint gates
 # that a subagent dispatch of a DevFlow skill is registered. Fixture trees and

@@ -8,7 +8,7 @@ Output: `Phase 2/4: Verifying {N} checklist items...`
 Split the checklist into two groups by each item's `verification_mode` field (set by the generator in Phase 1):
 
 - **Lite items** (`verification_mode: "lite"`) — the orchestrator runs `grep -n` / `rg` directly. No agent dispatch. See 2.1a.
-- **Agent items** (`verification_mode: "agent"`, or missing/unrecognized) — dispatch the `devflow:checklist-verifier` agent. See 2.1b.
+- **Agent items** (`verification_mode: "agent"`, or missing/unrecognized) — dispatch the `prflow:checklist-verifier` agent. See 2.1b.
 
 Supersedes the old one-verifier-agent-per-item rule. For pure string-presence claims, an orchestrator-direct `grep -n` is 5–10x cheaper than a verifier subagent for an identical verdict. The lite path is bounded to claims reducing to substring presence/absence — see `checklist-generator.md` for eligibility rules.
 
@@ -16,7 +16,7 @@ Supersedes the old one-verifier-agent-per-item rule. For pure string-presence cl
 
 ### 2.0.5 Narrow-reuse from iter-(N-1) (fix-loop callers only)
 
-When invoked by `/devflow:review-and-fix` on iteration N≥2, the caller supplies (a) the iter-(N-1) checklist and (b) the files the iter-(N-1) fix commit modified (`fix_files`). Before partitioning into lite/agent batches, the orchestrator MAY skip verification for items whose verdicts are mechanically unchanged.
+When invoked by `/prflow:review-and-fix` on iteration N≥2, the caller supplies (a) the iter-(N-1) checklist and (b) the files the iter-(N-1) fix commit modified (`fix_files`). Before partitioning into lite/agent batches, the orchestrator MAY skip verification for items whose verdicts are mechanically unchanged.
 
 For each item in the **current iteration's** checklist, reuse the prior verdict (skip verification) iff ALL hold:
 
@@ -61,7 +61,7 @@ Record the result in the same JSON shape as agent verdicts:
 
 Split the *agent* items into batches of up to 8; launch each batch's agents in parallel via multiple Agent tool calls in one message.
 
-Use the **Agent tool** with `subagent_type: "devflow:checklist-verifier"` for each item. Resolve overrides for `devflow:checklist-verifier` once per Phase 2 per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` to the dispatch's Agent-tool `model` override.
+Use the **Agent tool** with `subagent_type: "prflow:checklist-verifier"` for each item. Resolve overrides for `prflow:checklist-verifier` once per Phase 2 per **Per-Subagent Model/Effort Overrides** above, applying any resolved `model` to the dispatch's Agent-tool `model` override.
 
 Pass the following prompt for each:
 ```
