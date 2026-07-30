@@ -1,0 +1,123 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-30T02:00:00Z",
+  "fix_commit_sha": null,
+  "fix_files": [],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "sweep_defs_read": [],
+  "sweep_evidence": {
+    "status": "not_run"
+  },
+  "checklist": [
+    {
+      "id": "VC-1",
+      "claim": "The create-issue-contract minimum_assertions triple (registry 215, run.sh call-site 215, emitted tally 215) is internally consistent.",
+      "file": "scripts/workflow-flight-recorder-registry.json",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "registry=215, run.sh:44692=215, module emitted 215 passed 0 failed in-env"
+    },
+    {
+      "id": "VC-2",
+      "claim": "The 25 keys in the new adjudication-delta.tsv equal (as a set) the 25 literal: rows removed from pin-corpus-adjudications.tsv, each current_state=null.",
+      "file": ".devflow/logs/pin-corpus-adjudication-changes/2026-07-30-issue-885-sweep-create-issue/adjudication-delta.tsv",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "delta==removed_adj set-equal, 0 orphans; every current_state null (corroborated by 4 agents)"
+    },
+    {
+      "id": "VC-3",
+      "claim": "All 25 removed pins were bucketed prose-sole-copy (counted_occurrences<2), none boundary; no machine-consumed contract removed.",
+      "file": "lib/test/pin-corpus-adjudications.tsv",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "grep boundary over removed rows = 0; structural-pin-ok pins delegated behavior to surviving state-owner/py rows"
+    },
+    {
+      "id": "VC-4",
+      "claim": "The census was regenerated (not hand-edited) via the two-commit inventory-free protocol; no retired key survives.",
+      "file": ".devflow/logs/pin-corpus-inventory.tsv",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "producing-command revision d6d2a6f; none of 25 retired keys present; deterministic regen confirmed byte-identical modulo header"
+    },
+    {
+      "id": "VC-5",
+      "claim": "Full desk suite green and governance gates pass.",
+      "file": "lib/test/run.sh",
+      "verification_mode": "lite",
+      "verdict": "PASS",
+      "evidence": "14069 passed, 0 failed, 0 skipped in-env; coverage_map_guard rc0; mutation-routing-worktree rc0; residual/red-on-removal manifest tests OK"
+    }
+  ],
+  "dispatched_effort": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "not_verified",
+      "outcome": "clean",
+      "reason": "no-fix iteration; no fix delta to gate"
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-30T02:30:00Z",
+    "reviewed_sha": "35f75383fe3a3a082fb6a06adad4e8ddb39bc3eb",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "prompt_addenda": "clean",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false,
+    "notes": "2 pre-existing out-of-scope comment-drift observations (create-issue-contract.sh:238-244 and :1364-1365) flagged by comment-analyzer and final-pass; both explicitly NOT introduced by this PR (behavior-inert prose, Suggestion-capped per #797); deferred, not this PR's diff."
+  },
+  "telemetry": "unavailable"
+}
