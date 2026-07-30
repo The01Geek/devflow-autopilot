@@ -16,6 +16,21 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
+# The canonical `<plugin>@<marketplace>` install spec, DERIVED from the single
+# identity source (lib/plugin-identity.json + .claude-plugin/plugin.json) rather
+# than transcribed. Fixtures that build or read a settings.json
+# `enabledPlugins` key, or a baked `--plugins` baseline, interpolate this so a
+# plugin rename moves them with the manifest instead of leaving ~10 hand-pinned
+# literals to chase. The identity reader is itself pinned by the #927 block, so
+# this is a derivation off a guarded source, not an unchecked one. Fails LOUD:
+# an empty value here would make every consuming assertion compare against a
+# malformed key and misreport the reason, so refuse to start.
+SUITE_PLUGIN_SPEC="$(python3 "$LIB/plugin_identity.py" --canonical-plugin-spec 2>/dev/null || true)"
+case "$SUITE_PLUGIN_SPEC" in
+  *@*) : ;;
+  *) echo "run.sh: could not derive the canonical plugin spec from lib/plugin_identity.py (got '$SUITE_PLUGIN_SPEC'); refusing to run rather than compare against a malformed enabledPlugins key" >&2; exit 1 ;;
+esac
+
 # issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
 # resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
 # probe), so a value leaked in from the invoking environment — historically the
@@ -27394,7 +27409,7 @@ echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
 # .claude/settings.json — additive, non-clobbering, idempotent — and is invoked
 # only from /devflow:init (never from scaffold-config.sh / install.sh). It writes
 # extraKnownMarketplaces[devflow-marketplace] (autoUpdate true + a github source
-# for The01Geek/devflow-autopilot) and enabledPlugins[devflow@devflow-marketplace]
+# for The01Geek/devflow-autopilot) and enabledPlugins[<the canonical plugin spec>]
 # = true; it never writes permissions.defaultMode and never writes the
 # CLAUDE_CODE_ENABLE_AUTO_MODE env var — that var is honored only from user scope
 # (~/.claude/settings.json) / managed settings, so writing it to the PROJECT file
@@ -27423,7 +27438,7 @@ assert_eq "pls: fresh → marketplace source is github (AC1)" "github" \
 assert_eq "pls: fresh → marketplace repo The01Geek/devflow-autopilot (AC1)" "The01Geek/devflow-autopilot" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.repo' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → enabledPlugins devflow true (AC1)" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SF" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → CLAUDE_CODE_ENABLE_AUTO_MODE NOT written (deferred; project-scope no-op)" "false" \
   "$(jq -r '(.env // {}) | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → no permissions key written (AC3)" "false" \
@@ -27455,7 +27470,7 @@ assert_eq "pls: keep → unrelated top-level key preserved (AC4)" "123" \
 assert_eq "pls: keep → devflow marketplace added alongside (AC4)" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SK" 2>/dev/null)"
 assert_eq "pls: keep → enabledPlugins added (AC4)" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SK" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_SK" 2>/dev/null)"
 
 # AC 5: idempotent re-run → byte-identical file, "nothing changed" breadcrumb,
 # no duplicate entries.
@@ -27565,7 +27580,7 @@ assert_eq "pls: deep wrong-typed source → breadcrumb names the source path" "y
 # back to true and this fails. (The earlier keep test only covers ABSENT DevFlow
 # keys, which an inverted merge would still add — so it cannot catch a flip.)
 PLS_NODEFAULT="$(mktemp -d)"; mkdir -p "$PLS_NODEFAULT/.claude"
-printf '%s' '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":false}},"enabledPlugins":{"devflow@devflow-marketplace":false}}' \
+printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":false}},"enabledPlugins":{"%s":false}}' "$SUITE_PLUGIN_SPEC" \
   > "$PLS_NODEFAULT/.claude/settings.json"
 bash "$PLS" "$PLS_NODEFAULT" >/dev/null 2>&1; PLS_ND_RC=$?
 PLS_ND_SF="$PLS_NODEFAULT/.claude/settings.json"
@@ -27573,7 +27588,7 @@ assert_eq "pls: user-set DevFlow non-default → exit 0" "0" "$PLS_ND_RC"
 assert_eq "pls: user-set autoUpdate:false NOT clobbered (merge direction)" "false" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_ND_SF" 2>/dev/null)"
 assert_eq "pls: user-set enabledPlugins:false NOT clobbered (merge direction)" "false" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_ND_SF" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_ND_SF" 2>/dev/null)"
 
 # The provisioner never writes the auto-mode env var, so a user's pre-existing
 # env block — including a deliberately-disabled CLAUDE_CODE_ENABLE_AUTO_MODE="0" —
@@ -27637,7 +27652,7 @@ printf '%s' '{}' > "$PLS_OBJ/.claude/settings.json"
 bash "$PLS" "$PLS_OBJ" >/dev/null 2>&1; PLS_OBJ_RC=$?
 assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
 assert_eq "pls: {} → enabledPlugins added" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
 
 # AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
 # calls it) creates/modifies NO .claude/settings.json.
@@ -40706,7 +40721,7 @@ _505_run plugins '{"enabledPlugins":{"code-review@claude-plugins-official":true,
 assert_eq "#505 AC: baked-duplicate entry silent skip" "real@claude-plugins-official" "$_OUT"
 assert_eq "#505 AC: baked-duplicate entry no breadcrumb" "" "$_ERR"
 # devflow@-prefixed → silent skip
-_505_run plugins '{"enabledPlugins":{"devflow@devflow-marketplace":true,"real@claude-plugins-official":true}}'
+_505_run plugins "$(printf '{"enabledPlugins":{"%s":true,"real@claude-plugins-official":true}}' "$SUITE_PLUGIN_SPEC")"
 assert_eq "#505 AC: devflow@-prefixed entry silent skip" "real@claude-plugins-official" "$_OUT"
 # order preserved (settings-file order)
 _505_run plugins '{"enabledPlugins":{"zebra@claude-plugins-official":true,"apple@claude-plugins-official":true}}'
@@ -40741,7 +40756,7 @@ _505_run marketplaces '{"extraKnownMarketplaces":{"nosrc":{"autoUpdate":true}}}'
 assert_eq "#505 AC3: no source object breadcrumb" "yes" "$(_505_grep_err 'has no source object')"
 
 # ── production fixture (provision-local-settings.sh DEFAULTS) → both modes emit nothing ──
-_505_PROD='{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":true}},"enabledPlugins":{"devflow@devflow-marketplace":true}}'
+_505_PROD="$(printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":true}},"enabledPlugins":{"%s":true}}' "$SUITE_PLUGIN_SPEC")"
 _505_run plugins "$_505_PROD"
 assert_eq "#505 AC: production fixture plugins empty (fresh /devflow:init)" "" "$_OUT"
 assert_eq "#505 AC: production fixture plugins no breadcrumb" "" "$_ERR"
@@ -40817,7 +40832,7 @@ assert_eq "#505 dpc: unknown read-outcome arm emits NO ::notice:: (does not comp
 rm -f "$_505_DPC_E"
 
 # ── #505 workflow-wiring pins (AC4 + review-tier trusted-source ACs) ────────────
-_505_BP="printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace"
+_505_BP="printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official $SUITE_PLUGIN_SPEC"
 _505_BM="printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./"
 # (a) baked baseline literals byte-identical across the three call sites (AC4 sync invariant)
 for _f in devflow-implement devflow devflow-runner; do
@@ -40962,7 +40977,7 @@ PY
        && [ "$(_505_dedupe_body "$_505_WSTEP")" = "$(_505_dedupe_body "$_505_RSTEP")" ] && echo yes || echo no)"
 
   # Expected baked baseline (the composed output when nothing is spliced).
-  _505_BASE_P="code-review@claude-plugins-official"$'\n'"claude-md-management@claude-plugins-official"$'\n'"devflow@devflow-marketplace"
+  _505_BASE_P="code-review@claude-plugins-official"$'\n'"claude-md-management@claude-plugins-official"$'\n'"$SUITE_PLUGIN_SPEC"
   _505_BASE_M="https://github.com/anthropics/claude-plugins-official.git"$'\n'"./"
   _505_parse_out() {  # $1=GITHUB_OUTPUT file → sets _PLG/_MKT
     _PLG="$(awk '/^plugins<</{f=1;next} f&&/^PLG_EOF_/{f=0} f' "$1")"
