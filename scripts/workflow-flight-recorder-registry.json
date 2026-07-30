@@ -33,8 +33,8 @@
     },
     "installer-wiring": {
       "path": "lib/test/modules/installer-wiring.sh",
-      "minimum_assertions": 112,
-      "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms"
+      "minimum_assertions": 147,
+      "description": "Focused installer and workflow-wiring coverage: the #487/#491 credential-refresher and fresh-gh wrapper workflow wiring, the #533 seven-output install-gh-wrapper.sh validation with its planted-defect controls, the #544 fingerprint-comparison symmetry, the #599 workflow-token and secret-file permission pins, and the #690 Windows mode-probe arms, and the consumer UPGRADE path driven end-to-end over fixture consumer repositories (provenance manifest, non-clobbering preservation, the dry-run preview, the withheld review tier, and name-agnostic identifier migration)"
     },
     "harness-python-guards": {
       "path": "lib/test/modules/harness-python-guards.sh",

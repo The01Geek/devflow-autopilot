@@ -15319,6 +15319,7 @@ docs/cloud-setup.md
 docs/execution-file-shape.md
 docs/external/release-notes.md
 docs/implement-skill.md
+docs/install.md
 docs/workflow-triggers.md
 install.sh
 lib/test/fixtures/issue-304-body.md
@@ -15394,6 +15395,10 @@ echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
 # the list empty, which the non-vacuity assertion below turns RED rather than passing.
 _582_SHIPPED=""
 while IFS= read -r _582_l; do
+  # The loop now lives inside install.sh's apply function and is therefore indented;
+  # strip the leading whitespace with builtins (never `sed`/`tr` — this value decides
+  # the assertion) so the derivation follows the loop wherever it sits in the file.
+  _582_l="${_582_l#"${_582_l%%[! ]*}"}"
   case "$_582_l" in
     "for w in "*"; do")
       _582_l="${_582_l#for w in }"
@@ -44471,7 +44476,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 112; then
+  "installer-wiring" 147; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi

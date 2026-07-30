@@ -11241,13 +11241,16 @@ assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserve
 # construction — the contract is that install.sh and the vendor slice use a plain
 # mode-preserving `cp -R` and never pass `--no-preserve`. Two exec-bit surfaces:
 # the vendor slice's `cp -R "$src/.claude-plugin" … "$src/scripts" …` byte-copies
-# the vendored helper tree (asserted above), and install.sh's
-# `cp -R "$SRC/.github/actions/$a" …` copies the composite-action helpers. Pin the
-# copy invocations (not a bare "cp -R" that a doc mention could satisfy) and the
-# absence of `--no-preserve`, rather than a stdlib copy demo that would pass
-# regardless of what these files do.
+# the vendored helper tree (asserted above), and install.sh routes each composite
+# action through `install_managed`, whose directory arm is the plain `cp -R "$srcp"
+# "$rel"` (the upgrade path added the classification in front of the copy; the copy
+# itself is still mode-preserving). Pin both the routing and that copy invocation
+# (not a bare "cp -R" that a doc mention could satisfy) plus the absence of
+# `--no-preserve`, rather than a stdlib copy demo that would pass regardless of what
+# these files do.
 assert_eq("#703 AC20: install.sh copies the composite-action helpers with mode-preserving cp -R",
-          True, 'cp -R "$SRC/.github/actions/$a"' in _install_sh)
+          True, ('install_managed ".github/actions/$a" "$SRC/.github/actions/$a"' in _install_sh
+                 and 'cp -R "$srcp" "$rel"' in _install_sh))
 assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
           False, "--no-preserve" in _install_sh)
 assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",

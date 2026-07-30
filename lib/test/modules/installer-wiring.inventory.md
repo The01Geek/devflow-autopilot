@@ -29,6 +29,7 @@ created an uncoupled mirror. The module re-derives `WF` from the harness-provide
 | Fingerprint-comparison symmetry | `#544` rows | installer section | every defeated hash method still defers on the ambient token with the disclosed breadcrumb |
 | Workflow-token and secret-file permissions | `#599` AC21 rows | installer section | direct/static checks preserve the version-consolidate App-token seed, the `umask 077` token file, the bad-credential signature, and the review-identity split |
 | Windows mode-probe arms | `#690` rows and the `_stub690` / `_i690` stderr-only runners | installer section | the `nt`+`666`/`444` and unrecognized-token arms pass on the mode value with a stderr breadcrumb |
+| Consumer UPGRADE path | newly authored here, not extracted | `installer-wiring.sh` / `installer-upgrade:` section | `install.sh` is driven end-to-end over fixture consumer repositories (`_iu_consumer` / `_iu_run`, offline via `DEVFLOW_SRC`): a pristine prior install, a hand-modified workflow, a hand-edited `config.json`, an installation carrying the withheld review tier, a skipped-version jump, a pre-manifest installation, a consumer-deleted artifact, and a declared-rename identifier migration. Each arm asserts the *bytes* of the resulting tree (`_iu_snapshot`), not only the installer's own log, and the preservation arm carries a planted-defect negative control that clobbers |
 
 Labels the extraction **fully** removes from `lib/test/run.sh` (zero assertions left
 behind, so `lib/test/modules/coverage-map.json` attributes them to this module): 533, 690,
@@ -39,7 +40,8 @@ The generic test harness, registry validation, module registration, full-suite
 boundary, and module-runner tests stay global so deleting this module cannot also
 delete the checks that prove it is selected and executed. The module uses only
 `assert_eq`, the harness-provided helpers, and its own domain-private helpers
-(`_dfbn`, `_ac10_count533`, `_ac10_wf_count533`, `_i533`, `_stub690`, `_i690`) — it
+(`_dfbn`, `_ac10_count533`, `_ac10_wf_count533`, `_i533`, `_stub690`, `_i690`,
+`_iu_consumer`, `_iu_run`, `_iu_snapshot`, `_iu_digest`) — it
 references no helper that lives only in `lib/test/run.sh`. Its coverage-map file
 ownership (`scripts/install-gh-wrapper.sh` → `installer-wiring`) is recorded in
 `lib/test/modules/coverage-map.json`.

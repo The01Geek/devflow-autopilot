@@ -44,8 +44,14 @@ which would report every review `incomplete` and wedge every pull request behind
 check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
 silently drops the freshness and CI-green gates. That is why those helpers are retained rather
 than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
-as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Removing the tier
-is a manual step:
+as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**.
+
+**Every upgrade surfaces that exposure.** `install.sh` detects the three files and reports them,
+naming issues #930 and #920 — it does not delete them, because in the repositories that adopted
+the tier `Devflow Review` is a *required* status check, and deleting the workflow while a branch
+protection rule still requires its context wedges every subsequent pull request behind a check
+nothing will report. Removal is therefore an explicit opt-in, and step 3 below is a human action
+no installer can perform:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
    and `.github/workflows/telemetry-push.yml`.
@@ -53,6 +59,10 @@ is a manual step:
 3. Remove the `Devflow Review` context from any branch protection rule or ruleset that
    requires it — otherwise every subsequent pull request wedges against a required check
    that nothing will report.
+
+Steps 1 and 2 are what `install.sh --apply --remove-withheld-review-tier` performs (signature-guarded,
+so a same-named workflow of your own is never deleted); it prints step 3 rather than attempting it.
+Preview the whole thing first — an upgrade is dry-run by default. Step 3 stays yours either way.
 
 The removed caller's bytes are preserved on the `preserved/auto-review-tier` branch, whose
 `PRESERVATION.md` records the `devflow-runner.yml` object ID it was cut against. Re-shipping

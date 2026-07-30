@@ -206,6 +206,41 @@ If you run Claude Code against a **third-party model provider** (Amazon Bedrock,
 
 Bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it refreshes the workflows/actions without committing the plugin tree, and keeps your config. Re-running only re-stamps `devflow_version` itself when the existing value is empty or already looks like a commit SHA; a hand-set non-SHA value (a branch name, a tag) is preserved — see [`cloud-setup.md`](cloud-setup.md#install-and-update-the-cloud-tier) for the exact rule. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox; the `vendor-plugin` action satisfies this at runtime — see [`cloud-setup.md`](cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
 
+#### An upgrade is dry-run by default, and never overwrites your local edits
+
+Re-running `install.sh` in a repository that already carries a DevFlow installation is an **upgrade**, and an upgrade **writes nothing until you ask it to**. It prints the plan and a unified diff of every byte it would change, then stops:
+
+```bash
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh              # preview: plan + diff, no writes
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply      # make the changes
+```
+
+A **first-time** install still applies immediately, so the one-liner above is unchanged; `--dry-run` forces the preview there too if you want to see an adoption before any file exists. `DEVFLOW_DRY_RUN=1` / `DEVFLOW_APPLY=1` select the same modes for a `curl | bash` invocation that cannot pass a flag. The preview is not a second implementation of the plan — it runs the real install into a sandbox copy of your own tree and diffs it, so anything `--apply` would do, the preview already did to a copy.
+
+**Your hand-edits survive.** Every artifact the installer owns — the local `marketplace.json`, the two workflows, the three composite actions — is recorded in `.devflow/install-manifest.json` with the sha256 of the bytes the installer wrote. Commit that file; it is what lets the next upgrade tell an untouched artifact from one you edited:
+
+| What the installer finds | What it does |
+| --- | --- |
+| bytes match the recorded digest | updates it in place (`update`) |
+| already identical to the new version | leaves it alone (`unchanged`) |
+| bytes differ from the recorded digest | **preserves your file** and writes the new version to `<path>.devflow-new` for you to merge |
+| no recorded digest — an installation predating the manifest, or a skipped-version jump | same: preserves your file and offers `<path>.devflow-new`, because a local edit cannot be ruled out |
+| absent (you deleted it) | recreates it |
+
+`.devflow/config.json` is outside that mechanism entirely: the shared scaffolder only ever backfills keys the shipped example gained, so your values and tuned arrays are never rewritten. A preserved conflict is reported again on every run until you resolve it — the installer never adopts your edited bytes as its own provenance.
+
+Skipping versions is safe: the classification above depends on the recorded digest, not on how far behind you are, and an installation with no manifest at all heals into one (every artifact you never touched is recorded on the first upgrade).
+
+#### Upgrade note: the withheld automatic-review tier is surfaced, and removable on request
+
+If your repository installed the automatic pull-request-triggered review tier before it was withheld (issue #936), you still have `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml`, they still run, and they keep you exposed to issues [#930](https://github.com/The01Geek/devflow-autopilot/issues/930) and [#920](https://github.com/The01Geek/devflow-autopilot/issues/920). Every upgrade now says so. Nothing is deleted unless you ask:
+
+```bash
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply --remove-withheld-review-tier
+```
+
+That deletes the three workflow files (only when they carry a DevFlow signature — a same-named file of your own is left alone) and sets `workflows["devflow-review"]` to `false` in `.devflow/config.json`. **It cannot do the third step:** remove the `Devflow Review` context from any branch protection rule or ruleset that requires it, or every later pull request wedges against a required check nothing will report. Do that yourself, in the same change. Full background: [`workflow-triggers.md`](workflow-triggers.md).
+
 #### Upgrade note: re-sync the workflow `TOOLS` grants for the Phase 0.6 stale-prose lint
 
 The shared review engine's **Phase 0.6** (deterministic stale counted-prose lint) runs two vendored helpers: `scripts/stale-prose-lint.py` (the lint itself) and `scripts/match-lint-adjudications.py` (the cross-run false-positive adjudication join added in issue #466 — it demotes a STALE row a prior trusted run already adjudicated a false positive). Both invocations must be granted to the review runner. When upgrading an existing install **past this version**, re-sync your installed workflow `TOOLS='…'` grants — in `.github/workflows/devflow-runner.yml` (auto-review path) and `devflow.yml` (manual `/devflow:review` comment path) — to include both:
