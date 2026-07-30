@@ -30389,7 +30389,7 @@ assert_eq "#953 publish-release: both fallback causes still publish (notes never
 # dies (exit 2) rather than composing `repos//releases`.
 : > "$PRD/log"; : > "$PRD/state"
 assert_eq "#953 publish-release: no --repo and no GITHUB_REPOSITORY exits 2 before any gh call" "yes" \
-  "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" GITHUB_REPOSITORY= DEVFLOW_GH="$PRD/bin/gh" \
+  "$(PR953_LOG="$PRD/log" PR953_STATE="$PRD/state" GITHUB_REPOSITORY='' DEVFLOW_GH="$PRD/bin/gh" \
      PATH="$PRD/bin:$PATH" "$PR953" --version 9.9.9 >/dev/null 2>&1
      [ "$?" -eq 2 ] && [ "$(grep -c '^gh ' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
 rm -rf "$PRD"
