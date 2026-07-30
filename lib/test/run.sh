@@ -2715,16 +2715,22 @@ assert_pin_unique "#620/#640: supersession guard excludes author_association as 
 # position directly: the arm's byte offset must precede the branch's. python3 (a preflight
 # prerequisite) does the offset arithmetic — a value deciding an assertion must not route through a
 # non-preflight PATH tool. Both offsets must resolve: a `-1` from either `find` fails the check
-# closed rather than comparing against a sentinel. Residual since #885: both literals lost their
-# uniqueness pins with the retired presence pins, and `.find` takes the FIRST match — so a later
-# duplicate mention of either phrase would silently retarget this comparison. Each occurs exactly
-# once in the extension today, so the check is non-vacuous; nothing now enforces that.
+# closed rather than comparing against a sentinel. #885 retired the `assert_pin_unique` pins that
+# used to guarantee each literal occurs exactly once, and `.find` takes the FIRST match — so this
+# check now asserts that uniqueness itself (`rfind == find` on both operands) rather than
+# inheriting it, and fails closed on a future duplicate that would otherwise retarget it silently.
 assert_eq "#620/#640: the failed-read arm precedes the write/admin branch it governs" "yes" \
   "$(python3 -c 'import sys
 s=open(sys.argv[1],encoding="utf-8").read()
-a=s.find("Either read that fails")
-b=s.find("`admin` or `write` is the operator amending the spec")
-print("yes" if a!=-1 and b!=-1 and a<b else "no")' "$RCR_EXT")"
+A="Either read that fails"
+B="`admin` or `write` is the operator amending the spec"
+a,b=s.find(A),s.find(B)
+# Uniqueness is asserted here, not assumed: `.find` takes the FIRST match, so a second
+# mention of either phrase would silently retarget the comparison and this ordering check
+# would pass over the wrong pair. The `assert_pin_unique` pins that used to guarantee
+# uniqueness were retired by #885, so require it directly — rfind == find means exactly one.
+ok=a!=-1 and b!=-1 and a<b and s.rfind(A)==a and s.rfind(B)==b
+print("yes" if ok else "no")' "$RCR_EXT")"
 # The LOOP-SPECIFIC tail stays on the review-and-fix root ($MAXI_ROOT): the deferral-channel
 # routing names a mechanism only the loop has, and the non-binding-directive rule governs loop
 # runs. These are the two pins #640 deliberately did NOT move.

@@ -1364,8 +1364,9 @@ unset -f ci749_field
 # but this pin asserts NEITHER of those claims — it asserts only that the one-line grammar
 # declaration, the peer's invocation contract as the create-issue dispatcher composes calls
 # against it, survives verbatim and exactly once. #885 retired the rows that pinned the operand's
-# behavioral read, and no other assertion in this module, in lib/test/run.sh, or in any sibling
-# module mentions `--search-space` — so a revert to the hardcoded internal-docs location, or one
+# behavioral read, and no assertion other than the grammar-declaration pin below mentions
+# `--search-space` anywhere in this module, in lib/test/run.sh, or in any sibling
+# module — so a revert to the hardcoded internal-docs location, or one
 # dropping the Steps-1-and-2 read, is caught by the review pass over the SKILL prose, not here.
 #
 # READ THIS BEFORE TOUCHING THE CALL BELOW. Its trailing declaration still says "the behavioral
