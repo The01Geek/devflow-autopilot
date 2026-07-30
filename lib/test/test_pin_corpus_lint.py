@@ -2049,6 +2049,34 @@ class PinCorpusLint810Tests(unittest.TestCase):
         )
         self.assertTrue(any("show mergebase:" in call for call in calls), calls)
 
+    def test_static_scan_completion_marker_is_written_only_when_both_passes_run(self):
+        """Issue #967: the completion sentinel distinguishes "ran and clean" from
+        "a precondition raised and the classifier never ran". Both directions are
+        driven here because run.sh's assertion keys on the sentinel's presence."""
+        marker = self.mod.STATIC_SCAN_COMPLETED_MARKER
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                findings = self.mod.scan_static_pin_changes(
+                    root,
+                    git_runner=self._static_worktree_fixture(root),
+                )
+            self.assertEqual([], findings)
+            self.assertIn(marker, stderr.getvalue())
+
+        # A precondition raise must leave the sentinel unwritten: that absence is
+        # the whole signal, so a marker emitted on an aborted run would restore the
+        # silent skip this guard exists to end.
+        def raising_runner(args, **_kwargs):
+            rendered = " ".join(args)
+            rc = 1 if "rev-parse --verify origin/main" in rendered else 0
+            return subprocess.CompletedProcess(args, rc, "", "injected")
+
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            with self.assertRaises(self.mod.InfrastructureError):
+                self.mod.scan_static_pin_changes("/repo", git_runner=raising_runner)
+        self.assertNotIn(marker, stderr.getvalue())
+
     def test_static_worktree_with_local_main_present_verifies_ancestry(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -3243,7 +3271,19 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             rc = self.mod.main(
                 ["pin-corpus-lint.py", "mutation-routing-worktree", str(root)]
             )
-        return rc, stdout.getvalue(), stderr.getvalue()
+        # Issue #967: a run that reached the end of the static classifier always
+        # writes the completion sentinel to stderr, and its ABSENCE is what tells a
+        # caller the classifier was skipped by a precondition raise. Assert it here
+        # once — so every caller of this helper covers it — and strip it, keeping the
+        # per-test stderr comparands about the finding text they were written for.
+        # `rc == 2` is the aborted-run shape, where the sentinel must NOT appear.
+        raw_stderr = stderr.getvalue()
+        marker_line = self.mod.STATIC_SCAN_COMPLETED_MARKER + "\n"
+        if rc == 2:
+            self.assertNotIn(self.mod.STATIC_SCAN_COMPLETED_MARKER, raw_stderr)
+        else:
+            self.assertIn(marker_line, raw_stderr)
+        return rc, stdout.getvalue(), raw_stderr.replace(marker_line, "")
 
     def test_undeclared_static_pin_is_a_public_worktree_policy_failure(self):
         with tempfile.TemporaryDirectory() as td:

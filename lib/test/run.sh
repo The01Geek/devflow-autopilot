@@ -28424,15 +28424,49 @@ assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
 assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
   "yes" "$([ -f "$FDROOT/agents/code-architect.md" ] && echo yes || echo no)"
 
+# ── Dispatch-roster derivation (issue #967) ─────────────────────────────────
+# DERIVE the set of agent/skill identifiers a shipped prompt bundle actually dispatches,
+# and report which members of an expected roster are MISSING from it. Every caller below
+# used to spell one `grep -qF "<form>devflow:$agent" "$BUNDLE"` row per identifier. Those
+# rows guarded a real contract — a DROPPED dispatch, which no namespace lint covers — but
+# they were unmaintainable in two ways at once: the pinned literal interpolated a loop
+# variable and the haystack was a runtime concatenation of skill sources under a mktemp
+# path, so neither a reader nor lib/test/pin-corpus-lint.py's static classifier could
+# resolve WHAT was pinned WHERE. Any edit to such a line was therefore an unanswerable
+# finding: with no declaration it reported `missing structural declaration`, and with one
+# it reported `typed structural declaration literal/target cannot be inspected` — a
+# declaration asserting an inspectability that does not hold. The derivation below keeps
+# the guarantee, drops the unresolvable pin: it names the missing identifiers instead of
+# rendering `expected yes / actual no`, and it is an executable derivation over the
+# bundle rather than a fixed-wording source-presence pin.
+#
+# Fails CLOSED by construction, with no separate negative control needed: if the
+# extraction yields nothing — a renamed namespace, an unreadable or empty bundle, an
+# absent `grep` — then EVERY roster member reports missing and the calling row is RED. It
+# is deliberately a MEMBERSHIP test, not set equality: adding a sixth dispatched agent is
+# guarded by that agent's own rows, and equality here would turn an unrelated addition red.
+dispatched_roster_missing() {  # $1=bundle $2=ERE for the dispatch form $3=prefix $4=suffix $5..=expected ids
+  local _bundle="$1" _pat="$2" _pre="$3" _suf="$4"; shift 4
+  local _found=" " _hit _id _missing=""
+  while IFS= read -r _hit; do
+    _hit="${_hit#"$_pre"}"
+    _found="$_found${_hit%"$_suf"} "
+  done < <(grep -oE "$_pat" "$_bundle" 2>/dev/null)
+  for _id in "$@"; do
+    case "$_found" in *" $_id "*) ;; *) _missing="$_missing$_id " ;; esac
+  done
+  printf '%s' "${_missing% }"
+}
+
 # (2b) Dispatch-resolves contract (the load-bearing invariant the absence-grep above only
 # proxies for): for each rewired agent, the implement skill must dispatch the devflow:
 # identifier AND a first-party agent of that exact `name:` must exist to resolve it. This
 # closes the loop the #62/#98 unverified-assumption bug class warns about — a future typo
 # in the subagent_type or a renamed agent `name:` frontmatter would pass (1) and (2) yet
 # dead-end the dispatch at runtime; this assertion catches that.
+assert_eq "#139 implement bundle dispatches both feature-dev agents (derived subagent_type roster; names any missing id)" \
+  "" "$(dispatched_roster_missing "$IMPL_SKILL_BUNDLE" 'subagent_type: prflow:[a-z0-9-]+' 'subagent_type: prflow:' '' code-explorer code-architect)"
 for fdagent in code-explorer code-architect; do
-  assert_eq "#139 implement skill dispatches prflow:$fdagent (rewired call-site present)" \
-    "yes" "$(grep -qF "subagent_type: prflow:$fdagent" "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin; issue #218: bundle (the agent dispatches moved to phases/phase-2-implement.md)
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
@@ -28603,26 +28637,29 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 print("yes" if sys.argv[2] in m.KNOWN_AGENTS else "no")
 ' "$FDROOT/scripts/resolve-review-overrides.py" "$1" 2>/dev/null || echo "no"
 }
+# The LOAD-BEARING dispatch form in the review engine is the bold header `**devflow:<name>**`
+# (the per-agent prompt block — the actual dispatch site), NOT a bare `devflow:<name>`
+# substring. The bare form also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate
+# bullets, the pitfalls list) for the gated analyzers, so extracting the bare form here would
+# stay green even if the real dispatch block were deleted while a prose mention survived — the
+# #62/#98 unverified-assumption trap. The header form appears exactly once per agent, so this
+# tracks the dispatch, not any mention. Derived (not pinned per id) for the reasons stated at
+# `dispatched_roster_missing`; the row names any missing agent.
+# shellcheck disable=SC2086  # deliberate word-split: PRT_AGENTS is the space-separated roster
+assert_eq "#141 review engine dispatches every roster agent via its **devflow:<name>** prompt block (derived; names any missing id)" \
+  "" "$(dispatched_roster_missing "$REVIEW_BUNDLE" '\*\*prflow:[a-z0-9-]+\*\*' '**prflow:' '**' $PRT_AGENTS)"
+# Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster in its
+# phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s negative scan
+# only catches a leftover OLD id — not a DROPPED devflow: id. Derive it positively so a future
+# edit that desyncs review-and-fix's example roster from the engine's actual dispatch set turns
+# this row red instead of shipping silently. Scoped to the whole root+references bundle (#539
+# review Suggestion) so roster prose migrating into a reference stays covered.
+# shellcheck disable=SC2086  # deliberate word-split: PRT_AGENTS is the space-separated roster
+assert_eq "#141 fix-loop skill references every roster agent (review-and-fix roster; names any missing id)" \
+  "" "$(dispatched_roster_missing "$MAXI_BUNDLE" 'prflow:[a-z0-9-]+' 'prflow:' '' $PRT_AGENTS)"
 for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
-  # Pin the LOAD-BEARING dispatch header `**devflow:<name>**` (the bold per-agent prompt
-  # block — the actual dispatch site), NOT a bare `devflow:<name>` substring. The bare form
-  # also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate bullets, the
-  # pitfalls list) for the gated analyzers, so a bare grep would stay green even if the
-  # real dispatch block were deleted while a prose mention survived — the #62/#98
-  # unverified-assumption trap. The header form appears exactly once per agent (its
-  # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
-  # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
-  assert_eq "#141 review engine dispatches prflow:$a via its **prflow:$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**prflow:$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
-  # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
-  # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
-  # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
-  # positively so a future edit that desyncs review-and-fix's example roster from the
-  # engine's actual dispatch set turns this row red instead of shipping silently.
-  assert_eq "#141 fix-loop skill references prflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "prflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -28859,8 +28896,12 @@ done
 # trap). requesting-code-review: the engine invokes it + resolver/schema allowlist its override
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
-assert_eq "#142 review engine dispatches the canonical /requesting-code-review skill (final-pass call-site rewired)" \
-  "yes" "$(grep -qF "/prflow:requesting-code-review" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/prflow:requesting-code-review' appears twice in the target SKILL
+# Derived (not pinned) for the reasons stated at `dispatched_roster_missing`: the haystack is
+# the runtime review-engine concatenation, so a fixed-literal pin over it names a target no
+# static reader can resolve. The extraction is scoped to the `/prflow:<id>` slash-invocation
+# form, which is the actual call-site shape.
+assert_eq "#142 review engine dispatches /prflow:requesting-code-review (derived final-pass call-site; names it when missing)" \
+  "" "$(dispatched_roster_missing "$REVIEW_BUNDLE" '/prflow:[a-z0-9-]+' '/prflow:' '' requesting-code-review)"
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(rro_allowlisted "devflow:requesting-code-review")"
 # Negative control: the allowlist is still CLOSED - an id it never declared is refused,
@@ -35241,6 +35282,20 @@ echo "#666: mutation-routing declaration gate"
 MR_REPO="$(cd "$LIB/.." && pwd)"
 _MR_OUT="$(python3 "$PCL" mutation-routing-worktree "$MR_REPO" 2>&1)"; _MR_RC=$?
 assert_eq "#810 mutation-routing worktree gate is established and clean" "0" "$_MR_RC"
+# #967: rc alone cannot distinguish "the static pin classifier ran and found nothing" from
+# "a precondition raised and the classifier never ran" — every precondition inside
+# scan_static_pin_changes (the adjudication-table branch-currency check among them) aborts
+# BEFORE both scan passes, and that is exactly how this gate stayed silently un-run across
+# two sessions while four unanswerable guard sites sat unreported. The helper writes the
+# sentinel below to stderr only on the path where both passes completed, so its ABSENCE is a
+# named failure rather than an anonymous rc 2. Matched with a bash `case` (no PATH tool
+# decides this comparand) against the merged stdout+stderr capture above.
+case "$_MR_OUT" in
+  *MUTATION-ROUTING-STATIC-SCAN-COMPLETED*) _MR_RAN=yes ;;
+  *) _MR_RAN=no ;;
+esac
+assert_eq "#967 mutation-routing static pin classifier actually ran (a precondition raise cannot silently skip it)" \
+  "yes" "$_MR_RAN"
 if [ "$_MR_RC" -ne 0 ]; then
   while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do
     printf '    %s\n' "$_mr_line"
