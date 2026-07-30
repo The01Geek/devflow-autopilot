@@ -1,8 +1,8 @@
 # Local workflow flight recorder
 
 The workflow flight recorder is opt-in, local instrumentation for improving
-DevFlow skills from real Claude Code sessions. Claude's native JSONL under its
-projects store remains the transcript source of truth; DevFlow inventories that
+PRFlow skills from real Claude Code sessions. Claude's native JSONL under its
+projects store remains the transcript source of truth; PRFlow inventories that
 store without copying or changing it, records only start metadata automatically,
 and imports a selected transcript only on an explicit operator command.
 
@@ -25,10 +25,10 @@ python3 scripts/inventory-workflow-transcripts.py \
 ```
 
 A session qualifies only when its first authoritative user message invokes a
-registered workflow. The registry recognizes `/devflow:implement` and
-`/implement`, `/devflow:create-issue` and `/create-issue`,
-`/devflow:review-and-fix` and `/review-and-fix`, `/devflow:review` and
-`/review`, and `/devflow:receiving-code-review` — see
+registered workflow. The registry recognizes `/prflow:implement` and
+`/implement`, `/prflow:create-issue` and `/create-issue`,
+`/prflow:review-and-fix` and `/review-and-fix`, `/prflow:review` and
+`/review`, and `/prflow:receiving-code-review` — see
 `scripts/workflow-flight-recorder-registry.json` for the authoritative set and
 each workflow's measured prompt surfaces. Plain commands and Claude command markup both
 qualify. A command embedded in a larger first message qualifies only when a
@@ -220,8 +220,8 @@ comes from trusted workflow/job identity via the registry's additive
 agent job name + routed command/consumer + scheduled/started agent-step evidence
 — a skipped job, which never ran its agent step, is ineligible); non-agent jobs
 are ineligible by omission. Because the census is job-level, `devflow.yml`'s
-`command` job — which multiplexes `/devflow:review`, `/devflow:review-and-fix`,
-and `/devflow:pr-description` — has all its runs attributed to consumer `review`
+`command` job — which multiplexes `/prflow:review`, `/prflow:review-and-fix`,
+and `/prflow:pr-description` — has all its runs attributed to consumer `review`
 as a Wave-1 approximation (`consumer_approximate: true` in the mapping), so
 stratification must not treat that job's consumer attribution as exact. Cloud
 rows report census, eligibility, and source missingness only — no launch,
@@ -360,7 +360,7 @@ reviewers see cited source evidence without analyzer relationship labels and
 record `confirmed_retry_pattern`, `intentional_rerun`, or
 `insufficient_evidence`. Baseline comparison stratifies local launch analysis by
 consumer/checkpoint, command binding, host/profile, repository-size bucket,
-duration bucket, model, effort, output style, prompt fingerprint, DevFlow
+duration bucket, model, effort, output style, prompt fingerprint, PRFlow
 version, Claude/action version, and provider; incomplete strata are marked
 non-comparable, and captured-only rows are never presented as the
 eligible-lifecycle denominator.

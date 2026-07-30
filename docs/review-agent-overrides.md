@@ -4,33 +4,33 @@
 **Resolver:** `scripts/resolve-review-overrides.py` (reads via `scripts/config-get.sh`)
 **Applied by:** `skills/review/SKILL.md` (the shared review engine)
 
-The shared `/devflow:review` engine fans out to up to nine subagents across Phases 1, 1.5, 2,
+The shared `/prflow:review` engine fans out to up to nine subagents across Phases 1, 1.5, 2,
 and 3. By default every one inherits the orchestrator's model and the session effort. The
 `devflow_review.agent_overrides` block lets operators tune each subagent's `model` and `effort`
 individually — turning the effectiveness telemetry in [efficiency-trace.md](efficiency-trace.md)
 into an actionable lever.
 
 Because the engine is shared, the overrides take effect **identically** whether it is reached via
-standalone `/devflow:review` or via `/devflow:review-and-fix` (and thus the Phase-3 code-review
-pass of `/devflow:implement`).
+standalone `/prflow:review` or via `/prflow:review-and-fix` (and thus the Phase-3 code-review
+pass of `/prflow:implement`).
 
 ## Migration (v2.8.12): the five review-agent keys were renamed
 
-**Breaking config change.** The five Phase-3 review agents were internalized as first-party DevFlow
+**Breaking config change.** The five Phase-3 review agents were internalized as first-party PRFlow
 agents (vendored from Anthropic's pr-review-toolkit plugin), so the engine now dispatches them under
-the `devflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
+the `prflow:` namespace. Their `agent_overrides` keys were renamed accordingly:
 
 | Old key (pre-2.8.12) | New key |
 |---|---|
-| `pr-review-toolkit:code-reviewer` | `devflow:code-reviewer` |
-| `pr-review-toolkit:silent-failure-hunter` | `devflow:silent-failure-hunter` |
-| `pr-review-toolkit:comment-analyzer` | `devflow:comment-analyzer` |
-| `pr-review-toolkit:type-design-analyzer` | `devflow:type-design-analyzer` |
-| `pr-review-toolkit:pr-test-analyzer` | `devflow:pr-test-analyzer` |
+| `pr-review-toolkit:code-reviewer` | `prflow:code-reviewer` |
+| `pr-review-toolkit:silent-failure-hunter` | `prflow:silent-failure-hunter` |
+| `pr-review-toolkit:comment-analyzer` | `prflow:comment-analyzer` |
+| `pr-review-toolkit:type-design-analyzer` | `prflow:type-design-analyzer` |
+| `pr-review-toolkit:pr-test-analyzer` | `prflow:pr-test-analyzer` |
 
 If your `.devflow/config.json` keys `agent_overrides` on any old identifier, rename it to the new
 one. A stale old key does **not** abort a run, but it silently stops applying: the engine only ever
-dispatches the new `devflow:` identifier, so the resolver only ever reads the new key — it never
+dispatches the new `prflow:` identifier, so the resolver only ever reads the new key — it never
 reads (and therefore never warns about) a stale `pr-review-toolkit:` key. Renaming is the only way
 to make the override take effect again. (If you validate `.devflow/config.json` against
 `config.schema.json`, the stale key is rejected outright by `additionalProperties: false`.) The
@@ -39,18 +39,18 @@ to make the override take effect again. (If you validate `.devflow/config.json` 
 ## Migration (v2.8.12): the final-pass reviewer key was renamed
 
 **Breaking config change.** The `superpowers` plugin's `requesting-code-review` skill — the Phase-3
-final-pass reviewer — was internalized as a first-party DevFlow skill (vendored under
+final-pass reviewer — was internalized as a first-party PRFlow skill (vendored under
 `skills/requesting-code-review/`, seam 3 of the #139 internalization), so its `agent_overrides` key
-was renamed to the `devflow:` namespace:
+was renamed to the `prflow:` namespace:
 
 | Old key (pre-2.8.12) | New key |
 |---|---|
-| `superpowers:requesting-code-review` | `devflow:requesting-code-review` |
+| `superpowers:requesting-code-review` | `prflow:requesting-code-review` |
 
 Same rename discipline as the v2.8.12 table above — a stale old key is not an error, but it silently
-stops applying: the engine only ever dispatches the new `devflow:requesting-code-review` identifier,
+stops applying: the engine only ever dispatches the new `prflow:requesting-code-review` identifier,
 so the resolver only ever reads the new key and never warns about the stale one. Renaming is the
-only way to make the override take effect again. With this seam DevFlow has **zero** companion-plugin
+only way to make the override take effect again. With this seam PRFlow has **zero** companion-plugin
 dependencies.
 
 ## The nine configurable identifiers
@@ -58,20 +58,20 @@ dependencies.
 The override keys are byte-identical to the subagent identifiers the engine dispatches under, so
 config, dispatch, and the effectiveness trace stay aligned. The six Phase-3 keys appear verbatim in
 the `phase3_dispatched` telemetry and in each finding's `agent`; the three checklist-phase keys
-(`devflow:checklist-generator`/`-deduper`/`-verifier`) run earlier, at Phases 1/1.5/2, and so do not
+(`prflow:checklist-generator`/`-deduper`/`-verifier`) run earlier, at Phases 1/1.5/2, and so do not
 appear in `phase3_dispatched`:
 
 | Identifier | Phase | Notes |
 |---|---|---|
-| `devflow:checklist-generator` | 1 | Verification-checklist generation. |
-| `devflow:checklist-deduper` | 1.5 | Cross-batch dedup (only when >1 generator batch). |
-| `devflow:checklist-verifier` | 2 | One dispatch per agent-mode checklist item. |
-| `devflow:code-reviewer` | 3 | Always-on. |
-| `devflow:silent-failure-hunter` | 3 | Always-on. |
-| `devflow:comment-analyzer` | 3 | Always-on. |
-| `devflow:type-design-analyzer` | 3 | Gated — only when the diff adds/changes types. |
-| `devflow:pr-test-analyzer` | 3 | Gated — only when the test-relevance predicate matches. |
-| `devflow:requesting-code-review` | 3 | Final pass; a first-party skill dispatched as a `general-purpose` Task but keyed under this identifier. |
+| `prflow:checklist-generator` | 1 | Verification-checklist generation. |
+| `prflow:checklist-deduper` | 1.5 | Cross-batch dedup (only when >1 generator batch). |
+| `prflow:checklist-verifier` | 2 | One dispatch per agent-mode checklist item. |
+| `prflow:code-reviewer` | 3 | Always-on. |
+| `prflow:silent-failure-hunter` | 3 | Always-on. |
+| `prflow:comment-analyzer` | 3 | Always-on. |
+| `prflow:type-design-analyzer` | 3 | Gated — only when the diff adds/changes types. |
+| `prflow:pr-test-analyzer` | 3 | Gated — only when the test-relevance predicate matches. |
+| `prflow:requesting-code-review` | 3 | Final pass; a first-party skill dispatched as a `general-purpose` Task but keyed under this identifier. |
 
 Plus the special `default` key (below).
 
@@ -84,8 +84,8 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
   "devflow_review": {
     "agent_overrides": {
       "default": { "effort": "high" },
-      "devflow:checklist-deduper": { "model": "claude-sonnet-5", "effort": "medium" },
-      "devflow:code-reviewer": { "model": "claude-opus-5", "effort": "high", "iterations": "first-only" }
+      "prflow:checklist-deduper": { "model": "claude-sonnet-5", "effort": "medium" },
+      "prflow:code-reviewer": { "model": "claude-opus-5", "effort": "high", "iterations": "first-only" }
     }
   }
 }
@@ -97,10 +97,10 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 - `effort` — one of `low`, `medium`, `high`, `xhigh`, `max`.
 - `iterations` — optional, **default-off**; the only valid value is `first-only`. An agent whose
   resolved override carries it is **excluded from the Phase-3 review roster on fix-loop iterations
-  ≥ 2** — so it reviews only on iteration 1 of a `/devflow:review-and-fix` (and thus
-  `/devflow:implement`) fix loop. It is a **roster-scoping** key, not a dispatch-time model/effort
+  ≥ 2** — so it reviews only on iteration 1 of a `/prflow:review-and-fix` (and thus
+  `/prflow:implement`) fix loop. It is a **roster-scoping** key, not a dispatch-time model/effort
   parameter: the resolver only reads it and passes a valid value through, and the exclusion itself is
-  enforced engine-side in `skills/review/SKILL.md` Phase 3.1. In **standalone `/devflow:review`** (a
+  enforced engine-side in `skills/review/SKILL.md` Phase 3.1. In **standalone `/prflow:review`** (a
   single pass) and on **iteration 1** the key is a no-op — behavior is byte-identical to omitting it.
   It is also **never** applied to the Step 2.6 shadow fan-out, whose blinded audit always keeps the
   full roster. An out-of-enum value (or empty string) is dropped with a `::warning::`, mirroring the
@@ -108,26 +108,26 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 
 > **Claude Haiku rejects `effort`.** The `effort` parameter is supported only on Opus 4.5–4.8, Opus 5, Sonnet 4.6, and
 > Sonnet 5; Claude Haiku rejects it with **HTTP 400**. So any entry that pins a Haiku model (a
-> `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `devflow:checklist-deduper`
+> `claude-haiku-*` id) **must not** also carry an `effort` key. The shipped `prflow:checklist-deduper`
 > override pins Claude Sonnet 5 (which *does* support `effort`) with effort `medium`, so it is exempt;
 > the constraint matters if you re-pin a Haiku id there. The schema does not enforce this (it is a model-API fact, not a structural
-> one), so the constraint is documented on the `devflow:checklist-deduper` property in
+> one), so the constraint is documented on the `prflow:checklist-deduper` property in
 > `config.schema.json` and guarded by the shipped-example test in `lib/test/run.sh`.
 >
 > **Re-scaffold repairs stale configs.** Earlier releases shipped the deduper override *with* an
 > `effort` key, so configs scaffolded before that was removed silently retain the HTTP-400 combo.
 > The add-only config backfill cannot fix this — a key *removal* in the example never propagates to
 > an existing config. Instead, `scripts/scaffold-config.sh` runs a best-effort, idempotent cleanup
-> on every re-scaffold (`/devflow:init` or `install.sh`): it strips `effort` from *any*
+> on every re-scaffold (`/prflow:init` or `install.sh`): it strips `effort` from *any*
 > `agent_overrides` entry whose `model` is a Haiku id, leaving non-Haiku overrides untouched. An
 > already-clean config is a quiet no-op (no file churn, no log line).
 
 ## This repo's `code-reviewer` application — baseline, revert trigger, deferred repricing (issue #425)
 
-DevFlow's own tracked `.devflow/config.json` sets
-`"devflow:code-reviewer": { "model": "claude-opus-5", "effort": "low", "iterations": "first-only" }`.
+PRFlow's own tracked `.devflow/config.json` sets
+`"prflow:code-reviewer": { "model": "claude-opus-5", "effort": "low", "iterations": "first-only" }`.
 The `iterations` scoping was added on the evidence of replay study **R2** (2026-07-11): on this repo's
-overwhelmingly `engine_self_modifying` diffs, `devflow:code-reviewer` measured **6.7% unique-effective**
+overwhelmingly `engine_self_modifying` diffs, `prflow:code-reviewer` measured **6.7% unique-effective**
 (9 of 135 dispatches), **2 sole-source applied Importants across 129 dispatches**, and — the positional
 finding — **zero sole-source applied findings after iteration 1** (61 late-iteration dispatches produced
 nothing unique). Scoping the agent to `first-only` stops ~47% of its dispatches (the positionally-worthless
@@ -138,7 +138,7 @@ late ones) with no measured loss.
   (guideline-adherence / doc-mirror) reverts the `iterations` key. Baseline for adjudication is R2 above
   (6.7% unique-effective, 2/129 sole-source, 0 sole-source late).
 - **Deferred repricing (pre-registered follow-up).** Model repricing is deliberately deferred:
-  `agent_overrides` model values apply identically to standalone `/devflow:review`, and the frozen-judge
+  `agent_overrides` model values apply identically to standalone `/prflow:review`, and the frozen-judge
   guardrail of the 2026-07-11 optimization methodology forbids repricing the outcome judge's roster
   mid-window. After the current experiment window closes, a follow-up PR reprices `model` from
   `claude-opus-5` to `claude-haiku-4-5-20251001` (the exact id, since the resolver forwards model
@@ -158,7 +158,7 @@ late ones) with no measured loss.
   only for subagents that have no entry of their own. (So `code-reviewer: { model: m }` with a
   `default: { effort: high }` dispatches `code-reviewer` with model `m` and the **session** effort
   — not `high`.)
-- **Explicit empty entry opts out of `default`.** An explicit empty entry (`"devflow:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
+- **Explicit empty entry opts out of `default`.** An explicit empty entry (`"prflow:code-reviewer": {}`) counts as "has an entry": it sets neither model nor effort **and** does not inherit `default`. Use it to deliberately exclude one subagent from a broad `default` override.
 - **No-entry fallback.** A subagent with **neither its own entry nor a `default`** is dispatched
   exactly as today — the global `claude_model` and the session effort — with **no per-agent
   `model` override supplied at dispatch** (a `session-inheritance` in the per-tier matrix above).
@@ -194,7 +194,7 @@ late ones) with no measured loss.
   entry does not inherit the `default`'s `iterations`. The resolver only **reads** the key and passes
   a valid value through the resolved map; an out-of-enum value (or empty string) is dropped with a
   `::warning::` and the agent then participates on every iteration (the run never aborts). Standalone
-  `/devflow:review` has a single pass, so the key is a structural no-op there. An excluded agent is
+  `/prflow:review` has a single pass, so the key is a structural no-op there. An excluded agent is
   legitimately absent from that iteration's `phase3_dispatched` (like a gated-out analyzer). An entry
   carrying *only* `iterations` (no `model`/`effort`) still resolves.
 - **Gated agents.** The two structurally-gated Phase-3 analyzers (`type-design-analyzer`,
@@ -216,8 +216,8 @@ consumer's vendored resolver/schema and its `.devflow/config.json`, in **both** 
 
 ## Mechanism — how model and effort actually reach a subagent (issue #554)
 
-All nine subagents are **first-party DevFlow assets** (the three `devflow:checklist-*` and the
-five vendored `devflow:` review agents under `agents/`, plus the vendored `devflow:requesting-code-review`
+All nine subagents are **first-party PRFlow assets** (the three `devflow:checklist-*` and the
+five vendored `prflow:` review agents under `agents/`, plus the vendored `prflow:requesting-code-review`
 skill under `skills/`, dispatched via `general-purpose`). The engine resolves the overrides with
 `scripts/resolve-review-overrides.py` (which reads the config through `config-get.sh`); each agent's
 own `description`/`prompt`/`tools` come from its committed first-party definition (under `agents/`, or

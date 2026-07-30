@@ -5,7 +5,7 @@ kind: cutover
 
 # Cutover record — issue #795: Step 3.6 state-owner round-trips
 
-**What changed.** `/devflow:create-issue`'s Step 3.6 audit lifecycle stopped paying a Bash
+**What changed.** `/prflow:create-issue`'s Step 3.6 audit lifecycle stopped paying a Bash
 round-trip for work the state owner already knows how to do. `scripts/issue-audit-state.py`
 resolves an omitted `--round` where the state uniquely determines it, publishes a `next_call=`
 suggestion naming the next legal invocation, and answers the Step 3.6 → Step 4 boundary in one
@@ -167,7 +167,7 @@ file already holds; no new state key, no changed stored shape. A create-issue ru
 sessions, so a state file written before the change stays readable by the changed code mid-run —
 which the unchanged `_REQUIRED_TOP` set and validation spine already guarantee.
 
-**No new tool grant.** `/devflow:create-issue` is local/interactive-tier only, every invocation
+**No new tool grant.** `/prflow:create-issue` is local/interactive-tier only, every invocation
 introduced or modified is `python3`-headed, and `lib/capability-profiles.json`, its five generated
 allowlist literals and `lib/review-profile.tokens` are byte-identical after the change.
 

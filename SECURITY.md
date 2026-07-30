@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-If you discover a security issue in DevFlow, please report it privately rather
+If you discover a security issue in PRFlow, please report it privately rather
 than opening a public issue. Use GitHub's **private vulnerability reporting**
 (the "Report a vulnerability" button under the repository's *Security* tab), or
 email **daniel@radman.ai**. You'll get an acknowledgement within a few days.
@@ -11,7 +11,7 @@ Please include reproduction steps and the affected version or commit.
 
 ## Scope and considerations
 
-DevFlow runs as a Claude Code plugin and, optionally, as a set of GitHub Actions
+PRFlow runs as a Claude Code plugin and, optionally, as a set of GitHub Actions
 workflows. A few areas warrant care:
 
 - **Cloud tier credentials.** The optional GitHub Actions automation uses a
@@ -23,7 +23,7 @@ workflows. A few areas warrant care:
   a key scoped/guardrailed to the intended provider. Review that provider's
   data-retention and training policy before the first run — prompts routed
   through it leave Anthropic's infrastructure.
-- **`config.json` is committed, not gitignored.** DevFlow's cloud tier reads it
+- **`config.json` is committed, not gitignored.** PRFlow's cloud tier reads it
   from the committed tree, so the scaffolded `.devflow/.gitignore` ignores only
   `tmp/` and leaves `config.json` tracked. Because it is committed, keep secrets
   out of it — it holds only non-secret environment configuration (project/board
@@ -39,7 +39,7 @@ workflows. A few areas warrant care:
   unsanitized friction (CI-runner paths and repo-relative paths included), so
   `lib/materialize-retrospectives.sh` rewrites operator home-directory prefixes to
   `~` on the merge write path as a backstop; do not rely on it to catch secrets.
-- **Skills run shell commands.** DevFlow's skills execute `git`, `gh`, `jq`, and
+- **Skills run shell commands.** PRFlow's skills execute `git`, `gh`, `jq`, and
   bundled Python helpers. Review the skills you install, as you would any plugin.
 - **The retrospective loop opens PRs/issues** on the configured repository. It
   never auto-merges and never auto-edits the repo; each recurring pattern is filed
@@ -47,5 +47,5 @@ workflows. A few areas warrant care:
 
 ## Supported versions
 
-DevFlow follows semantic versioning. Security fixes target the latest released
+PRFlow follows semantic versioning. Security fixes target the latest released
 minor version.

@@ -24,7 +24,7 @@ Per-file byte growth measured by `lib/test/prompt-mass-census.py` (baseline → 
 - `skills/implement/phases/phase-2-implement.md` — +1331 bytes. §2.1 (`code-explorer`)
   and §2.2 Path B (`code-architect`) dispatches gain the `Issue body path:` hand-off
   and the no-`Bash`-tool degraded inline-paste disposition.
-- `skills/implement/phases/phase-4-documentation.md` — +648 bytes. §4.1's `devflow:docs`
+- `skills/implement/phases/phase-4-documentation.md` — +648 bytes. §4.1's `prflow:docs`
   dispatch gains the `Issue body path:` hand-off and the degraded inline-paste
   disposition; the Documentation-Needed gate fences are deliberately untouched.
 - `skills/implement/SKILL.md` — +405 bytes. The terminal-status cleanup gains the cache

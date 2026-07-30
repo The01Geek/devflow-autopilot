@@ -34,7 +34,7 @@ and its capture mechanism to the *recording* surfaces, #730 adds the **consuming
 tier-scoped, **non-blocking** review-engine advisory that surfaces a local/interactive
 completion/PR-ready claim made with no captured verification run. Because the review engine is
 shared, the advisory has to be stated on both extension surfaces that the two review paths load —
-`review.md` (standalone `/devflow:review`) and `review-and-fix.md` (the fix loop) — so the bytes
+`review.md` (standalone `/prflow:review`) and `review-and-fix.md` (the fix loop) — so the bytes
 land on both.
 
 Each clause of the added block is an acceptance criterion of the issue rather than elaboration, and
@@ -50,7 +50,7 @@ none can be dropped or shortened past its operative minimum without failing a `r
 3. **By-classification behavior** — silent on cloud; on a local/interactive PR carrying a
    completion claim, silent when the marker is present on either surface and one non-blocking
    advisory finding when it is absent from both.
-4. **Covered population** — a local Phase-3 inline review, a local `/devflow:review-and-fix` given a
+4. **Covered population** — a local Phase-3 inline review, a local `/prflow:review-and-fix` given a
    PR, and a direct-reception marker in the PR body; a current-branch run with no PR/issue is out
    of scope (no durable surface to read).
 5. **Accepted residual** — a cloud run on a legacy workpad lacking a canonical `## Progress`

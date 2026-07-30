@@ -7,7 +7,7 @@ result is recorded against the `Writing-skills evidence:` marker in the issue #5
 
 ## Why this study exists
 
-The #530 split moved `/devflow:review-and-fix`'s loop steps out of a monolith into a thin root
+The #530 split moved `/prflow:review-and-fix`'s loop steps out of a monolith into a thin root
 (`skills/review-and-fix/SKILL.md`) plus per-step reference files
 (`skills/review-and-fix/references/*.md`), reached through a **Step-routing table** and a
 **fail-closed Reference-loading contract**. The #530 implement run recorded a single-sample

@@ -30,7 +30,7 @@ engine loads on every pass.
 The issue's Desired Behavior offered two options: amend the anchor convention so a
 mechanically-checkable cloud form exists in source, **or** restate AC2/AC3 against
 the emission-time surface they actually govern. This run (autonomous
-`/devflow:implement`, no operator present) chose the **second** option, because the
+`/prflow:implement`, no operator present) chose the **second** option, because the
 first breaks #275 and needlessly duplicates the shipped-default review-bundle surface.
 
 Key observation: `lib/test/extract-command-heads.py`'s `_ANCHOR`/`_normalize`

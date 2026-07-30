@@ -19,7 +19,7 @@ kind: growth
   record that the mandate is now enforced and to name the `# structural-pin-ok:` marker and the
   overbreadth guard. This is a `CLAUDE.md` edit the acceptance criteria *require*, so an autonomous
   run makes it directly under the issue-#366 carve-out rather than invoking `revise-claude-md`. It is
-  the one repo-wide home every run loads, including cloud `/devflow:review-and-fix`, and it sits under
+  the one repo-wide home every run loads, including cloud `/prflow:review-and-fix`, and it sits under
   no word ceiling — the reason the fix-loop's prose channel is `CLAUDE.md` rather than the
   `review-and-fix` extension (which is a `RAF_LOAD_CEIL`/`RAF_MAXSTEP_CEIL` budget term).
 - **`.devflow/prompt-extensions/implement.md`** — the "Behavioral-fix pins — evidence, not

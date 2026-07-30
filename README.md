@@ -1,25 +1,25 @@
-# DevFlow — agentic coding that ships on real codebases
+# PRFlow — agentic coding that ships on real codebases
 
-[![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/prflow/)
+[![PRFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/prflow:create-issue), Implement (/prflow:implement), Review & fix (/prflow:review-and-fix), and Document (/prflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/prflow/)
 
 [![CI](https://github.com/The01Geek/prflow/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/prflow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built on Claude Code](https://img.shields.io/badge/built%20on-Claude%20Code-d97757.svg)](https://code.claude.com)
 
-**AI coding agents dazzle on a demo repo, then stall on a real ticket in a large production codebase.** DevFlow is the [Claude Code](https://code.claude.com) plugin that closes that gap — it carries one feature request all the way to a **complete, tested, reviewed, documented pull request**, so you do the final review and merge, not the cleanup.
+**AI coding agents dazzle on a demo repo, then stall on a real ticket in a large production codebase.** PRFlow is the [Claude Code](https://code.claude.com) plugin that closes that gap — it carries one feature request all the way to a **complete, tested, reviewed, documented pull request**, so you do the final review and merge, not the cleanup.
 
 <!--
   DEMO SLOT — highest-impact addition per README research (see docs/demo-gif.private.md).
   Record a ~20-30s terminal GIF of the headline flow and drop it in here:
-    /devflow:implement 42  →  branch → plan → code+tests → draft PR → review-and-fix → ready PR
+    /prflow:implement 42  →  branch → plan → code+tests → draft PR → review-and-fix → ready PR
   Keep it < 3 MB, loop-friendly, captioned. Replace this comment with:
-    ![DevFlow turning issue #42 into a ready PR](docs/demo.gif)
+    ![PRFlow turning issue #42 into a ready PR](docs/demo.gif)
 -->
 
 > [!NOTE]
 > **Automatic review on pull request is withheld from this release.** A fresh installation
 > receives no `devflow-review.yml`, `devflow-runner.yml` or `telemetry-push.yml`. The
-> supported review path is a repository collaborator commenting `/devflow:review` on a pull
+> supported review path is a repository collaborator commenting `/prflow:review` on a pull
 > request — an outside fork contributor cannot self-trigger a review. A repository that
 > already installed the tier keeps it, and keeps its exposure to issues #930 and #920 until
 > it removes the files by hand. See [`docs/workflow-triggers.md`](docs/workflow-triggers.md)
@@ -31,32 +31,34 @@
 > **Just ask your agent.** Paste this into Claude Code and it handles steps 1 and 2 for you — the install, the setup, and the PATH dependencies `/plugin install` doesn't cover. Then ship your first PR with step 3.
 >
 > ```text
-> Read https://github.com/The01Geek/prflow#quick-start and install DevFlow and its dependencies.
+> Read https://github.com/The01Geek/prflow#quick-start and install PRFlow and its dependencies.
 > ```
 
 **1. Install** (two commands — run in order; works in any shell):
 
 ```bash
 claude plugin marketplace add The01Geek/prflow
-claude plugin install devflow@devflow-marketplace
+claude plugin install prflow@devflow-marketplace
 ```
+
+> **Why `prflow@devflow-marketplace`?** The plugin is `prflow`; the marketplace it is published in is still named `devflow-marketplace`. That is deliberate, not a half-finished rename — Claude Code's plugin `renames` map is scoped *per marketplace*, so renaming the marketplace would break the upgrade path for everyone who already installed the plugin from it. The marketplace name stays; the plugin name is `prflow`.
 
 **2. Set up** — launch Claude Code and scaffold your config:
 
 ```bash
-claude /devflow:init   # launches Claude Code and scaffolds your config
+claude /prflow:init   # launches Claude Code and scaffolds your config
 ```
 
 **3. Ship a PR** — turn a feature request into a reviewed, documented pull request:
 
 ```text
-/devflow:create-issue <user_story>
-/devflow:implement <issue_number>
+/prflow:create-issue <user_story>
+/prflow:implement <issue_number>
 ```
 
-The local tier runs **with zero configuration** — every value already has a built-in default. `/devflow:init` is recommended: it keeps the plugin auto-updated and writes a `.devflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
+The local tier runs **with zero configuration** — every value already has a built-in default. `/prflow:init` is recommended: it keeps the plugin auto-updated and writes a `.devflow/config.json` you can tweak. See **[Installing & updating](docs/install.md)** for the full options (the zero-dependency install, PyYAML, the cloud tier) and [Requirements](#requirements) for the handful of tools it expects on your PATH.
 
-## Why DevFlow
+## Why PRFlow
 
 - **Ships the whole PR, not a fragment** — grounded in *your* architecture and patterns, with the tests the change actually needs, on production code. [How it's different →](#how-its-different)
 - **Review that fixes what it finds — and audits itself** — the review-and-fix loop applies fixes and re-reviews until it approves, then a structurally-independent **shadow pass** re-checks the approval. [Skills and agents →](#skills-and-agents)
@@ -84,13 +86,13 @@ The local tier runs **with zero configuration** — every value already has a bu
 
 ## How it's different
 
-The thesis isn't code generation — it's **disciplined, auditable AI software delivery at production scale.** A single LLM pass is variable; DevFlow's architecture is built around *not trusting any single pass*.
+The thesis isn't code generation — it's **disciplined, auditable AI software delivery at production scale.** A single LLM pass is variable; PRFlow's architecture is built around *not trusting any single pass*.
 
-- **✓ Works on real codebases, not just pet projects.** Unlike a raw agent that drafts part of the change and stops, DevFlow delivers the full round — grounded in your architecture and patterns, with the tests the change needs — on production code.
+- **✓ Works on real codebases, not just pet projects.** Unlike a raw agent that drafts part of the change and stops, PRFlow delivers the full round — grounded in your architecture and patterns, with the tests the change needs — on production code.
 - **✓ Review that fixes what it finds.** It doesn't just hand you a list. The **review-and-fix loop** applies the fixes and re-reviews, iterating until it approves — backed by independent verification checklists, a panel of specialized reviewers, mechanical corroboration, and a **shadow pass** (a second, structurally-independent review that re-checks the approval before it stands). The shadow pass **narrows the gap to a standalone review; it never closes it.**
 - **✓ It learns.** Every run leaves a trail — a **DevFlow Reflection** logging assumptions and anything unverified, an **effectiveness trace** of which steps earned their keep, living docs, and a **weekly retrospective** that opens the smallest fix preventing the next recurring failure.
 
-DevFlow delivers a **review-ready** PR for your final human review and merge — it is **not auto-merged**.
+PRFlow delivers a **review-ready** PR for your final human review and merge — it is **not auto-merged**.
 
 ## Who it's for
 
@@ -98,24 +100,24 @@ A developer or team shipping in a **large, business-grade codebase**, already on
 
 ## The workflow, end to end
 
-The intended way to drive DevFlow — from a feature request to a reviewed pull request:
+The intended way to drive PRFlow — from a feature request to a reviewed pull request:
 
 ```text
    you: a feature request
        │
-/devflow:create-issue   →  explore codebase → implementation options → detailed GitHub issue
+/prflow:create-issue   →  explore codebase → implementation options → detailed GitHub issue
        │
-/devflow:implement      →  architect → code → build/test → /devflow:review-and-fix loop → /devflow:docs
+/prflow:implement      →  architect → code → build/test → /prflow:review-and-fix loop → /prflow:docs
        │
-/devflow:review         →  (optional) independent, comprehensive check → PR ready for developer hand-off
+/prflow:review         →  (optional) independent, comprehensive check → PR ready for developer hand-off
        │
    you: final review & merge
 ```
 
-1. **Create the issue.** `/devflow:create-issue Add CSV export to the reports page` interviews you until the issue is unambiguous, shows you the draft, and files it **only after you confirm**. Say it lands as **#42**.
-2. **Start implementation.** Run `/devflow:implement 42` in Claude Code — or, on the cloud tier, comment `/devflow:implement 42` on the issue (`gh issue comment 42 --body '/devflow:implement 42'`). Because *you* posted the comment, GitHub fires the workflow natively (no `@claude`, bot comment, or PAT needed — see [cloud setup](docs/cloud-setup.md#triggering-devflowimplement)).
-3. **DevFlow implements it.** It creates a branch, plans against your codebase, writes the code and tests, opens a **draft PR**, self-reviews with `/simplify`, runs `/devflow:review-and-fix`, files follow-up issues for deferred findings, updates the docs, and flips the PR to **ready**.
-4. **Review and merge.** On the cloud tier, `/devflow:review` runs as a gate and posts its verdict on the PR. You do the final human review and merge.
+1. **Create the issue.** `/prflow:create-issue Add CSV export to the reports page` interviews you until the issue is unambiguous, shows you the draft, and files it **only after you confirm**. Say it lands as **#42**.
+2. **Start implementation.** Run `/prflow:implement 42` in Claude Code — or, on the cloud tier, comment `/prflow:implement 42` on the issue (`gh issue comment 42 --body '/prflow:implement 42'`). Because *you* posted the comment, GitHub fires the workflow natively (no `@claude`, bot comment, or PAT needed — see [cloud setup](docs/cloud-setup.md#triggering-prflowimplement)).
+3. **PRFlow implements it.** It creates a branch, plans against your codebase, writes the code and tests, opens a **draft PR**, self-reviews with `/simplify`, runs `/prflow:review-and-fix`, files follow-up issues for deferred findings, updates the docs, and flips the PR to **ready**.
+4. **Review and merge.** On the cloud tier, `/prflow:review` runs as a gate and posts its verdict on the PR. You do the final human review and merge.
 
 > The cloud tier (steps 2–4 running automatically on GitHub) needs only a `CLAUDE_CODE_OAUTH_TOKEN` secret **by default** (routing a workflow through an optional third-party model provider adds one more, `DEVFLOW_PROVIDER_API_KEY`) — see [`docs/cloud-setup.md`](docs/cloud-setup.md). Everything else runs locally inside Claude Code with no infrastructure.
 
@@ -129,7 +131,7 @@ The intended way to drive DevFlow — from a feature request to a reviewed pull 
 
 All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
 
-On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (DevFlow mandates none); point DevFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; DevFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash DevFlow runs under](docs/install.md#windows-choosing-the-bash-devflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
+On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (PRFlow mandates none); point PRFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; PRFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash PRFlow runs under](docs/install.md#windows-choosing-the-bash-prflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
 
 **Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read the prerequisites and the smoke-test boundary in [`docs/cloud-setup.md`](docs/cloud-setup.md) before treating a non-Linux runner as production-ready.
 
@@ -137,35 +139,35 @@ On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSY
 
 | Skill | What it does |
 |---|---|
-| `/devflow:implement <issue#>` | Full 4-phase lifecycle: issue → branch → plan → implement → test → draft PR → `/simplify` → `/devflow:review-and-fix` → file follow-up issues → docs → ready PR |
-| `/devflow:review [PR#]` | Comprehensive review — verification checklist + the first-party `devflow:` review agents & the first-party `devflow:requesting-code-review` final-pass reviewer; returns APPROVE/REJECT |
-| `/devflow:review-and-fix [PR#]` | `/devflow:review` plus an automatic fix loop (default 5 iterations) that writes a deferrals manifest at exit |
-| `/devflow:pr-description [issue#]` | Generate/update the PR description from the branch diff |
-| `/devflow:docs` | Orchestrate the three doc steps in one session |
-| `/devflow:docs-sync-internal` · `-sync-external` · `-release-notes` | Update internal docs, align external docs, generate release notes |
-| `/devflow:docs-verify <topic>` · `-bootstrap-internal` · `-bootstrap-external` | Verify one topic; stand up internal/external docs from scratch |
-| `/devflow:create-issue` | Rough idea → well-structured GitHub issue |
-| `/devflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh the schema |
-| `/devflow:retrospective-weekly` | The weekly self-improvement loop ([details](#the-self-improving-loop)) |
+| `/prflow:implement <issue#>` | Full 4-phase lifecycle: issue → branch → plan → implement → test → draft PR → `/simplify` → `/prflow:review-and-fix` → file follow-up issues → docs → ready PR |
+| `/prflow:review [PR#]` | Comprehensive review — verification checklist + the first-party `prflow:` review agents & the first-party `prflow:requesting-code-review` final-pass reviewer; returns APPROVE/REJECT |
+| `/prflow:review-and-fix [PR#]` | `/prflow:review` plus an automatic fix loop (default 5 iterations) that writes a deferrals manifest at exit |
+| `/prflow:pr-description [issue#]` | Generate/update the PR description from the branch diff |
+| `/prflow:docs` | Orchestrate the three doc steps in one session |
+| `/prflow:docs-sync-internal` · `-sync-external` · `-release-notes` | Update internal docs, align external docs, generate release notes |
+| `/prflow:docs-verify <topic>` · `-bootstrap-internal` · `-bootstrap-external` | Verify one topic; stand up internal/external docs from scratch |
+| `/prflow:create-issue` | Rough idea → well-structured GitHub issue |
+| `/prflow:init` | One-time setup: scaffold `.devflow/config.json` + refresh the schema |
+| `/prflow:retrospective-weekly` | The weekly self-improvement loop ([details](#the-self-improving-loop)) |
 
-**Agents** (`agents/`): the review-engine trio `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist; the `/devflow:implement` `code-explorer` and `code-architect` handle discovery and planning; and the five `pr-review-toolkit` reviewers (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) run the deep-dive review passes.
+**Agents** (`agents/`): the review-engine trio `checklist-generator`, `checklist-deduper`, and `checklist-verifier` build, dedupe, and verify the review engine's verification checklist; the `/prflow:implement` `code-explorer` and `code-architect` handle discovery and planning; and the five `pr-review-toolkit` reviewers (`code-reviewer`, `comment-analyzer`, `pr-test-analyzer`, `silent-failure-hunter`, `type-design-analyzer`) run the deep-dive review passes.
 
-> **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/devflow:`-prefixed form to reach DevFlow's engine (a bare `/review` reaches Claude Code's reviewer, not DevFlow's). DevFlow's cloud workflows trigger on **bare** `/devflow:*` comments (no `@claude`), so they coexist with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
+> **Namespacing matters where names collide with built-ins.** `/review`, `/init`, and `/security-review` are *built-in* Claude Code commands — always use the `/prflow:`-prefixed form to reach PRFlow's engine (a bare `/review` reaches Claude Code's reviewer, not PRFlow's). **Local slash commands are `/prflow:` only** — the plugin was renamed from `devflow`, and the old `/devflow:*` local commands do not survive that rename. **Cloud comment triggers still accept both**: a GitHub comment reading `/devflow:implement 42` or `/prflow:implement 42` fires the same workflow, so existing automation and muscle memory keep working there. Either way the trigger is a **bare** comment (no `@claude`), so PRFlow coexists with Anthropic's Claude GitHub App, which owns plain `@claude` mentions and `/security-review`.
 
-> **No companion plugins.** DevFlow declares **zero** companion-plugin dependencies — `/plugin install devflow@devflow-marketplace` resolves on its own, with no `claude-plugins-official` prerequisite and none of the old `dependency-unsatisfied` Errors-tab friction. Every external asset its engine once dispatched is now a first-party DevFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` subagents under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` skills under `skills/` — all hard-forked with upstream licenses retained verbatim under `LICENSES/`. See [Installing & updating](docs/install.md#no-companion-plugins-to-add). `/simplify` is a built-in Claude Code skill.
+> **No companion plugins.** PRFlow declares **zero** companion-plugin dependencies — `/plugin install prflow@devflow-marketplace` resolves on its own, with no `claude-plugins-official` prerequisite and none of the old `dependency-unsatisfied` Errors-tab friction. Every external asset its engine once dispatched is now a first-party PRFlow file: the `pr-review-toolkit` review agents and the `feature-dev` `code-explorer`/`code-architect` subagents under `agents/`, and the `superpowers` final-pass reviewer (`requesting-code-review`) and fix-loop `receiving-code-review` skills under `skills/` — all hard-forked with upstream licenses retained verbatim under `LICENSES/`. See [Installing & updating](docs/install.md#no-companion-plugins-to-add). `/simplify` is a built-in Claude Code skill.
 
 ## Project configuration
 
-The local tier needs **no config** — every value has a built-in default. To customize, run `/devflow:init` to scaffold `.devflow/config.json` from DevFlow's shipped template (it never clobbers a config you've filled in) and refresh `.devflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
+The local tier needs **no config** — every value has a built-in default. To customize, run `/prflow:init` to scaffold `.devflow/config.json` from PRFlow's shipped template (it never clobbers a config you've filled in) and refresh `.devflow/config.schema.json` (your editor reads it for autocomplete + field descriptions).
 
 Common keys the skills read: documentation paths (`docs.internal`, `docs.external`, `docs.release_notes_file`, `docs.changelog_file`, `docs.labels`), the workpad marker (`devflow.workpad_marker`), the bot allowlist (`devflow.allowed_bots`), the review base (`base_branch`), retrospective settings (`devflow_retrospective.*`), and — cloud tier only — runtime provisioning (`setup.*`) and the plugin ref (`devflow_version`). Full reference: **[System overview §17](docs/DEVFLOW_SYSTEM_OVERVIEW.md#17-configuration-reference)**.
 
 ## The self-improving loop
 
-Every bot-authored PR leaves evidence — review comments, post-bot commits, CI signals, workpad state. Once a week, **`/devflow:retrospective-weekly`** reads the accumulated trail, finds failure patterns that recur, and files a **human-reviewed** issue proposing the smallest change that would prevent the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule). You triage it, and it runs through the normal implement → review pipeline like any other change.
+Every bot-authored PR leaves evidence — review comments, post-bot commits, CI signals, workpad state. Once a week, **`/prflow:retrospective-weekly`** reads the accumulated trail, finds failure patterns that recur, and files a **human-reviewed** issue proposing the smallest change that would prevent the next occurrence (a CLAUDE.md tweak, a skill rewrite, a missing doc, a new lint rule). You triage it, and it runs through the normal implement → review pipeline like any other change.
 
 ```text
-/devflow:retrospective-weekly
+/prflow:retrospective-weekly
 ```
 
 Run it interactively from the repo root, ideally weekly; it confirms a clean default branch, runs the full pipeline, and prints a status report with the issues to triage. Deterministic scripts handle all scanning, gating, and git/issue mechanics — the LLM is invoked **only** at the two genuine-judgment points (per-PR retrospective and per-pattern issue-spec drafting). The loop **proposes, it does not dispose**: it files one well-formed GitHub issue per actionable pattern and lets the normal implement → review pipeline execute it, rather than auto-editing the repo.
@@ -184,7 +186,7 @@ Full mechanics — the pipeline, the data files, how patterns become issues: **[
 
 ```text
 .claude-plugin/   # plugin.json (declares dependencies) + marketplace.json (this repo is its own marketplace)
-skills/           # one SKILL.md per command (/devflow:implement, /devflow:review, /docs, …)
+skills/           # one SKILL.md per command (/prflow:implement, /prflow:review, /docs, …)
 agents/           # 10 subagents: checklist-generator/-deduper/-verifier + code-explorer/-architect + 5 pr-review-toolkit reviewers
 scripts/          # Python + shell CLIs (workpad.py, config-get.sh, match-deferrals.py, …)
 lib/              # retrospective-loop helpers (*.sh, *.jq), preflight.sh, test/
@@ -203,8 +205,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Run the test suite with `bash lib/test/r
 
 [MIT](LICENSE) © 2026 Daniel Radman.
 
-**Third-party components.** DevFlow redistributes several agents and skills authored by others,
+**Third-party components.** PRFlow redistributes several agents and skills authored by others,
 which remain under their own upstream licenses (Apache-2.0 from Anthropic's `feature-dev` and
 `pr-review-toolkit` plugins; MIT from Jesse Vincent's `superpowers`) and have been modified by
-DevFlow. [`LICENSES/README.md`](LICENSES/README.md) maps each vendored file to its upstream
+PRFlow. [`LICENSES/README.md`](LICENSES/README.md) maps each vendored file to its upstream
 project, license, and copyright holder; the full license texts are in [`LICENSES/`](LICENSES).

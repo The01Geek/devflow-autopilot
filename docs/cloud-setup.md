@@ -1,11 +1,11 @@
-# DevFlow Cloud Tier — GitHub Actions setup (optional)
+# PRFlow Cloud Tier — GitHub Actions setup (optional)
 
 The **local tier** (the skills you run inside Claude Code) needs none of this.
-The **cloud tier** makes DevFlow run *autonomously* on your repository: Claude
-responds to issue/PR events and `/devflow:review` runs as a required status
+The **cloud tier** makes PRFlow run *autonomously* on your repository: Claude
+responds to issue/PR events and `/prflow:review` runs as a required status
 check. This guide sets that up.
 
-> Everything here is optional. Skip it entirely and DevFlow still works as an
+> Everything here is optional. Skip it entirely and PRFlow still works as an
 > in-editor toolkit.
 
 ## Withheld from this release: the automatic pull-request-triggered review tier
@@ -30,17 +30,17 @@ gate. Two open defects describe the consequences and neither is close to landing
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
   check and the context goes unreported.
 
-**The supported review path is `/devflow:review` by comment**, and this change does not edit it. A
-repository collaborator with write, admin or maintain permission comments `/devflow:review`
+**The supported review path is `/prflow:review` by comment**, and this change does not edit it. A
+repository collaborator with write, admin or maintain permission comments `/prflow:review`
 on a pull request; `devflow.yml`'s `gate` job authorizes the actor through
 `scripts/authorize-actor.sh`, and the review runs. **An outside fork contributor cannot
-self-trigger a DevFlow review — a repository collaborator must post the comment.**
+self-trigger a PRFlow review — a repository collaborator must post the comment.**
 
 **If you already installed the tier, you keep it.** `install.sh`'s
 `prune_stale_devflow_workflows()` is deliberately not extended, so re-running the installer
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
-even though nothing in DevFlow's own tree reaches them any more: `install.sh` re-stamps
+even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
 `devflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
@@ -70,11 +70,11 @@ restore.
 
 ## Install (and update) the cloud tier
 
-**Only the cloud tier needs this installer.** Installing the DevFlow *plugin* —
-`/plugin install devflow@devflow-marketplace`, or `claude plugin install
-devflow@devflow-marketplace` — runs no installer script at all and needs none.
+**Only the cloud tier needs this installer.** Installing the PRFlow *plugin* —
+`/plugin install prflow@devflow-marketplace`, or `claude plugin install
+prflow@devflow-marketplace` — runs no installer script at all and needs none.
 `install.sh` exists solely to add the optional GitHub Actions tier described on
-this page; skip it if you only want the `/devflow:*` skills in your editor.
+this page; skip it if you only want the `/prflow:*` skills in your editor.
 
 Run it from the root of your repository — it installs the workflows, composite
 actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and is
@@ -187,11 +187,11 @@ step refuses an empty ref and fails the review job, so the step emits a `::warni
 naming the base ref and the remedy rather than leaving only the vendor step's message.
 
 > **Local editor use is different** — there you add this repo as a github
-> marketplace with auto-update and never copy files. Running **`/devflow:init`
+> marketplace with auto-update and never copy files. Running **`/prflow:init`
 > provisions this for you** into the project `.claude/settings.json` (additively,
 > never clobbering your values, idempotent on re-run), so you don't hand-edit it:
 > ```jsonc
-> // project .claude/settings.json — provisioned by /devflow:init
+> // project .claude/settings.json — provisioned by /prflow:init
 > {
 >   "extraKnownMarketplaces": {
 >     "devflow-marketplace": {
@@ -199,10 +199,10 @@ naming the base ref and the remedy rather than leaving only the vendor step's me
 >       "autoUpdate": true
 >     }
 >   },
->   "enabledPlugins": { "devflow@devflow-marketplace": true }
+>   "enabledPlugins": { "prflow@devflow-marketplace": true }
 > }
 > ```
-> On a **third-party model provider** (Bedrock / Vertex / Foundry) `/devflow:init`
+> On a **third-party model provider** (Bedrock / Vertex / Foundry) `/prflow:init`
 > can additionally — **only with your explicit consent** — make
 > `auto` permission mode **selectable** by writing `CLAUDE_CODE_ENABLE_AUTO_MODE="1"`
 > into your **user-global** `~/.claude/settings.json` (it must be user scope —
@@ -222,7 +222,7 @@ The three claude-code-action call sites (`devflow-implement.yml`, `devflow.yml`,
 
 **Trusted-ref rule.** The write tiers (implement, command) check out the default branch, so their `.claude/settings.json` is maintainer-committed, trusted. The **review tier** checks out the PR head, so it reads the settings exclusively from the **trusted base ref**: the `baseprovision` step materializes `FETCH_HEAD:.claude/settings.json` into `$RUNNER_TEMP`, and the helper invocation consumes only that materialized path — **never the PR-head checkout's settings file**. The consequence: a PR that edits `.claude/settings.json` does **not** alter its own review run's plugin list (the review reads the base-ref copy); the change takes effect on the *next* run after the PR merges. The helper itself runs only from a trusted source on the review tier (base-ref materialized, or the vendored copy only when `vendor_source == "fetch"`); when no trusted copy is available the step appends nothing and emits the baseline with a `::warning::` naming the trusted-source rule. An absent settings file (the normal consumer case) leaves the composed inputs identical to the baked baseline, silently.
 
-**Trusted-ref rule — `.devflow/prompt-extensions/` (issue #874; the AUTOMATED review runner only).** This rule is scoped to `devflow-runner.yml`. The manual `/devflow:review` comment path in `devflow.yml` also checks out the PR head and runs the same engine, but carries **no** truncation step and **no** `DEVFLOW_PROMPT_EXTENSION_ROOT`, so it still appends the PR head's `.devflow/prompt-extensions/review.md` to the reviewing agent's prompt — a disclosed residual, recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet. For the automated runner: the same rule binds the reviewer's own appended prompt, and for the same reason: on the review tier `.devflow/prompt-extensions/<skill>.md` comes from the PR head, and `skills/review/SKILL.md` treats whatever the loader prints as instructions appended to its own prompt. So the review job takes two steps. **Unconditionally**, on every run and outside every branch, it creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/`, creates `.devflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`) to empty — creating an empty file for a name the checkout never carried — and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at that closure. **Conditionally**, inside `baseprovision`'s base-ref fetch-success branch and nowhere else, it populates the closure from `FETCH_HEAD` through `scripts/materialize-trusted-prompt-extensions.sh`, itself resolved through the same trusted-source rank ladder the deny floor uses. The consequence mirrors the settings rule: a PR that edits `.devflow/prompt-extensions/review.md` does **not** change its own review run's prompt; the change takes effect after merge. Because the suppression is unconditional and the population is not, each non-population arm — a failed base-ref fetch, an empty base ref, an unresolvable materialization helper, a per-name read failure or unwritable target, a helper usage defect, a traversal-shaped protected name, and a non-blob object at a protected path — degrades to an empty closure, never to the PR-head file. The three not-established arms — a failed base-ref fetch, an empty base ref, no trusted source for the helper — emit a *not-attempted* notice rather than a reason-naming warning, because a run that never read the base ref cannot say whether an extension exists on it. A base ref that simply carries no extension is the ordinary consumer shape and is **silent**. **Upgrade window:** a consumer whose base ref pins a `devflow_version` predating #874 gets a loader that ignores the variable; the truncation is the only control there, and their committed extension does not load until they bump the pin. That fallback control is sound: `claude-code-action`'s restore pass replaces a **closed, enumerated** set of sensitive paths from the base branch — `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` (read from the pinned action's `src/github/operations/restore-config.ts`) — and `.devflow/` is not among them, so the truncated workspace copies survive into the agent's session rather than being restored from either branch.
+**Trusted-ref rule — `.devflow/prompt-extensions/` (issue #874; the AUTOMATED review runner only).** This rule is scoped to `devflow-runner.yml`. The manual `/prflow:review` comment path in `devflow.yml` also checks out the PR head and runs the same engine, but carries **no** truncation step and **no** `DEVFLOW_PROMPT_EXTENSION_ROOT`, so it still appends the PR head's `.devflow/prompt-extensions/review.md` to the reviewing agent's prompt — a disclosed residual, recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet. For the automated runner: the same rule binds the reviewer's own appended prompt, and for the same reason: on the review tier `.devflow/prompt-extensions/<skill>.md` comes from the PR head, and `skills/review/SKILL.md` treats whatever the loader prints as instructions appended to its own prompt. So the review job takes two steps. **Unconditionally**, on every run and outside every branch, it creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/`, creates `.devflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`) to empty — creating an empty file for a name the checkout never carried — and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at that closure. **Conditionally**, inside `baseprovision`'s base-ref fetch-success branch and nowhere else, it populates the closure from `FETCH_HEAD` through `scripts/materialize-trusted-prompt-extensions.sh`, itself resolved through the same trusted-source rank ladder the deny floor uses. The consequence mirrors the settings rule: a PR that edits `.devflow/prompt-extensions/review.md` does **not** change its own review run's prompt; the change takes effect after merge. Because the suppression is unconditional and the population is not, each non-population arm — a failed base-ref fetch, an empty base ref, an unresolvable materialization helper, a per-name read failure or unwritable target, a helper usage defect, a traversal-shaped protected name, and a non-blob object at a protected path — degrades to an empty closure, never to the PR-head file. The three not-established arms — a failed base-ref fetch, an empty base ref, no trusted source for the helper — emit a *not-attempted* notice rather than a reason-naming warning, because a run that never read the base ref cannot say whether an extension exists on it. A base ref that simply carries no extension is the ordinary consumer shape and is **silent**. **Upgrade window:** a consumer whose base ref pins a `devflow_version` predating #874 gets a loader that ignores the variable; the truncation is the only control there, and their committed extension does not load until they bump the pin. That fallback control is sound: `claude-code-action`'s restore pass replaces a **closed, enumerated** set of sensitive paths from the base branch — `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` (read from the pinned action's `src/github/operations/restore-config.ts`) — and `.devflow/` is not among them, so the truncated workspace copies survive into the agent's session rather than being restored from either branch.
 
 **Security posture (a decided trade, not an implication).** Honoring `enabledPlugins` splices **unpinned** third-party content into credentialed runners: what the maintainer approves is a pointer (`plugin@marketplace`); what executes is the marketplace repo's content at run time — including plugin hooks, which run with the job's credentials (on the implement tier, the App token). This is accepted deliberately as the price of parity: it is the same live-pointer supply chain the repo's local team already runs under (auto-updating marketplaces), and a maintainer who commits a marketplace pointer to the trusted ref accepts that marketplace's supply chain. The composed risk (unpinned content × runner credentials, which local sessions do not carry) is stated here as a named security decision, not implied. Plugin versions are not pinned (marketplace-latest, matching local sessions); a private-repo marketplace installs locally but is not clonable by the runner's credentials — the action's behavior on a failed install (which a `matcher-probe.yml`-style dispatch with an intentionally uninstallable spliced entry would record as probe evidence in the issue/PR) is stated here as the expected post-compose failure symptom, not a claim that such a dispatch has already been run.
 
@@ -233,13 +233,13 @@ variables → Actions**:
 
 | Secret | Used for | Notes |
 |---|---|---|
-| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/devflow:implement`, `/devflow:review` runners) on the Anthropic default path | From your Anthropic account. Optional only if **every** active workflow section routes through a third-party `provider`. |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/prflow:implement`, `/prflow:review` runners) on the Anthropic default path | From your Anthropic account. Optional only if **every** active workflow section routes through a third-party `provider`. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
 | `DEVFLOW_PROVIDER_API_KEY` | (optional) API key for a third-party model provider, consumed when a `devflow` / `devflow_implement` / `devflow_runner` section sets `provider` | Only needed if you opt into third-party model routing — see [Third-party model providers](#third-party-model-providers-opt-in-best-effort). One fixed secret name regardless of provider count. |
 
 That's the whole default — **no GitHub App is required** and `CLAUDE_CODE_OAUTH_TOKEN` is the only secret. Opting a workflow section into a third-party model provider (below) adds exactly one more, `DEVFLOW_PROVIDER_API_KEY`. (Earlier versions needed
 one purely so a bot-authored "implement this" comment could re-trigger the
-workflow; a human `/devflow:implement <#>` comment is itself a native user event,
+workflow; a human `/prflow:implement <#>` comment is itself a native user event,
 so that need is gone.)
 
 ## Choosing the runner (`DEVFLOW_RUNNER`)
@@ -252,13 +252,13 @@ for all of those jobs uniformly. Set it under **Settings → Secrets and variabl
 → Actions → Variables** (a *variable*, not a secret). Runner selection is
 **infrastructure** — which machine runs the job — so it lives in GitHub Settings,
 deliberately **not** in the versioned `.devflow/config.json` (which governs how
-DevFlow behaves).
+PRFlow behaves).
 
 | `DEVFLOW_RUNNER` value | Rendered `runs-on` |
 |---|---|
 | unset **or** empty string | `ubuntu-latest` (byte-for-byte the previous behavior — existing Linux adopters set nothing and see no change) |
 | a bare single label, e.g. `windows-latest` | that single-label runner |
-| a JSON array, e.g. `["self-hosted","windows","DevFlow"]` | a runner matching that label set |
+| a JSON array, e.g. `["self-hosted","windows","PRFlow"]` | a runner matching that label set |
 | begins with `[` but is **not** valid JSON | the job fails **loud** at evaluation time (a visible `fromJSON` error), not a silent fallback to `ubuntu-latest` — a mis-set variable surfaces as an error |
 
 Each of the five workflows also declares a top-level `defaults: run: shell: bash`,
@@ -269,7 +269,7 @@ observable.
 ### Self-hosted-runner prerequisites
 
 `ubuntu-latest` supplies `git`, `gh`, `jq`, `python3`, bash, and Docker for free.
-A self-hosted runner **owns its own toolchain** — it must provide them. DevFlow's
+A self-hosted runner **owns its own toolchain** — it must provide them. PRFlow's
 `lib/preflight.sh` *checks* for the required tools but does **not** install them.
 Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
 
@@ -278,7 +278,7 @@ Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
 - On a **Windows / Git-Bash** runner, make `python3` resolve via the existing
   `scripts/provision-python3-shim.sh --apply` (a one-time runner-provisioning step,
   not a workflow change).
-- Use `DEVFLOW_GH` / `DEVFLOW_JQ` / `DEVFLOW_BASH` to point DevFlow at tools in
+- Use `DEVFLOW_GH` / `DEVFLOW_JQ` / `DEVFLOW_BASH` to point PRFlow at tools in
   non-standard locations (see [Installing & updating](install.md) for the local-tier
   binary overrides — the same env vars apply on the runner).
 
@@ -287,10 +287,10 @@ Before pointing `DEVFLOW_RUNNER` at a self-hosted runner:
 `anthropics/claude-code-action@v1` installs the Claude Code CLI with a **Unix-only**
 bundled installer. On a self-hosted **Windows** runner that installer aborts before
 Claude ever starts (`Windows is not supported by this script … Failed to install
-Claude Code after 3 attempts`), so a `/devflow:*` cloud job fails immediately even
+Claude Code after 3 attempts`), so a `/prflow:*` cloud job fails immediately even
 when the runner is otherwise correctly provisioned.
 
-To run DevFlow cloud jobs on such a runner, **pre-install the Claude Code CLI on the
+To run PRFlow cloud jobs on such a runner, **pre-install the Claude Code CLI on the
 runner** (e.g. `irm https://claude.ai/install.ps1 | iex`) and set the optional config
 key `setup.claude_code_executable` to the resulting executable's path:
 
@@ -302,7 +302,7 @@ key `setup.claude_code_executable` to the resulting executable's path:
 }
 ```
 
-All three DevFlow workflows (`devflow.yml`, `devflow-implement.yml`,
+All three PRFlow workflows (`devflow.yml`, `devflow-implement.yml`,
 `devflow-runner.yml`) forward this value to the action's
 `path_to_claude_code_executable` input. When it is set, the action **skips its
 installer and uses the named executable**; when it is **unset or empty (the default,
@@ -332,7 +332,7 @@ PR-author-controllable path would be an arbitrary-code-execution vector.)
 ### Windows: the two opt-in git-env pins (`setup.git_dir_pin`, `setup.git_work_tree_pin`)
 
 Two **independent** boolean keys, **both defaulting to `false`**, govern whether
-DevFlow exports `GIT_DIR` and `GIT_WORK_TREE` into the cloud job environment before
+PRFlow exports `GIT_DIR` and `GIT_WORK_TREE` into the cloud job environment before
 the `Run Claude Code` (`anthropics/claude-code-action@v1`) step. With both off — the
 default, and the configuration that works everywhere — neither variable is present
 in the action's environment and all three tiers behave exactly as they did before
@@ -386,7 +386,7 @@ ignores the key and the helper prints a breadcrumb naming that it did; only
 
 **Silent-miss hazard when `git_dir_pin` is enabled.** Under ambient `GIT_DIR`,
 `git rev-parse --show-toplevel` returns the *current subdirectory* rather than the
-repository root. DevFlow's repo-root config readers — `config-get.sh`,
+repository root. PRFlow's repo-root config readers — `config-get.sh`,
 `workpad.py`, `load-prompt-extension.sh`, `match-deferrals.py` and
 `match-lint-adjudications.py` — all anchor `.devflow/` on that command, so whenever
 one of them runs from a non-root working directory it resolves a `.devflow/` that
@@ -483,7 +483,7 @@ blocker, and note that `git_dir_pin` is not honored on the implement tier.
 
 Setting `DEVFLOW_RUNNER` makes a self-hosted / Windows runner **selectable** and
 forces bash for `run:` steps. It does **not** certify that every inline bash body
-runs correctly on a Windows filesystem — DevFlow carries an extensive
+runs correctly on a Windows filesystem — PRFlow carries an extensive
 Windows-portability contract (`[WinError 193]` on `.sh` exec, `wslpath`/`cygpath`
 path normalization, the `python3` shim) precisely because Windows bash is not
 drop-in, and full inline-step Windows correctness is a separate, larger hardening
@@ -491,22 +491,22 @@ effort. **Before treating a non-Linux runner as production-ready, run at least o
 full consumer-shipped workflow end-to-end on the target self-hosted runner** and
 confirm it completes.
 
-### Optional: a GitHub App for workflow-file pushes and a single DevFlow identity
+### Optional: a GitHub App for workflow-file pushes and a single PRFlow identity
 
-DevFlow's cloud writers — `/devflow:implement` (`devflow-implement.yml`) and the
-write-capable `/devflow:review-and-fix` path (`devflow.yml`'s `command` job) — push
+PRFlow's cloud writers — `/prflow:implement` (`devflow-implement.yml`) and the
+write-capable `/prflow:review-and-fix` path (`devflow.yml`'s `command` job) — push
 to the feature branch using the built-in `GITHUB_TOKEN`. GitHub **hard-blocks**
 `GITHUB_TOKEN` from creating or updating any file under `.github/workflows/`
 (the push is refused: *"refusing to allow … to create or update workflow … without
 `workflows` permission"*), and `actions: write` does not lift it. So a ticket whose
 change legitimately edits a workflow file cannot be completed by the cloud tier on
-the default credential. Separately, everything DevFlow posts on the default
+the default credential. Separately, everything PRFlow posts on the default
 credential — reviews, verdicts, reactions, notice comments — is attributed to
 `github-actions[bot]`, and an approval from `github-actions[bot]` cannot satisfy a
 "required approving reviews" branch-protection rule.
 
 The optional App unlocks both: workflow-file pushes for the writers, and **one App
-identity for DevFlow's non-review user-visible cloud posts** — the 👀/🚀 trigger
+identity for PRFlow's non-review user-visible cloud posts** — the 👀/🚀 trigger
 reactions and the notice comments (the named exceptions below stay on
 `GITHUB_TOKEN`). The **review** agent's posts — its progress comment, verdicts,
 approvals, and rejections — are deliberately **not** on this App: they run under the
@@ -538,10 +538,10 @@ ignores the job's `permissions:` block):
 
 | Site | Scope | Can |
 |---|---|---|
-| Writers' agent (`devflow-implement.yml` / `devflow.yml` `command` for `/devflow:pr-description` + `/devflow:review-and-fix`) | full installation scope | push, incl. `.github/workflows/` files |
+| Writers' agent (`devflow-implement.yml` / `devflow.yml` `command` for `/prflow:pr-description` + `/prflow:review-and-fix`) | full installation scope | push, incl. `.github/workflows/` files |
 | Trigger reactions + notices (`devflow.yml` / `devflow-implement.yml` `gate`, `devflow.yml` `review_dedupe`) | `issues: write` and/or `pull-requests: write` | add reactions, post notice comments — nothing more |
 
-The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/devflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
+The **review agent** (`devflow-runner.yml`'s automated review, and `devflow.yml`'s manual `/prflow:review` command) is the one exception: it runs under a **separate** `DevFlow-Reviewer` App, not the primary one — see [The dedicated DevFlow-Reviewer app](#the-dedicated-devflow-reviewer-app-review-identity) below.
 
 In the two **writer** jobs the App token is minted *before* `actions/checkout` and
 passed to it as `token:`. This is load-bearing, not stylistic: the credential
@@ -566,7 +566,7 @@ configured-but-broken App (invalid or rotated key, or an installation missing on
 the permissions a site requests) **fails the job at the mint step** — there is no
 silent fall-back to `GITHUB_TOKEN`. Named exceptions to the App identity: the
 `Devflow Review` check-run (emitted by the Actions runner from the job `name:`,
-not token-authored — it can never be App-authored), and the `/devflow:implement`
+not token-authored — it can never be App-authored), and the `/prflow:implement`
 workpad comment, which is *created* on `GITHUB_TOKEN` by the gate job (detection
 is marker-based — `<!-- devflow:workpad -->` — never author-based, so the
 claude-job fallback creation running under the App token is harmless). The
@@ -584,7 +584,7 @@ review run's default token) — see the DevFlow-Reviewer section below.
 ## Attributing commits to the triggering user (`devflow.attribute_commits_to_triggerer`)
 
 By default, the git commits a cloud-tier **writer** run produces
-(`/devflow:implement`'s `claude` job and `/devflow:review-and-fix`'s `command` job)
+(`/prflow:implement`'s `claude` job and `/prflow:review-and-fix`'s `command` job)
 are authored by whatever git resolves from the runner's unconfigured `.git/config` —
 *not* the human who triggered the run. Local runs already carry the triggering
 developer's identity; only cloud-tier runs do not. If your reviewers and auditors read
@@ -639,7 +639,7 @@ Key properties:
 
 ## Startup-lifecycle observability & consumer version skew (issue #537)
 
-The `/devflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
+The `/prflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
 `DEVFLOW_SYSTEM_OVERVIEW.md` for the full model) adds **zero** new configuration:
 no new config key, permission, secret, repository variable, service, or install
 mode. It reuses the existing issue-comment workpad, the job's existing token, and a
@@ -668,15 +668,15 @@ two halves together (bump `devflow_version` when you update the workflow).
 ### Keeping writer-job credentials fresh past the token's 60-minute lifetime
 
 A GitHub App installation token expires **exactly one hour** after it is minted and
-cannot be renewed — only replaced by a fresh mint. DevFlow's writer jobs mint one
-token at job start and ride it for the whole run, so a `/devflow:implement` or
-`/devflow:review-and-fix` run that **outlives that hour** used to spend its remainder
+cannot be renewed — only replaced by a fresh mint. PRFlow's writer jobs mint one
+token at job start and ride it for the whole run, so a `/prflow:implement` or
+`/prflow:review-and-fix` run that **outlives that hour** used to spend its remainder
 with dead credentials: the agent's `git push` and every agent-side `gh` call both
 `401`. The two writer jobs (`devflow-implement.yml`'s `claude` job and `devflow.yml`'s
 `command` job) fix this with a **long-run credential refresher**, gated on the **same**
 `vars.DEVFLOW_APP_ID != ''` condition as the App-token mint above — when the App is
 unconfigured, every step below is skipped and behavior is **byte-identical** to today.
-(The refresher is also excluded on the read-only `/devflow:review` path, which uses the
+(The refresher is also excluded on the read-only `/prflow:review` path, which uses the
 downscoped reviewer token and never pushes.)
 
 **What it does.** After checkout — and before the `claude` step — the job starts
@@ -696,7 +696,7 @@ installation token and rewrites the two repo-controlled credential surfaces in p
    [Windows: POSIX mode bits do not constrain the credential files](#windows-posix-mode-bits-do-not-constrain-the-credential-files)).
    The wrapper is installed by the checked-in, seven-output-validated
    `scripts/install-gh-wrapper.sh` (issue #533) ahead of the real `gh` on `PATH`, so
-   direct `gh` calls and DevFlow's own resolver-routed gh-callers (whose PATH probe
+   direct `gh` calls and PRFlow's own resolver-routed gh-callers (whose PATH probe
    finds the wrapper when `DEVFLOW_GH` is unset) resolve the fresh token. The install
    step publishes **no** process-global `DEVFLOW_GH` — that env value would persist into
    every later job step and outrank fixture PATH stubs in the repository test suite;
@@ -737,12 +737,12 @@ credentials is visible without log archaeology. The agent-side wrapper degrades 
 too: a substitute decision that finds no token file (a refresher defeated at startup
 never writes one) emits a stderr breadcrumb before riding the ambient token.
 
-**Disclosed residual.** This refresher keeps DevFlow's own `git push` and `gh` calls
+**Disclosed residual.** This refresher keeps PRFlow's own `git push` and `gh` calls
 fresh, but `claude-code-action`'s **own internal API calls** still ride the static
 `github_token` input passed to the action, which is not refreshed. That is an upstream
 limitation tracked at `anthropics/claude-code-action#716`; until it lands, an extremely
 long run can still see the action's internal calls fail on the expired token even
-though DevFlow's push/gh surfaces stay fresh. A second assumption to re-probe on any
+though PRFlow's push/gh surfaces stay fresh. A second assumption to re-probe on any
 `claude-code-action` **major** upgrade: the wrapper's fingerprint discrimination relies
 on the action exporting its `github_token` input **byte-identical** as `GH_TOKEN`
 (verified against `src/entrypoints/run.ts` at drafting time). If a future version
@@ -753,8 +753,8 @@ the 401 — but ineffective).
 ### The dedicated DevFlow-Reviewer app (review identity)
 
 GitHub forbids **requesting changes on — or approving — your own pull request**.
-Without a dedicated reviewer identity, DevFlow's review agent would run under the
-same identity that DevFlow uses to *author* PRs (the primary App above, or
+Without a dedicated reviewer identity, PRFlow's review agent would run under the
+same identity that PRFlow uses to *author* PRs (the primary App above, or
 `github-actions[bot]`), so Phase 4.4's
 `gh pr review --request-changes` / `--approve` would be a forbidden self-review:
 the merge stays blocked by the required `Devflow Review` status check, but no
@@ -775,21 +775,21 @@ under **Settings → Secrets and variables → Actions**, mirroring the primary-
 convention.
 
 **Review-identity invariant.** Every review path — the automated runner
-(`devflow-runner.yml`) and the manual `/devflow:review` command (`devflow.yml`) —
+(`devflow-runner.yml`) and the manual `/prflow:review` command (`devflow.yml`) —
 uses the `DevFlow-Reviewer` installation token when `vars.DEVFLOW_REVIEWER_APP_ID`
 is set, otherwise `github-actions[bot]` (`GITHUB_TOKEN`). The review path **never**
 uses the primary `devflow-autopilot` App token. Since implement authors PRs as the
 primary App (or `github-actions[bot]` when no App is configured), the review
 identity is structurally distinct from the author on every configured setup, so
-Phase 4.4's formal review posts instead of failing self-review. `/devflow:pr-description`
-and `/devflow:review-and-fix` are unchanged — they still use the primary App token
+Phase 4.4's formal review posts instead of failing self-review. `/prflow:pr-description`
+and `/prflow:review-and-fix` are unchanged — they still use the primary App token
 (they push/author, and `review-and-fix` posts no formal review). The mint is gated
 and fail-loud exactly like the primary App: unset reviewer variable → `GITHUB_TOKEN`
 fallback; a configured-but-broken reviewer App fails the job at the mint step.
 
-> **Upgrade note (deliberate behavior change).** If you already run DevFlow with a
+> **Upgrade note (deliberate behavior change).** If you already run PRFlow with a
 > single App (`DEVFLOW_APP_ID` set) and do **not** configure `DevFlow-Reviewer`,
-> your review attribution moves from your DevFlow App to `github-actions[bot]`
+> your review attribution moves from your PRFlow App to `github-actions[bot]`
 > until you set `DEVFLOW_REVIEWER_APP_ID` + `DEVFLOW_REVIEWER_PRIVATE_KEY`. This is
 > intentional: the review path no longer borrows the PR-authoring App identity, so
 > the same-identity self-review collision cannot occur. A `github-actions[bot]`
@@ -802,7 +802,7 @@ fallback; a configured-but-broken reviewer App fails the job at the mint step.
 > the `gh pr comment` fallback and the required `Devflow Review` check still apply.
 
 The same App token also powers the implement workflow's **stall-backstop
-auto-resume** (see `docs/implement-skill.md`): a `/devflow:implement <#>` resume
+auto-resume** (see `docs/implement-skill.md`): a `/prflow:implement <#>` resume
 comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
 (GitHub suppresses recursive `GITHUB_TOKEN` events), so without the App the
 backstop posts its resume comment and then fails the job loud instead of
@@ -835,13 +835,13 @@ ends at its first tool-call-free turn, so the dispatched fleet is discarded
 (issue #801; the cloud engine steps now set `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`
 to keep subagents in the foreground). When it still happens the auto-review
 path (`devflow-review.yml`'s `finalize_check`) mints its **own fresh** App token
-just-in-time and authors a `/devflow:review` re-trigger comment so the review
+just-in-time and authors a `/prflow:review` re-trigger comment so the review
 re-runs without a human. As with the implement resume, a `GITHUB_TOKEN`-authored
 comment never re-triggers the workflow, so this needs the App: with `DEVFLOW_APP_ID`
 unset the backstop degrades to the dead-end flip (a visible `❌ Review failed`
 that a human must re-trigger). And exactly like the implement resume, add the
 minting App's bot login (e.g. `your-app[bot]`) to `devflow.allowed_bots` in
-`.devflow/config.json`, or the manual-`/devflow:review` gate the re-trigger
+`.devflow/config.json`, or the manual-`/prflow:review` gate the re-trigger
 re-enters declines the App-authored comment. The backstop is capped at
 `devflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
 gated by `devflow_review.stall_backstop.enabled` (default `true`, disabled only
@@ -849,21 +849,21 @@ on a real JSON `false`); when the cap is exhausted, disabled, or no App token is
 configured it reports no-fire and degrades to the dead-end flip.
 
 > **Loop-safety note.** Unlike `GITHUB_TOKEN` pushes (which GitHub suppresses from
-> re-triggering workflows), an **App-token push re-triggers workflows**. For DevFlow
+> re-triggering workflows), an **App-token push re-triggers workflows**. For PRFlow
 > this is mostly desirable (a push to a non-draft PR re-runs `Devflow Review` on its
 > own). Loop-safety does **not** rest on the push-suppression: it rests on the
-> `@claude`-negation **partition invariant** (every DevFlow trigger negates `@claude`,
-> so DevFlow and Anthropic's stock `claude.yml` never double-fire) and on
-> `/devflow:implement` triggering from an `issue_comment` (a human action) rather than
+> `@claude`-negation **partition invariant** (every PRFlow trigger negates `@claude`,
+> so PRFlow and Anthropic's stock `claude.yml` never double-fire) and on
+> `/prflow:implement` triggering from an `issue_comment` (a human action) rather than
 > from `push`. Do not weaken those `if:` clauses.
 
-## Triggering `/devflow:implement`
+## Triggering `/prflow:implement`
 
 `devflow-implement.yml` runs the full implementation lifecycle when a real
-comment **on an issue** contains a bare `/devflow:implement <#>` (no `@claude`
+comment **on an issue** contains a bare `/prflow:implement <#>` (no `@claude`
 required — and **no** `@claude`: a comment containing `@claude` is ceded to
-Anthropic's Claude GitHub App, not DevFlow). There is no label trigger — a human
-`/devflow:implement <#>` comment is the sole entry point and is itself a native
+Anthropic's Claude GitHub App, not PRFlow). There is no label trigger — a human
+`/prflow:implement <#>` comment is the sole entry point and is itself a native
 user event, so it needs no bot comment, PAT, or GitHub App.
 
 It is **issues-only**: the workflow subscribes to `issue_comment[created]` alone,
@@ -871,9 +871,9 @@ and because a PR comment is also an `issue_comment` in GitHub's API, the `gate`
 job's `if:` requires `github.event.issue.pull_request == null` (with the resolver
 re-checking via an `IS_PULL_REQUEST` backstop), so a comment on a pull request
 never starts a run. This is what stops the weekly retrospective's audit-report
-comment — which quotes the literal `/devflow:implement` phrase in prose on the
-state PR — from self-triggering an implement run. The light `/devflow:review` and
-`/devflow:pr-description` commands in `devflow.yml` remain PR-aware and are
+comment — which quotes the literal `/prflow:implement` phrase in prose on the
+state PR — from self-triggering an implement run. The light `/prflow:review` and
+`/prflow:pr-description` commands in `devflow.yml` remain PR-aware and are
 unaffected.
 
 > **Who can trigger it.** The `gate` job runs
@@ -885,12 +885,12 @@ unaffected.
 > restrict who may start a run; it only tightens the collaborator gate, never
 > bypasses it. Bots are governed separately by `devflow.allowed_bots` — this is
 > the path for a custom GitHub App that posts the trigger comment on your behalf.
-> The same gate guards the light `/devflow:*` command path in `devflow.yml`.
+> The same gate guards the light `/prflow:*` command path in `devflow.yml`.
 >
 > **Early acknowledgement.** As soon as the gate authorizes a command, it adds a
 > 🚀 reaction to the triggering comment via `scripts/react-to-trigger.sh` — so you
 > can see the trigger was picked up well before the heavy job spins up. It's
-> best-effort: a failed reaction never blocks the run, and a `/devflow:*` command
+> best-effort: a failed reaction never blocks the run, and a `/prflow:*` command
 > submitted as a PR *review* gets no reaction (GitHub has no reactions API for
 > reviews).
 
@@ -911,15 +911,15 @@ For the full idea → issue → PR walkthrough, see
 
 ## Runtime provisioning (`setup`)
 
-The light command (`devflow.yml`) and `/devflow:implement`
+The light command (`devflow.yml`) and `/prflow:implement`
 (`devflow-implement.yml`) always prepare the runner **before**
 Claude runs by reading a `setup` block from `.devflow/config.json`; the
 automated reviewer (`devflow-review.yml` → `devflow-runner.yml`) does so too,
 but **only when you opt in** with `devflow_runner.provision_env: true` (see
 "Letting the reviewer build/test a PR" below).
-(`/devflow:init` auto-fills `node_version` + an install line from your repo's
+(`/prflow:init` auto-fills `node_version` + an install line from your repo's
 language(s) and lockfile — see "Letting the reviewer build/test a PR" below.)
-There is no hardcoded toolchain — DevFlow installs into repos of every shape
+There is no hardcoded toolchain — PRFlow installs into repos of every shape
 (Python package at root, npm frontend, Docker-only backend, polyglot), so you
 declare what your project needs:
 
@@ -942,8 +942,8 @@ declare what your project needs:
   install nothing. A line that needs a subdirectory must `cd` into it itself
   (e.g. `(cd jsx && npm ci)` or `npm ci --prefix client`).
 - **Keep `python_version` set and `pip install pyyaml` present even for
-  non-Python projects** — DevFlow's own helper scripts currently require
-  Python ≥ 3.11 with PyYAML. List DevFlow's deps first, then your project's.
+  non-Python projects** — PRFlow's own helper scripts currently require
+  Python ≥ 3.11 with PyYAML. List PRFlow's deps first, then your project's.
 
 Example for a split repo (Docker backend in `server/`, npm frontend in
 `client/`): keep `"python_version": "3.11"` + `pip install pyyaml`, set
@@ -958,10 +958,10 @@ The `setup` block covers more than Python/Node, in this provisioning order
   [`shivammathur/setup-php`](https://github.com/shivammathur/setup-php) with
   Composer; `setup.php_extensions` is a CSV of extensions
   (`"mbstring, intl, pdo_mysql, redis"`), `setup.php_tools` an optional CSV of
-  tools. `/devflow:init` fills these from `composer.json` and adds a
+  tools. `/prflow:init` fills these from `composer.json` and adds a
   `composer install` line.
 - **Service containers** — `setup.services` starts databases/caches/queues your
-  tests need, via `docker run` (DevFlow does **not** use GitHub Actions
+  tests need, via `docker run` (PRFlow does **not** use GitHub Actions
   `services:` — those can't be defined in a composite action or driven by
   config). Each service is reachable on **`127.0.0.1:<host-port>`**, so point
   your *test* config at `127.0.0.1`. Give a `--health-cmd` in `options` so
@@ -998,13 +998,13 @@ The `setup` block covers more than Python/Node, in this provisioning order
   live in a subdirectory (a PHP/Rails app with a `/jsx` or `/resources/js`
   bundle, a monorepo `frontend/` package) rather than at the repo root, set
   `setup.node_working_directory` to that directory (e.g. `"jsx"`). Caching then
-  keys off the lockfile there, and `/devflow:init` auto-detects it and scopes
+  keys off the lockfile there, and `/prflow:init` auto-detects it and scopes
   the generated Node install line into that directory (a subshell `cd`). Leave
   it empty/absent for a root-level build — provisioning is byte-for-byte the
   same as before. Remember `install` lines still run from the repo root, so any
   *additional* build line you add must scope itself into the subdirectory.
 
-`/devflow:init` populates the deterministic parts (tool allowlists, `node_version`,
+`/prflow:init` populates the deterministic parts (tool allowlists, `node_version`,
 `npm ci`/`composer install`) from language markers, then **explores the repo**
 (`docker-compose.yml`, `.env`, CI, `composer.json`) to enrich `php_version`,
 `php_extensions`, and `services` — the judgement-heavy fields a marker→list table
@@ -1013,8 +1013,8 @@ lines run in CI from your committed (base-branch) config.
 
 ## Extending the tool allowlist
 
-The light `/devflow:*` command path runs under a fixed `--allowed-tools` allowlist baked into the
-workflows (git/gh, the DevFlow scripts, Python, and common read-only shell
+The light `/prflow:*` command path runs under a fixed `--allowed-tools` allowlist baked into the
+workflows (git/gh, the PRFlow scripts, Python, and common read-only shell
 tools). Provisioning a tool in `setup.install` does **not** let Claude *run* it
 — the tool also has to be on the allowlist. To grant your repo's own commands,
 add them on top of the built-in base list via config; you never edit the
@@ -1030,11 +1030,11 @@ workflow YAML:
 ```
 
 - Entries use [claude-code-action tool syntax](https://github.com/anthropics/claude-code-action)
-  (e.g. `Bash(make:*)`), and are **appended** to DevFlow's base list — they add,
+  (e.g. `Bash(make:*)`), and are **appended** to PRFlow's base list — they add,
   never replace.
 - These keys are **independent**, one per execution path:
-  `devflow.allowed_tools` → light `/devflow:*` command path (`devflow.yml`);
-  `devflow_implement.allowed_tools` → `/devflow:implement` (`devflow-implement.yml`).
+  `devflow.allowed_tools` → light `/prflow:*` command path (`devflow.yml`);
+  `devflow_implement.allowed_tools` → `/prflow:implement` (`devflow-implement.yml`).
   None inherits another's extras, so list every tool you want for a given path
   under that path's key. The automated reviewer's build tools live in a third
   key, `devflow_runner.allowed_tools`, gated behind the `devflow_runner.provision_env`
@@ -1046,7 +1046,7 @@ workflow YAML:
 
 ### Grant your test/lint commands so the run verifies in-env (issue #405)
 
-`/devflow:implement` verifies **in its own environment, never via CI**. A
+`/prflow:implement` verifies **in its own environment, never via CI**. A
 verification-command acceptance criterion — one whose verification is *running a
 test/lint/build command* (your test suite, a linter, a `pytest`/build
 invocation) — is ticked only on a pass the run **observes in-env**. The run
@@ -1059,8 +1059,8 @@ the execution path — invoked by their **direct leading-token** form (the
 `bash <path>` wrapper is deny-floored and can never be granted). So:
 
 - List your project's test/lint commands under **`devflow_implement.allowed_tools`**
-  (the `/devflow:implement` path) **and** under **`devflow.allowed_tools`** (the
-  `/devflow:*` command path, including `/devflow:review-and-fix`):
+  (the `/prflow:implement` path) **and** under **`devflow.allowed_tools`** (the
+  `/prflow:*` command path, including `/prflow:review-and-fix`):
 
   ```json
   "devflow": {
@@ -1136,7 +1136,7 @@ When `devflow_runner.provision_env` is `true`, the runner (`devflow-runner.yml`)
 does two extra things before launching Claude:
 
 1. Runs the `setup-project-env` action — the same provisioning the
-   `/devflow:*` command path and `/devflow:implement` already use (Python /
+   `/prflow:*` command path and `/prflow:implement` already use (Python /
    Node / PHP → service containers → `setup.install`), so the reviewer has a
    real built environment. Service-container startup is best-effort: if a
    service fails to start or never becomes healthy, the runner prepends an
@@ -1148,8 +1148,8 @@ does two extra things before launching Claude:
 2. Extends the read-only `review` tool profile with the **freeform
    `devflow_runner.allowed_tools`** list from your base-branch config — read
    verbatim from the trusted base ref. This is **language-agnostic**: a Go shop
-   lists `Bash(go:*)`, a Rust shop `Bash(cargo:*)`, and so on — no DevFlow
-   release is needed per language. `/devflow:init` auto-populates it from your
+   lists `Bash(go:*)`, a Rust shop `Bash(cargo:*)`, and so on — no PRFlow
+   release is needed per language. `/prflow:init` auto-populates it from your
    detected toolchain.
 
    Before appending, the runner enforces a deterministic **deny-list floor**: it
@@ -1185,7 +1185,7 @@ runner is byte-for-byte the read-only reviewer it was before — no provisioning
 step, no build tools, no added latency, regardless of what
 `devflow_runner.allowed_tools` contains.
 
-The `setup` block is still populated for you: **`/devflow:init` auto-detects
+The `setup` block is still populated for you: **`/prflow:init` auto-detects
 your repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker)
 from their marker files and fills in `setup` (picking `npm ci` /
 `pnpm install` / `yarn install` from your lockfile). Re-run it after adding a
@@ -1215,8 +1215,8 @@ entries. Enabling the reviewer's build environment is then just setting
 
 ### What the reviewer is told before it starts — the engine ground-truth block
 
-Every cloud run of `/devflow:review` — the automated `devflow-review.yml` path and the
-manual `/devflow:review` comment path alike — has a `> [!IMPORTANT]` **engine
+Every cloud run of `/prflow:review` — the automated `devflow-review.yml` path and the
+manual `/prflow:review` comment path alike — has a `> [!IMPORTANT]` **engine
 ground-truth** block prepended to its prompt by `scripts/render-grounding-block.sh`. The
 block states two facts the engine would otherwise spend turns rediscovering by attempting
 commands and collecting denials:
@@ -1270,15 +1270,15 @@ load is denied and the consumer's extension silently never loads for that review
 **Which profiles carry the `*/load-prompt-extension.sh` wildcard.** The `review` and
 `command` profiles both carry the directory-agnostic `Bash(*/load-prompt-extension.sh:*)`
 wildcard (the `review` profile for the auto-review reviewer above; the `command` profile
-because `/devflow:requesting-code-review` is also invocable directly as an installed skill,
+because `/prflow:requesting-code-review` is also invocable directly as an installed skill,
 where the anchor resolves to the plugin checkout outside the vendored tree). The `implement`
 profile does **not** carry the wildcard — under the Phase-3 dispatch the orchestrator supplies
 the reviewer the **vendored literal** `.devflow/vendor/devflow/scripts/load-prompt-extension.sh`,
 which `implement` already grants, so no wildcard is needed there.
 
-## Effectiveness telemetry on the cloud `/devflow:implement` job
+## Effectiveness telemetry on the cloud `/prflow:implement` job
 
-`/devflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
+`/prflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
 context**, and that loop persists a per-run effectiveness record under
 `.devflow/logs/efficiency/` (see [`efficiency-trace.md`](efficiency-trace.md)). Two properties
 matter for the cloud tier:
@@ -1304,7 +1304,7 @@ matter for the cloud tier:
   buildable — and #475 built the cloud half.
 - **Implement-vs-runner `--permission-mode` asymmetry.** The read-only `review` runner
   (`devflow-runner.yml`) launches Claude with `--permission-mode acceptEdits`; the
-  `/devflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam
+  `/prflow:implement` job (`devflow-implement.yml`) deliberately does **not**. So the implement seam
   reduces friction through the `#275`/`#284` portability discipline — single-statement, leading-token
   helper invocations and the Write tool for scratch files — rather than by widening the permission
   grant. `acceptEdits` would not help here anyway: it auto-approves `Edit`/`Write` plus some
@@ -1315,7 +1315,7 @@ matter for the cloud tier:
 By default every cloud workflow authenticates to Anthropic with
 `CLAUDE_CODE_OAUTH_TOKEN` and runs a Claude model. Each of the three
 model-running workflow sections — the light command path (`devflow`),
-`/devflow:implement` (`devflow_implement`), and the automated reviewer
+`/prflow:implement` (`devflow_implement`), and the automated reviewer
 (`devflow_runner`) — can instead be routed through an **Anthropic-compatible**
 endpoint via a `providers` map in `.devflow/config.json` plus one fixed repo
 secret, `DEVFLOW_PROVIDER_API_KEY`. Each section picks its own provider and model
@@ -1358,27 +1358,27 @@ model-routing feature and is unrelated to that detection.
 
 | Workflow | Purpose | Needs |
 |---|---|---|
-| `ci.yml` | Runs DevFlow's own test suite | — (this repo's CI) |
-| `devflow.yml` | Light `/devflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `ci.yml` | Runs PRFlow's own test suite | — (this repo's CI) |
+| `devflow.yml` | Light `/prflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
 | `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-implement.yml` | Runs `/devflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-review.yml` | Auto-runs `/devflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name every workflow that runs on your pull requests** (not just the primary CI one) in its `workflows:` list (ships naming this repo's own PR-gating workflows, `[CI, Matcher probe]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-implement.yml` | Runs `/prflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-review.yml` | Auto-runs `/prflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name every workflow that runs on your pull requests** (not just the primary CI one) in its `workflows:` list (ships naming this repo's own PR-gating workflows, `[CI, Matcher probe]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
 
 The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
 model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)
 **additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY` when its section opts
 into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
 
-DevFlow never creates or overwrites `claude.yml` — that file belongs to
+PRFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and
-`/security-review`. Every DevFlow trigger negates `@claude`, so the two never
-double-fire; if a repo had an old DevFlow-authored `claude.yml`/`claude-runner.yml`/`claude-implement.yml`,
+`/security-review`. Every PRFlow trigger negates `@claude`, so the two never
+double-fire; if a repo had an old PRFlow-authored `claude.yml`/`claude-runner.yml`/`claude-implement.yml`,
 `install.sh` removes it on upgrade (a genuine Anthropic `claude.yml` is left untouched).
 
 ## A note on validation
 
 After installing (or updating), run a low-stakes test before relying on the
-automation: open a throwaway PR and comment a bare `/devflow:review` on it, and
+automation: open a throwaway PR and comment a bare `/prflow:review` on it, and
 confirm the run provisions and responds. The CI permission model is settled —
 each plugin-using job runs the `vendor-plugin` action right after checkout, which
 materializes the plugin at `.devflow/vendor/devflow/` (from the commit, the source

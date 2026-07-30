@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/The01Geek/prflow/.devflow/config.schema.json",
-  "title": "DevFlow project config",
-  "description": "DevFlow project configuration. The LOCAL tier (the /devflow:implement, /devflow:review, /devflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
+  "title": "PRFlow project config",
+  "description": "PRFlow project configuration. The LOCAL tier (the /prflow:implement, /prflow:review, /prflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -61,34 +61,34 @@
     },
     "devflow": {
       "type": "object",
-      "description": "Shared DevFlow settings. allowed_bots/allowed_users gate triggering across ALL DevFlow workflows (devflow.yml, devflow-implement.yml, devflow-review.yml, devflow-runner.yml); workpad_marker is used by /devflow:implement; effort and allowed_tools apply specifically to the light /devflow:* command path (devflow.yml). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+      "description": "Shared PRFlow settings. allowed_bots/allowed_users gate triggering across ALL PRFlow workflows (devflow.yml, devflow-implement.yml, devflow-review.yml, devflow-runner.yml); workpad_marker is used by /prflow:implement; effort and allowed_tools apply specifically to the light /prflow:* command path (devflow.yml). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Optional: name of a `providers` entry to route the light /devflow:* command path (devflow.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
+          "description": "Optional: name of a `providers` entry to route the light /prflow:* command path (devflow.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
         },
         "claude_model": {
           "type": "string",
-          "description": "Optional per-section model override for the light /devflow:* command path (devflow.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+          "description": "Optional per-section model override for the light /prflow:* command path (devflow.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
         },
         "allowed_bots": {
           "type": "string",
-          "description": "Bot logins allowed to trigger DevFlow workflows (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
+          "description": "Bot logins allowed to trigger PRFlow workflows (comma-separated). 'claude' is Anthropic's GitHub App identity; add your own bot/automation logins (e.g. dependabot).",
           "default": "claude,dependabot"
         },
         "allowed_users": {
           "type": "string",
-          "description": "Human logins allowed to trigger DevFlow command/implement workflows (comma-separated), in addition to the write/admin/maintain collaborator requirement. '*' (default) allows any collaborator; narrow it to restrict to specific logins. Bots are governed separately by allowed_bots.",
+          "description": "Human logins allowed to trigger PRFlow command/implement workflows (comma-separated), in addition to the write/admin/maintain collaborator requirement. '*' (default) allows any collaborator; narrow it to restrict to specific logins. Bots are governed separately by allowed_bots.",
           "default": "*"
         },
         "workpad_marker": {
           "type": "string",
-          "description": "Marker line identifying the persistent /devflow:implement workpad comment on issues. One comment per issue whose body starts with this marker.",
+          "description": "Marker line identifying the persistent /prflow:implement workpad comment on issues. One comment per issue whose body starts with this marker.",
           "default": "<!-- devflow:workpad -->"
         },
         "effort": {
           "type": "string",
-          "description": "Reasoning effort for the light /devflow:* command path (devflow.yml). Passed explicitly via --effort on the Anthropic default path (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default; a provider-routed section drops --effort unless its provider sets effort_supported: true (issue #313).",
+          "description": "Reasoning effort for the light /prflow:* command path (devflow.yml). Passed explicitly via --effort on the Anthropic default path (including the default 'high'), so the effort is pinned rather than relying on the model's built-in default; a provider-routed section drops --effort unless its provider sets effort_supported: true (issue #313).",
           "enum": [
             "low",
             "medium",
@@ -103,7 +103,7 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra --allowed-tools entries for the light /devflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /devflow:implement \u2014 see devflow_implement.allowed_tools. Empty/omitted \u2192 base list only.",
+          "description": "Extra --allowed-tools entries for the light /prflow:* command path (devflow.yml), APPENDED on top of devflow's built-in base list. Use claude-code-action tool syntax, e.g. \"Bash(make:*)\", \"Bash(docker compose:*)\". Does not apply to /prflow:implement \u2014 see devflow_implement.allowed_tools. Empty/omitted \u2192 base list only.",
           "default": []
         },
         "execution_diagnostics_enabled": {
@@ -119,7 +119,7 @@
         "attribute_commits_to_triggerer": {
           "type": "boolean",
           "default": false,
-          "description": "Opt-in: on the cloud-tier WRITER runs (/devflow:implement's claude job and /devflow:review-and-fix's command job), author the agent's git commits as the human who triggered the run, so `git blame`/history show the responsible human — parity with local runs. Default FALSE; when false or absent, commits are authored exactly as today (byte-for-byte unchanged). Read at TRIGGER time from a trusted default-branch checkout, so its effect is POST-MERGE-ONLY: a value present only in a PR head has no effect on that PR's own run. HUMANS ONLY, fail-safe: identity is emitted only for a GitHub `.type == \"User\"` login that does not carry the `[bot]` suffix; any other type, a `[bot]` login, or a type that cannot be established falls back to current authorship with a warning. The read-only review tier (devflow-runner.yml) never commits and is untouched. Needs NO new credential — commit author/committer is git metadata, independent of the push token (which stays the App/github-actions[bot] identity). Fail-open: attribution is advisory and never fails or gates the run. Posting the review AS the human and the PR opened-by identity are out of scope (they require a per-user credential)."
+          "description": "Opt-in: on the cloud-tier WRITER runs (/prflow:implement's claude job and /prflow:review-and-fix's command job), author the agent's git commits as the human who triggered the run, so `git blame`/history show the responsible human — parity with local runs. Default FALSE; when false or absent, commits are authored exactly as today (byte-for-byte unchanged). Read at TRIGGER time from a trusted default-branch checkout, so its effect is POST-MERGE-ONLY: a value present only in a PR head has no effect on that PR's own run. HUMANS ONLY, fail-safe: identity is emitted only for a GitHub `.type == \"User\"` login that does not carry the `[bot]` suffix; any other type, a `[bot]` login, or a type that cannot be established falls back to current authorship with a warning. The read-only review tier (devflow-runner.yml) never commits and is untouched. Needs NO new credential — commit author/committer is git metadata, independent of the push token (which stays the App/github-actions[bot] identity). Fail-open: attribution is advisory and never fails or gates the run. Posting the review AS the human and the PR opened-by identity are out of scope (they require a per-user credential)."
         }
       }
     },
@@ -128,11 +128,11 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Optional: name of a `providers` entry to route the /devflow:implement action (devflow-implement.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
+          "description": "Optional: name of a `providers` entry to route the /prflow:implement action (devflow-implement.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret. Unset → Anthropic-OAuth default (issue #313)."
         },
         "claude_model": {
           "type": "string",
-          "description": "Optional per-section model override for /devflow:implement (devflow-implement.yml): the model id to pass as --model, written in whatever form the routed endpoint expects (a provider-routed section usually needs this, since the global claude_model names a Claude model). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+          "description": "Optional per-section model override for /prflow:implement (devflow-implement.yml): the model id to pass as --model, written in whatever form the routed endpoint expects (a provider-routed section usually needs this, since the global claude_model names a Claude model). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
         },
         "effort": {
           "type": "string",
@@ -150,7 +150,7 @@
             "ready_for_review",
             "draft"
           ],
-          "description": "Final state of the PR a /devflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value \u2014 missing key, empty string, or an unrecognized string \u2014 resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
+          "description": "Final state of the PR a /prflow:implement run produces. 'ready_for_review' (the default) publishes the PR in Phase 4.3 via `gh pr ready`, exactly as before. 'draft' leaves it the draft created in Phase 3.1 (the run still finalizes with Status: Complete and the outcome reaction, but does not publish, so the cloud review and CI ready_for_review listener do not auto-fire until a human publishes). Any other value \u2014 missing key, empty string, or an unrecognized string \u2014 resolves to 'ready_for_review'; default-to-publish is the safe direction. See docs/implement-skill.md for the full Phase 4.3 behavior.",
           "default": "ready_for_review"
         },
         "allowed_tools": {
@@ -158,18 +158,18 @@
           "items": {
             "type": "string"
           },
-          "description": "Extra --allowed-tools entries for the /devflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
+          "description": "Extra --allowed-tools entries for the /prflow:implement path (devflow-implement.yml), APPENDED on top of devflow's built-in base list. The implement path does NOT inherit devflow.allowed_tools, so list every extra tool you want during implementation here. Empty/omitted \u2192 base list only.",
           "default": []
         },
         "update_branch_checkpoints": {
           "type": "boolean",
-          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /devflow:implement run \u2014 the end of Phase 1.4 (every \u00a71.4 arm since issue #779 \u2014 new branch, adopted branch, and landed resume alike), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /devflow:review-and-fix --push-each-iteration run. Disabled exactly when the value serializes to the string 'false' via config-get.sh \u2014 an explicit JSON false, the JSON string \"false\", or [false] (arrays comma-join); a missing key, empty string, or any other value leaves the checkpoints enabled (issue #312 valid-falsy discipline). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches. See docs/implement-skill.md.",
+          "description": "Master switch for the base-branch update checkpoints (issue #448). true (the default) brings the feature branch up to date with base_branch at four checkpoints of a /prflow:implement run \u2014 the end of Phase 1.4 (every \u00a71.4 arm since issue #779 \u2014 new branch, adopted branch, and landed resume alike), pre-draft-PR (Phase 3.1), each fix iteration + loop exit of the review-and-fix loop under --push-each-iteration (Checkpoint 3), and pre-ready (Phase 4.3) \u2014 via scripts/update-branch-checkpoint.sh, so every state the merge gate or an auto-review consumes is current, including the terminal pushed state. This same key also governs the checkpoint inside a standalone /prflow:review-and-fix --push-each-iteration run. Disabled exactly when the value serializes to the string 'false' via config-get.sh \u2014 an explicit JSON false, the JSON string \"false\", or [false] (arrays comma-join); a missing key, empty string, or any other value leaves the checkpoints enabled (issue #312 valid-falsy discipline). A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches. See docs/implement-skill.md.",
           "default": true
         },
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Cloud-only workflow-level backstop for /devflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (\ud83c\udf89 Complete / \ud83d\udc4e Blocked / \ud83d\udca5 Failed / \ud83d\uded1 Cancelled) is a no-op, an interim Status (\ud83d\ude80 \u2026) auto-resumes `/devflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Every fail-loud exit reached after reading a genuinely interim Status also flips the workpad Status to \ud83d\udca5 Failed (best-effort) so a dead run stops reporting itself as still working. A cancelled run (job.status=cancelled) is a decided ending, not a stall: the backstop resumes nothing, flips an interim workpad to 🛑 Cancelled (best-effort, no comment, no resume attempt consumed), and leaves terminal/unreadable/auth-failure classes untouched (issue #498). Purely additive: absent/disabled, the job behaves exactly as before.",
+          "description": "Cloud-only workflow-level backstop for /prflow:implement (devflow-implement.yml). A headless single-shot run can end mid-lifecycle (e.g. right after `gh pr create`) yet report success, because the SDK session ends the moment the model emits a tool-call-free turn. After the `claude` step, the backstop reads the issue workpad Status (never PR draft state): a terminal Status (\ud83c\udf89 Complete / \ud83d\udc4e Blocked / \ud83d\udca5 Failed / \ud83d\uded1 Cancelled) is a no-op, an interim Status (\ud83d\ude80 \u2026) auto-resumes `/prflow:implement <n>` up to `max_resume_attempts`, and an exhausted cap or an unreadable Status fails the job loud with a distinct issue comment. Every fail-loud exit reached after reading a genuinely interim Status also flips the workpad Status to \ud83d\udca5 Failed (best-effort) so a dead run stops reporting itself as still working. A cancelled run (job.status=cancelled) is a decided ending, not a stall: the backstop resumes nothing, flips an interim workpad to 🛑 Cancelled (best-effort, no comment, no resume attempt consumed), and leaves terminal/unreadable/auth-failure classes untouched (issue #498). Purely additive: absent/disabled, the job behaves exactly as before.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -188,15 +188,15 @@
     },
     "devflow_runner": {
       "type": "object",
-      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml \u2192 devflow-runner.yml). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+      "description": "Settings for the reusable runner that backs the automated reviewer (devflow-review.yml \u2192 devflow-runner.yml). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
       "properties": {
         "provider": {
           "type": "string",
-          "description": "Optional: name of a `providers` entry to route the automated reviewer (devflow-runner.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret (carried into the runner via devflow-review.yml's `secrets: inherit`). Unset → Anthropic-OAuth default, so review stays on Claude (issue #313). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead."
+          "description": "Optional: name of a `providers` entry to route the automated reviewer (devflow-runner.yml) through, instead of the Anthropic default. Requires the DEVFLOW_PROVIDER_API_KEY repo secret (carried into the runner via devflow-review.yml's `secrets: inherit`). Unset → Anthropic-OAuth default, so review stays on Claude (issue #313). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead."
         },
         "claude_model": {
           "type": "string",
-          "description": "Optional per-section model override for the automated reviewer (devflow-runner.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead."
+          "description": "Optional per-section model override for the automated reviewer (devflow-runner.yml). Takes precedence over the global claude_model. Unset → global claude_model (issue #313). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead."
         },
         "effort": {
           "type": "string",
@@ -210,7 +210,7 @@
         },
         "provision_env": {
           "type": "boolean",
-          "description": "Opt the automated reviewer into provisioning a build environment. When true, devflow-runner.yml runs the setup-project-env action (Python/Node/PHP + service containers + `setup.install`) BEFORE Claude runs, and the read-only `review` tool profile gains the freeform build/verify tools you list in `devflow_runner.allowed_tools` (see that property) so the reviewer can actually build/test the PR instead of punting build-dependent claims; an empty/absent `allowed_tools` means no build tools are added (the runner warns). SECURITY: this flag, the `allowed_tools` list, AND the `setup` block are read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot enable provisioning, grant itself tools, or inject install commands. The runner also strips a catastrophic-tier deny-list (file-mutation tools + raw-shell/eval/privilege Bash) from `allowed_tools` regardless of content. But the build tools still run the PR author's code (e.g. an npm package's postinstall) under devflow-review.yml's pull_request_target write token \u2014 enable only if you accept running untrusted PR build steps. Absent/false (the default) \u2192 the runner is unchanged: light, read-only, no build tools, no provisioning. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+          "description": "Opt the automated reviewer into provisioning a build environment. When true, devflow-runner.yml runs the setup-project-env action (Python/Node/PHP + service containers + `setup.install`) BEFORE Claude runs, and the read-only `review` tool profile gains the freeform build/verify tools you list in `devflow_runner.allowed_tools` (see that property) so the reviewer can actually build/test the PR instead of punting build-dependent claims; an empty/absent `allowed_tools` means no build tools are added (the runner warns). SECURITY: this flag, the `allowed_tools` list, AND the `setup` block are read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot enable provisioning, grant itself tools, or inject install commands. The runner also strips a catastrophic-tier deny-list (file-mutation tools + raw-shell/eval/privilege Bash) from `allowed_tools` regardless of content. But the build tools still run the PR author's code (e.g. an npm package's postinstall) under devflow-review.yml's pull_request_target write token \u2014 enable only if you accept running untrusted PR build steps. Absent/false (the default) \u2192 the runner is unchanged: light, read-only, no build tools, no provisioning. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
           "default": false
         },
         "allowed_tools": {
@@ -218,14 +218,14 @@
           "items": {
             "type": "string"
           },
-          "description": "Freeform build/verify tools (claude-code-action syntax, e.g. \"Bash(go:*)\", \"Bash(cargo:*)\", \"Bash(npm:*)\") APPENDED to the automated reviewer's read-only `review` profile \u2014 but ONLY when `provision_env: true` above. Read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot grant itself tools. This makes build-aware review language-agnostic: list your toolchain here, no DevFlow release needed. A deterministic deny-list floor is enforced by devflow-runner.yml when the list is consumed \u2014 file-mutation tools (Edit, Write, MultiEdit, NotebookEdit) and raw-shell/eval/privilege Bash (bash, sh, zsh, eval, exec, source, sudo) are stripped (with a warning) regardless of what is listed here, so the catastrophic tier can never reach a write-token job reviewing untrusted code. When `provision_env` is false the reviewer is byte-for-byte read-only regardless of this list. /devflow:init auto-populates this per detected language and enriches it from your repo's real build setup. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+          "description": "Freeform build/verify tools (claude-code-action syntax, e.g. \"Bash(go:*)\", \"Bash(cargo:*)\", \"Bash(npm:*)\") APPENDED to the automated reviewer's read-only `review` profile \u2014 but ONLY when `provision_env: true` above. Read from the TRUSTED base ref (your repo's base branch), never the PR head, so a PR cannot grant itself tools. This makes build-aware review language-agnostic: list your toolchain here, no PRFlow release needed. A deterministic deny-list floor is enforced by devflow-runner.yml when the list is consumed \u2014 file-mutation tools (Edit, Write, MultiEdit, NotebookEdit) and raw-shell/eval/privilege Bash (bash, sh, zsh, eval, exec, source, sudo) are stripped (with a warning) regardless of what is listed here, so the catastrophic tier can never reach a write-token job reviewing untrusted code. When `provision_env` is false the reviewer is byte-for-byte read-only regardless of this list. /prflow:init auto-populates this per detected language and enriches it from your repo's real build setup. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
           "default": []
         }
       }
     },
     "devflow_review_and_fix": {
       "type": "object",
-      "description": "Settings for /devflow:review-and-fix: the fix-loop iteration cap, the fix-severity routing threshold, and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
+      "description": "Settings for /prflow:review-and-fix: the fix-loop iteration cap, the fix-severity routing threshold, and per-run subagent effectiveness telemetry. See docs/shadow-review.md and docs/efficiency-trace.md.",
       "properties": {
         "fix_severity_threshold": {
           "type": "string",
@@ -234,31 +234,31 @@
             "important",
             "suggestion"
           ],
-          "description": "The /devflow:review-and-fix fix loop routes to the fixer every finding whose severity is at or above this threshold (severity ordering: critical > important > suggestion); findings below it stay advisory. At the default 'important', the loop fixes Critical + Important/Major and parks Suggestion/Minor as advisory \u2014 identical to the historical hard-coded behavior. Set 'suggestion' for a more aggressive fixer (Suggestion/Minor also routed to the fixer, bounded by max_iterations and the convergence check) or 'critical' for a conservative one. Independent of devflow_review.verdict_severity_threshold, except that every REJECT-driving finding is always fixable regardless of this key. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "description": "The /prflow:review-and-fix fix loop routes to the fixer every finding whose severity is at or above this threshold (severity ordering: critical > important > suggestion); findings below it stay advisory. At the default 'important', the loop fixes Critical + Important/Major and parks Suggestion/Minor as advisory \u2014 identical to the historical hard-coded behavior. Set 'suggestion' for a more aggressive fixer (Suggestion/Minor also routed to the fixer, bounded by max_iterations and the convergence check) or 'critical' for a conservative one. Independent of devflow_review.verdict_severity_threshold, except that every REJECT-driving finding is always fixable regardless of this key. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "important"
         },
         "max_iterations": {
           "type": "integer",
           "minimum": 1,
-          "description": "Maximum number of fix-loop iterations /devflow:review-and-fix runs before exiting with its latest verdict. Higher converges on a clean verdict more often at greater subagent cost; lower saves cost. A value below 1 is clamped up to 1, and a non-integer/empty/unparseable value (or an unreadable config) falls back to the default. No upper bound is imposed. See docs/shadow-review.md.",
+          "description": "Maximum number of fix-loop iterations /prflow:review-and-fix runs before exiting with its latest verdict. Higher converges on a clean verdict more often at greater subagent cost; lower saves cost. A value below 1 is clamped up to 1, and a non-integer/empty/unparseable value (or an unreadable config) falls back to the default. No upper bound is imposed. See docs/shadow-review.md.",
           "default": 5
         },
         "efficiency_telemetry_enabled": {
           "type": "boolean",
-          "description": "When true, /devflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .devflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .devflow/logs/. Derivation is best-effort: a failure never aborts the fix loop.",
+          "description": "When true, /prflow:review-and-fix derives a per-subagent effectiveness trace at Loop Exit, prints it to chat, and persists one per-run record to .devflow/logs/efficiency/. When false, the loop neither renders the trace nor writes any file under .devflow/logs/. Derivation is best-effort: a failure never aborts the fix loop.",
           "default": true
         },
         "efficiency_cut_candidate_min_dispatch": {
           "type": "integer",
           "minimum": 1,
-          "description": "Minimum number of times a Phase-3 subagent must have been dispatched (across runs) before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; consumed by the follow-up cross-run analyzer, not by /devflow:review-and-fix itself. The per-run record carries this value forward for that analyzer.",
+          "description": "Minimum number of times a Phase-3 subagent must have been dispatched (across runs) before an all-null/noise agent is flagged as a cut candidate. Defined here so the config surface is stable; consumed by the follow-up cross-run analyzer, not by /prflow:review-and-fix itself. The per-run record carries this value forward for that analyzer.",
           "default": 3
         }
       }
     },
     "devflow_review": {
       "type": "object",
-      "description": "Settings for the standalone /devflow:review engine. See docs/workflow-triggers.md (live progress comment) and docs/efficiency-trace.md (telemetry + effectiveness trace).",
+      "description": "Settings for the standalone /prflow:review engine. See docs/workflow-triggers.md (live progress comment) and docs/efficiency-trace.md (telemetry + effectiveness trace).",
       "properties": {
         "verdict_severity_threshold": {
           "type": "string",
@@ -267,18 +267,18 @@
             "important",
             "suggestion"
           ],
-          "description": "Moves ONLY the REJECT line of the shared review engine's Phase 4.2 verdict computation: a finding at or above this severity (severity ordering: critical > important > suggestion), excluding deferral-demoted ones, drives REJECT. All other Phase 4.2 rules and verdict labels are untouched. At the default 'critical' (or when the key is absent) verdict computation is byte-identical to the historical behavior. Both standalone /devflow:review and the Phase-3 pass of /devflow:review-and-fix inherit this. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "description": "Moves ONLY the REJECT line of the shared review engine's Phase 4.2 verdict computation: a finding at or above this severity (severity ordering: critical > important > suggestion), excluding deferral-demoted ones, drives REJECT. All other Phase 4.2 rules and verdict labels are untouched. At the default 'critical' (or when the key is absent) verdict computation is byte-identical to the historical behavior. Both standalone /prflow:review and the Phase-3 pass of /prflow:review-and-fix inherit this. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "critical"
         },
         "live_progress_comment_enabled": {
           "type": "boolean",
-          "description": "When true, a PR-mode /devflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /devflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
+          "description": "When true, a PR-mode /prflow:review authors a live progress comment for that run (a run-keyed <!-- devflow:review-progress run=<id>-<attempt> --> comment \u2014 one per review run, so a later run posts its own rather than overwriting an earlier run's) incrementally as it works \u2014 a blueprint of the phases up front, then per-phase updates (diff classification, checklist results, each Phase-3 agent's findings as they land, the verdict), finalizing with the run-telemetry summary and effectiveness trace. When false, /prflow:review falls back to producing its report once at the end (no incremental updates). Independent of devflow_review_and_fix.efficiency_telemetry_enabled, which separately gates the embedded telemetry/trace.",
           "default": true
         },
         "stale_prose": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Gates the shared review engine's Phase 0.6 deterministic stale-counted-prose lint (scripts/stale-prose-lint.py, issue #423), which flags diff-added prose asserting counts/ranges/sums/deny-absolutes that the same PR's later commits outgrow or falsify. Inherited identically by standalone /devflow:review, the Phase-3 pass of /devflow:review-and-fix, and the shadow pass, since all three drive the same engine. Purely additive: absent, the phase runs with its defaults (enabled, findings at 'important').",
+          "description": "Gates the shared review engine's Phase 0.6 deterministic stale-counted-prose lint (scripts/stale-prose-lint.py, issue #423), which flags diff-added prose asserting counts/ranges/sums/deny-absolutes that the same PR's later commits outgrow or falsify. Inherited identically by standalone /prflow:review, the Phase-3 pass of /prflow:review-and-fix, and the shadow pass, since all three drive the same engine. Purely additive: absent, the phase runs with its defaults (enabled, findings at 'important').",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -299,18 +299,18 @@
         },
         "require_up_to_date": {
           "type": "boolean",
-          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine \u2014 while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate \u2014 pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: branch behind base' Devflow Review check instead of running the engine \u2014 while the PR branch is behind its configured base_branch, so an LLM review that a forthcoming branch update would invalidate is not wasted. The review auto-re-triggers on the next reviewable event (synchronize, or other-CI completion). A neutral required check does NOT itself block merge: this precondition is a cost optimization, not a correctness gate \u2014 pair it with branch protection's 'require branches up to date' if staleness must block. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable comparison fails closed (defer, recoverable via a later event or the check's Re-run button). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
           "default": true
         },
         "require_ci_green": {
           "type": "boolean",
-          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine \u2014 until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes \u2014 a workflow_run/check_suite completed event, or (since issue #310) a legacy commit-status `status` event with `state == 'success'` for repos whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI); the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+          "description": "When true (the default), the devflow-review auto-trigger defers \u2014 posting a neutral 'waiting: other CI not green' Devflow Review check instead of running the engine \u2014 until every other signal on the PR head (GitHub Actions workflow runs excluding the Devflow Review workflow itself, legacy commit statuses, and non-Actions check runs) has completed without failing (success, skipped, and neutral conclusions all count as green, so a path-filtered or optional workflow never wedges the review), so a code-quality verdict is never produced for known-broken code. Generic: no CI job names are referenced. A head with NO other CI at all is treated as satisfied (nothing to wait on), so a CI-less repo is reviewed immediately and never wedged. The review auto-re-triggers when other CI completes \u2014 a workflow_run/check_suite completed event, or (since issue #310) a legacy commit-status `status` event with `state == 'success'` for repos whose CI reports only via the commit-status API (classic Jenkins, legacy CircleCI); the workflow_run trigger's `workflows:` list must name the repo's CI workflows, a GitHub platform requirement. When false, restores the unconditional auto-trigger for this precondition. Evaluated by scripts/derive-review-preconditions.sh; an unverifiable query fails closed (defer, recoverable via a later event or the check's Re-run button). WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
           "default": true
         },
         "stall_backstop": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Cloud-only workflow-level backstop for the review engine. A headless review run can end `success` with NO verdict — the SDK session ends the moment the model emits a tool-call-free turn (e.g. after ScheduleWakeup while a Phase-3 agent is still pending), so the required `Devflow Review` check fails 'incomplete — re-run needed' and a human must manually re-trigger. On the AUTO-review path (devflow-review.yml's finalize_check), which derives the verdict for the head, the backstop fires when the run concludes incomplete with no verdict positively observed for the head — exactly this early-quit — and posts a `/devflow:review` re-trigger comment (authored by a freshly minted App token) up to `max_resume_attempts` per head, so the review re-runs without human intervention. The MANUAL /devflow:review comment path (devflow.yml) has no verdict-derivation step, so it fires the same backstop only on the #356 dead-run signal (the engine ending is_error, or the claude step ending failure — a hard death), not on a clean success-with-no-verdict; that manual-path case is covered only by the headless-wait skill/grounding prose. When the cap is exhausted, or no workflow-capable App token is configured (DEVFLOW_APP_ID unset — a GITHUB_TOKEN-authored comment never re-triggers a workflow), behavior degrades to exactly the pre-existing dead-end flip, with a breadcrumb naming why the backstop did not fire. Because the re-trigger re-enters the SAME manual /devflow:review comment gate, auto-resume additionally requires the minting App's bot login to be in `devflow.allowed_bots` (the same prerequisite the implement backstop carries); otherwise the comment posts but the gate declines it and no review re-runs. This is the review-side sibling of devflow_implement.stall_backstop. A cancelled run is excluded from auto-resume on every DevFlow backstop (a cancel is a decided ending, not a benign timing stall — issue #498); the review tier's exclusion is already correct at source (the dead-run signal fires only on is_error/failure, never on cancellation). Purely additive: absent/disabled, the review behaves exactly as before. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+          "description": "Cloud-only workflow-level backstop for the review engine. A headless review run can end `success` with NO verdict — the SDK session ends the moment the model emits a tool-call-free turn (e.g. after ScheduleWakeup while a Phase-3 agent is still pending), so the required `Devflow Review` check fails 'incomplete — re-run needed' and a human must manually re-trigger. On the AUTO-review path (devflow-review.yml's finalize_check), which derives the verdict for the head, the backstop fires when the run concludes incomplete with no verdict positively observed for the head — exactly this early-quit — and posts a `/prflow:review` re-trigger comment (authored by a freshly minted App token) up to `max_resume_attempts` per head, so the review re-runs without human intervention. The MANUAL /prflow:review comment path (devflow.yml) has no verdict-derivation step, so it fires the same backstop only on the #356 dead-run signal (the engine ending is_error, or the claude step ending failure — a hard death), not on a clean success-with-no-verdict; that manual-path case is covered only by the headless-wait skill/grounding prose. When the cap is exhausted, or no workflow-capable App token is configured (DEVFLOW_APP_ID unset — a GITHUB_TOKEN-authored comment never re-triggers a workflow), behavior degrades to exactly the pre-existing dead-end flip, with a breadcrumb naming why the backstop did not fire. Because the re-trigger re-enters the SAME manual /prflow:review comment gate, auto-resume additionally requires the minting App's bot login to be in `devflow.allowed_bots` (the same prerequisite the implement backstop carries); otherwise the comment posts but the gate declines it and no review re-runs. This is the review-side sibling of devflow_implement.stall_backstop. A cancelled run is excluded from auto-resume on every PRFlow backstop (a cancel is a decided ending, not a benign timing stall — issue #498); the review tier's exclusion is already correct at source (the dead-run signal fires only on is_error/failure, never on cancellation). Purely additive: absent/disabled, the review behaves exactly as before. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -782,7 +782,7 @@
                 }
               }
             },
-            "devflow:requesting-code-review": {
+            "prflow:requesting-code-review": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
@@ -813,7 +813,7 @@
     },
     "receiving_review": {
       "type": "object",
-      "description": "Settings for a direct invocation of /devflow:receiving-code-review (the fix-loop principles skill). Consulted only when the skill is invoked directly; the /devflow:review-and-fix loop governs its own routing via devflow_review_and_fix.fix_severity_threshold and does NOT consult this section.",
+      "description": "Settings for a direct invocation of /prflow:receiving-code-review (the fix-loop principles skill). Consulted only when the skill is invoked directly; the /prflow:review-and-fix loop governs its own routing via devflow_review_and_fix.fix_severity_threshold and does NOT consult this section.",
       "properties": {
         "fix_severity_threshold": {
           "type": "string",
@@ -822,14 +822,14 @@
             "important",
             "suggestion"
           ],
-          "description": "When /devflow:receiving-code-review is invoked directly and the verdict is already non-blocking, the diff is re-opened for a finding at or above this severity (severity ordering: critical > important > suggestion). At the default 'critical' this matches the historical behavior (re-open only for a Critical/blocking finding). The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value \u2014 it is a correctness principle, not a severity grade. Its scope excludes behavior-inert prose \u2014 prose that cannot change what the program does \u2014 which is graded by severity like any other finding; see the review engine's Phase 4.1.5 for the authoritative definition of behavior-inertness. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
+          "description": "When /prflow:receiving-code-review is invoked directly and the verdict is already non-blocking, the diff is re-opened for a finding at or above this severity (severity ordering: critical > important > suggestion). At the default 'critical' this matches the historical behavior (re-open only for a Critical/blocking finding). The demonstrable-correctness-defect / documented-falsehood carve-out re-opens the diff at every threshold value \u2014 it is a correctness principle, not a severity grade. Its scope excludes behavior-inert prose \u2014 prose that cannot change what the program does \u2014 which is graded by severity like any other finding; see the review engine's Phase 4.1.5 for the authoritative definition of behavior-inertness. A missing/wrong-type/unknown value falls back to the default with a stderr breadcrumb (never aborts a run).",
           "default": "critical"
         }
       }
     },
     "setup": {
       "type": "object",
-      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs \u2014 for the /devflow:* command path, /devflow:implement, AND the automated reviewer. /devflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python \u2192 Node \u2192 PHP \u2192 service containers \u2192 install lines. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /devflow:review by collaborator comment instead.",
+      "description": "Cloud-tier runtime provisioning: how the GitHub Actions runner is prepared BEFORE Claude runs \u2014 for the /prflow:* command path, /prflow:implement, AND the automated reviewer. /prflow:init auto-populates node_version + install per detected language (deterministic presets), then the LLM enriches php_version/extensions and services by reading docker-compose/CI/composer.json. Provisioning order: Python \u2192 Node \u2192 PHP \u2192 service containers \u2192 install lines. WITHHELD: the automatic pull-request-triggered review tier is not shipped in this release (see issues #930 and #920) \u2014 a fresh installation receives none of devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so this setting has no effect there; it remains live for a repository that already installed those three files, which stays exposed to those defects while workflows[\"devflow-review\"] is true. Use /prflow:review by collaborator comment instead.",
       "properties": {
         "python_version": {
           "type": "string",
@@ -841,15 +841,15 @@
         },
         "node_working_directory": {
           "type": "string",
-          "description": "Directory (relative to the repo root) that holds the Node project's package.json/lockfile, for repos whose JS build lives in a subdirectory (e.g. 'jsx', 'resources/js', 'frontend') rather than at the root. When set, setup-node's download caching resolves the lockfile under this directory and /devflow:init scopes the generated Node install line into it. Empty/absent (the default) \u2192 caching and detection key off the repo root, byte-for-byte identical to the root-based behavior. Note: this only affects the auto-detected Node install line and cache resolution; setup.install lines still run from the repo root."
+          "description": "Directory (relative to the repo root) that holds the Node project's package.json/lockfile, for repos whose JS build lives in a subdirectory (e.g. 'jsx', 'resources/js', 'frontend') rather than at the root. When set, setup-node's download caching resolves the lockfile under this directory and /prflow:init scopes the generated Node install line into it. Empty/absent (the default) \u2192 caching and detection key off the repo root, byte-for-byte identical to the root-based behavior. Note: this only affects the auto-detected Node install line and cache resolution; setup.install lines still run from the repo root."
         },
         "php_version": {
           "type": "string",
-          "description": "shivammathur/setup-php runs ONLY if non-empty (e.g. '8.3'). Sets the PHP runtime + Composer. Populated by /devflow:init from composer.json's require.php constraint when detectable."
+          "description": "shivammathur/setup-php runs ONLY if non-empty (e.g. '8.3'). Sets the PHP runtime + Composer. Populated by /prflow:init from composer.json's require.php constraint when detectable."
         },
         "php_extensions": {
           "type": "string",
-          "description": "CSV list of PHP extensions to install with setup-php (e.g. 'mbstring, pdo_mysql, redis, intl'). Only used when php_version is set. Populated by /devflow:init from composer.json require.ext-* and the project's service needs."
+          "description": "CSV list of PHP extensions to install with setup-php (e.g. 'mbstring, pdo_mysql, redis, intl'). Only used when php_version is set. Populated by /prflow:init from composer.json require.ext-* and the project's service needs."
         },
         "php_tools": {
           "type": "string",
@@ -857,7 +857,7 @@
         },
         "services": {
           "type": "array",
-          "description": "Service containers (databases, caches, queues) started via `docker run -d` BEFORE the install lines, reachable from the runner on 127.0.0.1:<host-port>. NOT GitHub Actions `services:` (which can't be defined in a composite action or driven by config). Populated by /devflow:init from docker-compose.yml / .env / existing CI. The runner needs Docker (preinstalled on ubuntu-latest) and the `docker` preset's allowlist.",
+          "description": "Service containers (databases, caches, queues) started via `docker run -d` BEFORE the install lines, reachable from the runner on 127.0.0.1:<host-port>. NOT GitHub Actions `services:` (which can't be defined in a composite action or driven by config). Populated by /prflow:init from docker-compose.yml / .env / existing CI. The runner needs Docker (preinstalled on ubuntu-latest) and the `docker` preset's allowlist.",
           "items": {
             "type": "object",
             "required": [
@@ -911,7 +911,7 @@
         "git_dir_pin": {
           "type": "boolean",
           "default": false,
-          "description": "Opt in to exporting `GIT_DIR=<workspace>/.git` into the cloud job environment before the `Run Claude Code` step (issue #645). Default FALSE, and the default is the configuration that works everywhere. Enable it only on a self-hosted WINDOWS runner, where claude-code-action's `configureGitAuth` startup otherwise fails `fatal: not in a git directory` (exit 128) because it runs `git config` in the inherited working directory (issue #602). COSTS, all of which you accept by enabling it: `$GITHUB_ENV` is job-scoped and offers no removal verb, so the variable is in force for `Run Claude Code` AND every step after it, including the agent's own git operations; and any DevFlow helper that runs from a NON-ROOT working directory then resolves a `.devflow/` that does not exist, because the issue #295 repo-root readers (`config-get.sh`, `workpad.py`, `load-prompt-extension.sh` — on its fallback branch only, since issue #874 made it anchor on `DEVFLOW_PROMPT_EXTENSION_ROOT` instead whenever that variable is set and non-empty — `match-deferrals.py`, `match-lint-adjudications.py`) anchor on `git rev-parse --show-toplevel`, which under ambient GIT_DIR returns the subdirectory rather than the repository root. That failure is a SILENT MISS rather than an error, so a run with this key enabled is not a config-faithful run; the helper emits a `::warning::`-grade stderr breadcrumb on every run that exports the variable. NOT honored on the implement tier, which stages and pushes commits (ambient GIT_DIR makes a stage issued from a non-root working directory record deletions across the rest of the tree); that tier records that it ignored the key. The `configureGitAuth` benefit is INFERRED from the pinned action's upstream source and a local `git config` proxy — it has not been observed on a self-hosted Windows runner. Read at TRIGGER time from a trusted tree (the `config` job's default-branch checkout; on the review tier the base-ref config `baseprovision` materializes), so its effect is post-merge-only and a value present only in a PR-head checkout has no effect.",
+          "description": "Opt in to exporting `GIT_DIR=<workspace>/.git` into the cloud job environment before the `Run Claude Code` step (issue #645). Default FALSE, and the default is the configuration that works everywhere. Enable it only on a self-hosted WINDOWS runner, where claude-code-action's `configureGitAuth` startup otherwise fails `fatal: not in a git directory` (exit 128) because it runs `git config` in the inherited working directory (issue #602). COSTS, all of which you accept by enabling it: `$GITHUB_ENV` is job-scoped and offers no removal verb, so the variable is in force for `Run Claude Code` AND every step after it, including the agent's own git operations; and any PRFlow helper that runs from a NON-ROOT working directory then resolves a `.devflow/` that does not exist, because the issue #295 repo-root readers (`config-get.sh`, `workpad.py`, `load-prompt-extension.sh` — on its fallback branch only, since issue #874 made it anchor on `DEVFLOW_PROMPT_EXTENSION_ROOT` instead whenever that variable is set and non-empty — `match-deferrals.py`, `match-lint-adjudications.py`) anchor on `git rev-parse --show-toplevel`, which under ambient GIT_DIR returns the subdirectory rather than the repository root. That failure is a SILENT MISS rather than an error, so a run with this key enabled is not a config-faithful run; the helper emits a `::warning::`-grade stderr breadcrumb on every run that exports the variable. NOT honored on the implement tier, which stages and pushes commits (ambient GIT_DIR makes a stage issued from a non-root working directory record deletions across the rest of the tree); that tier records that it ignored the key. The `configureGitAuth` benefit is INFERRED from the pinned action's upstream source and a local `git config` proxy — it has not been observed on a self-hosted Windows runner. Read at TRIGGER time from a trusted tree (the `config` job's default-branch checkout; on the review tier the base-ref config `baseprovision` materializes), so its effect is post-merge-only and a value present only in a PR-head checkout has no effect.",
           "$comment": "issue #645 — decoupled from git_work_tree_pin; both default off."
         },
         "git_work_tree_pin": {
@@ -924,7 +924,7 @@
     },
     "docs": {
       "type": "object",
-      "description": "Documentation paths used by the /devflow:docs suite.",
+      "description": "Documentation paths used by the /prflow:docs suite.",
       "properties": {
         "internal": {
           "type": "string",
@@ -936,49 +936,49 @@
         },
         "internal_enabled": {
           "type": "boolean",
-          "description": "When false, the /devflow:docs combined pass (and /devflow:implement's Phase 4.1 docs step) SKIPS internal-doc updates (Step 1, docs-sync-internal). Use it for repos with no internal docs tree, or to keep the implement pass from touching internal docs. Default true (run internal docs). Does not affect invoking /devflow:docs-sync-internal directly.",
+          "description": "When false, the /prflow:docs combined pass (and /prflow:implement's Phase 4.1 docs step) SKIPS internal-doc updates (Step 1, docs-sync-internal). Use it for repos with no internal docs tree, or to keep the implement pass from touching internal docs. Default true (run internal docs). Does not affect invoking /prflow:docs-sync-internal directly.",
           "default": true
         },
         "external_enabled": {
           "type": "boolean",
-          "description": "When false, the /devflow:docs combined pass (and /devflow:implement's Phase 4.1 docs step) SKIPS external-doc alignment (Step 2, docs-sync-external). Use it for repos with no separate customer-facing docs tree (e.g. a single flat docs/ directory). Default true (run external docs). Does not affect invoking /devflow:docs-sync-external directly.",
+          "description": "When false, the /prflow:docs combined pass (and /prflow:implement's Phase 4.1 docs step) SKIPS external-doc alignment (Step 2, docs-sync-external). Use it for repos with no separate customer-facing docs tree (e.g. a single flat docs/ directory). Default true (run external docs). Does not affect invoking /prflow:docs-sync-external directly.",
           "default": true
         },
         "release_notes_file": {
           "type": "string",
-          "description": "Customer-facing release-notes file maintained by /devflow:docs-release-notes.",
+          "description": "Customer-facing release-notes file maintained by /prflow:docs-release-notes.",
           "default": "docs/external/release-notes.md"
         },
         "changelog_file": {
           "type": "string",
-          "description": "Repository CHANGELOG file reconciled by /devflow:docs-release-notes Step 4b. The step reads the `## [version]` entry for the version in `.claude-plugin/plugin.json` (a `chore: bump version` commit only confirms a bump occurred; the version is never taken from its subject) and corrects any factual claims made stale by post-commit review corrections.",
+          "description": "Repository CHANGELOG file reconciled by /prflow:docs-release-notes Step 4b. The step reads the `## [version]` entry for the version in `.claude-plugin/plugin.json` (a `chore: bump version` commit only confirms a bump occurred; the version is never taken from its subject) and corrects any factual claims made stale by post-commit review corrections.",
           "default": "CHANGELOG.md"
         },
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied by /devflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
+          "description": "Comma-separated list of labels applied by /prflow:implement once its docs pass has run. Each entry is trimmed and empty entries are dropped, so \"DevFlow, Shipped\" applies both DevFlow and Shipped.",
           "default": "DevFlow"
         }
       }
     },
     "deferred": {
       "type": "object",
-      "description": "Settings for the follow-up issues /devflow:implement files for deferred work.",
+      "description": "Settings for the follow-up issues /prflow:implement files for deferred work.",
       "properties": {
         "labels": {
           "type": "string",
-          "description": "Comma-separated list of labels applied to the follow-up issues /devflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally \u2014 only deferred-issue labeling is configurable here.",
+          "description": "Comma-separated list of labels applied to the follow-up issues /prflow:implement files for deferred work \u2014 both Phase 4.0 deferred-acceptance-criteria issues and Phase 4.0.5 deferred-review-finding issues. Each entry is trimmed and blank entries are dropped, so \"DevFlow, Deferred\" applies both DevFlow and Deferred, and a whitespace-only or all-separators value (e.g. \" , \") normalizes to none, applying no labels. (A literal empty string resolves to this default rather than meaning no-labels, matching how config defaults resolve; set a whitespace value to apply none.) Labels are ensured to exist and applied best-effort after the issue is created, so a label hiccup never blocks filing. This is separate from the hardcoded `DevFlow` provenance label that retrospective detection (lib/scan.sh, lib/classify-pr-kind.jq) matches literally \u2014 only deferred-issue labeling is configurable here.",
           "default": "DevFlow,Deferred"
         }
       }
     },
     "telemetry": {
       "type": "object",
-      "description": "Settings for the durable observability-telemetry store (issue #441). DevFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the tracked working tree (it stages under gitignored .devflow/tmp/, which it removes afterwards), then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
+      "description": "Settings for the durable observability-telemetry store (issue #441). PRFlow persists every writable run's effectiveness records and durable review workpads to a dedicated long-lived orphan branch that shares no history with the base branch and is never merged into it, written via git plumbing without touching the current branch, HEAD, or the tracked working tree (it stages under gitignored .devflow/tmp/, which it removes afterwards), then pushed. The weekly retrospective reads that branch (unioned with any legacy tracked .devflow/logs/).",
       "properties": {
         "branch": {
           "type": "string",
-          "description": "Name of the long-lived orphan branch DevFlow persists observability artifacts to. Auto-created on first use if absent; verified to be a telemetry store (its tip tree holds only .devflow/logs/-shaped paths) before appending, so DevFlow never commits onto a same-named branch a consumer uses for something else. A literal empty string resolves to this default (a string key \u2014 an empty branch name is never a valid selection). Keep every workflow `push:` trigger branch-filtered so a telemetry push runs no CI (DevFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch).",
+          "description": "Name of the long-lived orphan branch PRFlow persists observability artifacts to. Auto-created on first use if absent; verified to be a telemetry store (its tip tree holds only .devflow/logs/-shaped paths) before appending, so PRFlow never commits onto a same-named branch a consumer uses for something else. A literal empty string resolves to this default (a string key \u2014 an empty branch name is never a valid selection). Keep every workflow `push:` trigger branch-filtered so a telemetry push runs no CI (PRFlow's own workflows filter `push:` to `main`; a consumer whose `on: push` is unfiltered should add a `branches-ignore` entry for this branch).",
           "default": "devflow-telemetry"
         }
       }
@@ -1070,7 +1070,7 @@
     },
     "devflow_retrospective": {
       "type": "object",
-      "description": "DevFlow retrospective / self-improvement loop, consumed by the /devflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",
+      "description": "PRFlow retrospective / self-improvement loop, consumed by the /prflow:retrospective-weekly orchestrator (a locally-run skill, not a GitHub Actions workflow).",
       "properties": {
         "enabled": {
           "type": "boolean"
@@ -1085,7 +1085,7 @@
         },
         "implementation_branch_prefix": {
           "type": "string",
-          "description": "Branch prefix your implementation bot uses for its PRs. The loop processes a PR matching this prefix, or any PR carrying the DevFlow label or closing an issue.",
+          "description": "Branch prefix your implementation bot uses for its PRs. The loop processes a PR matching this prefix, or any PR carrying the PRFlow label or closing an issue.",
           "default": "claude/"
         },
         "min_occurrences": {
@@ -1143,11 +1143,11 @@
       "properties": {
         "devflow": {
           "type": "boolean",
-          "description": "Enable the light /devflow:* command path (devflow.yml) and /devflow:implement (devflow-implement.yml)."
+          "description": "Enable the light /prflow:* command path (devflow.yml) and /prflow:implement (devflow-implement.yml)."
         },
         "devflow-review": {
           "type": "boolean",
-          "description": "Enable the automatic pull-request-triggered reviewer (devflow-review.yml). WITHHELD from this release: fresh installations no longer receive devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so setting this true in a fresh installation enables nothing. The tier remains LIVE for a repository that already installed those three files, and such a repository stays exposed to the fork-pull-request defects in issues #930 and #920 for as long as this key is true. The property is retained so existing consumer configs keep validating. The supported review path is a repository collaborator commenting /devflow:review on a pull request."
+          "description": "Enable the automatic pull-request-triggered reviewer (devflow-review.yml). WITHHELD from this release: fresh installations no longer receive devflow-review.yml, devflow-runner.yml or telemetry-push.yml, so setting this true in a fresh installation enables nothing. The tier remains LIVE for a repository that already installed those three files, and such a repository stays exposed to the fork-pull-request defects in issues #930 and #920 for as long as this key is true. The property is retained so existing consumer configs keep validating. The supported review path is a repository collaborator commenting /prflow:review on a pull request."
         }
       }
     }
