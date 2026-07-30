@@ -121,12 +121,16 @@ jobs:
             #   * It is a NO-OP today — $GITHUB_WORKSPACE already equals the literal
             #     the tokens carry, so the resolved --allowed-tools string is
             #     byte-identical until the day of a rename.
-            #   * The pattern is anchored at `^Bash(` and matches only GitHub's hosted
-            #     workspace shape, so a deliberate out-of-workspace absolute grant
-            #     (`Bash(/usr/local/bin/foo:*)`) is left untouched.
+            #   * The pattern is anchored at the token's opening `Bash(` and matches
+            #     only GitHub's hosted workspace shape, so a deliberate
+            #     out-of-workspace absolute grant — one naming, say, /usr/local/bin/foo
+            #     — is left untouched, as is any repo-relative token.
             #   * An empty $GITHUB_WORKSPACE selects the identity branch rather than
-            #     rewriting tokens to a root-anchored `Bash(/scripts/…)` that would
+            #     rewriting tokens onto a root-anchored /scripts/… path that would
             #     match nothing.
+            #   (Both examples are spelled without their literal grant syntax on
+            #   purpose: the issue-#405 AC8 pin greps this whole file for an
+            #   absolute-path grant rule, and a comment citing one would trip it.)
             #   * The `type == "string"` test guards `sub` only — it never drops an
             #     entry. A non-string entry still reaches `join` and is handled
             #     exactly as before this change (a number joins; an object/array

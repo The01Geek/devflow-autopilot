@@ -48732,8 +48732,23 @@ assert_eq "#908: describe-denial-count.sh is byte-unmodified by this issue (AC6)
 # review-profile lock) still names it as the sanctioned neutralizing renderer.
 # Same origin/main-relative fix as the AC6 pin above (issue #908 review) — a
 # HEAD-relative diff is vacuous once this PR's own commits land.
-assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence table is untouched (AC8)" "yes" \
-  "$([ -n "$_908_MB" ] && git -C "$REPO_ROOT" diff --quiet "$_908_MB" -- docs/cloud-allowlist.md && echo yes || echo no)"
+#
+# NARROWED to its own stated subject. This pin was a whole-file
+# `git diff --quiet <merge-base> -- docs/cloud-allowlist.md`, which discharged
+# #908's AC8 on #908's branch but, once merged, generalized into a standing
+# prohibition on ANY branch editing that page at all — including the additions this
+# very file's cloud-allowlist rules tell an author to make there. That is a
+# completed-AC self-check outliving its issue, not an invariant: the page is the
+# canonical home for probe evidence and grant flows and is meant to grow.
+#
+# What AC8 actually protected is fabrication — a change quietly converting a
+# PENDING placeholder into a recorded verdict it never measured, which is the
+# "Unknown is not zero" failure applied to probe evidence. That is what is pinned
+# now: every placeholder entry still declares itself PENDING. Legitimate additions
+# elsewhere on the page pass; silently promoting a placeholder to a measurement
+# goes RED, which is the regression the original pin existed to catch.
+assert_eq "#908: docs/cloud-allowlist.md's placeholder probe-evidence entries still declare themselves PENDING (AC8)" "3" \
+  "$(grep -c '^\*\*This measurement is PENDING' "$LIB/../docs/cloud-allowlist.md")"
 # ────────────────────────────────────────────────────────────────────────────
 
 echo "#908 review finding: harden_guard step — the PreToolUse guard's own trusted-source displacement is unconditional"
