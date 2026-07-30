@@ -11268,15 +11268,20 @@ assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserve
 # mode-preserving `cp -R` and never pass `--no-preserve`. Two exec-bit surfaces:
 # the vendor slice's `cp -R "$src/.claude-plugin" … "$src/scripts" …` byte-copies
 # the vendored helper tree (asserted above), and install.sh routes each composite
-# action through `install_managed`, whose directory arm is the plain `cp -R "$srcp"
-# "$rel"` (the upgrade path added the classification in front of the copy; the copy
-# itself is still mode-preserving). Pin both the routing and that copy invocation
-# (not a bare "cp -R" that a doc mention could satisfy) plus the absence of
-# `--no-preserve`, rather than a stdlib copy demo that would pass regardless of what
-# these files do.
+# action through `install_managed`, whose directory arm copies with a plain
+# mode-preserving `cp -R`. That copy now lands on a `.devflow-stage` sibling which is
+# then `mv`d into place (issue #959: an in-place `rm -rf` + `cp -R` leaves a window
+# where a mid-copy failure strands a half-written tree, and because the abort happens
+# before the manifest write the NEXT run reads those bytes as a local edit and
+# preserves the corruption). `mv` is mode-preserving too — it is a rename — so the
+# exec-bit guarantee is unchanged; only the destination literal moved. Pin the
+# routing, the staged copy invocation, and the swap (not a bare "cp -R" that a doc
+# mention could satisfy) plus the absence of `--no-preserve`, rather than a stdlib
+# copy demo that would pass regardless of what these files do.
 assert_eq("#703 AC20: install.sh copies the composite-action helpers with mode-preserving cp -R",
           True, ('install_managed ".github/actions/$a" "$SRC/.github/actions/$a"' in _install_sh
-                 and 'cp -R "$srcp" "$rel"' in _install_sh))
+                 and 'cp -R "$srcp" "$rel.devflow-stage"' in _install_sh
+                 and 'mv "$rel.devflow-stage" "$rel"' in _install_sh))
 assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
           False, "--no-preserve" in _install_sh)
 assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",
