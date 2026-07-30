@@ -170,21 +170,45 @@ an executable structural boundary and must carry
 
 **The marker is a declaration required of a NEW or CHANGED pin — it is not a retention
 badge you can retrofit onto the standing population (issue #885).** The gate scopes the
-requirement to a site whose every physical line is in the diff's added set, and it runs
-the prose-resolution check *before* the declaration check: a pin whose literal resolves
-into visible Markdown prose draws
-`literal resolves into prose at <target>:<line>` **regardless of any declaration**.
-A large majority of the retained pins resolve that way (a past-time snapshot, not a
-live figure: 229 of them measured on the post-sweep population at the #885 sweep
-commit, kept as provenance for the probe below and deliberately not re-rendered) — they
-are retained because a tool or consumer reads the *thing the literal names* (a marker, a
-grant-matched invocation shape, a schema field set), a distinction the lint's
-prose boundary cannot see. So adding a marker to one of those turns the required gate
-RED and its only gate-satisfying disposition would be deletion, which the recorded
-adjudication contradicts. The per-pin retention record therefore lives where it is
-delta-gated and auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in
-the census — and not as several hundred uncoupled copies in source comments. Touch a
-retained pin's lines only when you are prepared to answer the gate for it.
+requirement to a site whose every physical line is in the diff's added set. For such a
+site — once its declaration *grammar* has been checked, which happens first and which no
+later arm routes around — the gate **routes** through an ordered three-step ladder
+(issue #948), and the routing is deliberately not a judgement:
+
+1. **A program demonstrably reads it.** The literal, or a machine-identifier-shaped
+   token it names, occurs in the operative (comment-stripped) text of a tracked
+   `scripts/**`, `lib/**`-outside-`lib/test/` or `.github/**` file. Pass; no
+   declaration and no ledger row needed. A grep-shaped search misses a *generic*
+   consumer by construction — a helper that walks a routing table row by row names no
+   individual row — so "found none" routes to step 2 and never to a finding.
+2. **The ledger already recorded the decision.** `lib/test/pin-corpus-adjudications.tsv`
+   carries this literal as `boundary` **and** the site carries a valid
+   `# structural-pin-ok:` declaration. The marker is a *pointer to an authorized
+   decision*, never a self-granted permission: a tag with no ledger row is a finding,
+   and so is a ledger row with no tag. Step 2 fails closed — an absent, unestablished
+   or non-`boundary` row never satisfies it, and a ledger the gate cannot read is an
+   infrastructure failure before the ladder runs at all.
+3. **Neither.** The finding stands: `literal resolves into prose at <target>:<line>`,
+   naming which half of step 2 was missing. This is the pin the policy exists to remove.
+
+Be honest about where the control sits: after step 2 the gate is only routing, and the
+real safeguard is the **review of ledger changes**, which is separately delta-gated and
+needs an exact branch change manifest. A large majority of the retained pins resolve
+into prose (a past-time snapshot, not a live figure: 229 of them measured on the
+post-sweep population at the #885 sweep commit, kept as provenance for the probe below
+and deliberately not re-rendered) — they are retained because a tool or consumer reads
+the *thing the literal names* (a marker, a grant-matched invocation shape, a schema
+field set), a distinction the lint's prose boundary cannot see; step 2 exists so that
+such a pin can carry its reason at the site *and* be edited normally, which before #948
+it could not. The per-pin retention record still lives where it is delta-gated and
+auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in the census —
+and not as several hundred uncoupled copies in source comments, so retrofitting a marker
+onto the standing population is still not the ask. Two cases the ladder does **not**
+reach: a pin whose declared target the lint cannot resolve at all
+(`typed structural declaration target cannot be inspected` — e.g. a concatenated
+in-module bundle) is still unfixable, and a *retired* wording literal's revival keeps its
+own stronger contract below. Touch a retained pin's lines only when you are prepared to
+answer the gate for it.
 
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
