@@ -1,8 +1,8 @@
-# DevFlow — published site (GitHub Pages)
+# PRFlow — published site (GitHub Pages)
 
 **This branch (`gh-pages`) is the Pages publishing source.** Its root is the site
 root, e.g. `DevFlow-Loop.html` is served at
-`https://the01geek.github.io/devflow-autopilot/DevFlow-Loop.html`.
+`https://the01geek.github.io/prflow/DevFlow-Loop.html`.
 
 The content used to live at `docs/site/` on `main` and was published by a
 `.github/workflows/pages.yml` Actions workflow. It was moved here so the plugin
