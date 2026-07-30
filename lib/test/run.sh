@@ -16,41 +16,6 @@ set -u
 
 LIB="$(cd "$(dirname "$0")/.." && pwd)"
 
-# The canonical `<plugin>@<marketplace>` install spec, DERIVED from the single
-# identity source (lib/plugin-identity.json + .claude-plugin/plugin.json) rather
-# than transcribed. Fixtures that build or read a settings.json
-# `enabledPlugins` key, or a baked `--plugins` baseline, interpolate this so a
-# plugin rename moves them with the manifest instead of leaving ~10 hand-pinned
-# literals to chase. The identity reader is itself pinned by the #927 block, so
-# this is a derivation off a guarded source, not an unchecked one. Fails LOUD:
-# an empty value here would make every consuming assertion compare against a
-# malformed key and misreport the reason, so refuse to start.
-SUITE_PLUGIN_SPEC="$(python3 "$LIB/plugin_identity.py" --canonical-plugin-spec 2>/dev/null || true)"
-case "$SUITE_PLUGIN_SPEC" in
-  *@*) : ;;
-  *) echo "run.sh: could not derive the canonical plugin spec from lib/plugin_identity.py (got '$SUITE_PLUGIN_SPEC'); refusing to run rather than compare against a malformed enabledPlugins key" >&2; exit 1 ;;
-esac
-
-# The CANONICAL agent/skill namespace (`<plugin>:`), likewise derived. Grep-based dispatch
-# assertions interpolate this instead of spelling the namespace:
-# dispatch resolves under the canonical name only, so a literal here would have to be
-# chased on every plugin rename — and, worse, a stale literal keeps passing against the
-# alias form it names while the real dispatch site has moved. Fails LOUD for the same
-# reason as the spec above.
-#
-# NOT for `assert_pin_unique` literals: the #810 pin corpus keys each adjudication row on
-# the sha256 of the pin's LITERAL text, and its shell parser resolves only the variable
-# forms it knows. Interpolating this variable into a pin literal makes the extracted
-# literal unresolvable, orphaning that pin's adjudication row and failing the corpus
-# closure check. Pin literals therefore stay spelled out, and a rename re-keys their
-# adjudication rows (carrying bucket + rationale across unchanged) — that re-key is the
-# corpus's designed cost of being literal-keyed, not an accident to engineer around.
-SUITE_AGENT_NS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1 || true)"
-case "$SUITE_AGENT_NS" in
-  *:) : ;;
-  *) echo "run.sh: could not derive the canonical agent namespace from lib/plugin_identity.py (got '$SUITE_AGENT_NS'); refusing to run rather than assert dispatch pins against a malformed namespace" >&2; exit 1 ;;
-esac
-
 # issue #533 (AC13): clear an INHERITED DEVFLOW_GH before any fixture runs. The
 # resolvers treat a non-empty DEVFLOW_GH as the strongest explicit override (no
 # probe), so a value leaked in from the invoking environment — historically the
@@ -93,6 +58,41 @@ if [ -n "${DEVFLOW_AC13_PROBE:-}" ]; then
   rm -rf "$_p533_d"
   exit 3
 fi
+
+# The canonical `<plugin>@<marketplace>` install spec, DERIVED from the single
+# identity source (lib/plugin-identity.json + .claude-plugin/plugin.json) rather
+# than transcribed. Fixtures that build or read a settings.json
+# `enabledPlugins` key, or a baked `--plugins` baseline, interpolate this so a
+# plugin rename moves them with the manifest instead of leaving ~10 hand-pinned
+# literals to chase. The identity reader is itself pinned by the #927 block, so
+# this is a derivation off a guarded source, not an unchecked one. Fails LOUD:
+# an empty value here would make every consuming assertion compare against a
+# malformed key and misreport the reason, so refuse to start.
+SUITE_PLUGIN_SPEC="$(python3 "$LIB/plugin_identity.py" --canonical-plugin-spec 2>/dev/null || true)"
+case "$SUITE_PLUGIN_SPEC" in
+  *@*) : ;;
+  *) echo "run.sh: could not derive the canonical plugin spec from lib/plugin_identity.py (got '$SUITE_PLUGIN_SPEC'); refusing to run rather than compare against a malformed enabledPlugins key" >&2; exit 1 ;;
+esac
+
+# The CANONICAL agent/skill namespace (`<plugin>:`), likewise derived. Grep-based dispatch
+# assertions interpolate this instead of spelling the namespace:
+# dispatch resolves under the canonical name only, so a literal here would have to be
+# chased on every plugin rename — and, worse, a stale literal keeps passing against the
+# alias form it names while the real dispatch site has moved. Fails LOUD for the same
+# reason as the spec above.
+#
+# NOT for `assert_pin_unique` literals: the #810 pin corpus keys each adjudication row on
+# the sha256 of the pin's LITERAL text, and its shell parser resolves only the variable
+# forms it knows. Interpolating this variable into a pin literal makes the extracted
+# literal unresolvable, orphaning that pin's adjudication row and failing the corpus
+# closure check. Pin literals therefore stay spelled out, and a rename re-keys their
+# adjudication rows (carrying bucket + rationale across unchanged) — that re-key is the
+# corpus's designed cost of being literal-keyed, not an accident to engineer around.
+SUITE_AGENT_NS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1 || true)"
+case "$SUITE_AGENT_NS" in
+  *:) : ;;
+  *) echo "run.sh: could not derive the canonical agent namespace from lib/plugin_identity.py (got '$SUITE_AGENT_NS'); refusing to run rather than assert dispatch pins against a malformed namespace" >&2; exit 1 ;;
+esac
 
 # Results are recorded to a file (one PASS/FAIL line each) rather than to shell
 # variables, so assertions that run inside ( … ) subshells — the config-source.sh and
