@@ -91,6 +91,17 @@ Each value optionally sets `model`, `effort`, and/or `iterations`:
 }
 ```
 
+> **The transitional `devflow:` namespace still validates.** The plugin was renamed
+> `devflow` → `prflow`, and `.devflow/config.schema.json` declares a key for **every**
+> accepted namespace, so a config committed before the rename keeps validating and keeps
+> resolving: `"devflow:code-reviewer": { "model": "claude-opus-5" }` and
+> `devflow:requesting-code-review` are honored exactly like their `prflow:` spellings.
+> `prflow:` is the canonical form and is what new configs should use — the shipped
+> `.devflow/config.example.json` seeds it — but there is no deadline to migrate and no
+> behavioral difference. What is *not* accepted is a **pre-internalization** external id
+> (the `pr-review-toolkit:` / `superpowers:` forms in the migration tables above):
+> `agent_overrides` is `additionalProperties: false`, so those are rejected outright.
+
 - `model` — free-form model id, forwarded to the dispatch as given (no *value* validation). A
   present-but-unusable model (empty string or non-string) is dropped with a `::warning::`, mirroring
   the invalid-effort path.

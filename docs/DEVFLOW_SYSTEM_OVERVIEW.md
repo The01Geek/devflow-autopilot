@@ -506,6 +506,8 @@ All launched in a single message; **always re-run every fix-loop iteration** (th
 - `prflow:comment-analyzer`
 - a general-purpose final-pass reviewer invoking the first-party `prflow:requesting-code-review` skill
 
+Each roster id is also the `devflow_review.agent_overrides` key that reprices it. Those keys are namespaced by the plugin name, and the schema declares one per **accepted** namespace, so the pre-rename spellings — `devflow:code-reviewer`, `devflow:requesting-code-review`, and their siblings — keep validating and resolving identically to the canonical `prflow:` forms; see [`docs/review-agent-overrides.md`](review-agent-overrides.md).
+
 Two **gated** reviewers, whose structural-applicability gates apply on **every** diff profile — `engine_self_modifying` included (the flag does not force them on):
 - `prflow:type-design-analyzer` (only if `has_new_types`)
 - `prflow:pr-test-analyzer` (only if the test-relevance predicate matches)
