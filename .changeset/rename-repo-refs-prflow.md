@@ -18,4 +18,4 @@ type: Changed
   learnings corpus — deliberately keep the old name, because rewriting them would falsify a
   record of runs that happened under it. The plugin's own identity is untouched: the plugin is
   still named `prflow` with the `devflow` alias, and the `devflow-autopilot` GitHub App keeps
-  its name, which is a separate thing from the repository. (#966)
+  its name, which is a separate thing from the repository. (#972)
