@@ -573,9 +573,12 @@ devflow_write_manifest() {
 # protection context) stays a human action this installer cannot perform.
 DEVFLOW_WITHHELD_TIER="devflow-review devflow-runner telemetry-push"
 devflow_withheld_tier_present() {
-  local w found=""
-  for w in $DEVFLOW_WITHHELD_TIER; do
-    [ -f ".github/workflows/$w.yml" ] && found="$found $w"
+  local _wt found=""
+  # `_wt`, not `w`: `for w in …` is the shape lib/test/run.sh parses out of this file to
+  # derive the SHIPPED workflow set, and a second loop over that variable name upstream of
+  # the copy loop would be the one it found.
+  for _wt in $DEVFLOW_WITHHELD_TIER; do
+    [ -f ".github/workflows/$_wt.yml" ] && found="$found $_wt"
   done
   printf '%s' "${found# }"
 }
@@ -615,18 +618,18 @@ with open(tmp, "w", encoding="utf-8") as fh:
 os.replace(tmp, path)
 '
 devflow_remove_withheld_tier() {
-  local present="$1" w rc
+  local present="$1" _wt rc
   [ -n "$present" ] || return 0
   [ "${REMOVE_WITHHELD:-}" = "1" ] || return 0
-  for w in $present; do
+  for _wt in $present; do
     # Signature-guarded exactly like prune_stale_devflow_workflows: only ever remove a
     # workflow that is recognizably DevFlow's, so a consumer file that merely happens to
     # share one of these names is never deleted.
-    if grep -qi 'devflow' ".github/workflows/$w.yml"; then
-      rm -f ".github/workflows/$w.yml"
-      log "removed withheld review-tier workflow $w.yml (opted in via --remove-withheld-review-tier)"
+    if grep -qi 'devflow' ".github/workflows/$_wt.yml"; then
+      rm -f ".github/workflows/$_wt.yml"
+      log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
     else
-      log "warning: .github/workflows/$w.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
+      log "warning: .github/workflows/$_wt.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
     fi
   done
   if [ ! -f .devflow/config.json ]; then

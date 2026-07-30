@@ -673,13 +673,25 @@ sys.stdout.write("\n".join(sorted(out)))
 '
 _iu_snapshot() { python3 -c "$_IU_SNAP_PY" "$1"; }
 _iu_digest() { python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"; }
+# One raw presence command per logical line — the pin-corpus lint rejects two on the same
+# site span, and several arms below compare three yes/no operands at once. Routing them
+# through these three helpers also puts the yes/no convention in one place.
+_iu_has() {  # $1 = file, $2 = literal -> yes|no
+  grep -qF -- "$2" "$1" && echo yes || echo no
+}
+_iu_out_has() {  # $1 = captured output, $2 = literal -> yes|no
+  printf '%s' "$1" | grep -qF -- "$2" && echo yes || echo no
+}
+_iu_out_matches() {  # $1 = captured output, $2 = ERE -> yes|no
+  printf '%s\n' "$1" | grep -qE -- "$2" && echo yes || echo no
+}
 
 # ── Scenario 1: a first-time install APPLIES, and a pristine re-run is a clean,
 # write-free dry run. The documented one-liner must not have become a no-op.
 IU_C1="$(_iu_consumer pristine)"
 IU_O1="$(_iu_run "$IU_C1")"
 assert_eq "installer-upgrade: a first-time install applies without --apply (the documented one-liner is unchanged)" "yes yes yes" \
-  "$(printf '%s' "$IU_O1" | grep -qF 'detected a first-time installation; running in apply mode.' && echo yes || echo no) $([ -f "$IU_C1/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C1/.devflow/install-manifest.json" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O1" 'detected a first-time installation; running in apply mode.') $([ -f "$IU_C1/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C1/.devflow/install-manifest.json" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: the first install records a provenance digest for every artifact it owns" "yes" \
   "$(python3 -c '
 import json, sys
@@ -693,7 +705,7 @@ print("yes" if want <= set(arts) and all(isinstance(v, str) and len(v) == 64 for
 IU_SNAP1="$(_iu_snapshot "$IU_C1")"
 IU_O1B="$(_iu_run "$IU_C1")"
 assert_eq "installer-upgrade: re-running over an existing installation is a DRY RUN by default and writes nothing" "yes yes yes" \
-  "$(printf '%s' "$IU_O1B" | grep -qF 'detected an existing installation; running in dry-run mode.' && echo yes || echo no) $(printf '%s' "$IU_O1B" | grep -qF 'nothing in this repository was written' && echo yes || echo no) $([ "$IU_SNAP1" = "$(_iu_snapshot "$IU_C1")" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O1B" 'detected an existing installation; running in dry-run mode.') $(_iu_out_has "$IU_O1B" 'nothing in this repository was written') $([ "$IU_SNAP1" = "$(_iu_snapshot "$IU_C1")" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: a pristine re-run reports an empty diff (0 files would change)" "1" \
   "$(printf '%s\n' "$IU_O1B" | grep -cF 'devflow-install: 0 file(s) would change.')"
 
@@ -706,11 +718,11 @@ printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C2/.github/workflows/devflow.y
 IU_WF2_BEFORE="$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")"
 IU_O2="$(_iu_run "$IU_C2" --apply)"
 assert_eq "installer-upgrade: --apply over a hand-modified workflow leaves it BYTE-FOR-BYTE unchanged and writes the new version to a .devflow-new sidecar" "yes yes yes" \
-  "$([ "$IU_WF2_BEFORE" = "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(grep -qF 'CONSUMER-LOCAL-EDIT-MARKER' "$IU_C2/.github/workflows/devflow.yml" && echo yes || echo no) $([ -f "$IU_C2/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
+  "$([ "$IU_WF2_BEFORE" = "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER') $([ -f "$IU_C2/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: the preserved artifact is reported as locally modified, naming the sidecar" "yes" \
-  "$(printf '%s' "$IU_O2" | grep -qF 'PRESERVED (locally modified since DevFlow wrote it): .github/workflows/devflow.yml' && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O2" 'PRESERVED (locally modified since DevFlow wrote it): .github/workflows/devflow.yml')"
 assert_eq "installer-upgrade: the sidecar carries DevFlow's version, not the consumer's edit" "yes no" \
-  "$([ "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml.devflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(grep -qF 'CONSUMER-LOCAL-EDIT-MARKER' "$IU_C2/.github/workflows/devflow.yml.devflow-new" && echo yes || echo no)"
+  "$([ "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml.devflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml.devflow-new" 'CONSUMER-LOCAL-EDIT-MARKER')"
 # The conflict is not silently blessed: the manifest still records the ORIGINAL digest,
 # so the next run reports it again instead of adopting the edited bytes as provenance.
 assert_eq "installer-upgrade: a preserved conflict is re-reported on the next run (its digest is never re-blessed)" "yes" \
@@ -726,7 +738,7 @@ _iu_run "$IU_C2B" >/dev/null
 printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C2B/.github/workflows/devflow.yml"
 IU_INSTALL_BIN="$IU_MUT2" _iu_run "$IU_C2B" --apply >/dev/null 2>&1 || true
 assert_eq "installer-upgrade NEGATIVE CONTROL: an installer whose classifier always says update DOES clobber the consumer edit (so the preservation arm above is not vacuous)" "no" \
-  "$(grep -qF 'CONSUMER-LOCAL-EDIT-MARKER' "$IU_C2B/.github/workflows/devflow.yml" && echo yes || echo no)"
+  "$(_iu_has "$IU_C2B/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER')"
 rm -f "$IU_MUT2"
 
 # ── Scenario 3: a hand-edited .devflow/config.json keeps every consumer value. The
@@ -768,9 +780,9 @@ _iu_count_withheld() {  # $1 = consumer root -> how many withheld-tier workflows
 }
 IU_O4="$(_iu_run "$IU_C4" --apply)"
 assert_eq "installer-upgrade: an installation carrying the withheld review tier is told so, is told it stays exposed, and keeps all three files by default" "yes yes 3" \
-  "$(printf '%s' "$IU_O4" | grep -qF 'carries the withheld automatic-review tier (devflow-review devflow-runner telemetry-push)' && echo yes || echo no) $(printf '%s' "$IU_O4" | grep -qF 'issues #930 and #920' && echo yes || echo no) $(_iu_count_withheld "$IU_C4")"
+  "$(_iu_out_has "$IU_O4" 'carries the withheld automatic-review tier (devflow-review devflow-runner telemetry-push)') $(_iu_out_has "$IU_O4" 'issues #930 and #920') $(_iu_count_withheld "$IU_C4")"
 assert_eq "installer-upgrade: the default report names the opt-in flag rather than removing anything" "yes" \
-  "$(printf '%s' "$IU_O4" | grep -qF 're-run with --remove-withheld-review-tier' && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O4" 're-run with --remove-withheld-review-tier')"
 IU_O4B="$(_iu_run "$IU_C4" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in deletes the three withheld workflows and turns the review config key off" "0 false" \
   "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("devflow-review")))' "$IU_C4/.devflow/config.json")"
@@ -782,7 +794,7 @@ _iu_run "$IU_C4C" >/dev/null
 printf 'name: someone elses telemetry push\non: push\n' > "$IU_C4C/.github/workflows/telemetry-push.yml"
 IU_O4C="$(_iu_run "$IU_C4C" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in removal is signature-guarded — a same-named workflow carrying no DevFlow signature is left in place" "yes yes" \
-  "$([ -f "$IU_C4C/.github/workflows/telemetry-push.yml" ] && echo yes || echo no) $(printf '%s' "$IU_O4C" | grep -qF 'carries no DevFlow signature; left it untouched' && echo yes || echo no)"
+  "$([ -f "$IU_C4C/.github/workflows/telemetry-push.yml" ] && echo yes || echo no) $(_iu_out_has "$IU_O4C" 'carries no DevFlow signature; left it untouched')"
 
 # ── Scenario 5: a SKIPPED-VERSION jump. The consumer's artifact is older than the one
 # being installed but is provably untouched (its bytes match the recorded digest), so it
@@ -803,7 +815,7 @@ json.dump(m, open(mp, "w"), indent=2)
 ' "$IU_C5"
 IU_O5="$(_iu_run "$IU_C5" --apply)"
 assert_eq "installer-upgrade: a skipped-version jump updates an untouched older artifact in place (no sidecar, no half-state)" "yes yes no" \
-  "$(printf '%s' "$IU_O5" | grep -qF 'update: .github/workflows/devflow.yml' && echo yes || echo no) $([ "$(_iu_digest "$IU_C5/.github/workflows/devflow.yml")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $([ -e "$IU_C5/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O5" 'update: .github/workflows/devflow.yml') $([ "$(_iu_digest "$IU_C5/.github/workflows/devflow.yml")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $([ -e "$IU_C5/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: the skipped-version upgrade re-stamps devflow_version to the installed ref" "$IU_REF" \
   "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["devflow_version"])' "$IU_C5/.devflow/config.json")"
 
@@ -817,9 +829,9 @@ rm -f "$IU_C6/.devflow/install-manifest.json"
 printf '\n# PRE-MANIFEST-LOCAL-EDIT\n' >> "$IU_C6/.github/workflows/devflow-implement.yml"
 IU_O6="$(_iu_run "$IU_C6" --apply)"
 assert_eq "installer-upgrade: with no manifest, a differing artifact is PRESERVED as provenance-unverified rather than assumed pristine" "yes yes" \
-  "$(printf '%s' "$IU_O6" | grep -qF 'PRESERVED (provenance unverified' && echo yes || echo no) $(grep -qF 'PRE-MANIFEST-LOCAL-EDIT' "$IU_C6/.github/workflows/devflow-implement.yml" && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O6" 'PRESERVED (provenance unverified') $(_iu_has "$IU_C6/.github/workflows/devflow-implement.yml" 'PRE-MANIFEST-LOCAL-EDIT')"
 assert_eq "installer-upgrade: with no manifest, an already-identical artifact is left alone and its digest recorded (the manifest heals)" "yes yes" \
-  "$(printf '%s' "$IU_O6" | grep -qF 'unchanged: .github/workflows/devflow.yml' && echo yes || echo no) $(python3 -c '
+  "$(_iu_out_has "$IU_O6" 'unchanged: .github/workflows/devflow.yml') $(python3 -c '
 import json, sys
 a = json.load(open(sys.argv[1]))["artifacts"]
 print("yes" if ".github/workflows/devflow.yml" in a and ".github/workflows/devflow-implement.yml" not in a else "no")
@@ -832,7 +844,7 @@ _iu_run "$IU_C7" >/dev/null
 rm -rf "$IU_C7/.github/actions/vendor-plugin" "$IU_C7/.claude-plugin/marketplace.json" "$IU_C7/.devflow/config.json"
 IU_O7="$(_iu_run "$IU_C7" --apply)"; IU_RC7=$?
 assert_eq "installer-upgrade: artifacts the consumer deleted are recreated and the run still completes" "0 yes yes yes yes" \
-  "$IU_RC7 $([ -f "$IU_C7/.github/actions/vendor-plugin/vendor-slice.sh" ] && echo yes || echo no) $([ -f "$IU_C7/.claude-plugin/marketplace.json" ] && echo yes || echo no) $([ -f "$IU_C7/.devflow/config.json" ] && echo yes || echo no) $(printf '%s' "$IU_O7" | grep -qF 'done (from' && echo yes || echo no)"
+  "$IU_RC7 $([ -f "$IU_C7/.github/actions/vendor-plugin/vendor-slice.sh" ] && echo yes || echo no) $([ -f "$IU_C7/.claude-plugin/marketplace.json" ] && echo yes || echo no) $([ -f "$IU_C7/.devflow/config.json" ] && echo yes || echo no) $(_iu_out_has "$IU_O7" 'done (from')"
 
 # ── Scenario 8: the dry run is a real preview — it reports the SAME classifications the
 # apply would, and still writes nothing. Two fixtures in the same starting state: one is
@@ -851,7 +863,7 @@ assert_eq "installer-upgrade: the dry run leaves the consumer tree byte-for-byte
   "$([ "$IU_SNAP8" = "$(_iu_snapshot "$IU_C8A")" ] && echo yes || echo no)"
 IU_DIFF8="$(_iu_run "$IU_C8A" --dry-run)"
 assert_eq "installer-upgrade: the dry run names each file it would ADD with its size, without dumping its whole body as a diff" "yes no" \
-  "$(printf '%s\n' "$IU_DIFF8" | grep -qE '^ADD +\.github/workflows/devflow-implement\.yml \([0-9]+ lines\)' && echo yes || echo no) $(printf '%s\n' "$IU_DIFF8" | grep -qE '^--- a/\.github/workflows/devflow-implement\.yml' && echo yes || echo no)"
+  "$(_iu_out_matches "$IU_DIFF8" '^ADD +\.github/workflows/devflow-implement\.yml \([0-9]+ lines\)') $(_iu_out_matches "$IU_DIFF8" '^--- a/\.github/workflows/devflow-implement\.yml')"
 # A file that exists on BOTH sides gets a real unified diff body, so the maintainer sees
 # the exact bytes before consenting. Staged as a provably-untouched older artifact (the
 # skipped-version shape), which is the case the upgrade would rewrite.
@@ -870,14 +882,14 @@ json.dump(m, open(mp, "w"), indent=2)
 ' "$IU_C8D"
 IU_DIFF8D="$(_iu_run "$IU_C8D" --dry-run)"
 assert_eq "installer-upgrade: the dry run prints a real unified diff body for a file it would rewrite in place" "yes yes yes" \
-  "$(printf '%s\n' "$IU_DIFF8D" | grep -qE '^MODIFY \.github/workflows/devflow\.yml$' && echo yes || echo no) $(printf '%s\n' "$IU_DIFF8D" | grep -qE '^--- a/\.github/workflows/devflow\.yml$' && echo yes || echo no) $(printf '%s\n' "$IU_DIFF8D" | grep -qF -- '-# BYTES FROM AN OLDER DEVFLOW RELEASE' && echo yes || echo no)"
+  "$(_iu_out_matches "$IU_DIFF8D" '^MODIFY \.github/workflows/devflow\.yml$') $(_iu_out_matches "$IU_DIFF8D" '^--- a/\.github/workflows/devflow\.yml$') $(_iu_out_has "$IU_DIFF8D" '-# BYTES FROM AN OLDER DEVFLOW RELEASE')"
 # --dry-run is honored on a FIRST-TIME install too, so a maintainer can preview an
 # adoption before any file exists.
 IU_C8C="$(_iu_consumer preview-fresh)"
 IU_SNAP8C="$(_iu_snapshot "$IU_C8C")"
 IU_O8C="$(_iu_run "$IU_C8C" --dry-run)"
 assert_eq "installer-upgrade: --dry-run forces the preview on a first-time install and writes nothing" "yes yes" \
-  "$(printf '%s' "$IU_O8C" | grep -qF 'nothing in this repository was written' && echo yes || echo no) $([ "$IU_SNAP8C" = "$(_iu_snapshot "$IU_C8C")" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O8C" 'nothing in this repository was written') $([ "$IU_SNAP8C" = "$(_iu_snapshot "$IU_C8C")" ] && echo yes || echo no)"
 
 # ── Scenario 9: nothing outside the intended set changes. Compare the whole-tree
 # snapshot across an upgrade and require the delta to be exactly the paths the plan
@@ -906,7 +918,7 @@ IU_C10="$(_iu_consumer args)"
 _iu_run "$IU_C10" >/dev/null
 IU_O10="$(_iu_run "$IU_C10" --dryrun)" && IU_RC10=0 || IU_RC10=$?
 assert_eq "installer-upgrade: an unrecognized flag exits 2 naming the accepted set, rather than falling through to a write" "2 yes" \
-  "$IU_RC10 $(printf '%s' "$IU_O10" | grep -qF 'unknown argument --dryrun (accepted: --dry-run, --apply, --remove-withheld-review-tier)' && echo yes || echo no)"
+  "$IU_RC10 $(_iu_out_has "$IU_O10" 'unknown argument --dryrun (accepted: --dry-run, --apply, --remove-withheld-review-tier)')"
 assert_eq "installer-upgrade: DEVFLOW_APPLY=1 selects the writing mode for a curl-piped invocation that cannot pass a flag" "yes" \
   "$(printf '%s' "$( cd "$IU_C10" && env DEVFLOW_SRC="$IU_SRC" DEVFLOW_REF="$IU_REF" DEVFLOW_APPLY=1 bash "$IU_INSTALL" 2>&1 )" | grep -qF 'running in apply mode.' && echo yes || echo no)"
 
@@ -946,7 +958,7 @@ json.dump(i, open(ip, "w"), indent=2)
 ' "$IU_P11"
 python3 "$IU_P11/lib/generate-plugin-identity.py" >/dev/null 2>&1
 assert_eq "installer-upgrade identity: regenerating after a declared rename bakes the NEW canonical pair and the superseded ids into install.sh, with no literal hand-edited" "yes yes yes" \
-  "$(grep -qF "DEVFLOW_PLUGIN_CANONICAL='fixture-plugin-two'" "$IU_P11/install.sh" && echo yes || echo no) $(grep -qF "DEVFLOW_MARKETPLACE_CANONICAL='fixture-market-two'" "$IU_P11/install.sh" && echo yes || echo no) $(grep -qE "^DEVFLOW_SUPERSEDED_PLUGIN_SPECS='[^']+'" "$IU_P11/install.sh" && echo yes || echo no)"
+  "$(_iu_has "$IU_P11/install.sh" "DEVFLOW_PLUGIN_CANONICAL='fixture-plugin-two'") $(_iu_has "$IU_P11/install.sh" "DEVFLOW_MARKETPLACE_CANONICAL='fixture-market-two'") $(_iu_out_matches "$(cat "$IU_P11/install.sh")" "^DEVFLOW_SUPERSEDED_PLUGIN_SPECS='[^']+'")"
 # A consumer previously installed under the OLD identifiers, upgrading with the renamed
 # installer: the marketplace manifest it owns is rewritten to the canonical pair, and the
 # settings file it does NOT own is reported, never written.
@@ -964,9 +976,9 @@ json.dump({"extraKnownMarketplaces": {"devflow-marketplace": {"source": {"source
 IU_SET11_BEFORE="$(_iu_digest "$IU_C11/.claude/settings.json")"
 IU_O11="$(IU_INSTALL_BIN="$IU_P11/install.sh" _iu_run "$IU_C11" --apply)"
 assert_eq "installer-upgrade identity: a superseded registration in .claude/settings.json is REPORTED and the file left byte-for-byte unchanged (install.sh never writes it)" "yes yes yes" \
-  "$(printf '%s' "$IU_O11" | grep -qF 'still registers superseded DevFlow identifiers' && echo yes || echo no) $(printf '%s' "$IU_O11" | grep -qF 'enabledPlugins[devflow@devflow-marketplace]' && echo yes || echo no) $([ "$IU_SET11_BEFORE" = "$(_iu_digest "$IU_C11/.claude/settings.json")" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O11" 'still registers superseded DevFlow identifiers') $(_iu_out_has "$IU_O11" 'enabledPlugins[devflow@devflow-marketplace]') $([ "$IU_SET11_BEFORE" = "$(_iu_digest "$IU_C11/.claude/settings.json")" ] && echo yes || echo no)"
 assert_eq "installer-upgrade identity: the report routes the consumer to the ONE owner of that migration rather than duplicating it" "yes" \
-  "$(printf '%s' "$IU_O11" | grep -qF 'run /devflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations' && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O11" 'run /devflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations')"
 assert_eq "installer-upgrade identity: the marketplace manifest the installer OWNS is migrated to the new canonical pair" "fixture-market-two fixture-plugin-two" \
   "$(python3 -c '
 import json, sys
@@ -974,7 +986,7 @@ d = json.load(open(sys.argv[1]))
 print(d["name"], d["plugins"][0]["name"])
 ' "$IU_C11/.claude-plugin/marketplace.json")"
 assert_eq "installer-upgrade identity: an unrelated marketplace/plugin registration is never named as superseded" "no no" \
-  "$(printf '%s' "$IU_O11" | grep -qF 'unrelated-market' && echo yes || echo no) $(printf '%s' "$IU_O11" | grep -qF 'other@unrelated-market' && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O11" 'unrelated-market') $(_iu_out_has "$IU_O11" 'other@unrelated-market')"
 # With no alias declared — today's tree — the whole migration path is a strict no-op.
 assert_eq "installer-upgrade identity: with no alias declared the shipped installer reports nothing superseded (strict no-op today)" "no" \
   "$(printf '%s' "$(_iu_run "$IU_C11" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
