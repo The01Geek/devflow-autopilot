@@ -168,6 +168,22 @@ an executable structural boundary and must carry
 `routing-dispatch-contract`, `lifecycle-state-transition`,
 `generated-artifact-identity`, or `cross-file-phase-contract`.
 
+**The marker is a declaration required of a NEW or CHANGED pin — it is not a retention
+badge you can retrofit onto the standing population (issue #885).** The gate scopes the
+requirement to a site whose every physical line is in the diff's added set, and it runs
+the prose-resolution check *before* the declaration check: a pin whose literal resolves
+into visible Markdown prose draws
+`literal resolves into prose at <target>:<line>` **regardless of any declaration**.
+Measured on the post-#885 population, 229 of the retained pins resolve that way — they
+are retained because a tool or consumer reads the *thing the literal names* (a marker, a
+grant-matched invocation shape, a schema field set), a distinction the lint's
+prose boundary cannot see. So adding a marker to one of those turns the required gate
+RED and its only gate-satisfying disposition would be deletion, which the recorded
+adjudication contradicts. The per-pin retention record therefore lives where it is
+delta-gated and auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in
+the census — and not as several hundred uncoupled copies in source comments. Touch a
+retained pin's lines only when you are prepared to answer the gate for it.
+
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
 branch change manifest; prior decisions remain available through Git history, the
