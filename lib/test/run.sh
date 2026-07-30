@@ -22419,6 +22419,26 @@ json.dump(d, open(p, "w"))
 ' "$P927_D5"
 assert_eq "#927 G6: an ERE-metacharacter alias is refused (never widens the discriminator)" "2" "$(p927_check "$P927_D5")"
 
+# G6b — EVERY discriminator call site carries a non-empty precondition. The
+# vendor-slice self branch's fail-closed behavior is locked behaviorally in the
+# vendor-slice block below; this is the class guard for the sites that have no
+# drivable unit (the five FETCH_HEAD-gated workflow arms and install.sh's
+# destructive prune). `grep -Eq ""` matches ANY input, so an unguarded call site
+# fails OPEN on a trust boundary — a new one must not be able to slip in green.
+# structural-pin-ok: security-credential-boundary -- the guard IS the trust
+# discriminator's precondition; a call site without one silently match-alls.
+P927_ERE_CALLS=0
+P927_ERE_GUARDS=0
+for _f in .github/workflows/devflow-runner.yml install.sh \
+          .github/actions/vendor-plugin/vendor-slice.sh; do
+  P927_ERE_CALLS=$((P927_ERE_CALLS + $(grep -cF 'grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE"' "$P927_ROOT/$_f" || true)))
+  P927_ERE_GUARDS=$((P927_ERE_GUARDS + $(grep -cE '\[ -n "\$\{?DEVFLOW_PLUGIN_NAME_ERE(:-\})?" \]' "$P927_ROOT/$_f" || true)))
+done
+assert_eq "#927 G6b non-vacuity: the discriminator has call sites to guard" "yes" \
+  "$([ "$P927_ERE_CALLS" -gt 0 ] && echo yes || echo no)"
+assert_eq "#927 G6b: every discriminator call site carries a non-empty precondition (never a match-all fail-open)" \
+  "$P927_ERE_CALLS" "$P927_ERE_GUARDS"
+
 # G7 — the reader's MALFORMED-SHAPE matrix, driven directly against
 # `plugin_identity.load()`. The module's contract is "every accessor raises
 # IdentityError rather than substituting a default", and the two manifests are
@@ -26683,6 +26703,27 @@ assert_eq "vendor: self branch copies scripts from checkout root" "yes" "$(vexis
 assert_eq "vendor: self branch drops the vendored marketplace.json" "no" "$(vexists "$VS_SELF/.claude-plugin/marketplace.json")"
 assert_eq "vendor: self branch keeps plugin.json" "yes" "$(vexists "$VS_SELF/.claude-plugin/plugin.json")"
 assert_eq "vendor: self branch copies the .devflow templates" "yes" "$(vexists "$VS_SELF/.devflow/config.schema.json")"
+
+# …and the self branch FAILS CLOSED on an unestablished discriminator (PR #943
+# review, Important 3). `grep -Eq ""` matches ANY input, so before the non-empty
+# precondition an emptied baked region let the self branch accept *any* checkout
+# root carrying a plugin.json — a foreign tree self-certifying as DevFlow on the
+# trust ladder. Planted defect: empty the baked assignment in a COPY (the real
+# file is never touched) and assert the branch declines instead. The four
+# assertions above are this row's positive control — same script, same cwd, real
+# discriminator, self branch taken.
+VS_EMPTY="$(mktemp -d)"
+python3 -c '
+import sys
+s = open(sys.argv[1]).read()
+i = s.index("\nDEVFLOW_PLUGIN_NAME_ERE=\x27")
+j = s.index("\n", i + 1)
+open(sys.argv[2], "w").write(s[:i] + "\nDEVFLOW_PLUGIN_NAME_ERE=\x27\x27" + s[j:])
+' "$VENDOR" "$VS_EMPTY/vendor-slice.sh"
+( cd "$REPO_ROOT" && DEVFLOW_DEST="$VS_EMPTY/dest" bash "$VS_EMPTY/vendor-slice.sh" >/dev/null 2>&1 )
+assert_eq "vendor: an EMPTY discriminator makes the self branch decline (fails closed, never match-all)" "no" \
+  "$(vexists "$VS_EMPTY/dest/scripts")"
+rm -rf "$VS_EMPTY"
 
 # fetch branch — no plugin in cwd; clone a local fixture remote (offline) and
 # copy its slice in. Exercises the clone-by-ref + copy path without the network.
