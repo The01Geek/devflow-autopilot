@@ -57,10 +57,18 @@
 #   - no recorded digest (an installation predating the manifest, or a skipped-version
 #     jump) -> provenance UNVERIFIED -> preserved the same way, unless the bytes already
 #     equal the new version, in which case nothing changes and the digest is recorded;
-#   - your file's CURRENT bytes cannot be digested at all (no working python3 — stock
-#     Windows / Git-Bash before the shim provisioner — an unreadable file, a read error
-#     inside a composite-action directory) -> provenance UNESTABLISHED -> preserved the
-#     same way, and the manifest is not rewritten. Reported distinctly from UNVERIFIED
+#   - your file's CURRENT bytes cannot be digested -> provenance UNESTABLISHED ->
+#     preserved the same way. TWO different situations reach this, and only the first
+#     one is global:
+#       * no working python3 at all (stock Windows / Git-Bash before the shim
+#         provisioner): NOTHING can be digested, so every artifact is preserved and the
+#         manifest is not written;
+#       * a read error on one path with a working python3 (an unreadable file, one
+#         unreadable file inside a composite-action directory): only THAT artifact is
+#         preserved. Every other artifact is classified and written normally, and the
+#         manifest IS written — the preserved one simply keeps its previous entry
+#         instead of being re-recorded.
+#     Reported distinctly from UNVERIFIED
 #     because the remedy differs: resolve python3, then re-run for a real comparison;
 #   - absent (you deleted it) -> recreated. Whether a path EXISTS is decided by a bash
 #     builtin test, upstream of python3, so a missing interpreter can never make a file
@@ -370,10 +378,20 @@ offer_python3_shim() {
 # The digests are computed with python3 (hashlib) — a hard DevFlow prerequisite,
 # and the same choice scripts/install-gh-wrapper.sh makes — never sha256sum/shasum,
 # which lib/preflight.sh does not guarantee: a value that decides whether a file is
-# overwritten must not be derived through a non-preflight PATH tool. When python3
-# is absent the provenance layer cannot be established at all, so it FAILS SAFE:
-# nothing existing is overwritten, every present artifact reports `unreadable` and is
-# preserved with the new version beside it, and the manifest is not written.
+# overwritten must not be derived through a non-preflight PATH tool.
+#
+# The fail-safe has TWO triggers, with deliberately different blast radii — conflating
+# them is how this file's own prose has been wrong before:
+#   GLOBAL — no working python3. Nothing can be digested, so every present artifact
+#     reports `unreadable` and is preserved with the new version beside it, and the
+#     manifest is not written at all.
+#   PER-ARTIFACT — a read error on one path while python3 works. Only that path
+#     reports `unreadable`. Every other artifact is classified and written exactly as
+#     usual, and devflow_write_manifest still runs: the preserved path is simply left
+#     out of the update list, so it keeps whatever digest it already had rather than
+#     being re-blessed against bytes nobody could read.
+# What both share — and all that both share — is the invariant that matters: an
+# unestablished digest never licenses a destructive write.
 # `unknown` is collapsed onto NOTHING — not onto `unmodified`, and not (the far worse
 # reading, because it destroys) onto `create`. Whether an artifact EXISTS is settled
 # by a bash builtin test in devflow_artifact_action, upstream of python3 entirely, so
@@ -557,7 +575,18 @@ install_managed() {
           log "PRESERVED (provenance unverified — no recorded digest, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new; merge it by hand, or delete $rel and re-run to take DevFlow's copy."
           ;;
         *)
-          log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. Nothing here was overwritten. Resolve a working python3 (see docs/install.md) and re-run to get a real comparison."
+          # TWO different causes reach `unreadable`, and they have DIFFERENT remedies, so
+          # the message must not name one while the other is what happened. Telling a
+          # consumer whose python3 works fine to "resolve a working python3" is the same
+          # error class as the defect this whole layer exists to prevent: reporting an
+          # established fact the code never established. devflow_resolve_python is
+          # idempotent (it returns early once DEVFLOW_PY is set), so asking again here is
+          # free and reads the real state rather than inferring it.
+          if devflow_resolve_python; then
+            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. This path was not overwritten; other artifacts on this run were classified normally. python3 works here, so this is a read error on this path — check that it and every file inside it are readable, then re-run."
+          else
+            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. This path was not overwritten. There is no working python3 on this host, so NOTHING on this run could be compared: resolve one (see docs/install.md) and re-run to get a real comparison."
+          fi
           ;;
       esac
       ;;
@@ -725,49 +754,83 @@ devflow_withheld_tier_signature() {
 }
 # Turn the config key off. Split out of devflow_remove_withheld_tier so the ORDER of the
 # two halves is an explicit, drivable decision rather than an accident of layout.
+#
+# RETURN CODE is load-bearing, and it answers exactly one question: "is the key provably
+# NOT left stranded true?"
+#   rc 0  the key is off, was already off, or there is no config file that could hold it
+#   rc 1  it could not be established as off — no working python3, or a config shape this
+#         cannot safely edit
+# The caller deletes files only on rc 0. Returning 0 unconditionally (as this did) is what
+# let the ordering comment below claim an invariant the code did not enforce: a malformed
+# config warned, returned 0, and the files were deleted anyway — landing in precisely the
+# stranded state the ordering exists to prevent.
 devflow_disable_review_key() {
   local rc
   if [ ! -f .devflow/config.json ]; then
-    return 0
+    return 0   # nothing to strand
   fi
   if ! devflow_resolve_python; then
     log "warning: no working python3 — could not set workflows[\"devflow-review\"] to false in .devflow/config.json; do it by hand."
-    return 0
+    return 1
   fi
   rc=0
   "$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .devflow/config.json 2>/dev/null || rc=$?
   case "$rc" in
-    0) log "set workflows[\"devflow-review\"]=false in .devflow/config.json" ;;
-    4) log "workflows[\"devflow-review\"] is already false in .devflow/config.json" ;;
-    *) log "warning: could not set workflows[\"devflow-review\"] to false in .devflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand." ;;
+    0) log "set workflows[\"devflow-review\"]=false in .devflow/config.json"; return 0 ;;
+    4) log "workflows[\"devflow-review\"] is already false in .devflow/config.json"; return 0 ;;
+    *) log "warning: could not set workflows[\"devflow-review\"] to false in .devflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
   esac
 }
 devflow_remove_withheld_tier() {
-  local present="$1" _wt _sig
+  local present="$1" _wt _sig _grc
   [ -n "$present" ] || return 0
   [ "${REMOVE_WITHHELD:-}" = "1" ] || return 0
-  # CONFIG KEY FIRST, files second. Neither half can fail destructively, but the two
-  # interrupted states are not symmetric, and only one of them is self-healing:
+  # CONFIG KEY FIRST, and files only if it succeeded. The two interrupted states are not
+  # symmetric, and only one is self-healing:
   #   key off, files still present -> the tier is inert, and a re-run still finds the
   #     files (this function's own `present` gate) and finishes the job.
   #   files gone, key still true   -> `present` is now EMPTY, so every later run returns
   #     at the gate above and the key is never disabled again. Permanently stuck.
-  # The config edit is best-effort and warns on failure, so doing it first costs nothing
-  # and removes the only path that strands a consumer's config.
-  devflow_disable_review_key
+  # Ordering alone does not get us the second state's impossibility — the config edit can
+  # FAIL (no python3, a malformed config) — so the deletion is gated on the disable having
+  # actually established the key as off. An invariant a comment asserts and the code does
+  # not enforce is worse than no invariant: it stops the next reader from checking.
+  if ! devflow_disable_review_key; then
+    log "warning: leaving the withheld review-tier workflow files in place — workflows[\"devflow-review\"] could not be turned off, and removing the files first would strand that key true with nothing left to trigger a retry. Fix the config (or resolve python3) and re-run with --remove-withheld-review-tier."
+    return 0
+  fi
   for _wt in $present; do
     # Signature-guarded in the same SPIRIT as prune_stale_devflow_workflows — a specific
     # pattern this file's DevFlow copy carries — but with its own per-file patterns rather
     # than that function's claude.yml one. The empty-pattern precondition is not
     # decoration: `grep -Eq ""` matches ANY file, so an unrecognized name (or an emptied
     # arm) must not fall through into an unconditional delete.
+    #
+    # grep's rc is THREE-valued and the two failure rcs mean different things: 1 = read the
+    # file, found no match (a content judgement) and 2 = could not read it at all (a
+    # permission error, an I/O fault). Both preserve, but reporting rc 2 as "carries no
+    # DevFlow signature" states a conclusion about content nothing ever read — the same
+    # unestablished-measurement-presented-as-established error this file's provenance layer
+    # exists to avoid. Capture the rc and name the real one.
     _sig="$(devflow_withheld_tier_signature "$_wt")"
-    if [ -n "$_sig" ] && grep -qE "$_sig" ".github/workflows/$_wt.yml"; then
-      rm -f ".github/workflows/$_wt.yml"
-      log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
+    _grc=0
+    if [ -n "$_sig" ]; then
+      grep -qE "$_sig" ".github/workflows/$_wt.yml" || _grc=$?
     else
-      log "warning: .github/workflows/$_wt.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
+      _grc=1   # no pattern for this name: treat as "does not match", never as a read failure
     fi
+    case "$_grc" in
+      0)
+        rm -f ".github/workflows/$_wt.yml"
+        log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
+        ;;
+      1)
+        log "warning: .github/workflows/$_wt.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
+        ;;
+      *)
+        log "warning: could not read .github/workflows/$_wt.yml to check its signature (grep exit $_grc); left it untouched. This is a read failure, NOT a judgement that the file is not DevFlow's — fix its permissions and re-run if you meant to remove it."
+        ;;
+    esac
   done
 }
 
@@ -808,7 +871,11 @@ if hits:
 '
 devflow_report_superseded_identifiers() {
   local hits
-  # No alias declared -> nothing is superseded -> strict no-op, and no python3 is spent.
+  # Skip entirely when NOTHING is superseded, so no python3 is spent on a repo that can
+  # have no stale registration. That is a conditional, not a description of today: an
+  # alias IS declared right now (the `devflow-alias-probe` dual-accept probe), so this
+  # gate passes and the scan below does run. It stays silent only because no real
+  # consumer registered the probe spec — effectively silent, not a strict no-op.
   [ -n "$DEVFLOW_SUPERSEDED_MARKETPLACES$DEVFLOW_SUPERSEDED_PLUGIN_SPECS" ] || return 0
   [ -f .claude/settings.json ] || return 0
   devflow_resolve_python || {

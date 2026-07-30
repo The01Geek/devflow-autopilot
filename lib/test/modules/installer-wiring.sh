@@ -875,14 +875,24 @@ python3 -c '
 import sys
 src, dst = sys.argv[1], sys.argv[2]
 body = open(src, encoding="utf-8").read()
-guard = "    _sig=\"$(devflow_withheld_tier_signature \"$_wt\")\"\n    if [ -n \"$_sig\" ] && grep -qE \"$_sig\" \".github/workflows/$_wt.yml\"; then\n"
-substring = "    if grep -qi \x27devflow\x27 \".github/workflows/$_wt.yml\"; then\n"
+guard = (
+    "    _sig=\"$(devflow_withheld_tier_signature \"$_wt\")\"\n"
+    "    _grc=0\n"
+    "    if [ -n \"$_sig\" ]; then\n"
+    "      grep -qE \"$_sig\" \".github/workflows/$_wt.yml\" || _grc=$?\n"
+    "    else\n"
+)
+substring = (
+    "    _grc=0\n"
+    "    grep -qi \x27devflow\x27 \".github/workflows/$_wt.yml\" || _grc=$?\n"
+    "    if false; then\n"
+)
 if guard not in body:
     sys.exit("mutation target not found: the withheld-tier signature guard")
 open(dst, "w", encoding="utf-8").write(body.replace(guard, substring, 1))
 ' "$IU_INSTALL" "$IU_MUT4" || printf 'devflow-test: #959 withheld-tier control mutation FAILED to apply\n'
 assert_eq "installer-upgrade #959 NEGATIVE CONTROL: the control copy really does restore the substring guard" "yes no" \
-  "$(_iu_has "$IU_MUT4" "if grep -qi 'devflow' \".github/workflows/\$_wt.yml\"; then") $(_iu_has "$IU_MUT4" 'devflow_withheld_tier_signature "$_wt"')"
+  "$(_iu_has "$IU_MUT4" "grep -qi 'devflow' \".github/workflows/\$_wt.yml\" || _grc=\$?") $(_iu_has "$IU_MUT4" 'grep -qE "$_sig"')"
 IU_C4E="$(_iu_consumer withheld-consumer-owned-control)"
 _iu_run "$IU_C4E" >/dev/null
 cp "$IU_C4D/.github/workflows/telemetry-push.yml" "$IU_C4E/.github/workflows/telemetry-push.yml" 2>/dev/null || true
@@ -1125,7 +1135,7 @@ assert_eq "installer-upgrade #959: an --apply upgrade on a host with no working 
 assert_eq "installer-upgrade #959: no existing artifact is classified create or update when the digest cannot be established" "no no" \
   "$(_iu_out_matches "$IU_O12" '^devflow-install: create: ') $(_iu_out_matches "$IU_O12" '^devflow-install: update: ')"
 assert_eq "installer-upgrade #959: each present artifact is reported PRESERVED with provenance UNESTABLISHED, naming the sidecar and the python3 remedy" "yes yes yes" \
-  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_has "$IU_O12" '.github/workflows/devflow.yml — the new version is at .github/workflows/devflow.yml.devflow-new') $(_iu_out_has "$IU_O12" 'Resolve a working python3')"
+  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_has "$IU_O12" '.github/workflows/devflow.yml — the new version is at .github/workflows/devflow.yml.devflow-new') $(_iu_out_has "$IU_O12" 'There is no working python3 on this host, so NOTHING on this run could be compared')"
 # `unverified` ("no recorded digest") is a DIFFERENT diagnosis with a different remedy;
 # reporting a python3-less host that way would send the consumer to delete their files.
 assert_eq "installer-upgrade #959: the unestablished-digest preserve is not misreported as the no-recorded-digest one" "no" \
@@ -1214,6 +1224,61 @@ after = dict(l.split(" ", 1) for l in sys.argv[2].splitlines() if l)
 bad = [k for k in before if k not in after or after[k] != before[k]]
 sys.stdout.write(("ok:" if len(before) > 5 else "EMPTY-SNAPSHOT:") + " ".join(sorted(bad)))
 ' "$IU_SNAP13_BEFORE" "$(_iu_snapshot "$IU_C13")")"
+
+# ── Scenario 13b (#959 review round 3): the two fail-safe TRIGGERS have different blast
+# radii, and every prose surface describing them got that wrong three review rounds
+# running. Pin the distinction executably so the next reader can check it instead of
+# reasoning it out again:
+#   GLOBAL (no python3)  -> nothing digestible: EVERY artifact preserved, NO manifest.
+#   PER-ARTIFACT (read error, python3 fine) -> only that path preserved; everything else
+#                           written normally, and the manifest IS still written.
+# Scenario 12 already covers the global arm's tally; this is the per-artifact contrast,
+# which is the half the prose kept over-generalizing from.
+IU_C13B="$(_iu_consumer digest-error-radius)"
+_iu_run "$IU_C13B" >/dev/null
+# Exactly ONE artifact made undigestable, with a fully working python3.
+rm -f "$IU_C13B/.github/workflows/devflow.yml"
+ln -s ./no-such-target.yml "$IU_C13B/.github/workflows/devflow.yml"
+# Give another artifact genuinely new bytes to prove it is still WRITTEN on this run.
+printf '\n# BYTES FROM AN OLDER DEVFLOW RELEASE\n' >> "$IU_C13B/.github/workflows/devflow-implement.yml"
+python3 -c '
+import hashlib, json, sys
+root, rel = sys.argv[1], ".github/workflows/devflow-implement.yml"
+m = json.load(open(root + "/.devflow/install-manifest.json"))
+m["artifacts"][rel] = hashlib.sha256(open(root + "/" + rel, "rb").read()).hexdigest()
+json.dump(m, open(root + "/.devflow/install-manifest.json", "w"), indent=2)
+' "$IU_C13B"
+IU_O13B="$(_iu_run "$IU_C13B" --apply)"
+assert_eq "installer-upgrade #959: a per-artifact read error preserves ONLY that artifact — the others are still classified and written" "yes yes" \
+  "$(_iu_out_has "$IU_O13B" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_matches "$IU_O13B" '^devflow-install: update: \.github/workflows/devflow-implement\.yml$')"
+# Asserted over the manifest's CONTENT, not its byte-identity: the written-back digest for
+# the updated artifact happens to equal what the first install recorded (the update restores
+# the shipped bytes), so a whole-file comparison would read "unchanged" on a manifest that
+# was genuinely rewritten. What matters is which entries it now holds — the updated artifact
+# re-recorded against the shipped bytes, and the erroring one keeping its EARLIER digest
+# rather than being re-blessed against bytes nothing could read.
+assert_eq "installer-upgrade #959: and the manifest IS still written on a per-artifact read error (unlike the no-python3 trigger, which writes none)" "yes recorded-source kept-earlier" \
+  "$(_iu_out_has "$IU_O13B" 'recorded install provenance in .devflow/install-manifest.json') $(python3 -c '
+import hashlib, json, sys
+root, src = sys.argv[1], sys.argv[2]
+arts = json.load(open(root + "/.devflow/install-manifest.json"))["artifacts"]
+impl = ".github/workflows/devflow-implement.yml"
+want = hashlib.sha256(open(src + "/" + impl, "rb").read()).hexdigest()
+wf = ".github/workflows/devflow.yml"
+# The erroring artifact keeps a real 64-hex digest from before the error - never dropped,
+# and never recomputed from the unreadable path.
+kept = isinstance(arts.get(wf), str) and len(arts.get(wf, "")) == 64
+sys.stdout.write(("recorded-source" if arts.get(impl) == want else "NOT-RECORDED")
+                 + " " + ("kept-earlier" if kept else "LOST"))
+' "$IU_C13B" "$IU_SRC")"
+# The remedy the message names must match the cause. Telling a consumer whose python3
+# works to "resolve a working python3" is the same class of error as the original Critical:
+# reporting a fact the code never established.
+assert_eq "installer-upgrade #959: the per-artifact message names a READ error on that path, and never the no-python3 remedy" "yes no" \
+  "$(_iu_out_has "$IU_O13B" 'python3 works here, so this is a read error on this path') $(_iu_out_has "$IU_O13B" 'There is no working python3 on this host')"
+# …and the converse, so neither message can drift into the other's trigger.
+assert_eq "installer-upgrade #959: the no-python3 message never claims a per-path read error" "no" \
+  "$(_iu_out_has "$IU_O12" 'python3 works here, so this is a read error on this path')"
 
 # ── Scenario 14 (#959): POSITIVE CONTROL. The fix must be "preserve what is there", not
 # "never write". A genuinely absent path still has to be created — including on the very
@@ -1439,6 +1504,60 @@ json.dump(d, open(p, "w"), indent=2)
 _iu_run "$IU_C19B" --apply --remove-withheld-review-tier >/dev/null
 assert_eq "installer-upgrade #959: an interrupted removal that already flipped the key still completes on the next run" "0" \
   "$(_iu_count_withheld "$IU_C19B")"
+# ── (#959 review round 3, finding 4) Ordering alone does not make the stranded state
+# impossible — the config edit can FAIL. When it does, the files must NOT be deleted:
+# doing so lands in exactly the "files gone, key still true" state the ordering exists to
+# prevent, and with `present` then empty no later run can retry. The invariant the comment
+# asserts is now the invariant the code enforces.
+IU_C19C="$(_iu_consumer withheld-order-disable-fails)"
+_iu_run "$IU_C19C" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19C/.github/workflows/$_iu_w.yml"
+done
+printf '[1, 2, 3]\n' > "$IU_C19C/.devflow/config.json"   # a shape the disabler refuses to edit
+IU_O19C="$(_iu_run "$IU_C19C" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: when the config key cannot be turned off, the workflow files are KEPT rather than stranding the key true" "3 yes yes" \
+  "$(_iu_count_withheld "$IU_C19C") $(_iu_out_has "$IU_O19C" 'leaving the withheld review-tier workflow files in place') $(_iu_out_has "$IU_O19C" 'removing the files first would strand that key true')"
+assert_eq "installer-upgrade #959: and it never reports having removed one" "no" \
+  "$(_iu_out_has "$IU_O19C" 'removed withheld review-tier workflow')"
+# A repo with NO config file at all has no key to strand, so removal proceeds — the gate
+# is "is the key provably not left true", not "does a config exist".
+IU_C19D="$(_iu_consumer withheld-order-no-config)"
+_iu_run "$IU_C19D" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19D/.github/workflows/$_iu_w.yml"
+done
+rm -f "$IU_C19D/.devflow/config.json"
+_iu_run "$IU_C19D" --apply --remove-withheld-review-tier >/dev/null
+assert_eq "installer-upgrade #959: with no config file there is no key to strand, so the removal still proceeds" "0" \
+  "$(_iu_count_withheld "$IU_C19D")"
+# ── (#959 review round 3, finding 5) grep's rc is three-valued, and rc 2 (could not read
+# the file) is not rc 1 (read it, no match). Folding them together reports a content
+# judgement the code never made.
+#
+# Driven at the FUNCTION level, because the whole-installer path cannot reach this arm:
+# devflow_withheld_tier_present gates on `[ -f ]`, so anything unreadable-by-being-absent
+# never enters `present`. Handing the function a `present` entry whose file is gone models
+# the real case — the file vanished between the presence scan and the removal — and makes
+# grep return a genuine rc 2 deterministically, without a chmod that dissolves under root.
+IU_C19E="$(_iu_consumer withheld-unreadable)"
+_iu_run "$IU_C19E" >/dev/null
+_iu_withheld_file devflow-review > "$IU_C19E/.github/workflows/devflow-review.yml"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+IU_O19E="$( cd "$IU_C19E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+    && REMOVE_WITHHELD=1 devflow_remove_withheld_tier 'devflow-review telemetry-push' 2>&1 )"
+assert_eq "installer-upgrade #959: an UNREADABLE withheld-tier path is reported as a read failure, explicitly not as a judgement that it is not DevFlow's" "yes yes" \
+  "$(_iu_out_has "$IU_O19E" 'could not read .github/workflows/telemetry-push.yml to check its signature') $(_iu_out_has "$IU_O19E" 'This is a read failure, NOT a judgement')"
+assert_eq "installer-upgrade #959: the unreadable path is not folded into the no-signature message, while a genuinely matching sibling IS still removed" "no no" \
+  "$(_iu_out_has "$IU_O19E" 'telemetry-push.yml carries no DevFlow signature') $([ -f "$IU_C19E/.github/workflows/devflow-review.yml" ] && echo yes || echo no)"
+# Control: the rc-1 arm still reports the content judgement, so the two are genuinely
+# distinguished rather than the rc-2 wording having simply replaced both.
+printf 'name: someone elses telemetry push\non: push\n' > "$IU_C19E/.github/workflows/telemetry-push.yml"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+IU_O19F="$( cd "$IU_C19E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+    && REMOVE_WITHHELD=1 devflow_remove_withheld_tier 'telemetry-push' 2>&1 )"
+assert_eq "installer-upgrade #959 CONTROL: a readable non-matching file still reports the no-signature judgement, not the read failure" "yes no yes" \
+  "$(_iu_out_has "$IU_O19F" 'telemetry-push.yml carries no DevFlow signature') $(_iu_out_has "$IU_O19F" 'This is a read failure') $([ -f "$IU_C19E/.github/workflows/telemetry-push.yml" ] && echo yes || echo no)"
 
 # ── Scenario 20 (#959 review, suggestion 3): fail-safe/warning arms that are consumer-
 # facing documented behavior but had no coverage. None of these is in the clobber-

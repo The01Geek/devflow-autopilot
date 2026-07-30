@@ -227,10 +227,17 @@ The diff covers `.claude-plugin/`, `.github/`, `.devflow/` and `.claude/plugins/
 | already identical to the new version | leaves it alone (`unchanged`) |
 | bytes differ from the recorded digest | **preserves your file** and writes the new version to `<path>.devflow-new` for you to merge |
 | no recorded digest — an installation predating the manifest, or a skipped-version jump | same: preserves your file and offers `<path>.devflow-new`, because a local edit cannot be ruled out |
-| your file's **current** bytes cannot be digested at all — no working `python3` on this host, an unreadable file, a read error inside a composite-action directory | same: preserves your file and offers `<path>.devflow-new`, and the manifest is not rewritten. Reported distinctly (`provenance UNESTABLISHED`) because the remedy is different: resolve `python3` (see [above](#windows-resolving-python3)) and re-run to get a real comparison |
+| your file's **current** bytes cannot be digested — no working `python3` on this host, an unreadable file, a read error inside a composite-action directory | same: preserves **that file** and offers `<path>.devflow-new`. Reported distinctly (`provenance UNESTABLISHED`), and the message names which of the two causes applied, because they have different remedies. How much else is affected depends on the cause — see the two rows below the table |
 | absent (you deleted it) | recreates it |
 
-Note the third row's most common cause. On a host with **no working `python3`** — stock Windows / Git-Bash, before you run the shim provisioner — the provenance layer cannot be established at all, so an upgrade preserves **everything** it finds and writes no manifest. Whether a file *exists* is decided without `python3`, so a genuinely absent artifact is still created and a first-time install on such a host still works normally; what the missing interpreter costs you is the *comparison*, never your bytes. Because the dry run cannot render its diff there either, read the plan lines — they name every artifact that would be preserved.
+**Two different situations reach that third row, and they differ in how much they affect.** Both preserve your bytes; only the first is repository-wide.
+
+| Cause | What happens to the rest of the upgrade |
+| --- | --- |
+| **No working `python3`** — stock Windows / Git-Bash, before you run the shim provisioner. Nothing on the run can be digested. | **Everything** is preserved, each with a `<path>.devflow-new` sidecar, and **no manifest is written** (so the next upgrade preserves everything again until you resolve `python3`). The dry run cannot render its diff either — read the plan lines, which name every artifact that would be preserved. |
+| **A read error on one file**, with `python3` working — an unreadable file, or one unreadable file inside a composite-action directory. | **Only that artifact** is preserved. Everything else is classified and written exactly as usual, and **the manifest is still written** — the preserved artifact simply keeps its previous entry instead of being re-recorded. Fix that path's permissions and re-run. |
+
+Whether a file *exists* is decided without `python3` in both cases, so a genuinely absent artifact is still created and a first-time install on such a host still works normally; what an unreadable digest costs you is the *comparison*, never your bytes.
 
 `.devflow/config.json` is outside that mechanism entirely: the shared scaffolder only ever backfills keys the shipped example gained, so your values and tuned arrays are never rewritten. A preserved conflict is reported again on every run until you resolve it — the installer never adopts your edited bytes as its own provenance.
 

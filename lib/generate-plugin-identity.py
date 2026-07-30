@@ -95,8 +95,14 @@ def payload_install(ident: dict) -> list[str]:
     stale registrations, so it needs the identifiers themselves, not only the
     match ERE. Superseded = every accepted identifier that is not the canonical
     one, which is exactly what a declared alias means: a name a previous install
-    may have written that this one must stop writing. Empty while no alias is
-    declared, which makes the migration report a strict no-op today.
+    may have written that this one must stop writing. Non-empty exactly when an
+    alias is declared — which it currently is: `lib/plugin-identity.json` carries
+    the throwaway `devflow-alias-probe` that exercises dual-accept, so the baked
+    `DEVFLOW_SUPERSEDED_PLUGIN_SPECS` is non-empty and
+    `devflow_report_superseded_identifiers`'s non-empty gate PASSES and does scan
+    `.claude/settings.json`. The migration report is therefore *effectively*
+    silent — no real consumer registered the probe spec — not a strict no-op, and
+    describing it as one would misstate which code paths run.
 
     Plain assignments, never `${VAR:-...}` — an inherited environment value must
     not be able to widen or narrow what the installer accepts as its own.
