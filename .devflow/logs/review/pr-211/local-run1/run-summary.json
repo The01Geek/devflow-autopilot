@@ -1,0 +1,43 @@
+{
+  "pr": 211,
+  "issue": 197,
+  "run_id": "local-run1",
+  "final_verdict": "APPROVE",
+  "shadow_coverage": "full",
+  "shadow_agreed": true,
+  "iterations": [
+    {
+      "iter": 1,
+      "loop_role": "fix",
+      "engine_verdict": "APPROVE with notes (1 Suggestion promoted to Important via park-calibration gate)",
+      "fixes_applied": 1,
+      "fix_commit": "9b5e8c2",
+      "note": "widened AC3 drift pin to cover all three arms"
+    },
+    {
+      "iter": 2,
+      "loop_role": "fix",
+      "engine_verdict": "APPROVE",
+      "fixes_applied": 0,
+      "note": "clean re-review, converged"
+    },
+    {
+      "iter": 3,
+      "loop_role": "promoted",
+      "engine_verdict": "APPROVE",
+      "fixes_applied": 1,
+      "fix_commit": "7cea0b0",
+      "note": "shadow-promoted: pinned AC1 push-back evidence clause; post-shadow delta-review clean"
+    }
+  ],
+  "shadow": {
+    "reviewed_sha": "7cea0b0",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "new_critical": 0,
+    "new_important": 0,
+    "verdict": "APPROVE"
+  },
+  "deferrals": []
+}

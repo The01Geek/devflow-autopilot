@@ -1,0 +1,41 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-11T19:45:00Z",
+  "fix_commit_sha": "bba6e98d3060305cbae3e1527fb851fe339b8b8c",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "R4 has no VERIFIED positive control; the _permitted_elsewhere/VERIFIED arm is dead in the suite, so a mutant forcing R4 always-STALE ships green (false-positive Important findings on legit operator deny-absolutes).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [24668, 24678], "kind": "vacuous-positive-control-missing"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-8", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "R4 missing VERIFIED positive control", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "Over-grade calibration gate (single-source pr-test-analyzer, an empirical over-grader). Evaluated the observable fail-direction: the missing control fails OPEN — a regression making R4 always-STALE ships GREEN and R4 gates at 'important', so the false-positive blast radius is real. This is a genuine coverage hole (repo guard-class 3 / vacuous-guard class), not a fail-closed/diagnostic-only over-grade. Severity re-affirmed at Important; promoted and fixed."},
+    {"finding_id": "F-8", "decision": "applied", "commit": "bba6e98d3060305cbae3e1527fb851fe339b8b8c"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 11,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "step_2_6": {"calls": 5, "tokens": 350057, "wall_clock_s": 200},
+    "phase_4_x": {"calls": 1, "tokens": 47677, "wall_clock_s": 67}
+  }
+}

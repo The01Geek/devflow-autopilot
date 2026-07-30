@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "pr_branch": "worktree-issue-268",
+  "base_branch": "main",
+  "generated_at": "2026-07-03T00:51:07Z",
+  "deferrals": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "file": ".github/workflows/devflow-implement.yml",
+      "line_range": [636, 660],
+      "symbol": "dedupe-implement-run.sh",
+      "kind": "logic_error",
+      "summary": "Dedupe-vs-resume race: the auto-resume comment is posted while the original run is still in_progress, so the new run's gate dedupe may classify it as a duplicate and skip — the resume becomes a visible-but-inert audit comment. Needs a live cloud run to confirm timing; a fix likely needs dedupe to exclude a run alive only through its own trailing backstop step. Fold in: consider !cancelled() vs always(), and checking the App token before posting so inert resumes do not consume cap attempts.",
+      "category": "already-tracked",
+      "explanation": "Named in issue 268's own body as a boundary to confirm on a live cloud run before designing a dedupe carve-out; the accepted race is documented in the step comment and docs/implement-skill.md. Not the widens-surface pattern: the behavior is new in this PR and explicitly scoped for post-merge live validation by the issue."
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "file": "scripts/workpad.py",
+      "line_range": [237, 237],
+      "symbol": "cmd_status",
+      "kind": "logic_error",
+      "summary": "An unknown/corrupted status glyph classifies as interim rather than unreadable, so a hand-mangled Status line reads as a stall (bounded by the resume cap, fails toward a visible resume/exhaustion).",
+      "category": "out-of-scope",
+      "explanation": "cmd_status is a #266 primitive shipped in PR #267; this PR's diff does not touch scripts/workpad.py (git diff origin/main...HEAD --name-only confirms)."
+    }
+  ]
+}

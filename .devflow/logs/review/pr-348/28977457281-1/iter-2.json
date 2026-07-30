@@ -1,0 +1,107 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-08T21:56:00Z",
+  "fix_commit_sha": "d0589e477290773097a837e5f78616f27d6c17de",
+  "fix_files": [
+    "skills/implement/phases/phase-3-review.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "(promoted from shadow) step-5 discriminator fail-open on gh api 404/403",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-3-review.md",
+        "line_range": [
+          261,
+          261
+        ],
+        "kind": "fail-open-guard"
+      },
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "(promoted from shadow) step-5 guard unpinned; step-2 probe verb unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          3806,
+          3812
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "d0589e477290773097a837e5f78616f27d6c17de"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "d0589e477290773097a837e5f78616f27d6c17de"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 6,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {},
+  "shadow": {
+    "ran_at": "2026-07-08T22:02:00Z",
+    "reviewed_sha": "d0589e477290773097a837e5f78616f27d6c17de",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 0,
+      "overlap_with_iter_N": 0,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-12T22:30:00Z",
+  "fix_commit_sha": "f7ff57d",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-1 finditer disqualified-then-valid recovery untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-2 numeral-shaped-modifier disqualify branch untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-3 word-numeral upper boundary behavioral backstop missing", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-4 § lookbehind behavioral backstop missing", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-5 double-emission invariant unpinned", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "GAP-6 decimal lookbehind untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [26014, 26131], "kind": "test_coverage"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "GAP-1", "decision": "applied", "commit": "f7ff57d"},
+    {"finding_id": "GAP-2", "decision": "applied", "commit": "f7ff57d"},
+    {"finding_id": "GAP-3", "decision": "applied", "commit": "f7ff57d"},
+    {"finding_id": "GAP-4", "decision": "applied", "commit": "f7ff57d"},
+    {"finding_id": "GAP-5", "decision": "applied", "commit": "f7ff57d"},
+    {"finding_id": "GAP-6", "decision": "applied", "commit": "f7ff57d"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {"command": "lib/test/run.sh", "result": "pass", "duration_s": 60},
+  "stale_prose_check": {"result": "clean", "note": "no STALE or recognition row on the branch diff"},
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 285000, "wall_clock_s": 294}
+  },
+  "shadow": {
+    "ran_at": "2026-07-12T22:45:00Z",
+    "reviewed_sha": "f7ff57d",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:code-reviewer", "severity": "Critical", "description": "recognition tier placed before R4 and continues, suppressing a co-occurring R4 STALE (exit 1->0), fail-open", "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [682, 692], "kind": "rule-ordering-shadow/fail-open"}, "corroboration_count": 2},
+      {"agent": "devflow:pr-test-analyzer", "severity": "Critical", "description": "recognition tier masks a downstream R4 gating finding; untested co-occurrence", "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [686, 692], "kind": "rule-ordering-shadow/fail-open"}, "corroboration_count": 2}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 0, "new": 1, "new_critical": 1, "new_important": 0},
+    "promoted_to_iter_next": true
+  }
+}

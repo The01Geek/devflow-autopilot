@@ -1,0 +1,685 @@
+{
+ "iter": 1,
+ "started_at": "2026-07-02T23:15:06Z",
+ "fix_commit_sha": "016ecd471761502f4733aa5c4dd05c90c9124e1e",
+ "fix_files": [
+  ".github/workflows/devflow-runner.yml",
+  "lib/test/run.sh",
+  "scripts/derive-review-verdict.sh",
+  "scripts/parse-engine-error.sh"
+ ],
+ "loop_role": "fix",
+ "fix_severity_threshold": "important",
+ "checklist": [
+  {
+   "id": "VC-1",
+   "claim": "engine_is_error workflow_call output chain complete",
+   "file": ".github/workflows/devflow-runner.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-runner.yml:engine-is-error-output-chain",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-2",
+   "claim": "finalize_check reads needs.review.outputs.engine_is_error; review job uses devflow-runner.yml",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-review.yml:review-job-engine-error-consumption",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-3",
+   "claim": "precheck outputs head_sha, passed as HEAD_SHA",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-review.yml:precheck-head-sha-output",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-4",
+   "claim": "steps.claude.outputs.execution_file is a real action output",
+   "file": ".github/workflows/devflow-runner.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-runner.yml:claude-execution-file-output",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-5",
+   "claim": "env var names match deriver reads",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:derive-review-verdict.sh:finalize-env-var-contract",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-6",
+   "claim": "run-keyed marker prefix matches skill producer format",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "data_format_assumption:derive-review-verdict.sh:review-progress-run-marker-format",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-7",
+   "claim": "reviews API fields commit_id/state/body correct",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "data_format_assumption:derive-review-verdict.sh:reviews-api-field-names",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-8",
+   "claim": "resolver siblings exist with expected interface",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:derive-review-verdict.sh:resolver-siblings-exist",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-9",
+   "claim": "dismiss safety net still gated on success+PR+VERDICT_DETERMINED",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:devflow-review.yml:dismiss-verdict-determined-gate",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-10",
+   "claim": "success only on approve in case mapping",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-review.yml:success-only-on-approve",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-11",
+   "claim": "incomplete title literal present",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:devflow-review.yml:incomplete-title-literal",
+   "verdict": "PASS",
+   "evidence": "lite probe: hit at line 680",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-12",
+   "claim": "HEAD-scoped commit_id jq selection",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "data_format_assumption:derive-review-verdict.sh:head-sha-commit-id-scoping",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-13",
+   "claim": "cancelled/skipped->neutral and job-failure->failure arms unchanged",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow-review.yml:cancelled-skipped-neutral-arm",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-14",
+   "claim": "parse-engine-error jq filter correct across 3 shapes",
+   "file": "scripts/parse-engine-error.sh",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:parse-engine-error.sh:is-error-jq-filter-shapes",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-15",
+   "claim": "vendored-path-first resolution correct",
+   "file": ".github/workflows/devflow-review.yml",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:devflow-review.yml:vendored-script-path",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-16",
+   "claim": "gh stub patterns match real invocations",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:run.sh:gh-stub-command-patterns",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-17",
+   "claim": "raw-JSON jq pipe makes stub a valid mock",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "test_mock_alignment:derive-review-verdict.sh:raw-json-jq-pipe",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-18",
+   "claim": "AC11 exemption regex exact two files",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:run.sh:ac11-github-freeze-exemption",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-19",
+   "claim": "version 2.8.57 has CHANGELOG entry",
+   "file": "CHANGELOG.md",
+   "verification_mode": "lite",
+   "claim_signature": "api_contract:CHANGELOG.md:version-2857-entry",
+   "verdict": "PASS",
+   "evidence": "lite probe: plugin.json 2.8.57 + CHANGELOG heading line 7",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-20",
+   "claim": "verdict marker regexes match SKILL.md producer contract",
+   "file": "scripts/derive-review-verdict.sh",
+   "verification_mode": "agent",
+   "claim_signature": "data_format_assumption:derive-review-verdict.sh:verdict-marker-regex-vs-skill",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  }
+ ],
+ "phase3_dispatched": [
+  "devflow:code-reviewer",
+  "devflow:silent-failure-hunter",
+  "devflow:comment-analyzer",
+  "devflow:pr-test-analyzer",
+  "devflow:requesting-code-review"
+ ],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": null
+ },
+ "completeness_critic": {
+  "ran": true,
+  "audit": "#225 AC11 .github-freeze narrowing",
+  "independent_signal": "git diff --name-only <base>...HEAD -- .github (pathspec enumeration, not the audit's grep)",
+  "result": "audit matched set is a superset of the independent enumeration; no uncovered member"
+ },
+ "phase3_findings": [
+  {
+   "id": "F-1",
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "Unguarded resolve-gh.sh source can leave DEVFLOW_GH empty on a partial-copy deployment; failure misattributed to the reviews query",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     66,
+     69
+    ],
+    "kind": "api_misuse"
+   },
+   "corroboration_count": 2,
+   "corroborated_by": [
+    "devflow:requesting-code-review"
+   ],
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-2",
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "devflow-runner.yml discards parse-engine-error.sh stderr breadcrumbs (2>/dev/null)",
+   "defect_signature": {
+    "file": ".github/workflows/devflow-runner.yml",
+    "line_range": [
+     552,
+     556
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-3",
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "jq failures in deriver HEAD-scoping swallowed (|| echo \"\"): non-array payload silently falls through to comment fallback (could emit approve without reviews consulted) and step-7 breadcrumb misdiagnoses",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     135,
+     168
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 2,
+   "corroborated_by": [
+    "devflow:pr-test-analyzer (F-6 same region/root cause)"
+   ],
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-6",
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Important",
+   "description": "Non-array REVIEWS_JSON shape untested (wrong-type matrix gap); behavior undecided by tests",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     135,
+     143
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-7",
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Important",
+   "description": "Multi-attempt run-keyed comment precedence (last wins) unpinned",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     176,
+     181
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-4",
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "'final result element' wording overstates parser selectivity (code matches ANY result object)",
+   "defect_signature": {
+    "file": "scripts/parse-engine-error.sh",
+    "line_range": [
+     17,
+     18
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 3,
+   "corroborated_by": [
+    "devflow:requesting-code-review",
+    "devflow:pr-test-analyzer"
+   ],
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-5",
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "Header outcome map omits comments-query-failure / unresolvable-REPO arms",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     12,
+     19
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "id": "F-8",
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "parse-engine-error .. | objects descends into nested payloads; embedded result could flip output (fail-closed direction)",
+   "defect_signature": {
+    "file": "scripts/parse-engine-error.sh",
+    "line_range": [
+     59,
+     61
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 2,
+   "corroborated_by": [
+    "devflow:requesting-code-review S1 overlap"
+   ],
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  },
+  {
+   "id": "F-9",
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "finalize_check inline YAML glue (sed extraction + case mapping) untestable under run.sh",
+   "defect_signature": {
+    "file": ".github/workflows/devflow-review.yml",
+    "line_range": [
+     648,
+     672
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  },
+  {
+   "id": "S-3",
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "comment-fallback marker is run-scoped but not attempt-scoped; a stalled re-run attempt could surface the prior attempt's verdict",
+   "defect_signature": {
+    "file": "scripts/derive-review-verdict.sh",
+    "line_range": [
+     164,
+     168
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "pushed_back"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "F-1",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-2",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-2",
+   "decision": "severity-calibrated",
+   "source_file": ".github/workflows/devflow-runner.yml",
+   "claim_text": "runner discards parse-engine-error stderr breadcrumbs",
+   "original_severity": "Important",
+   "calibrated_severity": "Suggestion",
+   "evidence": "over-grade shapes 2+3 (diagnostic-only impact \u2014 is_error still computed correctly and fails safe; single-source silent-failure-hunter, no Phase-2 FAIL). Fixed anyway (one-line, pure observability gain); recorded evaluation, did not auto-demote."
+  },
+  {
+   "finding_id": "F-3",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-3",
+   "decision": "severity-calibrated",
+   "source_file": "scripts/derive-review-verdict.sh",
+   "claim_text": "jq failures swallowed in HEAD-scoping",
+   "original_severity": "Important",
+   "calibrated_severity": "Important",
+   "evidence": "re-affirmed: not diagnostic-only \u2014 the fall-through-to-comment-fallback path (corroborated by pr-test-analyzer F-6) can emit approve without the reviews API having been consulted; mutation-check confirmed approve on a non-array payload pre-fix."
+  },
+  {
+   "finding_id": "F-6",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-7",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-4",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-5",
+   "decision": "applied",
+   "commit": "016ecd4"
+  },
+  {
+   "finding_id": "F-8",
+   "decision": "deferred",
+   "source_file": "scripts/parse-engine-error.sh",
+   "claim_text": "recursive descent could read a nested embedded result object",
+   "skip_category": "uncategorized",
+   "evidence": "fail-closed by design and now accurately documented (F-4 fix states any-result-anywhere wins, fail-safe toward blocking); changing to top-level-only is a behavior change out of proportion to the risk"
+  },
+  {
+   "finding_id": "F-9",
+   "decision": "deferred",
+   "source_file": ".github/workflows/devflow-review.yml",
+   "claim_text": "workflow glue untested",
+   "skip_category": "uncategorized",
+   "evidence": "accepted repo posture: inline YAML glue is not runnable under run.sh; the ${VERDICT:-incomplete} defaults fail closed"
+  },
+  {
+   "finding_id": "S-3",
+   "decision": "pushed_back",
+   "source_file": "scripts/derive-review-verdict.sh",
+   "claim_text": "marker should be attempt-scoped, not run-scoped",
+   "skip_category": "claim-quality",
+   "evidence": "deliberate design documented at the match site ('selects only this run's comment(s) across attempts'); last-wins across attempts is now pinned by the new two-attempts test; attempt-scoping would break resume-across-attempt (rc=0 resume path in SKILL.md seeds one comment per run, patched across attempts)"
+  }
+ ],
+ "convergence_inputs": {
+  "fixes_applied": 7,
+  "fix_diff_lines": 118,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_0": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 60
+  },
+  "phase_0_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 30
+  },
+  "phase_1": {
+   "calls": 1,
+   "tokens": 81593,
+   "wall_clock_s": 94
+  },
+  "phase_1_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 0
+  },
+  "phase_2": {
+   "calls": 18,
+   "tokens": 933449,
+   "wall_clock_s": 190
+  },
+  "phase_3": {
+   "calls": 5,
+   "tokens": 376983,
+   "wall_clock_s": 236
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 20
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-03T00:20:00Z",
+  "reviewed_sha": "016ecd471761502f4733aa5c4dd05c90c9124e1e",
+  "verdict": "APPROVE with notes",
+  "coverage": "full",
+  "trigger": "early (engine_self_modifying, after iteration 1)",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Important",
+    "description": "DISMISSED review on HEAD retains '## Verdict: REJECT' body; deriver body-grep resurrects a humanly-dismissed reject (untested, unguarded)",
+    "defect_signature": {
+     "file": "scripts/derive-review-verdict.sh",
+     "line_range": [
+      155,
+      175
+     ],
+     "kind": "logic_error"
+    },
+    "corroboration_count": 2
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "parse-engine-error.sh suppresses jq stderr, contradicting the runner-yml comment added in iter 1; broken jq -> is_error=false with zero trace",
+    "defect_signature": {
+     "file": "scripts/parse-engine-error.sh",
+     "line_range": [
+      60,
+      62
+     ],
+     "kind": "logic_error"
+    },
+    "corroboration_count": 1
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "missing/empty EXECUTION_FILE yields false with no breadcrumb (silent output-rename hazard, #201 class)",
+    "defect_signature": {
+     "file": "scripts/parse-engine-error.sh",
+     "line_range": [
+      48,
+      52
+     ],
+     "kind": "logic_error"
+    },
+    "corroboration_count": 1
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Important",
+    "description": "deriver stdout contract (exactly two verdict=/verdict_determined= lines) unpinned; finalize sed glue unprotected",
+    "defect_signature": {
+     "file": ".github/workflows/devflow-review.yml",
+     "line_range": [
+      107,
+      172
+     ],
+     "kind": "test_gap"
+    },
+    "corroboration_count": 1
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "interleaved third-party PENDING/COMMENTED review on HEAD masks a genuine APPROVE (fail-closed incomplete)",
+    "defect_signature": {
+     "file": "scripts/derive-review-verdict.sh",
+     "line_range": [
+      148,
+      170
+     ],
+     "kind": "logic_error"
+    },
+    "corroboration_count": 1
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion",
+    "description": "deriver discards gh api stderr; breadcrumb says query failed but never why",
+    "defect_signature": {
+     "file": "scripts/derive-review-verdict.sh",
+     "line_range": [
+      143,
+      146
+     ],
+     "kind": "other"
+    },
+    "corroboration_count": 1
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Suggestion",
+    "description": "'any nesting depth' behavior of .. | objects has no nested-shape test fixture",
+    "defect_signature": {
+     "file": "scripts/parse-engine-error.sh",
+     "line_range": [
+      57,
+      62
+     ],
+     "kind": "test_gap"
+    },
+    "corroboration_count": 2
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Suggestion",
+    "description": "'fail-safe' used in two opposite senses in PEE header; 'never reached a verdict' overstatement in runner comment; 'engine subtype success' jargon in run.sh",
+    "defect_signature": {
+     "file": "scripts/parse-engine-error.sh",
+     "line_range": [
+      17,
+      26
+     ],
+     "kind": "style"
+    },
+    "corroboration_count": 1
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 8,
+   "overlap_with_iter_N": 2,
+   "new": 6,
+   "new_critical": 0,
+   "new_important": 4
+  },
+  "promoted_to_iter_next": true
+ },
+ "reflection": [
+  "fix-delta gate clean (iteration 1): blinded delta reviewer found no Critical/Important in e71886e..016ecd4; 3 suggestions parked as advisory",
+  "mechanism-scoped comment re-sweep (3a): zero comment drift after iteration-1 fixes",
+  "early shadow trigger fired (engine_self_modifying, iter-1 routed to fixes): coverage full, 4 new Important findings promoted to iteration 2",
+  "over-grade calibration gate: DISMISSED-resurrection flagged shape 1, re-affirmed Important (Direction-1 blast radius, corroborated x2); PEE stderr + EXECUTION_FILE breadcrumb findings flagged shapes 2+3, calibrated Important->Suggestion (diagnostic-only; dead engine also posts no verdict so deriver already fails closed) but fixed as trivial; stdout-contract pin flagged shape 3, calibrated Important->Suggestion (drift degrades to incomplete=fail-closed), test added anyway"
+ ]
+}

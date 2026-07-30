@@ -1,0 +1,57 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-03T00:25:00Z",
+  "fix_commit_sha": "dc887e1384ba2c3830087545f4f22227d3cd9479",
+  "fix_files": [".github/workflows/devflow-runner.yml", "lib/test/run.sh", "scripts/derive-review-verdict.sh", "scripts/parse-engine-error.sh"],
+  "loop_role": "promoted",
+  "fix_severity_threshold": "important",
+  "checklist": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "checklist_skip_note": "promoted iteration (Decide outcome 2 via early shadow) — Phase 1+2 deliberately skipped per Step 2.6 promotion rules; inputs were a full shadow Phase 1+2+3 result",
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {"id": "SH-1", "agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "DISMISSED review on HEAD resurrects its REJECT body marker", "defect_signature": {"file": "scripts/derive-review-verdict.sh", "line_range": [155, 175], "kind": "logic_error"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-2", "agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "parse-engine-error.sh suppresses jq stderr contradicting caller comment", "defect_signature": {"file": "scripts/parse-engine-error.sh", "line_range": [60, 62], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-3", "agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "missing/empty EXECUTION_FILE silent false", "defect_signature": {"file": "scripts/parse-engine-error.sh", "line_range": [48, 52], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-4", "agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "deriver stdout contract unpinned", "defect_signature": {"file": ".github/workflows/devflow-review.yml", "line_range": [107, 172], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-5", "agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "interleaved PENDING review masks genuine APPROVE", "defect_signature": {"file": "scripts/derive-review-verdict.sh", "line_range": [148, 170], "kind": "logic_error"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-6", "agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "nested-shape .. recursion untested", "defect_signature": {"file": "scripts/parse-engine-error.sh", "line_range": [57, 62], "kind": "test_gap"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-7", "agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "fail-safe wording ambiguity + 'never reached a verdict' overstatement + 'subtype' jargon", "defect_signature": {"file": "scripts/parse-engine-error.sh", "line_range": [17, 26], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"id": "SH-8", "agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "deriver gh api stderr not captured into breadcrumbs (that vs why)", "defect_signature": {"file": "scripts/derive-review-verdict.sh", "line_range": [143, 146], "kind": "other"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "SH-1", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-1", "decision": "severity-calibrated", "source_file": "scripts/derive-review-verdict.sh", "claim_text": "DISMISSED resurrection", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "flagged over-grade shape 1 (fail-toward-blocking) but re-affirmed: blast radius is the issue's own Direction-1 harm (wedged mergeable PR needing human intervention), corroborated x2; mutation-check confirmed pre-fix reject on a dismissed review"},
+    {"finding_id": "SH-2", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-2", "decision": "severity-calibrated", "source_file": "scripts/parse-engine-error.sh", "claim_text": "jq stderr suppression", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "shapes 2+3: diagnostic-only (an engine that dies posts no verdict, so the deriver already concludes incomplete — no fail-open green); fixed as trivial fix-induced comment/code mismatch from iteration 1"},
+    {"finding_id": "SH-3", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-3", "decision": "severity-calibrated", "source_file": "scripts/parse-engine-error.sh", "claim_text": "missing EXECUTION_FILE silent false", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "shapes 2+3: diagnostic-only defense-in-depth layer; breadcrumb added"},
+    {"finding_id": "SH-4", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-4", "decision": "severity-calibrated", "source_file": ".github/workflows/devflow-review.yml", "claim_text": "stdout contract unpinned", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "shape 3 (single-source pr-test-analyzer); a format drift degrades every conclusion to incomplete = fail-closed, not silent green; 2-line contract pin added anyway"},
+    {"finding_id": "SH-5", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-6", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-7", "decision": "applied", "commit": "dc887e1"},
+    {"finding_id": "SH-8", "decision": "deferred", "source_file": "scripts/derive-review-verdict.sh", "claim_text": "gh api stderr not in breadcrumbs", "skip_category": "uncategorized", "evidence": "fail-closed and breadcrumbed already (names WHICH query failed); capturing gh stderr into the warning is an observability nicety, low value vs churn"},
+    {"finding_id": "GATE-1", "decision": "deferred", "source_file": "scripts/derive-review-verdict.sh", "claim_text": "IN() introduces undocumented jq>=1.5 floor", "skip_category": "uncategorized", "evidence": "jq 1.5 shipped 2015; every supported platform's jq qualifies; a jq-1.4 host fails CLOSED (parse-guard breadcrumb + incomplete), never a wrong verdict"},
+    {"finding_id": "GATE-2", "decision": "deferred", "source_file": "scripts/derive-review-verdict.sh", "claim_text": "STATE/RBODY could be one jq pass", "skip_category": "uncategorized", "evidence": "optional simplification; current two-pass form is deterministic, correct, and mirrors the pre-existing pattern"}
+  ],
+  "convergence_inputs": {"fixes_applied": 7, "fix_diff_lines": 75, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "phase_3":   {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_3_5":  {"calls": 1, "tokens": 68029, "wall_clock_s": 123},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 10}
+  },
+  "reflection": [
+    "fix-delta gate clean (iteration 2): blinded delta reviewer found no Critical/Important in 016ecd4..dc887e1; jq>=1.5 floor + one-pass-jq suggestions parked with evidence",
+    "mutation-check: state-filter removal on a temp copy returned reject for a DISMISSED review (RED direction confirmed); suite green 2719/0, shellcheck clean"
+  ]
+}

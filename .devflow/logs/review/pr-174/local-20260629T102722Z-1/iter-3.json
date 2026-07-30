@@ -1,0 +1,149 @@
+{
+  "iter": 3,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:48:00Z",
+  "fix_commit_sha": "3fcddbf57eca09a4cc7cf126333e428b64037fa5",
+  "fix_files": [],
+  "checklist": [
+    {
+      "id": "VC-15",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:comment-mutation-matrix-accurate"
+    },
+    {
+      "id": "VC-16",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:arm-loop-2devnull-not-mask-fail-record"
+    },
+    {
+      "id": "VC-17",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:devnull-literal-not-match-sentinel-glob"
+    },
+    {
+      "id": "VC-18",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "dependency_interaction:run.sh:forced-fail-subshell-2devnull-preserves-fail-record"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [],
+  "fix_decisions": [],
+  "convergence_inputs": {
+    "fixes_applied": 0,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 51112,
+      "wall_clock_s": 53
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 287013,
+      "wall_clock_s": 177
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-06-29T10:56:00Z",
+    "reviewed_sha": "b6b8fc5afbfa0d105e0e421431a0b54592c3f9ff",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "stale rgb_scan leading comment 496-501 describes the old empty-var failure mode, not the sentinel",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            496,
+            501
+          ],
+          "kind": "comment_drift"
+        }
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "adjacent unconverted vendor mktemp -d sites lack an exemption comment (calibrated from MEDIUM: out-of-scope, vendor clones to own tmp)",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            5929,
+            5944
+          ],
+          "kind": "test_gap"
+        },
+        "original_severity": "Important",
+        "calibrated_severity": "Suggestion"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Suggestion",
+        "description": "RESULTS_FILE in-scope dependency not noted in caller-contract comment",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            149,
+            159
+          ],
+          "kind": "unverified-assumption"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 3,
+      "overlap_with_iter_N": 0,
+      "new": 3,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": true
+  }
+}

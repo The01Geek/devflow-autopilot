@@ -1,0 +1,31 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-02T15:51:00Z",
+  "fix_commit_sha": "015677f",
+  "fix_files": ["lib/test/run.sh", "CHANGELOG.md", "CLAUDE.md"],
+  "loop_role": "fix",
+  "checklist": [
+    {"id": "VC-1", "claim": "diagnostic block sits above first ${BASH_SOURCE[0]}", "file": "lib/preflight.sh", "verification_mode": "lite", "claim_signature": "ordering:preflight.sh:block-above-bash_source", "verdict": "PASS", "evidence": "block at line 30, BASH_SOURCE[0] at line 41", "reused_from_iter_prev": false},
+    {"id": "VC-2", "claim": "dash yields empty BASH_VERSION so remedy fires", "file": "lib/preflight.sh", "verification_mode": "lite", "claim_signature": "boundary:supported-runtime:bash_version-empty-under-dash", "verdict": "PASS", "evidence": "dash -c echo BASH_VERSION -> EMPTY (live)", "reused_from_iter_prev": false},
+    {"id": "VC-3", "claim": "plugin.json 2.8.53 matches CHANGELOG [2.8.53]", "file": ".claude-plugin/plugin.json", "verification_mode": "lite", "claim_signature": "api_contract:version-changelog-match", "verdict": "PASS", "evidence": "both 2.8.53", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "empty-string DEVFLOW_BASH boundary untested", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12016, 12038], "kind": "missing_edge_case"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "T3 comment 'stub PATH can't hide it' clause moot", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12038, 12044], "kind": "comment_inaccuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "CHANGELOG/CLAUDE.md 'exercised under dash' overstates conditional coverage", "defect_signature": {"file": "CHANGELOG.md", "line_range": [24, 24], "kind": "comment_inaccuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "interpreter-path half of breadcrumb not pinned to live value", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12021, 12027], "kind": "weak_assertion"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "no-dash host: AC3 runtime falls back to static pins (CI-backstopped)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [12045, 12069], "kind": "conditional_coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "015677f"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "015677f"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "015677f"},
+    {"finding_id": "F-4", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "interpreter-path half not pinned live", "skip_category": "advisory-parked", "evidence": "pinning $BASH to a live value is fragile; low value per pr-test-analyzer (criticality 3)"},
+    {"finding_id": "F-5", "decision": "advisory", "source_file": "lib/test/run.sh", "claim_text": "no-dash host static-pin fallback", "skip_category": "advisory-parked", "evidence": "backstopped by CI (ubuntu ships dash) + static pins; informational per pr-test-analyzer (criticality 3)"}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 20, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"phase_3": {"calls": 5, "tokens": 329238, "wall_clock_s": 171}}
+}

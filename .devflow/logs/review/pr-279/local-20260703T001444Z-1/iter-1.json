@@ -1,0 +1,392 @@
+{
+ "iter": 1,
+ "started_at": "2026-07-03T00:14:44Z",
+ "fix_commit_sha": "7f5969d5980c027a519edde4265489103c01f74e",
+ "fix_files": [
+  "CHANGELOG.md",
+  "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+  "docs/install.md",
+  "lib/test/run.sh",
+  "lib/test/test_python_scripts.py",
+  "scripts/workpad.py",
+  "skills/implement/SKILL.md"
+ ],
+ "loop_role": "fix",
+ "checklist": [
+  {
+   "id": "VC-10",
+   "claim": "overview (see \u00a712) xref resolves to the runner-portable anchor section",
+   "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:devflow_system_overview.md:section-12-anchor-xref",
+   "verdict": "FAIL",
+   "evidence": "anchor section lives under \u00a76; xref at line 587 said \u00a712",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-lite-25x",
+   "claim": "25 lite probes (version/CHANGELOG, doc literals, bare-form absence per file, preamble presence, LIB= removal)",
+   "file": "(multiple)",
+   "verification_mode": "lite",
+   "claim_signature": "aggregate:lite:25-pass",
+   "verdict": "PASS",
+   "evidence": "all 25 lite probes PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-agent-27x",
+   "claim": "27 remaining agent-mode items (workpad.py precedence/key-path/imports, run.sh pin loop count/ERE/P4/A2b/T5/doc pins/lpe/phase33, vendored repo-agnostic, leading-token, $LIB notation, exec bits, version-cite)",
+   "file": "(multiple)",
+   "verification_mode": "agent",
+   "claim_signature": "aggregate:agent:27-pass",
+   "verdict": "PASS",
+   "evidence": "all PASS across 8 verifier dispatches",
+   "reused_from_iter_prev": false
+  }
+ ],
+ "phase3_dispatched": [
+  "devflow:code-reviewer",
+  "devflow:silent-failure-hunter",
+  "devflow:comment-analyzer",
+  "devflow:pr-test-analyzer",
+  "devflow:requesting-code-review"
+ ],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": null
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "CHANGELOG/install overclaim: rc-capture guard blocks in review/review-and-fix/retrospective-weekly still cross-statement on Copilot; claim scoped instead of migrating (out of AC scope)",
+   "defect_signature": {
+    "file": "skills/review-and-fix/SKILL.md",
+    "line_range": [
+     236,
+     260
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "severity-calibrated"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "implement 'prints empty' fail-closed trigger unsatisfiable with :- default; placeholder detection added",
+   "defect_signature": {
+    "file": "skills/implement/SKILL.md",
+    "line_range": [
+     26,
+     32
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 3,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "docs claim blanket fail-closed; create-issue is best-effort \u2014 carve-out added to install.md + overview",
+   "defect_signature": {
+    "file": "skills/create-issue/SKILL.md",
+    "line_range": [
+     6,
+     6
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "workpad.py present-but-invalid marker value silently defaulted; breadcrumb added + tests flipped",
+   "defect_signature": {
+    "file": "scripts/workpad.py",
+    "line_range": [
+     150,
+     156
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Important",
+   "description": "P1/P2 EREs evadable by quoted-bare / unquoted-assignment / non-/.. continuation; broadened + 3 adjacent-mutation proofs added",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     6249,
+     6260
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "'resolve once and reuse' framing sentence invites banned cross-statement form; reworded to prompt-level reuse",
+   "defect_signature": {
+    "file": "skills/implement/SKILL.md",
+    "line_range": [
+     26,
+     26
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "Copilot version cites (1.0.67 vs 1.0.68) unexplained; clarifying clause added to install.md",
+   "defect_signature": {
+    "file": "docs/install.md",
+    "line_range": [
+     132,
+     132
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "F-1",
+   "decision": "severity-calibrated",
+   "source_file": "skills/review-and-fix/SKILL.md",
+   "claim_text": "rc-capture chains still cross-statement on Copilot \u2014 first-class claim overbroad",
+   "original_severity": "Critical",
+   "calibrated_severity": "Important",
+   "evidence": "over-grade shape 2/scope: the guard blocks degrade to documented defaults (fail-safe direction, breadcrumbed on Claude Code); the code sites are outside issue #275's anchor-scoped ACs; fixed the prose overclaim (CHANGELOG headline + install.md Known-residual note) and deferring the guard-block migration to a follow-up issue"
+  },
+  {
+   "finding_id": "F-1b",
+   "decision": "deferred",
+   "source_file": "skills/review-and-fix/SKILL.md",
+   "claim_text": "migrate multi-statement VAR=$(...); VAR_RC=$? guard recipes to Copilot-safe single-statement forms",
+   "skip_category": "out-of-scope",
+   "evidence": "issue #275 ACs scope the anchor form only; the guard-recipe class is a distinct wave (documented as Known residual in docs/install.md + CHANGELOG); follow-up issue to be filed in Phase 4.0.5"
+  },
+  {
+   "finding_id": "F-2",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "F-3",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "F-4",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "F-5",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "F-6",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "F-7",
+   "decision": "applied",
+   "commit": "7f5969d"
+  },
+  {
+   "finding_id": "VC-10",
+   "decision": "applied",
+   "commit": "7f5969d"
+  }
+ ],
+ "convergence_inputs": {
+  "fixes_applied": 7,
+  "fix_diff_lines": 87,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_0": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 30
+  },
+  "phase_0_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5
+  },
+  "phase_1": {
+   "calls": 4,
+   "tokens": 304897,
+   "wall_clock_s": 95
+  },
+  "phase_1_5": {
+   "calls": 1,
+   "tokens": 60765,
+   "wall_clock_s": 77
+  },
+  "phase_2": {
+   "calls": 8,
+   "tokens": 491516,
+   "wall_clock_s": 90
+  },
+  "phase_3": {
+   "calls": 5,
+   "tokens": 604941,
+   "wall_clock_s": 275
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-03T01:05:00Z",
+  "reviewed_sha": "7f5969d5980c027a519edde4265489103c01f74e",
+  "verdict": "REJECT",
+  "coverage": "full",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "UnicodeDecodeError escapes marker-read fallback (UTF-16LE config)",
+    "defect_signature": {
+     "file": "scripts/workpad.py",
+     "line_range": [
+      132,
+      149
+     ],
+     "kind": "unhandled_exception"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "create-issue carve-out scoped too narrowly in docs",
+    "defect_signature": {
+     "file": "skills/create-issue/SKILL.md",
+     "line_range": [
+      6,
+      6
+     ],
+     "kind": "logic_error"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "Known-residual note overstates degradation grace",
+    "defect_signature": {
+     "file": "docs/install.md",
+     "line_range": [
+      135,
+      135
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Important",
+    "description": "carve-out scope divergence (docs vs skill preamble)",
+    "defect_signature": {
+     "file": "docs/install.md",
+     "line_range": [
+      103,
+      103
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Suggestion",
+    "description": "paraphrase missing neither-env arm",
+    "defect_signature": {
+     "file": "skills/create-issue/SKILL.md",
+     "line_range": [
+      6,
+      6
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Suggestion",
+    "description": "PA_BARE_ERE no-slash gap; P4 canonical pin; strip/PermissionError tests",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      6258,
+      6262
+     ],
+     "kind": "test_gap"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 9,
+   "overlap_with_iter_N": 2,
+   "new": 7,
+   "new_critical": 0,
+   "new_important": 4
+  },
+  "promoted_to_iter_next": true
+ }
+}

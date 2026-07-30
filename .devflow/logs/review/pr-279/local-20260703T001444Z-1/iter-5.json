@@ -1,0 +1,272 @@
+{
+ "iter": 5,
+ "started_at": "2026-07-03T03:40:00Z",
+ "fix_commit_sha": "06bf929c645abe9df059f186a9476e4e15f8e102",
+ "fix_files": [
+  "lib/test/run.sh",
+  "lib/test/test_python_scripts.py"
+ ],
+ "loop_role": "fix",
+ "checklist": [
+  {
+   "id": "VC-I5-1..3",
+   "claim": "variance items (exit-2 no-partial-write, cwd-relative parity, UTF-8 read contract) \u2014 same claim_signatures as iter-3's R3-2/R3-1/R3-3",
+   "file": "(multiple)",
+   "verification_mode": "lite",
+   "claim_signature": "aggregate:iter5:variance-reused",
+   "verdict": "PASS",
+   "evidence": "reused from iter-3 (matching claim_signature, prior PASS, source files untouched by iter-4/5 fixes)",
+   "reused_from_iter_prev": true
+  }
+ ],
+ "phase3_dispatched": [
+  "devflow:code-reviewer",
+  "devflow:silent-failure-hunter",
+  "devflow:comment-analyzer",
+  "devflow:pr-test-analyzer",
+  "devflow:requesting-code-review"
+ ],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": null
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Important",
+   "description": "P1c detector weaker than documented (prefix-only [^<]); tightened to full sanctioned-prefix enumeration + wrong-placeholder mutation proof",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     6314,
+     6317
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 4,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "marker tests not hermetic vs ambient DEVFLOW_WORKPAD_MARKER; pop/restore guard added",
+   "defect_signature": {
+    "file": "lib/test/test_python_scripts.py",
+    "line_range": [
+     624,
+     741
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "no stderr-silence assertion on the happy custom-marker path; added",
+   "defect_signature": {
+    "file": "lib/test/test_python_scripts.py",
+    "line_range": [
+     652,
+     654
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "wrapper precheck uses [ ! -e ] not [ ! -x ] \u2014 a present-but-non-executable run-jq.sh (rc 126) is misreported as malformed JSON; reviewer graded acceptable-as-is (wrapper tracked +x)",
+   "defect_signature": {
+    "file": "skills/retrospective-weekly/SKILL.md",
+    "line_range": [
+     356,
+     356
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "advisory"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "F5-1",
+   "decision": "applied",
+   "commit": "06bf929"
+  },
+  {
+   "finding_id": "F5-2",
+   "decision": "applied",
+   "commit": "06bf929"
+  },
+  {
+   "finding_id": "F5-3",
+   "decision": "applied",
+   "commit": "06bf929"
+  },
+  {
+   "finding_id": "F5-adv1",
+   "decision": "advisory",
+   "source_file": "skills/retrospective-weekly/SKILL.md",
+   "claim_text": "[ ! -e ] precheck misses present-but-non-executable wrapper (rc 126)",
+   "skip_category": "advisory-parked",
+   "evidence": "final bounded delta-review graded it acceptable-as-is (the wrapper is tracked with the exec bit; #247 class); folded into the rc-capture follow-up issue"
+  }
+ ],
+ "convergence_inputs": {
+  "fixes_applied": 3,
+  "fix_diff_lines": 24,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_1": {
+   "calls": 1,
+   "tokens": 58773,
+   "wall_clock_s": 75
+  },
+  "phase_2": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5
+  },
+  "phase_3": {
+   "calls": 5,
+   "tokens": 584985,
+   "wall_clock_s": 990
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-03T04:30:00Z",
+  "reviewed_sha": "c36f885383c04023dff8d2fbefc9077127d22561",
+  "verdict": "APPROVE WITH CAVEAT",
+  "coverage": "full",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "retrospective-weekly run-jq validity check discards 127 into the malformed-JSON branch (misdirected diagnosis)",
+    "defect_signature": {
+     "file": "skills/retrospective-weekly/SKILL.md",
+     "line_range": [
+      354,
+      354
+     ],
+     "kind": "logic_error"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Important",
+    "description": "PA_WRONGFB_ERE comment overclaims full-prefix coverage (4-char enumeration)",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      6314,
+      6320
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Important",
+    "description": "no behavioral test executes the anchor literal; deep-typo fallback evades pins",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      6281,
+      6480
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion",
+    "description": "residual note should name the Phase 4.1 gate instance",
+    "defect_signature": {
+     "file": "docs/install.md",
+     "line_range": [
+      135,
+      135
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "P1c misses := spelling; create-issue exemption rationale missing",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      6314,
+      6320
+     ],
+     "kind": "test_gap"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 11,
+   "overlap_with_iter_N": 3,
+   "new": 8,
+   "new_critical": 0,
+   "new_important": 3
+  },
+  "promoted_to_iter_next": false,
+  "post_shadow_delta_reviews": [
+   {
+    "delta": "06bf929..0e2d5a5",
+    "result": "1 Important found (vacuous P3c backslash) + 1 policy-without-mechanism (JQ_VALID_RC capture) \u2014 fixed in c36f885"
+   },
+   {
+    "delta": "0e2d5a5..c36f885",
+    "result": "clean; 1 advisory parked ([ ! -e ] vs [ ! -x ] existence-vs-executability, reviewer-graded acceptable-as-is)"
+   }
+  ]
+ }
+}

@@ -1,0 +1,23 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-04T04:32:00Z",
+  "fix_commit_sha": "7a7cc7c",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "AC5 best-effort ::warning:: breadcrumb unpinned (promoted from shadow)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [14612, 14614], "kind": "test_coverage_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-4", "decision": "applied", "commit": "7a7cc7c"}
+  ],
+  "convergence_inputs": {"fixes_applied": 1, "fix_diff_lines": 6, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_6": {"calls": 5, "tokens": 351608, "wall_clock_s": 305},
+    "phase_4_x": {"calls": 1, "tokens": 46872, "wall_clock_s": 41}
+  }
+}

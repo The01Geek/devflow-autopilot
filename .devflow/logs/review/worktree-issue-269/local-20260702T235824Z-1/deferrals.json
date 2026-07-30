@@ -1,0 +1,22 @@
+{
+ "schema_version": 1,
+ "pr_branch": "worktree-issue-269",
+ "base_branch": "main",
+ "generated_at": "2026-07-03T03:10:00Z",
+ "deferrals": [
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Suggestion",
+   "file": ".github/workflows/devflow.yml",
+   "line_range": [
+    150,
+    152
+   ],
+   "symbol": "gh pr view",
+   "kind": "other",
+   "summary": "the review_dedupe guard's HEAD/BRANCH resolution (gh pr view ... 2>/dev/null || echo \"\") swallows gh stderr, so the root cause of a resolution failure (auth vs rate-limit vs missing PR) is unrecoverable from the log; the #269 change gives HEAD a second consumer (the notice body's short SHA)",
+   "category": "out-of-scope",
+   "explanation": "pre-existing lines unmodified by this PR's diff (the guard's query block predates #269; the diff only moved the notice post out of the step and added the head= output on the suppress branch)"
+  }
+ ]
+}

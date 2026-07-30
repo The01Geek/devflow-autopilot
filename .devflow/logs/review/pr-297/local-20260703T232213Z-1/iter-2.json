@@ -1,0 +1,49 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-03T23:35:00Z",
+  "fix_commit_sha": "3007a572e751efc81d1d3909abfb8bda0abdee60",
+  "fix_files": ["skills/implement/phases/phase-3-review.md", "lib/test/run.sh"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "snapshot '>' degrade prose understates persistent-local masking risk (promoted from iter-1 shadow via Park-calibration gate)", "defect_signature": {"file": "skills/implement/phases/phase-3-review.md", "line_range": [81, 81], "kind": "degrade-path-described-as-safe-masks-loss"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh #296 header roll-up comment imprecise (omits pin 2b restating invariant (1) at the seam)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [2386, 2392], "kind": "imprecise-rollup-comment"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-2", "decision": "applied", "commit": "0abdd293bfa29300c23d6aa2c69e9dce198bb728"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "3007a572e751efc81d1d3909abfb8bda0abdee60"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 4, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_3": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 1, "webfetches": 0},
+    "step_2_6": {"calls": 5, "tokens": 358000, "wall_clock_s": 218},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 1}
+  },
+  "shadow": {
+    "ran_at": "2026-07-03T23:40:00Z",
+    "reviewed_sha": "b4a5d3e369132e3a8e9a34de33075d13fae59885",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "iter-2 snapshot-degrade prose attributes surfacing to 'the block's own ::warning::' but the refused-'>' degrade is actually surfaced by the post-return detector block's missing-$BEFORE ::warning::", "defect_signature": {"file": "skills/implement/phases/phase-3-review.md", "line_range": [81, 81], "kind": "misleading-comment-attribution"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 1, "overlap_with_iter_N": 0, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "park_calibration": "park-calibration gate clean: the only prior parked finding (F-2) was already promoted+fixed in iter-2; no remaining parked finding matched a mis-grade shape.",
+    "post_shadow_edit": "convergence shadow reviewed_sha 3007a57; the new Suggestion (attribution imprecision) was fixed in a post-shadow edit (iter-3, commit b4a5d3e). Post-shadow edit gate ran a bounded delta-review over 3007a57..b4a5d3e (3 blinded reviewers) — clean, no new Critical/Important — so reviewed_sha advanced to b4a5d3e. No shell-> redirect edit; the 3-layer backstop code untouched."
+  }
+}

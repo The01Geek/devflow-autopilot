@@ -1,0 +1,89 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-13T03:45:00Z",
+  "fix_commit_sha": "84a0c3046a8791568e850173a93b88a8149c59cc",
+  "fix_files": [".github/workflows/matcher-probe.yml", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": false,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "verdict is shape-blind: keys only on the dummy-arg marker, so a reformulated command (expanded shape-1 anchor, or unrolled for/while/$() wrappers) carries the same marker and reads as a false PERMITTED for a form never exercised",
+      "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [611, 624], "kind": "false_positive_measurement"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "IMPLEMENT literal is a coupled mirror of devflow-implement.yml's baked TOOLS with no test pinning the sync",
+      "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [430, 431], "kind": "coupled_mirror_drift"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "shape-1 comment says the shell does not expand the anchor; bash does apply the :- default, it just resolves to an absent path",
+      "defect_signature": {"file": ".github/workflows/matcher-probe.yml", "line_range": [507, 510], "kind": "comment_accuracy"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "84a0c3046a8791568e850173a93b88a8149c59cc"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "84a0c3046a8791568e850173a93b88a8149c59cc"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "84a0c3046a8791568e850173a93b88a8149c59cc"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 55,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 90
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 255000, "wall_clock_s": 200},
+    "step_2_6": {"calls": 5, "tokens": 288000, "wall_clock_s": 205}
+  },
+  "shadow": {
+    "ran_at": "2026-07-13T03:52:00Z",
+    "reviewed_sha": "84a0c3046a8791568e850173a93b88a8149c59cc",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "DENIED detection depends on the permission_denials record carrying the command marker (no side-effect backstop on the 6 matcher-only rows); inherited, empirically-validated assumption also used by the sibling probe job, not a defect this diff introduces"},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "run.sh pin comment 'byte-token identity' is slightly imprecise (tokens are stripped); header comment states the #450 hypothesis as settled fact vs the body's 'suspects' wording"},
+      {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "EXTRAS is a second hand-copied mirror of config's allowed_tools with no sync pin (candidate future pin)"}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 0, "new": 3, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}

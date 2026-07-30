@@ -1,0 +1,217 @@
+{
+ "iter": 3,
+ "started_at": "2026-07-13T03:45:00Z",
+ "fix_commit_sha": "1f4b105ceda114d805609046bd23230cbec3aeae",
+ "fix_files": [
+  ".claude/settings.json",
+  ".github/workflows/matcher-probe.yml",
+  "docs/execution-file-shape.md",
+  "lib/test/fixtures/exec-shape-denials-emptyarray.json",
+  "lib/test/run.sh",
+  "scripts/extract-execution-shape.sh",
+  "scripts/stop-hook-probe.sh"
+ ],
+ "loop_role": "promoted",
+ "fix_severity_threshold": "important",
+ "checklist": [],
+ "checklist_note": "promoted iteration (convergence-shadow outcome 2): Phase 1+2 skipped by design \u2014 inputs are the shadow's own full engine result (51 items, all PASS)",
+ "phase3_dispatched": [],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": "intentional-promoted-iter"
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Important",
+   "description": "root-resolution comment false against HEAD (subdirectory session writes the AC6 marker off-root) \u2014 self-contradicting-diff carve-out; fixed by resolving the git toplevel FROM the payload cwd, matching the #295 contract the comment claims",
+   "defect_signature": {
+    "file": "scripts/stop-hook-probe.sh",
+    "line_range": [
+     63,
+     65
+    ],
+    "kind": "documented_falsehood"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Important",
+   "description": "empty permission_denials array vs count-0 carrier disagreement; fixed \u2014 [] is valid-falsy absent, fixture pinned",
+   "defect_signature": {
+    "file": "scripts/extract-execution-shape.sh",
+    "line_range": [
+     2021,
+     2035
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Suggestion",
+   "description": "settings hook rc-honest breadcrumb; placeholder de-prefixed",
+   "defect_signature": {
+    "file": ".claude/settings.json",
+    "line_range": [
+     60,
+     63
+    ],
+    "kind": "other"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "cat rationale documented; owner-specific config-dir detail dropped; workflow cwd assumption stated",
+   "defect_signature": {
+    "file": "scripts/stop-hook-probe.sh",
+    "line_range": [
+     147,
+     147
+    ],
+    "kind": "style"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "describe-hook-probe no-arg asserts; transcript-is-dir pin; observed.txt heading coupling",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": null,
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "T3-1",
+   "decision": "applied",
+   "commit": "1f4b105"
+  },
+  {
+   "finding_id": "T3-2",
+   "decision": "applied",
+   "commit": "1f4b105"
+  },
+  {
+   "finding_id": "T3-3",
+   "decision": "applied",
+   "commit": "1f4b105"
+  },
+  {
+   "finding_id": "T3-4",
+   "decision": "applied",
+   "commit": "1f4b105"
+  },
+  {
+   "finding_id": "T3-5",
+   "decision": "applied",
+   "commit": "1f4b105"
+  }
+ ],
+ "verification_evidence": {
+  "command": "lib/test/run.sh (pre-commit, 5787/0) + shellcheck (new scripts clean) + stale-prose-lint rc=0",
+  "result": "pass",
+  "duration_s": 95
+ },
+ "stale_prose_check": "branch+worktree diff at 1f4b105: rc=0",
+ "convergence_inputs": {
+  "fixes_applied": 5,
+  "fix_diff_lines": 92,
+  "critical_important_code_fixes": 2,
+  "critical_important_code_lines": 18,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_3": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 0,
+   "note": "promoted iter \u2014 findings supplied by the convergence shadow"
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10
+  }
+ },
+ "devflow_reflection": [
+  "The convergence shadow's REJECT-driver (documented_falsehood on the root-resolution comment) was fixed in the CODE direction \u2014 the comment's claimed #295 semantics were the right behavior, so the code was brought to the comment (toplevel-from-cwd), not vice versa; the subdir-cwd + off-root-absence tests pin it.",
+  "Carrier-agreement fix: empty denials array now valid-falsy absent, matching count 0; non-array carrier shapes deliberately kept as presence signals (unknown future shape, fail-toward-signal).",
+  "park-calibration gate clean: no parked finding matched (parked residuals re-read against the delta-review rounds; none re-raised, none matches the fail-open/overclaiming/unhonorable-deferral shapes).",
+  "over-grade calibration gate clean on the final rounds: no promote-path Critical/Important flagged without a recorded evaluation.",
+  "fix-delta gate results: iter-1 clean; iter-2 one Important (pin-in-comment) re-fixed in-iteration; iter-3 clean; two closing delta rounds clean at Critical/Important with corroborated Suggestions applied.",
+  "post-shadow edit gate: final HEAD 7fbe74e differs from the last full-roster-reviewed d2eed01 by ONE test-only commit that implements that round's own prescription (a fixture + assertion, suite-verified) \u2014 recorded as the residual rather than laundered into 'shadow agreed'."
+ ],
+ "fix_commit_sha_final": "7fbe74ebfdfded6ae875221f4248aca775fa623e",
+ "shadow": {
+  "ran_at": "2026-07-13T04:30:00Z",
+  "reviewed_sha": "7fbe74ebfdfded6ae875221f4248aca775fa623e",
+  "trigger": "convergence-time (composed: full shadow at cc0dbc5 + full-roster blinded delta-reviews at 1f4b105, f209f79, d2eed01; the final 7fbe74e commit is a test-only pin the d2eed01 delta-review itself prescribed, suite-verified 5794/0)",
+  "verdict": "APPROVE with notes",
+  "coverage": "full",
+  "coverage_note": "DEVIATION recorded: convergence coverage is the composition of one full whole-diff shadow fan-out (cc0dbc5) plus three successive full-5-reviewer blinded delta-reviews covering every commit after it, rather than a fourth whole-diff fan-out; every reviewer in every round returned with positive evidence (1:1 join complete)",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "phase3_findings": [],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 0,
+   "overlap_with_iter_N": 0,
+   "new": 0,
+   "new_critical": 0,
+   "new_important": 0
+  },
+  "promoted_to_iter_next": false,
+  "residual_notes": [
+   "comment-precision nit: 'normalized like the count carrier' analogy loose on non-numeric strings (final-pass: no change required)",
+   "pre-existing three-value falsy enumeration in a diff-untouched comment (extend if touched again)",
+   "'_(no object keys found)_' structural placeholder arm untested (rating 2, near-unreachable)",
+   "OBSERVED-table Evidence-cell 'supporting, not sufficient' labeling (PLAUSIBLE polish, caveat already in-cell)"
+  ]
+ }
+}

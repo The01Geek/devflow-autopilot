@@ -1,0 +1,89 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-07T23:41:23Z",
+  "fix_commit_sha": "c5b2087",
+  "fix_files": [".github/workflows/devflow.yml", "docs/workflow-triggers.md", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "review_dedupe detector extraction under set -euo pipefail: a present-but-broken detector or missing sed aborts the guard step, failing the job and skipping the downstream command job — silently swallowing the manual review, inverting the fail-OPEN contract",
+      "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [155, 155], "kind": "fail-open-contract-violation"},
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "the [ ! -x \"$DETECTOR\" ] missing-detector fail-open branch is not pinned",
+      "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [148, 148], "kind": "missing-drift-pin"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "the 'First-match-wins is preserved' comment slightly overstates continuity with the old case-substring mechanism",
+      "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [145, 146], "kind": "comment-precision"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "c5b2087"},
+    {"finding_id": "F-2", "decision": "advisory", "source_file": ".github/workflows/devflow.yml", "claim_text": "unpinned -x fail-open branch", "skip_category": "advisory-parked", "evidence": "Suggestion (criticality 3, 'not required for merge'); shadow surfaced it, parked as post-convergence note per Loop Exit discipline — no post-shadow code edit"},
+    {"finding_id": "F-3", "decision": "advisory", "source_file": ".github/workflows/devflow.yml", "claim_text": "'First-match-wins is preserved' wording", "skip_category": "advisory-parked", "evidence": "Suggestion wording nit; the reassurance is correct; parked, not a post-shadow edit"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 1,
+    "fix_diff_lines": 50,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-07T23:55:00Z",
+    "reviewed_sha": "c5b2087",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "unpinned -x fail-open branch (belt-and-suspenders)", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [148, 148], "kind": "missing-drift-pin"}},
+      {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "'First-match-wins is preserved' wording nit", "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [145, 146], "kind": "comment-precision"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 2,
+      "overlap_with_iter_N": 2,
+      "new": 0,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 217000, "wall_clock_s": 130},
+    "step_2_6": {"calls": 5, "tokens": 230000, "wall_clock_s": 350}
+  }
+}

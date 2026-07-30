@@ -1,0 +1,132 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-11T19:30:00Z",
+  "fix_commit_sha": "b00d28fe6400e1c2a4a29fc0074d15a7667bf5b0",
+  "fix_files": ["scripts/stale-prose-lint.py", "skills/review/SKILL.md", "lib/test/run.sh"],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "_run_git decodes git show output with the locale-default codec (text=True); a non-ASCII file body under a C/POSIX locale raises UnicodeDecodeError that propagates to exit 2, masking every other file's verdict incl. a real STALE.",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [102, 110], "kind": "decode-error-masks-verdict"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Phase 0.6 helper-run fence captured no exit status, so an exit-2 internal error (empty stdout) was indistinguishable from 'no stale claims' — arm (c) inert (policy-without-mechanism).",
+      "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [491, 508], "kind": "exit-code-not-captured-arm-inert"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "R2 reconciled sibling asserted only exit 0, no VERIFIED positive control — a mutant dropping legend-block detection would stay GREEN.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [24650, 24651], "kind": "vacuous-positive-control"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "R1 _forward_maxcase scans to EOF; an unrelated later 'Case N' in a different section could mark a 'Cases A-B' header STALE (false positive).",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [164, 171], "kind": "false-positive-scope"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Suggestion",
+      "description": "parse_diff misclassifies an added content line beginning with '++ ' as a '+++' file header (low likelihood in prose).",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [124, 143], "kind": "diff-parse-edge-case"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "git show rc!=0 uniformly maps to UNRESOLVABLE; a genuine internal git error on one file is silently reclassified rather than exit 2. Blast radius low (rev pre-validated).",
+      "defect_signature": {"file": "scripts/stale-prose-lint.py", "line_range": [154, 161], "kind": "git-error-misclassified-unresolvable"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "config.schema.json stale_prose description says 'Phase-3 pass of /devflow:review-and-fix' — matches the pre-existing line-202 idiom in the same file; changing only the new line would create inconsistency.",
+      "defect_signature": {"file": ".devflow/config.schema.json", "line_range": [213, 213], "kind": "prose-precision"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "b00d28fe6400e1c2a4a29fc0074d15a7667bf5b0"},
+    {"finding_id": "F-2", "decision": "applied", "commit": "b00d28fe6400e1c2a4a29fc0074d15a7667bf5b0"},
+    {"finding_id": "F-3", "decision": "applied", "commit": "b00d28fe6400e1c2a4a29fc0074d15a7667bf5b0"},
+    {"finding_id": "F-4", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "R1 forward scan to EOF false positives across sections", "skip_category": "uncategorized", "evidence": "By-design per issue AC (whole-forward-region scan); false positives handled by the config severity knob and the fix_decisions pushback valve, which are the issue's intended valves. Narrowing to block boundaries would be a design change beyond scope."},
+    {"finding_id": "F-5", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "'++ ' added content misclassified as '+++' header", "skip_category": "uncategorized", "evidence": "Very low likelihood in prose (an added line whose content literally begins '++ '); fixing risks new parser edge cases for a Suggestion-level latent bug."},
+    {"finding_id": "F-6", "decision": "deferred", "source_file": "scripts/stale-prose-lint.py", "claim_text": "git show rc!=0 -> UNRESOLVABLE collapses genuine git errors", "skip_category": "uncategorized", "evidence": "Blast radius low: --rev is pre-validated up front, so the common 'path not at rev' case is legitimately UNRESOLVABLE; a genuine internal git failure on one file is rare."},
+    {"finding_id": "F-7", "decision": "pushed_back", "source_file": ".devflow/config.schema.json", "claim_text": "'Phase-3 pass' wording", "skip_category": "claim-quality", "evidence": "Line 202 (verdict_severity_threshold, pre-existing, not in this PR's diff) already uses the identical 'Phase-3 pass of /devflow:review-and-fix' idiom; the new line 213 matches that established convention. Changing only 213 introduces intra-file inconsistency; changing 202 too is out-of-scope."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_3": {"calls": 4, "tokens": 287020, "wall_clock_s": 240}
+  },
+  "shadow": {
+    "ran_at": "2026-07-11T19:42:00Z",
+    "reviewed_sha": "bba6e98d3060305cbae3e1527fb851fe339b8b8c",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": [
+      {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "R4 has no VERIFIED positive control (dead VERIFIED arm; mutant forcing R4 always-STALE ships green)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [24668, 24678], "kind": "vacuous-positive-control-missing"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true,
+    "post_shadow_edit_gate": {
+      "reviewed_sha_at_shadow": "b00d28fe6400e1c2a4a29fc0074d15a7667bf5b0",
+      "head_at_exit": "bba6e98d3060305cbae3e1527fb851fe339b8b8c",
+      "delta_review": "clean (blinded general-purpose delta-reviewer over b00d28f..HEAD found no new Critical/Important); reviewed_sha advanced to HEAD"
+    }
+  }
+}

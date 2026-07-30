@@ -1,0 +1,38 @@
+{
+  "iter": 1,
+  "started_at": "2026-06-26T18:02:14Z",
+  "fix_commit_sha": "79c3efe16189dee1c93a791513e3940439d60bfb",
+  "fix_files": [],
+  "checklist": [
+    {"id":"VC-1","claim":"SKILL.md §2 canonical block lists the same .devflow/config*.json siblings the helper matches","file":"skills/retrospective-audit/SKILL.md","verification_mode":"lite","claim_signature":"sync:skill-block-vs-helper:config-siblings","verdict":"PASS","evidence":"both derive {config.json,config.example.json,config.schema.json}","reused_from_iter_prev":false},
+    {"id":"VC-2","claim":"version 2.8.11 has a matching CHANGELOG entry","file":"CHANGELOG.md","verification_mode":"lite","claim_signature":"api_contract:changelog:version-match","verdict":"PASS","evidence":"## [2.8.11] entry present","reused_from_iter_prev":false}
+  ],
+  "phase3_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent":"pr-review-toolkit:pr-test-analyzer","severity":"Suggestion","description":"drift-guard intentionally covers only .devflow/config*.json siblings; structural-dir entries remain review-enforced","defect_signature":{"file":"lib/test/run.sh","line_range":[3076,3100],"kind":"coverage-scope-note"},"corroboration_count":1,"step25_classification":"codebase","fix_decision":"advisory"}
+  ],
+  "fix_decisions": [],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-06-26T18:02:14Z",
+    "reviewed_sha": "79c3efe16189dee1c93a791513e3940439d60bfb",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
+    "expected_reviewers": ["pr-review-toolkit:code-reviewer","pr-review-toolkit:silent-failure-hunter","pr-review-toolkit:comment-analyzer","pr-review-toolkit:pr-test-analyzer","superpowers:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {"agent":"pr-review-toolkit:silent-failure-hunter","severity":"Suggestion","description":"regex delimiter asymmetry [^|) ]* (helper) vs [^ ]* (SKILL); fails closed","defect_signature":{"file":"lib/test/run.sh","line_range":[51,55],"kind":"regex-delimiter-asymmetry"}}
+    ],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 2, "overlap_with_iter_N": 1, "new": 1, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  },
+  "telemetry": {
+    "phase_3": {"calls": 5, "tokens": 195000, "wall_clock_s": 200},
+    "step_2_6": {"calls": 5, "tokens": 192000, "wall_clock_s": 130}
+  }
+}

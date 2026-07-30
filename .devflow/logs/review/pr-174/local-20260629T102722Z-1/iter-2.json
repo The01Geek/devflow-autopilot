@@ -1,0 +1,167 @@
+{
+  "iter": 2,
+  "source": "review-and-fix",
+  "started_at": "2026-06-29T10:40:00Z",
+  "fix_commit_sha": "3fcddbf57eca09a4cc7cf126333e428b64037fa5",
+  "fix_files": [
+    "err.txt",
+    "err2.txt",
+    "lib/test/run.sh"
+  ],
+  "checklist": [
+    {
+      "id": "VC-11",
+      "verification_mode": "agent",
+      "verdict": "FAIL",
+      "claim_signature": "string_presence:err.txt:stray-artifact-files-committed",
+      "evidence": "err.txt/err2.txt committed in e2808e2 — stray ENOTDIR captures; FIXED via git rm in this iter"
+    },
+    {
+      "id": "VC-12",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "api_contract:run.sh:sentinel-producer-consumer-glob-match"
+    },
+    {
+      "id": "VC-13",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "data_format_assumption:run.sh:devnull-not-matched-by-sentinel-glob"
+    },
+    {
+      "id": "VC-14",
+      "verification_mode": "agent",
+      "verdict": "PASS",
+      "claim_signature": "test_mock_alignment:run.sh:arm-loop-prefix-assignment-scopes-results"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Critical",
+      "description": "stray err.txt/err2.txt committed at repo root",
+      "defect_signature": {
+        "file": "err.txt",
+        "line_range": [
+          1,
+          1
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 5,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "[ -n ] guard redundant with [ -d ]; comment falsely claims dropping -n turns arm RED",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          197,
+          223
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "arm-loop leaks 3 mktemp-failed breadcrumbs to stderr on green runs",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          210,
+          223
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "optional .gitignore guard for err*.txt",
+      "defect_signature": {
+        "file": ".gitignore",
+        "line_range": null,
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-stray",
+      "decision": "applied",
+      "commit": "3fcddbf57eca09a4cc7cf126333e428b64037fa5"
+    },
+    {
+      "finding_id": "F-redundant-guard",
+      "decision": "applied",
+      "commit": "3fcddbf57eca09a4cc7cf126333e428b64037fa5"
+    },
+    {
+      "finding_id": "F-stderr-leak",
+      "decision": "applied",
+      "commit": "3fcddbf57eca09a4cc7cf126333e428b64037fa5"
+    },
+    {
+      "finding_id": "F-gitignore",
+      "decision": "pushed_back",
+      "source_file": ".gitignore",
+      "claim_text": "add .gitignore guard for err*.txt to prevent recurrence",
+      "skip_category": "uncategorized",
+      "evidence": "whack-a-mole: a stray could have any name (out.txt, log, etc.); the real recurrence-fix is scoped git add (applied this iter) + removing the files (applied). Final-pass graded it optional/non-blocking."
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 1
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_1": {
+      "calls": 1,
+      "tokens": 55877,
+      "wall_clock_s": 72
+    },
+    "phase_2": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 5
+    },
+    "phase_3": {
+      "calls": 5,
+      "tokens": 285164,
+      "wall_clock_s": 191
+    },
+    "step_3": {
+      "calls": 0,
+      "tokens": 0,
+      "wall_clock_s": 600
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-04T04:55:00Z",
+  "fix_commit_sha": "ae3042d",
+  "fix_files": ["docs/cloud-setup.md"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": "intentional"},
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "docs/cloud-setup.md:198-202 primary-App fail-loud paragraph still names 'the read-only review run' under the DEVFLOW_APP_ID remedy; after #300 the review run gates solely on DEVFLOW_REVIEWER_APP_ID, so the operator remedy (unset DEVFLOW_APP_ID) is wrong for that site", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [198, 202], "kind": "doc_accuracy"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "docs/cloud-setup.md:207 motivating sentence uses present tense ('runs under the same identity') that reads as current-state though it describes the pre-fix problem", "defect_signature": {"file": "docs/cloud-setup.md", "line_range": [207, 208], "kind": "doc_clarity"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S3-1", "decision": "applied", "commit": "ae3042d"},
+    {"finding_id": "S3-2", "decision": "applied", "commit": "ae3042d"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 8, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-04T05:05:00Z",
+    "reviewed_sha": "ae3042d",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 0, "overlap_with_iter_N": 0, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false,
+    "note": "Full-coverage code/test audit across shadow-1 (5 agents) + shadow-2 (3 agents incl. code-reviewer) returned zero code/test findings; iter-3 delta was cloud-setup.md prose only, reviewed by a bounded blinded doc-accuracy sweep confirming BOTH docs fully reconciled with no remaining primary-app attribution of the review path. Park/over-grade calibration gate clean: the only parked items were the two iter-1 Suggestions, both applied. reviewed_sha == HEAD (post-shadow edit gate satisfied via bounded delta-review of the docs-only iter-3 delta)."
+  },
+  "telemetry": {
+    "step_2_6": {"calls": 3, "tokens": 260000, "wall_clock_s": 250}
+  }
+}
