@@ -1022,7 +1022,7 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
             summary,
         )
 
-    def test_final_inventory_is_a_canonical_boundary_only_realization(self):
+    def test_final_inventory_realizes_only_authorized_buckets(self):
         inventory = REPO_ROOT / ".devflow/logs/pin-corpus-inventory.tsv"
         raw = inventory.read_text(encoding="utf-8")
         metadata = dict(
@@ -1039,7 +1039,37 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         )
         rows = list(csv.DictReader((line for line in raw.splitlines() if not line.startswith("# ")), delimiter="\t"))
         self.assertTrue(rows)
-        self.assertEqual({"boundary"}, {row["bucket_final"] for row in rows})
+        # Issue #885's re-adjudication moved every site whose pinned literal is
+        # agent-executed prose no tool reads out of `boundary` and into
+        # `prose-sole-copy`, so the census is no longer the boundary-only realization
+        # this test used to assert.  What must still hold is arm 2's own precondition:
+        # a prose bucket may appear only on a row arm 2 would have authorized, and only
+        # with an explicit maintainer adjudication behind it.  Asserting the
+        # precondition rather than a transcribed population count keeps this a live
+        # gate that a later re-adjudication cannot silently widen — a prose bucket on a
+        # multi-home row, or one resting on the classifier's mechanical fallback rather
+        # than a recorded judgment, is RED here before it can authorize a retirement.
+        self.assertLessEqual(
+            {row["bucket_final"] for row in rows}, {"boundary"} | PROSE_BUCKETS
+        )
+        classifier = load_classifier()
+        table = classifier.parse_adjudications(ADJUDICATIONS.read_text(encoding="utf-8"))
+        for row in rows:
+            bucket = row["bucket_final"]
+            if bucket not in PROSE_BUCKETS:
+                continue
+            where = f"{decode_cell(row['source_file'])}:{row['line_start']}"
+            counted = int(row["counted_occurrences"])
+            if bucket == "prose-sole-copy":
+                self.assertEqual(1, counted, where)
+            else:
+                self.assertGreaterEqual(counted, 2, where)
+            rationale = decode_cell(row["adjudication_rationale"])
+            self.assertFalse(rationale.startswith("mechanical:"), where)
+            digest = hashlib.sha256(
+                decode_cell(row["literal"]).encode("utf-8")
+            ).hexdigest()
+            self.assertIn(f"literal:{digest}", table, where)
         self.assertTrue(all(".devflow/logs/pin-corpus-inventory.tsv" not in decode_cell(row["homes"]) for row in rows))
         _, manifest = self.load_manifest()
         retired = {identity(row) for row in manifest if row["disposition"] == "RETIRE_PROSE"}
