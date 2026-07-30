@@ -35811,6 +35811,70 @@ else:
     print("SYNCED" if got == want else f"DRIFT: probe={got} config={want}")
 PY
 )"
+# ── #928 (deferred half): devflow-implement.yml re-anchors the hosted-runner
+# ── workspace prefix in devflow_implement.allowed_tools onto the live
+# ── $GITHUB_WORKSPACE before splicing it into --allowed-tools. The prefix embeds
+# ── the repository name TWICE, so a rename would leave every such token matching
+# ── nothing — and an ungranted head is SILENTLY denied, so the loss surfaces as a
+# ── run that quietly does less, never as an error.
+# ──
+# ── These assertions drive the jq program EXTRACTED FROM THE WORKFLOW ITSELF, so
+# ── they measure the shipped expression rather than a copy that could drift.
+I928_JQ="$E363/allowed-tools-extra.jq"
+python3 - "$IMPL_YML" "$I928_JQ" <<'PY'
+import re, sys
+line = next(
+    (l for l in open(sys.argv[1], encoding="utf-8") if "allowed_tools_extra=$(" in l),
+    None,
+)
+if line is None:
+    sys.exit("allowed_tools_extra extraction line not found")
+m = re.search(r"jq -r --arg ws \"\$GITHUB_WORKSPACE\" '(.*)'\)\"", line)
+if not m:
+    sys.exit("jq program not found in the expected --arg ws shape")
+open(sys.argv[2], "w", encoding="utf-8").write(m.group(1))
+PY
+assert_eq "#928 the allowed_tools_extra jq program is extractable from devflow-implement.yml (the pins below are not vacuous)" "yes" \
+  "$([ -s "$I928_JQ" ] && echo yes || echo no)"
+# The transform is a NO-OP today: $GITHUB_WORKSPACE already equals the literal the
+# tokens carry, so the resolved allowlist is byte-identical to the pre-#928 program.
+I928_CUR="/home/runner/work/devflow-autopilot/devflow-autopilot"
+assert_eq "#928 re-anchoring is byte-identical to the untransformed join at the CURRENT workspace" \
+  "$(jq -r '.devflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end' "$LIB/../.devflow/config.json")" \
+  "$(jq -r --arg ws "$I928_CUR" -f "$I928_JQ" "$LIB/../.devflow/config.json")"
+# After a rename every workspace-absolute token follows the workspace; none is left stale.
+I928_REN="$(jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ" "$LIB/../.devflow/config.json")"
+assert_eq "#928 after a repo rename no token retains the stale workspace prefix" "0" \
+  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+assert_eq "#928 after a repo rename every workspace-absolute token is re-anchored (count preserved)" \
+  "$(jq -r '[.devflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.devflow/config.json")" \
+  "$(printf '%s' "$I928_REN" | tr ',' '\n' | grep -c 'work/renamed/renamed')"
+# Scope: only GitHub's hosted-workspace shape is rewritten. A deliberate
+# out-of-workspace absolute grant must survive untouched, or this transform would
+# silently revoke a consumer's grant while claiming to protect one.
+assert_eq "#928 an out-of-workspace absolute grant is NOT re-anchored" ",Bash(/usr/local/bin/foo:*)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Bash(/usr/local/bin/foo:*)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+assert_eq "#928 a repo-relative grant is NOT re-anchored" ",Bash(scripts/x.sh:*)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Bash(scripts/x.sh:*)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+# The pattern is anchored at `^Bash(` — a workspace path in a non-Bash tool spec, or
+# anywhere but the start, is left alone rather than half-rewritten.
+assert_eq "#928 the rewrite is anchored at ^Bash( — a non-Bash tool spec is untouched" ",Read(/home/runner/work/a/b/x)" \
+  "$(printf '%s' '{"devflow_implement":{"allowed_tools":["Read(/home/runner/work/a/b/x)"]}}' \
+     | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+# Fail-closed on an unset workspace: the identity branch keeps the tokens as authored
+# rather than rewriting them to a root-anchored `Bash(/scripts/…)` that matches nothing.
+assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE selects the identity branch (never a root-anchored token)" "0" \
+  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.devflow/config.json" | tr ',' '\n' | grep -c '^Bash(/scripts/')"
+assert_eq "#928 an EMPTY \$GITHUB_WORKSPACE leaves the authored tokens intact" \
+  "$(jq -r '[.devflow_implement.allowed_tools[] | select(startswith("Bash(/home/runner/work/"))] | length' "$LIB/../.devflow/config.json")" \
+  "$(jq -r --arg ws "" -f "$I928_JQ" "$LIB/../.devflow/config.json" | tr ',' '\n' | grep -c 'devflow-autopilot/devflow-autopilot')"
+# Empty/absent-key shapes still collapse to "" (no stray leading comma reaching the splice).
+for _i928_shape in '{}' '{"devflow_implement":{"allowed_tools":null}}' '{"devflow_implement":{"allowed_tools":[]}}'; do
+  assert_eq "#928 an empty/absent allowlist still yields the empty string ($_i928_shape)" "" \
+    "$(printf '%s' "$_i928_shape" | jq -r --arg ws "/home/runner/work/renamed/renamed" -f "$I928_JQ")"
+done
 # ── Coupled-invariant: the workflow grants the two label helpers in the explicit
 # ── vendored-literal leading-token form the implement-probe table proved PERMITTED (#455).
 assert_eq "#455: devflow-implement.yml grants apply-labels.sh in the explicit vendored-literal form" "yes" \

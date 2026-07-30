@@ -108,7 +108,32 @@ jobs:
             # inherit the light path's extras, so adopters list every extra tool
             # they want during /devflow:implement under `devflow_implement.allowed_tools`.
             # Emits a leading-comma string (",Bash(make:*),…") or "".
-            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow_implement.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+            #
+            # Workspace re-anchoring (the deferred half of issue #928). A token may
+            # carry the hosted-runner workspace prefix `/home/runner/work/<a>/<b>/`,
+            # which embeds the repository name TWICE. Renaming the repository moves
+            # $GITHUB_WORKSPACE and every such token stops matching — and per this
+            # repo's own documented behaviour an ungranted head is SILENTLY denied,
+            # so the loss would surface as a run that quietly does less, never as an
+            # error. `sub` re-anchors exactly that prefix onto the live workspace, the
+            # same transform `.github/workflows/matcher-probe.yml` applies to its own
+            # baseline. Properties that make this safe to land blind:
+            #   * It is a NO-OP today — $GITHUB_WORKSPACE already equals the literal
+            #     the tokens carry, so the resolved --allowed-tools string is
+            #     byte-identical until the day of a rename.
+            #   * The pattern is anchored at `^Bash(` and matches only GitHub's hosted
+            #     workspace shape, so a deliberate out-of-workspace absolute grant
+            #     (`Bash(/usr/local/bin/foo:*)`) is left untouched.
+            #   * An empty $GITHUB_WORKSPACE selects the identity branch rather than
+            #     rewriting tokens to a root-anchored `Bash(/scripts/…)` that would
+            #     match nothing.
+            #   * The `type == "string"` test guards `sub` only — it never drops an
+            #     entry. A non-string entry still reaches `join` and is handled
+            #     exactly as before this change (a number joins; an object/array
+            #     aborts the step), so the malformed-config behaviour is unchanged
+            #     rather than newly silent. Dropping such an entry would instead hand
+            #     the run a short allowlist with no diagnostic.
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r --arg ws "$GITHUB_WORKSPACE" '.devflow_implement.allowed_tools // [] | (if $ws == "" then . else map(if type == "string" then sub("^Bash\\(/home/runner/work/[^/]+/[^/]+/"; "Bash(" + $ws + "/") else . end) end) | if length > 0 then "," + join(",") else "" end')"
             # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
             echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
             # Effective workpad marker, passed to the resolver's self-trigger guard.
