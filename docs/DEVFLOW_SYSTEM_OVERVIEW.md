@@ -16,8 +16,11 @@
 > drift from reality. Internal/strategy material (the private roadmap) is
 > deliberately **excluded**.
 >
-> **Current version at time of writing:** PRFlow `2.4.3`. License: MIT © 2026
-> Daniel Radman.
+> **Version.** This document carries no version literal on purpose — a hand-maintained
+> one drifts silently, which is exactly what the accuracy promise above forbids. The
+> shipped version is the `version` field of [`.claude-plugin/plugin.json`](../.claude-plugin/plugin.json),
+> and [`CHANGELOG.md`](../CHANGELOG.md) records what changed in each release.
+> License: MIT © 2026 Daniel Radman.
 
 ---
 
@@ -776,18 +779,23 @@ A structured handoff that prevents a deliberately-deferred Critical finding from
 
 ## 14. The cloud tier: GitHub Actions architecture
 
-Four PRFlow workflows (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check — since issue #877 that job is an **aggregator** that recombines the pass/fail/skip tallies of a concurrent `shard` matrix (`monolith` + `modules-*`) and fails the required check if any shard fails, is cancelled, is skipped, or is missing; the required-check name is unchanged):
+Three PRFlow workflows remain in the tree — `install.sh` ships the first two into a
+consumer repository (plus the repo's own `ci.yml`, whose **required** status check is the **`lib + python tests`** job, *not* `CI`, which is only the workflow `name:` and never resolves as a check — since issue #877 that job is an **aggregator** that recombines the pass/fail/skip tallies of a concurrent `shard` matrix (`monolith` + `modules-*`) and fails the required check if any shard fails, is cancelled, is skipped, or is missing; the required-check name is unchanged):
 
 | Workflow | `name:` | Purpose |
 |---|---|---|
-| `devflow.yml` | `DevFlow` | Light command listener: `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` (event-driven only) |
-| `devflow-runner.yml` | `PRFlow Runner (reusable)` | Reusable read-only runner called by the reviewer |
-| `devflow-implement.yml` | `PRFlow (implement)` | Runs `/prflow:implement` on a bare command comment |
-| `devflow-review.yml` | `Devflow Review (auto-trigger)` | Auto-runs `/prflow:review` as a PR gate (a required status check) |
+| `devflow.yml` | `DevFlow` | Light command listener: `/prflow:review`, `/prflow:review-and-fix`, `/prflow:pr-description` (event-driven only) — **shipped** |
+| `devflow-implement.yml` | `DevFlow (implement)` | Runs `/prflow:implement` on a bare command comment — **shipped** |
+| `devflow-runner.yml` | `DevFlow Runner (reusable)` | Reusable read-only runner. Its only caller was the withheld auto-review workflow, so nothing reaches it now; retained, not shipped |
+
+`devflow-review.yml` — the auto-review caller that ran `/prflow:review` as a required PR
+gate — was **withdrawn from this release (issue #936) and is not in the tree**. The
+supported review path is a repository collaborator commenting `/prflow:review`. See
+[Withheld from this release](#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier).
 
 **Key architectural facts (the engineering-deck details):**
 
-- **The runner is split into its own file** because GitHub validates a called reusable workflow's permission ceiling against the caller's grant *across the whole called graph, before any `if:` runs*. Keeping the read-only runner separate from the high-privilege command job lets the read-only reviewer call it without a `startup_failure`.
+- **The runner is split into its own file** because GitHub validates a called reusable workflow's permission ceiling against the caller's grant *across the whole called graph, before any `if:` runs*. Keeping the read-only runner separate from the high-privilege command job let the read-only reviewer call it without a `startup_failure`. That caller is withheld, so nothing calls the runner today; the split is why the file exists in its own right.
 - **Coexists with Anthropic's Claude GitHub App.** PRFlow never creates or overwrites `claude.yml`. Every PRFlow trigger negates `@claude` so the two never double-fire (the *partition invariant*, enforced by tests). Anthropic's app owns plain `@claude` mentions, Q&A, and `/security-review`.
 - **Triggers fire on real comments only, never descriptions.** A `/prflow:*` phrase in an issue/PR body or title must never start a run. Trigger text comes solely from comment/review bodies.
 - **`devflow-implement.yml` is issues-only.** The heavy `/prflow:implement` listener subscribes to `issue_comment[created]` alone, and its gate `if:` requires `github.event.issue.pull_request == null` (with `scripts/resolve-implement-trigger.sh` re-checking via an `IS_PULL_REQUEST` backstop). Because a PR comment is *also* an `issue_comment` in GitHub's API, this filter is what keeps a comment on a pull request — including the weekly retrospective's audit-report comment, which quotes the literal `/prflow:implement` phrase in prose on the state PR — from ever starting an implement run. `/prflow:review` and `/prflow:pr-description` in `devflow.yml` stay PR-aware and are unaffected.
@@ -821,7 +829,7 @@ Four PRFlow workflows (plus the repo's own `ci.yml`, whose **required** status c
 Before Claude runs, the runner provisions the toolchain in order **Python → Node → PHP → service containers → `install` lines**. Languages are gated by version keys (empty = skipped). Service containers (databases/caches) start via `docker run` and are reachable on `127.0.0.1:<host-port>`. Node dependency caching is automatic when a lockfile is present. `/prflow:init` auto-fills the deterministic parts from detected language markers.
 
 ### Selecting the runner (`DEVFLOW_RUNNER`)
-Every job in the five consumer-shipped workflows (`devflow.yml`, `devflow-implement.yml`, `devflow-review.yml`, `devflow-runner.yml`, `telemetry-push.yml`) resolves its `runs-on` from an optional GitHub **repository/organization variable** `DEVFLOW_RUNNER` — infrastructure (which machine runs the job), set in GitHub Settings (Actions → Variables), deliberately **not** in the versioned `.devflow/config.json`. It accepts three shapes: **unset or empty** → `ubuntu-latest` (byte-for-byte the previous behavior); a **bare single label** (e.g. `windows-latest`) → that runner; a **JSON array** (e.g. `["self-hosted","windows","PRFlow"]`) → a runner matching that label set. A value that begins with `[` but is not valid JSON fails the job **loud** at evaluation time (a visible `fromJSON` error), rather than silently degrading to `ubuntu-latest`. Each workflow also declares a top-level `defaults: run: shell: bash`, forcing bash for `run:` steps on a non-Linux runner. **`setup.services` Docker caveat:** the service containers above run via `docker run`, and Docker is **preinstalled on `ubuntu-latest`** but **not** on a self-hosted non-ubuntu runner — so `setup.services` and any `Bash(docker:*)` path can break there unless Docker is installed on the runner. **Dispatch-enabled, not certified:** this variable makes a self-hosted / Windows runner *selectable* and forces bash, but does **not** certify that every inline bash body runs correctly on a Windows filesystem — an adopter must run at least one full consumer-shipped workflow end-to-end on the target runner before treating it as production-ready. Full prerequisites (toolchain, the `python3` shim, `DEVFLOW_GH`/`DEVFLOW_JQ`/`DEVFLOW_BASH`, the queue-forever label-match gotcha, the smoke-test boundary) are in [`docs/cloud-setup.md`](cloud-setup.md).
+Every job in the two consumer-shipped workflows (`devflow.yml`, `devflow-implement.yml`) resolves its `runs-on` from an optional GitHub **repository/organization variable** `DEVFLOW_RUNNER` — infrastructure (which machine runs the job), set in GitHub Settings (Actions → Variables), deliberately **not** in the versioned `.devflow/config.json`. It accepts three shapes: **unset or empty** → `ubuntu-latest` (byte-for-byte the previous behavior); a **bare single label** (e.g. `windows-latest`) → that runner; a **JSON array** (e.g. `["self-hosted","windows","PRFlow"]`) → a runner matching that label set. A value that begins with `[` but is not valid JSON fails the job **loud** at evaluation time (a visible `fromJSON` error), rather than silently degrading to `ubuntu-latest`. Each workflow also declares a top-level `defaults: run: shell: bash`, forcing bash for `run:` steps on a non-Linux runner. **`setup.services` Docker caveat:** the service containers above run via `docker run`, and Docker is **preinstalled on `ubuntu-latest`** but **not** on a self-hosted non-ubuntu runner — so `setup.services` and any `Bash(docker:*)` path can break there unless Docker is installed on the runner. **Dispatch-enabled, not certified:** this variable makes a self-hosted / Windows runner *selectable* and forces bash, but does **not** certify that every inline bash body runs correctly on a Windows filesystem — an adopter must run at least one full consumer-shipped workflow end-to-end on the target runner before treating it as production-ready. Full prerequisites (toolchain, the `python3` shim, `DEVFLOW_GH`/`DEVFLOW_JQ`/`DEVFLOW_BASH`, the queue-forever label-match gotcha, the smoke-test boundary) are in [`docs/cloud-setup.md`](cloud-setup.md).
 
 ---
 

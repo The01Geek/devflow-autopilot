@@ -16,14 +16,7 @@
     ![PRFlow turning issue #42 into a ready PR](docs/demo.gif)
 -->
 
-> [!NOTE]
-> **Automatic review on pull request is withheld from this release.** A fresh installation
-> receives no `devflow-review.yml`, `devflow-runner.yml` or `telemetry-push.yml`. The
-> supported review path is a repository collaborator commenting `/prflow:review` on a pull
-> request — an outside fork contributor cannot self-trigger a review. A repository that
-> already installed the tier keeps it, and keeps its exposure to issues #930 and #920 until
-> it removes the files by hand. See [`docs/workflow-triggers.md`](docs/workflow-triggers.md)
-> for the reason and the removal procedure.
+<a name="install"></a>
 
 ## Quick start
 
@@ -127,13 +120,44 @@ The intended way to drive PRFlow — from a feature request to a reviewed pull r
 
 - **`git`** and **[`gh`](https://cli.github.com)** (GitHub CLI, authenticated via `gh auth login`) — you most likely already have these.
 - **`jq`** — JSON wrangling inside the skills.
-- **Python 3.11+ with PyYAML** — install PyYAML with `python3 -m pip install PyYAML`. **The step people miss:** `/plugin install` never runs `pip`, so install PyYAML yourself. Name the package rather than reaching for `-r requirements.txt`: that path resolves against *your* working directory, not the plugin cache, so in a Python project it installs your project's dependencies instead.
+- **Python 3.11+** — the config resolver and most helper scripts are Python. Config itself is JSON, read with the standard library alone.
+- **PyYAML** — `python3 -m pip install PyYAML`. **The step people miss:** `/plugin install` never runs `pip`, so install it yourself. Name the package rather than reaching for `-r requirements.txt`: that path resolves against *your* working directory, not the plugin cache, so in a Python project it installs your project's dependencies instead.
 
-All four are used by the core skills; none is optional. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
+`git`, `gh`, `jq` and `python3` are not optional — the core skills call them directly, and a missing one is a hard stop. Shell helpers avoid GNU-only flags, so macOS/BSD work without GNU coreutils.
+
+**PyYAML is on the list, but it is the one item that degrades rather than breaks** — worth knowing before you block an install on it. Exactly one runtime helper imports it, `match-deferrals.py`, and only lazily, on the path where a pull-request body already carries a deferred-findings block. Without PyYAML that helper exits with an error the review engine logs and steps over, continuing with **all findings intact**; what you lose is the severity demotion of findings you previously deferred, which fails in the safe direction — it surfaces more, never fewer. Implement, review, docs and config all work without it. `bash lib/preflight.sh` still reports it as a gap and exits non-zero, because the helpers are written to assume it is present.
 
 On **Windows** any POSIX **bash** works — **WSL bash**, **Git Bash**, or **MSYS2 bash** (PRFlow mandates none); point PRFlow at the one you want with **`DEVFLOW_BASH`**, and in a checkout of this repo `bash lib/preflight.sh` prints a `devflow-bash:` breadcrumb confirming which bash is in use (a host with *no* POSIX bash at all is out of scope). A non-executable `gh` or `jq` shim can also shadow the real binary on `PATH`; PRFlow resolves the first `gh`/`gh.exe` (and `jq`/`jq.exe`) that actually runs (execution-verified via the shared `lib/resolve-bin.sh` resolver), and you can force a specific binary by setting **`DEVFLOW_GH`** / **`DEVFLOW_JQ`** to the working one. Windows-form paths are normalized to the running shell's POSIX form by `lib/normalize-path.sh`. See [Windows: choosing the bash PRFlow runs under](docs/install.md#windows-choosing-the-bash-prflow-runs-under-devflow_bash), [Windows: resolving `gh`](docs/install.md#windows-resolving-gh), and [Windows: resolving `jq`](docs/install.md#windows-resolving-jq).
 
 **Cloud tier** — nothing to install on your machine; the GitHub Actions runner provisions its own toolchain. By default every job runs on `ubuntu-latest`, but the runner is configurable via the `DEVFLOW_RUNNER` repository/organization variable (a bare label or a JSON label array), which dispatch-enables **self-hosted / Windows runners** — read the prerequisites and the smoke-test boundary in [`docs/cloud-setup.md`](docs/cloud-setup.md) before treating a non-Linux runner as production-ready.
+
+### Withheld: automatic review on pull request
+
+One cloud-tier feature was **withdrawn before this release rather than shipped**: the
+workflow that ran `/prflow:review` automatically on every pull request. Reviewing it
+turned up a design flaw we chose not to patch — its caller triggered on `pull_request`,
+called a reusable workflow with `secrets: inherit`, checked out the pull-request head,
+and had no actor-authorization gate, so a fork could reach a privileged job. Rather than
+harden a feature we were not confident in, we removed it. The two issues describing the
+flaw ([#930](https://github.com/The01Geek/prflow/issues/930),
+[#920](https://github.com/The01Geek/prflow/issues/920)) are closed as *not planned*
+because **the feature they describe no longer exists** — not because the problem was
+dismissed.
+
+**If you are installing PRFlow now, there is nothing to do.** A fresh install never
+receives those workflow files, so the flaw is not reachable. Review still works: a
+repository collaborator comments `/prflow:review` on a pull request and the review runs,
+gated by an actor-authorization check. An outside fork contributor cannot self-trigger one.
+
+**If you installed an earlier version that did ship the tier,** you still have the files
+and re-running the installer deliberately leaves them alone. To remove them, run
+`install.sh --apply --remove-withheld-review-tier`, which deletes
+`.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml` and
+sets `workflows["devflow-review"]` to `false` in `.devflow/config.json`. Then remove the
+`Devflow Review` context from any branch protection rule or ruleset that requires it —
+no installer can do that step for you, and skipping it wedges every later pull request
+behind a required check nothing will report. Full procedure and rationale:
+[`docs/workflow-triggers.md`](docs/workflow-triggers.md#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier).
 
 ## Skills and agents
 
