@@ -716,6 +716,13 @@ _iu_out_has() {  # $1 = captured output, $2 = literal -> yes|no
 _iu_out_matches() {  # $1 = captured output, $2 = ERE -> yes|no
   printf '%s\n' "$1" | grep -qE -- "$2" && echo yes || echo no
 }
+_iu_has_line() {  # $1 = file, $2 = literal WHOLE line -> yes|no
+  # The -x sibling of _iu_has, for the .gitignore arms where a substring match would
+  # confuse `/vendor/` with a longer path. Routed through a helper for the same reason
+  # the three above are: two raw presence commands on one logical assertion line is what
+  # the pin-corpus lint rejects, and several .gitignore arms compare two entries at once.
+  grep -qxF -- "$2" "$1" && echo yes || echo no
+}
 
 # ── Scenario 1: a first-time install APPLIES, and a pristine re-run is a clean,
 # write-free dry run. The documented one-liner must not have become a no-op.
@@ -1622,7 +1629,7 @@ assert_eq "installer-upgrade #959: a DEVFLOW_VENDOR=1 install commits the plugin
 # The committed tree must NOT be gitignored — that is the whole point of DEVFLOW_VENDOR=1,
 # and the thin install's `/vendor/` line would silently keep it out of the consumer's commit.
 assert_eq "installer-upgrade #959: a vendored install leaves /vendor/ OUT of .devflow/.gitignore (a thin install puts it in)" "no yes" \
-  "$(grep -qxF '/vendor/' "$IU_C21/.devflow/.gitignore" && echo yes || echo no) $(grep -qxF '/tmp/' "$IU_C21/.devflow/.gitignore" && echo yes || echo no)"
+  "$(_iu_has_line "$IU_C21/.devflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21/.devflow/.gitignore" '/tmp/')"
 
 # THE EXCLUSION. Upgrade the vendored consumer under a dry run: the apply log reports the
 # vendoring as one line, and the DIFF BODY must not enumerate the vendored tree's files.
@@ -1640,8 +1647,8 @@ assert_eq "installer-upgrade #959: and that vendored dry run still writes nothin
 IU_C21B="$(_iu_consumer vendor-transition)"
 _iu_run "$IU_C21B" >/dev/null                       # thin install first: adds /vendor/
 assert_eq "installer-upgrade #959: the thin install added the /vendor/ ignore line (precondition for the transition arm)" "yes" \
-  "$(grep -qxF '/vendor/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no)"
+  "$(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/vendor/')"
 IU_O21C="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21B" --apply)"
 assert_eq "installer-upgrade #959: upgrading thin→vendored un-ignores .devflow/vendor and keeps the other ignore entries" "no yes yes" \
-  "$(grep -qxF '/vendor/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no) $(grep -qxF '/tmp/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no) $(_iu_out_has "$IU_O21C" 'un-ignored .devflow/vendor/')"
+  "$(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/tmp/') $(_iu_out_has "$IU_O21C" 'un-ignored .devflow/vendor/')"
 rm -rf "$IU_VSRC"
