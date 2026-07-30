@@ -20,11 +20,11 @@ installation receives none of `.github/workflows/devflow-review.yml`,
 `secrets: inherit`, checked out the pull-request head, and carried no actor-authorization
 gate. Two open defects describe the consequences and neither is close to landing:
 
-- [**#930**](https://github.com/The01Geek/devflow-autopilot/issues/930) — the `precheck` job
+- [**#930**](https://github.com/The01Geek/prflow/issues/930) — the `precheck` job
   performs a bare `actions/checkout`, which under the `pull_request` trigger resolves the
   pull request's merge ref. The config that decides whether a review runs at all therefore
   comes from the pull request under review, so "it defaults to off" is not a mitigation.
-- [**#920**](https://github.com/The01Geek/devflow-autopilot/issues/920) — blocked on #930.
+- [**#920**](https://github.com/The01Geek/prflow/issues/920) — blocked on #930.
   It is unknown whether the collaborator-permission API call succeeds under `precheck`'s
   `pull-requests: read` token, and a fork `pull_request` event receives a read-only
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
@@ -83,7 +83,7 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.28.0/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.0/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
 DEVFLOW_REF=v2.28.0 bash devflow-install.sh
 ```
@@ -93,8 +93,8 @@ The URL ref fixes which *installer bytes* you review and run; `DEVFLOW_REF`
 (default `main`, and it accepts a tag, a SHA, or a branch) fixes which ref the
 installer clones its payload from — pinning the URL alone still leaves the payload
 tracking `main`. Substitute a newer tag in both places to install a newer version;
-[the Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest)
-or `gh release list --repo The01Geek/devflow-autopilot --limit 5` names the current
+[the Releases page](https://github.com/The01Geek/prflow/releases/latest)
+or `gh release list --repo The01Geek/prflow --limit 5` names the current
 one. Omit `DEVFLOW_REF` only if you deliberately want to track the moving `main`
 branch. Piping the download straight into `bash` also works
 (`curl -fsSL <pinned-url> | DEVFLOW_REF=<same-tag> bash`) but skips the review step,
@@ -195,7 +195,7 @@ naming the base ref and the remedy rather than leaving only the vendor step's me
 > {
 >   "extraKnownMarketplaces": {
 >     "devflow-marketplace": {
->       "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+>       "source": { "source": "github", "repo": "The01Geek/prflow" },
 >       "autoUpdate": true
 >     }
 >   },

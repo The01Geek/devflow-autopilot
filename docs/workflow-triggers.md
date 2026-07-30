@@ -16,11 +16,11 @@ installation receives none of `.github/workflows/devflow-review.yml`,
 `secrets: inherit`, checked out the pull-request head, and carried no actor-authorization
 gate. Two open defects describe the consequences and neither is close to landing:
 
-- [**#930**](https://github.com/The01Geek/devflow-autopilot/issues/930) — the `precheck` job
+- [**#930**](https://github.com/The01Geek/prflow/issues/930) — the `precheck` job
   performs a bare `actions/checkout`, which under the `pull_request` trigger resolves the
   pull request's merge ref. The config that decides whether a review runs at all therefore
   comes from the pull request under review, so "it defaults to off" is not a mitigation.
-- [**#920**](https://github.com/The01Geek/devflow-autopilot/issues/920) — blocked on #930.
+- [**#920**](https://github.com/The01Geek/prflow/issues/920) — blocked on #930.
   It is unknown whether the collaborator-permission API call succeeds under `precheck`'s
   `pull-requests: read` token, and a fork `pull_request` event receives a read-only
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required

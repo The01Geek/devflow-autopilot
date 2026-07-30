@@ -1,8 +1,8 @@
 # DevFlow — agentic coding that ships on real codebases
 
-[![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/devflow-autopilot/)
+[![DevFlow — Ship the PR, not the cleanup. A Claude Code plugin that turns one request into one merge-ready pull request across four phases: Setup (/devflow:create-issue), Implement (/devflow:implement), Review & fix (/devflow:review-and-fix), and Document (/devflow:docs).](docs/ship-pr.png)](https://the01geek.github.io/prflow/)
 
-[![CI](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/devflow-autopilot/actions/workflows/ci.yml)
+[![CI](https://github.com/The01Geek/prflow/actions/workflows/ci.yml/badge.svg)](https://github.com/The01Geek/prflow/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Built on Claude Code](https://img.shields.io/badge/built%20on-Claude%20Code-d97757.svg)](https://code.claude.com)
 
@@ -31,13 +31,13 @@
 > **Just ask your agent.** Paste this into Claude Code and it handles steps 1 and 2 for you — the install, the setup, and the PATH dependencies `/plugin install` doesn't cover. Then ship your first PR with step 3.
 >
 > ```text
-> Read https://github.com/The01Geek/devflow-autopilot#quick-start and install DevFlow and its dependencies.
+> Read https://github.com/The01Geek/prflow#quick-start and install DevFlow and its dependencies.
 > ```
 
 **1. Install** (two commands — run in order; works in any shell):
 
 ```bash
-claude plugin marketplace add The01Geek/devflow-autopilot
+claude plugin marketplace add The01Geek/prflow
 claude plugin install devflow@devflow-marketplace
 ```
 
@@ -64,7 +64,7 @@ The local tier runs **with zero configuration** — every value already has a bu
 - **It learns every week** — a [retrospective loop](#the-self-improving-loop) reads the trail of merged PRs and files human-reviewed issues that prevent the next recurring failure.
 - **Zero-config to start** — the local tier runs entirely inside Claude Code with no infrastructure; an optional [cloud tier](docs/cloud-setup.md) runs it autonomously on GitHub.
 
-> ▶ **[See the full loop in the interactive one-pager →](https://the01geek.github.io/devflow-autopilot/)**
+> ▶ **[See the full loop in the interactive one-pager →](https://the01geek.github.io/prflow/)**
 
 <details>
 <summary>Contents</summary>

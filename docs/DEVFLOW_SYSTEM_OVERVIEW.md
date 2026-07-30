@@ -8,7 +8,7 @@
 > the precise mechanics engineers need, and flags which is which.
 >
 > **Provenance & accuracy.** Every fact here was extracted from the DevFlow source
-> repository (`The01Geek/devflow-autopilot`): the README, the skill definitions
+> repository (`The01Geek/prflow`): the README, the skill definitions
 > (`skills/*/SKILL.md`), the agent definitions (`agents/*.md`), the GitHub Actions
 > workflows (`.github/workflows/*.yml`), the composite actions, the config schema
 > (`.devflow/config.schema.json`), and the docs (`docs/*.md`). Where a number,
@@ -33,11 +33,11 @@ installation receives none of `.github/workflows/devflow-review.yml`,
 `secrets: inherit`, checked out the pull-request head, and carried no actor-authorization
 gate. Two open defects describe the consequences and neither is close to landing:
 
-- [**#930**](https://github.com/The01Geek/devflow-autopilot/issues/930) — the `precheck` job
+- [**#930**](https://github.com/The01Geek/prflow/issues/930) — the `precheck` job
   performs a bare `actions/checkout`, which under the `pull_request` trigger resolves the
   pull request's merge ref. The config that decides whether a review runs at all therefore
   comes from the pull request under review, so "it defaults to off" is not a mitigation.
-- [**#920**](https://github.com/The01Geek/devflow-autopilot/issues/920) — blocked on #930.
+- [**#920**](https://github.com/The01Geek/prflow/issues/920) — blocked on #930.
   It is unknown whether the collaborator-permission API call succeeds under `precheck`'s
   `pull-requests: read` token, and a fork `pull_request` event receives a read-only
   `GITHUB_TOKEN` regardless of the `permissions:` block, so the job cannot post the required
@@ -475,7 +475,7 @@ Both rule tables are additionally applied *by reachability* rather than by file 
 | 15 | Literal leading `VAR=value` assignment | DENIED |
 | 16 | Computed leading `VAR="$(head)"` assignment | DENIED |
 
-The evidence of record is the user-directed API dispatch [run 29623046995](https://github.com/The01Geek/devflow-autopilot/actions/runs/29623046995), `implement-probe` job `88021801138`, at head `f2162d7683bc7a352fce4efce3f092e864aab8b9`. The job completed successfully; every row recorded `tool_use=yes`, rows 1–6 and 8–16 recorded `shape=ok`, row 7 recorded `shape=n/a`, and no row was REFORMULATED or UNATTEMPTED. The parent workflow was intentionally cancelled after that evidence job completed. An autonomous implement run cannot discharge this human-direction evidence gate by itself.
+The evidence of record is the user-directed API dispatch [run 29623046995](https://github.com/The01Geek/prflow/actions/runs/29623046995), `implement-probe` job `88021801138`, at head `f2162d7683bc7a352fce4efce3f092e864aab8b9`. The job completed successfully; every row recorded `tool_use=yes`, rows 1–6 and 8–16 recorded `shape=ok`, row 7 recorded `shape=n/a`, and no row was REFORMULATED or UNATTEMPTED. The parent workflow was intentionally cancelled after that evidence job completed. An autonomous implement run cannot discharge this human-direction evidence gate by itself.
 
 **No-verdict observability.** Two independent halves signal a no-verdict run so a stalled review is diagnosable rather than a frozen `🚀 Reviewing` comment:
 - The **engine** stamps a terminal `❌` on its own progress comment on any path that reaches no verdict — not only a fatal mid-run error but also budget/turn exhaustion or repeated permission denials — flipping `Status` to `❌ Review failed` with a `REVIEW INCOMPLETE — <reason>` verdict line.
@@ -921,7 +921,7 @@ After scaffolding and the dependency preflight, `/devflow:init` runs one final *
 
 **Local tier (one line):**
 ```bash
-claude plugin marketplace add The01Geek/devflow-autopilot \
+claude plugin marketplace add The01Geek/prflow \
   && claude plugin install devflow@devflow-marketplace
 ```
 DevFlow declares **zero companion-plugin dependencies** (every external asset it once dispatched is now first-party — see §6), so `/plugin install` resolves on its own with no `claude-plugins-official` prerequisite. PyYAML is a separate, manual prerequisite (`python3 -m pip install PyYAML` — by package name; a relative `-r requirements.txt` resolves against the user's working directory, not the plugin cache); `/plugin install` never runs `pip`.
@@ -930,11 +930,11 @@ The plugin install above runs **no installer script** — `install.sh` belongs t
 
 **Cloud tier (optional, from repo root)** — download, read, then run, with both refs pinned to a release tag:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.28.0/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.0/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
 DEVFLOW_REF=v2.28.0 bash devflow-install.sh
 ```
-The URL ref fixes which installer bytes you review and run; `DEVFLOW_REF` (default `main`; a tag, SHA, or branch) fixes which ref the installer clones its payload from — pinning the URL alone leaves the payload on `main`. Substitute a newer tag in both places to move the pin; the [Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest) names the current one — see [`docs/install.md`](install.md#pinning-the-installer). Piping the download straight to `bash` works but forfeits the review step. Thin by default (installs workflows, actions, a local marketplace, a config scaffold, and pins `devflow_version`). `DEVFLOW_VENDOR=1` commits the tree instead.
+The URL ref fixes which installer bytes you review and run; `DEVFLOW_REF` (default `main`; a tag, SHA, or branch) fixes which ref the installer clones its payload from — pinning the URL alone leaves the payload on `main`. Substitute a newer tag in both places to move the pin; the [Releases page](https://github.com/The01Geek/prflow/releases/latest) names the current one — see [`docs/install.md`](install.md#pinning-the-installer). Piping the download straight to `bash` works but forfeits the review step. Thin by default (installs workflows, actions, a local marketplace, a config scaffold, and pins `devflow_version`). `DEVFLOW_VENDOR=1` commits the tree instead.
 
 **Updates:** local tier, `/devflow:init` provisions the project `.claude/settings.json` — it registers `devflow-marketplace` under `extraKnownMarketplaces` with `autoUpdate: true` and enables the plugin under `enabledPlugins`, so Claude Code keeps the plugin updated (additive and non-clobbering, idempotent on re-run); it never sets `permissions.defaultMode`. Selectable `auto` mode is provisioned **separately, at user scope, only with explicit consent, and only on a third-party model provider**: `CLAUDE_CODE_ENABLE_AUTO_MODE` is honored only from user scope (`~/.claude/settings.json`) or managed settings, so the project provisioner skips it (writing it there is a silent no-op) and a dedicated helper (`scripts/provision-auto-mode.sh`, run by `/devflow:init`) merges it into `~/.claude/settings.json` after asking the user — making `auto` **selectable, never on** (no `permissions.defaultMode`, plan/model/admin gates still apply), preserving a deliberately-disabled `"0"`, idempotent/atomic/fail-closed, and printing the one-line setting instead of writing if the user declines. The env var has **no effect on the Anthropic API** (auto mode is already available there by default) and only does anything on Amazon Bedrock / Google Vertex AI / Microsoft Foundry, so the whole step is gated on the provider: it runs only when one of `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` is truthy and is skipped entirely on Anthropic-direct. The gate is two-layer — the skill pre-checks the provider and skips the prompt silently, and `provision-auto-mode.sh --apply` enforces the same check as a deterministic backstop (it leaves the settings file unchanged and exits 0 with a breadcrumb on Anthropic-direct). This is local-tier only — the cloud tier neither needs nor receives a `.claude/settings.json`. Cloud tier, bump `devflow_version` or re-run `install.sh` (re-running only re-stamps `devflow_version` itself when eligible — a hand-set non-SHA value is preserved; see `docs/cloud-setup.md`).
 
