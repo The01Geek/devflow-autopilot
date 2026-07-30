@@ -686,7 +686,19 @@ _ra_has() {  # name root substring   (the fixture-root form of _ra_has_file)
 
 # The registry's row names, declared ONCE and consumed by both the A1 clean-line loop
 # and the A4 --list loop — adding a row must not mean editing two lists.
-RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals coverage-map-ratchet"
+RA_ROW_NAMES="cloud-writer-manifest capability-profile-literals plugin-identity-regions coverage-map-ratchet"
+
+# The four files `lib/generate-plugin-identity.py` bakes a region into. Declared once and
+# consumed by the A3 write-scope snapshot and the A3b drift arm below. All four are listed
+# even though only three carry a conflict-path line: write scope is about what the helper
+# may TOUCH, which is every region file, while the conflict oracle is about which row owns a
+# path — and `devflow-runner.yml` is owned there by the capability row (see the registry's
+# disclosed residual).
+RA_IDENT_REGION_FILES=".github/actions/vendor-plugin/vendor-slice.sh install.sh .github/workflows/devflow-runner.yml scripts/resolve-extra-plugins.sh"
+_ra_ident_regions() {  # <root> — the concatenated bytes of every baked identity region file
+  local _root="$1" _f
+  for _f in $RA_IDENT_REGION_FILES; do cat "$_root/$_f"; done
+}
 
 # ── A1 — clean-tree run: exit 0 with a per-row clean line for every row ──────
 # Run against a PRISTINE FIXTURE, never the live checkout. Two reasons, both real:
@@ -771,6 +783,7 @@ RA_A3_WF="$(cat "$RA_A3/.github/workflows/devflow-runner.yml" "$RA_A3/.github/wo
             "$RA_A3/.github/workflows/devflow-implement.yml" "$RA_A3/.github/workflows/matcher-probe.yml")"
 RA_A3_LOCK="$(cat "$RA_A3/lib/review-profile.tokens")"
 RA_A3_COVMAP="$(cat "$RA_A3/lib/test/modules/coverage-map.json")"
+RA_A3_IDENT="$(_ra_ident_regions "$RA_A3")"
 _ra_run "$RA_A3"
 assert_eq "#619 A3 capability drift exits 1" "1" "$(_ra_rc "$RA_A3")"
 _ra_has "#619 A3 one invocation reports the capability judgment item" "$RA_A3" \
@@ -789,7 +802,67 @@ _ra_cmp "#619 A3 write scope: lib/review-profile.tokens is byte-unchanged" "$RA_
 # equally in the never-written set — omitting it left one registered judgment row's
 # write scope unasserted.
 _ra_cmp "#619 A3 write scope: the coverage map is byte-unchanged" "$RA_A3_COVMAP" lib/test/modules/coverage-map.json
+# The plugin-identity row is a judgment row too, so its four baked region files join the
+# never-written set. Without this, the row could silently acquire a write path (its
+# generator's bare form rewrites all four) and the write-scope guarantee would be false for
+# a quarter of the registry while every other assertion here stayed green.
+_ra_same "#619 A3 write scope: the four baked identity regions are byte-unchanged" \
+  "$RA_A3_IDENT" "$(_ra_ident_regions "$RA_A3")" "an identity region was written by a judgment row"
 _ra_live_unchanged "#619 A3 live manifest byte-unchanged after the capability-drift run"
+
+# ── A3b — plugin-identity drift is SEEN by the batched pass ─────────────────────
+# The regression this row was added for: before it existed the batched pass reported
+# `all artifacts reconciled — exit 0` on a tree whose identity regions were stale, so the
+# drift survived until a full suite run turned RED on the #927 G2 gate minutes later.
+# The drift is planted in the SOURCE (lib/plugin-identity.json) with the regions left
+# alone, which is exactly the shape an identity edit produces before its regeneration.
+RA_A3B="$_ra_tmp_root/a3b"; _ra_fixture "$RA_A3B"
+python3 - "$RA_A3B" <<'RA_A3B_PLANT' >/dev/null 2>&1 \
+  || assert_eq "#619 A3b planted identity drift applied" yes "no(plant failed)"
+import json, sys
+p = sys.argv[1] + "/lib/plugin-identity.json"
+d = json.load(open(p))
+d["plugin_aliases"] = list(d.get("plugin_aliases", [])) + ["devflow-a3b-alias"]
+json.dump(d, open(p, "w"), indent=2)
+open(p, "a").write("\n")
+RA_A3B_PLANT
+# Positive control: the planted drift must actually be drift. Without it a plant that
+# silently no-opped would leave the assertions below measuring a clean tree.
+( cd "$RA_A3B" && python3 lib/generate-plugin-identity.py --check ) >/dev/null 2>&1
+assert_eq "#619 A3b the plant really drifts the baked regions" "1" "$?"
+RA_A3B_IDENT="$(_ra_ident_regions "$RA_A3B")"
+_ra_run "$RA_A3B"
+assert_eq "#619 A3b identity drift exits 1" "1" "$(_ra_rc "$RA_A3B")"
+_ra_has "#619 A3b the identity drift is reported as a judgment item" "$RA_A3B" \
+  "[plugin-identity-regions] JUDGMENT"
+# The drift diagnostic, not merely the row name: a row that exited 1 for any reason would
+# satisfy the line above, so pin the generator's own drift wording too.
+_ra_has "#619 A3b the identity item carries the generator's drift diagnostic" "$RA_A3B" \
+  "baked identity region(s) differ from"
+_ra_has "#619 A3b the identity item names its governing policy" "$RA_A3B" \
+  "rewrite the baked regions with"
+_ra_same "#619 A3b write scope: the identity regions stay unwritten on the drift run" \
+  "$RA_A3B_IDENT" "$(_ra_ident_regions "$RA_A3B")" "the identity row wrote its own artifact"
+_ra_live_unchanged "#619 A3b live manifest byte-unchanged after the identity-drift run"
+
+# A broken region BANNER is an input failure, not drift: the generator cannot locate the
+# region it would rewrite, so reporting it as a judgment item would aim the remedy
+# ("re-run the generator") at a file the generator has already refused to parse.
+RA_A3C="$_ra_tmp_root/a3c"; _ra_fixture "$RA_A3C"
+python3 - "$RA_A3C" <<'RA_A3C_PLANT' >/dev/null 2>&1 \
+  || assert_eq "#619 A3c planted banner corruption applied" yes "no(plant failed)"
+import sys
+p = sys.argv[1] + "/install.sh"
+t = open(p).read().replace("# devflow-plugin-identity:begin", "# NOT-A-BANNER", 1)
+open(p, "w").write(t)
+RA_A3C_PLANT
+_ra_run "$RA_A3C"
+assert_eq "#619 A3c a corrupt identity banner routes to the infrastructure state (exit 2)" \
+  "2" "$(_ra_rc "$RA_A3C")"
+_ra_has "#619 A3c the corrupt banner is attributed to its ROW as an input failure" "$RA_A3C" \
+  "[plugin-identity-regions] INFRASTRUCTURE"
+_ra_has "#619 A3c the corrupt banner is NOT dressed up as drift" "$RA_A3C" \
+  "reporting an input failure, not drift"
 
 # ── A4 — --list names every artifact ────────────────────────────────────────
 RA_LIST="$(python3 "$RA_HELPER" --list 2>&1)"; RA_LIST_RC=$?
@@ -1172,6 +1245,14 @@ _ra_conflict_path_covered .github/workflows/devflow-runner.yml
 _ra_conflict_path_covered .github/workflows/devflow.yml
 _ra_conflict_path_covered .github/workflows/devflow-implement.yml
 _ra_conflict_path_covered .github/workflows/matcher-probe.yml
+# The baked plugin-identity regions. `.github/workflows/devflow-runner.yml` also carries one
+# and is already asserted above — it is covered by the CAPABILITY row, since a path resolves
+# to exactly one class and that file's capability region claimed it first. The registry
+# records that shared ownership as a disclosed residual; the audit's job here is only that
+# every generated artifact is reachable by SOME conflict-path line, which it is.
+_ra_conflict_path_covered .github/actions/vendor-plugin/vendor-slice.sh
+_ra_conflict_path_covered install.sh
+_ra_conflict_path_covered scripts/resolve-extra-plugins.sh
 
 # ── (d) each regenerate/reconcile-source recipe names a command the TOOL really has ──
 # A substring pin ("the recipe mentions 'generate'") stays green when the subcommand is
@@ -1234,6 +1315,16 @@ sed 's/"generate"/"regen655"/g; s/{check,generate,verify}/{check,regen655,verify
   "$RA_REPO/lib/test/cloud_writer_contract.py" > "$RA_IFACE_MUT/lib/test/cloud_writer_contract.py" 2>/dev/null
 assert_eq "#655 renaming the 'generate' subcommand in the tool turns the interface check RED" \
   "no" "$(_ra_tool_has_flag "$RA_IFACE_MUT" lib/test/cloud_writer_contract.py '*check,generate,verify*')"
+
+# The identity recipe names the generator, and that generator's REAL interface is checked
+# the same way — against its `--help`, not against a substring of the recipe. This one has
+# argparse, so the probe is the cheap `--help` form rather than the capability row's
+# fixture run. `[!-]` keeps `--check` from being satisfied by a longer `--check-something`.
+assert_eq "#655 recipe interface: the identity recipe names the generator and both identity sources" \
+  "yes/yes/yes" \
+  "$(_ra_recipe_names plugin-identity-regions 'lib/generate-plugin-identity.py')/$(_ra_recipe_names plugin-identity-regions 'lib/plugin-identity.json')/$(_ra_recipe_names plugin-identity-regions '.claude-plugin/plugin.json')"
+assert_eq "#655 recipe interface: the identity generator really declares the --check flag the row runs" \
+  "yes" "$(_ra_tool_has_flag "$RA_REPO" lib/generate-plugin-identity.py '*--check[!-]*')"
 
 # ── (e) exactly ONE conflict-sibling line, naming the reviewer lock ──────────────
 assert_eq "#655 --list emits exactly one conflict-sibling line" "1" \
