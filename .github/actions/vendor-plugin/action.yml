@@ -20,7 +20,7 @@ inputs:
   repo:
     description: 'owner/name to fetch the plugin from on the fetch branch.'
     required: false
-    default: 'The01Geek/devflow-autopilot'
+    default: 'The01Geek/prflow'
 
 outputs:
   vendor_source:

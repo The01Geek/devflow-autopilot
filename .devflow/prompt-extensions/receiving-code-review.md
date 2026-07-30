@@ -1,4 +1,4 @@
-# DevFlow repo — operative policy for `/devflow:receiving-code-review`
+# DevFlow repo — operative policy for `/prflow:receiving-code-review`
 
 This repository is the DevFlow plugin itself, and its review findings frequently
 concern the engine prose in `skills/` and the helpers in `scripts/`/`lib/`. The base
@@ -30,7 +30,7 @@ outranks the findings triage:
   added guard was wasted work on a design the issue had retired, and the standalone cloud
   review (whose Issue Compliance re-reads the issue) was left to catch it as a REJECT.
 
-When the standalone cloud `/devflow:review` verdict is itself the feedback, read its
+When the standalone cloud `/prflow:review` verdict is itself the feedback, read its
 **Issue Compliance** section as the spec-of-record signal: a checklist FAIL citing a
 superseding requirement is not one finding among many — it reframes what "addressing the
 review" means for the whole pass.

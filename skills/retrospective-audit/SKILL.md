@@ -1,12 +1,12 @@
 ---
 name: retrospective-audit
-description: "Stage B of /devflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return one JSON object carrying a ranked `findings` array (one to three sub-patterns) — no edits, no worktree. Invoked as a subagent — do not call it directly."
+description: "Stage B of /prflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return one JSON object carrying a ranked `findings` array (one to three sub-patterns) — no edits, no worktree. Invoked as a subagent — do not call it directly."
 disable-model-invocation: true
 ---
 
 # retrospective-audit — Stage B Issue-Spec Brief
 
-You are the optimizer side of the devflow self-improving loop, invoked as a **subagent** for ONE recurring failure pattern. The loop **proposes, it does not dispose**: your job is to turn the pattern into a single, well-formed GitHub *issue spec* that the orchestrator files. A human then triages it and it is executed through the normal `/devflow:implement` → review pipeline like any other change — so you make **no** working-tree edits, create **no** worktree, and open **no** PR.
+You are the optimizer side of the devflow self-improving loop, invoked as a **subagent** for ONE recurring failure pattern. The loop **proposes, it does not dispose**: your job is to turn the pattern into a single, well-formed GitHub *issue spec* that the orchestrator files. A human then triages it and it is executed through the normal `/prflow:implement` → review pipeline like any other change — so you make **no** working-tree edits, create **no** worktree, and open **no** PR.
 
 You are given:
 
@@ -70,7 +70,7 @@ Write a short paragraph (3–5 sentences): what could go wrong if this change is
 
 ## § 4 — Author the issue body
 
-The `body` you return is filed verbatim as the GitHub issue, so it must read like a `/devflow:create-issue`-quality issue **plus** a clearly delimited provenance section. Follow `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../create-issue/references/issue-template.md` for the issue structure, and append the provenance block.
+The `body` you return is filed verbatim as the GitHub issue, so it must read like a `/prflow:create-issue`-quality issue **plus** a clearly delimited provenance section. Follow `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../create-issue/references/issue-template.md` for the issue structure, and append the provenance block.
 
 **GitHub autolink hygiene** (your returned `title` and `body` are posted verbatim to a GitHub issue): never put a bare `#` immediately before a number unless it is a real issue or PR reference — GitHub renders `#2` as a link to issue/PR 2, which misleads readers. For an ordinal, count, or list position, spell it out ("item 2", "step 3"), never `#2`. Genuine references like `#123` stay as-is.
 

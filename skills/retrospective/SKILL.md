@@ -1,7 +1,7 @@
 ---
 name: retrospective
 description: >
-  Stage A of /devflow:retrospective-weekly: analyze one non-clean PR from its pre-fetched
+  Stage A of /prflow:retrospective-weekly: analyze one non-clean PR from its pre-fetched
   context bundle and return a retrospective entry as JSON. Invoked as a
   subagent — do not call it directly.
 disable-model-invocation: true
@@ -67,8 +67,8 @@ Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 | `commits` | array | `[{sha,author_login,committer_login,committed_at,message}]` |
 | `workpad_body` | string\|null | Full text of the `<!-- devflow:workpad -->` comment, read from the **issue** thread (where the workpad lives), not the PR thread |
 | `reflections` | array | The bullet lines from the workpad's `## Devflow Reflection` `<details>` block — the bot's own self-reported friction notes (`[]` when none) |
-| `review_verdicts` | array | Verdict entries in time order, drawn from the **union** of the PR conversation comments and the durable bot PR reviews: `[{verdict,createdAt,source}]` where `verdict` is APPROVE or REJECT and `source` is `pr_comment` or `pr_review`. Any verdict heading in either source qualifies (not only `/devflow:review` output). A single review round can contribute **two** entries — a stub review body and its progress comment — so entry count is not round count. |
-| `implement_summary_comment` | string\|null | The `/devflow:implement` completion summary comment body |
+| `review_verdicts` | array | Verdict entries in time order, drawn from the **union** of the PR conversation comments and the durable bot PR reviews: `[{verdict,createdAt,source}]` where `verdict` is APPROVE or REJECT and `source` is `pr_comment` or `pr_review`. Any verdict heading in either source qualifies (not only `/prflow:review` output). A single review round can contribute **two** entries — a stub review body and its progress comment — so entry count is not round count. |
+| `implement_summary_comment` | string\|null | The `/prflow:implement` completion summary comment body |
 | `signals` | object | See below |
 
 `signals` sub-keys:
@@ -121,7 +121,7 @@ handled those mechanically.)
 - **`imperfect`** — the PR shipped but then needed substantive human commits
   after the bot's last commit (`signals.post_bot_commits > 0` — this count
   already excludes pure merge commits like `Merge branch 'main'`, so it reflects
-  real fixups, not branch hygiene), or a `/devflow:review` REJECT was left outstanding,
+  real fixups, not branch hygiene), or a `/prflow:review` REJECT was left outstanding,
   or acceptance criteria from the linked issue were unmet.
 - **`blocked`** — `signals.workpad_final_status == "Blocked"` or the workpad /
   PR thread shows work was abandoned mid-task with no shipped fix.
@@ -177,7 +177,7 @@ explain why in `descriptors`.
 |---|---|
 | `doc-accuracy` | a doc, comment, docstring, or release-note describes code that does not match what shipped (wrong file path/symbol/CSS class, stale count, "remaining" list that isn't, behavior that isn't there). |
 | `fabricated-claim` | the PR description or release notes assert a deliverable that is **not in the diff** — a workflow, test, file, guard, or behavior that was never added. |
-| `outstanding-reject` | the PR merged while its **chronologically-last** `/devflow:review` verdict was still REJECT — a review gate ran, landed a REJECT, and it was never cleared before merge. |
+| `outstanding-reject` | the PR merged while its **chronologically-last** `/prflow:review` verdict was still REJECT — a review gate ran, landed a REJECT, and it was never cleared before merge. |
 | `lenient-verdict` | a review / lint / typecheck gate **ran and returned an approve-family verdict**, but the PR shipped a defect that pass should have caught — a finding flagged then demoted-and-shipped, or a defect the gate passed over. Requires a gate to have *run*: a PR with no gate or review (e.g. a purely human-authored PR) is **not** this. |
 | `deferred-verification` | a verification that was **runnable before merge** was deferred past the gate instead of run — e.g. a runnable acceptance criterion laundered into a `(post-merge)` tag, or a check punted to post-merge/CI that the orchestrator host could in fact have run. A check that genuinely needs a live runtime environment (deploy target, real third-party endpoint) is **not** this. |
 | `unmet-acceptance-criteria` | the PR merged without satisfying an explicit requirement from the linked issue. |
@@ -201,7 +201,7 @@ one fixable thing or several. Be specific; "code quality issue" is useless.
 ### summary
 
 One dense paragraph grounded in the bundle's primary sources. Quote the
-workpad status, the `/devflow:review` verdict(s), what the human had to fix in
+workpad status, the `/prflow:review` verdict(s), what the human had to fix in
 `human_postbot_diff` / `commits`, and which acceptance criteria slipped (if
 any). The reader should understand what went wrong without opening the PR.
 

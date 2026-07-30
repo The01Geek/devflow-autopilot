@@ -10,13 +10,13 @@ DevFlow is published as a Claude Code plugin from this repository, which is also
 > **Just ask your agent.** Paste this into Claude Code and it performs the whole install for you — the two plugin commands *and* the PATH dependencies `/plugin install` doesn't cover (see [the step people miss](#the-step-people-miss-pyyaml)):
 >
 > ```text
-> Read https://github.com/The01Geek/devflow-autopilot#quick-start and install DevFlow and its dependencies.
+> Read https://github.com/The01Geek/prflow#quick-start and install DevFlow and its dependencies.
 > ```
 
 **In your terminal** (two commands — run them in order; works in any shell, including PowerShell and fish that don't support `&&` chaining):
 
 ```bash
-claude plugin marketplace add The01Geek/devflow-autopilot
+claude plugin marketplace add The01Geek/prflow
 claude plugin install devflow@devflow-marketplace
 ```
 
@@ -24,7 +24,7 @@ claude plugin install devflow@devflow-marketplace
 
 ```text
 # Add the marketplace
-/plugin marketplace add The01Geek/devflow-autopilot
+/plugin marketplace add The01Geek/prflow
 
 # Install plugin
 /plugin install devflow@devflow-marketplace
@@ -132,9 +132,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.27.1/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.1/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.27.1 bash devflow-install.sh
+DEVFLOW_REF=v2.28.1 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -143,7 +143,7 @@ DEVFLOW_REF=v2.27.1 bash devflow-install.sh
 - the **URL ref** decides which *installer bytes* you download and read. A `.../main/install.sh` URL would hand you a different script on every fetch, so the thing you reviewed is not guaranteed to be the thing you ran.
 - **`DEVFLOW_REF`** (a documented `install.sh` environment variable, default `main`) decides which ref the installer *clones its payload from* — the workflows, composite actions and templates it copies in — and it accepts a tag, a commit SHA, or a branch name. Pinning the URL alone is not enough: an unset `DEVFLOW_REF` still pulls the payload from the moving `main`. Setting both to the same tag makes the whole install reproduce one release.
 
-To install a newer version, substitute a newer tag in both places. Find the current release on the [Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest), or from the shell with `gh release list --repo The01Geek/devflow-autopilot --limit 5`. Leave `DEVFLOW_REF` unset only if you deliberately want to track the moving `main` branch.
+To install a newer version, substitute a newer tag in both places. Find the current release on the [Releases page](https://github.com/The01Geek/prflow/releases/latest), or from the shell with `gh release list --repo The01Geek/prflow --limit 5`. Leave `DEVFLOW_REF` unset only if you deliberately want to track the moving `main` branch.
 
 Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devflow_version` with the exact commit SHA it resolved, so the plugin your *workflows* fetch at runtime is reproducible even if you left `DEVFLOW_REF` unset. (A `devflow_version` you hand-set to a non-SHA value — a release tag, or `main` to track the branch — is preserved rather than re-stamped; see the `devflow_version` notes in [`cloud-setup.md`](cloud-setup.md).)
 
@@ -153,8 +153,8 @@ Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devfl
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.27.1/install.sh \
-  | DEVFLOW_REF=v2.27.1 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.1/install.sh \
+  | DEVFLOW_REF=v2.28.1 bash
 ```
 
 </details>
@@ -190,7 +190,7 @@ Running `/devflow:init` provisions your repo's project `.claude/settings.json` s
 {
   "extraKnownMarketplaces": {
     "devflow-marketplace": {
-      "source": { "source": "github", "repo": "The01Geek/devflow-autopilot" },
+      "source": { "source": "github", "repo": "The01Geek/prflow" },
       "autoUpdate": true
     }
   },
@@ -254,7 +254,7 @@ Merge a sidecar by hand instead and the result still differs from the shipped by
 
 #### Upgrade note: the withheld automatic-review tier is surfaced, and removable on request
 
-If your repository installed the automatic pull-request-triggered review tier before it was withheld (issue #936), you still have `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml`, they still run, and they keep you exposed to issues [#930](https://github.com/The01Geek/devflow-autopilot/issues/930) and [#920](https://github.com/The01Geek/devflow-autopilot/issues/920). Every upgrade now says so. Nothing is deleted unless you ask:
+If your repository installed the automatic pull-request-triggered review tier before it was withheld (issue #936), you still have `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml`, they still run, and they keep you exposed to issues [#930](https://github.com/The01Geek/prflow/issues/930) and [#920](https://github.com/The01Geek/prflow/issues/920). Every upgrade now says so. Nothing is deleted unless you ask:
 
 ```bash
 DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply --remove-withheld-review-tier

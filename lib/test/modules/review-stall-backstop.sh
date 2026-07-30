@@ -226,8 +226,8 @@ devflow_module_pin_unique "#408 devflow-yml: 'Review stall backstop' step presen
   "name: Review stall backstop" "$WFD408"
 assert_eq "#408/#414 devflow-yml: manual-path step calls the extracted post-and-annotate helper" "yes" \
   "$(grep -qF "post-review-backstop-comment.sh" "$WFD408" && echo yes || echo no)"
-assert_eq "#408 devflow-yml: manual-path backstop gated on a /devflow:review command" "yes" \
-  "$(grep -A1 'name: Review stall backstop' "$WFD408" | grep -qF "startsWith(needs.gate.outputs.command, '/devflow:review ')" && echo yes || echo no)"
+assert_eq "#408 devflow-yml: manual-path backstop gated on a /prflow:review command" "yes" \
+  "$(grep -A1 'name: Review stall backstop' "$WFD408" | grep -qF "startsWith(needs.gate.outputs.command, '/prflow:review ')" && echo yes || echo no)"
 # The manual-path DEAD-RUN trigger clause is the sole logic distinguishing a dead review
 # from a healthy or cancelled one; broadening it (e.g. to `!= 'success'`, re-including
 # cancelled/superseded) or dropping it would fire spurious auto-resumes. Pin the exact

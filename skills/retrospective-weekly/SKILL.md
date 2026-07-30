@@ -8,7 +8,7 @@ description: >
   the weekly devflow retrospective + audit.
 ---
 
-# /devflow:retrospective-weekly — Weekly Orchestrator
+# /prflow:retrospective-weekly — Weekly Orchestrator
 
 This skill is the single entry point the maintainer invokes once a week (or
 on demand). It is a *conductor*: it runs deterministic bash/jq scripts from
@@ -568,7 +568,7 @@ churn onto an existing lifecycle record by a token-set alias, ranks tight cluste
 ahead of grab-bags (descending evidence-PR count) and truncates to the top three, and
 asks the shipped `devflow_filing_cap_verdict` for each of that path's cap decisions. **No worktrees, no commits, no
 PRs** — the loop proposes; a human triages each issue and runs it through the normal
-`/devflow:implement` → review pipeline. Your main checkout stays on `main` and is
+`/prflow:implement` → review pipeline. Your main checkout stays on `main` and is
 never edited. The drafting subagents (8b) parallelize; the cheap filing (8c) is done
 serially.
 
@@ -1111,7 +1111,7 @@ fi
 or a `meta-issue.sh` non-zero exit records a per-pattern blocker and the run
 continues to the next pattern; the pattern is absent from `intervention_issues`.
 
-**Do not** post `/devflow:implement` (or any auto-trigger comment) on a filed
+**Do not** post `/prflow:implement` (or any auto-trigger comment) on a filed
 issue — filed issues await human triage.
 
 (`meta-issue.sh` mutates `.devflow/learnings/overrides.json` in your `main`

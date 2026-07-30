@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/The01Geek/devflow-autopilot/.devflow/config.schema.json",
+  "$id": "https://github.com/The01Geek/prflow/.devflow/config.schema.json",
   "title": "DevFlow project config",
   "description": "DevFlow project configuration. The LOCAL tier (the /devflow:implement, /devflow:review, /devflow:docs skills you run inside Claude Code) works with NO config file at all \u2014 every value has a sane built-in default. You only need this file if you enable the GitHub Actions automation (the optional cloud/autopilot tier). See docs/cloud-setup.md.",
   "type": "object",
@@ -22,12 +22,12 @@
     },
     "devflow_version": {
       "type": "string",
-      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/devflow-autopilot that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch \u2014 i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
+      "description": "Git ref (tag, branch, or commit SHA) of The01Geek/prflow that the cloud-tier workflows fetch the plugin from at runtime (the vendor-plugin composite action's fetch branch \u2014 i.e. a thin install where the plugin tree is NOT committed). install.sh pins this to the commit it installed from (when no jq/node/python3 is available at install time it stays empty and you must set it by hand). Bump it to update. Ignored when the plugin is committed into .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1) or when running in the source repo. Empty by default on purpose: the fetch branch fails loud on an empty ref rather than silently tracking mutable main, so an un-pinned thin install is caught instead of drifting.",
       "default": ""
     },
     "providers": {
       "type": "object",
-      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints (OpenRouter, Z.ai, Kimi/Moonshot, LiteLLM gateways, …) that the devflow / devflow_implement / devflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
+      "description": "OPT-IN, BEST-EFFORT third-party model providers for the CLOUD tier (issue #313). A named map of Anthropic-compatible endpoints — a hosted model gateway, or a self-run proxy exposing Anthropic's message API — that the devflow / devflow_implement / devflow_runner sections can each route to via their own `provider` key. With no providers map and no per-section `provider`, cloud behavior matches the Anthropic-OAuth default (unchanged for a given `claude_model`; the runner's default-path model now resolves from base-ref config). The provider API credential is NOT named here — it is always the fixed repository secret DEVFLOW_PROVIDER_API_KEY (kept greppable/auditable and fail-closed on absence). Anthropic does not support routing Claude Code to non-Claude models, so this is best-effort. See docs/cloud-setup.md.",
       "additionalProperties": {
         "type": "object",
         "required": ["base_url", "auth"],
@@ -35,12 +35,12 @@
         "properties": {
           "base_url": {
             "type": "string",
-            "description": "Anthropic-compatible base URL, e.g. 'https://openrouter.ai/api' or 'https://api.z.ai/api/anthropic'. Exported to the action step as ANTHROPIC_BASE_URL."
+            "description": "Anthropic-compatible base URL: scheme + host + whatever path prefix your endpoint serves Anthropic's message API under. The client appends the API path (/v1/messages) itself, so this value does not include a /v1 segment of its own. Exported to the action step as ANTHROPIC_BASE_URL."
           },
           "auth": {
             "type": "string",
             "enum": ["bearer", "api_key"],
-            "description": "How DEVFLOW_PROVIDER_API_KEY is presented. 'bearer' (most gateways, incl. OpenRouter): the key rides as the anthropic_api_key action input AND as ANTHROPIC_AUTH_TOKEN (the Authorization: Bearer header) — the documented two-slot recipe. 'api_key': the key is passed as the anthropic_api_key input only (x-api-key)."
+            "description": "How DEVFLOW_PROVIDER_API_KEY is presented. 'bearer' (the usual case for a hosted gateway): the key rides as the anthropic_api_key action input AND as ANTHROPIC_AUTH_TOKEN (the Authorization: Bearer header) — the documented two-slot recipe. 'api_key': the key is passed as the anthropic_api_key input only (x-api-key)."
           },
           "timeout_ms": {
             "type": "integer",
@@ -54,7 +54,7 @@
           "env": {
             "type": "object",
             "additionalProperties": { "type": "string" },
-            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns, see docs/cloud-setup.md). See docs/cloud-setup.md for the worked OpenRouter/Z.ai maps."
+            "description": "Extra environment variables exported verbatim into the job environment (consumed by the action step) (e.g. ANTHROPIC_DEFAULT_HAIKU_MODEL, CLAUDE_CODE_SUBAGENT_MODEL so background/subagent calls resolve to a real model the endpoint serves; CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS='1' to avoid anthropic-beta-header gateway 400s; CLAUDE_CODE_ATTRIBUTION_HEADER='0' to preserve gateway prompt caching — two distinct concerns). See docs/cloud-setup.md."
           }
         }
       }
@@ -132,7 +132,7 @@
         },
         "claude_model": {
           "type": "string",
-          "description": "Optional per-section model override for /devflow:implement (devflow-implement.yml), e.g. 'z-ai/glm-5.2'. Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
+          "description": "Optional per-section model override for /devflow:implement (devflow-implement.yml): the model id to pass as --model, written in whatever form the routed endpoint expects (a provider-routed section usually needs this, since the global claude_model names a Claude model). Takes precedence over the global claude_model. Unset → global claude_model (issue #313)."
         },
         "effort": {
           "type": "string",
@@ -327,10 +327,236 @@
         },
         "agent_overrides": {
           "type": "object",
-          "description": "Per-subagent model/effort overrides for the shared /devflow:review engine. Applies to BOTH standalone /devflow:review AND the Phase-3 review pass of /devflow:review-and-fix (and thus /devflow:implement), since both drive the same engine. Keys are the nine review-engine subagent identifiers (byte-identical to the telemetry strings) plus an optional `default` fallback. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
+          "description": "Per-subagent model/effort overrides for the shared /prflow:review engine. Applies to BOTH standalone /prflow:review AND the Phase-3 review pass of /prflow:review-and-fix (and thus /prflow:implement), since both drive the same engine. Keys are the nine review-engine subagent leaves, each accepted under EITHER declared plugin namespace — `prflow:` (canonical) or the `devflow:` alias, so an override committed before the plugin rename keeps resolving — giving 18 accepted subagent keys (byte-identical to the telemetry strings) plus an optional `default` fallback. The accepted namespace set is derived from lib/plugin-identity.json, and this enumeration is its mirror: `additionalProperties` stays false, so the allowlist remains closed. Each value optionally sets `model` (free-form model id, forwarded to the dispatch as given), `effort` (one of low/medium/high/xhigh/max \u2014 an out-of-enum value warns and falls back to the session effort rather than aborting), and/or `iterations` (issue #425; only valid value `first-only` \u2014 an agent whose resolved override carries it is excluded from the Phase-3 review roster on fix-loop iterations >= 2, enforced engine-side; an out-of-enum value warns and is dropped rather than aborting; key absent = today's behavior). Resolution is entry-level: a subagent with its own entry uses only that entry (the `default` does NOT backfill its missing fields); `default` supplies model/effort only for subagents with no entry of their own. A subagent with neither its own entry nor a `default` is dispatched exactly as today \u2014 global claude_model + session effort \u2014 with no --agents override emitted for it. See docs/review-agent-overrides.md.",
           "additionalProperties": false,
           "properties": {
             "default": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:checklist-generator": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:checklist-deduper": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Pins Claude Sonnet 5 for the dedup pass with effort 'medium' (a cost-saving step down from the API default of 'high'; set it explicitly to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8, Opus 5, Sonnet 4.6, and Sonnet 5), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:checklist-verifier": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:code-reviewer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:silent-failure-hunter": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:comment-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:type-design-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:pr-test-analyzer": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "model": {
+                  "type": "string"
+                },
+                "effort": {
+                  "type": "string",
+                  "enum": [
+                    "low",
+                    "medium",
+                    "high",
+                    "xhigh",
+                    "max"
+                  ]
+                },
+                "iterations": {
+                  "type": "string",
+                  "enum": [
+                    "first-only"
+                  ]
+                }
+              }
+            },
+            "prflow:requesting-code-review": {
               "type": "object",
               "additionalProperties": false,
               "properties": {

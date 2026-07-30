@@ -59,6 +59,41 @@ if [ -n "${DEVFLOW_AC13_PROBE:-}" ]; then
   exit 3
 fi
 
+# The canonical `<plugin>@<marketplace>` install spec, DERIVED from the single
+# identity source (lib/plugin-identity.json + .claude-plugin/plugin.json) rather
+# than transcribed. Fixtures that build or read a settings.json
+# `enabledPlugins` key, or a baked `--plugins` baseline, interpolate this so a
+# plugin rename moves them with the manifest instead of leaving ~10 hand-pinned
+# literals to chase. The identity reader is itself pinned by the #927 block, so
+# this is a derivation off a guarded source, not an unchecked one. Fails LOUD:
+# an empty value here would make every consuming assertion compare against a
+# malformed key and misreport the reason, so refuse to start.
+SUITE_PLUGIN_SPEC="$(python3 "$LIB/plugin_identity.py" --canonical-plugin-spec 2>/dev/null || true)"
+case "$SUITE_PLUGIN_SPEC" in
+  *@*) : ;;
+  *) echo "run.sh: could not derive the canonical plugin spec from lib/plugin_identity.py (got '$SUITE_PLUGIN_SPEC'); refusing to run rather than compare against a malformed enabledPlugins key" >&2; exit 1 ;;
+esac
+
+# The CANONICAL agent/skill namespace (`<plugin>:`), likewise derived. Grep-based dispatch
+# assertions interpolate this instead of spelling the namespace:
+# dispatch resolves under the canonical name only, so a literal here would have to be
+# chased on every plugin rename — and, worse, a stale literal keeps passing against the
+# alias form it names while the real dispatch site has moved. Fails LOUD for the same
+# reason as the spec above.
+#
+# NOT for `assert_pin_unique` literals: the #810 pin corpus keys each adjudication row on
+# the sha256 of the pin's LITERAL text, and its shell parser resolves only the variable
+# forms it knows. Interpolating this variable into a pin literal makes the extracted
+# literal unresolvable, orphaning that pin's adjudication row and failing the corpus
+# closure check. Pin literals therefore stay spelled out, and a rename re-keys their
+# adjudication rows (carrying bucket + rationale across unchanged) — that re-key is the
+# corpus's designed cost of being literal-keyed, not an accident to engineer around.
+SUITE_AGENT_NS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1 || true)"
+case "$SUITE_AGENT_NS" in
+  *:) : ;;
+  *) echo "run.sh: could not derive the canonical agent namespace from lib/plugin_identity.py (got '$SUITE_AGENT_NS'); refusing to run rather than assert dispatch pins against a malformed namespace" >&2; exit 1 ;;
+esac
+
 # Results are recorded to a file (one PASS/FAIL line each) rather than to shell
 # variables, so assertions that run inside ( … ) subshells — the config-source.sh and
 # render-report.sh blocks, sourced in subshells to contain their `set -e` — are
@@ -1294,7 +1329,7 @@ assert_pin_unique "#554(rev): per-agent model rides the Agent tool's model overr
 # absent/unresolvable signal all exclude nothing. Pin the no-op sentence as a
 # static prompt contract.
 assert_pin_unique "#425(rev): iteration-1 / standalone / absent-signal all exclude nothing (default-off)" \
-  'On fix-loop iteration 1, in standalone `/devflow:review`, and when the iteration signal is absent/unresolvable, **exclude nothing**' "$ST_REV"
+  'On fix-loop iteration 1, in standalone `/prflow:review`, and when the iteration signal is absent/unresolvable, **exclude nothing**' "$ST_REV"
 # each SKILL falls back to its OWN key's default on BOTH fallback arms (out-of-enum +
 # resolver-failure) — a wrong default here would silently loosen/tighten the policy while
 # the case-label pin stayed green. Count is 2 (one assignment per fallback arm).
@@ -1820,7 +1855,7 @@ assert_pin_unique "#550: verification_evidence caveat names the completion-evide
   'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: cross-file-phase-contract -- names the completion-evidence consumer of the persisted evidence
 # Dispatch surfaces reference the plugin-qualified copy explicitly.
 assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
-  '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: routing-dispatch-contract -- the implement Phase 3 wrapper dispatches the plugin-qualified skill id
+  '`prflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: routing-dispatch-contract -- the implement Phase 3 wrapper dispatches the plugin-qualified skill id
 # AC7 — interpreter-faithful probe rule in the Implement extension.
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
@@ -3394,8 +3429,8 @@ assert_eq "#167 critic: completeness-critic pass heading is NOT paraphrased into
 assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT paraphrased into review-and-fix SKILL" \
   "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
 # The re-sweep retains its existing comment-analyzer dispatch.
-assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-analyzer agent" \
-  'Re-dispatch `devflow:comment-analyzer`' "$MAXI_SKILL"
+assert_pin_unique "#167 re-sweep: re-dispatches the existing comment-analyzer agent" \
+  'Re-dispatch `prflow:comment-analyzer`' "$MAXI_SKILL"  # structural-pin-ok: routing-dispatch-contract -- the fix-loop re-sweep dispatches this plugin-qualified subagent id; subagent dispatch has no allowlist to fall back on, so a stale namespace here dead-ends the dispatch at runtime
 # ── issue #769: the Phase 0.5 signal contract (engine_self_modifying is checklist-only;
 # small_diff scales no part of the roster). Sited beside the detect_all_audit row pins above.
 # This targets phase-0-setup.md directly so the unchanged profile-table row
@@ -14875,13 +14910,16 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # and derive-review-preconditions.sh, whose sections lead this tranche — is RETAINED and still
 # shipped, because an already-installed consumer copy still resolves them after an upgrade.
 # Only two assertions left the module: the #353 pair whose subject was the deleted WORKFLOW
-# file (an existence backstop and the absence pin it protected), which is the whole of the
-# 401 → 399 floor change. Do not read that drop as dead code — deleting these helpers would
-# break every consumer that upgrades. It stops there deliberately — the tranche was scoped
-# in advance to a measured set of low-risk sections, and what follows was not in it.
+# file (an existence backstop and the absence pin it protected), which was the whole of the
+# then-current floor drop to 399. Do not read that drop as dead code — deleting these helpers
+# would break every consumer that upgrades. It stops there deliberately — the tranche was
+# scoped in advance to a measured set of low-risk sections, and what follows was not in it.
+# The floor has since RISEN to 410: the plugin rename added dual-namespace acceptance
+# coverage to both trigger helpers (canonical-input arms plus wildcard negative controls),
+# since every pre-existing fixture fed only the transitional alias form.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 399; then
+  "review-trigger-helpers" 410; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -15207,11 +15245,94 @@ echo "workflow partition invariant"
 # workflow and Anthropic's claude.yml. Covers devflow.yml (review/pr-description)
 # and devflow-implement.yml (/devflow:implement).
 WF="$LIB/../.github/workflows"
+# The scanned namespace set is DERIVED from the declared plugin identity, never
+# hardcoded: a guard spelling one namespace gives zero assurance for the other, and
+# goes fully vacuous the moment the transitional namespace is retired. Built with
+# bash builtins (no `tr`/`cut`) because it SELECTS what gets scanned — a missing
+# non-preflight PATH tool would silently empty it and pass by inspecting nothing.
+SUITE_CMD_NS=""
+while IFS= read -r _cmd_ns; do
+  case "$_cmd_ns" in
+    "" ) : ;;
+    *) SUITE_CMD_NS="$SUITE_CMD_NS $_cmd_ns" ;;
+  esac
+done <<EOF
+$(python3 "$LIB/plugin_identity.py" --plugin-names 2>/dev/null || true)
+EOF
+case "$SUITE_CMD_NS" in
+  *[!\ ]*) : ;;
+  *) echo "run.sh: could not derive the accepted command namespaces from lib/plugin_identity.py; refusing to run rather than assert the partition invariant against an empty namespace set" >&2; exit 1 ;;
+esac
 for f in devflow devflow-implement; do
-  bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/devflow:(review|pr-description|implement)'\)" "$WF/$f.yml" \
-        | grep -v "@claude" || true)"
-  assert_eq "partition: $f.yml /devflow triggers all negate @claude" "" "$bad"
+  for ns in $SUITE_CMD_NS; do
+    # NON-VACUITY FIRST: the scan must actually match trigger lines for THIS
+    # namespace. Without this, dropping the namespace from the workflow turns the
+    # @claude assertion below into a check over an empty set — it would pass by
+    # inspecting nothing, which is the exact failure class this guard exists to catch.
+    hits="$(grep -cE "contains\((github\.event[^)]*),[[:space:]]*'/$ns:(review|pr-description|implement)'\)" "$WF/$f.yml" || true)"
+    assert_eq "partition: $f.yml carries at least one /$ns: command trigger (guard is non-vacuous)" \
+      "yes" "$([ "${hits:-0}" -gt 0 ] && echo yes || echo no)"
+    bad="$(grep -nE "contains\((github\.event[^)]*),[[:space:]]*'/$ns:(review|pr-description|implement)'\)" "$WF/$f.yml" \
+          | grep -v "@claude" || true)"
+    assert_eq "partition: $f.yml /$ns triggers all negate @claude" "" "$bad"
+  done
 done
+
+# ── devflow.yml TRIGGER-GATE coverage (#965 review, Important 1) ─────────────
+# The gate `if:` is upstream of every resolver the dsc:/rct: suites cover — those
+# exercise detect-standalone-command.sh / resolve-command-trigger.sh, which only
+# ever run AFTER this gate has already decided to start the workflow. So both
+# halves of the namespace widening were previously untested, and both fail SILENTLY:
+#   * drop /prflow:review from the positive set -> canonical review comments never
+#     trigger the workflow at all (no run, no error, nothing to notice);
+#   * drop the /prflow:implement negation -> a /prflow:implement comment fires BOTH
+#     devflow.yml and devflow-implement.yml, breaking the partition invariant.
+# Asserted per-clause over all three event arms, because a disjunct dropped from
+# one arm leaves the other two green.
+GATE_YML="$WF/devflow.yml"
+# Echoes the gate clause lines that do NOT match $2 — empty means every clause carries it.
+gate_clauses_missing() {  # $1=file $2=ERE every gate clause must match
+  grep -nE "github\.event_name == '" "$1" | grep -vE "$2" || true
+}
+GATE_CLAUSE_COUNT="$(grep -cE "github\.event_name == '" "$GATE_YML" || true)"
+assert_eq "trigger-gate: devflow.yml gate carries all three event clauses" "3" "$GATE_CLAUSE_COUNT"
+# Half 1 — the POSITIVE set accepts the canonical namespace on every clause.
+assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:review" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:review'\)")"
+assert_eq "trigger-gate: every devflow.yml clause accepts /prflow:pr-description" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/prflow:pr-description'\)")"
+# Half 2 — the EXCLUSION set negates the canonical heavy path on every clause.
+assert_eq "trigger-gate: every devflow.yml clause EXCLUDES /prflow:implement" \
+  "" "$(gate_clauses_missing "$GATE_YML" "!contains\([^)]*'/prflow:implement'\)")"
+# The transitional namespace stays covered on both halves for the alias window.
+assert_eq "trigger-gate: every devflow.yml clause accepts /devflow:review" \
+  "" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/devflow:review'\)")"
+assert_eq "trigger-gate: every devflow.yml clause EXCLUDES /devflow:implement" \
+  "" "$(gate_clauses_missing "$GATE_YML" "!contains\([^)]*'/devflow:implement'\)")"
+# PLANTED-DEFECT CONTROLS: each assertion above must actually RED on the defect it
+# claims to catch. A green row over an expression that can no longer match proves
+# nothing, so each control first asserts the mutation really changed the file.
+TG_TMP="$(mktemp -d)"
+# Control A — the positive half: break the /prflow:review disjunct.
+sed "s|contains(github.event.comment.body, '/prflow:review')|contains(github.event.comment.body, '/planted:review')|g" \
+  "$GATE_YML" > "$TG_TMP/no-positive.yml"
+assert_eq "trigger-gate CONTROL A: the positive-half mutation really changed the gate" \
+  "no" "$(cmp -s "$GATE_YML" "$TG_TMP/no-positive.yml" && echo yes || echo no)"
+assert_eq "trigger-gate CONTROL A: dropping /prflow:review from a clause turns the positive check RED" \
+  "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-positive.yml" "contains\([^)]*'/prflow:review'\)")" ] && echo yes || echo no)"
+# Control B — the exclusion half: remove the /prflow:implement negation (the double-fire).
+sed "s| && !contains(github.event.comment.body, '/prflow:implement')||g" \
+  "$GATE_YML" > "$TG_TMP/no-negation.yml"
+assert_eq "trigger-gate CONTROL B: the exclusion-half mutation really changed the gate" \
+  "no" "$(cmp -s "$GATE_YML" "$TG_TMP/no-negation.yml" && echo yes || echo no)"
+assert_eq "trigger-gate CONTROL B: dropping the /prflow:implement negation turns the exclusion check RED" \
+  "yes" "$([ -n "$(gate_clauses_missing "$TG_TMP/no-negation.yml" "!contains\([^)]*'/prflow:implement'\)")" ] && echo yes || echo no)"
+# Control C — the extractor itself is not matching everything: a token absent from
+# every clause must be reported missing on all three, so an always-empty result
+# (which would make every row above vacuously green) is ruled out.
+assert_eq "trigger-gate CONTROL C: a token no clause carries is reported missing on all three" \
+  "3" "$(gate_clauses_missing "$GATE_YML" "contains\([^)]*'/nosuchns:review'\)" | grep -c . || true)"
+rm -rf "$TG_TMP"
 
 # The label trigger is gone: neither workflow may listen on `labeled`.
 for f in devflow devflow-implement; do
@@ -15744,23 +15865,23 @@ assert_eq "review-identity: devflow-runner.yml has no steps.app-token consumer (
 # `steps.app-token || GITHUB_TOKEN` consumer (which would put the review command
 # back on the primary app identity) goes RED.
 assert_eq "review-identity: devflow.yml command github_token is the review-conditional expression" "1" \
-  "$(grep -cF "github_token: \${{ startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}" "$WF/devflow.yml")"
+  "$(grep -cF "github_token: \${{ startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}" "$WF/devflow.yml")"
 # The review branch (startsWith .../devflow:review) selects the reviewer token,
 # NEVER the primary app token — assert the ordering: reviewer-token appears
 # inside the startsWith-guarded first operand, app-token only in the else.
 assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
-  "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
+  "$(grep -cF "startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
 # The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
 # can never author the review — pin the negated startsWith on its if:. Scoped to the
 # mint step's block (mint_blk): since issue #487 the same gate also guards the
 # refresher/wrapper-install steps, so a whole-file count is no longer 1.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 # Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
 # positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
 # token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
 assert_eq "review-identity: devflow.yml reviewer-token mint fires only on /devflow:review" "1" \
-  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/prflow:review ')" "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml react step consumes gate_app_token || github.token" "1" \
   "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || github.token" "1" \
@@ -22179,7 +22300,15 @@ pid_unknown() {
   python3 "$PIDR/scripts/resolve-review-overrides.py" --config-get /usr/bin/false "$1" 2>&1 \
     | grep -c "is not a known" || true
 }
-assert_eq "identity: agent_overrides accepts the canonical namespace" "0" "$(pid_unknown "devflow:code-reviewer")"
+# The fixture REPLACED plugin_aliases with `pidalias`, so the accepted set here is
+# {canonical, pidalias} and the real tree's alias is deliberately not in it. Read the
+# canonical namespace from the fixture's own identity source rather than spelling it:
+# a literal here would silently become "an alias that happens to be declared today"
+# after a plugin rename, which is the opposite of what this assertion means to prove.
+PID_CANON="$(python3 "$PIDR/lib/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1)"
+assert_eq "identity: the fixture's canonical namespace resolved" "yes" \
+  "$(case "$PID_CANON" in *:) echo yes ;; *) echo no ;; esac)"
+assert_eq "identity: agent_overrides accepts the canonical namespace" "0" "$(pid_unknown "${PID_CANON}code-reviewer")"
 assert_eq "identity: agent_overrides accepts a declared alias namespace" "0" "$(pid_unknown "pidalias:code-reviewer")"
 assert_eq "identity: agent_overrides still rejects an undeclared namespace" "1" "$(pid_unknown "impostor:code-reviewer")"
 assert_eq "identity: agent_overrides still rejects an unknown leaf under an accepted namespace" "1" \
@@ -22212,8 +22341,10 @@ assert_eq "identity degraded: overrides still resolve (a JSON object on stdout)"
 # a rejection from some unrelated precondition would read as a passing test of
 # the identity arm.
 cp "$PIDR/lib/plugin-identity.json" "$PIDU/lib/"
+# The restored file is the FIXTURE's identity (plugin_aliases replaced with pidalias),
+# so the known id must be the fixture's CANONICAL namespace, not the real tree's alias.
 python3 "$PIDU/scripts/resolve-review-overrides.py" --config-get /usr/bin/false \
-  devflow:code-reviewer impostor:code-reviewer >/dev/null 2>"$PIDU/err2" || true
+  "${PID_CANON}code-reviewer" impostor:code-reviewer >/dev/null 2>"$PIDU/err2" || true
 assert_eq "identity degraded positive control: with the identity file present the arm is silent" "0" \
   "$(grep -c 'the accepted plugin-namespace set could not be established' "$PIDU/err2" || true)"
 assert_eq "identity degraded positive control: the genuine drift warning does fire" "1" \
@@ -27589,7 +27720,7 @@ echo "provision-local-settings.sh (project .claude/settings.json provisioner)"
 # .claude/settings.json — additive, non-clobbering, idempotent — and is invoked
 # only from /devflow:init (never from scaffold-config.sh / install.sh). It writes
 # extraKnownMarketplaces[devflow-marketplace] (autoUpdate true + a github source
-# for The01Geek/devflow-autopilot) and enabledPlugins[devflow@devflow-marketplace]
+# for The01Geek/prflow) and enabledPlugins[<the canonical plugin spec>]
 # = true; it never writes permissions.defaultMode and never writes the
 # CLAUDE_CODE_ENABLE_AUTO_MODE env var — that var is honored only from user scope
 # (~/.claude/settings.json) / managed settings, so writing it to the PROJECT file
@@ -27615,10 +27746,10 @@ assert_eq "pls: fresh → marketplace autoUpdate true (AC1)" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → marketplace source is github (AC1)" "github" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.source' "$PLS_SF" 2>/dev/null)"
-assert_eq "pls: fresh → marketplace repo The01Geek/devflow-autopilot (AC1)" "The01Geek/devflow-autopilot" \
+assert_eq "pls: fresh → marketplace repo The01Geek/prflow (AC1)" "The01Geek/prflow" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].source.repo' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → enabledPlugins devflow true (AC1)" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SF" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → CLAUDE_CODE_ENABLE_AUTO_MODE NOT written (deferred; project-scope no-op)" "false" \
   "$(jq -r '(.env // {}) | has("CLAUDE_CODE_ENABLE_AUTO_MODE")' "$PLS_SF" 2>/dev/null)"
 assert_eq "pls: fresh → no permissions key written (AC3)" "false" \
@@ -27650,7 +27781,7 @@ assert_eq "pls: keep → unrelated top-level key preserved (AC4)" "123" \
 assert_eq "pls: keep → devflow marketplace added alongside (AC4)" "true" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_SK" 2>/dev/null)"
 assert_eq "pls: keep → enabledPlugins added (AC4)" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_SK" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_SK" 2>/dev/null)"
 
 # AC 5: idempotent re-run → byte-identical file, "nothing changed" breadcrumb,
 # no duplicate entries.
@@ -27760,7 +27891,7 @@ assert_eq "pls: deep wrong-typed source → breadcrumb names the source path" "y
 # back to true and this fails. (The earlier keep test only covers ABSENT DevFlow
 # keys, which an inverted merge would still add — so it cannot catch a flip.)
 PLS_NODEFAULT="$(mktemp -d)"; mkdir -p "$PLS_NODEFAULT/.claude"
-printf '%s' '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":false}},"enabledPlugins":{"devflow@devflow-marketplace":false}}' \
+printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/prflow"},"autoUpdate":false}},"enabledPlugins":{"%s":false}}' "$SUITE_PLUGIN_SPEC" \
   > "$PLS_NODEFAULT/.claude/settings.json"
 bash "$PLS" "$PLS_NODEFAULT" >/dev/null 2>&1; PLS_ND_RC=$?
 PLS_ND_SF="$PLS_NODEFAULT/.claude/settings.json"
@@ -27768,7 +27899,7 @@ assert_eq "pls: user-set DevFlow non-default → exit 0" "0" "$PLS_ND_RC"
 assert_eq "pls: user-set autoUpdate:false NOT clobbered (merge direction)" "false" \
   "$(jq -r '.extraKnownMarketplaces["devflow-marketplace"].autoUpdate' "$PLS_ND_SF" 2>/dev/null)"
 assert_eq "pls: user-set enabledPlugins:false NOT clobbered (merge direction)" "false" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_ND_SF" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_ND_SF" 2>/dev/null)"
 
 # The provisioner never writes the auto-mode env var, so a user's pre-existing
 # env block — including a deliberately-disabled CLAUDE_CODE_ENABLE_AUTO_MODE="0" —
@@ -27832,7 +27963,7 @@ printf '%s' '{}' > "$PLS_OBJ/.claude/settings.json"
 bash "$PLS" "$PLS_OBJ" >/dev/null 2>&1; PLS_OBJ_RC=$?
 assert_eq "pls: {} → exit 0" "0" "$PLS_OBJ_RC"
 assert_eq "pls: {} → enabledPlugins added" "true" \
-  "$(jq -r '.enabledPlugins["devflow@devflow-marketplace"]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
+  "$(jq -r --arg k "$SUITE_PLUGIN_SPEC" '.enabledPlugins[$k]' "$PLS_OBJ/.claude/settings.json" 2>/dev/null)"
 
 # AC 7: isolation invariant — the cloud path (scaffold-config.sh, as install.sh
 # calls it) creates/modifies NO .claude/settings.json.
@@ -28382,15 +28513,49 @@ assert_eq "#139 agents/code-explorer.md exists (vendored first-party)" \
 assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
   "yes" "$([ -f "$FDROOT/agents/code-architect.md" ] && echo yes || echo no)"
 
+# ── Dispatch-roster derivation (issue #967) ─────────────────────────────────
+# DERIVE the set of agent/skill identifiers a shipped prompt bundle actually dispatches,
+# and report which members of an expected roster are MISSING from it. Every caller below
+# used to spell one `grep -qF "<form>devflow:$agent" "$BUNDLE"` row per identifier. Those
+# rows guarded a real contract — a DROPPED dispatch, which no namespace lint covers — but
+# they were unmaintainable in two ways at once: the pinned literal interpolated a loop
+# variable and the haystack was a runtime concatenation of skill sources under a mktemp
+# path, so neither a reader nor lib/test/pin-corpus-lint.py's static classifier could
+# resolve WHAT was pinned WHERE. Any edit to such a line was therefore an unanswerable
+# finding: with no declaration it reported `missing structural declaration`, and with one
+# it reported `typed structural declaration literal/target cannot be inspected` — a
+# declaration asserting an inspectability that does not hold. The derivation below keeps
+# the guarantee, drops the unresolvable pin: it names the missing identifiers instead of
+# rendering `expected yes / actual no`, and it is an executable derivation over the
+# bundle rather than a fixed-wording source-presence pin.
+#
+# Fails CLOSED by construction, with no separate negative control needed: if the
+# extraction yields nothing — a renamed namespace, an unreadable or empty bundle, an
+# absent `grep` — then EVERY roster member reports missing and the calling row is RED. It
+# is deliberately a MEMBERSHIP test, not set equality: adding a sixth dispatched agent is
+# guarded by that agent's own rows, and equality here would turn an unrelated addition red.
+dispatched_roster_missing() {  # $1=bundle $2=ERE for the dispatch form $3=prefix $4=suffix $5..=expected ids
+  local _bundle="$1" _pat="$2" _pre="$3" _suf="$4"; shift 4
+  local _found=" " _hit _id _missing=""
+  while IFS= read -r _hit; do
+    _hit="${_hit#"$_pre"}"
+    _found="$_found${_hit%"$_suf"} "
+  done < <(grep -oE "$_pat" "$_bundle" 2>/dev/null)
+  for _id in "$@"; do
+    case "$_found" in *" $_id "*) ;; *) _missing="$_missing$_id " ;; esac
+  done
+  printf '%s' "${_missing% }"
+}
+
 # (2b) Dispatch-resolves contract (the load-bearing invariant the absence-grep above only
 # proxies for): for each rewired agent, the implement skill must dispatch the devflow:
 # identifier AND a first-party agent of that exact `name:` must exist to resolve it. This
 # closes the loop the #62/#98 unverified-assumption bug class warns about — a future typo
 # in the subagent_type or a renamed agent `name:` frontmatter would pass (1) and (2) yet
 # dead-end the dispatch at runtime; this assertion catches that.
+assert_eq "#139 implement bundle dispatches both feature-dev agents (derived subagent_type roster; names any missing id)" \
+  "" "$(dispatched_roster_missing "$IMPL_SKILL_BUNDLE" 'subagent_type: prflow:[a-z0-9-]+' 'subagent_type: prflow:' '' code-explorer code-architect)"
 for fdagent in code-explorer code-architect; do
-  assert_eq "#139 implement skill dispatches devflow:$fdagent (rewired call-site present)" \
-    "yes" "$(grep -qF "subagent_type: devflow:$fdagent" "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin; issue #218: bundle (the agent dispatches moved to phases/phase-2-implement.md)
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
@@ -28561,26 +28726,29 @@ m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 print("yes" if sys.argv[2] in m.KNOWN_AGENTS else "no")
 ' "$FDROOT/scripts/resolve-review-overrides.py" "$1" 2>/dev/null || echo "no"
 }
+# The LOAD-BEARING dispatch form in the review engine is the bold header `**devflow:<name>**`
+# (the per-agent prompt block — the actual dispatch site), NOT a bare `devflow:<name>`
+# substring. The bare form also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate
+# bullets, the pitfalls list) for the gated analyzers, so extracting the bare form here would
+# stay green even if the real dispatch block were deleted while a prose mention survived — the
+# #62/#98 unverified-assumption trap. The header form appears exactly once per agent, so this
+# tracks the dispatch, not any mention. Derived (not pinned per id) for the reasons stated at
+# `dispatched_roster_missing`; the row names any missing agent.
+# shellcheck disable=SC2086  # deliberate word-split: PRT_AGENTS is the space-separated roster
+assert_eq "#141 review engine dispatches every roster agent via its **prflow:<name>** prompt block (derived; names any missing id)" \
+  "" "$(dispatched_roster_missing "$REVIEW_BUNDLE" '\*\*prflow:[a-z0-9-]+\*\*' '**prflow:' '**' $PRT_AGENTS)"
+# Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster in its
+# phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s negative scan
+# only catches a leftover OLD id — not a DROPPED devflow: id. Derive it positively so a future
+# edit that desyncs review-and-fix's example roster from the engine's actual dispatch set turns
+# this row red instead of shipping silently. Scoped to the whole root+references bundle (#539
+# review Suggestion) so roster prose migrating into a reference stays covered.
+# shellcheck disable=SC2086  # deliberate word-split: PRT_AGENTS is the space-separated roster
+assert_eq "#141 fix-loop skill references every roster agent (review-and-fix roster; names any missing id)" \
+  "" "$(dispatched_roster_missing "$MAXI_BUNDLE" 'prflow:[a-z0-9-]+' 'prflow:' '' $PRT_AGENTS)"
 for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
-  # Pin the LOAD-BEARING dispatch header `**devflow:<name>**` (the bold per-agent prompt
-  # block — the actual dispatch site), NOT a bare `devflow:<name>` substring. The bare form
-  # also appears in prose (the Phase 0.5 gate table, the Phase 3.1 gate bullets, the
-  # pitfalls list) for the gated analyzers, so a bare grep would stay green even if the
-  # real dispatch block were deleted while a prose mention survived — the #62/#98
-  # unverified-assumption trap. The header form appears exactly once per agent (its
-  # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
-  # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
-  assert_eq "#141 review engine dispatches devflow:$a via its **devflow:$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**devflow:$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
-  # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
-  # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
-  # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
-  # positively so a future edit that desyncs review-and-fix's example roster from the
-  # engine's actual dispatch set turns this row red instead of shipping silently.
-  assert_eq "#141 fix-loop skill references devflow:$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "devflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -28817,8 +28985,12 @@ done
 # trap). requesting-code-review: the engine invokes it + resolver/schema allowlist its override
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
-assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
-  "yes" "$(grep -qF '/devflow:requesting-code-review' "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
+# Derived (not pinned) for the reasons stated at `dispatched_roster_missing`: the haystack is
+# the runtime review-engine concatenation, so a fixed-literal pin over it names a target no
+# static reader can resolve. The extraction is scoped to the `/prflow:<id>` slash-invocation
+# form, which is the actual call-site shape.
+assert_eq "#142 review engine dispatches /prflow:requesting-code-review (derived final-pass call-site; names it when missing)" \
+  "" "$(dispatched_roster_missing "$REVIEW_BUNDLE" '/prflow:[a-z0-9-]+' '/prflow:' '' requesting-code-review)"
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(rro_allowlisted "devflow:requesting-code-review")"
 # Negative control: the allowlist is still CLOSED - an id it never declared is refused,
@@ -28827,8 +28999,8 @@ assert_eq "#142 resolver's allowlist stays closed (an undeclared id is refused)"
   "no" "$(rro_allowlisted "devflow:not-a-real-agent")"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
-assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF 'devflow:receiving-code-review' "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
+assert_eq "#142 fix-loop skill applies the canonical receiving-code-review principles (call-site rewired)" \
+  "yes" "$(grep -qF "prflow:receiving-code-review" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'prflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
 
 # ── #506 prompt-surface edit routing evidence gate ───────────────────────────
 # Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
@@ -33098,8 +33270,8 @@ assert_pin_unique "#268 wiring: resume-audit marker literal (written + counted v
   "devflow:stall-backstop-audit" "$WF268"
 # The re-dispatch body is the ONLY comment carrying the trigger phrase, and it
 # targets the run's own issue number.
-assert_pin_unique "#268 wiring: re-dispatch body carries the /devflow:implement trigger phrase" \
-  '/devflow:implement %s' "$WF268"
+assert_pin_unique "#268 wiring: re-dispatch body carries the canonical implement trigger phrase" \
+  '/prflow:implement %s' "$WF268"
 # Fail-loud exit mapping: resume keeps the job green, everything else exits
 # non-zero. Drift to a bare `exit 0` (or dropping the FAIL flip) would convert
 # "job goes honestly red" back into a masked stall — the marquee contract.
@@ -33260,7 +33432,7 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: interim under cap -> resume exit 0" "0" "$SB268_RC"
   assert_eq "#268 behavior: resume body carries marker + trigger phrase" "yes" \
-    "$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF '/devflow:implement 5' "$SB268_POST" && echo yes || echo no)"
+    "$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES=$'<!-- devflow:stall-backstop-audit -->\nattempt one\n<!-- devflow:stall-backstop-audit -->\nattempt two'
   SB268_RC=$?
@@ -33388,7 +33560,7 @@ STUB
   sb268_run env JOB_STATUS=success STUB_STATUS_OUT="interim 🚀 Reviewing"
   SB268_RC=$?
   assert_eq "#498 behavior: interim + JOB_STATUS=success -> resume still posts (suppression scoped to 'cancelled')" "0:yes" \
-    "$SB268_RC:$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF '/devflow:implement 5' "$SB268_POST" && echo yes || echo no)"
+    "$SB268_RC:$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
   # skip-cancelled (unreadable class on a cancel): logs and exits green — no
   # fail-loud diagnostic comment, and no flip (the guard is CLASS=interim, this
   # was unreadable). The decide helper maps unreadable+cancelled -> skip-cancelled.
@@ -35199,6 +35371,20 @@ echo "#666: mutation-routing declaration gate"
 MR_REPO="$(cd "$LIB/.." && pwd)"
 _MR_OUT="$(python3 "$PCL" mutation-routing-worktree "$MR_REPO" 2>&1)"; _MR_RC=$?
 assert_eq "#810 mutation-routing worktree gate is established and clean" "0" "$_MR_RC"
+# #967: rc alone cannot distinguish "the static pin classifier ran and found nothing" from
+# "a precondition raised and the classifier never ran" — every precondition inside
+# scan_static_pin_changes (the adjudication-table branch-currency check among them) aborts
+# BEFORE both scan passes, and that is exactly how this gate stayed silently un-run across
+# two sessions while four unanswerable guard sites sat unreported. The helper writes the
+# sentinel below to stderr only on the path where both passes completed, so its ABSENCE is a
+# named failure rather than an anonymous rc 2. Matched with a bash `case` (no PATH tool
+# decides this comparand) against the merged stdout+stderr capture above.
+case "$_MR_OUT" in
+  *MUTATION-ROUTING-STATIC-SCAN-COMPLETED*) _MR_RAN=yes ;;
+  *) _MR_RAN=no ;;
+esac
+assert_eq "#967 mutation-routing static pin classifier actually ran (a precondition raise cannot silently skip it)" \
+  "yes" "$_MR_RAN"
 if [ "$_MR_RC" -ne 0 ]; then
   while IFS= read -r _mr_line || [ -n "$_mr_line" ]; do
     printf '    %s\n' "$_mr_line"
@@ -37323,7 +37509,7 @@ assert_pin_unique "#363 devflow.yml's claude_args consumes the hoisted allowed-t
 # The block is gated to /devflow:review; the trailing space excludes review-and-fix,
 # which runs the same skill under a different profile with no block injected.
 assert_pin_unique "#363 devflow.yml gates the block on /devflow:review (trailing space excludes review-and-fix)" \
-  "if: \${{ startsWith(needs.gate.outputs.command, '/devflow:review ') }}" "$DEVFLOW_YML"
+  "if: \${{ startsWith(needs.gate.outputs.command, '/prflow:review ') }}" "$DEVFLOW_YML"
 assert_pin_unique "#363 devflow.yml falls back to the bare command when no block is composed" \
   'prompt: ${{ steps.reviewcompose.outputs.prompt || needs.gate.outputs.command }}' "$DEVFLOW_YML"
 
@@ -41548,7 +41734,7 @@ _505_run plugins '{"enabledPlugins":{"code-review@claude-plugins-official":true,
 assert_eq "#505 AC: baked-duplicate entry silent skip" "real@claude-plugins-official" "$_OUT"
 assert_eq "#505 AC: baked-duplicate entry no breadcrumb" "" "$_ERR"
 # devflow@-prefixed → silent skip
-_505_run plugins '{"enabledPlugins":{"devflow@devflow-marketplace":true,"real@claude-plugins-official":true}}'
+_505_run plugins "$(printf '{"enabledPlugins":{"%s":true,"real@claude-plugins-official":true}}' "$SUITE_PLUGIN_SPEC")"
 assert_eq "#505 AC: devflow@-prefixed entry silent skip" "real@claude-plugins-official" "$_OUT"
 # order preserved (settings-file order)
 _505_run plugins '{"enabledPlugins":{"zebra@claude-plugins-official":true,"apple@claude-plugins-official":true}}'
@@ -41583,7 +41769,7 @@ _505_run marketplaces '{"extraKnownMarketplaces":{"nosrc":{"autoUpdate":true}}}'
 assert_eq "#505 AC3: no source object breadcrumb" "yes" "$(_505_grep_err 'has no source object')"
 
 # ── production fixture (provision-local-settings.sh DEFAULTS) → both modes emit nothing ──
-_505_PROD='{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/devflow-autopilot"},"autoUpdate":true}},"enabledPlugins":{"devflow@devflow-marketplace":true}}'
+_505_PROD="$(printf '{"extraKnownMarketplaces":{"devflow-marketplace":{"source":{"source":"github","repo":"The01Geek/prflow"},"autoUpdate":true}},"enabledPlugins":{"%s":true}}' "$SUITE_PLUGIN_SPEC")"
 _505_run plugins "$_505_PROD"
 assert_eq "#505 AC: production fixture plugins empty (fresh /devflow:init)" "" "$_OUT"
 assert_eq "#505 AC: production fixture plugins no breadcrumb" "" "$_ERR"
@@ -41659,7 +41845,7 @@ assert_eq "#505 dpc: unknown read-outcome arm emits NO ::notice:: (does not comp
 rm -f "$_505_DPC_E"
 
 # ── #505 workflow-wiring pins (AC4 + review-tier trusted-source ACs) ────────────
-_505_BP="printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace"
+_505_BP="printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official $SUITE_PLUGIN_SPEC"
 _505_BM="printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./"
 # (a) baked baseline literals byte-identical across the three call sites (AC4 sync invariant)
 for _f in devflow-implement devflow devflow-runner; do
@@ -41804,7 +41990,7 @@ PY
        && [ "$(_505_dedupe_body "$_505_WSTEP")" = "$(_505_dedupe_body "$_505_RSTEP")" ] && echo yes || echo no)"
 
   # Expected baked baseline (the composed output when nothing is spliced).
-  _505_BASE_P="code-review@claude-plugins-official"$'\n'"claude-md-management@claude-plugins-official"$'\n'"devflow@devflow-marketplace"
+  _505_BASE_P="code-review@claude-plugins-official"$'\n'"claude-md-management@claude-plugins-official"$'\n'"$SUITE_PLUGIN_SPEC"
   _505_BASE_M="https://github.com/anthropics/claude-plugins-official.git"$'\n'"./"
   _505_parse_out() {  # $1=GITHUB_OUTPUT file → sets _PLG/_MKT
     _PLG="$(awk '/^plugins<</{f=1;next} f&&/^PLG_EOF_/{f=0} f' "$1")"
@@ -43892,6 +44078,108 @@ assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
 # ────────────────────────────────────────────────────────────────────────────
+# Subagent DISPATCH-NAMESPACE guard (lib/test/lint-subagent-dispatch-namespace.py).
+# A qualified subagent id in prompt prose is a dispatch string whose namespace half is
+# the plugin name, so a plugin rename that misses one ships a review engine whose
+# reviewers resolve to nothing — a `coverage: "not_verified"` verdict with no
+# diagnosis, not a loud failure. Unlike the agent_overrides config keys (a closed
+# allowlist that accepts every declared namespace), dispatch accepts the canonical
+# namespace only, and this is the sole check that reads it.
+# ────────────────────────────────────────────────────────────────────────────
+echo "subagent dispatch-namespace guard"
+DNS_LINT="$LIB/test/lint-subagent-dispatch-namespace.py"
+
+# Real-tree run: clean, AND a positive surface tally so a collapsed audit (a broken
+# population, an is_audited that matches nothing) cannot read as clean.
+DNS_OUT="$(python3 "$DNS_LINT" --root "$LIB/.." 2>&1)"; DNS_RC=$?
+assert_eq "dispatch-ns: clean on the tree as it stands" "rc=0" \
+  "$([ "$DNS_RC" -eq 0 ] && printf 'rc=0' || printf 'rc=%s | %s' "$DNS_RC" "$DNS_OUT")"
+assert_eq "dispatch-ns: the real-tree run audited a positive number of prompt surfaces" "yes" \
+  "$(printf '%s' "$DNS_OUT" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) prompt", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+
+# Positive control: a prompt surface carrying a STALE-namespace dispatch id must go
+# red. Without this the clean run above is unfalsifiable — an audit that flags nothing
+# ever would satisfy it. The fixture supplies only the surface; the dispatchable-leaf
+# set and the canonical namespace come from the real plugin, so the fixture needs no
+# agents/ tree of its own. The stale namespace is composed at runtime from the real
+# alias namespace rather than hardcoded, so this control cannot rot into a tautology
+# if the alias set changes.
+DNS_FIXROOT="$(git_sandbox 'dispatch-ns fixture root')"
+mkdir -p "$DNS_FIXROOT/skills/fixture" 2>/dev/null
+# The alias namespace (the declared non-canonical one) is by definition a namespace
+# that does not dispatch — exactly what the guard must reject. Both namespaces are
+# read from the identity reader rather than hardcoded, so this control cannot rot
+# into a tautology if the declared set changes.
+DNS_ALIAS="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | tail -n1)"
+DNS_CANON="$(python3 "$LIB/plugin_identity.py" --agent-namespaces 2>/dev/null | head -n1)"
+assert_eq "dispatch-ns: the fixture's two namespaces resolved and differ" "yes" \
+  "$([ -n "$DNS_ALIAS" ] && [ -n "$DNS_CANON" ] && [ "$DNS_ALIAS" != "$DNS_CANON" ] && echo yes || echo no)"
+printf '%s\n' 'skills/fixture/SKILL.md' > "$DNS_FIXROOT/list.txt" 2>/dev/null
+dns_run() {  # <namespace> <leaf> -> "rc=<n>|<output>"
+  local out rc
+  printf 'Dispatch %s%s now.\n' "$1" "$2" > "$DNS_FIXROOT/skills/fixture/SKILL.md" 2>/dev/null
+  out="$(python3 "$DNS_LINT" --root "$DNS_FIXROOT" --files-from "$DNS_FIXROOT/list.txt" 2>&1)"
+  rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+DNS_BAD="$(dns_run "$DNS_ALIAS" code-reviewer)"
+assert_eq "dispatch-ns: a stale-namespace dispatch id in a prompt surface goes red" "nonzero" \
+  "$(case "$DNS_BAD" in 'rc=0|'*) printf 'ZERO | %s' "$DNS_BAD" ;; *) printf 'nonzero' ;; esac)"
+assert_eq "dispatch-ns: the diagnosis names the offending id and the remedy" "yes" \
+  "$(printf '%s' "$DNS_BAD" | grep -qF "${DNS_ALIAS}code-reviewer" \
+     && printf '%s' "$DNS_BAD" | grep -qF "${DNS_CANON}code-reviewer" \
+     && echo yes || echo no)"
+# Negative control on the SAME fixture: the canonical namespace is accepted, so the
+# red above is the namespace VERDICT and not merely "the fixture surface was read".
+assert_eq "dispatch-ns: the same surface with the canonical namespace is clean" "rc=0" \
+  "$(printf '%s' "$(dns_run "$DNS_CANON" code-reviewer)" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+# A leaf that is NOT dispatchable stays out of scope even under the alias namespace —
+# this is what keeps plain skill/command references from being swept into the gate.
+assert_eq "dispatch-ns: a non-dispatchable leaf under the alias namespace is not flagged" "rc=0" \
+  "$(printf '%s' "$(dns_run "$DNS_ALIAS" some-unrelated-slug)" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+
+# ── The PROMPT-EXTENSION half of the audited population (is_audited's _EXTENSION_RE).
+# Every control above drives a skills/**/SKILL.md surface, and the real-tree tally
+# asserts only `audited > 0` — which the skills population satisfies on its own. So a
+# typo or path-shape regression in _EXTENSION_RE would silently stop auditing
+# .devflow/prompt-extensions/*.md, which ARE dispatch-carrying surfaces, while every
+# assertion here stayed green: the same silent `coverage: "not_verified"` failure this
+# guard exists to prevent, occurring inside the guard itself. Driven with its own
+# fixture surface so the branch has a positive control and a negative twin.
+DNS_EXT_REL='.devflow/prompt-extensions/fixture-ext.md'
+mkdir -p "$DNS_FIXROOT/.devflow/prompt-extensions" 2>/dev/null
+printf '%s\n' "$DNS_EXT_REL" > "$DNS_FIXROOT/ext-list.txt" 2>/dev/null
+dns_run_ext() {  # <namespace> <leaf> -> "rc=<n>|<output>"
+  local out rc
+  printf 'Dispatch %s%s now.\n' "$1" "$2" > "$DNS_FIXROOT/$DNS_EXT_REL" 2>/dev/null
+  out="$(python3 "$DNS_LINT" --root "$DNS_FIXROOT" --files-from "$DNS_FIXROOT/ext-list.txt" 2>&1)"
+  rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+DNS_EXT_BAD="$(dns_run_ext "$DNS_ALIAS" code-reviewer)"
+assert_eq "dispatch-ns: a stale-namespace dispatch id in a PROMPT EXTENSION goes red" "nonzero" \
+  "$(case "$DNS_EXT_BAD" in 'rc=0|'*) printf 'ZERO | %s' "$DNS_EXT_BAD" ;; *) printf 'nonzero' ;; esac)"
+assert_eq "dispatch-ns: the prompt-extension diagnosis names the offending id and the remedy" "yes" \
+  "$(printf '%s' "$DNS_EXT_BAD" | grep -qF "${DNS_ALIAS}code-reviewer" \
+     && printf '%s' "$DNS_EXT_BAD" | grep -qF "${DNS_CANON}code-reviewer" \
+     && echo yes || echo no)"
+DNS_EXT_OK="$(dns_run_ext "$DNS_CANON" code-reviewer)"
+assert_eq "dispatch-ns: the same PROMPT EXTENSION with the canonical namespace is clean" "rc=0" \
+  "$(printf '%s' "$DNS_EXT_OK" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+# Non-vacuity for the clean arm: rc=0 alone cannot tell "read and accepted" from "never
+# entered the population at all", which is precisely the regression being guarded.
+assert_eq "dispatch-ns: the prompt-extension surface really entered the audited population" "yes" \
+  "$(printf '%s' "$DNS_EXT_OK" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) prompt", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
+rm -rf "$DNS_FIXROOT"
+unset DNS_LINT DNS_OUT DNS_RC DNS_FIXROOT DNS_ALIAS DNS_CANON DNS_BAD
+unset DNS_EXT_REL DNS_EXT_BAD DNS_EXT_OK
+unset -f dns_run dns_run_ext
+
+# ────────────────────────────────────────────────────────────────────────────
 # #834 subagent extension-handoff lint (lib/test/lint-subagent-extension-handoff.py).
 # The registry (lib/subagent-dispatch-sites.json) is the authority; the lint gates
 # that a subagent dispatch of a DevFlow skill is registered. Fixture trees and
@@ -45314,7 +45602,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 212; then
+  "installer-wiring" 213; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi

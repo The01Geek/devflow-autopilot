@@ -30,7 +30,7 @@ case and reports a genuine, established `0` — nothing can escape a scope that 
 never dispatched. The other two proxies — the `record-reopen` count and the declared
 post-filing class — are unaffected.
 
-A "run" is bounded by `attributionSkill == "devflow:create-issue"` on
+A "run" is bounded by `attributionSkill` matching any declared `<ns>:create-issue` on
 `type == "assistant"` records. A **main-thread** (non-`isSidechain`) attributed
 assistant record measures the ORCHESTRATOR's main-thread context — reported as a
 **secondary** axis (never the sole basis of a reduction claim). A **sidechain**
@@ -90,12 +90,52 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
 import sys
 
-ATTRIBUTION = "devflow:create-issue"
+# A run is bounded by `attributionSkill`, which carries the LIVE plugin namespace. That
+# namespace is renameable, and historical census rows keep whatever namespace was live
+# when they were written — so this must accept EVERY declared namespace, not one literal.
+# A single hardcoded id silently matches nothing after a rename (every new run rejected,
+# the eval reporting zero runs with no error), or silently drops the history if simply
+# swapped. Derived from the same identity source the rest of the repo single-sources.
+_IDENTITY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "plugin_identity.py"
+)
+
+
+def _attribution_ids():
+    """Every accepted `<namespace>:create-issue` attribution id, canonical first.
+
+    Falls back to the historical id rather than an EMPTY set: an empty set would make
+    every record mismatch and report a vacuous zero-run measurement, which is exactly
+    the silent failure this function exists to prevent.
+    """
+    spec = importlib.util.spec_from_file_location("plugin_identity", _IDENTITY_PATH)
+    if spec is None or spec.loader is None:
+        print(
+            f"create-issue-context-eval: identity source {_IDENTITY_PATH} is not "
+            "importable; falling back to the historical attribution id only",
+            file=sys.stderr,
+        )
+        return ("devflow:create-issue",)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    ids = tuple(ns + "create-issue" for ns in module.agent_namespaces())
+    if not ids:
+        print(
+            "create-issue-context-eval: the declared namespace set is empty; falling "
+            "back to the historical attribution id only",
+            file=sys.stderr,
+        )
+        return ("devflow:create-issue",)
+    return ids
+
+
+ATTRIBUTION = _attribution_ids()
 # A run's context growth from re-quotation is dominated by large blocks; small
 # restatements (a one-line pointer, a status word) are not the reducible cost this
 # eval targets. 500 chars ~ a paragraph, well below any real findings/summary block.
@@ -346,7 +386,7 @@ class RunAccumulator:
         the round-attributed auditor-cost tally.
         """
         self.sidechain_records_seen += 1
-        if record.get("attributionSkill") != ATTRIBUTION:
+        if record.get("attributionSkill") not in ATTRIBUTION:
             return
         self.sidechain_records_attributed += 1
         message = record.get("message")
@@ -385,7 +425,7 @@ class RunAccumulator:
         if record.get("isSidechain") is True:
             self._observe_sidechain(record)
             return
-        if record.get("attributionSkill") != ATTRIBUTION:
+        if record.get("attributionSkill") not in ATTRIBUTION:
             return
         self.attributed = True
         self.turn_count += 1
