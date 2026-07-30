@@ -103,7 +103,7 @@ assert_eq "#487 wiring: install-gh-wrapper.sh resolves the real gh before prepen
   "$([ -n "$_cap_ln533" ] && [ -n "$_path_ln533" ] && [ "$_cap_ln533" -lt "$_path_ln533" ] && echo yes || echo no)"
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 # The Stop step's review-exclusion ASYMMETRY keeps the Stop gate symmetric with Start:
 # devflow.yml's Stop step MUST carry the /devflow:review negation (on the review path the
 # refresher was never started, so the step would be a pointless no-op; a false defeat
@@ -111,7 +111,7 @@ assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review com
 # by this exclusion), while devflow-implement.yml's Stop step must NOT carry it (it
 # always starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
 assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
   "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF "/devflow:review")"
 # Both Stop steps pass the Start step's outcome so stop-refresher.sh can tell a genuine

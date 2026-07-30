@@ -1430,6 +1430,34 @@ assert_eq "rit: write collaborator, explicit number → should_run" \
 assert_eq "rit: explicit number beats context" \
   "number=7" "$(echo "$OUT" | grep '^number=')"
 
+# 2b. Dual-namespace acceptance at the implement extractor. Every other fixture
+# in this block feeds the transitional `/devflow:implement` alias, so these pin
+# the CANONICAL arm — the one the workflow's own re-dispatch body and agent-mode
+# prompt now emit. Without them the alternation could regress to alias-only and
+# every fixture here would still pass, while the workflow's synthesised prompt
+# resolved no number at all.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
+  TRIGGER_TEXT='/prflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: canonical /prflow:implement → should_run" \
+  "should_run=true" "$(echo "$OUT" | grep '^should_run=')"
+assert_eq "rit: canonical /prflow:implement resolves the explicit number" \
+  "number=7" "$(echo "$OUT" | grep '^number=')"
+# The workflow's own re-dispatch body shape (`/prflow:implement <n>` on its own
+# line, # -less) is what the resume arm posts — resolve it end-to-end.
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
+  TRIGGER_TEXT='/prflow:implement #42' CONTEXT_NUMBER='7' \
+  STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: canonical namespace with a #-prefixed number resolves" \
+  "number=42" "$(echo "$OUT" | grep '^number=')"
+# Negative control: the alternation is exactly two namespaces, not a wildcard —
+# an unrelated `*flow:` prefix must resolve NO number (falls back to context).
+OUT="$(ACTOR='alice' ALLOWED_BOTS='' REPO='acme/x' \
+  TRIGGER_TEXT='/xflow:implement 7' CONTEXT_NUMBER='99' \
+  STUB_PERM='write' PATH="$RIT_STUB_DIR:$PATH" bash "$RIT")"
+assert_eq "rit: an unrelated /xflow: namespace does not supply the number" \
+  "number=99" "$(echo "$OUT" | grep '^number=')"
+
 # 3. Non-collaborator (gh → 'none') → blocked, no number.
 OUT="$(ACTOR='stranger' ALLOWED_BOTS='' REPO='acme/x' \
   TRIGGER_TEXT='/devflow:implement 7' CONTEXT_NUMBER='99' \

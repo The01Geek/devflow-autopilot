@@ -15714,23 +15714,23 @@ assert_eq "review-identity: devflow-runner.yml has no steps.app-token consumer (
 # `steps.app-token || GITHUB_TOKEN` consumer (which would put the review command
 # back on the primary app identity) goes RED.
 assert_eq "review-identity: devflow.yml command github_token is the review-conditional expression" "1" \
-  "$(grep -cF "github_token: \${{ startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}" "$WF/devflow.yml")"
+  "$(grep -cF "github_token: \${{ startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}" "$WF/devflow.yml")"
 # The review branch (startsWith .../devflow:review) selects the reviewer token,
 # NEVER the primary app token — assert the ordering: reviewer-token appears
 # inside the startsWith-guarded first operand, app-token only in the else.
 assert_eq "review-identity: devflow.yml review branch selects reviewer-token, primary app token only in the else" "1" \
-  "$(grep -cF "startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
+  "$(grep -cF "startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.reviewer-token.outputs.token" "$WF/devflow.yml")"
 # The primary-app mint in devflow.yml is now SKIPPED on the review command, so it
 # can never author the review — pin the negated startsWith on its if:. Scoped to the
 # mint step's block (mint_blk): since issue #487 the same gate also guards the
 # refresher/wrapper-install steps, so a whole-file count is no longer 1.
 assert_eq "review-identity: devflow.yml primary app-token mint is skipped on /devflow:review" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Mint workflow-capable token (optional)' "$WF/devflow.yml")" | grep -cF "vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 # Conversely, devflow.yml's reviewer mint fires ONLY on the review command — pin the
 # positive startsWith conjunct on its if: so dropping it (which would mint the reviewer
 # token on /devflow:pr-description too) goes RED, keeping the mint scoped to /devflow:review.
 assert_eq "review-identity: devflow.yml reviewer-token mint fires only on /devflow:review" "1" \
-  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ')" "$WF/devflow.yml")"
+  "$(grep -cF "vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/prflow:review ')" "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml react step consumes gate_app_token || github.token" "1" \
   "$(grep -cF 'GH_TOKEN: ${{ steps.gate_app_token.outputs.token || github.token }}' "$WF/devflow.yml")"
 assert_eq "app-token: devflow.yml notice step consumes dedupe_app_token || github.token" "1" \
@@ -32320,8 +32320,8 @@ assert_pin_unique "#268 wiring: resume-audit marker literal (written + counted v
   "devflow:stall-backstop-audit" "$WF268"
 # The re-dispatch body is the ONLY comment carrying the trigger phrase, and it
 # targets the run's own issue number.
-assert_pin_unique "#268 wiring: re-dispatch body carries the /devflow:implement trigger phrase" \
-  '/devflow:implement %s' "$WF268"
+assert_pin_unique "#268 wiring: re-dispatch body carries the canonical implement trigger phrase" \
+  '/prflow:implement %s' "$WF268"
 # Fail-loud exit mapping: resume keeps the job green, everything else exits
 # non-zero. Drift to a bare `exit 0` (or dropping the FAIL flip) would convert
 # "job goes honestly red" back into a masked stall — the marquee contract.
@@ -36481,7 +36481,7 @@ assert_pin_unique "#363 devflow.yml's claude_args consumes the hoisted allowed-t
 # The block is gated to /devflow:review; the trailing space excludes review-and-fix,
 # which runs the same skill under a different profile with no block injected.
 assert_pin_unique "#363 devflow.yml gates the block on /devflow:review (trailing space excludes review-and-fix)" \
-  "if: \${{ startsWith(needs.gate.outputs.command, '/devflow:review ') }}" "$DEVFLOW_YML"
+  "if: \${{ startsWith(needs.gate.outputs.command, '/prflow:review ') }}" "$DEVFLOW_YML"
 assert_pin_unique "#363 devflow.yml falls back to the bare command when no block is composed" \
   'prompt: ${{ steps.reviewcompose.outputs.prompt || needs.gate.outputs.command }}' "$DEVFLOW_YML"
 
