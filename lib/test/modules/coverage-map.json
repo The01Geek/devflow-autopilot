@@ -419,7 +419,7 @@
       "owner": "unmodularized"
     },
     "scripts/publish-release.sh": {
-      "note": "issue #949 merge-time tag + GitHub Release publisher; every arm driven from the #949 block in lib/test/run.sh",
+      "note": "issue #953 merge-time tag + GitHub Release publisher; every arm driven from the #953 block in lib/test/run.sh",
       "owner": "unmodularized"
     },
     "scripts/react-to-trigger.sh": {
@@ -578,7 +578,7 @@
       "owner": "harness-python-guards"
     },
     "scripts/version_pins.py": {
-      "note": "issue #949 derived pinned-release-tag sites; driven from the #949 block in lib/test/run.sh",
+      "note": "issue #953 derived pinned-release-tag sites; driven from the #953 block in lib/test/run.sh",
       "owner": "unmodularized"
     },
     "scripts/workflow_flight_recorder.py": {
@@ -1855,7 +1855,7 @@
       "note": "",
       "owner": "unmodularized"
     },
-    "949": {
+    "953": {
       "note": "",
       "owner": "unmodularized"
     },

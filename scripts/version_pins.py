@@ -10,7 +10,7 @@ text a user copy-pastes — a stale one silently installs an older DevFlow:
 * the installer **download URL**, ``raw.githubusercontent.com/<owner>/<repo>/vN.N.N/…``
 * the installer's **payload ref**, ``DEVFLOW_REF=vN.N.N``
 
-Before issue #949 nothing coupled those to ``.claude-plugin/plugin.json``'s version,
+Before issue #953 nothing coupled those to ``.claude-plugin/plugin.json``'s version,
 so the merge-time bump (``scripts/consolidate-changesets.py``, run by
 ``.github/workflows/version-consolidate.yml``) moved the version and left the docs a
 release behind. This module closes that loop from both ends:

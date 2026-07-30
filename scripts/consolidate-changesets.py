@@ -17,7 +17,7 @@ time (push to ``main``) from the ``version-consolidate`` workflow at
   * rewrites every **derived** pinned-release-tag site (the installer download URL and
     ``DEVFLOW_REF=`` payload ref in the docs) to ``v<new version>`` — see
     ``scripts/version_pins.py``, which owns the derivation — so the tagged tree is
-    self-consistent and the docs at tag ``vN`` say ``vN`` (issue #949),
+    self-consistent and the docs at tag ``vN`` say ``vN`` (issue #953),
   * prepends a dated, PR-cited Keep-a-Changelog entry assembled from all the prose, and
   * deletes the consumed changeset files.
 
@@ -407,7 +407,7 @@ def consolidate(
         if os.path.exists(marketplace_path)
         else None
     )
-    # Pinned release-tag sites (issue #949). The site set is DERIVED by version_pins from
+    # Pinned release-tag sites (issue #953). The site set is DERIVED by version_pins from
     # two machine-recognizable forms, so a documentation page added later cannot silently
     # escape the bump. Same read-before-write treatment: render_rewrites only reads and
     # assembles, so a read fault aborts before the first write rather than leaving the

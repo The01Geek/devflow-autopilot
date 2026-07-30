@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 #
-# Tag the merge-time version bump and publish its GitHub Release (issue #949).
+# Tag the merge-time version bump and publish its GitHub Release (issue #953).
 #
 # .github/workflows/version-consolidate.yml calls this immediately after it pushes the
 # `chore: bump version` commit, so the release tag names the exact tree whose docs the

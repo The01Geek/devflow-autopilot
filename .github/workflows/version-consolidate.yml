@@ -10,7 +10,7 @@ name: Version consolidate
 # URL and `DEVFLOW_REF=` payload ref in the docs — scripts/version_pins.py owns the
 # derivation), and the job then creates the annotated tag `v<new version>` at it and publishes
 # its GitHub Release. Bump, repin, tag and Release are therefore one self-consistent unit: the
-# docs at tag vN say vN. Before issue #949 the tag step did not exist and nothing coupled the
+# docs at tag vN say vN. Before issue #953 the tag step did not exist and nothing coupled the
 # docs to plugin.json, so one merge left the install instructions a release behind.
 #
 # This job commits a version bump back to main, so branch protection on `main` (the required
@@ -128,7 +128,7 @@ jobs:
             # next attempt's `git reset --hard origin/main`. Deliberately explicit (never
             # `git add -A`). lib/test/run.sh pins this list against the consolidator's writes.
             git add .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md CITATION.cff .changeset
-            # The pinned-release-tag rewrite set is DERIVED (issue #949), so it cannot be
+            # The pinned-release-tag rewrite set is DERIVED (issue #953), so it cannot be
             # enumerated here — stage exactly the paths the consolidator reports writing. A
             # pure-builtin read loop, never `xargs`/`tr`: a value that decides an emitted
             # result must not depend on a non-preflight PATH tool.
