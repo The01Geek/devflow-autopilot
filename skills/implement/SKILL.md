@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Use when a comment or message contains /devflow:implement followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
+description: Use when a comment or message contains /prflow:implement (or the transitional /devflow:implement) followed by a GitHub issue number. Runs the full 4-phase lifecycle — setup, implementation, code review, and documentation.
 argument-hint: <issue-number>
 ---
 # /devflow:implement — Automated Feature Development Orchestrator

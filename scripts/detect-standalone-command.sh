@@ -35,7 +35,13 @@
 #
 # Input: the comment/review body on STDIN.
 # Output (stdout), always both lines:
-#   command=/devflow:<cmd>|""   the matched canonical command token, or empty
+#   command=/prflow:<cmd>|""   the matched CANONICAL command token, or empty.
+#                              Both the `/prflow:` and the transitional `/devflow:`
+#                              namespaces are ACCEPTED on input; the emitted token is
+#                              always the canonical `/prflow:` form, because every
+#                              downstream consumer (devflow.yml's `startsWith` token
+#                              and grounding gates, and the agent-mode prompt) compares
+#                              or dispatches this string.
 #   number=<n>|""               the explicit number on the matched line, or empty
 # Matching is case-insensitive (mirrors the pre-anchoring grep -i behavior);
 # the emitted command token is always canonical lowercase.
@@ -74,9 +80,9 @@ found == 0 {
   if (line ~ /^\t/ || line ~ /^ {4,}/) next
   # Anchored own-line match, case-insensitive, most-specific-first.
   low = tolower(line)
-  if (low ~ /^ {0,3}\/devflow:review-and-fix([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/devflow:review-and-fix" }
-  else if (low ~ /^ {0,3}\/devflow:review([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/devflow:review" }
-  else if (low ~ /^ {0,3}\/devflow:pr-description([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/devflow:pr-description" }
+  if (low ~ /^ {0,3}\/(pr|dev)flow:review-and-fix([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:review-and-fix" }
+  else if (low ~ /^ {0,3}\/(pr|dev)flow:review([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:review" }
+  else if (low ~ /^ {0,3}\/(pr|dev)flow:pr-description([ \t]+#?[0-9]+)?[ \t]*$/) { cmd = "/prflow:pr-description" }
   else next
   # Extract an explicit number from the matched line, if present. The line is
   # anchored to hold only the command + optional number, so the first digit run

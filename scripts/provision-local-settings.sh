@@ -15,7 +15,7 @@
 # additively and WITHOUT clobbering any value the user already set:
 #   - extraKnownMarketplaces["devflow-marketplace"]  (a github source for
 #       The01Geek/devflow-autopilot + autoUpdate:true) and
-#       enabledPlugins["devflow@devflow-marketplace"]=true, so Claude Code keeps
+#       enabledPlugins["prflow@devflow-marketplace"]=true, so Claude Code keeps
 #       the DevFlow plugin updated.
 #
 # NOTE — selectable auto mode is NOT provisioned here. CLAUDE_CODE_ENABLE_AUTO_MODE

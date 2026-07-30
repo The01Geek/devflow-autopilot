@@ -163,7 +163,7 @@ jobs:
       needs.config.outputs.enabled == 'true' &&
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request == null &&
-      contains(github.event.comment.body, '/devflow:implement') && !contains(github.event.comment.body, '@claude')
+      (contains(github.event.comment.body, '/prflow:implement') || contains(github.event.comment.body, '/devflow:implement')) && !contains(github.event.comment.body, '@claude')
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
       contents: read        # checkout the resolver script; collaborator check uses GITHUB_TOKEN
@@ -843,7 +843,7 @@ jobs:
         id: plugins
         run: |
           set -euo pipefail
-          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace)"
+          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official prflow@devflow-marketplace)"
           BAKED_MARKETPLACES="$(printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./)"
           SETTINGS=.claude/settings.json
           HELPER=.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh
@@ -1105,7 +1105,7 @@ jobs:
           # action never depends on `@claude` or on reading the raw body.
           # Anthropic's stock claude.yml (tag mode) therefore never double-fires
           # on a bare `/devflow:implement <n>` comment.
-          prompt: ${{ format('/devflow:implement {0}', needs.gate.outputs.number) }}
+          prompt: ${{ format('/prflow:implement {0}', needs.gate.outputs.number) }}
 
           # Agent mode is silent by default; surface a progress comment so the
           # requester sees the run was picked up (applies to all paths now).
@@ -1681,7 +1681,7 @@ jobs:
                 # lib/test/run.sh), so a resumed run receives it even if it never
                 # re-reads the skill prose.
                 printf 'Headless note: this is a headless run — ending the turn ends the process, with no re-invocation. Never end the turn while any dispatched agent has not returned; poll to keep the turn alive; treat ScheduleWakeup and any future task-notification as unavailable.\n\n'
-                printf '/devflow:implement %s\n' "$ISSUE_NUMBER"
+                printf '/prflow:implement %s\n' "$ISSUE_NUMBER"
               } > "$BODY"
               ;;
             fail-exhausted)

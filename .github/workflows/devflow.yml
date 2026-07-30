@@ -225,10 +225,10 @@ jobs:
             exit 0
           fi
           case "$CMD" in
-            /devflow:review-and-fix)
+            /prflow:review-and-fix)
               echo "::notice::/devflow:review-and-fix has no auto path; not deduping."
               exit 0 ;;
-            /devflow:review) : ;;
+            /prflow:review) : ;;
             *)
               echo "::notice::Not a standalone /devflow:review request; nothing to dedupe."
               exit 0 ;;
@@ -383,9 +383,9 @@ jobs:
     if: |
       needs.config.outputs.enabled == 'true' &&
       (
-        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/devflow:implement')) ||
-        (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '/devflow:review') || contains(github.event.review.body, '/devflow:pr-description')) && !contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '/devflow:implement'))
+        (github.event_name == 'issue_comment' && (contains(github.event.comment.body, '/prflow:review') || contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/prflow:pr-description') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/prflow:implement') && !contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review_comment' && (contains(github.event.comment.body, '/prflow:review') || contains(github.event.comment.body, '/devflow:review') || contains(github.event.comment.body, '/prflow:pr-description') || contains(github.event.comment.body, '/devflow:pr-description')) && !contains(github.event.comment.body, '@claude') && !contains(github.event.comment.body, '/prflow:implement') && !contains(github.event.comment.body, '/devflow:implement')) ||
+        (github.event_name == 'pull_request_review' && (contains(github.event.review.body, '/prflow:review') || contains(github.event.review.body, '/devflow:review') || contains(github.event.review.body, '/prflow:pr-description') || contains(github.event.review.body, '/devflow:pr-description')) && !contains(github.event.review.body, '@claude') && !contains(github.event.review.body, '/prflow:implement') && !contains(github.event.review.body, '/devflow:implement'))
       )
     runs-on: ${{ vars.DEVFLOW_RUNNER && (startsWith(vars.DEVFLOW_RUNNER, '[') && fromJSON(vars.DEVFLOW_RUNNER) || vars.DEVFLOW_RUNNER) || 'ubuntu-latest' }}
     permissions:
@@ -513,7 +513,7 @@ jobs:
       # devflow-implement.yml.
       - name: Mint workflow-capable token (optional)
         id: app-token
-        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.DEVFLOW_APP_ID }}
@@ -581,7 +581,7 @@ jobs:
       # github_token falls back to GITHUB_TOKEN — NEVER the primary app token.
       - name: Mint downscoped DevFlow-Reviewer token (optional)
         id: reviewer-token
-        if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ vars.DEVFLOW_REVIEWER_APP_ID != '' && startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.DEVFLOW_REVIEWER_APP_ID }}
@@ -627,7 +627,7 @@ jobs:
       # Every other command falls through to the bare prompt, byte-for-byte.
       - name: Compose review grounding block
         id: reviewcompose
-        if: ${{ startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -701,7 +701,7 @@ jobs:
       # Kept in sync with devflow-implement.yml. See docs/cloud-setup.md.
       - name: Start credential refresher (optional)
         id: refresher
-        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         env:
           DEVFLOW_APP_ID: ${{ vars.DEVFLOW_APP_ID }}
           DEVFLOW_APP_PRIVATE_KEY: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
@@ -724,7 +724,7 @@ jobs:
       # vendored at the pinned devflow_version — a stale pin fails this step
       # loudly before the agent; refresh workflows and the pin together).
       - name: Install fresh-gh wrapper (optional)
-        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -933,7 +933,7 @@ jobs:
         id: plugins
         run: |
           set -euo pipefail
-          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official devflow@devflow-marketplace)"
+          BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official prflow@devflow-marketplace)"
           BAKED_MARKETPLACES="$(printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./)"
           SETTINGS=.claude/settings.json
           HELPER=.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh
@@ -1148,7 +1148,7 @@ jobs:
           # other command (`/devflow:pr-description`, `/devflow:review-and-fix`)
           # uses the full-scope primary App token when configured, else
           # GITHUB_TOKEN — identical to pre-change behavior.
-          github_token: ${{ startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}
+          github_token: ${{ startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.reviewer-token.outputs.token || secrets.GITHUB_TOKEN) || (steps.app-token.outputs.token || secrets.GITHUB_TOKEN) }}
           allowed_bots: ${{ needs.config.outputs.allowed_bots }}
 
           # AGENT mode: the gate resolved which /devflow:* command + number to
@@ -1208,7 +1208,7 @@ jobs:
       # so the branch/message selection is suite-drivable (CLAUDE.md
       # inline-shell-extraction convention).
       - name: Stop credential refresher (optional)
-        if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/devflow:review ') }}
+        if: ${{ always() && vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
         env:
           # The Start step's outcome. stop-refresher.sh treats the launcher as having
           # RAN when this is `success` OR `failure` (a ran-and-failed launcher is still
@@ -1352,13 +1352,13 @@ jobs:
       # run degrades to the pre-existing dead-end flip.
       - name: Mint review-backstop token (optional)
         id: backstop-token
-        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') && vars.DEVFLOW_APP_ID != '' }}
         uses: actions/create-github-app-token@v3
         with:
           client-id: ${{ vars.DEVFLOW_APP_ID }}
           private-key: ${{ secrets.DEVFLOW_APP_PRIVATE_KEY }}
       - name: Review stall backstop
-        if: ${{ always() && startsWith(needs.gate.outputs.command, '/devflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}
+        if: ${{ always() && startsWith(needs.gate.outputs.command, '/prflow:review ') && (steps.engine.outputs.is_error == 'true' || steps.claude.outcome == 'failure') }}
         env:
           GH_TOKEN: ${{ steps.backstop-token.outputs.token || github.token }}
           REPO: ${{ github.repository }}

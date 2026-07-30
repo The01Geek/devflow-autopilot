@@ -1,6 +1,6 @@
 ---
 name: retrospective-audit
-description: "Stage B of /devflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return one JSON object carrying a ranked `findings` array (one to three sub-patterns) — no edits, no worktree. Invoked as a subagent — do not call it directly."
+description: "Stage B of /prflow:retrospective-weekly: given a most-recent-first subset of one recurring pattern's occurrence-PR context bundles (bounded by audit_bundle_cap), re-derive the root cause and return one JSON object carrying a ranked `findings` array (one to three sub-patterns) — no edits, no worktree. Invoked as a subagent — do not call it directly."
 disable-model-invocation: true
 ---
 
