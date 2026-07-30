@@ -11497,7 +11497,7 @@ echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku overrid
 assert_eq "agent_overrides: shipped deduper override exists, pins Sonnet 5, and carries an effort key" \
   "ok" \
   "$(jq -r '
-      (.devflow_review.agent_overrides["devflow:checklist-deduper"]) as $d
+      (.devflow_review.agent_overrides["prflow:checklist-deduper"]) as $d
       | if ($d | type) != "object" then "missing-entry"
         elif (($d.model // "") != "claude-sonnet-5") then "not-sonnet"
         elif ($d | has("effort") | not) then "no-effort"
@@ -28842,11 +28842,11 @@ assert_eq "#141 no cloud workflow installs the pr-review-toolkit companion plugi
 # this most — it is EXCLUDED from (1) (it carries the old-id migration table), so its
 # operative override example would otherwise be unguarded; the other two are inside (1)'s
 # scan but a dropped-mention regression is still invisible to a negative scan.
-assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized devflow: key" \
-  "yes" "$(grep -qF '"devflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+assert_eq "#141 docs/review-agent-overrides.md operative example uses the internalized prflow: key" \
+  "yes" "$(grep -qF '"prflow:code-reviewer": { "model"' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
-  assert_eq "#141 docs/$d describes the internalized first-party review roster (devflow:code-reviewer present)" \
-    "yes" "$(grep -qF 'devflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
+  assert_eq "#141 docs/$d describes the internalized first-party review roster (prflow:code-reviewer present)" \
+    "yes" "$(grep -qF 'prflow:code-reviewer' "$FDROOT/docs/$d" && echo yes || echo no)"
 done
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -29639,11 +29639,11 @@ assert_eq "#142 review engine no longer assumes the final-pass reviewer is an in
 # name the internalized devflow:requesting-code-review id — a negative scan (1) catches a
 # leftover OLD id but not a doc that DROPPED the mention. review-agent-overrides.md (excluded
 # from (1) for its migration table) needs this most.
-assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized devflow:requesting-code-review key" \
-  "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
+assert_eq "#142 docs/review-agent-overrides.md operative table uses the internalized prflow:requesting-code-review key" \
+  "yes" "$(grep -qF 'prflow:requesting-code-review' "$FDROOT/docs/review-agent-overrides.md" && echo yes || echo no)"
 for d in DEVFLOW_SYSTEM_OVERVIEW.md shadow-review.md; do
-  assert_eq "#142 docs/$d references the internalized devflow:requesting-code-review final-pass reviewer" \
-    "yes" "$(grep -qF 'devflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
+  assert_eq "#142 docs/$d references the internalized prflow:requesting-code-review final-pass reviewer" \
+    "yes" "$(grep -qF 'prflow:requesting-code-review' "$FDROOT/docs/$d" && echo yes || echo no)"
 done
 
 # (8) Positive pin for the implement skill's Phase-3 review-roster line (PR #143 review,

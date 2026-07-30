@@ -782,7 +782,7 @@
                 }
               }
             },
-            "prflow:requesting-code-review": {
+            "devflow:requesting-code-review": {
               "type": "object",
               "additionalProperties": false,
               "properties": {
