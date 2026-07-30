@@ -325,8 +325,10 @@ echo "#810 pin-corpus wording-only authoring gate"
 # tests drive do hold process-global memos, which that docstring covers in the same
 # place, and it takes two limbs rather than one. The per-source parse memos are keyed
 # on the presented bytes — the census memos additionally on the source's name, the
-# linter memos on the text alone — and on no repo_root or filesystem state, so a hit
-# answers for exactly the source the caller presented. _load_mutation_census_module is
+# linter memos on the text alone (issue #956's two bundle-membership parses additionally
+# on the caller's lib path) — and on no repo_root or filesystem state, so a hit
+# answers for exactly what the caller presented; the bundle resolver's glob expansion
+# stays OUTSIDE its memo to keep that true. _load_mutation_census_module is
 # the second limb: it takes no arguments at all, so its safety rests not on its key but
 # on the module it returns mutating nothing after import beyond those same key-pure
 # memos — its other module-level objects, the compiled-regex dicts among them, are

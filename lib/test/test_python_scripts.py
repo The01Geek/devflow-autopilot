@@ -3841,17 +3841,32 @@ try:
 finally:
     _os.unlink(_nd_cfg)
 
-# Drift guard: KNOWN_AGENTS must stay byte-identical to the schema's
+# Drift guard: the resolver's roster must stay byte-identical to the schema's
 # agent_overrides property keys (minus `default`). A tenth subagent added to the
 # schema but not here (or vice versa) breaks config/dispatch/telemetry alignment.
+#
+# Compared over the CANONICAL namespace rather than over KNOWN_AGENTS directly.
+# KNOWN_AGENTS is `every accepted plugin namespace x every leaf`, so declaring a
+# plugin alias in lib/plugin-identity.json legitimately widens it, while the
+# schema declares only the canonical-namespaced keys. Equating the two would make
+# this guard fail on any declared alias — an alias-list assumption, not a drift
+# signal. The property actually under guard is the LEAF set, and pinning it
+# through the canonical namespace keeps it exactly: a leaf added on one side and
+# not the other still breaks this, on any alias configuration.
 _schema_path = SCRIPTS.parent / '.devflow' / 'config.schema.json'
 with open(_schema_path) as _sf:
     _schema = json.load(_sf)
 _schema_keys = set(
     _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
 )
-assert_eq("schema agent_overrides keys == KNOWN_AGENTS + 'default'",
-          set(_rro.KNOWN_AGENTS) | {"default"}, _schema_keys)
+with open(SCRIPTS.parent / '.claude-plugin' / 'plugin.json') as _pjf:
+    _CANON_NS = json.load(_pjf)["name"] + ":"
+assert_eq("schema agent_overrides keys == the canonical-namespaced leaves + 'default'",
+          {_CANON_NS + _leaf for _leaf in _rro.AGENT_LEAVES} | {"default"}, _schema_keys)
+# …and the canonical namespace really is one the resolver accepts, so the guard
+# above is comparing against a live roster rather than a string it made up.
+assert_eq("resolve: the canonical namespace is an accepted agent namespace",
+          True, _CANON_NS in _rro.AGENT_NAMESPACES)
 
 # T4 (issue #425): every agent_overrides entry (all nine agents + `default`) declares
 # the optional `iterations` property as a string enum whose ONLY value is "first-only",
@@ -3932,18 +3947,30 @@ assert_eq("#141 migration: no stale pre-rename override key survives in config.e
 # declared plugin namespace. The roster identity worth pinning is the leaf set (a tenth
 # subagent, or a dropped one, is the regression); the namespace set is owned by
 # lib/plugin-identity.json and asserted as the crossing rather than re-spelled here, so a
-# plugin rename does not have to re-pin this literal. Order is the crossing order
-# (namespace-major), which is what resolve-review-overrides.py builds.
+# plugin rename does not have to re-pin this literal. The leaf list is spelled out in full
+# so the guard is a real list and not a re-derivation of the code it checks.
 _NINE_LEAVES = ("checklist-generator", "checklist-deduper", "checklist-verifier",
                 "code-reviewer", "silent-failure-hunter", "comment-analyzer",
                 "type-design-analyzer", "pr-test-analyzer", "requesting-code-review")
 assert_eq("resolve: KNOWN_AGENTS is the nine review-engine leaves",
           _NINE_LEAVES, _rro.AGENT_LEAVES)
+# Exactness, alias-agnostically: the roster is precisely the cross product of the accepted
+# namespaces and the leaves — nothing extra slips in. Order is the crossing order
+# (namespace-major), which is what resolve-review-overrides.py builds.
 assert_eq("resolve: KNOWN_AGENTS is every declared namespace crossed with the nine leaves",
           tuple(ns + leaf for ns in _rro.AGENT_NAMESPACES for leaf in _NINE_LEAVES),
           _rro.KNOWN_AGENTS)
+assert_eq("resolve: KNOWN_AGENTS is exactly the accepted namespaces x the leaves",
+          {_ns + _leaf for _ns in _rro.AGENT_NAMESPACES for _leaf in _rro.AGENT_LEAVES},
+          set(_rro.KNOWN_AGENTS))
+assert_eq("resolve: KNOWN_AGENTS carries no duplicate ids",
+          len(_rro.KNOWN_AGENTS), len(set(_rro.KNOWN_AGENTS)))
 # The alias namespace is load-bearing: a consumer's committed `devflow:` override must keep
 # resolving across the rename (the frozen-key contract), and the canonical one must resolve.
+# Asserted as a SUBSET of the roster, since an accepted alias widens KNOWN_AGENTS by design.
+_NINE_ALIASED = tuple("devflow:" + _leaf for _leaf in _NINE_LEAVES)
+assert_eq("resolve: KNOWN_AGENTS still carries the nine alias-namespaced review-engine ids",
+          [], [_a for _a in _NINE_ALIASED if _a not in _rro.KNOWN_AGENTS])
 assert_eq("resolve: the canonical and alias namespaced code-reviewer ids are both known",
           [True, True],
           ["prflow:code-reviewer" in _rro.KNOWN_AGENTS,
@@ -11251,13 +11278,21 @@ assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserve
 # construction — the contract is that install.sh and the vendor slice use a plain
 # mode-preserving `cp -R` and never pass `--no-preserve`. Two exec-bit surfaces:
 # the vendor slice's `cp -R "$src/.claude-plugin" … "$src/scripts" …` byte-copies
-# the vendored helper tree (asserted above), and install.sh's
-# `cp -R "$SRC/.github/actions/$a" …` copies the composite-action helpers. Pin the
-# copy invocations (not a bare "cp -R" that a doc mention could satisfy) and the
-# absence of `--no-preserve`, rather than a stdlib copy demo that would pass
-# regardless of what these files do.
+# the vendored helper tree (asserted above), and install.sh routes each composite
+# action through `install_managed`, whose directory arm copies with a plain
+# mode-preserving `cp -R`. That copy now lands on a `.devflow-stage` sibling which is
+# then `mv`d into place (issue #959: an in-place `rm -rf` + `cp -R` leaves a window
+# where a mid-copy failure strands a half-written tree, and because the abort happens
+# before the manifest write the NEXT run reads those bytes as a local edit and
+# preserves the corruption). `mv` is mode-preserving too — it is a rename — so the
+# exec-bit guarantee is unchanged; only the destination literal moved. Pin the
+# routing, the staged copy invocation, and the swap (not a bare "cp -R" that a doc
+# mention could satisfy) plus the absence of `--no-preserve`, rather than a stdlib
+# copy demo that would pass regardless of what these files do.
 assert_eq("#703 AC20: install.sh copies the composite-action helpers with mode-preserving cp -R",
-          True, 'cp -R "$SRC/.github/actions/$a"' in _install_sh)
+          True, ('install_managed ".github/actions/$a" "$SRC/.github/actions/$a"' in _install_sh
+                 and 'cp -R "$srcp" "$rel.devflow-stage"' in _install_sh
+                 and 'mv "$rel.devflow-stage" "$rel"' in _install_sh))
 assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
           False, "--no-preserve" in _install_sh)
 assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",

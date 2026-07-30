@@ -726,6 +726,52 @@ config keys, but the workflow the run executes is the default branch's, so a gra
 a PR ships is **inert for that PR's own implementing run** and live for subsequent
 cloud runs.
 
+### Config-supplied helper grants and the repository rename (issue #928, deferred half)
+
+`devflow_implement.allowed_tools` is not a generated literal — the `config` job
+extracts it with `jq` and splices it verbatim onto `devflow-implement.yml`'s baked
+`--allowed-tools`. Two path shapes reach it, both **measured emissions** rather than
+design choices: cloud implement run **30183387509** (issue #802) recorded 43
+permission denials in which the engine invoked bundled helpers as
+`/home/runner/work/<repo>/<repo>/scripts/<helper>` (workspace-absolute) and as
+`scripts/<helper>` (repo-root-relative), because `.claude-plugin/marketplace.json`
+declares `"source": "./"`, so `$CLAUDE_SKILL_DIR` resolves to `<workspace>/skills/<name>`
+and the portable anchor's `/../../scripts/` lands at the repository root, never in the
+granted `.devflow/vendor/devflow/scripts/` subtree. Both shapes were granted in
+response, for each of the 25 helpers.
+
+**The workspace-absolute literal embeds the repository name twice.** A rename moves
+`$GITHUB_WORKSPACE`, every such token stops matching, and — per this tier's defining
+property — an ungranted head is **silently denied**. The failure mode is a run that
+quietly does less, with no error to read.
+
+The `config` job therefore **re-anchors** that prefix onto the live
+`$GITHUB_WORKSPACE` before splicing, the same transform `matcher-probe.yml` applies
+to its own baseline. The transform is a **no-op today** (the workspace already equals
+the literal the tokens carry), rewrites only GitHub's hosted-workspace shape (a
+deliberate `Bash(/usr/local/bin/foo:*)` grant is untouched), and selects an identity
+branch on an empty workspace rather than emitting a root-anchored token that would
+match nothing. `lib/test/run.sh` drives the jq program **extracted from the workflow
+itself**, so the assertions cannot drift from the shipped expression.
+
+**Evidence status of the two shapes — neither grant form is probe-proven.** Read this
+before citing them:
+
+| Grant form | Probe status |
+| --- | --- |
+| `Bash(.devflow/vendor/devflow/scripts/<helper>:*)` — vendored literal | **PERMITTED**, implement-tier **row I2**, leading-token position |
+| `Bash(<workspace-absolute>/scripts/<helper>:*)` | **Unmeasured.** No implement-tier row exercises it. The review tier's absolute-path row (shape 13) is **unrecorded**. |
+| `Bash(scripts/<helper>:*)` — repo-root-relative, explicit exact path | **Unmeasured.** No row at either tier grants the exact path and exercises it. Review shape 15 measured the *glob* `Bash(scripts/*.sh:*)` as DENIED (run 29135163829); review shape 14 is the *ungranted* control. Neither measures an explicit exact-path repo-root grant. |
+
+Row I2 is about the **vendored-literal** form and must not be cited as evidence for
+either of the other two. The two config-supplied families are a hedge placed in
+response to a measured denial, not a measured grant — the re-anchoring above keeps
+the absolute family alive across a rename precisely because the relative family
+cannot be relied on to cover for it. Closing the gap needs two `implement-probe`
+rows (an explicit exact-path repo-root grant, and a workspace-absolute grant), each
+exercised as a leading token; until such a dispatch is recorded, treat both as
+`unestablished`.
+
 ### The install.sh-vs-vendor-fetch skew warning
 
 The **workflow grants** ship to consumers via `install.sh` **file-copy**, while the

@@ -132,20 +132,20 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.27.1/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.26.2 bash devflow-install.sh
+DEVFLOW_REF=v2.27.1 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
-**Why the version appears twice — and how to move it.** `v2.26.2` is a **release tag**, so both commands resolve to the same immutable commit every time you run them. Two independent things get pinned, and they are separate on purpose:
+**Why the version appears twice — and how to move it.** The version in both lines above is a **release tag**, so both commands resolve to the same immutable commit every time you run them. Two independent things get pinned, and they are separate on purpose:
 
 - the **URL ref** decides which *installer bytes* you download and read. A `.../main/install.sh` URL would hand you a different script on every fetch, so the thing you reviewed is not guaranteed to be the thing you ran.
 - **`DEVFLOW_REF`** (a documented `install.sh` environment variable, default `main`) decides which ref the installer *clones its payload from* — the workflows, composite actions and templates it copies in — and it accepts a tag, a commit SHA, or a branch name. Pinning the URL alone is not enough: an unset `DEVFLOW_REF` still pulls the payload from the moving `main`. Setting both to the same tag makes the whole install reproduce one release.
 
 To install a newer version, substitute a newer tag in both places. Find the current release on the [Releases page](https://github.com/The01Geek/devflow-autopilot/releases/latest), or from the shell with `gh release list --repo The01Geek/devflow-autopilot --limit 5`. Leave `DEVFLOW_REF` unset only if you deliberately want to track the moving `main` branch.
 
-Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devflow_version` with the exact commit SHA it resolved, so the plugin your *workflows* fetch at runtime is reproducible even if you left `DEVFLOW_REF` unset. (A `devflow_version` you hand-set to a non-SHA value — a tag like `v2.26.2`, or `main` to track the branch — is preserved rather than re-stamped; see the `devflow_version` notes in [`cloud-setup.md`](cloud-setup.md).)
+Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devflow_version` with the exact commit SHA it resolved, so the plugin your *workflows* fetch at runtime is reproducible even if you left `DEVFLOW_REF` unset. (A `devflow_version` you hand-set to a non-SHA value — a release tag, or `main` to track the branch — is preserved rather than re-stamped; see the `devflow_version` notes in [`cloud-setup.md`](cloud-setup.md).)
 
 <details>
 <summary>Piping straight to <code>bash</code> (not recommended)</summary>
@@ -153,8 +153,8 @@ Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devfl
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh \
-  | DEVFLOW_REF=v2.26.2 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.27.1/install.sh \
+  | DEVFLOW_REF=v2.27.1 bash
 ```
 
 </details>
@@ -205,6 +205,62 @@ If you run Claude Code against a **third-party model provider** (Amazon Bedrock,
 ### Cloud tier
 
 Bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or commit SHA (the workflows fetch that ref at runtime), or just re-run the same `install.sh` — now a small diff, since it refreshes the workflows/actions without committing the plugin tree, and keeps your config. Re-running only re-stamps `devflow_version` itself when the existing value is empty or already looks like a commit SHA; a hand-set non-SHA value (a branch name, a tag) is preserved — see [`cloud-setup.md`](cloud-setup.md#install-and-update-the-cloud-tier) for the exact rule. (The plugin must be at the literal workspace path when CI runs because a marketplace install isn't reachable from the Actions sandbox; the `vendor-plugin` action satisfies this at runtime — see [`cloud-setup.md`](cloud-setup.md#why-the-plugin-lives-at-a-workspace-path-not-added-as-a-github-marketplace-in-ci).)
+
+#### An upgrade is dry-run by default, and never overwrites your local edits
+
+Re-running `install.sh` in a repository that already carries a DevFlow installation is an **upgrade**, and an upgrade **writes nothing until you ask it to**. It prints the plan and a unified diff of the bytes it would change, then stops:
+
+```bash
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh              # preview: plan + diff, no writes
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply      # make the changes
+```
+
+A **first-time** install still applies immediately, so the one-liner above is unchanged; `--dry-run` forces the preview there too if you want to see an adoption before any file exists. `DEVFLOW_DRY_RUN=1` / `DEVFLOW_APPLY=1` select the same modes for a `curl | bash` invocation that cannot pass a flag. The preview is not a second implementation of the plan — it runs the real install into a sandbox copy of your own tree and diffs it, so anything `--apply` would do, the preview already did to a copy.
+
+The diff covers `.claude-plugin/`, `.github/`, `.devflow/` and `.claude/plugins/` — every path the installer writes, including the recursive removal of a stale pre-relocation `.claude/plugins/devflow` tree. **One documented exclusion:** under `DEVFLOW_VENDOR=1` the vendored plugin tree under `.devflow/vendor/` is thousands of files, so its churn is reported as a single plan line rather than as a diff body. Your own `.claude/` files (settings, skills, hooks) are neither written nor diffed.
+
+**Your hand-edits survive.** Every artifact the installer owns — the local `marketplace.json`, the two workflows, the three composite actions — is recorded in `.devflow/install-manifest.json` with the sha256 of the bytes the installer wrote. Commit that file; it is what lets the next upgrade tell an untouched artifact from one you edited:
+
+| What the installer finds | What it does |
+| --- | --- |
+| bytes match the recorded digest | updates it in place (`update`) |
+| already identical to the new version | leaves it alone (`unchanged`) |
+| bytes differ from the recorded digest | **preserves your file** and writes the new version to `<path>.devflow-new` for you to merge |
+| no recorded digest — an installation predating the manifest, or a skipped-version jump | same: preserves your file and offers `<path>.devflow-new`, because a local edit cannot be ruled out |
+| your file's **current** bytes cannot be digested — no working `python3` on this host, an unreadable file, a read error inside a composite-action directory | same: preserves **that file** and offers `<path>.devflow-new`. Reported distinctly (`provenance UNESTABLISHED`), and the message names which of the two causes applied, because they have different remedies. How much else is affected depends on the cause — see the two rows below the table |
+| absent (you deleted it) | recreates it |
+
+**Two different situations reach that third row, and they differ in how much they affect.** Both preserve your bytes; only the first is repository-wide.
+
+| Cause | What happens to the rest of the upgrade |
+| --- | --- |
+| **No working `python3`** — stock Windows / Git-Bash, before you run the shim provisioner. Nothing on the run can be digested. | **Everything** is preserved, each with a `<path>.devflow-new` sidecar, and **no manifest is written** (so the next upgrade preserves everything again until you resolve `python3`). The dry run cannot render its diff either — read the plan lines, which name every artifact that would be preserved. |
+| **A read error on one file**, with `python3` working — an unreadable file, or one unreadable file inside a composite-action directory. | **Only that artifact** is preserved. Everything else is classified and written exactly as usual, and **the manifest is still written** — the preserved artifact simply keeps its previous entry instead of being re-recorded. Fix that path's permissions and re-run. |
+
+Whether a file *exists* is decided without `python3` in both cases, so a genuinely absent artifact is still created and a first-time install on such a host still works normally; what an unreadable digest costs you is the *comparison*, never your bytes.
+
+`.devflow/config.json` is outside that mechanism entirely: the shared scaffolder only ever backfills keys the shipped example gained, so your values and tuned arrays are never rewritten. A preserved conflict is reported again on every run until you resolve it — the installer never adopts your edited bytes as its own provenance.
+
+Skipping versions is safe: the classification above depends on the recorded digest, not on how far behind you are.
+
+**An installation with no manifest at all heals only partly on its first upgrade, and it is worth knowing which part.** Without a recorded digest there is nothing to compare against, so the table's fourth row applies to every artifact whose bytes differ from the version being installed — whether you edited it or it is simply older. Those are preserved with a `<path>.devflow-new` sidecar and are **not** recorded. Only artifacts already byte-identical to the shipped version take the `unchanged` row, and those are recorded. So on a release that changed a workflow, a pre-manifest installation gets a sidecar for that workflow and a manifest covering everything else.
+
+To finish healing an artifact you never edited, do either of these and re-run — both record its digest:
+
+- **move the sidecar over it** (`mv .github/workflows/devflow.yml.devflow-new .github/workflows/devflow.yml`) — the next run sees `unchanged`;
+- **delete it** and let the installer write its own copy — the next run sees `create`.
+
+Merge a sidecar by hand instead and the result still differs from the shipped bytes, so it stays `unverified` and is offered again next run — that is the same deliberate rule as an edit made *with* a manifest: the installer never adopts your bytes as its own provenance. Note also that a healing run does not tidy up: the old `<path>.devflow-new` is left where it is, so delete it yourself once you are done with it. Nothing is at risk either way — what a missing manifest costs you is sidecars to resolve, never overwritten bytes.
+
+#### Upgrade note: the withheld automatic-review tier is surfaced, and removable on request
+
+If your repository installed the automatic pull-request-triggered review tier before it was withheld (issue #936), you still have `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml`, they still run, and they keep you exposed to issues [#930](https://github.com/The01Geek/devflow-autopilot/issues/930) and [#920](https://github.com/The01Geek/devflow-autopilot/issues/920). Every upgrade now says so. Nothing is deleted unless you ask:
+
+```bash
+DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply --remove-withheld-review-tier
+```
+
+That deletes the three workflow files (only when they carry a DevFlow signature — a same-named file of your own is left alone) and sets `workflows["devflow-review"]` to `false` in `.devflow/config.json`. **It cannot do the third step:** remove the `Devflow Review` context from any branch protection rule or ruleset that requires it, or every later pull request wedges against a required check nothing will report. Do that yourself, in the same change. Full background: [`workflow-triggers.md`](workflow-triggers.md).
 
 #### Upgrade note: re-sync the workflow `TOOLS` grants for the Phase 0.6 stale-prose lint
 

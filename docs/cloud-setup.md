@@ -48,8 +48,8 @@ which would report every review `incomplete` and wedge every pull request behind
 check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
 silently drops the freshness and CI-green gates. That is why those helpers are retained rather
 than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
-as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Removing the tier
-is a manual step:
+as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Every upgrade
+reports that exposure; removal stays an explicit opt-in:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
    and `.github/workflows/telemetry-push.yml`.
@@ -57,6 +57,10 @@ is a manual step:
 3. Remove the `Devflow Review` context from any branch protection rule or ruleset that
    requires it — otherwise every subsequent pull request wedges against a required check
    that nothing will report.
+
+`install.sh --apply --remove-withheld-review-tier` performs steps 1 and 2 (signature-guarded) and
+prints step 3, which no installer can perform. The canonical statement is
+[`workflow-triggers.md`](workflow-triggers.md).
 
 The removed caller's bytes are preserved on the `preserved/auto-review-tier` branch, whose
 `PRESERVATION.md` records the `devflow-runner.yml` object ID it was cut against. Re-shipping
@@ -79,9 +83,9 @@ writes changes into your repository, so download it, read it, then run the file 
 read:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.2/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.27.1/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.26.2 bash devflow-install.sh
+DEVFLOW_REF=v2.27.1 bash devflow-install.sh
 ```
 
 Both refs are pinned to the same **release tag**, so the install is reproducible.
