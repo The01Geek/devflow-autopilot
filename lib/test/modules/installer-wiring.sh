@@ -1351,3 +1351,122 @@ json.dump(d, open(p, "w"), indent=2)
 IU_O17C="$(_iu_run "$IU_C17C" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: a non-object workflows value is reported and the config left with that value intact" "yes all of them" \
   "$(_iu_out_has "$IU_O17C" 'it is missing, malformed, or holds a non-object at that key') $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"])' "$IU_C17C/.devflow/config.json")"
+
+# ── Scenario 18 (#959 review, suggestion 1): the dry run must SHOW the one deletion it
+# performs outside .github. prune_stale_vendored_plugin removes a pre-relocation
+# .claude/plugins/devflow tree; devflow_build_preview already copies that subtree into
+# the sandbox so the prune runs there, but until .claude/plugins entered the DIFF scope
+# the renderer never walked it — so the promised "unified diff of every byte it would
+# change" silently omitted a recursive delete. Same class as this round's Critical: a
+# promise the code did not keep.
+IU_C18="$(_iu_consumer preview-prune)"
+_iu_run "$IU_C18" >/dev/null
+mkdir -p "$IU_C18/.claude/plugins/devflow/.claude-plugin"
+printf '{\n  "name": "devflow",\n  "version": "0.0.1"\n}\n' > "$IU_C18/.claude/plugins/devflow/.claude-plugin/plugin.json"
+printf 'stale vendored payload\n' > "$IU_C18/.claude/plugins/devflow/marker.txt"
+IU_SNAP18="$(_iu_snapshot "$IU_C18")"
+IU_O18="$(_iu_run "$IU_C18" --dry-run)"
+assert_eq "installer-upgrade #959: the dry run shows the stale-plugin deletion in its diff, not only in the plan log" "yes yes" \
+  "$(_iu_out_has "$IU_O18" 'removed stale committed plugin at .claude/plugins/devflow') $(_iu_out_matches "$IU_O18" '^DELETE \.claude/plugins/devflow/marker\.txt$')"
+assert_eq "installer-upgrade #959: and that dry run still writes nothing at all" "yes" \
+  "$([ "$IU_SNAP18" = "$(_iu_snapshot "$IU_C18")" ] && echo yes || echo no)"
+# The consumer's wider .claude/ is NOT diffed: only `plugins` is in scope, so a settings
+# file the installer never writes never appears in the preview.
+mkdir -p "$IU_C18/.claude"
+printf '{"consumerOnly": true}\n' > "$IU_C18/.claude/settings.json"
+assert_eq "installer-upgrade #959: the preview scope stays narrowed to .claude/plugins — the consumer's own .claude files are never diffed" "no" \
+  "$(_iu_out_has "$(_iu_run "$IU_C18" --dry-run)" '.claude/settings.json')"
+# The apply performs exactly what the preview showed.
+_iu_run "$IU_C18" --apply >/dev/null
+assert_eq "installer-upgrade #959: the apply really does remove the stale tree the preview named" "no" \
+  "$([ -e "$IU_C18/.claude/plugins/devflow" ] && echo yes || echo no)"
+
+# ── Scenario 19 (#959 review, suggestion 2): the withheld-tier opt-in disables the config
+# key BEFORE deleting the workflow files. The two interrupted states are not symmetric —
+# "files gone, key still true" is unrecoverable, because devflow_remove_withheld_tier
+# returns at its own `present` gate on every later run and never reaches the config edit
+# again. Asserted through the ORDER of the emitted lines, which is the only externally
+# visible evidence of the sequence.
+IU_C19="$(_iu_consumer withheld-order)"
+_iu_run "$IU_C19" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19/.github/workflows/$_iu_w.yml"
+done
+# A repository that still RUNS the withheld tier has the key true — the shipped example
+# already ships it false, so without this the rc-4 "already false" arm fires and the
+# ordering would be asserted over the wrong branch.
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": True})
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19/.devflow/config.json"
+IU_O19="$(_iu_run "$IU_C19" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: the opt-in really does flip a true review key to false" "False" \
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["devflow-review"])' "$IU_C19/.devflow/config.json")"
+assert_eq "installer-upgrade #959: the config key is turned off BEFORE the workflow files are deleted (the only self-healing order)" "config-first" \
+  "$(printf '%s\n' "$IU_O19" | python3 -c '
+import sys
+# Either config-half emission counts — the rc-0 flip or the rc-4 already-false report.
+# The arm under test is the ORDER of the two halves, not which branch the config edit took.
+CONFIG = ("devflow-review\"]=false", "devflow-review\"] is already false")
+key = files = None
+for i, line in enumerate(sys.stdin):
+    if key is None and any(c in line for c in CONFIG):
+        key = i
+    if files is None and "removed withheld review-tier workflow" in line:
+        files = i
+if key is None or files is None:
+    print("MISSING key=%s files=%s" % (key, files))
+else:
+    print("config-first" if key < files else "files-first")
+')"
+# The recovery property the order buys: with the key already false and the files still
+# present (the interrupted state the safe order produces), a re-run completes the removal.
+IU_C19B="$(_iu_consumer withheld-order-resume)"
+_iu_run "$IU_C19B" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C19B/.github/workflows/$_iu_w.yml"
+done
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C19B/.devflow/config.json"
+_iu_run "$IU_C19B" --apply --remove-withheld-review-tier >/dev/null
+assert_eq "installer-upgrade #959: an interrupted removal that already flipped the key still completes on the next run" "0" \
+  "$(_iu_count_withheld "$IU_C19B")"
+
+# ── Scenario 20 (#959 review, suggestion 3): fail-safe/warning arms that are consumer-
+# facing documented behavior but had no coverage. None of these is in the clobber-
+# prevention core; they are the branches a consumer actually SEES when something is wrong.
+# (a) the dry-run diff renderer with no working python3 — the documented "the plan lines
+#     above are the whole preview" degradation.
+IU_C20="$(_iu_consumer render-nopython3)"
+_iu_run "$IU_C20" >/dev/null
+IU_O20="$(IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C20" --dry-run)"
+assert_eq "installer-upgrade #959: a dry run with no working python3 says the diff cannot be rendered and names the plan lines as the whole preview" "yes yes" \
+  "$(_iu_out_has "$IU_O20" 'cannot render the dry-run diff. The plan lines above are the whole preview') $(_iu_out_has "$IU_O20" 'nothing in this repository was written')"
+# (b) a DRY RUN of the destructive opt-in previews the removal and deletes nothing.
+IU_C20B="$(_iu_consumer withheld-dryrun)"
+_iu_run "$IU_C20B" >/dev/null
+for _iu_w in devflow-review devflow-runner telemetry-push; do
+  _iu_withheld_file "$_iu_w" > "$IU_C20B/.github/workflows/$_iu_w.yml"
+done
+IU_SNAP20B="$(_iu_snapshot "$IU_C20B")"
+IU_O20B="$(_iu_run "$IU_C20B" --dry-run --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: a dry run of --remove-withheld-review-tier previews all three deletions and removes none of them" "yes 3 yes" \
+  "$(_iu_out_has "$IU_O20B" 'removed withheld review-tier workflow devflow-review.yml') $(_iu_count_withheld "$IU_C20B") $([ "$IU_SNAP20B" = "$(_iu_snapshot "$IU_C20B")" ] && echo yes || echo no)"
+# (c) devflow_write_manifest's python3-PRESENT write-failure arm. Induced by making the
+#     manifest path a DIRECTORY, so os.replace fails — deterministic and root-immune,
+#     unlike a chmod. The install must still complete and warn about the consequence.
+IU_C20C="$(_iu_consumer manifest-write-fail)"
+_iu_run "$IU_C20C" >/dev/null
+rm -f "$IU_C20C/.devflow/install-manifest.json"
+mkdir -p "$IU_C20C/.devflow/install-manifest.json"
+IU_O20C="$(_iu_run "$IU_C20C" --apply)" && IU_RC20C=0 || IU_RC20C=$?
+assert_eq "installer-upgrade #959: an unwritable manifest warns that the next upgrade will preserve everything, and never aborts the install" "0 yes yes" \
+  "$IU_RC20C $(_iu_out_has "$IU_O20C" 'could not write .devflow/install-manifest.json; the next upgrade will preserve every existing artifact rather than update it') $(_iu_out_has "$IU_O20C" 'done (from')"

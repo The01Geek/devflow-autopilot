@@ -208,7 +208,7 @@ Bump `devflow_version` in `.devflow/config.json` to a newer tag, branch, or comm
 
 #### An upgrade is dry-run by default, and never overwrites your local edits
 
-Re-running `install.sh` in a repository that already carries a DevFlow installation is an **upgrade**, and an upgrade **writes nothing until you ask it to**. It prints the plan and a unified diff of every byte it would change, then stops:
+Re-running `install.sh` in a repository that already carries a DevFlow installation is an **upgrade**, and an upgrade **writes nothing until you ask it to**. It prints the plan and a unified diff of the bytes it would change, then stops:
 
 ```bash
 DEVFLOW_REF=<newer-ref> bash devflow-install.sh              # preview: plan + diff, no writes
@@ -216,6 +216,8 @@ DEVFLOW_REF=<newer-ref> bash devflow-install.sh --apply      # make the changes
 ```
 
 A **first-time** install still applies immediately, so the one-liner above is unchanged; `--dry-run` forces the preview there too if you want to see an adoption before any file exists. `DEVFLOW_DRY_RUN=1` / `DEVFLOW_APPLY=1` select the same modes for a `curl | bash` invocation that cannot pass a flag. The preview is not a second implementation of the plan — it runs the real install into a sandbox copy of your own tree and diffs it, so anything `--apply` would do, the preview already did to a copy.
+
+The diff covers `.claude-plugin/`, `.github/`, `.devflow/` and `.claude/plugins/` — every path the installer writes, including the recursive removal of a stale pre-relocation `.claude/plugins/devflow` tree. **One documented exclusion:** under `DEVFLOW_VENDOR=1` the vendored plugin tree under `.devflow/vendor/` is thousands of files, so its churn is reported as a single plan line rather than as a diff body. Your own `.claude/` files (settings, skills, hooks) are neither written nor diffed.
 
 **Your hand-edits survive.** Every artifact the installer owns — the local `marketplace.json`, the two workflows, the three composite actions — is recorded in `.devflow/install-manifest.json` with the sha256 of the bytes the installer wrote. Commit that file; it is what lets the next upgrade tell an untouched artifact from one you edited:
 

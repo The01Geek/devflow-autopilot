@@ -28,9 +28,17 @@ bump: minor
   recorded digest" (`provenance UNESTABLISHED`) because its remedy is a different one.
 - The upgrade path surfaces the **withheld automatic-review tier** (issue #936) when a
   repository still carries it, naming the #930/#920 exposure, and offers removal behind the
-  explicit `--remove-withheld-review-tier` opt-in. The opt-in deletes the three workflow files
-  (signature-guarded) and sets `workflows["devflow-review"]` to `false`, and states that the
-  branch-protection context is a step no installer can perform.
+  explicit `--remove-withheld-review-tier` opt-in. The opt-in sets `workflows["devflow-review"]`
+  to `false` and then deletes the three workflow files, and states that the branch-protection
+  context is a step no installer can perform. Deletion is guarded by a **per-file signature**
+  each withheld workflow actually carries — not by the mere presence of the string `devflow`,
+  which a consumer's own `telemetry-push.yml` may legitimately contain (a `.devflow/**` path
+  filter, a comment) and which would otherwise have deleted their file. The config key is
+  turned off *before* the files are removed: that is the only order whose interrupted state
+  is self-healing, since once the files are gone no later run reaches the config edit.
+- The dry-run diff covers `.claude/plugins/` as well, so the recursive removal of a stale
+  pre-relocation `.claude/plugins/devflow` tree is shown rather than performed unpreviewed.
+  The consumer's wider `.claude/` is still neither written nor diffed.
 - The upgrade path reports a `.claude/settings.json` still registering a **superseded**
   plugin/marketplace identifier and routes the consumer to `/devflow:init`, which already owns
   that migration through `scripts/provision-local-settings.sh`. `install.sh` still writes no

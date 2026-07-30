@@ -723,24 +723,10 @@ devflow_withheld_tier_signature() {
     *) printf '' ;;
   esac
 }
-devflow_remove_withheld_tier() {
-  local present="$1" _wt rc _sig
-  [ -n "$present" ] || return 0
-  [ "${REMOVE_WITHHELD:-}" = "1" ] || return 0
-  for _wt in $present; do
-    # Signature-guarded in the same SPIRIT as prune_stale_devflow_workflows — a specific
-    # pattern this file's DevFlow copy carries — but with its own per-file patterns rather
-    # than that function's claude.yml one. The empty-pattern precondition is not
-    # decoration: `grep -Eq ""` matches ANY file, so an unrecognized name (or an emptied
-    # arm) must not fall through into an unconditional delete.
-    _sig="$(devflow_withheld_tier_signature "$_wt")"
-    if [ -n "$_sig" ] && grep -qE "$_sig" ".github/workflows/$_wt.yml"; then
-      rm -f ".github/workflows/$_wt.yml"
-      log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
-    else
-      log "warning: .github/workflows/$_wt.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
-    fi
-  done
+# Turn the config key off. Split out of devflow_remove_withheld_tier so the ORDER of the
+# two halves is an explicit, drivable decision rather than an accident of layout.
+devflow_disable_review_key() {
+  local rc
   if [ ! -f .devflow/config.json ]; then
     return 0
   fi
@@ -755,6 +741,34 @@ devflow_remove_withheld_tier() {
     4) log "workflows[\"devflow-review\"] is already false in .devflow/config.json" ;;
     *) log "warning: could not set workflows[\"devflow-review\"] to false in .devflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand." ;;
   esac
+}
+devflow_remove_withheld_tier() {
+  local present="$1" _wt _sig
+  [ -n "$present" ] || return 0
+  [ "${REMOVE_WITHHELD:-}" = "1" ] || return 0
+  # CONFIG KEY FIRST, files second. Neither half can fail destructively, but the two
+  # interrupted states are not symmetric, and only one of them is self-healing:
+  #   key off, files still present -> the tier is inert, and a re-run still finds the
+  #     files (this function's own `present` gate) and finishes the job.
+  #   files gone, key still true   -> `present` is now EMPTY, so every later run returns
+  #     at the gate above and the key is never disabled again. Permanently stuck.
+  # The config edit is best-effort and warns on failure, so doing it first costs nothing
+  # and removes the only path that strands a consumer's config.
+  devflow_disable_review_key
+  for _wt in $present; do
+    # Signature-guarded in the same SPIRIT as prune_stale_devflow_workflows — a specific
+    # pattern this file's DevFlow copy carries — but with its own per-file patterns rather
+    # than that function's claude.yml one. The empty-pattern precondition is not
+    # decoration: `grep -Eq ""` matches ANY file, so an unrecognized name (or an emptied
+    # arm) must not fall through into an unconditional delete.
+    _sig="$(devflow_withheld_tier_signature "$_wt")"
+    if [ -n "$_sig" ] && grep -qE "$_sig" ".github/workflows/$_wt.yml"; then
+      rm -f ".github/workflows/$_wt.yml"
+      log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
+    else
+      log "warning: .github/workflows/$_wt.yml carries no DevFlow signature; left it untouched — it does not look like DevFlow's copy."
+    fi
+  done
 }
 
 # ── Identifier migration ────────────────────────────────────────────────────
@@ -879,7 +893,16 @@ sys.stdout.write("devflow-install: " + str(changed) + " file(s) would change.\n"
 # diff body (a DEVFLOW_VENDOR=1 tree is thousands of files and its churn is reported
 # as one line by the apply log instead), and only the two `.claude/` paths this
 # installer READS are copied — never the consumer's wider `.claude/`.
-DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .devflow"
+#
+# `.claude/plugins` is in the DIFF scope, not merely the sandbox copy, because
+# prune_stale_vendored_plugin can `rm -rf .claude/plugins/devflow` on a pre-relocation
+# DEVFLOW_VENDOR=1 upgrade. devflow_build_preview already copies that subtree so the
+# prune runs against the sandbox, but a deletion the renderer does not walk is a
+# deletion the preview does not show — and the documented promise is a diff of every
+# byte the apply would change. Scoped to `plugins`, never bare `.claude`: the
+# consumer's settings/skills/hooks are their own and this installer neither writes nor
+# reports them. A scope that does not exist simply contributes nothing.
+DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .devflow .claude/plugins"
 
 devflow_render_preview() {
   local real="$1" prev="$2"
