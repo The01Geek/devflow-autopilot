@@ -722,7 +722,8 @@ class LabelDerivationTest(unittest.TestCase):
         self.assertIn("619", module_labels["regenerate-artifacts"])
         self.assertGreaterEqual(len(module_labels["create-issue-contract"]), 15)
         self.assertEqual(
-            {"487", "491", "533", "544", "599", "690"}, module_labels["installer-wiring"]
+            {"487", "491", "533", "544", "599", "690", "959"},
+            module_labels["installer-wiring"],
         )
 
 

@@ -15312,6 +15312,11 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # Re-scoping someone else's guard was out of scope here, so the stale tense is recorded as a
 # known exception rather than silently fixed or silently ignored.
 #
+# Stated reference, lib/test/modules/installer-wiring.sh: a fixture consumer repository that
+# RETAINS the withheld tier. Those arms exist precisely because a consumer that installed the
+# tier before it was withheld keeps it, and the installer must report it, leave it alone by
+# default, and remove it only on the explicit opt-in — so the filename has to appear there.
+#
 # Accepted residual, stated rather than discovered later: this pins the FILENAME form only.
 # The bare `devflow-review` is a config KEY, not a filename, and legitimately survives in
 # .devflow/config.example.json, .devflow/config.json and .devflow/config.schema.json (each
@@ -15332,10 +15337,12 @@ docs/cloud-setup.md
 docs/execution-file-shape.md
 docs/external/release-notes.md
 docs/implement-skill.md
+docs/install.md
 docs/workflow-triggers.md
 install.sh
 lib/test/fixtures/issue-304-body.md
 lib/test/modules/capability-profiles.sh
+lib/test/modules/installer-wiring.sh
 lib/test/modules/review-stall-backstop.inventory.md
 lib/test/modules/review-stall-backstop.sh
 lib/test/modules/review-trigger-helpers.sh
@@ -15407,6 +15414,10 @@ echo "#582 — configurable cloud-tier runner via DEVFLOW_RUNNER"
 # the list empty, which the non-vacuity assertion below turns RED rather than passing.
 _582_SHIPPED=""
 while IFS= read -r _582_l; do
+  # The loop now lives inside install.sh's apply function and is therefore indented;
+  # strip the leading whitespace with builtins (never `sed`/`tr` — this value decides
+  # the assertion) so the derivation follows the loop wherever it sits in the file.
+  _582_l="${_582_l#"${_582_l%%[! ]*}"}"
   case "$_582_l" in
     "for w in "*"; do")
       _582_l="${_582_l#for w in }"
@@ -45297,7 +45308,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 112; then
+  "installer-wiring" 212; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi
