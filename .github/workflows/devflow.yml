@@ -6,12 +6,18 @@ name: DevFlow
 # `review_dedupe` / `gate` / `command`). This is the body that used to live in
 # the standalone claude.yml.
 #
-# The reusable runner that devflow-review.yml calls lives in its OWN file,
-# devflow-runner.yml — NOT here. It was split out because a called reusable
+# The reusable review runner lives in its OWN file, devflow-runner.yml — NOT
+# here. Its caller was devflow-review.yml, the automatic pull-request-triggered
+# review tier, which issue #936 WITHHELD from this release: that file is no
+# longer in the tree, install.sh ships none of the tier's files, and
+# devflow-runner.yml is retained without a caller. The supported review path is
+# therefore a collaborator commenting `/devflow:review` — this file's `command`
+# job. The runner was split out in the first place because a called reusable
 # workflow's permission ceiling is validated against the caller's grant across
 # the whole graph: co-locating the high-privilege `command` job (contents:write
-# to push, issues:write to react) with the low-privilege runner made a read-only
-# caller like devflow-review.yml fail with `startup_failure`. This file therefore
+# to push, issues:write to react) with the low-privilege runner made that
+# caller — a workflow holding read permissions alone — fail with
+# `startup_failure`. This file therefore
 # has NO `workflow_call` trigger — it is purely event-driven.
 #
 # Why bare commands (no `@claude`): Anthropic's Claude GitHub App owns the
@@ -134,24 +140,28 @@ jobs:
           fi
           echo "claude_code_executable=$CLAUDE_CODE_EXECUTABLE" >> "$GITHUB_OUTPUT"
 
-  # Dedupe a MANUAL bare `/devflow:review` comment against the AUTOMATED
-  # devflow-review path. Both are independent triggers: a commit
-  # push fires devflow-review's `synchronize` re-review, and the
-  # human who pushed it typically also comments `/devflow:review`
-  # within a second or two. Without this gate BOTH run a full (billable) LLM
-  # review of the same HEAD and post their own status comment — the observed
-  # "two comments" bug (PR #113, 15:06:55 synchronize + 15:06:56 comment).
+  # Dedupe a MANUAL bare `/devflow:review` comment against an AUTOMATED
+  # pull-request-triggered review. Issue #936 WITHHELD that automatic tier from
+  # this release, so nothing in this tree fires one and both signals below
+  # resolve to zero (fail-open — the manual review proceeds). The gate is
+  # retained because a consumer that installed the tier before it was withheld
+  # keeps its own copy, and there the two triggers stay independent: a commit
+  # push fires that copy's re-review, and the human who pushed it typically also
+  # comments `/devflow:review` within a second or two. Without this gate BOTH
+  # run a full (billable) LLM review of the same HEAD and post their own status
+  # comment — the observed "two comments" bug (PR #113, 15:06:55 synchronize +
+  # 15:06:56 comment).
   #
-  # Policy ("auto suppresses manual"): if devflow-review is already
+  # Policy ("auto suppresses manual"): if such an automated review is already
   # in-flight for this PR's CURRENT head — either an in_progress `Devflow
   # Review` check on that exact SHA, or a queued/in_progress
-  # devflow-review run on the PR's branch (covers the sub-second
-  # race before create_check POSTs the check) — skip the manual review and
-  # leave a one-line pointer instead. Deliberately fail-OPEN (default
-  # suppress=false): a missed suppression just reproduces today's recoverable
+  # auto-review workflow run on the PR's branch (covers the sub-second
+  # race before that tier's create_check POSTs the check) — skip the manual
+  # review and leave a one-line pointer instead. Deliberately fail-OPEN (default
+  # suppress=false): a missed suppression just reproduces the recoverable
   # double-comment, whereas a wrong suppression would silently swallow a
   # review the user explicitly asked for. This is the opposite failure
-  # direction from devflow-review's fail-closed gates, by design.
+  # direction from that tier's fail-closed gates, by design.
   #
   # Only `/devflow:review` is deduped — NOT `/devflow:review-and-fix` (that
   # auto-applies fixes and has no automated equivalent), and not the
@@ -273,11 +283,15 @@ jobs:
           fi
           [[ "$IC" =~ ^[0-9]+$ ]] || IC=0
 
-          # Signal 2: a queued/in_progress devflow-review run on the
-          # PR's branch. Covers the <1s synchronize-vs-comment race where the
-          # auto run has started but create_check has not POSTed the check yet
-          # (an in-flight auto run on the same branch is, by that workflow's
-          # own first-ready/synchronize design, reviewing the latest HEAD).
+          # Signal 2: a queued/in_progress devflow-review.yml run on the
+          # PR's branch. Issue #936 withheld that workflow, so in this tree the
+          # query resolves nothing and Signal 2 never suppresses (an
+          # unresolvable query takes the fail-open arm below). It still fires for
+          # a consumer whose installed copy predates the withholding, where it
+          # covers the sub-second auto-vs-comment race in which the auto run has
+          # started but create_check has not POSTed the check yet (an in-flight
+          # auto run on the same branch is, by that tier's own
+          # first-ready/re-review design, reviewing the latest HEAD).
           IR=0
           if [ -n "$BRANCH" ] && [ "$BRANCH" != "null" ]; then
             if ! IR=$(gh run list --repo "$REPO" \
