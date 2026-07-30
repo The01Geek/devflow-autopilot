@@ -54,9 +54,9 @@ Systematically locate:
 For every error handling location, ask:
 
 **Logging Quality:**
-- Is the error logged with appropriate severity (logError for production issues)?
+- Is the error surfaced through the logging or error-reporting path this project actually uses, at a severity that matches its impact?
 - Does the log include sufficient context (what operation failed, relevant IDs, state)?
-- Is there an error ID from constants/errorIds.ts for Sentry tracking?
+- Does it carry whatever correlation handle this project uses to trace an occurrence back to its cause — an error code, a request/run identifier, a structured field? If the project has no such convention, do not invent one; note the absence only where the missing handle is what makes the failure undebuggable.
 - Would this log help someone debug the issue 6 months from now?
 
 **User Feedback:**
@@ -117,9 +117,9 @@ Some diffs change not executable code but **prompt-instruction artifacts** — a
 
 Ensure compliance with the project's error handling requirements:
 - Never silently fail in production code
-- Always log errors using appropriate logging functions
+- Always report errors through the project's established logging or error-reporting helpers, not ad-hoc output
 - Include relevant context in error messages
-- Use proper error IDs for Sentry tracking
+- Follow the project's own convention for identifying and correlating errors, where it has one
 - Propagate errors to appropriate handlers
 - Never use empty catch blocks
 - Handle errors explicitly, never suppress them
@@ -150,10 +150,14 @@ You are thorough, skeptical, and uncompromising about error handling quality. Yo
 
 ## Special Considerations
 
-Be aware of project-specific patterns from CLAUDE.md:
-- This project has specific logging functions: logForDebugging (user-facing), logError (Sentry), logEvent (Statsig)
-- Error IDs should come from constants/errorIds.ts
-- The project explicitly forbids silent failures in production code
+Ground every finding in *this* project's conventions rather than ones you carry in from elsewhere. A recommendation that names a logging helper, monitoring service, or error-code registry the repository does not have is a false finding — it sends the author looking for something that does not exist. So before grading error handling, establish what the project actually does:
+
+- Read `CLAUDE.md` (or the repository's equivalent contributor/agent guide) for stated error-handling, logging, and fail-closed rules, and cite the specific rule each finding applies.
+- Identify the logging and error-reporting helpers the codebase actually uses by grepping the existing call sites — never assume a framework, a monitoring vendor, or an error-ID registry is present. Where a project has no such layer, a plain contextful message on the standard error stream *is* its convention; do not report that as a defect.
+- Note the language and runtime in play, because the same swallowed error takes a different shape in each: a bare `except:` in Python, an unchecked exit status or a blanket `|| true` in shell, a discarded `err` in Go, an empty `catch` in TypeScript, a dropped `Result` in Rust.
+
+These hold regardless of project:
+- Silent failure in production code is never acceptable
 - Empty catch blocks are never acceptable
 - Tests should not be fixed by disabling them; errors should not be fixed by bypassing them
 

@@ -1,3 +1,0 @@
-# Per-run /devflow:review-and-fix effectiveness records land here (one JSON file
-# per run, named <slug>-<run-timestamp>.json). Tracked so the data survives
-# ephemeral GH-runner teardown. See docs/efficiency-trace.md.
