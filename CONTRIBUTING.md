@@ -232,18 +232,30 @@ are read by nobody but the agent. The third (`291(AC4)`, the
 1** instead — same retention, different reason and a coupled copy-removal
 requirement. Do not generalize one `#291` pin's arm to the others.
 
-**Current state — arm 2 is authorized but selects nothing today.** Every site in the
-shipped census is adjudicated `bucket_final: boundary`, so arm 3 catches every
-single-home pin and arm 2 is currently unreachable. That is why arm 2's condition
-reads the recorded `bucket_final` rather than an in-the-moment judgment about who
-reads the prose: the re-adjudication pass that moves sites into a prose bucket is
-separate, still-open work, and until it lands no pin may be retired on the strength
-of this rule. **That state is not merely descriptive — it is asserted.**
-`test_final_inventory_is_a_canonical_boundary_only_realization` in
-`lib/test/test_residual_prose_retirement_manifest.py` asserts the shipped census's
-`bucket_final` set is exactly `{"boundary"}`, so the first change that adjudicates a
-site into a prose bucket in order to *use* arm 2 must move that assertion in the same
-change or ship CI-red. It is arm 2's coupled site.
+**Current state — arm 2 selects a real population (issue #885).** The census is no
+longer boundary-only: the #885 re-adjudication pass walked every mechanically
+prose-bucketed site, confirmed per site whether any tool or consumer reads the pinned
+literal, and moved the ones nothing reads into `prose-sole-copy`. Arm 2 therefore
+selects those rows and arm 3 no longer catches every single-home pin. Arm 2's
+condition still reads the *recorded* `bucket_final` rather than an in-the-moment
+judgment about who reads the prose, because the record is what a later reader can
+audit — and changing a site's adjudication is itself delta-gated (below), so the
+record cannot drift ahead of an authorization. **The realized partition is asserted,
+not merely described.** `test_final_inventory_realizes_only_authorized_buckets` in
+`lib/test/test_residual_prose_retirement_manifest.py` holds the shipped census to the
+legal bucket set and holds every prose-bucketed row to arm 2's own precondition — a
+`counted_occurrences` matching its bucket, and an explicit maintainer rationale rather
+than the classifier's mechanical fallback — so a prose bucket can never appear on a
+row arm 2 would not have authorized. It is arm 2's coupled site.
+
+Two limits on that population are worth knowing before you read a missing row as
+permission. A site adjudicated `boundary` in the #885 pass was adjudicated **on
+evidence of a consumer**, so re-litigating one needs a consumer argument, not a fresh
+opinion. And the pass covered only the sites the census *sees*: pins routed through a
+module-private wrapper (`lib/test/modules/review-and-fix-contract.sh`'s
+`_raf_pin_unique`) are outside `PIN_CORPUS_SOURCES` and so outside the corpus
+entirely — arm 0 governs them, and bringing them in is a prerequisite for retiring
+any of them, not an afterthought.
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;
