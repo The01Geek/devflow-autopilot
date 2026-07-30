@@ -176,8 +176,12 @@ later arm routes around — the gate **routes** through an ordered three-step la
 (issue #948), and the routing is deliberately not a judgement:
 
 1. **A program demonstrably reads it.** The literal, or a machine-identifier-shaped
-   token it names, occurs in the operative (comment-stripped) text of a tracked
-   `scripts/**`, `lib/**`-outside-`lib/test/` or `.github/**` file. Pass; no
+   token it names, occurs in the text of a tracked `scripts/**`,
+   `lib/**`-outside-`lib/test/` or `.github/**` file — with comment regions
+   subtracted for the `#`-comment extensions only (`.sh`, `.py`, `.jq`, `.yml`,
+   `.yaml`), which is what `build_machine_consumer_corpus` implements: no other
+   comment syntax is stripped, so a mention inside some other language's comment
+   still counts as operative text. Pass; no
    declaration and no ledger row needed. A grep-shaped search misses a *generic*
    consumer by construction — a helper that walks a routing table row by row names no
    individual row — so "found none" routes to step 2 and never to a finding.
@@ -205,10 +209,15 @@ auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in the c
 and not as several hundred uncoupled copies in source comments, so retrofitting a marker
 onto the standing population is still not the ask. Two cases the ladder does **not**
 reach: a pin whose declared target the lint cannot resolve at all
-(`typed structural declaration target cannot be inspected` — e.g. a concatenated
-in-module bundle) is still unfixable, and a *retired* wording literal's revival keeps its
-own stronger contract below. Touch a retained pin's lines only when you are prepared to
-answer the gate for it.
+(`typed structural declaration target cannot be inspected`) is still unfixable, and a
+*retired* wording literal's revival keeps its own stronger contract below. A
+**concatenated in-module bundle** target is no longer one of those unresolvable cases
+(issue #956): the lint resolves the bundle variable to the member files its own builder
+call concatenates and inspects the declaration against that member set, so such a pin is
+editable like any other. What still cannot be resolved — an unmodeled build shape, an
+ambiguous bundle name, an empty glob expansion, an unreadable member — keeps the refusal,
+and a literal present in no member is still reported absent. Touch a retained pin's lines
+only when you are prepared to answer the gate for it.
 
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
@@ -276,17 +285,20 @@ are read by nobody but the agent. The third (`291(AC4)`, the
 1** instead — same retention, different reason and a coupled copy-removal
 requirement. Do not generalize one `#291` pin's arm to the others.
 
-**Current state — arm 2 is proven reachable, and its population is empty again (issue
-#885).** Arm 2 selected nothing until #885, because every census row was adjudicated
-`boundary`. #885's re-adjudication pass walked every mechanically prose-bucketed site,
-confirmed per site whether any tool or consumer reads the pinned literal, and moved the
-ones nothing reads into `prose-sole-copy` — and the sweep that immediately followed
-retired exactly those pins. **A retired site's row goes with it** (a stale
-`literal:` key makes the classifier error), so the census is boundary-only once more
-and arm 2 again selects nothing *today*. That is a drained population, not an unreached
-arm: read the arm-2 authorization record in history — the census as of the
-re-adjudication commit, plus the `pin-corpus-adjudication-changes` bundles, which name
-every key that moved and every key that went. Expect the same shape next time: a
+**Current state — arm 2 is proven reachable and its population is non-empty (issue
+#946 step 2).** Arm 2 selected nothing until #885, because every census row was
+adjudicated `boundary`. #885's re-adjudication pass walked every mechanically
+prose-bucketed site, confirmed per site whether any tool or consumer reads the pinned
+literal, and moved the ones nothing reads into `prose-sole-copy` — and the sweep that
+immediately followed retired exactly those pins. **A retired site's row goes with it**
+(a stale `literal:` key makes the classifier error), which drained the population back
+to boundary-only. #946 then refilled it: step 1 brought
+`lib/test/modules/review-and-fix-contract.sh`'s wrapper-routed pins into the corpus, and
+step 2's re-adjudication moved the sites nothing reads into `prose-sole-copy`, so arm 2
+selects a real population *today*, awaiting the step-3 sweep that will retire it and
+drain it again. Read the authorization record for either pass in history — the census as
+of the re-adjudication commit, plus the `pin-corpus-adjudication-changes` bundles, which
+name every key that moved and every key that went. Expect the same shape every time: a
 prose-bucketed population exists only between a re-adjudication and the sweep it
 authorizes.
 
@@ -298,19 +310,19 @@ cannot drift ahead of an authorization.
 `lib/test/test_residual_prose_retirement_manifest.py` is arm 2's coupled site: it holds
 the shipped census to the legal bucket set, and holds every prose-bucketed row to arm
 2's own precondition — a `counted_occurrences` matching its bucket, and an explicit
-maintainer rationale rather than the classifier's mechanical fallback. Stated honestly:
-with the population drained, that per-row half currently ranges over an empty set, so
-it constrains the *next* re-adjudication rather than proving anything about the tree
-today. Do not read it as live coverage of arm 2.
+maintainer rationale rather than the classifier's mechanical fallback. With #946 step 2's
+population in the census, that per-row half now ranges over a non-empty set and is live
+coverage of arm 2's precondition; it reverts to constraining only the *next*
+re-adjudication once the step-3 sweep drains the population again.
 
-Two limits on that population are worth knowing before you read a missing row as
-permission. A site adjudicated `boundary` in the #885 pass was adjudicated **on
-evidence of a consumer**, so re-litigating one needs a consumer argument, not a fresh
-opinion. And the pass covered only the sites the census *sees*: pins routed through a
-module-private wrapper (`lib/test/modules/review-and-fix-contract.sh`'s
-`_raf_pin_unique`) are outside `PIN_CORPUS_SOURCES` and so outside the corpus
-entirely — arm 0 governs them, and bringing them in is a prerequisite for retiring
-any of them, not an afterthought.
+One limit on that population is worth knowing before you read a missing row as
+permission. A site adjudicated `boundary` in the #885 or #946 pass was adjudicated **on
+recorded evidence** — a consumer, a cross-file phase contract, or a wrapped second
+home — so re-litigating one needs an evidence argument, not a fresh opinion. The
+census's other former blind spot is closed: pins routed through the module-private
+wrapper `lib/test/modules/review-and-fix-contract.sh`'s `_raf_pin_unique` used to sit
+outside `PIN_CORPUS_SOURCES` and so outside the corpus entirely, with arm 0 governing
+them; #946 step 1 brought that module in, and step 2 adjudicated all 44 of its sites.
 
 Refresh the census with a two-commit, inventory-free snapshot protocol: preserve the
 prior snapshot in history; delete the inventory in the source/retirement commit;

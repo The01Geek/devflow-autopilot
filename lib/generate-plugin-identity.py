@@ -26,7 +26,11 @@ each of them cannot -- each for a structural reason, not for convenience:
       carries exactly the trust the inline literal it replaces carried.
 
   install.sh
-      Runs curl-piped with no repository, and inspects a FOREIGN stale tree.
+      Runs curl-piped with no repository, and inspects a FOREIGN stale tree. Its
+      region carries more than the discriminator ERE: the installer also WRITES the
+      canonical identifiers (into the local marketplace manifest) and REPORTS the
+      superseded ones it finds in a consumer's Claude Code settings, so the whole
+      identifier set has to arrive with the installer.
 
   scripts/resolve-extra-plugins.sh
       The review tier materializes this helper from the trusted base ref as a
@@ -83,6 +87,45 @@ def payload_yaml_env(ident: dict) -> list[str]:
     return [f"DEVFLOW_PLUGIN_NAME_ERE: '{ere}'"]
 
 
+def payload_install(ident: dict) -> list[str]:
+    """Shell: the discriminator ERE plus the CANONICAL identifiers the installer
+    writes and the SUPERSEDED ones it migrates away from.
+
+    `install.sh` composes the local marketplace manifest and reports a consumer's
+    stale registrations, so it needs the identifiers themselves, not only the
+    match ERE. Superseded = every accepted identifier that is not the canonical
+    one, which is exactly what a declared alias means: a name a previous install
+    may have written that this one must stop writing. Non-empty exactly when an
+    alias is declared — a property of whatever `lib/plugin-identity.json` carries,
+    never a fixed fact about this function. With the manifest's alias lists empty,
+    as they are in the tree that ships this docstring, the baked
+    `DEVFLOW_SUPERSEDED_PLUGIN_SPECS` is empty and
+    `devflow_report_superseded_identifiers`'s non-empty gate short-circuits, so
+    the migration report is a strict no-op; declare one alias and the gate passes
+    and the scan of `.claude/settings.json` runs. Read the manifest before
+    asserting which of the two holds — the #958 dual-accept probe declared an
+    alias for one release and this claim inverted with it.
+
+    Plain assignments, never `${VAR:-...}` — an inherited environment value must
+    not be able to widen or narrow what the installer accepts as its own.
+    """
+    for group in (ident["plugin_names"], ident["marketplace_names"]):
+        for name in group:
+            try:
+                plugin_identity.require_identifier_shape(name, "accepted identifier")
+            except plugin_identity.IdentityError as exc:
+                raise SystemExit(f"plugin-identity: {exc}") from exc
+    superseded_markets = ident["marketplace_names"][1:]
+    superseded_specs = [s for s in ident["plugin_specs"] if s != ident["canonical_plugin_spec"]]
+    return [
+        f"DEVFLOW_PLUGIN_NAME_ERE='{ident['plugin_name_ere']}'",
+        f"DEVFLOW_PLUGIN_CANONICAL='{ident['plugin_canonical']}'",
+        f"DEVFLOW_MARKETPLACE_CANONICAL='{ident['marketplace_canonical']}'",
+        "DEVFLOW_SUPERSEDED_MARKETPLACES='" + " ".join(superseded_markets) + "'",
+        "DEVFLOW_SUPERSEDED_PLUGIN_SPECS='" + " ".join(superseded_specs) + "'",
+    ]
+
+
 def payload_identity_sets(ident: dict) -> list[str]:
     """Shell: the accepted identifier sets as space-separated lists, for a
     helper that hands them to an interpreter rather than to `grep -E`.
@@ -116,7 +159,7 @@ REGIONS = [
     {
         "id": "install",
         "file": "install.sh",
-        "payload": payload_sh,
+        "payload": payload_install,
     },
     {
         "id": "runner-env",

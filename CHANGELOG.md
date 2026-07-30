@@ -4,6 +4,182 @@ All notable changes to DevFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.27.1] — 2026-07-30
+
+### Changed
+### Changed
+
+- **Retire the throwaway `devflow-alias-probe` plugin alias.** `lib/plugin-identity.json`'s
+  `plugin_aliases` returns to `[]` and every dependent region is regenerated, so the four
+  baked copies (`.github/actions/vendor-plugin/vendor-slice.sh`,
+  `.github/workflows/devflow-runner.yml`, `install.sh`, `scripts/resolve-extra-plugins.sh`)
+  accept the canonical `devflow` only. The probe had already established what it was declared
+  for — that a second accepted identifier propagates to every baked region, that the
+  agent-namespace roster guards must be alias-agnostic, and that the canonical discriminator
+  still resolves with an alias declared — and its removal was a stated condition of the change
+  that introduced it: leaving it in ships a trust-discriminator widening for an identifier
+  nobody owns. The name-agnostic mechanism itself is untouched, as is the alias-agnostic
+  hardening of the roster guards.
+- Two comments that were corrected *because* an alias was declared —
+  `lib/generate-plugin-identity.py`'s `payload_install` docstring and `install.sh`'s
+  superseded-identifier gate comment — are reconciled with the tree they now ship in: each
+  states the conditional the code implements, names the current (empty) state as a property
+  of the manifest rather than of the function, and tells the reader to re-read the manifest
+  before asserting which way the gate falls.
+
+## [2.27.0] — 2026-07-30
+
+### Changed
+### Added
+
+- `install.sh` now has a real **consumer upgrade path**. Re-running it in a repository that
+  already carries a DevFlow installation is **dry-run by default**: it prints the plan and a
+  unified diff of every byte it would change and writes nothing until you re-run with
+  `--apply`. A first-time install still applies immediately, so the documented one-liner is
+  unchanged; `--dry-run` forces the preview there too, and `DEVFLOW_DRY_RUN=1` /
+  `DEVFLOW_APPLY=1` select the same modes for a `curl | bash` invocation that cannot pass a
+  flag. The preview is not a second implementation of the plan — it runs the real install
+  into a sandbox copy of the consumer's own tree and diffs it.
+- Installed artifacts now carry provenance in `.devflow/install-manifest.json` (a sha256 per
+  artifact). An upgrade updates an artifact whose bytes match the recorded digest, leaves an
+  already-identical one alone, recreates a deleted one, and **preserves** one that was
+  hand-edited — writing the new version to `<path>.devflow-new` for a human merge instead of
+  overwriting. An installation with no manifest (predating it, or a skipped-version jump) is
+  treated as unverified rather than pristine: unknown is never collapsed onto "unmodified".
+- The provenance layer fails **safe** whenever a digest cannot be established, and the blast
+  radius matches the cause:
+  - **No working `python3`** — stock Windows / Git-Bash before the shim provisioner has run.
+    Nothing can be digested, so the upgrade preserves **every** artifact it finds, offers each
+    new version as a `<path>.devflow-new` sidecar, and writes no manifest.
+  - **A read error on one artifact** while `python3` works — an unreadable file, or one
+    unreadable file inside a composite-action directory. Only **that** artifact is preserved
+    and offered as a sidecar; every other artifact is classified and written as usual, and the
+    manifest is still recorded — the preserved one simply keeps its previous entry rather than
+    being re-recorded against bytes nothing could read.
+
+  Each case reports the cause that actually applied and the remedy that matches it, rather
+  than naming a missing interpreter on a host whose interpreter works.
+
+  Whether an artifact *exists* is decided without `python3` in both cases, so a genuinely absent
+  artifact is still created and a first-time install on such a host is unaffected; what an
+  unreadable digest costs is the comparison, never the consumer's bytes. Both report distinctly
+  from "no recorded digest" (`provenance UNESTABLISHED`), and each names its own remedy.
+- The upgrade path surfaces the **withheld automatic-review tier** (issue #936) when a
+  repository still carries it, naming the #930/#920 exposure, and offers removal behind the
+  explicit `--remove-withheld-review-tier` opt-in. The opt-in sets `workflows["devflow-review"]`
+  to `false` and then deletes the three workflow files, and states that the branch-protection
+  context is a step no installer can perform. Deletion is guarded by a **per-file signature**
+  each withheld workflow actually carries — not by the mere presence of the string `devflow`,
+  which a consumer's own `telemetry-push.yml` may legitimately contain (a `.devflow/**` path
+  filter, a comment) and which would otherwise have deleted their file. The config key is
+  turned off *before* the files are removed: that is the only order whose interrupted state
+  is self-healing, since once the files are gone no later run reaches the config edit.
+- The dry-run diff covers `.claude/plugins/` as well, so the recursive removal of a stale
+  pre-relocation `.claude/plugins/devflow` tree is shown rather than performed unpreviewed.
+  The consumer's wider `.claude/` is still neither written nor diffed.
+- An artifact the installer replaces is staged beside its target and swapped into place, so a
+  failure mid-copy can no longer leave a half-written file or composite action behind. That
+  mattered more than a partial write usually does here: the aborted run never reaches the
+  manifest write, so the next upgrade would compare the half-copied bytes against the old
+  digest, call them a local edit, and preserve the corruption on every subsequent run.
+- The upgrade path reports a `.claude/settings.json` still registering a **superseded**
+  plugin/marketplace identifier and routes the consumer to `/devflow:init`, which already owns
+  that migration through `scripts/provision-local-settings.sh`. `install.sh` still writes no
+  `.claude/settings.json`.
+- `DEVFLOW_SRC` skips the clone and installs from an already-materialized source tree — the
+  offline seam the test suite drives real end-to-end fixture upgrades through.
+
+### Changed
+
+- The local `marketplace.json` `install.sh` writes is now composed from the **generated plugin
+  identity region** rather than hand-spelled literals, and the region carries the canonical
+  plugin/marketplace pair plus the superseded identifier sets alongside the existing
+  discriminator ERE. Declaring an alias in `lib/plugin-identity.json` and regenerating is the
+  only edit an identifier change needs in the installer.
+
+## [2.26.10] — 2026-07-30
+
+### Fixed
+- **The `# structural-pin-ok:` declaration on a pin that targets a runtime-concatenated
+  bundle can be edited again.** `lib/test/pin-corpus-lint.py` now resolves a bundle
+  variable (`$CI_BUNDLE`, `$MAXI_BUNDLE`) back to the repository files its own builder
+  call concatenates, and inspects a typed declaration against that member set: every
+  member must be inside the repository and readable, and the literal must be present in
+  at least one of them. Before this, such a target resolved to a scratch path no static
+  resolution reached, so the gate reported `typed structural declaration target cannot be
+  inspected` for any declared pin on it — and because a site is classified whenever its
+  lines land in the diff's added set, the whole logical line, declaration text included,
+  was permanently uneditable. Eleven retained pins were frozen that way. Membership is
+  resolved only through a closed grammar (a builder call, an array built from literal
+  words and/or one for-loop over a path glob with an optional basename skip, and
+  whole-variable aliases of a resolved bundle); an unresolvable build, an ambiguous name,
+  an empty glob expansion and an unreadable member all keep the existing refusal, and a
+  literal present in no member is still reported absent. Prose resolution follows the same
+  member set, so the routing ladder still requires an authorized ledger row and a tag
+  cannot self-grant a bundle pin. Eleven declarations now carry a legal category authored
+  from the site's own recorded ledger rationale. (#956)
+
+## [2.26.9] — 2026-07-30
+
+### Changed
+### Fixed
+
+- Closed the two coverage gaps the #948 routing ladder left on its fail-direction
+  paths: `load_machine_consumer_sources`' unreadable / non-UTF-8 skip branch and its
+  `MUTATION-ROUTING-CONSUMER-CORPUS-SKIPPED` breadcrumb are now driven end-to-end, and
+  the issue-#711 index-reading corpus population (`git ls-files` with no `--others`) is
+  pinned by a variant whose consumer is present in the worktree but untracked. Both
+  paths route a pin toward step 2 rather than to rc 2, so neither regression was
+  previously observable.
+- Made step 1's whole-token matching (`(?<![\w-])…(?![\w-])`) an explicit guarantee: a
+  distinctive token embedded in a larger identifier no longer needs to be assumed not to
+  satisfy step 1.
+- Narrowed `CONTRIBUTING.md`'s step-1 description to match
+  `build_machine_consumer_corpus`: comment regions are subtracted for the `#`-comment
+  extensions only, not for every language the corpus may carry.
+- Removed a duplicated soft count of the pins carrying a pre-vocabulary category from
+  two comments, which no assertion enforced and which drifts as unrelated follow-up work
+  fixes those categories.
+
+## [2.26.8] — 2026-07-30
+
+### Changed
+- **Declare one THROWAWAY plugin alias, `devflow-alias-probe`, to exercise the name-agnostic
+  identity mechanism end to end for the first time.** `lib/plugin-identity.json`'s
+  `plugin_aliases` has been `[]` since the mechanism landed, so every discriminator built to
+  accept a second accepted name has only ever resolved the canonical one. This declares a
+  single disposable alias and regenerates the four baked regions
+  (`.github/actions/vendor-plugin/vendor-slice.sh`, `install.sh`,
+  `.github/workflows/devflow-runner.yml`'s workflow-level `env:`, and
+  `scripts/resolve-extra-plugins.sh`) with `lib/generate-plugin-identity.py`, so the widened
+  accepted set is observable in a real cloud run before a rename bets on it.
+  `marketplace_aliases` is deliberately untouched.
+
+  **`devflow-alias-probe` is not a real identifier and is not a candidate name.** It names
+  no plugin, no marketplace and no repository, it is never published, and it is
+  TEMPORARY — a follow-up removes it once the post-merge observation is recorded. Do not
+  build anything on it. (#943)
+
+## [2.26.7] — 2026-07-30
+
+### Fixed
+- **The merge-time version bump now repins the install docs and tags its own commit, so a release tag and the docs at that tag can no longer disagree.** `.claude-plugin/plugin.json` had moved to a version the install instructions never followed, and nothing detected it: `docs/install.md`, `docs/cloud-setup.md` and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` still pinned the previous tag in both the installer download URL and the `DEVFLOW_REF=` payload ref, and the newer version had no tag at all. Three coupled changes close the loop. (1) A new `scripts/version_pins.py` **derives** the pinned-release-tag site set from those two machine-recognizable forms — never a checked-in list of files, so a documentation page added later cannot silently escape — and `scripts/consolidate-changesets.py` rewrites every derived site inside its existing read-before-write assembly phase, landing the repin **in the same commit as the bump**; the consolidator still makes no `git` calls, and two optional `$RUNNER_TEMP` side channels (`--emit-entry-to`, `--emit-write-set-to`) hand the workflow the Release notes body and the derived write set. (2) `.github/workflows/version-consolidate.yml` stages that derived write set explicitly (never `git add -A`), fails closed on any consolidator write neither staging list reached, and then calls the new `scripts/publish-release.sh` to create the annotated tag `v<new version>` at the bump commit, verify it resolves on the remote, and publish its GitHub Release from the CHANGELOG entry the same run assembled — `contents: write`, already held for the bump push, is also the scope for both. (3) `scripts/version_pins.py --check` is an ordinary executable test in `lib/test/run.sh` asserting every derived pin site agrees with the manifest, with a negative control that stales one site and proves the guard goes RED; it is offline, so the network-free suite keeps its contract while the tag-existence assertion lives in the workflow, where the network exists and a miss is actionable. The checker's scanned population is **index-derived** (`git ls-files`, no `--others`) and fails closed when that enumeration cannot be established, per the issue-#711 convention: a checker whose answer depends on untracked host state goes red locally and green on a fresh CI checkout, and no exclusion list can fix that class because the next untracked directory defeats it. The library entry point the consolidator calls keeps the git-free filesystem walk, so the consolidator still makes no `git` calls. `--check` also treats an **empty** site set as a fault rather than a clean pass, since a pattern regression would otherwise silence the guard and the merge-time repin at the same moment. (#953)
+
+## [2.26.6] — 2026-07-30
+
+### Changed
+### Fixed
+
+- `devflow-implement.yml` now re-anchors the hosted-runner workspace prefix in
+  `devflow_implement.allowed_tools` onto the live `$GITHUB_WORKSPACE` before splicing it
+  into `--allowed-tools`. That prefix embeds the repository name twice, so renaming the
+  repository would have left 25 helper grants matching nothing — and an ungranted head is
+  silently denied, so the loss would have surfaced as a cloud implement run that quietly
+  did less rather than as an error. The transform is a no-op until a rename, leaves
+  out-of-workspace absolute grants untouched, and falls back to the authored tokens when
+  the workspace is unset. Completes the half of issue #928 that `matcher-probe.yml`
+  deferred.
+
 ## [2.26.5] — 2026-07-30
 
 ### Changed
