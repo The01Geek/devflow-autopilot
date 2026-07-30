@@ -3987,8 +3987,8 @@ def scan_changed_sources(
         # decided ahead of the routing ladder and never routed around: an unknown
         # category, an empty rationale or a duplicated marker is reported whatever
         # the ladder would have answered (issue #948 keeps this arm exactly as it
-        # was — the ~35 standing pins on a pre-vocabulary free-text category stay
-        # findings until someone edits the category into a legal one).
+        # was — a standing pin on a pre-vocabulary free-text category stays a
+        # finding until someone edits the category into a legal one).
         if (
             site.declaration_error is not None
             and site.declaration_error != "missing structural declaration"

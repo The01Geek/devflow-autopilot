@@ -176,8 +176,12 @@ later arm routes around — the gate **routes** through an ordered three-step la
 (issue #948), and the routing is deliberately not a judgement:
 
 1. **A program demonstrably reads it.** The literal, or a machine-identifier-shaped
-   token it names, occurs in the operative (comment-stripped) text of a tracked
-   `scripts/**`, `lib/**`-outside-`lib/test/` or `.github/**` file. Pass; no
+   token it names, occurs in the text of a tracked `scripts/**`,
+   `lib/**`-outside-`lib/test/` or `.github/**` file — with comment regions
+   subtracted for the `#`-comment extensions only (`.sh`, `.py`, `.jq`, `.yml`,
+   `.yaml`), which is what `build_machine_consumer_corpus` implements: no other
+   comment syntax is stripped, so a mention inside some other language's comment
+   still counts as operative text. Pass; no
    declaration and no ledger row needed. A grep-shaped search misses a *generic*
    consumer by construction — a helper that walks a routing table row by row names no
    individual row — so "found none" routes to step 2 and never to a finding.
