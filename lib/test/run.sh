@@ -15299,6 +15299,11 @@ echo "#936 — surviving references to the withheld devflow-review.yml"
 # Re-scoping someone else's guard was out of scope here, so the stale tense is recorded as a
 # known exception rather than silently fixed or silently ignored.
 #
+# Stated reference, lib/test/modules/installer-wiring.sh: a fixture consumer repository that
+# RETAINS the withheld tier. Those arms exist precisely because a consumer that installed the
+# tier before it was withheld keeps it, and the installer must report it, leave it alone by
+# default, and remove it only on the explicit opt-in — so the filename has to appear there.
+#
 # Accepted residual, stated rather than discovered later: this pins the FILENAME form only.
 # The bare `devflow-review` is a config KEY, not a filename, and legitimately survives in
 # .devflow/config.example.json, .devflow/config.json and .devflow/config.schema.json (each
@@ -15324,6 +15329,7 @@ docs/workflow-triggers.md
 install.sh
 lib/test/fixtures/issue-304-body.md
 lib/test/modules/capability-profiles.sh
+lib/test/modules/installer-wiring.sh
 lib/test/modules/review-stall-backstop.inventory.md
 lib/test/modules/review-stall-backstop.sh
 lib/test/modules/review-trigger-helpers.sh
@@ -45288,7 +45294,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 147; then
+  "installer-wiring" 181; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi
