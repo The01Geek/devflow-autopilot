@@ -987,8 +987,11 @@ print(d["name"], d["plugins"][0]["name"])
 ' "$IU_C11/.claude-plugin/marketplace.json")"
 assert_eq "installer-upgrade identity: an unrelated marketplace/plugin registration is never named as superseded" "no no" \
   "$(_iu_out_has "$IU_O11" 'unrelated-market') $(_iu_out_has "$IU_O11" 'other@unrelated-market')"
-# With no alias declared — today's tree — the whole migration path is a strict no-op.
-assert_eq "installer-upgrade identity: with no alias declared the shipped installer reports nothing superseded (strict no-op today)" "no" \
+# The SHIPPED installer's own declared alias set is not registered in this consumer's
+# settings, so the migration report stays silent: the report is driven by an INTERSECTION
+# of the declared superseded ids with what the consumer actually registered, not by the
+# mere existence of a declared alias.
+assert_eq "installer-upgrade identity: the shipped installer reports nothing superseded when none of its declared superseded ids is registered" "no" \
   "$(printf '%s' "$(_iu_run "$IU_C11" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
 
 rm -rf "$IU_P11"
