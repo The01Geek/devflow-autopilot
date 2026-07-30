@@ -631,10 +631,16 @@ IU_REF="0123456789abcdef0123456789abcdef01234567"
 # workflows and the shipped composite actions rather than stand-ins.
 IU_SRC="$_iw_tmp_root/src"
 mkdir -p "$IU_SRC/scripts" "$IU_SRC/lib" "$IU_SRC/.devflow" "$IU_SRC/.github/workflows" "$IU_SRC/.github/actions"
-cp "$LIB/../scripts/scaffold-config.sh" "$LIB/../scripts/detect-project-tools.sh" \
-   "$LIB/../scripts/tool-presets.json" "$IU_SRC/scripts/"
+cp "$LIB/../scripts/scaffold-config.sh" "$LIB/../scripts/detect-project-tools.sh" "$IU_SRC/scripts/"
 cp "$LIB/resolve-jq.sh" "$LIB/resolve-bin.sh" "$IU_SRC/lib/"
-cp "$LIB/../.devflow/config.example.json" "$LIB/../.devflow/config.schema.json" "$IU_SRC/.devflow/"
+# tool-presets.json lives under .devflow/, which is where detect-project-tools.sh
+# resolves it from ($SELF_DIR/../.devflow/tool-presets.json). Copying it to scripts/
+# left the fixture source tree missing it, so these arms silently drove the
+# presets-absent degraded path instead of the shipped one.
+cp "$LIB/../.devflow/config.example.json" "$LIB/../.devflow/config.schema.json" \
+   "$LIB/../.devflow/tool-presets.json" "$IU_SRC/.devflow/"
+assert_eq "installer-upgrade fixture: the offline source tree carries tool-presets.json where detect-project-tools.sh resolves it" "yes" \
+  "$([ -f "$IU_SRC/.devflow/tool-presets.json" ] && echo yes || echo no)"
 cp "$LIB/../.github/workflows/devflow.yml" "$LIB/../.github/workflows/devflow-implement.yml" "$IU_SRC/.github/workflows/"
 for _iu_a in read-project-config setup-project-env vendor-plugin; do
   cp -R "$LIB/../.github/actions/$_iu_a" "$IU_SRC/.github/actions/"
@@ -651,8 +657,23 @@ _iu_consumer() {  # $1 = fixture id -> prints a fresh consumer repo root
 _iu_run() {  # $1 = consumer root, rest = installer arguments; prints merged output
   local d="$1"; shift
   ( cd "$d" && env DEVFLOW_SRC="$IU_SRC" DEVFLOW_REF="$IU_REF" \
+      PATH="${IU_PATH_PREFIX:+$IU_PATH_PREFIX:}$PATH" \
       bash "${IU_INSTALL_BIN:-$IU_INSTALL}" "$@" 2>&1 )
 }
+# A stub directory whose `python3` is present on PATH but exits non-zero — the state
+# `offer_python3_shim` exists to remedy, and the one the installer's provenance layer
+# must fail SAFE on. Deterministic and self-contained: the suite builds the stub, and
+# it is prepended to PATH only inside the _iu_run subshell, so the harness's own
+# python3 helpers (_iu_snapshot / _iu_digest) are unaffected and nothing depends on
+# what the host happens to have installed. Present-but-unrunnable rather than absent
+# is the STRONGER shape: it defeats a `command -v python3` presence check too, and
+# devflow_resolve_python is execution-verified precisely for it.
+IU_NOPY="$_iw_tmp_root/nopython3"
+mkdir -p "$IU_NOPY"
+printf '#!/bin/sh\nexit 127\n' > "$IU_NOPY/python3"
+chmod +x "$IU_NOPY/python3"
+assert_eq "installer-upgrade fixture: the python3 stub is on PATH yet does not execute (so it defeats a presence-only check)" "yes no" \
+  "$([ -x "$IU_NOPY/python3" ] && echo yes || echo no) $("$IU_NOPY/python3" -c 'pass' >/dev/null 2>&1 && echo yes || echo no)"
 # A content-addressed snapshot of a fixture tree, so "nothing outside the intended
 # set changed" is asserted over BYTES, not over a list of paths a partial write
 # would still satisfy.
@@ -666,6 +687,15 @@ for root, dirs, files in os.walk(base):  # tree-walk-ok: scoped to a fixture con
         dirs.remove(".git")
     for f in sorted(files):
         fp = os.path.join(root, f)
+        # A SYMLINK is snapshotted by its target, not by the bytes it resolves to: the
+        # #959 arms plant a DANGLING symlink to induce a digest failure, and reading
+        # through it would raise and leave this helper printing NOTHING — which would
+        # make the "no pre-existing path changed" comparisons pass by comparing two
+        # empty strings. Recording the link target also makes "a symlink was replaced
+        # by a regular file" a visible change rather than an invisible one.
+        if os.path.islink(fp):
+            out.append(os.path.relpath(fp, base).replace(os.sep, "/") + " -> " + os.readlink(fp))
+            continue
         with open(fp, "rb") as fh:
             d = hashlib.sha256(fh.read()).hexdigest()
         out.append(os.path.relpath(fp, base).replace(os.sep, "/") + " " + d)
@@ -995,3 +1025,256 @@ assert_eq "installer-upgrade identity: the shipped installer reports nothing sup
   "$(printf '%s' "$(_iu_run "$IU_C11" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
 
 rm -rf "$IU_P11"
+
+# ── Scenario 12 (#959): the documented python3-absent FAIL-SAFE, driven end to end.
+# This is the arm the original 11 scenarios could not reach, because every one of them
+# ran with a working python3 — which is exactly why the installer shipped doing the
+# OPPOSITE of its own header for a whole supported host class. devflow_digest() printed
+# the empty string when python3 was unavailable, the classifier read an empty current
+# digest as "file absent -> create", and the create arm is `rm -rf` + `cp`. So a stock
+# Windows / Git-Bash consumer's hand-edits were destroyed, silently, on upgrade.
+#
+# The contract asserted here is the header's, verbatim: nothing existing is overwritten,
+# every present artifact is reported preserved, and the manifest is not written.
+IU_C12="$(_iu_consumer nopython3)"
+_iu_run "$IU_C12" >/dev/null                        # install while python3 still works
+printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C12/.github/workflows/devflow.yml"
+IU_WF12_BEFORE="$(_iu_digest "$IU_C12/.github/workflows/devflow.yml")"
+IU_MANI12_BEFORE="$(_iu_digest "$IU_C12/.devflow/install-manifest.json")"
+IU_SNAP12_BEFORE="$(_iu_snapshot "$IU_C12")"
+IU_O12="$(IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C12" --apply)" && IU_RC12=0 || IU_RC12=$?
+assert_eq "installer-upgrade #959: an --apply upgrade on a host with no working python3 leaves a hand-edited workflow BYTE-FOR-BYTE intact" "yes yes" \
+  "$([ "$IU_WF12_BEFORE" = "$(_iu_digest "$IU_C12/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C12/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER')"
+# The precise wrong classification: `create` on a path that is right there on disk.
+# Asserting its ABSENCE is what makes this arm a regression test for the defect rather
+# than for its symptom — a future collapse of unknown onto any writing classification
+# has to reintroduce one of these two words.
+assert_eq "installer-upgrade #959: no existing artifact is classified create or update when the digest cannot be established" "no no" \
+  "$(_iu_out_matches "$IU_O12" '^devflow-install: create: ') $(_iu_out_matches "$IU_O12" '^devflow-install: update: ')"
+assert_eq "installer-upgrade #959: each present artifact is reported PRESERVED with provenance UNESTABLISHED, naming the sidecar and the python3 remedy" "yes yes yes" \
+  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_has "$IU_O12" '.github/workflows/devflow.yml — the new version is at .github/workflows/devflow.yml.devflow-new') $(_iu_out_has "$IU_O12" 'Resolve a working python3')"
+# `unverified` ("no recorded digest") is a DIFFERENT diagnosis with a different remedy;
+# reporting a python3-less host that way would send the consumer to delete their files.
+assert_eq "installer-upgrade #959: the unestablished-digest preserve is not misreported as the no-recorded-digest one" "no" \
+  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance unverified')"
+assert_eq "installer-upgrade #959: the run still exits 0 and offers DevFlow's sidecar copy of the artifact it preserved" "0 yes yes" \
+  "$IU_RC12 $([ -f "$IU_C12/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no) $([ "$(_iu_digest "$IU_C12/.github/workflows/devflow.yml.devflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: the manifest is left byte-for-byte alone (an unestablishable digest must never be recorded as provenance) and the run says so" "yes yes" \
+  "$([ "$IU_MANI12_BEFORE" = "$(_iu_digest "$IU_C12/.devflow/install-manifest.json")" ] && echo yes || echo no) $(_iu_out_has "$IU_O12" 'the install provenance manifest (.devflow/install-manifest.json) was not written')"
+# The whole-tree form of "nothing existing is overwritten": every path present before
+# the upgrade is bit-identical after it, so the only delta is additions. Asserted over
+# BYTES across the entire fixture, not over the handful of paths the arms above name.
+assert_eq "installer-upgrade #959: across the whole tree, not one pre-existing path changed its bytes — the delta is additions only (over a snapshot proven non-empty)" "ok:" \
+  "$(python3 -c '
+import sys
+before = dict(l.split(" ", 1) for l in sys.argv[1].splitlines() if l)
+after = dict(l.split(" ", 1) for l in sys.argv[2].splitlines() if l)
+bad = [k for k in before if k not in after or after[k] != before[k]]
+sys.stdout.write(("ok:" if len(before) > 5 else "EMPTY-SNAPSHOT:") + " ".join(sorted(bad)))
+' "$IU_SNAP12_BEFORE" "$(_iu_snapshot "$IU_C12")")"
+# NEGATIVE CONTROL for the whole of Scenario 12. Reintroduce the exact collapse the fix
+# removed — infer absence from an empty digest instead of testing the path — on a copy,
+# and require the consumer edit to DISAPPEAR. Without this the arms above could pass on
+# an installer that simply never writes anything, and the 11 pre-#959 scenarios are the
+# standing proof that a suite can be green while this branch is broken.
+IU_MUT12="$(probe_tmp '#959 python3-absent clobber control setup')"
+python3 -c '
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+body = open(src, encoding="utf-8").read()
+guard = "  if [ ! -e \"$rel\" ] && [ ! -L \"$rel\" ]; then printf \x27create\x27; return 0; fi\n"
+collapse = "  cur=\"$(devflow_digest \"$rel\")\" || cur=\"\"\n  [ -n \"$cur\" ] || { printf \x27create\x27; return 0; }\n"
+if guard not in body:
+    sys.exit("mutation target not found: the existence guard in devflow_artifact_action")
+open(dst, "w", encoding="utf-8").write(body.replace(guard, collapse, 1))
+' "$IU_INSTALL" "$IU_MUT12" || printf 'devflow-test: #959 control mutation FAILED to apply\n'
+# The mutation must be PROVEN to have landed: a rotted pattern would leave the control
+# running the fixed installer and silently reporting "preserved" as a pass.
+assert_eq "installer-upgrade #959 NEGATIVE CONTROL: the control copy really does reintroduce the empty-digest-means-absent collapse" "yes no" \
+  "$(_iu_has "$IU_MUT12" '[ -n "$cur" ] || { printf '"'"'create'"'"'; return 0; }') $(_iu_has "$IU_MUT12" 'if [ ! -e "$rel" ] && [ ! -L "$rel" ]; then')"
+IU_C12B="$(_iu_consumer nopython3-control)"
+_iu_run "$IU_C12B" >/dev/null
+printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C12B/.github/workflows/devflow.yml"
+IU_O12B="$(IU_INSTALL_BIN="$IU_MUT12" IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C12B" --apply)" || true
+assert_eq "installer-upgrade #959 NEGATIVE CONTROL: the collapsed classifier DOES destroy the consumer edit and calls the existing file create (so Scenario 12 is not vacuous)" "no yes" \
+  "$(_iu_has "$IU_C12B/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER') $(_iu_out_matches "$IU_O12B" '^devflow-install: create: \.github/workflows/devflow\.yml$')"
+rm -f "$IU_MUT12"
+
+# ── Scenario 13 (#959, same root): a digest ERROR on a PRESENT artifact, with a fully
+# working python3. The second reachable form of the same defect — `2>/dev/null || printf
+# ''` mapped every interpreter failure onto "absent", so a read error on an existing
+# artifact wiped and replaced it while masking the real cause as "this doesn't exist yet".
+#
+# Both arms are induced with a DANGLING SYMLINK rather than a chmod, deliberately: a
+# permission-based unreadable file is not reproducible for a run that happens to be root
+# (some CI containers are), and a check whose condition the host can dissolve is a check
+# that quietly stops testing anything.
+IU_C13="$(_iu_consumer digest-error)"
+_iu_run "$IU_C13" >/dev/null
+# 13a: a FILE artifact that exists as a dangling symlink. `[ -L ]` sees it, `[ -e ]` does
+# not, and python3 reports it absent — an established-absence answer about a path the
+# builtin test says is there. That disagreement is itself "unestablished".
+rm -f "$IU_C13/.github/workflows/devflow.yml"
+ln -s ./no-such-target.yml "$IU_C13/.github/workflows/devflow.yml"
+# 13b: a DIRECTORY artifact whose os.walk digest cannot complete, because one entry
+# inside it cannot be opened. This is the composite-action shape the review called the
+# most likely to fail, and it is also the first coverage of directory-artifact behavior
+# at all: every earlier preservation arm edited a single-file workflow.
+printf '# INNER-DIRECTORY-MARKER\n' >> "$IU_C13/.github/actions/vendor-plugin/vendor-slice.sh"
+ln -s ./no-such-inner-file "$IU_C13/.github/actions/vendor-plugin/dangling"
+IU_SNAP13_BEFORE="$(_iu_snapshot "$IU_C13")"
+IU_O13="$(_iu_run "$IU_C13" --apply)" && IU_RC13=0 || IU_RC13=$?
+assert_eq "installer-upgrade #959: a present FILE artifact whose digest cannot be established is preserved as-is — still a symlink, never replaced by a copy" "0 yes yes" \
+  "$IU_RC13 $([ -L "$IU_C13/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C13/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: a DIRECTORY artifact whose walk digest errors is preserved with its inner contents intact, and its replacement offered beside it" "yes yes yes" \
+  "$(_iu_has "$IU_C13/.github/actions/vendor-plugin/vendor-slice.sh" 'INNER-DIRECTORY-MARKER') $([ -L "$IU_C13/.github/actions/vendor-plugin/dangling" ] && echo yes || echo no) $([ -d "$IU_C13/.github/actions/vendor-plugin.devflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: the digest error is reported as an unestablished provenance, not masked as a fresh create" "yes no no" \
+  "$(_iu_out_has "$IU_O13" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_matches "$IU_O13" '^devflow-install: create: \.github/workflows/devflow\.yml$') $(_iu_out_matches "$IU_O13" '^devflow-install: create: \.github/actions/vendor-plugin$')"
+# The `ok:` prefix is the anti-vacuity half: a snapshot helper that failed on the planted
+# dangling symlink would print nothing, and comparing two empty snapshots would satisfy an
+# emptiness assertion while measuring absolutely nothing.
+assert_eq "installer-upgrade #959: a digest error touches no pre-existing bytes anywhere in the tree (over a snapshot proven non-empty)" "ok:" \
+  "$(python3 -c '
+import sys
+before = dict(l.split(" ", 1) for l in sys.argv[1].splitlines() if l)
+after = dict(l.split(" ", 1) for l in sys.argv[2].splitlines() if l)
+bad = [k for k in before if k not in after or after[k] != before[k]]
+sys.stdout.write(("ok:" if len(before) > 5 else "EMPTY-SNAPSHOT:") + " ".join(sorted(bad)))
+' "$IU_SNAP13_BEFORE" "$(_iu_snapshot "$IU_C13")")"
+
+# ── Scenario 14 (#959): POSITIVE CONTROL. The fix must be "preserve what is there", not
+# "never write". A genuinely absent path still has to be created — including on the very
+# host that triggered the defect, where no digest is available to prove absence with. If
+# this arm ever fails, the fail-safe has turned into a fail-shut and a python3-less
+# consumer can no longer install at all.
+IU_C14="$(_iu_consumer nopython3-create)"
+_iu_run "$IU_C14" >/dev/null
+rm -f "$IU_C14/.github/workflows/devflow-implement.yml"
+rm -rf "$IU_C14/.github/actions/setup-project-env"
+IU_O14="$(IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C14" --apply)"
+assert_eq "installer-upgrade #959 POSITIVE CONTROL: with no working python3, a genuinely absent file and directory are still created, and reported as create" "yes yes yes yes" \
+  "$([ -f "$IU_C14/.github/workflows/devflow-implement.yml" ] && echo yes || echo no) $([ -d "$IU_C14/.github/actions/setup-project-env" ] && echo yes || echo no) $(_iu_out_matches "$IU_O14" '^devflow-install: create: \.github/workflows/devflow-implement\.yml$') $(_iu_out_matches "$IU_O14" '^devflow-install: create: \.github/actions/setup-project-env$')"
+# …and the green-field case: a first-time install on a python3-less host must land the
+# whole artifact set, because absence is now decided without the interpreter.
+IU_C14B="$(_iu_consumer nopython3-fresh)"
+IU_O14B="$(IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C14B")"
+assert_eq "installer-upgrade #959 POSITIVE CONTROL: a first-time install on a python3-less host still installs every owned artifact" "yes yes yes yes" \
+  "$(_iu_out_has "$IU_O14B" 'detected a first-time installation; running in apply mode.') $([ -f "$IU_C14B/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C14B/.claude-plugin/marketplace.json" ] && echo yes || echo no) $([ -d "$IU_C14B/.github/actions/vendor-plugin" ] && echo yes || echo no)"
+
+# ── Scenario 15 (#959): the manifest is a best-effort parser over a file a human can
+# hand-corrupt, so it gets the adversarial input-shape matrix CLAUDE.md requires rather
+# than only the "deleted it" row Scenario 6 covers. Every malformed shape must degrade to
+# an empty recorded digest — never to a spurious match, which would classify a
+# hand-edited artifact as `update` and clobber it.
+#
+# Driven by sourcing the installer under DEVFLOW_SELFTEST=1 and calling the two functions
+# directly: the classification is the thing under test, and a full installer run per row
+# would obscure which shape produced which answer.
+IU_C15="$(_iu_consumer manifest-shapes)"
+_iu_run "$IU_C15" >/dev/null
+printf '\n# SHAPE-MATRIX-LOCAL-EDIT\n' >> "$IU_C15/.github/workflows/devflow.yml"
+_iu_manifest_shape() {  # $1 = literal manifest bytes -> "<recorded> <classification>"
+  printf '%s' "$1" > "$IU_C15/.devflow/install-manifest.json"
+  # shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+  ( cd "$IU_C15" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+      && printf '%s %s' \
+           "$(devflow_recorded_digest '.github/workflows/devflow.yml' || printf 'RC')" \
+           "$(devflow_artifact_action '.github/workflows/devflow.yml' "$IU_SRC/.github/workflows/devflow.yml")" ) 2>/dev/null
+}
+assert_eq "installer-upgrade #959 manifest matrix: truncated JSON yields no recorded digest and preserves the edited artifact" " unverified" \
+  "$(_iu_manifest_shape '{"artifacts": {"a": ')"
+assert_eq "installer-upgrade #959 manifest matrix: a non-JSON manifest degrades rather than aborting the installer" " unverified" \
+  "$(_iu_manifest_shape 'this is not json at all')"
+assert_eq "installer-upgrade #959 manifest matrix: an empty manifest file degrades" " unverified" \
+  "$(_iu_manifest_shape '')"
+assert_eq "installer-upgrade #959 manifest matrix: a top-level ARRAY is not indexed as a mapping" " unverified" \
+  "$(_iu_manifest_shape '[{"artifacts": {}}]')"
+assert_eq "installer-upgrade #959 manifest matrix: a top-level scalar degrades" " unverified" \
+  "$(_iu_manifest_shape '42')"
+assert_eq "installer-upgrade #959 manifest matrix: an artifacts ARRAY is not indexed as a mapping" " unverified" \
+  "$(_iu_manifest_shape '{"artifacts": [".github/workflows/devflow.yml"]}')"
+assert_eq "installer-upgrade #959 manifest matrix: an artifacts SCALAR degrades" " unverified" \
+  "$(_iu_manifest_shape '{"artifacts": "everything"}')"
+assert_eq "installer-upgrade #959 manifest matrix: a missing artifacts key degrades" " unverified" \
+  "$(_iu_manifest_shape '{"manifest_version": 1}')"
+assert_eq "installer-upgrade #959 manifest matrix: a NON-STRING entry is not compared against the digest" " unverified" \
+  "$(_iu_manifest_shape '{"artifacts": {".github/workflows/devflow.yml": {"sha256": "x"}}}')"
+assert_eq "installer-upgrade #959 manifest matrix: a null entry degrades" " unverified" \
+  "$(_iu_manifest_shape '{"artifacts": {".github/workflows/devflow.yml": null}}')"
+# The matrix must be able to say something OTHER than `unverified`, or every row above is
+# satisfied by a function that returns the same word unconditionally. A well-formed
+# manifest recording the artifact's PREVIOUS digest classifies the same edited file
+# `modified` — a different word, from a real comparison.
+assert_eq "installer-upgrade #959 manifest matrix CONTROL: a well-formed manifest yields a real digest and a real comparison" "yes modified" \
+  "$(printf '%s' "$(_iu_manifest_shape "$(python3 -c '
+import hashlib, json, sys
+src = sys.argv[1]
+body = open(src, "rb").read()
+print(json.dumps({"manifest_version": 1, "artifacts": {".github/workflows/devflow.yml": hashlib.sha256(body).hexdigest()}}))
+' "$IU_SRC/.github/workflows/devflow.yml")")" | python3 -c '
+import re, sys
+rec, _, act = sys.stdin.read().strip().partition(" ")
+print(("yes" if re.fullmatch(r"[0-9a-f]{64}", rec) else "no"), act)
+')"
+
+# ── Scenario 16 (#959): a DIRECTORY artifact whose inner file was hand-edited is
+# preserved, with a working python3. The directory digest walks the tree, so an inner
+# edit has to move it — a claim the shipped code made only in a comment until now.
+IU_C16="$(_iu_consumer dir-handedit)"
+_iu_run "$IU_C16" >/dev/null
+printf '\n# COMPOSITE-ACTION-LOCAL-EDIT\n' >> "$IU_C16/.github/actions/vendor-plugin/vendor-slice.sh"
+IU_O16="$(_iu_run "$IU_C16" --apply)"
+assert_eq "installer-upgrade #959: an inner-file edit inside a composite action marks the whole directory modified and preserves it" "yes yes yes" \
+  "$(_iu_out_has "$IU_O16" 'PRESERVED (locally modified since DevFlow wrote it): .github/actions/vendor-plugin') $(_iu_has "$IU_C16/.github/actions/vendor-plugin/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT') $([ -d "$IU_C16/.github/actions/vendor-plugin.devflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: the directory sidecar carries DevFlow's copy, not the consumer's edited one" "no" \
+  "$(_iu_has "$IU_C16/.github/actions/vendor-plugin.devflow-new/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT')"
+# A file ADDED inside the directory moves the digest too (the walk is over the whole set,
+# not over the files DevFlow shipped), so a consumer's extra file is not silently wiped
+# by the `rm -rf`+`cp -R` the update arm performs.
+IU_C16B="$(_iu_consumer dir-addfile)"
+_iu_run "$IU_C16B" >/dev/null
+printf 'consumer addition\n' > "$IU_C16B/.github/actions/vendor-plugin/consumer-extra.sh"
+_iu_run "$IU_C16B" --apply >/dev/null
+assert_eq "installer-upgrade #959: a file the consumer ADDED inside a composite action survives the upgrade" "yes" \
+  "$([ -f "$IU_C16B/.github/actions/vendor-plugin/consumer-extra.sh" ] && echo yes || echo no)"
+
+# ── Scenario 17 (#959): the withheld-tier config disabler is a best-effort parser too.
+# Scenario 4 covers only its success arm; these are the two non-happy exits — a config
+# that is not a JSON object (rc 3) and one where the key is already false (rc 4) — which
+# must produce their own distinct breadcrumbs and never restructure the consumer's config.
+IU_C17="$(_iu_consumer withheld-shapes)"
+_iu_run "$IU_C17" >/dev/null
+printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17/.github/workflows/devflow-review.yml"
+printf '[1, 2, 3]\n' > "$IU_C17/.devflow/config.json"
+IU_CFG17_BEFORE="$(_iu_digest "$IU_C17/.devflow/config.json")"
+IU_O17="$(_iu_run "$IU_C17" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: a non-object .devflow/config.json is reported and left byte-for-byte alone, never restructured" "yes yes" \
+  "$(_iu_out_has "$IU_O17" 'it is missing, malformed, or holds a non-object at that key') $([ "$IU_CFG17_BEFORE" = "$(_iu_digest "$IU_C17/.devflow/config.json")" ] && echo yes || echo no)"
+IU_C17B="$(_iu_consumer withheld-already-false)"
+_iu_run "$IU_C17B" >/dev/null
+printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17B/.github/workflows/devflow-review.yml"
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C17B/.devflow/config.json"
+IU_O17B="$(_iu_run "$IU_C17B" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: an already-false review key is reported as already-false, distinctly from a failure" "yes no" \
+  "$(_iu_out_has "$IU_O17B" 'is already false in .devflow/config.json') $(_iu_out_has "$IU_O17B" 'could not set workflows')"
+# A non-object `workflows` value takes the same rc-3 arm — the config is not rewritten
+# underneath the consumer just because one key holds the wrong type.
+IU_C17C="$(_iu_consumer withheld-nonobject-workflows)"
+_iu_run "$IU_C17C" >/dev/null
+printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17C/.github/workflows/devflow-review.yml"
+python3 -c '
+import json, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["workflows"] = "all of them"
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C17C/.devflow/config.json"
+IU_O17C="$(_iu_run "$IU_C17C" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: a non-object workflows value is reported and the config left with that value intact" "yes all of them" \
+  "$(_iu_out_has "$IU_O17C" 'it is missing, malformed, or holds a non-object at that key') $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"])' "$IU_C17C/.devflow/config.json")"

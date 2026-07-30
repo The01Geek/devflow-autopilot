@@ -18,6 +18,14 @@ bump: minor
   hand-edited — writing the new version to `<path>.devflow-new` for a human merge instead of
   overwriting. An installation with no manifest (predating it, or a skipped-version jump) is
   treated as unverified rather than pristine: unknown is never collapsed onto "unmodified".
+- The provenance layer fails **safe** when it cannot be established at all. On a host with no
+  working `python3` — stock Windows / Git-Bash before the shim provisioner has run — and on any
+  read error against an existing artifact, the upgrade preserves every artifact it finds,
+  offers each new version as a `<path>.devflow-new` sidecar, and writes no manifest. Whether an
+  artifact *exists* is decided without `python3`, so a genuinely absent artifact is still
+  created and a first-time install on such a host is unaffected; what a missing interpreter
+  costs is the comparison, never the consumer's bytes. This case reports distinctly from "no
+  recorded digest" (`provenance UNESTABLISHED`) because its remedy is a different one.
 - The upgrade path surfaces the **withheld automatic-review tier** (issue #936) when a
   repository still carries it, naming the #930/#920 exposure, and offers removal behind the
   explicit `--remove-withheld-review-tier` opt-in. The opt-in deletes the three workflow files

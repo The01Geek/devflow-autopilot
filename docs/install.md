@@ -225,7 +225,10 @@ A **first-time** install still applies immediately, so the one-liner above is un
 | already identical to the new version | leaves it alone (`unchanged`) |
 | bytes differ from the recorded digest | **preserves your file** and writes the new version to `<path>.devflow-new` for you to merge |
 | no recorded digest — an installation predating the manifest, or a skipped-version jump | same: preserves your file and offers `<path>.devflow-new`, because a local edit cannot be ruled out |
+| your file's **current** bytes cannot be digested at all — no working `python3` on this host, an unreadable file, a read error inside a composite-action directory | same: preserves your file and offers `<path>.devflow-new`, and the manifest is not rewritten. Reported distinctly (`provenance UNESTABLISHED`) because the remedy is different: resolve `python3` (see [above](#windows-resolving-python3)) and re-run to get a real comparison |
 | absent (you deleted it) | recreates it |
+
+Note the third row's most common cause. On a host with **no working `python3`** — stock Windows / Git-Bash, before you run the shim provisioner — the provenance layer cannot be established at all, so an upgrade preserves **everything** it finds and writes no manifest. Whether a file *exists* is decided without `python3`, so a genuinely absent artifact is still created and a first-time install on such a host still works normally; what the missing interpreter costs you is the *comparison*, never your bytes. Because the dry run cannot render its diff there either, read the plan lines — they name every artifact that would be preserved.
 
 `.devflow/config.json` is outside that mechanism entirely: the shared scaffolder only ever backfills keys the shipped example gained, so your values and tuned arrays are never rewritten. A preserved conflict is reported again on every run until you resolve it — the installer never adopts your edited bytes as its own provenance.
 
