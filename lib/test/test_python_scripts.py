@@ -3928,16 +3928,26 @@ _example_ao = (
 assert_eq("#141 migration: no stale pre-rename override key survives in config.example.json",
           [], [k for k in _PRT_OLD_KEYS if k in _example_ao])
 
-# The published KNOWN_AGENTS roster stays byte-identical to the nine telemetry ids.
-assert_eq("resolve: KNOWN_AGENTS is the nine review-engine identifiers",
-          ("devflow:checklist-generator", "devflow:checklist-deduper",
-           "devflow:checklist-verifier", "devflow:code-reviewer",
-           "devflow:silent-failure-hunter",
-           "devflow:comment-analyzer",
-           "devflow:type-design-analyzer",
-           "devflow:pr-test-analyzer",
-           "devflow:requesting-code-review"),
+# The published KNOWN_AGENTS roster is the nine review-engine LEAVES crossed with every
+# declared plugin namespace. The roster identity worth pinning is the leaf set (a tenth
+# subagent, or a dropped one, is the regression); the namespace set is owned by
+# lib/plugin-identity.json and asserted as the crossing rather than re-spelled here, so a
+# plugin rename does not have to re-pin this literal. Order is the crossing order
+# (namespace-major), which is what resolve-review-overrides.py builds.
+_NINE_LEAVES = ("checklist-generator", "checklist-deduper", "checklist-verifier",
+                "code-reviewer", "silent-failure-hunter", "comment-analyzer",
+                "type-design-analyzer", "pr-test-analyzer", "requesting-code-review")
+assert_eq("resolve: KNOWN_AGENTS is the nine review-engine leaves",
+          _NINE_LEAVES, _rro.AGENT_LEAVES)
+assert_eq("resolve: KNOWN_AGENTS is every declared namespace crossed with the nine leaves",
+          tuple(ns + leaf for ns in _rro.AGENT_NAMESPACES for leaf in _NINE_LEAVES),
           _rro.KNOWN_AGENTS)
+# The alias namespace is load-bearing: a consumer's committed `devflow:` override must keep
+# resolving across the rename (the frozen-key contract), and the canonical one must resolve.
+assert_eq("resolve: the canonical and alias namespaced code-reviewer ids are both known",
+          [True, True],
+          ["prflow:code-reviewer" in _rro.KNOWN_AGENTS,
+           "devflow:code-reviewer" in _rro.KNOWN_AGENTS])
 
 # Migration guard (#141): the old code-reviewer override key (the pre-rename, externally
 # namespaced form) was renamed into the devflow: namespace. docs/review-agent-overrides.md
