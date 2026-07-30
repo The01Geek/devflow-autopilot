@@ -192,6 +192,16 @@ HELPERS = {
     "devflow_module_pin_red_under": (1, 3, None),
 }
 
+# Naming convention for a module-private static presence wrapper implemented
+# through a lower-level counter rather than by forwarding to a known helper (for
+# example review-and-fix-contract.sh's ``_raf_pin_unique``, whose body calls
+# ``assert_eq`` on a ``_raf_pin_count`` substitution). The wrapper inference in
+# ``helper_specs_for_source`` falls back to this suffix set when no body-derived
+# forwarding form is recognized; naming it keeps that convention in one place so
+# a second reader (pin-corpus-classifier.py's existence-helper set) shares the
+# definition instead of restating the literals.
+STATIC_PRESENCE_WRAPPER_SUFFIXES = ("_pin_unique", "_pin_present")
+
 COMMENT_HASH_EXTS = {".sh", ".py", ".jq", ".yml", ".yaml"}
 COMMENT_MD_EXTS = {".md"}
 
@@ -515,22 +525,32 @@ def resolve_arg(segments, literal_vars, path_vars, want_path, lib=None):
 
 
 # ── call-site extraction ────────────────────────────────────────────────────
-def extract_pins(text, lib, overrides):
-    """Yield dicts for each pin call site: resolved (literal, file) or unresolved."""
+def extract_pins(text, lib, overrides, helper_specs=None):
+    """Yield dicts for each pin call site: resolved (literal, file) or unresolved.
+
+    ``helper_specs`` defaults to the built-in ``HELPERS`` table. A caller that
+    also wants a source's own pin wrappers in the population passes the specs
+    ``helper_specs_for_source`` inferred for that exact text; only entries whose
+    literal selector is a positional index are usable here, so a fixed-literal
+    wrapper spec is skipped rather than yielding a synthetic site.
+    """
+    specs = HELPERS if helper_specs is None else helper_specs
     maps_by_line = variable_maps_by_line(text, lib, overrides)
     for lineno, line in join_logical_lines(text):
         stripped = line.lstrip()
         if stripped.startswith("#"):
             continue
         first = stripped.split(None, 1)
-        if not first or first[0] not in HELPERS:
+        if not first or first[0] not in specs:
             continue
         toks = tokenize(stripped)
         if not toks or "".join(v for _, v in toks[0]) != first[0]:
             continue
         path_vars, literal_vars = maps_by_line[lineno]
         args = toks[1:]
-        lit_idx, file_idx, default_file = HELPERS[first[0]]
+        lit_idx, file_idx, default_file = specs[first[0]]
+        if not isinstance(lit_idx, int):
+            continue
         if lit_idx >= len(args):
             # A pin call with too few args to carry its literal — malformed, but still
             # surfaced as unresolved (literal=None) rather than silently dropped, honoring
@@ -2246,7 +2266,7 @@ def _helper_specs_for_source_cached(text):
     # through lower-level counters, but it must never grant mutation/count
     # exemption without body-derived evidence.
     for name in bodies:
-        if name not in specs and name.endswith(("_pin_unique", "_pin_present")):
+        if name not in specs and name.endswith(STATIC_PRESENCE_WRAPPER_SUFFIXES):
             specs[name] = (1, 2, None)
             families[name] = "static-helper"
     return specs, families, origins
