@@ -2783,9 +2783,14 @@ assert_pin_unique "#312 item 2 (broadened #446): Step 3.5 ladder reaches the ask
 assert_pin_unique "#312 item 8: Phase 2.3.0b names a doc-enumerated configuration set" \
   'A **doc-enumerated configuration set** counts too' "$IMPL_SKILL_BUNDLE"
 # ---- #754: throwaway-scaffold reuse lines on the three verification/fix-iteration surfaces ----
-# All surface-presence pins: each asserts an added advisory sentence exists on its surface.
-# No executable behavior is claimed here; each carries the structural-pin-ok declaration
-# required by the issue #666 gate.
+# Each asserts its sentence exists on its surface, and each carries the structural-pin-ok
+# declaration the issue #666 gate requires. Their declarations are deliberately NOT uniform:
+# A2 below states the cross-file contract its ledger row records, while A3/A11, A8 and A10 keep
+# the older pre-vocabulary `surface-presence` wording. That is not an oversight — the gate
+# refuses to let those three be corrected (their targets are unresolvable, or their literals sit
+# in a frozen retirement manifest so a touch counts as a revival needing its own
+# authorization), so their text is frozen until issue #956 lands. Do not "unify" them by hand:
+# editing one of the three turns the required gate RED with no valid form available.
 assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principle (repo-agnostic)" \
   'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: cross-file-phase-contract -- the vendored receiving-code-review body carries the rig-reuse principle its consumer relies on
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
@@ -43270,8 +43275,9 @@ assert_eq "#711 the guard is idempotent over one population" "same" \
   "$([ "$(e711_run "$E711_FX" lib/test/clean.py)" = "$(e711_run "$E711_FX" lib/test/clean.py)" ] && echo same || echo differ)"
 case "$E711_FX" in ""|/dev/null) : ;; *) rm -rf "$E711_FX" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
 
-# Documentation surfaces. Both are surface-presence pins: the rule's behavioral guarantee is
-# carried by the guard's own fixture-driven assertions above, not by a prose-removal check.
+# Documentation surfaces. The rule's behavioral guarantee is carried by the guard's own
+# fixture-driven assertions above, not by a prose-removal check — the pin below states the
+# enumeration-source convention its ledger row records, and its declaration says so.
 assert_pin_unique "#711 CLAUDE.md carries the enumeration-source rule" \
   'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: helper-contract -- the root convention requires index-based enumeration so a check stays invariant across repository layouts
 assert_eq "#711 the growth artifact exists" "yes" \
