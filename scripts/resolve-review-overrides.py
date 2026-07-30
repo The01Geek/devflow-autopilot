@@ -118,7 +118,10 @@ try:
 
     AGENT_NAMESPACES = tuple(_plugin_identity.agent_namespaces())
     IDENTITY_ERROR = None
-except Exception as _exc:  # pragma: no cover - exercised via the degraded-path test
+except Exception as _exc:  # pragma: no cover - import-time arm; driven by the
+    # suite's identity-unestablished control (a plugin root copied without
+    # lib/plugin-identity.json), which asserts this warning fires, no per-agent
+    # drift warning is fabricated, and the run still exits 0.
     # DEGRADED, and said out loud. This allowlist only produces an advisory
     # drift warning, so the honest degradation is to stop claiming an id is
     # unknown (which would be a fabricated diagnosis) — never to guess a

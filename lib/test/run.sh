@@ -22182,10 +22182,10 @@ assert_eq "provision: empty-after-strip warns build-aware review has no tools" "
 # vendor trust ladder self->fetch. #927 added the cross-assertion. The set is now
 # derived instead: `lib/plugin_identity.py` resolves
 # `.claude-plugin/plugin.json` + `lib/plugin-identity.json` into the accepted
-# names, the runtime consumers read it live, and the three surfaces that
-# structurally cannot (they inspect the very tree under examination, or run
-# curl-piped with no repo) carry a GENERATED region compiled by
-# `lib/generate-plugin-identity.py`.
+# names, the runtime consumers read it live, and the surfaces that structurally
+# cannot (they inspect the very tree under examination, run curl-piped with no
+# repo, or are materialized as a lone file with no sibling `lib/`) carry a
+# GENERATED region compiled by `lib/generate-plugin-identity.py`.
 #
 # What this block guards, in order:
 #   G1  the reader agrees with the real manifests (both of them);
@@ -22197,7 +22197,7 @@ assert_eq "provision: empty-after-strip warns build-aware review has no tools" "
 #   G4  no hand-written discriminator literal survives anywhere in tracked source;
 #   G5  negative controls, both directions — manifest-side drift and
 #       discriminator-side drift each turn `--check` RED;
-#   G6  a declared alias actually reaches all three baked regions (the whole
+#   G6  a declared alias actually reaches every baked region (the whole
 #       point of the mechanism), and the resulting ERE accepts it.
 P927_ROOT="$LIB/.."
 P927_GEN="$P927_ROOT/lib/generate-plugin-identity.py"
@@ -22250,10 +22250,21 @@ for r in mod.REGIONS:
     print(r["file"])
 ' "$P927_GEN" 2>/dev/null || true)"
 P927_REGION_COUNT="$(printf '%s\n' "$P927_REGION_FILES" | grep -c . || true)"
-# A lower bound, not a transcribed exact count: it only proves the table is not
-# empty and still covers at least the three structural bake sites.
-assert_eq "#927 G3: the generator's region table resolves at least the three bake sites (non-vacuous)" "yes" \
-  "$([ "$P927_REGION_COUNT" -ge 3 ] && echo yes || echo no)"
+# Non-vacuity floor, expressed WITHOUT a transcribed count (a literal here rots
+# the moment a region is added or removed): the table must resolve at least one
+# region.
+assert_eq "#927 G3: the generator's region table is non-empty" "yes" \
+  "$([ "$P927_REGION_COUNT" -gt 0 ] && echo yes || echo no)"
+# …and it must be COMPLETE, established from a signal independent of the table
+# itself: every tracked file that actually carries a begin banner is in the
+# table, and every table entry carries one. A banner-carrying file missing from
+# REGIONS is the silent case --check can never see (it only walks the table), so
+# its region would drift un-noticed on the next rename. `lib/test/` is excluded:
+# it carries this rule's own statement text and the temp-root fixtures below.
+P927_BANNER_FILES="$(git -C "$P927_ROOT" grep -lE '^[[:space:]]*# devflow-plugin-identity:begin ' \
+  -- ':(exclude)lib/test/' 2>/dev/null | LC_ALL=C sort || true)"
+assert_eq "#927 G3: the generator's region table equals the set of banner-carrying tracked files" \
+  "$P927_BANNER_FILES" "$(printf '%s\n' "$P927_REGION_FILES" | grep . | LC_ALL=C sort || true)"
 P927_BAD_REGION=0
 while IFS= read -r _f; do
   [ -n "$_f" ] || continue
@@ -22408,15 +22419,115 @@ json.dump(d, open(p, "w"))
 ' "$P927_D5"
 assert_eq "#927 G6: an ERE-metacharacter alias is refused (never widens the discriminator)" "2" "$(p927_check "$P927_D5")"
 
-unset P927_GEN P927_MAN_NAME P927_MKT_NAME P927_CHECK_RC
-unset P927_REGION_FILES P927_REGION_COUNT P927_BAD_REGION P927_BODY P927_STRAY
+# G7 — the reader's MALFORMED-SHAPE matrix, driven directly against
+# `plugin_identity.load()`. The module's contract is "every accessor raises
+# IdentityError rather than substituting a default", and the two manifests are
+# hand-editable JSON, so this is the repo's adversarial-input-matrix discipline
+# applied to that reader: each row mutates ONE field of an otherwise-valid pair
+# and asserts a fail-CLOSED raise. Row `00-baseline-valid` is the positive
+# control — without it a row that raised for some unrelated reason (a fixture
+# the harness never made valid in the first place) would read as a pass.
+P927_SHAPES="$(python3 - "$P927_ROOT" <<'P927SHAPES' 2>&1 || true
+import json, pathlib, sys, importlib.util, tempfile
+
+root = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("pid", root / "lib" / "plugin_identity.py")
+pid = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pid)
+
+BASE_MANIFEST = {"name": "devflow"}
+BASE_IDENTITY = {
+    "identity_version": 1,
+    "plugin_aliases": [],
+    "marketplace_canonical": "devflow-marketplace",
+    "marketplace_aliases": [],
+}
+
+# (row id, manifest override or None, identity override or None, raw identity text or None)
+ROWS = [
+    ("00-baseline-valid", None, None, None),
+    ("manifest-not-object", [], None, None),
+    ("manifest-name-missing", {}, None, None),
+    ("manifest-name-empty", {"name": ""}, None, None),
+    ("manifest-name-wrong-type", {"name": 7}, None, None),
+    ("identity-not-object", None, None, "[]"),
+    ("identity-not-json", None, None, "{oops"),
+    ("identity-empty-file", None, None, ""),
+    ("version-missing", None, {"identity_version": None}, None),
+    ("version-wrong-type", None, {"identity_version": "1"}, None),
+    ("version-zero", None, {"identity_version": 0}, None),
+    ("version-bool", None, {"identity_version": True}, None),
+    ("plugin-aliases-missing", None, {"plugin_aliases": None}, None),
+    ("plugin-aliases-scalar", None, {"plugin_aliases": "devflow2"}, None),
+    ("plugin-aliases-object", None, {"plugin_aliases": {}}, None),
+    ("plugin-aliases-empty-entry", None, {"plugin_aliases": [""]}, None),
+    ("plugin-aliases-nonstring-entry", None, {"plugin_aliases": [3]}, None),
+    ("plugin-aliases-repeats-canonical", None, {"plugin_aliases": ["devflow"]}, None),
+    ("plugin-alias-ere-metachar", None, {"plugin_aliases": [".*"]}, None),
+    ("plugin-alias-space", None, {"plugin_aliases": ["a b"]}, None),
+    ("market-canonical-missing", None, {"marketplace_canonical": None}, None),
+    ("market-canonical-empty", None, {"marketplace_canonical": ""}, None),
+    ("market-canonical-wrong-type", None, {"marketplace_canonical": []}, None),
+    ("market-canonical-space", None, {"marketplace_canonical": "a b"}, None),
+    ("market-aliases-missing", None, {"marketplace_aliases": None}, None),
+    ("market-aliases-scalar", None, {"marketplace_aliases": 0}, None),
+    ("market-aliases-repeats-canonical", None, {"marketplace_aliases": ["devflow-marketplace"]}, None),
+    ("market-alias-metachar", None, {"marketplace_aliases": ["a|b"]}, None),
+]
+
+with tempfile.TemporaryDirectory() as td:
+    base = pathlib.Path(td)
+    (base / "lib").mkdir()
+    (base / ".claude-plugin").mkdir()
+    for row, man, iden, raw in ROWS:
+        manifest = BASE_MANIFEST if man is None else man
+        (base / ".claude-plugin" / "plugin.json").write_text(json.dumps(manifest))
+        if raw is not None:
+            (base / "lib" / "plugin-identity.json").write_text(raw)
+        else:
+            merged = dict(BASE_IDENTITY)
+            for k, v in (iden or {}).items():
+                if v is None:
+                    merged.pop(k, None)
+                else:
+                    merged[k] = v
+            (base / "lib" / "plugin-identity.json").write_text(json.dumps(merged))
+        try:
+            pid.load(base)
+            print(f"{row}=ok")
+        except pid.IdentityError:
+            print(f"{row}=IdentityError")
+        except Exception as exc:            # any OTHER exception is a fail-OPEN escape
+            print(f"{row}=UNCAUGHT:{type(exc).__name__}")
+P927SHAPES
+)"
+P927_SHAPES_WANT='00-baseline-valid=ok'
+while IFS= read -r _row; do
+  case "$_row" in 00-baseline-valid*|'') continue ;; esac
+  P927_SHAPES_WANT="$P927_SHAPES_WANT
+${_row%%=*}=IdentityError"
+done <<< "$P927_SHAPES"
+assert_eq "#927 G7: every malformed identity/manifest shape fails closed with IdentityError" \
+  "$P927_SHAPES_WANT" "$P927_SHAPES"
+# Non-vacuity, count-free (a transcribed row total would rot on the next row
+# added): the expectation above is derived from the observed row NAMES only —
+# each is forced to `=IdentityError`, so an `ok`, an `UNCAUGHT:` escape, or a
+# python3 traceback all diverge from it. What is left to prove is that the
+# matrix drove MORE than its positive control.
+assert_eq "#927 G7 non-vacuity: the shape matrix drove malformed rows, not just the control" "yes" \
+  "$([ "$(printf '%s\n' "$P927_SHAPES" | grep -c '=IdentityError$' || true)" -gt 0 ] && echo yes || echo no)"
+
+unset P927_GEN P927_MAN_NAME P927_MKT_NAME P927_CHECK_RC P927_SHAPES P927_SHAPES_WANT
+unset P927_REGION_FILES P927_REGION_COUNT P927_BANNER_FILES P927_BAD_REGION P927_BODY P927_STRAY
 unset P927_D1 P927_D2 P927_D3 P927_D4 P927_D5 P927_ALIAS_MISSES P927_ERE P927_FIX
 unset P927_CANON_SPEC P927_MKT_ALT P927_SPEC_BAD P927_SPEC_OK
 unset -f p927_check p927_match
 
 # ── identity: the runtime-derived consumers ──────────────────────────────────
-# The three helpers that CAN read the identity source at runtime do, and their
-# accepted sets widen with a declared alias without any of them being re-edited.
+# A declared alias widens every downstream consumer's accepted set without any of
+# them being re-edited — the runtime readers (resolve-review-overrides.py,
+# provision-local-settings.sh) because they resolve it live, and the baked helper
+# (resolve-extra-plugins.sh) because the region is regenerated below.
 # Driven over a temp plugin root exactly like the block above.
 PIDR="$(p927_root)"
 python3 -c '
@@ -22444,6 +22555,40 @@ assert_eq "identity: agent_overrides still rejects an undeclared namespace" "1" 
 assert_eq "identity: agent_overrides still rejects an unknown leaf under an accepted namespace" "1" \
   "$(pid_unknown "pidalias:not-a-real-agent")"
 
+# …and its DEGRADED arm, the one the closed allowlist depends on behaving well:
+# with the identity source unreadable the accepted namespace set is UNESTABLISHED,
+# not empty. The run must say so once, emit NO per-agent drift warning (calling
+# every dispatched id unknown would be a fabricated diagnosis — unknown is not
+# zero), still exit 0, and still resolve overrides.
+PIDU="$(mktemp -d)"
+mkdir -p "$PIDU/lib" "$PIDU/.claude-plugin"
+cp -R "$PIDR/scripts" "$PIDU/scripts"
+cp "$PIDR/lib/plugin_identity.py" "$PIDU/lib/"
+cp "$PIDR/.claude-plugin/plugin.json" "$PIDU/.claude-plugin/"   # deliberately no lib/plugin-identity.json
+PIDU_RC=0
+PIDU_OUT="$(python3 "$PIDU/scripts/resolve-review-overrides.py" --config-get /usr/bin/false \
+  devflow:code-reviewer impostor:code-reviewer 2>"$PIDU/err")" || PIDU_RC=$?
+assert_eq "identity degraded: an unreadable identity source still exits 0" "0" "$PIDU_RC"
+assert_eq "identity degraded: the unestablished namespace set is reported once" "1" \
+  "$(grep -c 'the accepted plugin-namespace set could not be established' "$PIDU/err" || true)"
+assert_eq "identity degraded: no per-agent drift warning is fabricated" "0" \
+  "$(grep -c 'is not a known' "$PIDU/err" || true)"
+assert_eq "identity degraded: overrides still resolve (a JSON object on stdout)" "yes" \
+  "$(printf '%s' "$PIDU_OUT" \
+     | python3 -c 'import json,sys; print("yes" if isinstance(json.load(sys.stdin), dict) else "no")' \
+     2>/dev/null || echo no)"
+# POSITIVE CONTROL on the same fixture — restore ONLY the identity file: the
+# degraded arm falls silent and the genuine drift warning appears. Without this,
+# a rejection from some unrelated precondition would read as a passing test of
+# the identity arm.
+cp "$PIDR/lib/plugin-identity.json" "$PIDU/lib/"
+python3 "$PIDU/scripts/resolve-review-overrides.py" --config-get /usr/bin/false \
+  devflow:code-reviewer impostor:code-reviewer >/dev/null 2>"$PIDU/err2" || true
+assert_eq "identity degraded positive control: with the identity file present the arm is silent" "0" \
+  "$(grep -c 'the accepted plugin-namespace set could not be established' "$PIDU/err2" || true)"
+assert_eq "identity degraded positive control: the genuine drift warning does fire" "1" \
+  "$(grep -c 'is not a known' "$PIDU/err2" || true)"
+
 # resolve-extra-plugins.sh — a consumer settings file naming the ALIAS spec must
 # be treated as DevFlow's own (silently skipped, already installed by the baked
 # baseline) instead of emitted as a third-party plugin to compose.
@@ -22466,6 +22611,29 @@ assert_eq "identity: resolve-extra-plugins still emits a genuine third-party plu
   "$(bash "$PIDR/scripts/resolve-extra-plugins.sh" plugins "$PIDS/settings.json" 2>/dev/null)"
 assert_eq "identity: resolve-extra-plugins skips the alias marketplace, keeps the foreign one" "https://github.com/a/b.git" \
   "$(bash "$PIDR/scripts/resolve-extra-plugins.sh" marketplaces "$PIDS/settings.json" 2>/dev/null)"
+# PLANTED DEFECT for its empty-baked-set fail-closed arm: empty the generated
+# identity region (the shape a missing or un-regenerated region produces). An
+# empty set is UNESTABLISHED, not "DevFlow owns nothing" — treating it as the
+# latter would emit DevFlow's own entries back to the compose step as
+# third-party plugins. The three assertions above are this row's positive
+# control: the same fixture, the unmutated helper, real output.
+PIDE="$(mktemp -d)"
+python3 -c '
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src).read()
+for k in ("DEVFLOW_PLUGIN_NAMES", "DEVFLOW_MARKETPLACE_NAMES"):
+    before = s
+    s = s.replace("\n" + k + "=\x27", "\n" + k + "=\x27\x27  #", 1)
+    assert s != before, k
+open(dst, "w").write(s)
+' "$PIDR/scripts/resolve-extra-plugins.sh" "$PIDE/resolve-extra-plugins.sh"
+PIDE_RC=0
+PIDE_OUT="$(bash "$PIDE/resolve-extra-plugins.sh" plugins "$PIDS/settings.json" 2>"$PIDE/err")" || PIDE_RC=$?
+assert_eq "identity planted defect: an emptied baked identity region still exits 0" "0" "$PIDE_RC"
+assert_eq "identity planted defect: an emptied baked identity region emits nothing" "" "$PIDE_OUT"
+assert_eq "identity planted defect: it names the unestablished identifier set (not a generic breadcrumb)" "1" \
+  "$(grep -c 'the accepted DevFlow plugin/marketplace identifier set is empty or unset' "$PIDE/err" || true)"
 
 # provision-local-settings.sh — provisioning MIGRATES: it writes the canonical
 # registration and removes the superseded (alias) one, so a repo provisioned
@@ -22507,7 +22675,8 @@ assert_eq "identity: provisioning fails closed (exit 2) when the identity source
 assert_eq "identity: the fail-closed provisioning run left the settings file byte-for-byte unchanged" '{"a":1}' \
   "$(cat "$PIDF/.claude/settings.json")"
 
-unset PIDR PIDS PIDP PIDF PIDBROKEN PIDF_RC P927_ROOT P927_READER
+unset PIDR PIDS PIDP PIDF PIDBROKEN PIDF_RC PIDU PIDU_RC PIDU_OUT PIDE PIDE_RC PIDE_OUT
+unset P927_ROOT P927_READER
 unset -f p927_root
 unset -f pid_unknown pid_have
 

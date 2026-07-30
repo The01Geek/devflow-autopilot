@@ -95,6 +95,36 @@ def _require_nonempty_str(value, label: str) -> str:
     return value
 
 
+def _require_positive_int(value, label: str) -> int:
+    """`identity_version` stamps every generated banner, so an absent or
+    non-integer value would bake a literal `identity_version=None` that the
+    reading regex happily matches -- fail closed like every other field rather
+    than passing an unvalidated value through. `bool` is an `int` subclass in
+    Python and is rejected explicitly."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise IdentityError(f"{label} is missing or not a positive integer")
+    return value
+
+
+def require_identifier_shape(name: str, label: str) -> str:
+    """The one owner of the accepted-identifier CHARACTER contract.
+
+    Both downstream bakings constrain identifiers the same way: the plugin-name
+    ERE embeds them unescaped in an alternation, and the space-separated baked
+    lists cannot carry whitespace or quoting. Re-deriving that predicate per
+    consumer is how the accepted sets drift apart, so every caller shares this
+    one."""
+    if not isinstance(name, str) or name == "":
+        raise IdentityError(f"{label} is empty or not a string")
+    for ch in name:
+        if not (ch.isascii() and (ch.isalnum() or ch in "-_")):
+            raise IdentityError(
+                f"{label} {name!r} carries a character outside [A-Za-z0-9_-]; it "
+                "cannot be embedded in the discriminator ERE or a baked identifier list"
+            )
+    return name
+
+
 def _alias_list(value, label: str) -> list[str]:
     """An alias list must be a list of non-empty strings. Absent is NOT accepted:
     the key is mandatory (empty list) so a typo/dropped key fails closed instead
@@ -111,7 +141,13 @@ def _alias_list(value, label: str) -> list[str]:
 
 
 def load(root: Path | None = None) -> dict:
-    """Resolve the full identity. Raises IdentityError on any defect."""
+    """Resolve the full identity. Raises IdentityError on any defect.
+
+    Deferred (PR #943 review, Suggestion 6): typing this return as a `TypedDict`
+    would make the key set checkable at zero runtime cost. Not taken here —
+    every consumer reads it through the named accessors or the `--json` CLI, so
+    the shape is already gated by `lib/test/run.sh`'s #927 G-block; revisit if a
+    caller ever indexes it directly."""
     base = Path(root) if root is not None else default_root()
     manifest = _load_json(base / MANIFEST_FILE, "the plugin manifest")
     if not isinstance(manifest, dict):
@@ -134,8 +170,16 @@ def load(root: Path | None = None) -> dict:
 
     plugin_names = [plugin_canonical, *plugin_aliases]
     market_names = [market_canonical, *market_aliases]
+    # Marketplace names are held to the SAME character contract as plugin names.
+    # Plugin names are checked inside `plugin_name_ere` below; without this the
+    # reader would accept a marketplace name only the generator later refuses,
+    # so the two would disagree about what the accepted set is.
+    for _m in market_names:
+        require_identifier_shape(_m, "accepted marketplace name")
     return {
-        "identity_version": identity.get("identity_version"),
+        "identity_version": _require_positive_int(
+            identity.get("identity_version"), "identity_version"
+        ),
         "plugin_canonical": plugin_canonical,
         "plugin_names": plugin_names,
         "marketplace_canonical": market_canonical,
@@ -156,14 +200,7 @@ def plugin_name_ere(names) -> str:
     """
     ordered: list[str] = []
     for name in names:
-        if not isinstance(name, str) or name == "":
-            raise IdentityError("an accepted plugin name is empty or not a string")
-        for ch in name:
-            if not (ch.isascii() and (ch.isalnum() or ch in "-_")):
-                raise IdentityError(
-                    f"accepted plugin name {name!r} carries a character outside "
-                    "[A-Za-z0-9_-]; it cannot be embedded in the discriminator ERE"
-                )
+        require_identifier_shape(name, "accepted plugin name")
         if name not in ordered:
             ordered.append(name)
     return ERE_PREFIX + "|".join(ordered) + ERE_SUFFIX

@@ -20,7 +20,7 @@ bump: patch
 ### Added
 
 - `lib/generate-plugin-identity.py` compiles the accepted-name discriminator into the
-  three surfaces that structurally cannot read it at runtime, each banner-stamped with
+  surfaces that structurally cannot read it at runtime, each banner-stamped with
   a sha256; `--check` (wired into the suite) turns any drift RED with a directional
   diff. Those regions are never hand-edited.
 - `scripts/provision-local-settings.sh` now migrates: it removes a superseded

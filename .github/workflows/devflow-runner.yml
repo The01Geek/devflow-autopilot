@@ -543,7 +543,8 @@ jobs:
               _floor_raw=''
               if _floor_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
                 FLOOR_SOURCE='base-ref-vendored'
-              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+              elif [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+                && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
                 && _floor_raw=$(git show "FETCH_HEAD:scripts/filter-runner-tools.sh" 2>/dev/null); then
                 FLOOR_SOURCE='base-ref-repo'
               fi
@@ -578,7 +579,8 @@ jobs:
                   _g_raw=''
                   if _g_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_g" 2>/dev/null); then
                     :
-                  elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+                  elif [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+                    && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
                     && _g_raw=$(git show "FETCH_HEAD:scripts/$_g" 2>/dev/null); then
                     :
                   else
@@ -624,7 +626,8 @@ jobs:
                   _h_raw=''
                   if _h_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_h" 2>/dev/null); then
                     :
-                  elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+                  elif [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+                    && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
                     && _h_raw=$(git show "FETCH_HEAD:scripts/$_h" 2>/dev/null); then
                     :
                   else
@@ -707,7 +710,8 @@ jobs:
               _mtpe_repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
               if _mtpe_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
                 _mtpe_source='base-ref-vendored'
-              elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+              elif [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+                && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
                 && _mtpe_raw=$(git show "FETCH_HEAD:scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
                 _mtpe_source='base-ref-repo'
               fi
@@ -1723,7 +1727,8 @@ jobs:
             SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null; git show "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null)"
             if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
-            elif git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
+            elif [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+              && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
               && raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             fi

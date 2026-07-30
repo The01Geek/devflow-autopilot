@@ -2,11 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 """generate-plugin-identity.py -- compile the accepted-identifier set into the
-three surfaces that CANNOT read it at runtime.
+surfaces that CANNOT read it at runtime.
 
 Most DevFlow consumers of the accepted plugin-identifier set read
-`lib/plugin_identity.py` live (see that module's header). Three cannot, and each
-for a structural reason -- not for convenience:
+`lib/plugin_identity.py` live (see that module's header). The `REGIONS` table
+below is the authoritative list of the ones that cannot; the notes here say why
+each of them cannot -- each for a structural reason, not for convenience:
 
   .github/actions/vendor-plugin/vendor-slice.sh
       Its `self` branch asks "is the CHECKOUT ROOT the DevFlow plugin?". The only
@@ -34,7 +35,7 @@ for a structural reason -- not for convenience:
       Not a security boundary — it is the compose skip set — but the deployment
       shape is the same, so the same mechanism applies.
 
-So those three carry a GENERATED region, banner-stamped with the identity
+So each `REGIONS` entry carries a GENERATED region, banner-stamped with the identity
 version and a sha256 of the payload. `--check` (wired into lib/test/run.sh)
 turns any drift between `lib/plugin-identity.json` + the manifest and the baked
 regions RED with a directional diff, so the regions are never hand-edited.
@@ -89,13 +90,17 @@ def payload_identity_sets(ident: dict) -> list[str]:
     Space-separated (not newline-separated) so each region line stays one line —
     the region reader and writer are line-based, and an embedded newline would
     make a freshly generated region never compare equal to itself."""
+    # Delegated to the reader's single owner of the character contract rather
+    # than re-derived here: a second predicate approximating the same rule is
+    # exactly how a baked set drifts wider than what the reader accepts.
+    # `load()` already applies it, so this is defense in depth for a caller that
+    # hands in a hand-built identity dict.
     for group in (ident["plugin_names"], ident["marketplace_names"]):
         for name in group:
-            if not name.replace("-", "").replace("_", "").isalnum() or not name.isascii():
-                raise SystemExit(
-                    f"plugin-identity: accepted identifier {name!r} is outside [A-Za-z0-9_-]; "
-                    "it cannot be baked into a space-separated list"
-                )
+            try:
+                plugin_identity.require_identifier_shape(name, "accepted identifier")
+            except plugin_identity.IdentityError as exc:
+                raise SystemExit(f"plugin-identity: {exc}") from exc
     return [
         "DEVFLOW_PLUGIN_NAMES='" + " ".join(ident["plugin_names"]) + "'",
         "DEVFLOW_MARKETPLACE_NAMES='" + " ".join(ident["marketplace_names"]) + "'",

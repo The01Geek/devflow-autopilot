@@ -124,7 +124,11 @@ devflow_vendor_main() {
   #    its own top-level scripts/ (common) won't carry a DevFlow plugin.json, so
   #    it correctly falls through to fetch. The accepted-name set is the baked
   #    $DEVFLOW_PLUGIN_NAME_ERE above (canonical name + declared aliases).
-  if [ -d scripts ] && [ -d skills ] && [ -f .claude-plugin/plugin.json ] \
+  #    An EMPTY ERE would make `grep -Eq ""` match any plugin.json at all and
+  #    let a foreign checkout root self-certify as DevFlow, so the set being
+  #    established is a precondition of the branch, not an assumption.
+  if [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+     && [ -d scripts ] && [ -d skills ] && [ -f .claude-plugin/plugin.json ] \
      && grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" .claude-plugin/plugin.json; then
     devflow_vendor_log "self: copying plugin from the checkout root → $dest"
     devflow_copy_slice "." "$dest"

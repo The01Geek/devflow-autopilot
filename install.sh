@@ -203,7 +203,11 @@ prune_stale_devflow_workflows() {
 prune_stale_vendored_plugin() {
   local old=.claude/plugins/devflow
   [ -d "$old" ] || return 0   # common case: no old tree → silent no-op.
-  if [ -f "$old/.claude-plugin/plugin.json" ] \
+  # The non-empty precondition is not decoration: `grep -Eq ""` matches ANY
+  # file, so an emptied discriminator would turn this identity check into an
+  # unconditional `rm -rf`. Fail closed on an unestablished set.
+  if [ -n "$DEVFLOW_PLUGIN_NAME_ERE" ] \
+     && [ -f "$old/.claude-plugin/plugin.json" ] \
      && grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" "$old/.claude-plugin/plugin.json"; then
     rm -rf "$old"
     rmdir .claude/plugins .claude 2>/dev/null || true
