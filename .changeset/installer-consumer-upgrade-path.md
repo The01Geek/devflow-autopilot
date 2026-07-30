@@ -29,6 +29,9 @@ bump: minor
     manifest is still recorded — the preserved one simply keeps its previous entry rather than
     being re-recorded against bytes nothing could read.
 
+  Each case reports the cause that actually applied and the remedy that matches it, rather
+  than naming a missing interpreter on a host whose interpreter works.
+
   Whether an artifact *exists* is decided without `python3` in both cases, so a genuinely absent
   artifact is still created and a first-time install on such a host is unaffected; what an
   unreadable digest costs is the comparison, never the consumer's bytes. Both report distinctly
@@ -46,6 +49,11 @@ bump: minor
 - The dry-run diff covers `.claude/plugins/` as well, so the recursive removal of a stale
   pre-relocation `.claude/plugins/devflow` tree is shown rather than performed unpreviewed.
   The consumer's wider `.claude/` is still neither written nor diffed.
+- An artifact the installer replaces is staged beside its target and swapped into place, so a
+  failure mid-copy can no longer leave a half-written file or composite action behind. That
+  mattered more than a partial write usually does here: the aborted run never reaches the
+  manifest write, so the next upgrade would compare the half-copied bytes against the old
+  digest, call them a local edit, and preserve the corruption on every subsequent run.
 - The upgrade path reports a `.claude/settings.json` still registering a **superseded**
   plugin/marketplace identifier and routes the consumer to `/devflow:init`, which already owns
   that migration through `scripts/provision-local-settings.sh`. `install.sh` still writes no

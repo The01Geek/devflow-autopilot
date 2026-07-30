@@ -560,7 +560,19 @@ install_managed() {
       ;;
     create|update)
       [ "$parent" = "$rel" ] || mkdir -p "$parent"
-      if [ -d "$srcp" ]; then rm -rf "$rel"; cp -R "$srcp" "$rel"; else cp "$srcp" "$rel"; fi
+      # Stage beside the target, then swap — never `rm -rf "$rel"; cp -R` in place. The
+      # in-place form leaves a window in which $rel holds a HALF-COPIED tree, and a
+      # failure inside that window is not self-healing the way it first looks: the copy
+      # aborts the run under `set -e` BEFORE devflow_write_manifest, so the manifest
+      # keeps the pre-copy digest, and the next run compares the half-copied bytes
+      # against it, classifies `modified`, and PRESERVES the corruption — reporting the
+      # consumer's own broken artifact back to them as a local edit, on every later run.
+      # Staging keeps the destructive step down to an rm+mv over an already-complete
+      # tree, which is the same care `os.replace` gives the manifest write.
+      rm -rf "$rel.devflow-stage"
+      if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.devflow-stage"; else cp "$srcp" "$rel.devflow-stage"; fi
+      rm -rf "$rel"
+      mv "$rel.devflow-stage" "$rel"
       log "$act: $rel"
       DEVFLOW_RECORD_RELS="$DEVFLOW_RECORD_RELS $rel"
       ;;

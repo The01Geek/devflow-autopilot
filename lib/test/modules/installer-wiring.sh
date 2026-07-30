@@ -656,7 +656,8 @@ _iu_consumer() {  # $1 = fixture id -> prints a fresh consumer repo root
 }
 _iu_run() {  # $1 = consumer root, rest = installer arguments; prints merged output
   local d="$1"; shift
-  ( cd "$d" && env DEVFLOW_SRC="$IU_SRC" DEVFLOW_REF="$IU_REF" \
+  ( cd "$d" && env DEVFLOW_SRC="${IU_SRC_OVERRIDE:-$IU_SRC}" DEVFLOW_REF="$IU_REF" \
+      DEVFLOW_VENDOR="${IU_VENDOR:-}" \
       PATH="${IU_PATH_PREFIX:+$IU_PATH_PREFIX:}$PATH" \
       bash "${IU_INSTALL_BIN:-$IU_INSTALL}" "$@" 2>&1 )
 }
@@ -1589,3 +1590,58 @@ mkdir -p "$IU_C20C/.devflow/install-manifest.json"
 IU_O20C="$(_iu_run "$IU_C20C" --apply)" && IU_RC20C=0 || IU_RC20C=$?
 assert_eq "installer-upgrade #959: an unwritable manifest warns that the next upgrade will preserve everything, and never aborts the install" "0 yes yes" \
   "$IU_RC20C $(_iu_out_has "$IU_O20C" 'could not write .devflow/install-manifest.json; the next upgrade will preserve every existing artifact rather than update it') $(_iu_out_has "$IU_O20C" 'done (from')"
+
+# ── Scenario 21 (#959 review round 3, advisory): the DEVFLOW_VENDOR=1 path, including
+# its ONE documented preview exclusion. The review flagged this path as entirely
+# untested and noted that a regression dropping the `.devflow/vendor` SKIP tuple from
+# the diff renderer would pass the suite green — the exclusion is asserted nowhere, and
+# it is the single carve-out in the "diff of the bytes it would change" promise.
+#
+# Reachable after all: devflow_copy_slice needs a source tree carrying .claude-plugin/
+# plugin.json, agents/, docs/, lib/, scripts/, skills/ and LICENSES/, which are cheap to
+# stub. The offline fixture source is extended into a second tree rather than the shared
+# one, so the other twenty scenarios keep exercising the minimal shape they were
+# written against.
+IU_VSRC="$_iw_tmp_root/src-vendor"
+rm -rf "$IU_VSRC"
+cp -R "$IU_SRC" "$IU_VSRC"
+mkdir -p "$IU_VSRC/.claude-plugin" "$IU_VSRC/agents" "$IU_VSRC/docs" "$IU_VSRC/skills" "$IU_VSRC/LICENSES"
+cp "$LIB/../.claude-plugin/plugin.json" "$IU_VSRC/.claude-plugin/"
+printf 'fixture agent\n'   > "$IU_VSRC/agents/fixture-agent.md"
+printf 'fixture doc\n'     > "$IU_VSRC/docs/fixture-doc.md"
+printf 'fixture skill\n'   > "$IU_VSRC/skills/fixture-skill.md"
+printf 'fixture license\n' > "$IU_VSRC/LICENSES/FIXTURE-LICENSE"
+assert_eq "installer-upgrade #959: the vendor fixture source carries every member devflow_copy_slice requires" "yes" \
+  "$([ -f "$IU_VSRC/.claude-plugin/plugin.json" ] && [ -d "$IU_VSRC/agents" ] && [ -d "$IU_VSRC/docs" ] \
+     && [ -d "$IU_VSRC/skills" ] && [ -d "$IU_VSRC/LICENSES" ] && echo yes || echo no)"
+
+IU_C21="$(_iu_consumer vendor)"
+IU_O21="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21")"
+assert_eq "installer-upgrade #959: a DEVFLOW_VENDOR=1 install commits the plugin tree at .devflow/vendor/devflow and says so" "yes yes yes" \
+  "$(_iu_out_has "$IU_O21" 'vendoring plugin → .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1)') $([ -d "$IU_C21/.devflow/vendor/devflow/scripts" ] && echo yes || echo no) $([ -f "$IU_C21/.devflow/vendor/devflow/.claude-plugin/plugin.json" ] && echo yes || echo no)"
+# The committed tree must NOT be gitignored — that is the whole point of DEVFLOW_VENDOR=1,
+# and the thin install's `/vendor/` line would silently keep it out of the consumer's commit.
+assert_eq "installer-upgrade #959: a vendored install leaves /vendor/ OUT of .devflow/.gitignore (a thin install puts it in)" "no yes" \
+  "$(grep -qxF '/vendor/' "$IU_C21/.devflow/.gitignore" && echo yes || echo no) $(grep -qxF '/tmp/' "$IU_C21/.devflow/.gitignore" && echo yes || echo no)"
+
+# THE EXCLUSION. Upgrade the vendored consumer under a dry run: the apply log reports the
+# vendoring as one line, and the DIFF BODY must not enumerate the vendored tree's files.
+# Asserted two ways — no vendored path appears, AND a control path outside the exclusion
+# still does — so a renderer that simply produced no diff at all cannot satisfy it.
+printf '\n# newer release\n' >> "$IU_VSRC/.github/workflows/devflow.yml"
+IU_SNAP21="$(_iu_snapshot "$IU_C21")"
+IU_O21B="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21" --dry-run)"
+assert_eq "installer-upgrade #959: the dry-run diff EXCLUDES the vendored tree body (the documented .devflow/vendor SKIP) while still diffing everything else" "no yes" \
+  "$(_iu_out_matches "$IU_O21B" '^(ADD|MODIFY|DELETE) +\.devflow/vendor/') $(_iu_out_matches "$IU_O21B" '^MODIFY \.github/workflows/devflow\.yml$')"
+assert_eq "installer-upgrade #959: and that vendored dry run still writes nothing" "yes" \
+  "$([ "$IU_SNAP21" = "$(_iu_snapshot "$IU_C21")" ] && echo yes || echo no)"
+# The thin→vendor transition removes a previously-added ignore line, so a consumer who
+# switches modes does not silently keep the tree out of their commit.
+IU_C21B="$(_iu_consumer vendor-transition)"
+_iu_run "$IU_C21B" >/dev/null                       # thin install first: adds /vendor/
+assert_eq "installer-upgrade #959: the thin install added the /vendor/ ignore line (precondition for the transition arm)" "yes" \
+  "$(grep -qxF '/vendor/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no)"
+IU_O21C="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21B" --apply)"
+assert_eq "installer-upgrade #959: upgrading thin→vendored un-ignores .devflow/vendor and keeps the other ignore entries" "no yes yes" \
+  "$(grep -qxF '/vendor/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no) $(grep -qxF '/tmp/' "$IU_C21B/.devflow/.gitignore" && echo yes || echo no) $(_iu_out_has "$IU_O21C" 'un-ignored .devflow/vendor/')"
+rm -rf "$IU_VSRC"
