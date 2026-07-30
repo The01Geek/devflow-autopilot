@@ -20,8 +20,9 @@ workflows. A few areas warrant care:
   Routing a workflow section through an optional third-party model provider adds
   one more secret, `DEVFLOW_PROVIDER_API_KEY` (the provider API key) — same
   handling: never commit it, store it as an encrypted Actions secret, and prefer
-  a key scoped/guardrailed to the intended provider (see the OpenRouter
-  privacy-hardening checklist in `docs/cloud-setup.md`).
+  a key scoped/guardrailed to the intended provider. Review that provider's
+  data-retention and training policy before the first run — prompts routed
+  through it leave Anthropic's infrastructure.
 - **`config.json` is committed, not gitignored.** DevFlow's cloud tier reads it
   from the committed tree, so the scaffolded `.devflow/.gitignore` ignores only
   `tmp/` and leaves `config.json` tracked. Because it is committed, keep secrets
