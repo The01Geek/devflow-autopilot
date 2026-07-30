@@ -1790,17 +1790,17 @@ CCE550_PHASE3="$LIB/../skills/implement/phases/phase-3-review.md"
 # The Verification Gate carries the fifth evidence item: run the bundled check, quote
 # the verdict line verbatim, and phrase "complete" only on a quoted `pass`.
 assert_pin_unique "#550: Verification Gate carries the completion-evidence check (quote verbatim)" \
-  'quote its single verdict line verbatim' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'quote its single verdict line verbatim' "$CCE550_RCV"  # structural-pin-ok: cross-file-phase-contract -- the Loop Exit completion-evidence check consumes this gate's quoted verdict line
 assert_pin_unique "#550: completion claim is phrased complete only on a quoted pass" \
-  'Phrase the claim "complete" only when the quoted line carries `pass`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'Phrase the claim "complete" only when the quoted line carries `pass`' "$CCE550_RCV"  # structural-pin-ok: lifecycle-state-transition -- the transition to a completion claim is gated on a quoted pass line
 # The degraded arm: no verdict line -> `degraded: unvalidated (<reason>)`, never pass.
 assert_pin_unique "#550: absent verdict line takes the degraded: unvalidated arm" \
-  'phrase the claim `degraded: unvalidated (<reason>)`' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'phrase the claim `degraded: unvalidated (<reason>)`' "$CCE550_RCV"  # structural-pin-ok: routing-dispatch-contract -- an absent verdict line routes to the degraded: unvalidated arm
 assert_pin_unique "#550: no-quoted-line is an undischarged gate a later pass re-checks" \
-  'A completion claim that carries **no** quoted verdict line is an undischarged gate' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'A completion claim that carries **no** quoted verdict line is an undischarged gate' "$CCE550_RCV"  # structural-pin-ok: lifecycle-state-transition -- a completion claim carrying no quoted line stays an undischarged gate a later pass re-checks
 # Item 3 records the suite run through the durable verification handle.
 assert_pin_unique "#550: gate records the suite run through the durable verification handle" \
-  'Record this suite run through the durable verification handle bundled with the review tooling' "$CCE550_RCV"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'Record this suite run through the durable verification handle bundled with the review tooling' "$CCE550_RCV"  # structural-pin-ok: machine-sentinel-provenance -- the suite run is recorded through the durable verification handle a later pass reads
 # The vendored body stays repo-agnostic: the new text introduces NO repo-internal
 # validator path and NO DevFlow step numbers (extends the #379/sev(rcv) negatives).
 assert_eq "#550: receiving-code-review body carries no repo-internal validator path" "no" \
@@ -1809,15 +1809,15 @@ assert_eq "#550: receiving-code-review body has no repo-specific test path (exte
   "$(grep -qF 'lib/test/run.sh' "$CCE550_RCV" && echo yes || echo no)"
 # Loop Exit retains the reported verdict token and degraded-arm boundaries.
 assert_pin_unique "#550: Loop Exit carries a non-pass token into the reported verdict line" \
-  'to the reported final verdict line (`<verdict> — completion evidence: <token>`)' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'to the reported final verdict line (`<verdict> — completion evidence: <token>`)' "$CCE550_LOOPEXIT"  # structural-pin-ok: machine-sentinel-provenance -- fixes the verdict-line evidence token shape the completion check parses
 assert_pin_unique "#550: Loop Exit treats a no-verdict-line invocation as the degraded arm" \
-  'report `degraded: unvalidated (<reason>)`, never read absent output as `pass`' "$CCE550_LOOPEXIT"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'report `degraded: unvalidated (<reason>)`, never read absent output as `pass`' "$CCE550_LOOPEXIT"  # structural-pin-ok: routing-dispatch-contract -- absent validator output must not route to pass; this is the fail-closed arm
 # The verification_evidence "Consumption is deferred" caveat now names the validator.
 assert_pin_unique "#550: verification_evidence caveat names the completion-evidence check as consumer" \
-  'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  'read at **Loop Exit** by the completion-evidence check (`scripts/check-completion-evidence.py`)' "$CCE550_FIXING"  # structural-pin-ok: cross-file-phase-contract -- names the completion-evidence consumer of the persisted evidence
 # Dispatch surfaces reference the plugin-qualified copy explicitly.
 assert_pin_unique "#550: implement Phase 3 wrapper names the plugin-qualified receiving-code-review" \
-  '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: documentation-presence pin (asserts a skill sentence exists; no code regression guarded)
+  '`devflow:receiving-code-review`' "$CCE550_PHASE3"  # structural-pin-ok: routing-dispatch-contract -- the implement Phase 3 wrapper dispatches the plugin-qualified skill id
 # AC7 — interpreter-faithful probe rule in the Implement extension.
 assert_pin_unique "#379(AC7): implement extension carries the interpreter-faithful probe rule" \
   'prefer mutation evidence over a hand probe when the two disagree' "$IMPL379"
@@ -2783,13 +2783,22 @@ assert_pin_unique "#312 item 2 (broadened #446): Step 3.5 ladder reaches the ask
 assert_pin_unique "#312 item 8: Phase 2.3.0b names a doc-enumerated configuration set" \
   'A **doc-enumerated configuration set** counts too' "$IMPL_SKILL_BUNDLE"
 # ---- #754: throwaway-scaffold reuse lines on the three verification/fix-iteration surfaces ----
-# All surface-presence pins: each asserts an added advisory sentence exists on its surface.
-# No executable behavior is claimed here; each carries the structural-pin-ok declaration
-# required by the issue #666 gate.
+# Each asserts its sentence exists on its surface, and each carries the structural-pin-ok
+# declaration the issue #666 gate requires. Their declarations are deliberately NOT uniform:
+# A2 and A3/A11 state the contract their own ledger rows record, while A8 and A10 keep the older
+# pre-vocabulary `surface-presence` wording. That is not an oversight. A3/A11 became correctable
+# with issue #956, which resolved its concatenated $MAXI_BUNDLE target to the member files the
+# bundle is built from. The other two are blocked by a cause #956 does not reach and deliberately
+# left alone: both literals sit in a frozen retirement manifest, so touching either line counts as
+# a REVIVAL, which needs its own authorization bundle plus a same-branch boundary adjudication
+# change. (A10's $IMPL_SKILL_BUNDLE target is additionally unresolvable — it is assembled by
+# looping over a phase-stem list, a build shape bundle resolution leaves unresolved rather than
+# resolve to a subset of real membership — but the revival contract is the operative blocker.)
+# Do not "unify" those two by hand: editing either turns the required gate RED.
 assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principle (repo-agnostic)" \
-  'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+  'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: cross-file-phase-contract -- the vendored receiving-code-review body carries the rig-reuse principle its consumer relies on
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
-  'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+  'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: routing-dispatch-contract -- the ledger records the two-arm durable-record routing this sentence keys on the invocation context
 assert_pin_unique "#754 A8: receiving gates reuse on the current code shape" \
   'only after confirming it still exercises the current code shape' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scratch path" \
@@ -3386,10 +3395,14 @@ assert_pin_unique "#167 re-sweep: re-dispatches the existing devflow:comment-ana
 # This targets phase-0-setup.md directly so the unchanged profile-table row
 # cannot be satisfied by copies elsewhere in the concatenated bundle.
 P05_SETUP="$LIB/../skills/review/phases/phase-0-setup.md"
-# The profile-table row this change does NOT amend — a surface-presence pin over unamended
-# text (assert_pin_unique), carrying a structural-pin-ok declaration (mutation-routing gate #666).
+# The profile-table row this change does NOT amend. Its declaration states the routing contract
+# its ledger row records (mutation-routing gate #666). The assertion NAME below still reads
+# "surface presence over unamended text": that wording is stale, and it is left alone on purpose
+# — an assertion name is a frozen identity in the retirement manifests, so renaming one needs a
+# declaration in lib/test/pin-identity-refreshes.tsv, which is a different operation from
+# correcting a declaration and is out of scope here.
 assert_pin_unique "#769: small_diff AND config_only profile-table row present (surface presence over unamended text)" \
-  'Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`.' "$P05_SETUP"  # structural-pin-ok: surface presence over an unamended profile-table row (#769)
+  'Skip Phase 1 + Phase 2 (checklist gen + verify) entirely. Set `checklist_skipped = "intentional"`.' "$P05_SETUP"  # structural-pin-ok: routing-dispatch-contract -- the review-profile table row that routes the small_diff AND config_only combination
 # #194(B) requires a named PASS and a raised assertion count; the exact-one checks below
 # preserve both clauses in each policy surface.
 assert_pin_unique "#194 (B) implement: confirm-guard-registered directive" \
@@ -4571,7 +4584,7 @@ assert_eq "#779: the checkpoint invocation is the last §1.4 step (after the cre
 # uses"; without this the helper could change its refspec and the claim would silently become a
 # documented falsehood while the suite stayed green (the repo's coupled-invariant class).
 assert_pin_unique "#779: the checkpoint helper fetches the base with the same forced refspec the §1.4 sites use" \
-  'git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"' "$LIB/../scripts/update-branch-checkpoint.sh"  # structural-pin-ok: coupled-mirror presence pin joining the helper's fetch literal to the two §1.4 prose sites
+  'git fetch origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"' "$LIB/../scripts/update-branch-checkpoint.sh"  # structural-pin-ok: helper-contract -- the Phase 1.4 checkpoint helper must fetch the configured base through the same forced refspec as its consuming phase
 
 # (g) #780 revisited the landed-resume routing (Verdict B classifies that arm) and decided it
 # STAYS. The routing-dispatch pin that used to assert the operative routing sentence, and with it
@@ -4647,15 +4660,15 @@ WP755_PY="$LIB/../scripts/workpad.py"
 # fails a DUPLICATED literal, which a raw scan would let pass with the guarded sentence deleted
 # (the PR #154 vacuous-guard hole).
 assert_pin_unique "#755: workpad.py new-body Plan seed literal present (producer of the §2.0 gate discriminator)" \
-  '- [ ] _(planning in progress)_' "$WP755_PY"  # structural-pin-ok: producer half of the two-file seed coupling; the guarded regression is a one-sided seed edit (a divergence), not a single-file deletion
+  '- [ ] _(planning in progress)_' "$WP755_PY"  # structural-pin-ok: cross-file-phase-contract -- producer half of the Plan seed coupling: the literal workpad.py's new-body writes
 assert_pin_unique "#755: Phase 2 §2.0 gate carries the same Plan seed literal as workpad.py new-body (coupled discriminator)" \
-  '- [ ] _(planning in progress)_' "$P2_FILE"  # structural-pin-ok: consumer half of the same two-file seed coupling
+  '- [ ] _(planning in progress)_' "$P2_FILE"  # structural-pin-ok: cross-file-phase-contract -- consumer half: Phase 2 section 2.0 reads the same Plan seed literal as its discriminator
 # resume-kind marker writer/reader coupling (conjunct a): Phase 1.3 writes it, the §2.0 gate
 # reads it. Bind the pair so neither half can be dropped without the other going RED.
 assert_pin_unique "#755: Phase 1.3 writes the durable resume-kind marker (writer of §2.0 conjunct a)" \
-  'Emit the decided kind as a bare literal' "$P1_FILE"  # structural-pin-ok: writer half of a cross-file writer/reader pair; the guarded regression (writer dropped, reader surviving) is a two-file divergence
+  'Emit the decided kind as a bare literal' "$P1_FILE"  # structural-pin-ok: cross-file-phase-contract -- writer half of the resume-kind cross-phase protocol
 assert_pin_unique "#755: Phase 2 §2.0 gate reads the resume-kind: in-flight marker (reader of conjunct a)" \
-  'resume-kind: in-flight' "$P2_FILE"  # structural-pin-ok: reader half of the same writer/reader pair
+  'resume-kind: in-flight' "$P2_FILE"  # structural-pin-ok: machine-sentinel-provenance -- reader of the resume-kind: in-flight marker the writer half emits
 # The two §3.1 existing-PR pins this block used to carry are re-anchored to the extracted
 # helper by the #782 block that follows — the extraction removed the inline text they
 # asserted, and both guarded regressions are preserved there, one arm each.
@@ -4917,7 +4930,7 @@ assert_eq "#782 --base omitted: the base is re-derived internally (repo base_bra
 # The §3.1 fence must invoke the extracted helper as its own leading token — the extraction is
 # only real if the skill routes through it rather than keeping a second inline copy.
 assert_pin_unique "#782: §3.1 invokes the extracted resolver as a leading-token vendored-literal helper" \
-  'scripts/resolve-existing-pr.sh' "$IMPL_PHASES_DIR/phase-3-review.md"  # structural-pin-ok: surface-presence pin that the skill routes through the helper; the arm behavior it selects is driven above
+  'scripts/resolve-existing-pr.sh' "$IMPL_PHASES_DIR/phase-3-review.md"  # structural-pin-ok: helper-contract -- the section 3.1 fence must invoke the extracted resolver as its own leading token, which is what makes the extraction real
 rm -rf "$S782"
 
 # ── Issue #493: Phase 1.4 §1.4 PR-body run-link refresh (cloud resume) ──
@@ -29226,7 +29239,7 @@ unset _WSR_BCC_REFS_OK _WSR_BCC_R _WSR_BCC_PR _WSR_BCC_PS _WSR_BCC_PLANTED_OUT _
 # halves; without these pins a later rename leaves the reception pass deferring to a section
 # that does not exist while every other pin still passes. Both sides are checked.
 assert_pin_unique "#707 review-and-fix.md carries the heading receiving-code-review.md defers to" \
-  '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: presence of the heading the sibling citation names; coupled checks below cover consistency
+  '## Focused test modules are the fix-iteration default' "$WSR_RAF"  # structural-pin-ok: cross-file-phase-contract -- producer of the exact heading the receiving-code-review extension cites
 # #707 the two coupled mirrors must state the SAME policy the extensions state — a mirror
 # that keeps the retired framing is the desync class the coupled-invariant rule exists to
 # stop, and the absence guard above only proves the old text is gone, not that the new
@@ -43864,10 +43877,11 @@ assert_eq "#711 the guard is idempotent over one population" "same" \
   "$([ "$(e711_run "$E711_FX" lib/test/clean.py)" = "$(e711_run "$E711_FX" lib/test/clean.py)" ] && echo same || echo differ)"
 case "$E711_FX" in ""|/dev/null) : ;; *) rm -rf "$E711_FX" ;; esac   # probe_tmp sentinel: never rm -rf /dev/null
 
-# Documentation surfaces. Both are surface-presence pins: the rule's behavioral guarantee is
-# carried by the guard's own fixture-driven assertions above, not by a prose-removal check.
+# Documentation surfaces. The rule's behavioral guarantee is carried by the guard's own
+# fixture-driven assertions above, not by a prose-removal check — the pin below states the
+# enumeration-source convention its ledger row records, and its declaration says so.
 assert_pin_unique "#711 CLAUDE.md carries the enumeration-source rule" \
-  'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: surface-presence pin on the Conventions rule; the enumeration behaviour it describes is proven by the fixture-driven #711 assertions above
+  'sources its population from an index-reading `git ls-files`' "$E711_CLAUDE"  # structural-pin-ok: helper-contract -- the root convention requires index-based enumeration so a check stays invariant across repository layouts
 assert_eq "#711 the growth artifact exists" "yes" \
   "$([ -f "$E711_GROWTH" ] && echo yes || echo no)"
 
@@ -48597,7 +48611,7 @@ E783_SKILL="$LIB/../skills/retrospective-weekly/SKILL.md"
 # The guard's population must cover every inline producer: all four operands are named
 # in the loop, so adding a fifth inline producer without extending it is visible here.
 assert_pin_unique "#783 Step 9 empty-file guard covers all four inline-producer operands" \
-  'for _op in skips intervention_issues cooldown_skipped blockers; do' "$E783_SKILL"  # structural-pin-ok: population pin (asserts the guard's operand list, not a code regression the executable tests above already guard)
+  'for _op in skips intervention_issues cooldown_skipped blockers; do' "$E783_SKILL"  # structural-pin-ok: cross-file-phase-contract -- covers every inline Step 9 producer of the guarded operand
 
 # Guard delivers its guarantee (issue #783 review, per-operand-name scoping): the
 # grep-pins above only prove a LITERAL changed under mutation. This block proves the

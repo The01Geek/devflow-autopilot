@@ -16,9 +16,13 @@ The linter and census modules these tests drive do carry process-global
 ``functools.lru_cache`` stores, so tests landing in the same process share them.
 That is compatible with the requirement above for two separate reasons, not one.
 The per-source parse memos are keyed on the presented bytes — the census memos
-additionally on the source's name, the linter memos on the text alone — and on no
-``repo_root`` and no filesystem state, so a hit returns a value derived from
-exactly the bytes the caller presented. ``_load_mutation_census_module`` is
+additionally on the source's name, the linter memos on the text alone (the two
+bundle-membership parses of issue #956 additionally on the ``lib`` path the caller
+passed) — and on no ``repo_root`` and no filesystem state, so a hit returns a value
+derived from exactly what the caller presented. The bundle resolver's glob
+EXPANSION is deliberately left outside its memo for that reason;
+``BundleTargetInspection956Tests`` pins that a tree change between two calls is
+observed rather than answered from the cache. ``_load_mutation_census_module`` is
 different: it takes no arguments at all and hands every caller one module
 object; it is safe because nothing in that module is mutated after import beyond
 those same key-pure memos, not because of its key. Its other module-level
@@ -3322,6 +3326,75 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 rc, stdout, stderr = self._public_rc(root)
                 self.assertEqual(expected_rc, rc, stdout + stderr)
 
+    def test_an_untracked_consumer_is_not_in_the_step_one_corpus(self):
+        # The issue-#711 invariant at the production boundary: step 1's population
+        # is an index-reading `git ls-files` with NO `--others`, so a consumer that
+        # exists in the worktree but was never `git add`ed is not in the corpus and
+        # its pin routes to step 2 (undeclared here, so a finding). The committed
+        # variant of this exact fixture exits 0 in
+        # test_step_one_consumer_passes_the_public_worktree_ladder, which is what
+        # makes rc 3 here attributable to the missing index entry alone — a
+        # regression to `--others` would silently widen the corpus and go green.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            consumer = root / "scripts/read-fixture-token.sh"
+            consumer.write_text(
+                '#!/usr/bin/env bash\ngrep -qF "STATIC_PIN_FIXTURE=1" "$1"\n',
+                encoding="utf-8",
+            )
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'consumed pin' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(3, rc, stdout + stderr)
+            self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_an_unreadable_consumer_is_skipped_with_a_breadcrumb(self):
+        # load_machine_consumer_sources' unreadable / non-UTF-8 branch. This path
+        # fails TOWARD step 2 rather than to rc 2, so a regression letting the
+        # decode error propagate — or "recovering" by decoding with a lenient
+        # codec — would not be caught by any rc-2 assertion. The fixture consumer
+        # holds the pinned literal in bytes and is tracked, so:
+        #   * skipped correctly  -> not in the corpus -> step 2 -> rc 3 + breadcrumb
+        #   * decoded leniently  -> passes step 1     -> rc 0
+        #   * error propagates   -> neither
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            consumer = root / "scripts/read-fixture-token.sh"
+            consumer.write_bytes(
+                b'#!/usr/bin/env bash\ngrep -qF "STATIC_PIN_FIXTURE=1" "$1"\n\xff\xfe\n'
+            )
+            subprocess.run(
+                ["git", "add", "scripts/read-fixture-token.sh"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-qm", "add undecodable consumer"],
+                cwd=root,
+                check=True,
+            )
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'consumed pin' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(3, rc, stdout + stderr)
+            self.assertIn("MUTATION-ROUTING", stdout)
+            self.assertIn("MUTATION-ROUTING-CONSUMER-CORPUS-SKIPPED", stderr)
+            self.assertIn(
+                "scripts/read-fixture-token.sh: UnicodeDecodeError", stderr
+            )
+
     def test_unreadable_ledger_is_infrastructure_not_a_step_two_pass(self):
         # The fail-closed control for step 2 at the production boundary: a ledger
         # the gate cannot read is an infrastructure failure (rc 2), never an
@@ -4338,6 +4411,46 @@ class PinRoutingLadder948Tests(unittest.TestCase):
             }
             self.assertEqual([], self._scan(root, source, consumer_sources=consumer))
 
+    def test_step_one_token_match_is_boundary_anchored(self):
+        # Makes the `(?<![\w-])…(?![\w-])` anchoring a GUARANTEE rather than an
+        # incidental property: step 1 widens deliberately (a single distinctive
+        # token anywhere in a consumer's operative text passes), so the one thing
+        # bounding its false positives is that the token must stand alone. A
+        # consumer whose only mention of the token is buried inside a larger
+        # identifier is not a program reading the pinned literal. Every case
+        # below embeds the fixture literal's sole distinctive token,
+        # `--verdict-threshold`, with a `[\w-]` neighbour on one side or both.
+        for body in (
+            'FLAG="--verdict-thresholds"\n',  # trailing word char
+            'FLAG="--verdict-threshold-value"\n',  # trailing hyphen
+            'FLAG="x--verdict-threshold"\n',  # leading word char
+            'FLAG="legacy---verdict-threshold"\n',  # leading hyphen
+            'FLAG="pre--verdict-thresholdpost"\n',  # both sides
+        ):
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td)
+                findings = self._scan(
+                    root,
+                    source,
+                    consumer_sources={"scripts/derive-verdict.sh": body},
+                )
+                self.assertEqual(1, len(findings), body)
+                self.assertIn("no program consumer reads it", findings[0])
+        # Positive control on the same token, so the rows above are attributable
+        # to the anchoring and not to some unrelated reason the corpus was empty.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            self.assertEqual(
+                [],
+                self._scan(
+                    root,
+                    source,
+                    consumer_sources={
+                        "scripts/derive-verdict.sh": 'FLAG="--verdict-threshold"\n'
+                    },
+                ),
+            )
+
     def test_step_one_ignores_a_common_word_in_an_unrelated_file(self):
         # The negative control for the token rule. This literal carries no
         # machine-identifier-shaped token: "configuration" and "documentation"
@@ -4505,8 +4618,8 @@ class PinRoutingLadder948Tests(unittest.TestCase):
 
     def test_an_invalid_category_is_a_finding_ahead_of_the_whole_ladder(self):
         # Arm ORDER: declaration grammar is decided BEFORE routing, so neither a
-        # program consumer nor a boundary row routes around a malformed tag. The
-        # ~35 standing pins on a pre-vocabulary category therefore stay findings
+        # program consumer nor a boundary row routes around a malformed tag. A
+        # standing pin on a pre-vocabulary category therefore stays a finding
         # (fixing them is issue-948-out-of-scope follow-up work).
         for marker in (
             self.INVALID_MARKER,
@@ -4600,6 +4713,301 @@ class PinRoutingLadder948Tests(unittest.TestCase):
             self.assertEqual(1, len(findings))
             self.assertIn("resolves into prose", findings[0])
             self.assertNotIn("no program consumer reads it", findings[0])
+
+
+class BundleTargetInspection956Tests(unittest.TestCase):
+    """Issue #956: a pin whose target is a bundle the source CONCATENATES at
+    runtime is inspected against the bundle's MEMBER FILES.
+
+    Every test states which direction it protects. The positive cases prove the
+    unfreeze (a typed declaration on such a pin is now inspectable, so its line
+    can be edited at all); the negative controls prove the fix is resolution, not
+    amnesty — an unresolvable target, an unmodeled build shape, an unreadable
+    member, an ambiguous name and a literal in no member all keep the refusal.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = load_linter()
+
+    MARKER = (
+        "# structural-pin-ok: cross-file-phase-contract -- "
+        "the sentence spells a contract the split surfaces share"
+    )
+    LITERAL = "the fix loop re-reads the reference before it edits"
+    SKIPPED_LITERAL = "this template sentence is not part of the bundle"
+
+    # The module shape the repository really uses: a root variable written with a
+    # default expansion over a suffix strip, an array seeded with one member, a
+    # for-loop over a directory glob with a basename skip, and one builder call.
+    BUILD = (
+        'ROOT="${DEVFLOW_MODULE_ROOT:-${LIB%/lib}}"\n'
+        'SKILL="$ROOT/skills/demo/SKILL.md"\n'
+        'BUNDLE="$SCRATCH/demo-bundle.md"\n'
+        '_members=("$SKILL")\n'
+        'for _ref in "$ROOT"/skills/demo/references/*.md; do\n'
+        '  case "${_ref##*/}" in template.md) continue ;; esac\n'
+        '  _members+=("$_ref")\n'
+        "done\n"
+        'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}"\n'
+    )
+
+    def _tree(self, td, *, literal=None, in_reference=True):
+        """Write the demo skill tree; return its repository root."""
+        root = Path(td)
+        skill = root / "skills/demo/SKILL.md"
+        skill.parent.mkdir(parents=True, exist_ok=True)
+        references = skill.parent / "references"
+        references.mkdir(parents=True, exist_ok=True)
+        body = literal if literal is not None else self.LITERAL
+        skill.write_text("# Demo\n\nThe root carries no contract.\n", encoding="utf-8")
+        (references / "fixing.md").write_text(
+            f"# Fixing\n\nStep two: {body}.\n" if in_reference else "# Fixing\n\nnone\n",
+            encoding="utf-8",
+        )
+        # The excluded template member: never part of the bundle, so a literal
+        # living only here must NOT satisfy inspection.
+        (references / "template.md").write_text(
+            f"# Template\n\n{self.SKIPPED_LITERAL}.\n", encoding="utf-8"
+        )
+        return root
+
+    def _sites(self, root, source, path="lib/test/mod.sh"):
+        return self.mod.extract_guard_sites(source, path, str(root))
+
+    def _pin(self, literal=None, target="$BUNDLE", marker=None):
+        marker = self.MARKER if marker is None else marker
+        return (
+            'devflow_module_pin_unique "demo contract" '
+            f"'{literal or self.LITERAL}' \"{target}\""
+            + (f"  {marker}" if marker else "")
+            + "\n"
+        )
+
+    def _site(self, root, source):
+        sites = [site for site in self._sites(root, source) if site.helper]
+        self.assertEqual(1, len(sites), sites)
+        return sites[0]
+
+    # ── the unfreeze ───────────────────────────────────────────────────────
+    def test_bundle_target_resolves_to_its_member_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            members = self.mod.resolve_bundle_targets(
+                self.BUILD, str(root / "lib")
+            )["BUNDLE"]
+            self.assertEqual(
+                [
+                    str(root / "skills/demo/SKILL.md"),
+                    str(root / "skills/demo/references/fixing.md"),
+                ],
+                list(members),
+                "the basename skip must EXCLUDE template.md, not merely resolve",
+            )
+
+    def test_typed_declaration_on_a_bundle_target_is_inspectable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            site = self._site(root, self.BUILD + self._pin())
+            self.assertIsNone(site.target_path)
+            self.assertEqual(2, len(site.target_members))
+            self.assertIsNone(self.mod._typed_pin_inspection_error(site, str(root)))
+
+    def test_an_alias_of_a_resolved_bundle_is_inspectable_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            source = self.BUILD + 'ALIAS="$BUNDLE"\n' + self._pin(target="$ALIAS")
+            site = self._site(root, source)
+            self.assertIsNone(self.mod._typed_pin_inspection_error(site, str(root)))
+
+    def test_a_raw_grep_over_the_same_bundle_is_inspected_the_same_way(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            source = self.BUILD + (
+                'assert_eq "demo raw" "yes" '
+                f"\"$(grep -qF '{self.LITERAL}' \"$BUNDLE\" && echo yes || echo no)\""
+                f"  {self.MARKER}\n"
+            )
+            sites = [
+                site
+                for site in self._sites(root, source)
+                if site.family == "raw-presence"
+            ]
+            self.assertEqual(1, len(sites), sites)
+            self.assertIsNone(
+                self.mod._typed_pin_inspection_error(sites[0], str(root))
+            )
+
+    # ── the memo contract this resolver has to keep ─────────────────────────
+    def test_membership_is_not_answered_from_a_memo_after_the_tree_changes(self):
+        # The parse is memoized; the glob expansion must NOT be, or the memo would
+        # capture filesystem state and a co-resident sharded test could be answered
+        # from another fixture's tree (this file's module docstring forbids that).
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            lib = str(root / "lib")
+            self.assertEqual(
+                2, len(self.mod.resolve_bundle_targets(self.BUILD, lib)["BUNDLE"])
+            )
+            (root / "skills/demo/references/later.md").write_text(
+                "# Later\n\nadded after the first resolution\n", encoding="utf-8"
+            )
+            self.assertEqual(
+                3,
+                len(self.mod.resolve_bundle_targets(self.BUILD, lib)["BUNDLE"]),
+                "the expansion must be re-read, not served from the parse memo",
+            )
+
+    def test_each_caller_gets_its_own_mapping(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            lib = str(root / "lib")
+            first = self.mod.resolve_bundle_targets(self.BUILD, lib)
+            first["LEAKED_BUNDLE"] = ()
+            self.assertNotIn(
+                "LEAKED_BUNDLE", self.mod.resolve_bundle_targets(self.BUILD, lib)
+            )
+
+    # ── negative controls: the refusal still fires ──────────────────────────
+    def test_an_unresolvable_non_bundle_target_still_cannot_be_inspected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            source = self._pin(target="$SOME_RUNTIME_TEMP")
+            site = self._site(root, source)
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_a_literal_in_no_member_is_still_reported_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td, in_reference=False)
+            site = self._site(root, self.BUILD + self._pin())
+            self.assertEqual(
+                "typed structural declaration literal cannot be inspected "
+                "(absent from target)",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_a_literal_only_in_the_skipped_member_is_reported_absent(self):
+        # The sharp form of the exclusion test: membership is exact, so content
+        # the build skips can never satisfy a bundle pin.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            site = self._site(
+                root, self.BUILD + self._pin(literal=self.SKIPPED_LITERAL)
+            )
+            self.assertEqual(
+                "typed structural declaration literal cannot be inspected "
+                "(absent from target)",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_an_unreadable_member_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.BUILD.replace(
+                'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}"',
+                'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}" '
+                '"$ROOT/skills/demo/absent.md"',
+            )
+            site = self._site(root, build + self._pin())
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected "
+                "(FileNotFoundError)",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_an_unresolvable_member_word_leaves_the_bundle_unresolved(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.BUILD.replace(
+                '_members=("$SKILL")', '_members=("$SKILL" "$UNKNOWN_VAR")'
+            )
+            site = self._site(root, build + self._pin())
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_an_unmodeled_loop_append_leaves_the_bundle_unresolved(self):
+        # run.sh also builds bundles by looping over a STEM list and appending an
+        # interpolated path. Resolving that array to "the words modeled so far"
+        # would yield a strict SUBSET of the real membership and could report a
+        # present literal as absent, so the shape must poison the bundle instead.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = (
+                'ROOT="${DEVFLOW_MODULE_ROOT:-${LIB%/lib}}"\n'
+                'SKILL="$ROOT/skills/demo/SKILL.md"\n'
+                'STEMS="fixing"\n'
+                '_members=("$SKILL")\n'
+                "for _s in $STEMS; do\n"
+                '  _members+=("$ROOT/skills/demo/references/${_s}.md")\n'
+                "done\n"
+                'devflow_module_build_bundle "demo" "$BUNDLE" "${_members[@]}"\n'
+            )
+            site = self._site(root, build + self._pin())
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_two_builds_of_one_name_leave_it_ambiguous(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            build = self.BUILD + (
+                'devflow_module_build_bundle "demo again" "$BUNDLE" "$SKILL"\n'
+            )
+            site = self._site(root, build + self._pin())
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    def test_an_empty_glob_expansion_is_not_treated_as_inspected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            for reference in (root / "skills/demo/references").iterdir():
+                reference.unlink()
+            site = self._site(root, self.BUILD + self._pin())
+            self.assertEqual(
+                "typed structural declaration target cannot be inspected",
+                self.mod._typed_pin_inspection_error(site, str(root)),
+            )
+
+    # ── the ladder still decides, and the tag still cannot self-grant ───────
+    def test_bundle_member_prose_still_requires_a_ledger_boundary_row(self):
+        source = self.BUILD + self._pin()
+        with tempfile.TemporaryDirectory() as td:
+            root = self._tree(td)
+            key = self.mod._literal_adjudication_key(self.LITERAL)
+
+            def scan(**kwargs):
+                return self.mod.scan_changed_sources(
+                    {"lib/test/mod.sh": source},
+                    {"lib/test/mod.sh": ""},
+                    one_file_diff("lib/test/mod.sh", "", source),
+                    repo_root=str(root),
+                    **kwargs,
+                )
+
+            unrouted = scan()
+            self.assertEqual(1, len(unrouted))
+            self.assertIn(
+                "literal resolves into prose at skills/demo/references/fixing.md",
+                unrouted[0],
+                "prose resolution must follow the members, so the tag alone "
+                "cannot self-grant a bundle pin",
+            )
+            self.assertEqual(
+                [],
+                scan(
+                    current_adjudications={
+                        key: ("boundary", "maintainer adjudication: demo boundary")
+                    }
+                ),
+            )
 
 
 if __name__ == "__main__":
