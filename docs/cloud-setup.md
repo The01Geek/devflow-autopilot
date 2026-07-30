@@ -244,9 +244,8 @@ so that need is gone.)
 
 ## Choosing the runner (`DEVFLOW_RUNNER`)
 
-By default every job in the five consumer-shipped workflows (`devflow.yml`,
-`devflow-implement.yml`, `devflow-review.yml`, `devflow-runner.yml`,
-`telemetry-push.yml`) runs on `ubuntu-latest`. An optional GitHub
+By default every job in the two consumer-shipped workflows (`devflow.yml`,
+`devflow-implement.yml`) runs on `ubuntu-latest`. An optional GitHub
 **repository or organization variable** — `DEVFLOW_RUNNER` — selects the runner
 for all of those jobs uniformly. Set it under **Settings → Secrets and variables
 → Actions → Variables** (a *variable*, not a secret). Runner selection is
@@ -261,10 +260,13 @@ PRFlow behaves).
 | a JSON array, e.g. `["self-hosted","windows","PRFlow"]` | a runner matching that label set |
 | begins with `[` but is **not** valid JSON | the job fails **loud** at evaluation time (a visible `fromJSON` error), not a silent fallback to `ubuntu-latest` — a mis-set variable surfaces as an error |
 
-Each of the five workflows also declares a top-level `defaults: run: shell: bash`,
+Both workflows also declare a top-level `defaults: run: shell: bash`,
 so `run:` steps execute under **bash** even on a non-Linux runner (a self-hosted
 Windows runner otherwise defaults to PowerShell/cmd). On Linux this changes nothing
-observable.
+observable. (A repository that installed the withheld auto-review tier before it was
+pulled still carries `devflow-runner.yml` and `telemetry-push.yml`; those honor
+`DEVFLOW_RUNNER` and declare the same `defaults:` block, but `install.sh` no longer
+ships them — see [above](#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier).)
 
 ### Self-hosted-runner prerequisites
 
@@ -1356,18 +1358,30 @@ model-routing feature and is unrelated to that detection.
 
 ## Workflow inventory
 
-| Workflow | Purpose | Needs |
-|---|---|---|
-| `ci.yml` | Runs PRFlow's own test suite | — (this repo's CI) |
-| `devflow.yml` | Light `/prflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-runner.yml` | Reusable runner (`workflow_call`) — one read-only job called by `devflow-review.yml`; lives apart from `devflow.yml` so its permission ceiling stays a subset of the caller's grant | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-implement.yml` | Runs `/prflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
-| `devflow-review.yml` | Auto-runs `/prflow:review` as a gate on PRs (calls `devflow-runner.yml`). Its `workflow_run` re-trigger — which re-fires a review deferred behind the `devflow_review.require_up_to_date` / `require_ci_green` preconditions (issue #304) — **must name every workflow that runs on your pull requests** (not just the primary CI one) in its `workflows:` list (ships naming this repo's own PR-gating workflows, `[CI, Matcher probe]`; a GitHub platform requirement, no wildcards) — edit that list when installing. External non-Actions CI is covered by `check_suite`, and legacy commit-status-only CI (classic Jenkins, legacy CircleCI) by the `status` trigger — both need no naming | `CLAUDE_CODE_OAUTH_TOKEN` |
+`install.sh` copies **two** workflows into a consumer repository — `devflow.yml` and
+`devflow-implement.yml`. Everything else below either belongs to this repository only,
+or belongs to the withheld auto-review tier.
 
-The **Needs** column lists the default (Anthropic-OAuth) secret. Each of the three
-model-running workflows (`devflow.yml`, `devflow-runner.yml`, `devflow-implement.yml`)
-**additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY` when its section opts
-into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
+| Workflow | Shipped by `install.sh`? | Purpose | Needs |
+|---|---|---|---|
+| `devflow.yml` | **yes** | Light `/prflow:*` command listener (review, review-and-fix, pr-description) — event-driven only, no `workflow_call` | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `devflow-implement.yml` | **yes** | Runs `/prflow:implement` on a bare command in an issue comment (issues-only; PR comments never fire it) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `ci.yml` | no — this repository only | Runs PRFlow's own test suite | — |
+| `devflow-runner.yml` | no — withheld tier | Reusable runner (`workflow_call`) — a read-only job that only the withheld `devflow-review.yml` ever called. Retained in this repository (unreachable but shipped inside the plugin payload) so an already-installed consumer copy still resolves; `install.sh` does not copy it | `CLAUDE_CODE_OAUTH_TOKEN` |
+| `telemetry-push.yml` | no — withheld tier | Trusted relay for the auto-review tier's staged telemetry. Retained on the same terms as `devflow-runner.yml` | — |
+
+**`devflow-review.yml` is not in this tree at all.** It was the auto-review caller and
+was removed with the withheld tier (issue #936); there is nothing to install and no
+`workflows:` list to edit. If you are looking at an older copy of this page that told you
+to edit one, that instruction no longer applies. A repository that installed the tier
+*before* it was withheld still has its own copy — see
+[Withheld from this release](#withheld-from-this-release-the-automatic-pull-request-triggered-review-tier)
+for what that means and how to remove it.
+
+The **Needs** column lists the default (Anthropic-OAuth) secret. Each model-running
+workflow (`devflow.yml` and `devflow-implement.yml`, plus the retained
+`devflow-runner.yml`) **additionally** consumes the optional `DEVFLOW_PROVIDER_API_KEY`
+when its section opts into a third-party `provider` (see [Third-party model providers](#third-party-model-providers-opt-in-best-effort)); with no provider configured that secret is unused and the OAuth token alone is required.
 
 PRFlow never creates or overwrites `claude.yml` — that file belongs to
 Anthropic's Claude GitHub App, which owns plain `@claude` mentions, Q&A, and

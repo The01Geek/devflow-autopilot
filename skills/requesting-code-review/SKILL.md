@@ -1,6 +1,6 @@
 ---
 name: requesting-code-review
-description: DevFlow's final-pass review requester, dispatched by the review engine and available directly. Use when completing tasks, implementing major features, or before merging to verify work meets requirements
+description: PRFlow's final-pass review requester, dispatched by the review engine and available directly. Use when completing tasks, implementing major features, or before merging to verify work meets requirements
 ---
 
 # Requesting Code Review

@@ -1,6 +1,6 @@
 ---
 name: receiving-code-review
-description: DevFlow's code-review reception skill, used by the review-and-fix loop and available directly. Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
+description: PRFlow's code-review reception skill, used by the review-and-fix loop and available directly. Use when receiving code review feedback, before implementing suggestions, especially if feedback seems unclear or technically questionable - requires technical rigor and verification, not performative agreement or blind implementation
 ---
 
 # Code Review Reception
