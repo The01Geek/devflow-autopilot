@@ -693,15 +693,48 @@ with open(tmp, "w", encoding="utf-8") as fh:
     fh.write("\n")
 os.replace(tmp, path)
 '
+# The per-file signature that identifies a withheld-tier workflow as DEVFLOW'S COPY,
+# rather than a consumer file that merely happens to share the name. This has to be a
+# specific pattern, not the substring "devflow": `telemetry-push.yml` is a perfectly
+# ordinary name for a workflow a consumer owns, and such a file mentioning the string
+# anywhere — a `.devflow/**` path filter, a comment, a step that touches the config —
+# would satisfy a substring test and be deleted with a reassuring "removed withheld
+# review-tier workflow" line. The opt-in flag is not consent to delete a file DevFlow
+# never wrote.
+#
+# Each arm carries TWO alternatives so a consumer who lightly edited their installed
+# copy (renaming the workflow, say) is still recognized by the structural one:
+#   devflow-review   its own `name:` header, or the reusable-workflow call that IS the
+#                    tier (it is the only caller of devflow-runner.yml)
+#   devflow-runner   its own `name:` header, or the reviewer allowlist floor it applies
+#   telemetry-push   its own `name:` header, or the workflow_run binding naming the
+#                    review workflow it relays for
+# Anything unrecognized prints the EMPTY string, and the caller treats an empty pattern
+# as "cannot identify" and preserves — never as "matches everything" (the failure mode
+# prune_stale_vendored_plugin's own non-empty precondition exists to stop).
+devflow_withheld_tier_signature() {
+  case "$1" in
+    devflow-review)
+      printf '%s' '^name: Devflow Review \(auto-trigger\)|uses:[[:space:]]*\./\.github/workflows/devflow-runner\.yml' ;;
+    devflow-runner)
+      printf '%s' '^name: DevFlow Runner \(reusable\)|filter-runner-tools\.sh' ;;
+    telemetry-push)
+      printf '%s' '^name: Telemetry push \(trusted relay\)|workflows:[[:space:]]*\["Devflow Review \(auto-trigger\)"\]' ;;
+    *) printf '' ;;
+  esac
+}
 devflow_remove_withheld_tier() {
-  local present="$1" _wt rc
+  local present="$1" _wt rc _sig
   [ -n "$present" ] || return 0
   [ "${REMOVE_WITHHELD:-}" = "1" ] || return 0
   for _wt in $present; do
-    # Signature-guarded exactly like prune_stale_devflow_workflows: only ever remove a
-    # workflow that is recognizably DevFlow's, so a consumer file that merely happens to
-    # share one of these names is never deleted.
-    if grep -qi 'devflow' ".github/workflows/$_wt.yml"; then
+    # Signature-guarded in the same SPIRIT as prune_stale_devflow_workflows — a specific
+    # pattern this file's DevFlow copy carries — but with its own per-file patterns rather
+    # than that function's claude.yml one. The empty-pattern precondition is not
+    # decoration: `grep -Eq ""` matches ANY file, so an unrecognized name (or an emptied
+    # arm) must not fall through into an unconditional delete.
+    _sig="$(devflow_withheld_tier_signature "$_wt")"
+    if [ -n "$_sig" ] && grep -qE "$_sig" ".github/workflows/$_wt.yml"; then
       rm -f ".github/workflows/$_wt.yml"
       log "removed withheld review-tier workflow $_wt.yml (opted in via --remove-withheld-review-tier)"
     else

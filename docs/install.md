@@ -232,7 +232,16 @@ Note the third row's most common cause. On a host with **no working `python3`** 
 
 `.devflow/config.json` is outside that mechanism entirely: the shared scaffolder only ever backfills keys the shipped example gained, so your values and tuned arrays are never rewritten. A preserved conflict is reported again on every run until you resolve it — the installer never adopts your edited bytes as its own provenance.
 
-Skipping versions is safe: the classification above depends on the recorded digest, not on how far behind you are, and an installation with no manifest at all heals into one (every artifact you never touched is recorded on the first upgrade).
+Skipping versions is safe: the classification above depends on the recorded digest, not on how far behind you are.
+
+**An installation with no manifest at all heals only partly on its first upgrade, and it is worth knowing which part.** Without a recorded digest there is nothing to compare against, so the table's fourth row applies to every artifact whose bytes differ from the version being installed — whether you edited it or it is simply older. Those are preserved with a `<path>.devflow-new` sidecar and are **not** recorded. Only artifacts already byte-identical to the shipped version take the `unchanged` row, and those are recorded. So on a release that changed a workflow, a pre-manifest installation gets a sidecar for that workflow and a manifest covering everything else.
+
+To finish healing an artifact you never edited, do either of these and re-run — both record its digest:
+
+- **move the sidecar over it** (`mv .github/workflows/devflow.yml.devflow-new .github/workflows/devflow.yml`) — the next run sees `unchanged`;
+- **delete it** and let the installer write its own copy — the next run sees `create`.
+
+Merge a sidecar by hand instead and the result still differs from the shipped bytes, so it stays `unverified` and is offered again next run — that is the same deliberate rule as an edit made *with* a manifest: the installer never adopts your bytes as its own provenance. Note also that a healing run does not tidy up: the old `<path>.devflow-new` is left where it is, so delete it yourself once you are done with it. Nothing is at risk either way — what a missing manifest costs you is sidecars to resolve, never overwritten bytes.
 
 #### Upgrade note: the withheld automatic-review tier is surfaced, and removable on request
 

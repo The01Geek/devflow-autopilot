@@ -794,10 +794,23 @@ print(d["watched_authors"][0], d["devflow"]["allowed_tools"][0])
 
 # ── Scenario 4: the withheld automatic-review tier. Reported always; removed only on
 # the explicit opt-in; never removed from a file that is not recognizably DevFlow's.
+#
+# The fixtures reproduce the SIGNATURE each withheld file actually carries — its own
+# `name:` header — rather than a stand-in that merely contains the string "devflow".
+# That distinction is the whole point of the guard (see the adversarial arm below): a
+# fixture that only had to contain "devflow" would keep passing against a substring
+# match, which is exactly the over-broad guard this scenario now pins against.
+_iu_withheld_file() {  # $1 = withheld-tier id -> DevFlow's own header for that workflow
+  case "$1" in
+    devflow-review)  printf 'name: Devflow Review (auto-trigger)\non: pull_request\njobs: {}\n' ;;
+    devflow-runner)  printf 'name: DevFlow Runner (reusable)\non:\n  workflow_call:\njobs: {}\n' ;;
+    telemetry-push)  printf 'name: Telemetry push (trusted relay)\non:\n  workflow_run:\njobs: {}\n' ;;
+  esac
+}
 IU_C4="$(_iu_consumer withheld)"
 _iu_run "$IU_C4" >/dev/null
 for _iu_w in devflow-review devflow-runner telemetry-push; do
-  printf 'name: devflow legacy %s\non: pull_request\n' "$_iu_w" > "$IU_C4/.github/workflows/$_iu_w.yml"
+  _iu_withheld_file "$_iu_w" > "$IU_C4/.github/workflows/$_iu_w.yml"
 done
 # Counted with a glob and a builtin loop, never `ls | grep -c`: the count decides an
 # assertion outcome, and a non-preflight PATH tool must not be what derives it.
@@ -825,6 +838,58 @@ printf 'name: someone elses telemetry push\non: push\n' > "$IU_C4C/.github/workf
 IU_O4C="$(_iu_run "$IU_C4C" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in removal is signature-guarded — a same-named workflow carrying no DevFlow signature is left in place" "yes yes" \
   "$([ -f "$IU_C4C/.github/workflows/telemetry-push.yml" ] && echo yes || echo no) $(_iu_out_has "$IU_O4C" 'carries no DevFlow signature; left it untouched')"
+# ADVERSARIAL (#959 review): the arm above only proves a file with NO mention of DevFlow
+# survives, which a bare `grep -qi devflow` would also have satisfied. The case that
+# matters is a workflow the CONSUMER owns, under a generic name they are entitled to use,
+# that legitimately mentions the string — a path filter on `.devflow/**`, a comment, a
+# step that reads the config. Under a substring guard that file is `rm -f`'d on the
+# opt-in, with a log line claiming a withheld-tier workflow was removed. Three separate
+# mentions, one per accepted spelling, so a guard that merely got case-folding wrong is
+# caught too.
+IU_C4D="$(_iu_consumer withheld-consumer-owned)"
+_iu_run "$IU_C4D" >/dev/null
+cat > "$IU_C4D/.github/workflows/telemetry-push.yml" <<'IUTP'
+name: Push our metrics
+# We re-run this when devflow config changes, since DevFlow owns the tool list.
+on:
+  push:
+    paths:
+      - '.devflow/**'
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - run: ./scripts/push-metrics.sh
+IUTP
+IU_TP4D_BEFORE="$(_iu_digest "$IU_C4D/.github/workflows/telemetry-push.yml")"
+IU_O4D="$(_iu_run "$IU_C4D" --apply --remove-withheld-review-tier)"
+assert_eq "installer-upgrade #959: a CONSUMER-OWNED telemetry-push.yml that merely mentions devflow survives the opt-in removal, byte-for-byte" "yes yes yes" \
+  "$([ -f "$IU_C4D/.github/workflows/telemetry-push.yml" ] && echo yes || echo no) $([ "$IU_TP4D_BEFORE" = "$(_iu_digest "$IU_C4D/.github/workflows/telemetry-push.yml")" ] && echo yes || echo no) $(_iu_out_has "$IU_O4D" 'carries no DevFlow signature; left it untouched')"
+assert_eq "installer-upgrade #959: and the run never claims to have removed it" "no" \
+  "$(_iu_out_has "$IU_O4D" 'removed withheld review-tier workflow telemetry-push.yml')"
+# NEGATIVE CONTROL: restore the old substring guard on a copy and require that consumer
+# file to be DESTROYED. Without this, the arm above passes on any guard that happens to
+# reject this one fixture, including by accident.
+IU_MUT4="$(probe_tmp '#959 withheld-tier substring-guard control setup')"
+python3 -c '
+import sys
+src, dst = sys.argv[1], sys.argv[2]
+body = open(src, encoding="utf-8").read()
+guard = "    _sig=\"$(devflow_withheld_tier_signature \"$_wt\")\"\n    if [ -n \"$_sig\" ] && grep -qE \"$_sig\" \".github/workflows/$_wt.yml\"; then\n"
+substring = "    if grep -qi \x27devflow\x27 \".github/workflows/$_wt.yml\"; then\n"
+if guard not in body:
+    sys.exit("mutation target not found: the withheld-tier signature guard")
+open(dst, "w", encoding="utf-8").write(body.replace(guard, substring, 1))
+' "$IU_INSTALL" "$IU_MUT4" || printf 'devflow-test: #959 withheld-tier control mutation FAILED to apply\n'
+assert_eq "installer-upgrade #959 NEGATIVE CONTROL: the control copy really does restore the substring guard" "yes no" \
+  "$(_iu_has "$IU_MUT4" "if grep -qi 'devflow' \".github/workflows/\$_wt.yml\"; then") $(_iu_has "$IU_MUT4" 'devflow_withheld_tier_signature "$_wt"')"
+IU_C4E="$(_iu_consumer withheld-consumer-owned-control)"
+_iu_run "$IU_C4E" >/dev/null
+cp "$IU_C4D/.github/workflows/telemetry-push.yml" "$IU_C4E/.github/workflows/telemetry-push.yml" 2>/dev/null || true
+IU_INSTALL_BIN="$IU_MUT4" _iu_run "$IU_C4E" --apply --remove-withheld-review-tier >/dev/null 2>&1 || true
+assert_eq "installer-upgrade #959 NEGATIVE CONTROL: the substring guard DOES delete that consumer-owned workflow (so the arm above is not vacuous)" "no" \
+  "$([ -f "$IU_C4E/.github/workflows/telemetry-push.yml" ] && echo yes || echo no)"
+rm -f "$IU_MUT4"
 
 # ── Scenario 5: a SKIPPED-VERSION jump. The consumer's artifact is older than the one
 # being installed but is provably untouched (its bytes match the recorded digest), so it
@@ -850,9 +915,17 @@ assert_eq "installer-upgrade: the skipped-version upgrade re-stamps devflow_vers
   "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["devflow_version"])' "$IU_C5/.devflow/config.json")"
 
 # ── Scenario 6: an installation that NEVER upgraded — no provenance on record. Unknown
-# is not "unmodified": an artifact whose bytes differ is preserved, while one that is
-# already identical is simply recorded, so the consumer heals into the manifest instead
-# of being handed a sidecar for every file they never touched.
+# is not "unmodified": an artifact whose bytes differ is preserved, while one already
+# identical to the shipped version is recorded.
+#
+# The healing is PARTIAL, and saying so is the point (#959 review): without a recorded
+# digest there is nothing to compare against, so EVERY differing artifact takes the
+# preserve arm — an edited one and a merely-older one alike — and only the already-
+# identical ones reach the `unchanged` arm that records. A pre-manifest consumer
+# upgrading across a release that changed a workflow therefore does get a sidecar for
+# that workflow. The earlier wording here claimed the opposite ("instead of being handed
+# a sidecar for every file they never touched"), which is false against this very
+# scenario's own second assertion.
 IU_C6="$(_iu_consumer no-manifest)"
 _iu_run "$IU_C6" >/dev/null
 rm -f "$IU_C6/.devflow/install-manifest.json"
@@ -1244,7 +1317,7 @@ assert_eq "installer-upgrade #959: a file the consumer ADDED inside a composite 
 # must produce their own distinct breadcrumbs and never restructure the consumer's config.
 IU_C17="$(_iu_consumer withheld-shapes)"
 _iu_run "$IU_C17" >/dev/null
-printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17/.github/workflows/devflow-review.yml"
+_iu_withheld_file devflow-review > "$IU_C17/.github/workflows/devflow-review.yml"
 printf '[1, 2, 3]\n' > "$IU_C17/.devflow/config.json"
 IU_CFG17_BEFORE="$(_iu_digest "$IU_C17/.devflow/config.json")"
 IU_O17="$(_iu_run "$IU_C17" --apply --remove-withheld-review-tier)"
@@ -1252,7 +1325,7 @@ assert_eq "installer-upgrade #959: a non-object .devflow/config.json is reported
   "$(_iu_out_has "$IU_O17" 'it is missing, malformed, or holds a non-object at that key') $([ "$IU_CFG17_BEFORE" = "$(_iu_digest "$IU_C17/.devflow/config.json")" ] && echo yes || echo no)"
 IU_C17B="$(_iu_consumer withheld-already-false)"
 _iu_run "$IU_C17B" >/dev/null
-printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17B/.github/workflows/devflow-review.yml"
+_iu_withheld_file devflow-review > "$IU_C17B/.github/workflows/devflow-review.yml"
 python3 -c '
 import json, sys
 p = sys.argv[1]
@@ -1267,7 +1340,7 @@ assert_eq "installer-upgrade #959: an already-false review key is reported as al
 # underneath the consumer just because one key holds the wrong type.
 IU_C17C="$(_iu_consumer withheld-nonobject-workflows)"
 _iu_run "$IU_C17C" >/dev/null
-printf 'name: devflow legacy\non: pull_request\n' > "$IU_C17C/.github/workflows/devflow-review.yml"
+_iu_withheld_file devflow-review > "$IU_C17C/.github/workflows/devflow-review.yml"
 python3 -c '
 import json, sys
 p = sys.argv[1]
