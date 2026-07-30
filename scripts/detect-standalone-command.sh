@@ -38,10 +38,18 @@
 #   command=/prflow:<cmd>|""   the matched CANONICAL command token, or empty.
 #                              Both the `/prflow:` and the transitional `/devflow:`
 #                              namespaces are ACCEPTED on input; the emitted token is
-#                              always the canonical `/prflow:` form, because every
-#                              downstream consumer (devflow.yml's `startsWith` token
-#                              and grounding gates, and the agent-mode prompt) compares
-#                              or dispatches this string.
+#                              always the canonical `/prflow:` form, because the
+#                              consumers that COMPARE this string need one spelling
+#                              (devflow.yml's `startsWith` token and grounding gates,
+#                              and the agent-mode prompt, which dispatches it).
+#                              NOT a claim that every consumer is namespace-agnostic:
+#                              a consumer that PARSES the token still has to accept
+#                              the namespaces the identity declares. The worked case
+#                              is scripts/prepare-harness-floor.sh, which stripped a
+#                              hardcoded `/devflow:` prefix and silently classified
+#                              every canonical token as no-class until it derived the
+#                              accepted set. Adding a consumer of this token means
+#                              checking which of the two it is.
 #   number=<n>|""               the explicit number on the matched line, or empty
 # Matching is case-insensitive (mirrors the pre-anchoring grep -i behavior);
 # the emitted command token is always canonical lowercase.

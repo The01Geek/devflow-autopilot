@@ -44133,9 +44133,45 @@ assert_eq "dispatch-ns: the same surface with the canonical namespace is clean" 
 # this is what keeps plain skill/command references from being swept into the gate.
 assert_eq "dispatch-ns: a non-dispatchable leaf under the alias namespace is not flagged" "rc=0" \
   "$(printf '%s' "$(dns_run "$DNS_ALIAS" some-unrelated-slug)" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+
+# ── The PROMPT-EXTENSION half of the audited population (is_audited's _EXTENSION_RE).
+# Every control above drives a skills/**/SKILL.md surface, and the real-tree tally
+# asserts only `audited > 0` — which the skills population satisfies on its own. So a
+# typo or path-shape regression in _EXTENSION_RE would silently stop auditing
+# .devflow/prompt-extensions/*.md, which ARE dispatch-carrying surfaces, while every
+# assertion here stayed green: the same silent `coverage: "not_verified"` failure this
+# guard exists to prevent, occurring inside the guard itself. Driven with its own
+# fixture surface so the branch has a positive control and a negative twin.
+DNS_EXT_REL='.devflow/prompt-extensions/fixture-ext.md'
+mkdir -p "$DNS_FIXROOT/.devflow/prompt-extensions" 2>/dev/null
+printf '%s\n' "$DNS_EXT_REL" > "$DNS_FIXROOT/ext-list.txt" 2>/dev/null
+dns_run_ext() {  # <namespace> <leaf> -> "rc=<n>|<output>"
+  local out rc
+  printf 'Dispatch %s%s now.\n' "$1" "$2" > "$DNS_FIXROOT/$DNS_EXT_REL" 2>/dev/null
+  out="$(python3 "$DNS_LINT" --root "$DNS_FIXROOT" --files-from "$DNS_FIXROOT/ext-list.txt" 2>&1)"
+  rc=$?
+  printf 'rc=%s|%s' "$rc" "$out"
+}
+DNS_EXT_BAD="$(dns_run_ext "$DNS_ALIAS" code-reviewer)"
+assert_eq "dispatch-ns: a stale-namespace dispatch id in a PROMPT EXTENSION goes red" "nonzero" \
+  "$(case "$DNS_EXT_BAD" in 'rc=0|'*) printf 'ZERO | %s' "$DNS_EXT_BAD" ;; *) printf 'nonzero' ;; esac)"
+assert_eq "dispatch-ns: the prompt-extension diagnosis names the offending id and the remedy" "yes" \
+  "$(printf '%s' "$DNS_EXT_BAD" | grep -qF "${DNS_ALIAS}code-reviewer" \
+     && printf '%s' "$DNS_EXT_BAD" | grep -qF "${DNS_CANON}code-reviewer" \
+     && echo yes || echo no)"
+DNS_EXT_OK="$(dns_run_ext "$DNS_CANON" code-reviewer)"
+assert_eq "dispatch-ns: the same PROMPT EXTENSION with the canonical namespace is clean" "rc=0" \
+  "$(printf '%s' "$DNS_EXT_OK" | sed -n 's/^\(rc=[0-9]*\)|.*/\1/p')"
+# Non-vacuity for the clean arm: rc=0 alone cannot tell "read and accepted" from "never
+# entered the population at all", which is precisely the regression being guarded.
+assert_eq "dispatch-ns: the prompt-extension surface really entered the audited population" "yes" \
+  "$(printf '%s' "$DNS_EXT_OK" | python3 -c 'import re,sys
+m = re.search(r"audited (\d+) prompt", sys.stdin.read())
+print("yes" if m and int(m.group(1)) > 0 else "no")')"
 rm -rf "$DNS_FIXROOT"
 unset DNS_LINT DNS_OUT DNS_RC DNS_FIXROOT DNS_ALIAS DNS_CANON DNS_BAD
-unset -f dns_run
+unset DNS_EXT_REL DNS_EXT_BAD DNS_EXT_OK
+unset -f dns_run dns_run_ext
 
 # ────────────────────────────────────────────────────────────────────────────
 # #834 subagent extension-handoff lint (lib/test/lint-subagent-extension-handoff.py).

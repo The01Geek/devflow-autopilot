@@ -60,7 +60,8 @@ Candidate rule. A section is a candidate when it contains **both**:
     prompt uses to point a child at the skill body it must read and follow). The
     leading `../` is required: a plain `skills/<slug>/SKILL.md` file-path *citation*
     — which peppers the engine's cross-references — is not a dispatch reference; or
-  * an *invoke-a-skill* phrase — a `devflow:<slug>` / `/devflow:<slug>` occurrence
+  * an *invoke-a-skill* phrase — a `<namespace>:<slug>` / `/<namespace>:<slug>`
+    occurrence (the namespace alternation is derived; see `_DEVFLOW_REF`)
     the literal phrase `invoke the` immediately precedes (within
     `_INVOKE_WINDOW` characters, case-insensitive). The phrase (not the bare word
     `invoke`) is required so a cross-reference like "when invoked by `/devflow:x`"
@@ -75,7 +76,7 @@ The complement the candidate rule excludes, and the escape that remains:
   `subagent_type: devflow:code-reviewer`) — an agent definition loads no consumer
   extension, so it is outside the protected set;
 * a dispatch naming a non-DevFlow skill such as `superpowers:writing-skills` — its
-  reference has no `devflow:` prefix and no `skills/<slug>/SKILL.md` path, so it
+  reference carries no declared-namespace prefix and no `skills/<slug>/SKILL.md` path, so it
   never resolves to a `skills/` directory;
 * a section containing a token but no skill reference, or a skill reference but no
   token, or the two in two *different* sections — the conjunction is section-scoped;
@@ -216,7 +217,7 @@ if not _NAMESPACE_ALT:
     )
 _DEVFLOW_REF = re.compile(rf"/?(?:{_NAMESPACE_ALT}):([a-z0-9][a-z0-9-]*)")
 _SKILL_PATH_REF = re.compile(r"\.\./([a-z0-9][a-z0-9-]*)/SKILL\.md")
-#: The invoke-a-skill phrase that must precede a `devflow:<slug>` occurrence, and how
+#: The invoke-a-skill phrase that must precede a `<namespace>:<slug>` occurrence, and how
 #: far back from the occurrence it may sit, for the occurrence to count as a reference.
 _INVOKE_PHRASE = "invoke the"
 _INVOKE_WINDOW = 25
@@ -323,7 +324,7 @@ def _skills_refs(root: Path, content: str) -> set[str]:
     """Return the set of slugs referenced in `content` that resolve under `skills/`.
 
     Only the two dispatch-shaped forms count: an anchor-relative `.../<slug>/SKILL.md`
-    path, and a `devflow:<slug>` the phrase `invoke the` precedes within `_INVOKE_WINDOW`
+    path, and a `<namespace>:<slug>` the phrase `invoke the` precedes within `_INVOKE_WINDOW`
     characters. A bare cross-reference (`see /devflow:review`) is not a reference form.
     """
     slugs: set[str] = set()

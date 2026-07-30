@@ -81,18 +81,41 @@ raise SystemExit(0 if has_figure else 1)
 }
 
 # ── Normalize the command to a class + optional explicit PR number ───────────
-CMD="${COMMAND#/devflow:}"          # strip a leading /devflow: if present
+# The accepted command namespaces are DERIVED from the declared plugin identity, never
+# hardcoded. This consumer reads the gate's RESOLVED command token, and the detector
+# emits that token in the CANONICAL namespace — so a hardcoded prefix stops matching the
+# moment the plugin is renamed. That is not hypothetical: a hardcoded `/devflow:` strip
+# missed every `/prflow:` token after the rename, CLASS fell through the vocabulary case
+# below to "", and the per-class cost floor was recorded with no class at all. Deriving
+# the set keeps a third namespace working too, which two hardcoded literals would not.
+CMD="${COMMAND#/}"                  # drop the leading slash (a bare class has none)
+while IFS= read -r _ns; do
+  case "$_ns" in
+    '') continue ;;
+  esac
+  case "$CMD" in
+    "$_ns":*) CMD="${CMD#"$_ns":}"; break ;;
+  esac
+done <<EOF
+$(python3 "$HERE/../lib/plugin_identity.py" --plugin-names 2>/dev/null || true)
+EOF
 CLASS="${CMD%% *}"                  # first token
 REST="${CMD#"$CLASS"}"; REST="${REST# }"   # trailing args, one leading space dropped
 EXPLICIT_NUM=""
 case "$REST" in
   ''|*[!0-9]*) : ;;                 # no purely-numeric explicit target
-  *) EXPLICIT_NUM="$REST" ;;        # `/devflow:review-and-fix 123` → 123
+  *) EXPLICIT_NUM="$REST" ;;        # `/prflow:review-and-fix 123` → 123
 esac
 # Sanitize the class to the known vocabulary; anything else is "" (no record class).
+# A mismatch is ANNOUNCED here, at the point of classification: the defect this guards
+# is a silent disarm, where a renamed namespace leaves the floor recording an empty
+# class. The downstream dispatch warning only fires on runs that get that far, so a
+# future rename must fail loud HERE rather than depend on reaching it.
 case "$CLASS" in
   review|review-and-fix|pr-description|implement) : ;;
-  *) CLASS="" ;;
+  *)
+    echo "::warning::prepare-harness-floor: command '$COMMAND' did not classify (token '$CLASS' is not one of review|review-and-fix|pr-description|implement); the per-class cost floor will be recorded with NO class. If the plugin command namespace changed, the namespace set derived from lib/plugin_identity.py --plugin-names did not cover it." >&2
+    CLASS="" ;;
 esac
 
 # ── Run the reader over the execution file → cost JSON ───────────────────────
