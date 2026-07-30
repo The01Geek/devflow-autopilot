@@ -59,6 +59,10 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
+    "lib/generate-plugin-identity.py": {
+      "note": "issue #927 name-agnostic plugin identity: compiles the baked discriminator regions",
+      "owner": "unmodularized"
+    },
     "lib/implement-stop-guard.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -82,6 +86,10 @@
     "lib/pattern-state.sh": {
       "note": "issue #788 retrospective issue-closure lifecycle reconciler",
       "owner": "retrospective-lifecycle"
+    },
+    "lib/plugin_identity.py": {
+      "note": "issue #927 name-agnostic plugin identity: the single accepted-identifier reader",
+      "owner": "unmodularized"
     },
     "lib/post-status.sh": {
       "note": "",
@@ -580,6 +588,7 @@
   "non_code_exempt": [
     "lib/capability-profiles.json",
     "lib/intervention-surfaces.md",
+    "lib/plugin-identity.json",
     "lib/review-profile.tokens",
     "lib/subagent-dispatch-sites.json",
     "scripts/devflow-cloud-writer-contract.json",
