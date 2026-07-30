@@ -365,8 +365,12 @@ offer_python3_shim() {
 # which lib/preflight.sh does not guarantee: a value that decides whether a file is
 # overwritten must not be derived through a non-preflight PATH tool. When python3
 # is absent the provenance layer cannot be established at all, so it FAILS SAFE:
-# nothing existing is overwritten, every present artifact reports `unverified`, and
-# the manifest is not written. `unknown` is never collapsed onto `unmodified`.
+# nothing existing is overwritten, every present artifact reports `unreadable` and is
+# preserved with the new version beside it, and the manifest is not written.
+# `unknown` is collapsed onto NOTHING — not onto `unmodified`, and not (the far worse
+# reading, because it destroys) onto `create`. Whether an artifact EXISTS is settled
+# by a bash builtin test in devflow_artifact_action, upstream of python3 entirely, so
+# the absence that licenses a write can never be an artifact of a missing interpreter.
 DEVFLOW_PY=""
 devflow_resolve_python() {
   if [ -n "$DEVFLOW_PY" ]; then return 0; fi
@@ -380,6 +384,18 @@ devflow_resolve_python() {
 # directory digests as the sha256 over its sorted relative-path + per-file-digest
 # pairs, so a renamed, added, or removed file inside a composite action changes the
 # digest exactly like an edited one. Prints the empty string for an absent path.
+#
+# The RETURN CODE is the load-bearing half of this function's contract, and the
+# reason it is not just "prints a digest or prints nothing":
+#   rc 0  the digest was ESTABLISHED. stdout is the 64-char hex digest, or the
+#         empty string when the path does not exist (an established absence).
+#   rc 1  the digest is UNESTABLISHED — no working python3, or the interpreter
+#         errored (an unreadable file, a permission error, one unreadable file
+#         inside a composite-action directory, ENOMEM …).
+# Collapsing rc 1 onto "empty stdout" is what made a python3-less --apply read
+# every existing artifact as absent and `rm -rf`/`cp` over it: `unknown` became
+# `create`, which destroys, and CLAUDE.md's "unknown is not zero" rule exists for
+# exactly this. Callers must branch on the rc, never on emptiness alone.
 DEVFLOW_DIGEST_PY='
 import hashlib, os, sys
 p = sys.argv[1]
@@ -405,8 +421,8 @@ elif os.path.exists(p):
     sys.stdout.write(filedig(p))
 '
 devflow_digest() {
-  devflow_resolve_python || { printf ''; return 0; }
-  "$DEVFLOW_PY" -c "$DEVFLOW_DIGEST_PY" "$1" 2>/dev/null || printf ''
+  devflow_resolve_python || return 1
+  "$DEVFLOW_PY" -c "$DEVFLOW_DIGEST_PY" "$1" 2>/dev/null || return 1
 }
 
 # The recorded digest for one artifact, or the empty string when the manifest is
@@ -442,28 +458,75 @@ devflow_recorded_digest() {
 #   unchanged   already byte-identical to what we would write
 #   update      unmodified since we wrote it -> safe to replace
 #   modified    hand-edited since we wrote it -> PRESERVE
-#   unverified  no provenance on record -> PRESERVE (fail safe)
+#   unverified  present, digestible, but no provenance on record -> PRESERVE
+#   unreadable  present, but its CURRENT bytes could not be digested -> PRESERVE
+#
+# `unverified` and `unreadable` are both fail-safe preserves and differ only in what
+# they tell the consumer, which is the whole point of splitting them: "no recorded
+# digest" is a remedy the consumer can act on (delete the file and re-run to adopt
+# DevFlow's copy), while "the digest could not be computed" points at the host —
+# usually a missing python3, which is a different fix entirely. Reporting the
+# python3-less host as "no recorded digest" would send every Windows/Git-Bash
+# consumer to the wrong remedy.
+#
+# Only `create` and `update` write over the consumer's path, so ABSENCE is the one
+# input that can license destruction — and it is therefore decided by a bash
+# BUILTIN test, never by an empty digest and never by anything downstream of
+# python3. That ordering is the whole fix: `devflow_digest` yields the empty string
+# both for a genuinely absent path AND (before the rc contract above) for a digest
+# it could not compute, so a classifier that inferred absence from emptiness read
+# "no python3 on this host" as "the consumer has none of these files" and clobbered
+# every one of them. A present path whose digest cannot be established is
+# `unverified` — preserved, sidecar written, reported — which is what the header's
+# fail-safe guarantee has always promised.
+#
+# `[ -e ]` follows symlinks, so a DANGLING symlink at $rel is not `-e` while it is
+# very much present on disk; `-L` catches it and routes it to the preserve arm
+# rather than letting `rm -rf`/`cp` replace it.
 devflow_artifact_action() {
-  local rel="$1" srcp="$2" cur new rec
-  cur="$(devflow_digest "$rel")"
-  [ -n "$cur" ] || { printf 'create'; return 0; }
-  new="$(devflow_digest "$srcp")"
+  local rel="$1" srcp="$2" cur new rec rc=0
+  if [ ! -e "$rel" ] && [ ! -L "$rel" ]; then printf 'create'; return 0; fi
+  cur="$(devflow_digest "$rel")" || rc=$?
+  # rc 1 = unestablished; empty stdout on rc 0 = python3 reports the path absent
+  # while the builtin test above says it exists (a dangling symlink, a path that
+  # vanished mid-run, a special file). Both are "cannot be established" for a path
+  # we know is there, and both fail closed to preserve.
+  if [ "$rc" -ne 0 ] || [ -z "$cur" ]; then printf 'unreadable'; return 0; fi
+  # A source digest that cannot be established only costs the `unchanged` fast
+  # path: the classification then rests on $rec, and the sole outcome it can still
+  # reach that writes is `update`, which requires the consumer's bytes to MATCH
+  # their recorded digest — i.e. provably untouched. So this arm cannot destroy a
+  # local edit, and defaulting it to empty is safe rather than a third collapse.
+  new="$(devflow_digest "$srcp")" || new=""
   if [ -n "$new" ] && [ "$cur" = "$new" ]; then printf 'unchanged'; return 0; fi
-  rec="$(devflow_recorded_digest "$rel")"
+  rec="$(devflow_recorded_digest "$rel")" || rec=""
   if [ -z "$rec" ]; then printf 'unverified'; return 0; fi
   if [ "$cur" = "$rec" ]; then printf 'update'; else printf 'modified'; fi
 }
 
 # Install one owned artifact, honoring the classification above. Never overwrites a
-# `modified` / `unverified` artifact: the new bytes go to `<path>.devflow-new` and the
-# consumer is told to merge. Accumulates the artifacts whose digest the manifest should
-# record — a preserved one is deliberately NOT recorded, so the conflict is reported
-# again on every run until the consumer resolves it.
+# `modified` / `unverified` / `unreadable` artifact: the new bytes go to
+# `<path>.devflow-new` and the consumer is told to merge. Accumulates the artifacts
+# whose digest the manifest should record — a preserved one is deliberately NOT
+# recorded, so the conflict is reported again on every run until the consumer
+# resolves it.
 DEVFLOW_RECORD_RELS=""
 install_managed() {
-  local rel="$1" srcp="$2" act parent
+  local rel="$1" srcp="$2" act parent rc=0
   [ -e "$srcp" ] || return 0
-  act="$(devflow_artifact_action "$rel" "$srcp")"
+  act="$(devflow_artifact_action "$rel" "$srcp")" || rc=$?
+  # The classifier is total over the six words today, but a `case` with no default
+  # arm turns any future gap into a SILENT no-op: neither installed nor preserved
+  # nor reported, and a green suite. Route an unexpected (or empty, or non-zero-rc)
+  # classification into a preserve arm, which is the only fail-closed answer.
+  if [ "$rc" -ne 0 ]; then act=unreadable; fi
+  case "$act" in
+    create|unchanged|update|modified|unverified|unreadable) ;;
+    *)
+      log "warning: internal: unrecognized classification '$act' for $rel; treating it as unreadable and preserving what is there."
+      act=unreadable
+      ;;
+  esac
   parent="${rel%/*}"
   case "$act" in
     unchanged)
@@ -476,14 +539,20 @@ install_managed() {
       log "$act: $rel"
       DEVFLOW_RECORD_RELS="$DEVFLOW_RECORD_RELS $rel"
       ;;
-    modified|unverified)
+    modified|unverified|unreadable)
       rm -rf "$rel.devflow-new"
       if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.devflow-new"; else cp "$srcp" "$rel.devflow-new"; fi
-      if [ "$act" = modified ]; then
-        log "PRESERVED (locally modified since DevFlow wrote it): $rel — the new version is at $rel.devflow-new; merge it by hand."
-      else
-        log "PRESERVED (provenance unverified — no recorded digest, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new; merge it by hand, or delete $rel and re-run to take DevFlow's copy."
-      fi
+      case "$act" in
+        modified)
+          log "PRESERVED (locally modified since DevFlow wrote it): $rel — the new version is at $rel.devflow-new; merge it by hand."
+          ;;
+        unverified)
+          log "PRESERVED (provenance unverified — no recorded digest, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new; merge it by hand, or delete $rel and re-run to take DevFlow's copy."
+          ;;
+        *)
+          log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. Nothing here was overwritten. Resolve a working python3 (see docs/install.md) and re-run to get a real comparison."
+          ;;
+      esac
       ;;
   esac
 }
