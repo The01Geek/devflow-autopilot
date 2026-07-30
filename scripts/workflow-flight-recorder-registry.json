@@ -64,8 +64,8 @@
   },
   "workflows": {
     "implement": {
-      "user_commands": ["/devflow:implement", "/implement"],
-      "skill_aliases": ["implement", "devflow:implement"],
+      "user_commands": ["/prflow:implement", "/devflow:implement", "/implement"],
+      "skill_aliases": ["implement", "prflow:implement", "devflow:implement"],
       "subject_kind": "issue",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
       "allowed_parents": [],
@@ -85,8 +85,8 @@
       ]
     },
     "create-issue": {
-      "user_commands": ["/devflow:create-issue", "/create-issue"],
-      "skill_aliases": ["create-issue", "devflow:create-issue"],
+      "user_commands": ["/prflow:create-issue", "/devflow:create-issue", "/create-issue"],
+      "skill_aliases": ["create-issue", "prflow:create-issue", "devflow:create-issue"],
       "subject_kind": "topic",
       "argument_pattern": null,
       "allowed_parents": ["implement"],
@@ -97,8 +97,8 @@
       ]
     },
     "receiving-code-review": {
-      "user_commands": ["/devflow:receiving-code-review"],
-      "skill_aliases": ["receiving-code-review", "devflow:receiving-code-review"],
+      "user_commands": ["/prflow:receiving-code-review", "/devflow:receiving-code-review"],
+      "skill_aliases": ["receiving-code-review", "prflow:receiving-code-review", "devflow:receiving-code-review"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
       "allowed_parents": ["review-and-fix", "implement"],
@@ -108,8 +108,8 @@
       ]
     },
     "review-and-fix": {
-      "user_commands": ["/devflow:review-and-fix", "/review-and-fix"],
-      "skill_aliases": ["review-and-fix", "devflow:review-and-fix"],
+      "user_commands": ["/prflow:review-and-fix", "/devflow:review-and-fix", "/review-and-fix"],
+      "skill_aliases": ["review-and-fix", "prflow:review-and-fix", "devflow:review-and-fix"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
       "allowed_parents": ["implement"],
@@ -125,8 +125,8 @@
       ]
     },
     "review": {
-      "user_commands": ["/devflow:review", "/review"],
-      "skill_aliases": ["review", "devflow:review"],
+      "user_commands": ["/prflow:review", "/devflow:review", "/review"],
+      "skill_aliases": ["review", "prflow:review", "devflow:review"],
       "subject_kind": "pull_request",
       "argument_pattern": "(?:^|\\s)#?(?P<number>[0-9]+)(?:\\s|$)",
       "allowed_parents": ["implement"],
