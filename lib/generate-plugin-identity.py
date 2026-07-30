@@ -96,13 +96,15 @@ def payload_install(ident: dict) -> list[str]:
     match ERE. Superseded = every accepted identifier that is not the canonical
     one, which is exactly what a declared alias means: a name a previous install
     may have written that this one must stop writing. Non-empty exactly when an
-    alias is declared — which it currently is: `lib/plugin-identity.json` carries
-    the throwaway `devflow-alias-probe` that exercises dual-accept, so the baked
-    `DEVFLOW_SUPERSEDED_PLUGIN_SPECS` is non-empty and
-    `devflow_report_superseded_identifiers`'s non-empty gate PASSES and does scan
-    `.claude/settings.json`. The migration report is therefore *effectively*
-    silent — no real consumer registered the probe spec — not a strict no-op, and
-    describing it as one would misstate which code paths run.
+    alias is declared — a property of whatever `lib/plugin-identity.json` carries,
+    never a fixed fact about this function. With the manifest's alias lists empty,
+    as they are in the tree that ships this docstring, the baked
+    `DEVFLOW_SUPERSEDED_PLUGIN_SPECS` is empty and
+    `devflow_report_superseded_identifiers`'s non-empty gate short-circuits, so
+    the migration report is a strict no-op; declare one alias and the gate passes
+    and the scan of `.claude/settings.json` runs. Read the manifest before
+    asserting which of the two holds — the #958 dual-accept probe declared an
+    alias for one release and this claim inverted with it.
 
     Plain assignments, never `${VAR:-...}` — an inherited environment value must
     not be able to widen or narrow what the installer accepts as its own.
