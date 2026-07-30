@@ -2785,16 +2785,20 @@ assert_pin_unique "#312 item 8: Phase 2.3.0b names a doc-enumerated configuratio
 # ---- #754: throwaway-scaffold reuse lines on the three verification/fix-iteration surfaces ----
 # Each asserts its sentence exists on its surface, and each carries the structural-pin-ok
 # declaration the issue #666 gate requires. Their declarations are deliberately NOT uniform:
-# A2 below states the cross-file contract its ledger row records, while A3/A11, A8 and A10 keep
-# the older pre-vocabulary `surface-presence` wording. That is not an oversight — the gate
-# refuses to let those three be corrected (their targets are unresolvable, or their literals sit
-# in a frozen retirement manifest so a touch counts as a revival needing its own
-# authorization), so their text is frozen until issue #956 lands. Do not "unify" them by hand:
-# editing one of the three turns the required gate RED with no valid form available.
+# A2 and A3/A11 state the contract their own ledger rows record, while A8 and A10 keep the older
+# pre-vocabulary `surface-presence` wording. That is not an oversight. A3/A11 became correctable
+# with issue #956, which resolved its concatenated $MAXI_BUNDLE target to the member files the
+# bundle is built from. The other two are blocked by a cause #956 does not reach and deliberately
+# left alone: both literals sit in a frozen retirement manifest, so touching either line counts as
+# a REVIVAL, which needs its own authorization bundle plus a same-branch boundary adjudication
+# change. (A10's $IMPL_SKILL_BUNDLE target is additionally unresolvable — it is assembled by
+# looping over a phase-stem list, a build shape bundle resolution leaves unresolved rather than
+# resolve to a subset of real membership — but the revival contract is the operative blocker.)
+# Do not "unify" those two by hand: editing either turns the required gate RED.
 assert_pin_unique "#754 A2: receiving-code-review carries the rig-reuse principle (repo-agnostic)" \
   'Where your workflow offers no persistent channel, this reuse holds only within a single uninterrupted iteration span' "$ST_RCV"  # structural-pin-ok: cross-file-phase-contract -- the vendored receiving-code-review body carries the rig-reuse principle its consumer relies on
 assert_pin_unique "#754 A3/A11: fixing.md names the two-arm rig-location channel" \
-  'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
+  'the workpad `--note` when implement-driven (`$ISSUE_NUMBER` present), otherwise the run-scoped' "$MAXI_BUNDLE"  # structural-pin-ok: routing-dispatch-contract -- the ledger records the two-arm durable-record routing this sentence keys on the invocation context
 assert_pin_unique "#754 A8: receiving gates reuse on the current code shape" \
   'only after confirming it still exercises the current code shape' "$ST_RCV"  # structural-pin-ok: surface-presence pin (advisory sentence exists; no code regression guarded)
 assert_pin_unique "#754 A10: phase-2 keeps the rig under an already-ignored scratch path" \

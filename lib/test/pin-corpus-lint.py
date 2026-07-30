@@ -153,7 +153,9 @@ import ast
 import bisect
 import csv
 import difflib
+import fnmatch
 import functools
+import glob
 import hashlib
 import importlib.util
 import io
@@ -1332,6 +1334,9 @@ class GuardSite(NamedTuple):
     target_path: str | None
     declaration: StructuralDeclaration | None
     declaration_error: str | None
+    # The resolved member files of a concatenated bundle target, set only when
+    # ``target_path`` is None because the target is a runtime bundle (issue #956).
+    target_members: tuple | None = None
 
 
 class FilePatch(NamedTuple):
@@ -2750,6 +2755,394 @@ def _resolve_guard_target(args, spec, literal_vars, path_vars, lib):
     return None
 
 
+def _guard_target_variable(args, spec):
+    """The bare variable NAME a guard's target argument reads, or None.
+
+    Recovering the name is what lets an UNRESOLVED target still be identified: a
+    bundle variable holds a runtime scratch path, so ``_resolve_guard_target``
+    returns None for it and only the name it was written as remains (issue #956).
+    """
+    _, file_index, default_file = spec
+    if file_index < len(args):
+        return _bundle_variable_name(_token_value(args[file_index]).rstrip(";"))
+    return default_file
+
+
+# ── issue #956: concatenated in-module bundle targets ───────────────────────
+# A content-survival pin may target a bundle its test source CONCATENATES at
+# runtime from several repository files (``$CI_BUNDLE``, ``$MAXI_BUNDLE``): the
+# contract sentence must survive somewhere in a split skill, and which member
+# holds it is an implementation detail the pin deliberately does not fix. That
+# target is a scratch path no static resolution reaches, so every typed
+# declaration on such a pin was refused as uninspectable — and because the gate
+# classifies any site whose lines land in the diff, the whole logical line
+# (declaration text included) became permanently uneditable.
+#
+# Resolving the bundle variable back to the member files its own builder call
+# names gives those pins the SAME inspection the single-file case gets: the
+# declaration is inspected against the member set, and the literal must be
+# present in one of the members. This weakens nothing. Membership is resolved
+# only through the closed grammar below (a builder call, an array built from
+# literal words and/or one for-loop over a path glob with an optional basename
+# skip, and whole-variable aliases of a resolved bundle); anything outside it
+# leaves the bundle unresolved and the pre-existing refusal stands, an empty
+# member set is never treated as inspected, and a literal present in no member
+# is still reported.
+BUNDLE_BUILDERS = frozenset({"_build_skill_bundle", "devflow_module_build_bundle"})
+_BUNDLE_ARRAY_ASSIGN_RE = re.compile(
+    r"^\s*(?:local\s+)?([A-Za-z_]\w*)(\+?)=\(\s*(.*?)\s*\)\s*(?:#.*)?$"
+)
+_BUNDLE_ARRAY_EXPANSION_RE = re.compile(r"^\$\{(\w+)\[@\]\}$")
+_BUNDLE_FOR_RE = re.compile(r"^\s*for\s+([A-Za-z_]\w*)\s+in\s+(.*?)\s*;\s*do\b(.*)$")
+# ``case "${ref##*/}" in a.md|b.md) continue ;; esac`` — the one member filter the
+# grammar models, so a bundle that skips named basenames resolves EXACTLY rather
+# than to a superset of its real membership.
+_BUNDLE_CASE_SKIP_RE = re.compile(
+    r"^case\s+\"?\$\{(\w+)##\*/\}\"?\s+in\s+([^)]+)\)\s*continue\s*;;\s*esac$"
+)
+_BUNDLE_DEFAULT_EXPANSION_RE = re.compile(r"^\$\{(\w+):[-=](.*)\}$")
+_BUNDLE_SUFFIX_EXPANSION_RE = re.compile(r"^\$\{(\w+)%%?([^{}]*)\}$")
+_BUNDLE_GLOB_CHARS = "*?["
+
+
+class BundleMemberSpec(NamedTuple):
+    """One member word of a bundle build: a path, possibly a glob, plus the
+    basename patterns an enclosing loop filter skips."""
+
+    pattern: str
+    exclusions: tuple
+
+
+def _bundle_variable_name(token_value):
+    """The variable name a whole-token reference names (``"$CI_BUNDLE"``), else None."""
+    value = token_value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    match = _VARREF.match(value)
+    return match.group(1) if match else None
+
+
+def _bundle_expansion_path(rhs, lib, path_vars):
+    """Resolve a bundle root variable's right-hand side to a path, or None.
+
+    ``_resolve_path_rhs`` models plain and var-prefixed paths; a bundle's root is
+    additionally written with a default (``${VAR:-fallback}``) or a suffix strip
+    (``${LIB%/lib}``), so those two forms are resolved here. The extension is
+    deliberately LOCAL to bundle resolution rather than added to the shared
+    resolver: widening the shared one would change which targets the whole corpus
+    resolves, a far larger behavior change than issue #956 authorizes.
+    """
+    value = rhs.strip()
+    if len(value) >= 2 and value[0] == '"' and value.endswith('"'):
+        value = value[1:-1]
+    default = _BUNDLE_DEFAULT_EXPANSION_RE.match(value)
+    if default is not None:
+        if default.group(1) in path_vars:
+            return path_vars[default.group(1)]
+        return _bundle_expansion_path(default.group(2), lib, path_vars)
+    suffix = _BUNDLE_SUFFIX_EXPANSION_RE.match(value)
+    if suffix is not None:
+        base = path_vars.get(suffix.group(1))
+        if base is None:
+            return None
+        pattern = suffix.group(2)
+        if any(char in pattern for char in _BUNDLE_GLOB_CHARS):
+            return None  # a pattern suffix is not modeled; fail closed
+        if pattern and base.endswith(pattern):
+            return base[: -len(pattern)]
+        return base
+    return _resolve_path_rhs(value, lib, path_vars)
+
+
+def _extended_path_vars(text, lib):
+    """Sequential path-variable map extended with the two parameter expansions a
+    module's ROOT variable uses, for bundle membership and for the guard-target
+    fallback in ``extract_guard_sites``.
+
+    ``LIB`` is seeded (and protected) because a module reaches its repository root
+    through it (``${LIB%/lib}``) — the same special case the shared inline
+    ``$LIB/rel`` resolution already makes.
+
+    It is a whole-source final-state map, not the per-line view: a name it adds is
+    one the shared per-line resolver could not resolve at ANY line, so the two
+    cannot disagree about a name that resolves on both. A name reassigned between
+    two extended-only values would be read as its last value; no bundle source
+    does that today, and the callers use this map only as a fallback after the
+    per-line view has already failed.
+
+    Memoized on ``(text, lib)`` like the other whole-source parses; a fresh dict is
+    handed out so a caller cannot write through the cached object.
+    """
+    return dict(_extended_path_vars_cached(text, lib))
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _extended_path_vars_cached(text, lib):
+    path_vars = {}
+    if lib:
+        path_vars["LIB"] = lib
+    literal_vars = {}
+    for _, line in join_logical_lines(text):
+        if _BUNDLE_ARRAY_ASSIGN_RE.match(line) is not None:
+            continue  # array assignments are resolved by _bundle_arrays
+        match = _ASSIGNMENT_RE.match(line)
+        if match is None:
+            continue
+        name, rhs = match.group(1), match.group(2).strip()
+        _apply_assignment(
+            name, rhs, path_vars, literal_vars, lib, protected=("LIB",)
+        )
+        if name not in path_vars and name != "LIB":
+            value = _bundle_expansion_path(rhs, lib, path_vars)
+            if value is not None:
+                path_vars[name] = value
+    return path_vars
+
+
+def _bundle_word_specs(words, lib, path_vars):
+    """Resolve a whitespace-separated member word list, or None if any word is
+    unresolvable (fail closed: a partially resolved bundle is not a bundle)."""
+    specs = []
+    for token in tokenize(words.strip()):
+        resolved = resolve_arg(token, {}, path_vars, want_path=True, lib=lib)
+        if resolved is None:
+            return None
+        specs.append(BundleMemberSpec(resolved, ()))
+    return tuple(specs) or None
+
+
+def _bundle_loop_member_specs(loop_var, words, body, lib, path_vars):
+    """Resolve one ``for`` loop's contribution as (appended array names, specs).
+
+    ``specs`` is None when the loop body carries any statement the grammar does
+    not model, so every array it appends to is poisoned rather than silently
+    under-resolved. That direction is load-bearing: run.sh also builds bundles by
+    looping over a STEM list and appending an interpolated path
+    (``_members+=("$LIB/../skills/implement/phases/${_s}.md")``), a shape this
+    grammar does not model — reporting the appended-to array as merely "the words
+    resolved so far" would resolve those bundles to a strict SUBSET of their real
+    membership and let inspection call a literal absent that is really present.
+    """
+    exclusions = []
+    appended = []
+    unmodeled_arrays = []
+    modeled = True
+    for statement in body:
+        if not statement or statement.startswith("#"):
+            continue
+        skip = _BUNDLE_CASE_SKIP_RE.match(statement)
+        if skip is not None and skip.group(1) == loop_var:
+            exclusions.extend(
+                pattern.strip().strip("\"'") for pattern in skip.group(2).split("|")
+            )
+            continue
+        append = _BUNDLE_ARRAY_ASSIGN_RE.match(statement)
+        if append is not None and append.group(2) == "+":
+            if _bundle_variable_name(append.group(3)) == loop_var:
+                appended.append(append.group(1))
+            else:
+                unmodeled_arrays.append(append.group(1))
+            continue
+        modeled = False
+    if not appended and not unmodeled_arrays:
+        return (), None
+    if unmodeled_arrays or not modeled:
+        return tuple(appended) + tuple(unmodeled_arrays), None
+    specs = _bundle_word_specs(words, lib, path_vars)
+    if specs is None:
+        return tuple(appended), None
+    return tuple(appended), tuple(
+        spec._replace(exclusions=tuple(exclusions)) for spec in specs
+    )
+
+
+def _bundle_arrays(text, lib, path_vars):
+    """Return {array name: member specs}, mapping an unmodeled array to None."""
+    lines = list(join_logical_lines(text))
+    arrays = {}
+    index = 0
+    while index < len(lines):
+        line = lines[index][1]
+        loop = _BUNDLE_FOR_RE.match(line)
+        if loop is not None:
+            inline = loop.group(3).strip()
+            if inline:
+                body = [
+                    part.strip()
+                    for part in inline.split(";")
+                    if part.strip() and part.strip() != "done"
+                ]
+                index += 1
+            else:
+                body = []
+                index += 1
+                while index < len(lines) and lines[index][1].strip() != "done":
+                    body.append(lines[index][1].strip())
+                    index += 1
+                index += 1  # consume the `done`
+            names, specs = _bundle_loop_member_specs(
+                loop.group(1), loop.group(2), body, lib, path_vars
+            )
+            if line[:1] in {" ", "\t"}:
+                specs = None  # a nested loop's reachability is not modeled
+            for name in names:
+                if specs is None or arrays.get(name, ()) is None:
+                    arrays[name] = None
+                else:
+                    arrays[name] = arrays.get(name, ()) + specs
+            continue
+        assign = _BUNDLE_ARRAY_ASSIGN_RE.match(line)
+        if assign is not None:
+            name, append, words = assign.group(1), assign.group(2), assign.group(3)
+            # An INDENTED assignment outside a modeled loop sits inside some other
+            # compound (a function, an `if`, a `while read` loop) whose reachability
+            # this grammar does not model, so it is treated as unresolvable rather
+            # than as an unconditional member (fail closed).
+            specs = (
+                _bundle_word_specs(words, lib, path_vars)
+                if line[:1] not in {" ", "\t"}
+                else None
+            )
+            if append != "+" or name not in arrays:
+                arrays[name] = specs
+            elif arrays[name] is None or specs is None:
+                arrays[name] = None
+            else:
+                arrays[name] = arrays[name] + specs
+        index += 1
+    return arrays
+
+
+def _expand_bundle_specs(specs):
+    """Expand member specs to member file paths, or None when a glob member matched
+    nothing (an empty or partial member set must never read as inspected)."""
+    members = []
+    for spec in specs:
+        if not any(char in spec.pattern for char in _BUNDLE_GLOB_CHARS):
+            members.append(spec.pattern)
+            continue
+        # The pattern is a closed non-recursive single-directory one taken verbatim
+        # from the bundle's own builder call — no recursion and no `**`. It mirrors
+        # the shell glob the bundle is really assembled from, which is why the
+        # worktree, not the index, is the right population here.
+        candidates = glob.glob(spec.pattern)  # tree-walk-ok: closed non-recursive builder-call pattern, mirroring the shell glob that assembles the bundle
+        matched = sorted(path for path in candidates if os.path.isfile(path))
+        if spec.exclusions:
+            matched = [
+                path
+                for path in matched
+                if not any(
+                    fnmatch.fnmatch(os.path.basename(path), pattern)
+                    for pattern in spec.exclusions
+                )
+            ]
+        if not matched:
+            return None
+        members.extend(matched)
+    resolved = []
+    for member in members:
+        absolute = os.path.abspath(member)
+        if absolute not in resolved:
+            resolved.append(absolute)
+    return tuple(resolved) or None
+
+
+def _bundle_call_members(args, arrays, lib, path_vars):
+    """Resolve a builder call's member arguments to member specs, or None."""
+    specs = []
+    for token in args:
+        raw = _token_value(token)
+        expansion = _BUNDLE_ARRAY_EXPANSION_RE.match(raw.strip().strip("\"'"))
+        if expansion is not None:
+            array = arrays.get(expansion.group(1))
+            if array is None:
+                return None
+            specs.extend(array)
+            continue
+        resolved = _bundle_word_specs(raw, lib, path_vars)
+        if resolved is None:
+            return None
+        specs.extend(resolved)
+    return tuple(specs) or None
+
+
+def resolve_bundle_targets(text, lib):
+    """Map each bundle variable in ``text`` to the repository files its build
+    concatenates (issue #956).
+
+    The PARSE is memoized on the presented bytes; the glob EXPANSION deliberately
+    is not, so no memo in this module captures filesystem state — the property
+    ``lib/test/test_pin_corpus_lint.py``'s sharding docstring states and its
+    ``MemoizedParseContractTests`` pin. Expansion is a handful of single-directory
+    globs, so repeating it per call costs far less than the parse it replaces.
+    A name whose glob matched nothing is dropped here rather than reported as an
+    empty member set.
+    """
+    resolved = {}
+    for name, specs in _bundle_target_specs(text, lib):
+        members = _expand_bundle_specs(specs)
+        if members is not None:
+            resolved[name] = members
+    return resolved
+
+
+@functools.lru_cache(maxsize=_IMAGE_PARSE_CACHE_SIZE)
+def _bundle_target_specs(text, lib):
+    """Parse bundle membership once per source, as unexpanded member specs.
+
+    A name is dropped — leaving its pins with the pre-existing refusal — when the
+    build is unresolvable, when two builds target the same name, or when the name
+    is reassigned after being built: the map is read for every site in the source,
+    and an ambiguous name cannot answer per line.
+    """
+    path_vars = _extended_path_vars(text, lib)
+    arrays = _bundle_arrays(text, lib, path_vars)
+    bundles = {}
+    ambiguous = set()
+    for _, line in join_logical_lines(text):
+        stripped = line.lstrip()
+        # Tokenizing is the expensive step on a source this size, so it runs only
+        # for a line that could name a builder at all.
+        tokens = (
+            tokenize(stripped)
+            if stripped
+            and not stripped.startswith("#")
+            and any(builder in stripped for builder in BUNDLE_BUILDERS)
+            else None
+        )
+        if tokens and _token_value(tokens[0]) in BUNDLE_BUILDERS:
+            if len(tokens) < 3:
+                continue
+            name = _bundle_variable_name(_token_value(tokens[2]))
+            if name is None:
+                continue
+            if name in bundles or name in ambiguous or line[:1] in {" ", "\t"}:
+                # A second build of the same name, or one inside an unmodeled
+                # compound, leaves the name ambiguous.
+                ambiguous.add(name)
+                bundles.pop(name, None)
+                continue
+            specs = _bundle_call_members(tokens[3:], arrays, lib, path_vars)
+            if specs is None:
+                ambiguous.add(name)
+                continue
+            bundles[name] = specs
+            continue
+        assign = _ASSIGNMENT_RE.match(line)
+        if assign is None:
+            continue
+        name = assign.group(1)
+        alias = _bundle_variable_name(assign.group(2).strip())
+        if alias is not None and alias in bundles:
+            if name not in ambiguous:
+                bundles[name] = bundles[alias]
+            continue
+        if name in bundles:
+            ambiguous.add(name)
+            bundles.pop(name)
+    return tuple(bundles.items())
+
+
 def _markdown_excluded_line_indices(text):
     """0-based indices of Markdown lines inside a properly closed fenced block.
 
@@ -2835,10 +3228,26 @@ def _markdown_prose_literal_lineno(text, literal):
     return fallback
 
 
+def _site_inspection_targets(site, repo_root):
+    """The file(s) a site's boundary is inspected against, as absolute paths.
+
+    Either the one statically resolved target, or — for a concatenated bundle
+    target (issue #956) — the resolved member files, in build order. An empty
+    tuple means the target could not be established at all.
+    """
+    if site.target_path is not None:
+        target = Path(site.target_path)
+        if not target.is_absolute():
+            target = Path(repo_root) / target
+        return (target,)
+    return tuple(Path(member) for member in site.target_members or ())
+
+
 def _literal_prose_resolution(site, repo_root, target_loader=None):
     """Return ``(relative_target, 1-based line)`` where ``site.literal`` resolves
-    into prose of its statically resolved target, or ``None`` when it does not
-    (not prose, unreadable, absent, or an unresolved target/literal).
+    into prose of its statically resolved target — or of the first bundle member
+    that resolves it (issue #956) — and ``None`` when it does not (not prose,
+    unreadable, absent, or an unresolved target/literal).
 
     The conservative issue-810 prose boundary: a heading, a whitespace-bearing
     visible Markdown phrase, or hash-comment text is prose; a standalone
@@ -2848,23 +3257,31 @@ def _literal_prose_resolution(site, repo_root, target_loader=None):
     weighed exactly as a static-helper or raw-``grep`` one, so routing a prose
     pin through ``pin_count`` no longer skips the question.
     """
-    if site.literal is None or site.target_path is None:
+    if site.literal is None:
         return None
-    target = Path(site.target_path)
-    if not target.is_absolute():
-        target = Path(repo_root) / target
+    for target in _site_inspection_targets(site, repo_root):
+        resolution = _literal_prose_in_target(
+            target, site.literal, repo_root, target_loader
+        )
+        if resolution is not None:
+            return resolution
+    return None
+
+
+def _literal_prose_in_target(target, literal, repo_root, target_loader):
+    """The per-file half of ``_literal_prose_resolution``, applied to one file."""
     ext = target.suffix.lower()
     text, error = _read_typed_target(target, target_loader)
-    if error is not None or site.literal not in text:
+    if error is not None or literal not in text:
         return None
     if ext in COMMENT_MD_EXTS:
-        if not _markdown_literal_is_prose(text, site.literal):
+        if not _markdown_literal_is_prose(text, literal):
             return None
-        lineno = _markdown_prose_literal_lineno(text, site.literal)
+        lineno = _markdown_prose_literal_lineno(text, literal)
     elif ext in COMMENT_HASH_EXTS:
         lineno = None
         for candidate_lineno, comment in hash_comment_regions(text.splitlines()):
-            if site.literal in comment:
+            if literal in comment:
                 lineno = candidate_lineno
                 break
         if lineno is None:
@@ -2891,33 +3308,41 @@ def _read_typed_target(target, target_loader):
 
 
 def _typed_pin_inspection_error(site, repo_root, target_loader=None):
-    """Return why a typed declaration's target boundary cannot be inspected."""
+    """Return why a typed declaration's target boundary cannot be inspected.
+
+    A bundle target is inspected against its whole member SET (issue #956): every
+    member must be inside the repository and readable, and the literal must be
+    present in at least one of them — the same two questions the single-file case
+    asks, with membership standing in for the one file.
+    """
     if site.declaration is None or site.declaration_error is not None:
         return None
     if not site.literal:
         return "typed structural declaration literal cannot be inspected"
-    if site.target_path is None:
+    targets = _site_inspection_targets(site, repo_root)
+    if not targets:
         return "typed structural declaration target cannot be inspected"
-    target = Path(site.target_path)
-    if not target.is_absolute():
-        target = Path(repo_root) / target
-    try:
-        root_path = os.path.abspath(repo_root)
-        target_path = os.path.abspath(target)
-        if os.path.commonpath((root_path, target_path)) != root_path:
+    literal_present = False
+    for target in targets:
+        try:
+            root_path = os.path.abspath(repo_root)
+            target_path = os.path.abspath(target)
+            if os.path.commonpath((root_path, target_path)) != root_path:
+                return (
+                    "typed structural declaration target cannot be inspected "
+                    "(outside repository)"
+                )
+        except ValueError:
+            return "typed structural declaration target cannot be inspected"
+        target_text, error = _read_typed_target(target, target_loader)
+        if error is not None:
             return (
                 "typed structural declaration target cannot be inspected "
-                "(outside repository)"
+                f"({error})"
             )
-    except ValueError:
-        return "typed structural declaration target cannot be inspected"
-    target_text, error = _read_typed_target(target, target_loader)
-    if error is not None:
-        return (
-            "typed structural declaration target cannot be inspected "
-            f"({error})"
-        )
-    if site.literal not in target_text:
+        if site.literal in target_text:
+            literal_present = True
+    if not literal_present:
         return (
             "typed structural declaration literal cannot be inspected "
             "(absent from target)"
@@ -3080,6 +3505,8 @@ def _raw_guard_site(
     lineno,
     line_end,
     lines,
+    bundle_targets=None,
+    extended_path_vars=None,
 ):
     """Resolve one syntactically executable raw presence match."""
     target_token = match.group("target")
@@ -3094,6 +3521,13 @@ def _raw_guard_site(
     target = path_vars.get(var_name) if var_name else None
     if target is None:
         target = _resolve_inline_var_path(target_token, lib, path_vars)
+    if target is None and extended_path_vars:
+        # The same extended-expansion fallback the helper path takes (issue #956),
+        # applied before the scratch-name carve-out below so that carve-out keeps
+        # firing only for a path that is otherwise unresolvable.
+        target = extended_path_vars.get(var_name) if var_name else None
+        if target is None:
+            target = _resolve_inline_var_path(target_token, lib, extended_path_vars)
     if target is None and "$" not in target_token:
         target = (
             target_token
@@ -3118,6 +3552,11 @@ def _raw_guard_site(
         and re.match(r"^(?:TMP|TEMP)(?:_|$)", var_name)
     ):
         return None
+    members = None
+    if target is None and var_name and bundle_targets:
+        # A raw `grep -qF … "$CI_BUNDLE"` reads the same concatenated bundle a
+        # helper pin does, so it resolves through the same member map (issue #956).
+        members = bundle_targets.get(var_name)
     target_abs = os.path.abspath(target) if target is not None else None
     if target_abs is not None:
         try:
@@ -3149,6 +3588,7 @@ def _raw_guard_site(
         target_abs,
         declaration,
         error,
+        members,
     )
 
 
@@ -3198,6 +3638,8 @@ def extract_guard_sites(text, source_path, repo_root):
         if name in wrapper_origins
     }
     maps_by_line = variable_maps_by_line(text, lib, {})
+    bundle_targets = resolve_bundle_targets(text, lib)
+    extended_path_vars = _extended_path_vars(text, lib)
     physical = text.splitlines()
     sites = []
     for lineno, logical_line, toks in tokenized_lines:
@@ -3229,6 +3671,18 @@ def extract_guard_sites(text, source_path, repo_root):
             target = _resolve_guard_target(
                 args, spec, literal_vars, path_vars, lib
             )
+            members = None
+            if target is None:
+                target_variable = _guard_target_variable(args, spec)
+                if target_variable is not None:
+                    members = bundle_targets.get(target_variable)
+                if members is None:
+                    # Not a bundle: retry the single target under the extended
+                    # expansions, so a pin anchored on a module root written
+                    # ``${OVERRIDE:-${LIB%/lib}}`` is inspectable too (issue #956).
+                    target = _resolve_guard_target(
+                        args, spec, literal_vars, extended_path_vars, lib
+                    )
             declaration, error = parse_structural_declaration(lines)
             sites.append(
                 GuardSite(
@@ -3241,6 +3695,7 @@ def extract_guard_sites(text, source_path, repo_root):
                     target,
                     declaration,
                     error,
+                    members,
                 )
             )
             continue
@@ -3314,6 +3769,8 @@ def extract_guard_sites(text, source_path, repo_root):
                 lineno=lineno,
                 line_end=_line_end(lineno, logical_line),
                 lines=lines,
+                bundle_targets=bundle_targets,
+                extended_path_vars=extended_path_vars,
             )
             if site is not None:
                 sites.append(site)
@@ -3441,6 +3898,7 @@ def scan_changed_sources(
                     old_site.helper,
                     old_site.literal,
                     old_site.target_path,
+                    old_site.target_members,
                     old_site.declaration,
                     old_site.declaration_error,
                 )
@@ -3449,6 +3907,7 @@ def scan_changed_sources(
                     new_site.helper,
                     new_site.literal,
                     new_site.target_path,
+                    new_site.target_members,
                     new_site.declaration,
                     new_site.declaration_error,
                 )

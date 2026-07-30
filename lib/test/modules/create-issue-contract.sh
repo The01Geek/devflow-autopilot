@@ -448,21 +448,21 @@ devflow_module_pin_unique "#600/#709: the auditor is told to invoke render-audit
 # breaks no behavioral guarantee the suite otherwise proves — it removes the skill-side
 # instruction that makes the gate reachable, which is a prose-presence property.
 devflow_module_pin_unique "#709: the dispatch prompt is a generated pointer, not freehand prose" \
-  'the Agent-tool prompt string is a **generated pointer**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+  'the Agent-tool prompt string is a **generated pointer**' "$CI_BUNDLE"  # structural-pin-ok: generated-artifact-identity -- the ledger records this dispatch prompt as generator output rather than freehand text
 devflow_module_pin_unique "#709: the skill invokes the dispatch-instructions generator" \
-  'render-audit-prompt.py dispatch-instructions --slug' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+  'render-audit-prompt.py dispatch-instructions --slug' "$CI_BUNDLE"  # structural-pin-ok: routing-dispatch-contract -- the ledger names the generator invocation the skill must reach at dispatch
 devflow_module_pin_unique "#709: the closed regeneration inputs are forwarded at dispatch" \
-  '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+  '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: routing-dispatch-contract -- the ledger names the closed regeneration-input set forwarded at dispatch
 devflow_module_pin_unique "#709: withhold-then-disclose never blocks filing" \
-  '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+  '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: lifecycle-state-transition -- the ledger keeps this integrity boundary: no lifecycle arm may gate creation
 # The out-of-bounds declaration is PRESERVED by the cutover, not superseded by it — the narrow
 # scope is the whole point, so pin that it survived rather than trusting the diff review to have
 # noticed its absence. (#885 retired the companion information-diet pin: that rule is prose no
 # tool reads, so its preservation now rests on the review pass rather than on a pin.)
 devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declaration" \
-  'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
+  'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: cross-file-phase-contract -- the ledger keeps the audit artifact boundary the cutover had to preserve across the split surfaces
 devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
-  'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
+  'audit independence unestablished' "$CI_ROOT/skills/create-issue/references/step-4-present-create.md"  # structural-pin-ok: machine-sentinel-provenance -- the ledger keeps the exact steering marker Step 4 renders on the summary line
 
 # ── issue #803: the create-issue final-byte prose ↔ issue-audit-state.py registry ─
 # Per-contract determination for issue #792's six agent-executed prose contracts
@@ -541,11 +541,11 @@ assert_eq "#803 negative control: the exit-2 rejection came from the argparse di
 # behavioral guarantee the suite otherwise proves — it removes the skill-side instruction
 # that makes the cheap path conforming, a prose-presence property.
 devflow_module_pin_unique "#768: the instruction write uses a shell redirect in the bash fence" \
-  'to the instruction path with a shell redirect in the bash fence itself' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+  'to the instruction path with a shell redirect in the bash fence itself' "$CI_BUNDLE"  # structural-pin-ok: helper-contract -- the ledger names the writer interface between the fence and the generator
 devflow_module_pin_unique "#768: the redirect truncates the target before the generator runs" \
-  'The redirect truncates the target before the generator runs' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+  'The redirect truncates the target before the generator runs' "$CI_BUNDLE"  # structural-pin-ok: helper-contract -- the ledger names the truncation half of that same writer interface
 devflow_module_pin_unique "#768: the landed check is exit-zero plus a non-empty file" \
-  'The write has landed when the generator exits zero and the file at the instruction path is non-empty' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the transport is proven by ias_instructions()
+  'The write has landed when the generator exits zero and the file at the instruction path is non-empty' "$CI_BUNDLE"  # structural-pin-ok: helper-contract -- the ledger names the delivery test that closes that writer interface
 # issue #795: the two #768 pins that stood over the standalone read-back extraction are
 # DELETED, not re-worded. That extraction is gone — the generator now emits the
 # `dispatch-pointer:` line on its own stderr — so their literals describe a fence the skill
@@ -560,7 +560,7 @@ devflow_module_pin_unique "#768: the landed check is exit-zero plus a non-empty 
 # stdout is byte-unchanged, and an earlier draft of this comment claimed it did — the
 # load-bearing half of a pin-deletion justification must describe assertions that exist.)
 devflow_module_pin_unique "#768: record-dispatch output names dispatch_regeneration" \
-  'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the field is printed by issue-audit-state.py
+  'dispatch_regeneration=<verified|diverged|unverified>' "$CI_BUNDLE"  # structural-pin-ok: helper-contract -- the ledger names this field of the state owner's record-dispatch output
 
 devflow_module_pin_unique "#600: SKILL states the positional two-marker delivery check" \
   'first line begins `render-status:`' "$CI_BUNDLE"
@@ -1369,17 +1369,16 @@ unset -f ci749_field
 # module — so a revert to the hardcoded internal-docs location, or one
 # dropping the Steps-1-and-2 read, is caught by the review pass over the SKILL prose, not here.
 #
-# READ THIS BEFORE TOUCHING THE CALL BELOW. Its trailing declaration still says "the behavioral
-# read is pinned by the two rows below"; that is stale (#885 retired those rows) and it is
-# deliberately left stale, because the declaration CANNOT be corrected. The #810 gate classifies
-# a site whose physical lines are in the diff's added set, so any edit to those two lines pulls
-# this site into scope — and it then fails on `typed structural declaration target cannot be
-# inspected` ($CI_DV is a concatenated in-module bundle the lint cannot resolve) as well as on
-# the category, which predates #885 and is not one of the eight legal ones. Editing the marker
-# text therefore turns the required gate RED with no valid form available. This paragraph is the
-# correction; the marker is frozen until the target becomes inspectable.
+# The declaration below was the site #948 recorded as permanently frozen: its category predated
+# the eight-name vocabulary, and its stale trailing text ("the behavioral read is pinned by the
+# two rows below" — #885 retired those rows) could not be corrected, because the #810 gate
+# classifies a site whose physical lines land in the diff's added set and this one then failed on
+# `typed structural declaration target cannot be inspected` as well as on the category, leaving no
+# valid form to edit into. Issue #956 resolved the target — $CI_DV is a single skill surface
+# reached through the module's `${…:-${LIB%/lib}}` root — so the declaration now states the
+# boundary its own ledger row records and the line is maintainable like any other.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
-  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: grammar-declaration presence; the behavioral read is pinned by the two rows below
+  'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: helper-contract -- the ledger records this argument grammar as the caller/parser interface the dispatcher composes calls against
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it

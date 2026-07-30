@@ -205,10 +205,15 @@ auditable — `lib/test/pin-corpus-adjudications.tsv`, surfaced per row in the c
 and not as several hundred uncoupled copies in source comments, so retrofitting a marker
 onto the standing population is still not the ask. Two cases the ladder does **not**
 reach: a pin whose declared target the lint cannot resolve at all
-(`typed structural declaration target cannot be inspected` — e.g. a concatenated
-in-module bundle) is still unfixable, and a *retired* wording literal's revival keeps its
-own stronger contract below. Touch a retained pin's lines only when you are prepared to
-answer the gate for it.
+(`typed structural declaration target cannot be inspected`) is still unfixable, and a
+*retired* wording literal's revival keeps its own stronger contract below. A
+**concatenated in-module bundle** target is no longer one of those unresolvable cases
+(issue #956): the lint resolves the bundle variable to the member files its own builder
+call concatenates and inspects the declaration against that member set, so such a pin is
+editable like any other. What still cannot be resolved — an unmodeled build shape, an
+ambiguous bundle name, an empty glob expansion, an unreadable member — keeps the refusal,
+and a literal present in no member is still reported absent. Touch a retained pin's lines
+only when you are prepared to answer the gate for it.
 
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
