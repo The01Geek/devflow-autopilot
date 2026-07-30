@@ -3322,6 +3322,75 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
                 rc, stdout, stderr = self._public_rc(root)
                 self.assertEqual(expected_rc, rc, stdout + stderr)
 
+    def test_an_untracked_consumer_is_not_in_the_step_one_corpus(self):
+        # The issue-#711 invariant at the production boundary: step 1's population
+        # is an index-reading `git ls-files` with NO `--others`, so a consumer that
+        # exists in the worktree but was never `git add`ed is not in the corpus and
+        # its pin routes to step 2 (undeclared here, so a finding). The committed
+        # variant of this exact fixture exits 0 in
+        # test_step_one_consumer_passes_the_public_worktree_ladder, which is what
+        # makes rc 3 here attributable to the missing index entry alone — a
+        # regression to `--others` would silently widen the corpus and go green.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            consumer = root / "scripts/read-fixture-token.sh"
+            consumer.write_text(
+                '#!/usr/bin/env bash\ngrep -qF "STATIC_PIN_FIXTURE=1" "$1"\n',
+                encoding="utf-8",
+            )
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'consumed pin' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(3, rc, stdout + stderr)
+            self.assertIn("MUTATION-ROUTING", stdout)
+
+    def test_an_unreadable_consumer_is_skipped_with_a_breadcrumb(self):
+        # load_machine_consumer_sources' unreadable / non-UTF-8 branch. This path
+        # fails TOWARD step 2 rather than to rc 2, so a regression letting the
+        # decode error propagate — or "recovering" by decoding with a lenient
+        # codec — would not be caught by any rc-2 assertion. The fixture consumer
+        # holds the pinned literal in bytes and is tracked, so:
+        #   * skipped correctly  -> not in the corpus -> step 2 -> rc 3 + breadcrumb
+        #   * decoded leniently  -> passes step 1     -> rc 0
+        #   * error propagates   -> neither
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._repo(root)
+            subprocess.run(["git", "switch", "-qc", "topic"], cwd=root, check=True)
+            consumer = root / "scripts/read-fixture-token.sh"
+            consumer.write_bytes(
+                b'#!/usr/bin/env bash\ngrep -qF "STATIC_PIN_FIXTURE=1" "$1"\n\xff\xfe\n'
+            )
+            subprocess.run(
+                ["git", "add", "scripts/read-fixture-token.sh"], cwd=root, check=True
+            )
+            subprocess.run(
+                ["git", "commit", "-qm", "add undecodable consumer"],
+                cwd=root,
+                check=True,
+            )
+            source = root / "lib/test/run.sh"
+            source.write_text(
+                source.read_text(encoding="utf-8")
+                + "\nassert_pin_unique 'consumed pin' 'STATIC_PIN_FIXTURE=1' "
+                + "\"$LIB/test/static-pin-fixture.sh\"\n",
+                encoding="utf-8",
+            )
+            rc, stdout, stderr = self._public_rc(root)
+            self.assertEqual(3, rc, stdout + stderr)
+            self.assertIn("MUTATION-ROUTING", stdout)
+            self.assertIn("MUTATION-ROUTING-CONSUMER-CORPUS-SKIPPED", stderr)
+            self.assertIn(
+                "scripts/read-fixture-token.sh: UnicodeDecodeError", stderr
+            )
+
     def test_unreadable_ledger_is_infrastructure_not_a_step_two_pass(self):
         # The fail-closed control for step 2 at the production boundary: a ledger
         # the gate cannot read is an infrastructure failure (rc 2), never an
@@ -4338,6 +4407,46 @@ class PinRoutingLadder948Tests(unittest.TestCase):
             }
             self.assertEqual([], self._scan(root, source, consumer_sources=consumer))
 
+    def test_step_one_token_match_is_boundary_anchored(self):
+        # Makes the `(?<![\w-])…(?![\w-])` anchoring a GUARANTEE rather than an
+        # incidental property: step 1 widens deliberately (a single distinctive
+        # token anywhere in a consumer's operative text passes), so the one thing
+        # bounding its false positives is that the token must stand alone. A
+        # consumer whose only mention of the token is buried inside a larger
+        # identifier is not a program reading the pinned literal. Every case
+        # below embeds the fixture literal's sole distinctive token,
+        # `--verdict-threshold`, with a `[\w-]` neighbour on one side or both.
+        for body in (
+            'FLAG="--verdict-thresholds"\n',  # trailing word char
+            'FLAG="--verdict-threshold-value"\n',  # trailing hyphen
+            'FLAG="x--verdict-threshold"\n',  # leading word char
+            'FLAG="legacy---verdict-threshold"\n',  # leading hyphen
+            'FLAG="pre--verdict-thresholdpost"\n',  # both sides
+        ):
+            with self.subTest(body=body), tempfile.TemporaryDirectory() as td:
+                root, source = self._fixture(td)
+                findings = self._scan(
+                    root,
+                    source,
+                    consumer_sources={"scripts/derive-verdict.sh": body},
+                )
+                self.assertEqual(1, len(findings), body)
+                self.assertIn("no program consumer reads it", findings[0])
+        # Positive control on the same token, so the rows above are attributable
+        # to the anchoring and not to some unrelated reason the corpus was empty.
+        with tempfile.TemporaryDirectory() as td:
+            root, source = self._fixture(td)
+            self.assertEqual(
+                [],
+                self._scan(
+                    root,
+                    source,
+                    consumer_sources={
+                        "scripts/derive-verdict.sh": 'FLAG="--verdict-threshold"\n'
+                    },
+                ),
+            )
+
     def test_step_one_ignores_a_common_word_in_an_unrelated_file(self):
         # The negative control for the token rule. This literal carries no
         # machine-identifier-shaped token: "configuration" and "documentation"
@@ -4505,8 +4614,8 @@ class PinRoutingLadder948Tests(unittest.TestCase):
 
     def test_an_invalid_category_is_a_finding_ahead_of_the_whole_ladder(self):
         # Arm ORDER: declaration grammar is decided BEFORE routing, so neither a
-        # program consumer nor a boundary row routes around a malformed tag. The
-        # ~35 standing pins on a pre-vocabulary category therefore stay findings
+        # program consumer nor a boundary row routes around a malformed tag. A
+        # standing pin on a pre-vocabulary category therefore stays a finding
         # (fixing them is issue-948-out-of-scope follow-up work).
         for marker in (
             self.INVALID_MARKER,
