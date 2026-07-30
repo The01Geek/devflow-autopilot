@@ -34,6 +34,17 @@ is already checked by a command a row here runs — the coverage guard's `[arm8]
 covers the flight-recorder registry. A row of its own could only re-report what
 `coverage-map-ratchet` already reports.
 
+ROW ORDER is a maintenance obligation, not decoration. Rows run in the order listed and
+no row re-runs, so a row whose generator READS a file an earlier row WRITES must be
+ordered after it. Today that constraint binds nothing: the only writing row
+(`cloud-writer-manifest`) pins a closure of `skills/**` / `scripts/**` assets and the
+required helper sources, and no other row's generator writes any of them — in particular
+the identity generator's four baked regions (`install.sh` and three siblings) are NOT in
+that pinned set, so regenerating them cannot stale the manifest and the two rows are
+genuinely independent. Adding a row whose output feeds another row's input means placing
+it above that row here; nothing verifies the placement, because rows declare their
+outputs and not their inputs.
+
 WRITE SCOPE: the only file under the target root this helper writes is
 `scripts/devflow-cloud-writer-contract.json` (the mechanical row's output). Every
 judgment row runs a non-writing check and never writes its artifact.
@@ -157,6 +168,71 @@ ROWS = (
             "target workflow unreadable:",
             "target workflow file absent:",
             "reviewer security boundary lock unreadable:",
+        ),
+    },
+    {
+        "name": "plugin-identity-regions",
+        "kind": "judgment",
+        "argv": ("python3", "lib/generate-plugin-identity.py", "--check"),
+        "clean": (0,),
+        # (0, 1) deliberately, though the generator also returns 2: an unreadable or
+        # malformed identity SOURCE (`lib/plugin-identity.json` /
+        # `.claude-plugin/plugin.json`) exits 2, and leaving 2 outside the declared set
+        # is what routes it to the infrastructure state instead of a judgment item
+        # telling the agent to regenerate from the very file the generator could not
+        # read. Widening this set to (0, 1, 2) would convert that fail-closed into a
+        # misdirected remedy.
+        "exits": (0, 1),
+        "policy": (
+            "reconcile lib/plugin-identity.json + .claude-plugin/plugin.json first, then "
+            "rewrite the baked regions with `python3 lib/generate-plugin-identity.py`"
+        ),
+        # regenerate, not reconcile-source: unlike the capability row, this generator has
+        # no by-hand sibling lock, and each region is a pure function of the identity
+        # source — so re-running the writer against the merged tree IS the answer, and the
+        # policy above names a runnable WRITE command as a `regenerate` row must.
+        "conflict_class": "regenerate",
+        # The three generated regions this row uniquely owns, named statically rather than
+        # imported from the generator's own REGIONS table (the technique the capability row
+        # uses). REGIONS carries a FOURTH file — `.github/workflows/devflow-runner.yml`,
+        # which also holds a capability-profile region — and `emit_list` requires every
+        # conflict path to resolve to exactly one row, so sourcing REGIONS wholesale would
+        # raise the duplicate-claim error and take the whole listing to exit 2.
+        # DISCLOSED RESIDUAL, not an oversight: a conflict landing in the identity region of
+        # `devflow-runner.yml` still matches the capability row and is handed that row's
+        # `reconcile-source` recipe, which names the capability manifest and not this
+        # generator. That recipe is the stricter procedure and does not corrupt the file,
+        # but it is silent about re-running this writer. Routing one path to two classes is
+        # the fail-open the uniqueness rule exists to close, so the shared file keeps its
+        # single existing owner and the residual is recorded here rather than papered over.
+        "conflict_paths": (
+            ".github/actions/vendor-plugin/vendor-slice.sh",
+            "install.sh",
+            "scripts/resolve-extra-plugins.sh",
+        ),
+        # The same discriminator the other judgment rows carry, and every entry is a
+        # measured exit-1 emission of THIS generator, not a guess:
+        #   * `banner(s); expected exactly 1` — a region file whose begin banner was lost
+        #     or duplicated (a bad merge, a hand-edit). `locate()` fails closed and the
+        #     generator cannot rewrite a region it cannot find.
+        #   * `after its begin banner` — the matching end marker is gone; same cause.
+        #   * a traceback — a region FILE is absent entirely, which surfaces as an
+        #     uncaught FileNotFoundError from `path.read_text` and so exits 1 with no
+        #     diagnostic of the generator's own.
+        # None of the three is repaired by running the generator, so reporting them as
+        # judgment items would aim the remedy at the wrong file while the real fault
+        # (a broken region, a missing file) stayed invisible.
+        # Deliberately EXCLUDED: `baked identity region(s) differ from`, which is the
+        # genuine drift this row exists to surface — matching it would hide the finding.
+        # Also excluded, because they are unreachable from this CLI rather than merely
+        # unlikely: the identifier-shape and single-quote SystemExits inside the payload
+        # builders. `plugin_identity.load()` applies the same character contract first and
+        # exits 2, so those two arms are defense in depth for a hand-built identity dict
+        # and no CLI input reaches them at exit 1.
+        "infra_markers": (
+            "banner(s); expected exactly 1",
+            "after its begin banner",
+            "Traceback (most recent call last)",
         ),
     },
     {
