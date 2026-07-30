@@ -132,9 +132,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.3/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.5/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.26.3 bash devflow-install.sh
+DEVFLOW_REF=v2.26.5 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -153,8 +153,8 @@ Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devfl
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.3/install.sh \
-  | DEVFLOW_REF=v2.26.3 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/devflow-autopilot/v2.26.5/install.sh \
+  | DEVFLOW_REF=v2.26.5 bash
 ```
 
 </details>
