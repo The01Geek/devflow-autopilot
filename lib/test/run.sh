@@ -3424,7 +3424,7 @@ assert_eq "#167 critic: critic PROCEDURE (independent-enumeration clause) is NOT
   "0" "$(pin_count 're-enumerate that population by a signal OTHER than the' "$MAXI_SKILL")"
 # The re-sweep retains its existing comment-analyzer dispatch.
 assert_pin_unique "#167 re-sweep: re-dispatches the existing comment-analyzer agent" \
-  'Re-dispatch `prflow:comment-analyzer`' "$MAXI_SKILL"
+  'Re-dispatch `prflow:comment-analyzer`' "$MAXI_SKILL"  # structural-pin-ok: routing-dispatch-contract -- the fix-loop re-sweep dispatches this plugin-qualified subagent id; subagent dispatch has no allowlist to fall back on, so a stale namespace here dead-ends the dispatch at runtime
 # ── issue #769: the Phase 0.5 signal contract (engine_self_modifying is checklist-only;
 # small_diff scales no part of the roster). Sited beside the detect_all_audit row pins above.
 # This targets phase-0-setup.md directly so the unchanged profile-table row
@@ -28431,8 +28431,8 @@ assert_eq "#139 agents/code-architect.md exists (vendored first-party)" \
 # in the subagent_type or a renamed agent `name:` frontmatter would pass (1) and (2) yet
 # dead-end the dispatch at runtime; this assertion catches that.
 for fdagent in code-explorer code-architect; do
-  assert_eq "#139 implement skill dispatches ${SUITE_AGENT_NS}$fdagent (rewired call-site present)" \
-    "yes" "$(grep -qF "subagent_type: ${SUITE_AGENT_NS}$fdagent" "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin; issue #218: bundle (the agent dispatches moved to phases/phase-2-implement.md)
+  assert_eq "#139 implement skill dispatches prflow:$fdagent (rewired call-site present)" \
+    "yes" "$(grep -qF "subagent_type: prflow:$fdagent" "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $fdagent loop variable, not a static pin; issue #218: bundle (the agent dispatches moved to phases/phase-2-implement.md)
   assert_eq "#139 agents/$fdagent.md frontmatter declares name: $fdagent (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $fdagent\$" "$FDROOT/agents/$fdagent.md" && echo yes || echo no)"
   # (2c) Agent-validity structural markers: `name:` resolving alone does not prove the
@@ -28614,15 +28614,15 @@ for a in $PRT_AGENTS; do
   # unverified-assumption trap. The header form appears exactly once per agent (its
   # dispatch block), so this tracks the dispatch, not any mention. (Twin of the #139
   # `subagent_type: devflow:$fdagent` pin, adapted to this engine's bold-header convention.)
-  assert_eq "#141 review engine dispatches ${SUITE_AGENT_NS}$a via its **${SUITE_AGENT_NS}$a** prompt block (load-bearing call-site present)" \
-    "yes" "$(grep -qF "**${SUITE_AGENT_NS}$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
+  assert_eq "#141 review engine dispatches prflow:$a via its **prflow:$a** prompt block (load-bearing call-site present)" \
+    "yes" "$(grep -qF "**prflow:$a**" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin
   # Peer-completeness (AC3 names BOTH skills): the fix-loop skill carries the same roster
   # in its phase3_dispatched / shadow-roster / reviewers_dispatched examples, and (1)'s
   # negative scan only catches a leftover OLD id — not a DROPPED devflow: id. Pin it
   # positively so a future edit that desyncs review-and-fix's example roster from the
   # engine's actual dispatch set turns this row red instead of shipping silently.
-  assert_eq "#141 fix-loop skill references ${SUITE_AGENT_NS}$a (review-and-fix roster rewired)" \
-    "yes" "$(grep -qF "${SUITE_AGENT_NS}$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
+  assert_eq "#141 fix-loop skill references prflow:$a (review-and-fix roster rewired)" \
+    "yes" "$(grep -qF "prflow:$a" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: loop body: literal interpolates the $a loop variable, not a static pin. #539 review (Suggestion): scan the whole root+references bundle so roster prose migrating into a reference stays covered.
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
@@ -28860,7 +28860,7 @@ done
 # key; receiving-code-review: the fix-loop applies its principles. (writing-skills has no call-
 # site here — it is external; its CLAUDE.md reference is pinned in (1c).)
 assert_eq "#142 review engine dispatches the canonical /requesting-code-review skill (final-pass call-site rewired)" \
-  "yes" "$(grep -qF "/${SUITE_AGENT_NS}requesting-code-review" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
+  "yes" "$(grep -qF "/prflow:requesting-code-review" "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/prflow:requesting-code-review' appears twice in the target SKILL
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
   "yes" "$(rro_allowlisted "devflow:requesting-code-review")"
 # Negative control: the allowlist is still CLOSED - an id it never declared is refused,
@@ -28870,7 +28870,7 @@ assert_eq "#142 resolver's allowlist stays closed (an undeclared id is refused)"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies the canonical receiving-code-review principles (call-site rewired)" \
-  "yes" "$(grep -qF "${SUITE_AGENT_NS}receiving-code-review" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'devflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
+  "yes" "$(grep -qF "prflow:receiving-code-review" "$MAXI_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: 'prflow:receiving-code-review' appears more than once in the root+references bundle (#539 review Suggestion: bundle, not thin root)
 
 # ── #506 prompt-surface edit routing evidence gate ───────────────────────────
 # Repo policy (extension-not-engine): editing a prompt-surface file (SKILL.md, an implement
