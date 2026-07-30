@@ -70,9 +70,17 @@ def del_token(root, name, token):
     edit_wf(root, name, t)
 
 
+# Both banner mutators anchor on the CAPABILITY banner prefix, not on a bare
+# `sha256=`: a workflow can carry more than one generated-region banner family
+# (lib/generate-plugin-identity.py stamps its own), and an unanchored match would
+# corrupt the wrong family's banner — leaving the capability generator perfectly
+# happy and the planted-defect control silently vacuous.
+CAP_BANNER = r"# devflow-capability-manifest:[^\n]*?"
+
+
 def flip_banner_hex(root, name):
     def t(text):
-        m = re.search(r"(sha256=)([0-9a-f])([0-9a-f]{63})", text)
+        m = re.search(CAP_BANNER + r"(sha256=)([0-9a-f])([0-9a-f]{63})", text)
         if not m:
             return text
         flipped = "0" if m.group(2) != "0" else "1"
@@ -85,7 +93,9 @@ def truncate_banner_hex(root, name):
     # Drop one hex digit → 63-char sha, so the line keeps the banner prefix+region
     # but is no longer a valid banner (malformed).
     def t(text):
-        return re.sub(r"(sha256=[0-9a-f]{63})[0-9a-f]", r"\1", text, count=1)
+        return re.sub(
+            r"(" + CAP_BANNER + r"sha256=[0-9a-f]{63})[0-9a-f]", r"\1", text, count=1
+        )
 
     edit_wf(root, name, t)
 

@@ -22265,13 +22265,15 @@ while IFS= read -r _f; do
   if [ "$(grep -c '^[[:space:]]*# devflow-plugin-identity:end$' "$P927_ROOT/$_f" || true)" != "1" ]; then
     P927_BAD_REGION=$((P927_BAD_REGION+1)); continue
   fi
-  # …and its payload must actually name EVERY accepted plugin name. A region
-  # that resolved to a file but baked an empty/partial alternation would satisfy
-  # every structural check above while accepting nothing.
+  P927_BODY="$(awk '/# devflow-plugin-identity:begin /{f=1;next} /# devflow-plugin-identity:end$/{f=0} f' "$P927_ROOT/$_f")"
+  if [ -z "$P927_BODY" ]; then P927_BAD_REGION=$((P927_BAD_REGION+1)); continue; fi
+  # …and its payload — the lines BETWEEN the markers, not the file at large —
+  # must actually name EVERY accepted plugin name. A region that resolved to a
+  # file but baked an empty or partial identifier set would satisfy every
+  # structural check above while accepting nothing.
   while IFS= read -r _n; do
     [ -n "$_n" ] || continue
-    grep -q "DEVFLOW_PLUGIN_NAME_ERE.*[\"(|]${_n}[\")|]" "$P927_ROOT/$_f" \
-      || P927_BAD_REGION=$((P927_BAD_REGION+1))
+    printf '%s' "$P927_BODY" | grep -qF "$_n" || P927_BAD_REGION=$((P927_BAD_REGION+1))
   done <<< "$(python3 "$P927_READER" --plugin-names 2>/dev/null || true)"
 done <<< "$P927_REGION_FILES"
 assert_eq "#927 G3: every generator region is a tracked file carrying one banner pair and every accepted name" "0" \
@@ -22313,9 +22315,11 @@ p927_root() {
   local d; d="$(mktemp -d)"
   mkdir -p "$d/lib" "$d/.claude-plugin" "$d/.github/actions/vendor-plugin" "$d/.github/workflows"
   cp "$P927_ROOT/lib/plugin_identity.py" "$P927_ROOT/lib/generate-plugin-identity.py" \
-     "$P927_ROOT/lib/plugin-identity.json" "$d/lib/"
+     "$P927_ROOT/lib/plugin-identity.json" "$P927_ROOT/lib/resolve-jq.sh" \
+     "$P927_ROOT/lib/resolve-bin.sh" "$d/lib/"
   cp "$P927_ROOT/.claude-plugin/plugin.json" "$d/.claude-plugin/"
   cp "$P927_ROOT/install.sh" "$d/"
+  cp -R "$P927_ROOT/scripts" "$d/scripts"
   cp "$P927_ROOT/.github/actions/vendor-plugin/vendor-slice.sh" "$d/.github/actions/vendor-plugin/"
   cp "$P927_ROOT/.github/workflows/devflow-runner.yml" "$d/.github/workflows/"
   printf '%s' "$d"
@@ -22375,11 +22379,12 @@ json.dump(d, open(p, "w"))
 assert_eq "#927 G6: an added alias makes the baked regions stale until regenerated" "1" "$(p927_check "$P927_D4")"
 python3 "$P927_D4/lib/generate-plugin-identity.py" >/dev/null 2>&1 || true
 assert_eq "#927 G6: regenerating after the alias restores --check" "0" "$(p927_check "$P927_D4")"
-P927_ALIAS_SITES=0
-for _f in install.sh .github/actions/vendor-plugin/vendor-slice.sh .github/workflows/devflow-runner.yml; do
-  grep -q 'DEVFLOW_PLUGIN_NAME_ERE.*p927alias' "$P927_D4/$_f" && P927_ALIAS_SITES=$((P927_ALIAS_SITES+1))
-done
-assert_eq "#927 G6: the declared alias reached all three baked discriminator sites" "3" "$P927_ALIAS_SITES"
+P927_ALIAS_MISSES=0
+while IFS= read -r _f; do
+  [ -n "$_f" ] || continue
+  grep -q 'p927alias' "$P927_D4/$_f" || P927_ALIAS_MISSES=$((P927_ALIAS_MISSES+1))
+done <<< "$P927_REGION_FILES"
+assert_eq "#927 G6: the declared alias reached EVERY generated region (none missed)" "0" "$P927_ALIAS_MISSES"
 # Behavioral: run the generated ERE against real manifest bytes.
 P927_ERE="$(python3 "$P927_D4/lib/plugin_identity.py" --plugin-name-ere 2>/dev/null || true)"
 P927_FIX="$(mktemp -d)"
@@ -22403,21 +22408,17 @@ json.dump(d, open(p, "w"))
 ' "$P927_D5"
 assert_eq "#927 G6: an ERE-metacharacter alias is refused (never widens the discriminator)" "2" "$(p927_check "$P927_D5")"
 
-unset P927_ROOT P927_GEN P927_READER P927_MAN_NAME P927_MKT_NAME P927_CHECK_RC
-unset P927_REGION_FILES P927_REGION_COUNT P927_BAD_REGION P927_STRAY
-unset P927_D1 P927_D2 P927_D3 P927_D4 P927_D5 P927_ALIAS_SITES P927_ERE P927_FIX
-unset -f p927_root p927_check p927_match
+unset P927_GEN P927_MAN_NAME P927_MKT_NAME P927_CHECK_RC
+unset P927_REGION_FILES P927_REGION_COUNT P927_BAD_REGION P927_BODY P927_STRAY
+unset P927_D1 P927_D2 P927_D3 P927_D4 P927_D5 P927_ALIAS_MISSES P927_ERE P927_FIX
+unset P927_CANON_SPEC P927_MKT_ALT P927_SPEC_BAD P927_SPEC_OK
+unset -f p927_check p927_match
 
 # ── identity: the runtime-derived consumers ──────────────────────────────────
 # The three helpers that CAN read the identity source at runtime do, and their
 # accepted sets widen with a declared alias without any of them being re-edited.
 # Driven over a temp plugin root exactly like the block above.
-PIDR="$(mktemp -d)"
-mkdir -p "$PIDR/lib" "$PIDR/.claude-plugin"
-cp "$LIB/../lib/plugin_identity.py" "$LIB/../lib/plugin-identity.json" \
-   "$LIB/../lib/resolve-jq.sh" "$LIB/../lib/resolve-bin.sh" "$PIDR/lib/"
-cp "$LIB/../.claude-plugin/plugin.json" "$PIDR/.claude-plugin/"
-cp -R "$LIB/../scripts" "$PIDR/scripts"
+PIDR="$(p927_root)"
 python3 -c '
 import json, sys
 p = sys.argv[1] + "/lib/plugin-identity.json"
@@ -22426,6 +22427,9 @@ d["plugin_aliases"] = ["pidalias"]
 d["marketplace_aliases"] = ["pidalias-marketplace"]
 json.dump(d, open(p, "w"))
 ' "$PIDR"
+# Regenerate so the BAKED regions in the copied surfaces carry the alias too — the
+# whole point is that a declared alias reaches every consumer without a hand edit.
+python3 "$PIDR/lib/generate-plugin-identity.py" >/dev/null 2>&1 || true
 
 # resolve-review-overrides.py — the closed agent_overrides allowlist accepts the
 # alias namespace and still rejects an unrelated one (it is a CLOSED list: the
@@ -22503,7 +22507,8 @@ assert_eq "identity: provisioning fails closed (exit 2) when the identity source
 assert_eq "identity: the fail-closed provisioning run left the settings file byte-for-byte unchanged" '{"a":1}' \
   "$(cat "$PIDF/.claude/settings.json")"
 
-unset PIDR PIDS PIDP PIDF PIDBROKEN PIDF_RC
+unset PIDR PIDS PIDP PIDF PIDBROKEN PIDF_RC P927_ROOT P927_READER
+unset -f p927_root
 unset -f pid_unknown pid_have
 
 # ── #402: deny-floor helper — direct adversarial-matrix drive ────────────────
@@ -23444,7 +23449,7 @@ assert_eq "#458 workflow: harden self-copy line present" "1" \
 # immediately preceding the self-copy `git show` must be the plugin.json-name
 # discriminator. This is a static positional adjacency check.
 assert_eq "#460 workflow: harden self-copy is gated by the plugin.json-name discriminator on the preceding line" "1" \
-  "$(grep -B1 -F 'raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+  "$(grep -B1 -F 'raw=$(git show "FETCH_HEAD:scripts/harden-stop-hooks.sh"' "$RUNNER" | grep -c 'grep -Eq "\$DEVFLOW_PLUGIN_NAME_ERE"' || true)"
 
 # ── #460 review (FP1): consumer relevance gate — harden ONLY when the TRUSTED base
 # .claude/settings.json wires these Stop hooks. devflow-runner.yml ships to consumers,
@@ -23680,12 +23685,17 @@ assert_eq "#409 item10: jq mirror still strips a real parameterized file tool (W
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   TOOLS_STEP=$(mktemp)
   python3 - "$RUNNER" >"$TOOLS_STEP" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+# Reproduce the workflow-level env: an extracted `run:` body that reads a
+# workflow env var would otherwise run with it UNSET here — the harness would
+# silently diverge from the real step it claims to be the unit surface for.
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("id") == "tools" and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("tools step not found")
 PY
@@ -23955,12 +23965,15 @@ PY
   # pre-#402), so the extracted-step harness is its unit surface.
   BP_STEP=$(mktemp)
   python3 - "$RUNNER" >"$BP_STEP" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+# Reproduce the workflow-level env (see the tools-step extractor's note).
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("id") == "baseprovision" and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("baseprovision step not found")
 PY
@@ -24076,12 +24089,15 @@ PY
   # SPECIFIC message, and the output.
   BV_STEP=$(mktemp)
   python3 - "$RUNNER" >"$BV_STEP" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+# Reproduce the workflow-level env (see the tools-step extractor's note).
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("id") == "baseversion" and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("baseversion step not found")
 PY
@@ -24205,12 +24221,15 @@ PY
   # test observes which rank ran, the arm ORDERING, and the argv count.
   BPL_STEP=$(mktemp)
   python3 - "$RUNNER" >"$BPL_STEP" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+# Reproduce the workflow-level env (see the tools-step extractor's note).
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("id") == "baseprovision" and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\nset -euo pipefail\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("baseprovision step not found")
 PY
@@ -24815,7 +24834,7 @@ assert_eq "#874 workflow: the single-producer HARDENED_PATHS binding is gone" "0
 assert_eq "#874 workflow: the materialization helper is resolved from FETCH_HEAD (trusted base ref)" "1" \
   "$(grep -cF 'FETCH_HEAD:.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh' "$RUNNER" || true)"
 assert_eq "#874 workflow: the self-copy rank is gated by the plugin.json-name discriminator on the preceding line" "1" \
-  "$(grep -B1 -F 'git show "FETCH_HEAD:scripts/materialize-trusted-prompt-extensions.sh"' "$RUNNER" | grep -c 'grep -Eq .*"devflow"' || true)"
+  "$(grep -B1 -F 'git show "FETCH_HEAD:scripts/materialize-trusted-prompt-extensions.sh"' "$RUNNER" | grep -c 'grep -Eq "\$DEVFLOW_PLUGIN_NAME_ERE"' || true)"
 assert_eq "#874 workflow: a no-trusted-source arm warns and leaves the closure empty" "1" \
   "$(grep -c 'no TRUSTED source resolved for materialize-trusted-prompt-extensions.sh' "$RUNNER" || true)"
 
@@ -28436,6 +28455,18 @@ assert_eq "#141 no operative surface references the namespaced pr-review-toolkit
 # allowlists the devflow: id; and the frontmatter is well-formed. Like the #139 feature-dev
 # agents, these now carry an explicit `tools:` allowlist (they no longer inherit every tool);
 # 2c asserts model:, and the tool-boundary block below owns the `tools:` contract.
+# The resolver's allowlist is DERIVED (accepted plugin namespaces x agent leaves),
+# so a source-presence grep for the literal id would guard nothing. Resolve it
+# through the real module instead: import the resolver and ask whether the id is in
+# the allowlist it actually built.
+rro_allowlisted() {  # $1 = full agent id -> yes|no
+  python3 -c '
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("rro", sys.argv[1])
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print("yes" if sys.argv[2] in m.KNOWN_AGENTS else "no")
+' "$FDROOT/scripts/resolve-review-overrides.py" "$1" 2>/dev/null || echo "no"
+}
 for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md exists (vendored first-party)" \
     "yes" "$([ -f "$FDROOT/agents/$a.md" ] && echo yes || echo no)"
@@ -28459,7 +28490,7 @@ for a in $PRT_AGENTS; do
   assert_eq "#141 agents/$a.md frontmatter declares name: $a (dispatch target resolves)" \
     "yes" "$(grep -qE "^name: $a\$" "$FDROOT/agents/$a.md" && echo yes || echo no)"
   assert_eq "#141 resolver allowlists devflow:$a (override key resolves)" \
-    "yes" "$(grep -qF "\"devflow:$a\"" "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+    "yes" "$(rro_allowlisted "devflow:$a")"
   # Structural markers (open + close ---, model:) within the head window — bounded to
   # head -30 so a body horizontal-rule cannot inflate the closing-fence count and mask a
   # dropped closer. The `tools:` key is asserted by the tool-boundary block below, which owns
@@ -28695,7 +28726,11 @@ done
 assert_eq "#142 review engine dispatches /devflow:requesting-code-review (final-pass call-site rewired)" \
   "yes" "$(grep -qF '/devflow:requesting-code-review' "$REVIEW_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: non-unique: '/devflow:requesting-code-review' appears twice in the target SKILL
 assert_eq "#142 resolver allowlists devflow:requesting-code-review (override key resolves)" \
-  "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/scripts/resolve-review-overrides.py" && echo yes || echo no)"
+  "yes" "$(rro_allowlisted "devflow:requesting-code-review")"
+# Negative control: the allowlist is still CLOSED - an id it never declared is refused,
+# so the rows above are attributable to the roster, not to a check that accepts anything.
+assert_eq "#142 resolver's allowlist stays closed (an undeclared id is refused)" \
+  "no" "$(rro_allowlisted "devflow:not-a-real-agent")"
 assert_eq "#142 config schema declares the devflow:requesting-code-review override key" \
   "yes" "$(grep -qF '"devflow:requesting-code-review"' "$FDROOT/.devflow/config.schema.json" && echo yes || echo no)"
 assert_eq "#142 fix-loop skill applies devflow:receiving-code-review principles (call-site rewired)" \
@@ -32490,12 +32525,14 @@ assert_eq "#268 wiring: resume body cannot trip the self-trigger guard (no workp
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   SB268_RUN=$(mktemp)
   python3 - "$WF268" >"$SB268_RUN" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("name") == "Stall backstop" and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("Stall backstop step not found")
 PY
@@ -41075,12 +41112,14 @@ assert_eq "#505 AC review: materialized-but-vanished settings file fails closed 
 if command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
   _505_extract() {  # $1=workflow file  $2=step id → extracted run: script on stdout
     python3 - "$1" "$2" <<'PY'
-import sys, yaml
+import shlex, sys, yaml
 doc = yaml.safe_load(open(sys.argv[1]))
+prelude = "".join("export %s=%s\n" % (k, shlex.quote(str(v)))
+                  for k, v in (doc.get("env") or {}).items())
 for job in doc["jobs"].values():
     for s in job.get("steps", []):
         if s.get("id") == sys.argv[2] and "run" in s:
-            sys.stdout.write("#!/usr/bin/env bash\n" + s["run"])
+            sys.stdout.write("#!/usr/bin/env bash\n" + prelude + s["run"])
             raise SystemExit
 raise SystemExit("step %s not found in %s" % (sys.argv[2], sys.argv[1]))
 PY

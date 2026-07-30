@@ -27,6 +27,13 @@ for a structural reason -- not for convenience:
   install.sh
       Runs curl-piped with no repository, and inspects a FOREIGN stale tree.
 
+  scripts/resolve-extra-plugins.sh
+      The review tier materializes this helper from the trusted base ref as a
+      LONE FILE in a flat `$RUNNER_TEMP` directory (never as part of a plugin
+      tree), so it has no sibling `lib/` to read and must carry its own sets.
+      Not a security boundary — it is the compose skip set — but the deployment
+      shape is the same, so the same mechanism applies.
+
 So those three carry a GENERATED region, banner-stamped with the identity
 version and a sha256 of the payload. `--check` (wired into lib/test/run.sh)
 turns any drift between `lib/plugin-identity.json` + the manifest and the baked
@@ -75,6 +82,26 @@ def payload_yaml_env(ident: dict) -> list[str]:
     return [f"DEVFLOW_PLUGIN_NAME_ERE: '{ere}'"]
 
 
+def payload_identity_sets(ident: dict) -> list[str]:
+    """Shell: the accepted identifier sets as space-separated lists, for a
+    helper that hands them to an interpreter rather than to `grep -E`.
+
+    Space-separated (not newline-separated) so each region line stays one line —
+    the region reader and writer are line-based, and an embedded newline would
+    make a freshly generated region never compare equal to itself."""
+    for group in (ident["plugin_names"], ident["marketplace_names"]):
+        for name in group:
+            if not name.replace("-", "").replace("_", "").isalnum() or not name.isascii():
+                raise SystemExit(
+                    f"plugin-identity: accepted identifier {name!r} is outside [A-Za-z0-9_-]; "
+                    "it cannot be baked into a space-separated list"
+                )
+    return [
+        "DEVFLOW_PLUGIN_NAMES='" + " ".join(ident["plugin_names"]) + "'",
+        "DEVFLOW_MARKETPLACE_NAMES='" + " ".join(ident["marketplace_names"]) + "'",
+    ]
+
+
 REGIONS = [
     {
         "id": "vendor-slice",
@@ -90,6 +117,11 @@ REGIONS = [
         "id": "runner-env",
         "file": ".github/workflows/devflow-runner.yml",
         "payload": payload_yaml_env,
+    },
+    {
+        "id": "resolve-extra-plugins",
+        "file": "scripts/resolve-extra-plugins.sh",
+        "payload": payload_identity_sets,
     },
 ]
 
