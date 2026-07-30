@@ -450,9 +450,9 @@ devflow_module_pin_unique "#709: the closed regeneration inputs are forwarded at
   '--instructions-file "<instructions path>" --instructions-draft-path' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
 devflow_module_pin_unique "#709: withhold-then-disclose never blocks filing" \
   '**Filing is never blocked on any arm.**' "$CI_BUNDLE"  # structural-pin-ok: contract-presence over skill prose; the behavioral gate is proven by the #709 state-owner rows
-# The Information-diet omission rule and the out-of-bounds declaration are PRESERVED by the
-# cutover, not superseded by it — the narrow scope is the whole point, so pin that they
-# survived rather than trusting the diff review to have noticed their absence.
+# The out-of-bounds declaration is PRESERVED by the cutover, not superseded by it — the narrow
+# scope is the whole point, so pin that it survived rather than trusting the diff review to have
+# noticed its absence.
 devflow_module_pin_unique "#709: the cutover preserved the out-of-bounds declaration" \
   'reasoning artifacts out of bounds' "$CI_BUNDLE"  # structural-pin-ok: preservation pin over prose the #709 cutover must not remove
 devflow_module_pin_unique "#709: Step 4 renders the steering marker on the audit-summary line" \
@@ -636,9 +636,6 @@ devflow_module_pin_unique "#600: template owns the amended two-transport read-or
 devflow_module_pin_unique "#546: the quoted object ID is forwarded verbatim and the tool's classification obeyed" \
   '**Forward that quoted object ID verbatim to `record-return --carriage-object-id <the ID the auditor quoted>` and obey the classification the tool returns.**' \
   "$CI_BUNDLE"
-# The write-time-vs-re-hash RATIONALE survives in prose (as the "why" behind a tool behavior that
-# IS driven by py #546 carriage_evidence_rows). Pinned as a surface, not a mutation: the
-# mechanism is the tool's, so this sentence documents rather than decides.
 # Forward-don't-compare (the embed arm) — the exact mirror, plus the half the tool cannot own:
 # the orchestrator must bracket the body with the tokens the TOOL generated. Choosing its own
 # tokens would compare against a value the tool never recorded, which the tool would then read
@@ -1241,9 +1238,9 @@ for _ci614_ref in $CI614_REFS; do
     "$(grep -F "references/$_ci614_ref.md\` |" "$CI_SKILL" | grep -cF "\`step=$_ci614_id\`")"
 done
 
-# T6 — every routing row states a degraded behavior, and the root ships the degrade rule
-# itself as artifact content. The behavioral evidence for the entry gate is the recorded
-# trace in the PR (AC3); these pins assert the table the run reads is present and total.
+# T6 — every routing row states a degraded behavior. The behavioral evidence for the entry
+# gate is the recorded trace in the PR (AC3); this check asserts the table the run reads is
+# present and total.
 # Totality: the table has one row per reference and every row carries a non-empty
 # degraded-behavior cell. A row whose last cell were blank would read as routed-and-covered
 # while naming no fallback at all.
