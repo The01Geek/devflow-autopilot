@@ -112,7 +112,7 @@ fi
 # First explicit `/devflow:implement <n>` (optional leading #) wins; otherwise
 # fall back to the issue/PR the event is attached to.
 match="$(printf '%s' "$text" \
-  | grep -oiE '/devflow:implement[[:space:]]+#?[0-9]+' | head -n1 || true)"
+  | grep -oiE '/(pr|dev)flow:implement[[:space:]]+#?[0-9]+' | head -n1 || true)"
 number="$(printf '%s' "$match" | grep -oE '[0-9]+' | head -n1 || true)"
 [ -z "$number" ] && number="$context_number"
 

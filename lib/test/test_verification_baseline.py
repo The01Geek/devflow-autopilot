@@ -255,7 +255,16 @@ class RegistryAndCensusTests(_TmpDirTestCase):
     def test_registry_has_review_and_cloud_mappings(self) -> None:
         reg = wfr.load_registry(REGISTRY)
         self.assertIn("review", reg)
-        self.assertEqual(reg["review"].user_commands, ("/devflow:review", "/review"))
+        # The recorder matches a user command by EXACT membership, so this stays an
+        # exact-tuple pin rather than a containment check. Both namespaced forms are
+        # required and neither is redundant: the canonical one is what a live run
+        # emits after the plugin rename, and the alias one is what every already-
+        # recorded transcript carries — dropping either silently stops the recorder
+        # matching that population, with no error and no missing-workflow signal.
+        self.assertEqual(
+            reg["review"].user_commands,
+            ("/prflow:review", "/devflow:review", "/review"),
+        )
         cm = load_cloud_mappings(REGISTRY)
         self.assertTrue(any("\x1fclaude" in k for k in cm))
         self.assertEqual(cm[".github/workflows/devflow-implement.yml\x1fclaude"]["consumer"], "implement")

@@ -1,6 +1,6 @@
-# DevFlow repo — operative policy for `/devflow:review`
+# DevFlow repo — operative policy for `/prflow:review`
 
-This repository is the DevFlow plugin itself. The base `/devflow:review` engine gates stand
+This repository is the DevFlow plugin itself. The base `/prflow:review` engine gates stand
 unchanged — this extension **adds** one repo-specific review-gate criterion (the prompt-surface
 edit routing evidence gate) that the standalone review must enforce. It is the byte-identical
 twin of the same criterion in `.devflow/prompt-extensions/review-and-fix.md`; each skill loads
@@ -36,8 +36,8 @@ trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/impl
 A diff touching none of them draws no finding.
 
 **Enforcement surfaces.** The gate is enforced on: an implement run's **Phase 3** (which holds
-its own issue number), a **`/devflow:review-and-fix` run given a PR**, and **PR-mode standalone
-`/devflow:review`**. A no-PR, no-issue **current-branch** run — standalone review's branch mode
+its own issue number), a **`/prflow:review-and-fix` run given a PR**, and **PR-mode standalone
+`/prflow:review`**. A no-PR, no-issue **current-branch** run — standalone review's branch mode
 and review-and-fix's current-branch mode alike — is **outside the gate's scope** (there is no
 issue workpad or PR body to read), so the gate is a no-op there.
 
@@ -63,7 +63,7 @@ all read as absent).
 
 ## Verification-evidence marker advisory (tier-scoped, non-blocking)
 
-DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/devflow:implement`, `/devflow:review-and-fix`, and direct-reception passes record (per `.devflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
+DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.devflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
 
 **Input population (stated explicitly).** The clause reads the two durable per-PR surfaces the `Verification evidence:` marker is recorded on — the **linked issue's workpad** and the **PR description** — the same surfaces the `Writing-skills evidence:` gate already fetches (the workpad via `lib/fetch-pr-context.sh` from the linked issue thread; no new fetch channel is required). The marker is recorded on the **local/interactive tier only** (cloud runs verify in-env under issue #405 and carry no capture obligation), so the clause must classify each PR by tier and act only on local/interactive ones — otherwise it is a guard that reads as armed and can never fire.
 
@@ -74,6 +74,6 @@ DevFlow-repo policy: a second marker gate on the **same shared review-engine sur
 1. On a cloud-classified PR (a workpad carrying `gha:` checkpoints) the clause is silent and emits no finding.
 2. On a local/interactive-classified PR that carries a completion/PR-ready claim, the clause checks the workpad and the PR description for the `Verification evidence:` marker literal. When the marker is present on either surface the clause is silent. When the marker is absent from both surfaces the review emits one advisory (non-blocking) finding naming the missing `Verification evidence:` marker and the local/interactive tier classification that selected the check. The advisory never raises the verdict to a FAIL/REJECT by itself.
 
-**Covered population.** A local implement **Phase-3 inline review**, a local/interactive **`/devflow:review-and-fix` run given a PR**, and a **direct-reception** marker recorded in the **PR description**. A local **current-branch** run with no PR and no linked issue is **out of scope** — it leaves no durable surface (workpad or PR body) for the gate to read, the same case the `Writing-skills evidence:` gate scopes out.
+**Covered population.** A local implement **Phase-3 inline review**, a local/interactive **`/prflow:review-and-fix` run given a PR**, and a **direct-reception** marker recorded in the **PR description**. A local **current-branch** run with no PR and no linked issue is **out of scope** — it leaves no durable surface (workpad or PR body) for the gate to read, the same case the `Writing-skills evidence:` gate scopes out.
 
 **Accepted residual.** The `gha:` checkpoint is best-effort and fires only when the workpad carries a canonical `## Progress` section, so a cloud run on a legacy workpad lacking that section writes no checkpoint and is therefore classified local/interactive, yielding a false advisory. Because the finding is non-blocking, this misclassification is low-cost and is accepted rather than guarded.

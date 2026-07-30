@@ -103,7 +103,7 @@ assert_eq "#487 wiring: install-gh-wrapper.sh resolves the real gh before prepen
   "$([ -n "$_cap_ln533" ] && [ -n "$_path_ln533" ] && [ "$_cap_ln533" -lt "$_path_ln533" ] && echo yes || echo no)"
 # devflow.yml's gate additionally excludes /devflow:review (read-only, never pushes).
 assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review commands" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Start credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 # The Stop step's review-exclusion ASYMMETRY keeps the Stop gate symmetric with Start:
 # devflow.yml's Stop step MUST carry the /devflow:review negation (on the review path the
 # refresher was never started, so the step would be a pointless no-op; a false defeat
@@ -111,7 +111,7 @@ assert_eq "#487 wiring: devflow.yml refresher start excludes /devflow:review com
 # by this exclusion), while devflow-implement.yml's Stop step must NOT carry it (it
 # always starts the refresher). Pin both directions so a dropped or mis-copied gate goes RED.
 assert_eq "#487 wiring: devflow.yml Stop step carries the /devflow:review exclusion" "1" \
-  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/devflow:review ')")"
+  "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow.yml")" | grep -cF "!startsWith(needs.gate.outputs.command, '/prflow:review ')")"
 assert_eq "#487 wiring: devflow-implement.yml Stop step does NOT carry a /devflow:review exclusion" "0" \
   "$(printf '%s\n' "$(mint_blk 'Stop credential refresher (optional)' "$WF/devflow-implement.yml")" | grep -cF "/devflow:review")"
 # Both Stop steps pass the Start step's outcome so stop-refresher.sh can tell a genuine
@@ -1072,7 +1072,7 @@ m["name"] = "fixture-plugin-two"
 json.dump(m, open(mp, "w"), indent=2)
 ip = root + "/lib/plugin-identity.json"
 i = json.load(open(ip))
-i["plugin_aliases"] = [previous]
+i["plugin_aliases"] = [previous] + [a for a in i.get("plugin_aliases", []) if a != previous]
 i["marketplace_aliases"] = [i["marketplace_canonical"]]
 i["marketplace_canonical"] = "fixture-market-two"
 json.dump(i, open(ip, "w"), indent=2)
@@ -1112,8 +1112,27 @@ assert_eq "installer-upgrade identity: an unrelated marketplace/plugin registrat
 # settings, so the migration report stays silent: the report is driven by an INTERSECTION
 # of the declared superseded ids with what the consumer actually registered, not by the
 # mere existence of a declared alias.
+# Driven over its OWN consumer, registering only identifiers the shipped installer does
+# not declare superseded. Reusing the scenario-11 consumer would silently stop testing
+# this the moment the shipped identity declares a real alias: that consumer registers
+# `devflow@devflow-marketplace` precisely so the arm above can see it reported, so the
+# intersection would be non-empty and the "reports nothing" premise false.
+IU_C11B="$(_iu_consumer nosuperseded)"
+_iu_run "$IU_C11B" >/dev/null
+mkdir -p "$IU_C11B/.claude"
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/.claude/settings.json"
+json.dump({"extraKnownMarketplaces": {"unrelated-market": {"source": {"source": "github", "repo": "someone/else"}}},
+           "enabledPlugins": {"other@unrelated-market": True}},
+          open(p, "w"), indent=2)
+' "$IU_C11B"
 assert_eq "installer-upgrade identity: the shipped installer reports nothing superseded when none of its declared superseded ids is registered" "no" \
-  "$(printf '%s' "$(_iu_run "$IU_C11" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
+  "$(printf '%s' "$(_iu_run "$IU_C11B" --apply)" | grep -qF 'superseded DevFlow identifiers' && echo yes || echo no)"
+# Non-vacuity control: the shipped installer really does declare a superseded id, so the
+# silence above is an empty INTERSECTION and not an empty declared set.
+assert_eq "installer-upgrade identity: the shipped installer declares a non-empty superseded plugin-spec set" "yes" \
+  "$(_iu_out_matches "$(cat "$IU_INSTALL")" "^DEVFLOW_SUPERSEDED_PLUGIN_SPECS='[^']+'")"
 
 rm -rf "$IU_P11"
 

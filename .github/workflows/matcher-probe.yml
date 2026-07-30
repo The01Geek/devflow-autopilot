@@ -281,7 +281,7 @@ jobs:
             ./
 
           plugins: |
-            devflow@devflow-marketplace
+            prflow@devflow-marketplace
 
           claude_args: >-
             --model claude-haiku-4-5-20251001
@@ -715,7 +715,7 @@ jobs:
             ./
 
           plugins: |
-            devflow@devflow-marketplace
+            prflow@devflow-marketplace
 
           claude_args: >-
             --model claude-haiku-4-5-20251001

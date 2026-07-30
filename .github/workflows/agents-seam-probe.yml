@@ -120,7 +120,7 @@ jobs:
             ./
 
           plugins: |
-            devflow@devflow-marketplace
+            prflow@devflow-marketplace
 
           # The session runs at `--effort high`; the startup agent-definition sets
           # `effort: low`. A `seam-probe-agent` self-report of `low` is the fact-(ii)

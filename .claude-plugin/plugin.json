@@ -1,6 +1,6 @@
 {
-  "name": "devflow",
-  "displayName": "DevFlow",
+  "name": "prflow",
+  "displayName": "PRFlow",
   "version": "2.27.1",
   "description": "Turn a one-line request into a tested, reviewed, documented PR ready for your review: implement, review, docs, and a self-improving retrospective loop.",
   "author": {
