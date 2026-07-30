@@ -29832,8 +29832,8 @@ printf 'curl -fsSL https://raw.githubusercontent.com/o/r/v3.1.3/install.sh -o i.
   > "$VPD/docs/install.md"
 python3 "$VP" --root "$VPD" --check >"$VPD/out" 2>&1; VP_RC=$?
 assert_eq "#949 drift negative control: one stale pin site fails --check (exit 1)" "1" "$VP_RC"
-assert_eq "#949 drift negative control: the diagnostic names the drifted file, line and pattern" "yes" \
-  "$(grep -qF 'docs/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out" && echo yes || echo no)"
+assert_eq "#949 drift negative control: the diagnostic names the drifted file, line and pattern" "1" \
+  "$(grep -cF 'docs/install.md:1: raw-url pins v3.1.3, expected v3.1.4' "$VPD/out")"
 assert_eq "#949 drift negative control: the still-correct sibling site is NOT reported" "0" \
   "$(grep -c 'devflow-ref' "$VPD/out")"
 rm -rf "$VPD"
@@ -29859,24 +29859,26 @@ printf -- '---\nbump: patch\ntype: Fixed\n---\n\n- Bumped. (#949)\n' > "$VPD/.ch
 python3 "$CS_SCRIPT" --root "$VPD" --date 2026-07-30 \
   --emit-entry-to "$VPD/notes.out" --emit-write-set-to "$VPD/ws.out" >/dev/null 2>&1
 assert_eq "#949 bump: the manifest moved to 3.1.5" "3.1.5" "$(cs_ver "$VPD")"
-assert_eq "#949 bump: the URL pin moved in the same run" "yes" \
-  "$(grep -qF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md" && echo yes || echo no)"
-assert_eq "#949 bump: the DEVFLOW_REF pin moved in the same run" "yes" \
-  "$(grep -qF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/install.md" && echo yes || echo no)"
-assert_eq "#949 bump: a doc added later is covered because the site set is DERIVED, not listed" "yes" \
-  "$(grep -qF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/late-arrival.md" && echo yes || echo no)"
+assert_eq "#949 bump: the URL pin moved in the same run" "1" \
+  "$(grep -cF 'githubusercontent.com/o/r/v3.1.5/' "$VPD/docs/install.md")"
+assert_eq "#949 bump: the DEVFLOW_REF pin moved in the same run" "1" \
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/install.md")"
+assert_eq "#949 bump: a doc added later is covered because the site set is DERIVED, not listed" "1" \
+  "$(grep -cF 'DEVFLOW_REF=v3.1.5' "$VPD/docs/late-arrival.md")"
 assert_eq "#949 bump: the tree is self-consistent afterwards (the tagged tree's docs say vN)" "0" \
   "$(python3 "$VP" --root "$VPD" --check >/dev/null 2>&1; echo $?)"
 # The write set is what the workflow stages; an omitted pin file is silently discarded by
 # the next `git reset --hard`, so every rewritten file must appear in it.
 for vp_w in .claude-plugin/plugin.json CHANGELOG.md docs/install.md docs/late-arrival.md; do
-  assert_eq "#949 bump: --emit-write-set-to names the rewritten file $vp_w" "yes" \
-    "$(grep -qxF "$vp_w" "$VPD/ws.out" && echo yes || echo no)"
+  assert_eq "#949 bump: --emit-write-set-to names the rewritten file $vp_w" "1" \
+    "$(grep -cxF "$vp_w" "$VPD/ws.out")"
 done
 assert_eq "#949 bump: --emit-write-set-to does NOT name a file the run never wrote" "0" \
   "$(grep -cF 'docs/history.md' "$VPD/ws.out")"
-assert_eq "#949 bump: --emit-entry-to writes the assembled entry (the Release notes body)" "yes" \
-  "$(grep -qF '## [3.1.5]' "$VPD/notes.out" && grep -qF 'Bumped.' "$VPD/notes.out" && echo yes || echo no)"
+assert_eq "#949 bump: --emit-entry-to writes the assembled entry heading (the Release notes body)" "1" \
+  "$(grep -cF '## [3.1.5]' "$VPD/notes.out")"
+assert_eq "#949 bump: --emit-entry-to carries the changeset prose into that body" "1" \
+  "$(grep -cF 'Bumped.' "$VPD/notes.out")"
 # Side channels are opt-in: without the flags nothing extra is written (the unit tests above
 # call the consolidator without them, and the repo must never gain stray output files).
 rm -rf "$VPD"
@@ -29903,9 +29905,10 @@ def boom(root, version): raise m.version_pins.VersionPinError('docs/install.md: 
 m.version_pins.render_rewrites = boom
 sys.exit(m.main(['--root','$VPD','--date','2026-07-30']))
 " 2>"$VPD/out"; echo $?)"
-assert_eq "#949 pin-rewrite fault: exits 2 with a diagnostic naming the file (no bare traceback)" "yes" \
-  "$([ "$VP_RC" -eq 2 ] && grep -qF 'docs/install.md: injected read fault' "$VPD/out" \
-     && ! grep -qF 'Traceback' "$VPD/out" && echo yes || echo no)"
+assert_eq "#949 pin-rewrite fault: exits 2" "2" "$VP_RC"
+assert_eq "#949 pin-rewrite fault: the diagnostic names the file" "1" \
+  "$(grep -cF 'docs/install.md: injected read fault' "$VPD/out")"
+assert_eq "#949 pin-rewrite fault: no bare traceback" "0" "$(grep -cF 'Traceback' "$VPD/out")"
 assert_eq "#949 pin-rewrite fault: the manifest is left unbumped (aborts before any write)" "3.1.4" \
   "$(cs_ver "$VPD")"
 assert_eq "#949 pin-rewrite fault: the changeset is NOT consumed" "yes" \
@@ -29961,10 +29964,10 @@ PRD="$(pr949_env)"
 PR949_LOG="$PRD/log" PR949_STATE="$PRD/state" DEVFLOW_GH="$PRD/bin/gh" \
   PATH="$PRD/bin:$PATH" "$PR949" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
 assert_eq "#949 publish-release: fresh tag — exit 0 (tag created, verified, Release published)" "0" "$VP_RC"
-assert_eq "#949 publish-release: fresh tag — an ANNOTATED tag is created (never lightweight)" "yes" \
-  "$(grep -qF 'git tag -a v9.9.9' "$PRD/log" && echo yes || echo no)"
-assert_eq "#949 publish-release: fresh tag — the tag ref is pushed" "yes" \
-  "$(grep -qF 'git push origin refs/tags/v9.9.9' "$PRD/log" && echo yes || echo no)"
+assert_eq "#949 publish-release: fresh tag — an ANNOTATED tag is created (never lightweight)" "1" \
+  "$(grep -cF 'git tag -a v9.9.9' "$PRD/log")"
+assert_eq "#949 publish-release: fresh tag — the tag ref is pushed" "1" \
+  "$(grep -cF 'git push origin refs/tags/v9.9.9' "$PRD/log")"
 
 # Arm 1b (NEGATIVE CONTROL for the network half of the drift guard): the push reports
 # success but the ref never lands → the run must go RED, and no Release may be published
@@ -29973,8 +29976,10 @@ assert_eq "#949 publish-release: fresh tag — the tag ref is pushed" "yes" \
 PR949_LOG="$PRD/log" PR949_STATE="$PRD/state" PR949_PUSH_DOES_NOT_LAND=1 DEVFLOW_GH="$PRD/bin/gh" \
   PATH="$PRD/bin:$PATH" "$PR949" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
 assert_eq "#949 publish-release: a push that does not land fails closed (exit 1)" "1" "$VP_RC"
-assert_eq "#949 publish-release: the unverified-tag error names the pin consequence, and NO Release is published" "yes" \
-  "$(grep -qF 'does not resolve on origin' "$PRD/out" && [ "$(grep -c 'api --method POST' "$PRD/log")" -eq 0 ] && echo yes || echo no)"
+assert_eq "#949 publish-release: the unverified-tag error names the pin consequence" "1" \
+  "$(grep -cF 'does not resolve on origin' "$PRD/out")"
+assert_eq "#949 publish-release: an unverified tag publishes NO Release" "0" \
+  "$(grep -c 'api --method POST' "$PRD/log")"
 
 # Arm 2: the tag already resolves on the remote → leave it alone, still publish the Release.
 : > "$PRD/log"; : > "$PRD/state"
@@ -29983,10 +29988,12 @@ PR949_LOG="$PRD/log" PR949_STATE="$PRD/state" PR949_RELEASE_EXISTS=0 DEVFLOW_GH=
 assert_eq "#949 publish-release: existing tag — exit 0 (idempotent, a re-run never fails on done work)" "0" "$VP_RC"
 assert_eq "#949 publish-release: existing tag — no second tag object is created" "0" \
   "$(grep -c 'git tag' "$PRD/log")"
-assert_eq "#949 publish-release: existing tag — the Release is still published as latest" "yes" \
-  "$(grep -qF 'releases' "$PRD/log" && grep -qF 'make_latest=true' "$PRD/log" && echo yes || echo no)"
-assert_eq "#949 publish-release: the Release is created through REST gh api, never gh release porcelain" "yes" \
-  "$(grep -qF 'api --method POST repos/o/r/releases' "$PRD/log" && ! grep -q 'gh release create' "$PRD/log" && echo yes || echo no)"
+assert_eq "#949 publish-release: existing tag — the Release is still published as latest" "1" \
+  "$(grep -cF 'make_latest=true' "$PRD/log")"
+assert_eq "#949 publish-release: the Release is created through REST gh api" "1" \
+  "$(grep -cF 'api --method POST repos/o/r/releases' "$PRD/log")"
+assert_eq "#949 publish-release: never through gh release porcelain (org-scoped GraphQL fails silently under a repo-scoped token)" "0" \
+  "$(grep -c 'gh release create' "$PRD/log")"
 
 # Arm 3: a Release for the tag already exists → leave it alone (no duplicate POST).
 : > "$PRD/log"; : > "$PRD/state"
@@ -30013,8 +30020,9 @@ assert_eq "#949 publish-release: tag push failure — exit 1, no Release attempt
 : > "$PRD/log"; : > "$PRD/state"
 PR949_LOG="$PRD/log" PR949_STATE="$PRD/state" PR949_RELEASE_POST_FAILS=1 DEVFLOW_GH="$PRD/bin/gh" \
   PATH="$PRD/bin:$PATH" "$PR949" --version 9.9.9 --repo o/r >"$PRD/out" 2>&1; VP_RC=$?
-assert_eq "#949 publish-release: Release POST failure — exit 1 with a diagnostic" "yes" \
-  "$([ "$VP_RC" -eq 1 ] && grep -qF 'releases/latest' "$PRD/out" && echo yes || echo no)"
+assert_eq "#949 publish-release: Release POST failure — exit 1" "1" "$VP_RC"
+assert_eq "#949 publish-release: Release POST failure — the diagnostic names the stale releases/latest link" "1" \
+  "$(grep -cF 'releases/latest' "$PRD/out")"
 
 # Arm 7: input validation — a malformed version never reaches git.
 for vp_bad in "" "2.26" "2.26.3.1" "v2.26.3" "2..3" "abc"; do
@@ -30035,21 +30043,28 @@ assert_eq "#949 publish-release: --release rejects an unknown mode" "2" \
 rm -rf "$PRD"
 
 # ── Workflow wiring: the coupled sites this suite cannot reach by execution. ─────────
-# structural-pin-ok: cross-file-phase-contract -- version-consolidate.yml is the sole caller
-# of publish-release.sh; the helper exists only to make the workflow's tag/Release branch
-# selection drivable above, so an unwired helper would leave every arm tested and none run.
-assert_pin_unique "#949 workflow invokes the extracted tag/Release helper" \
-  'scripts/publish-release.sh' "$CS_WF"
-# structural-pin-ok: cross-file-phase-contract -- the derived pin-rewrite set can only be
-# staged from the consolidator's own write-set file; without this loop the docs repin is
-# discarded by the next `git reset --hard` and the tagged tree ships stale install commands.
-assert_pin_unique "#949 workflow stages the DERIVED pin-rewrite set from the consolidator's write set" \
-  '--emit-write-set-to' "$CS_WF"
-# structural-pin-ok: cross-file-phase-contract -- the fail-closed backstop over any
-# consolidator write neither staging list reached; a silently-unstaged write lands a dead
-# bump on main while every test here stays green.
-assert_pin_unique "#949 workflow fails closed on a consolidator write that was not staged" \
-  'the consolidator wrote files that were not staged' "$CS_WF"
+# Read the workflow into a variable and assert against THAT (the same idiom the #671
+# staging-list block uses), so each assertion is about the extracted content rather than a
+# source-presence grep over a shipped file.
+VP_WF="$(cat "$CS_WF")"
+# Without this call the helper's every arm is tested above and none of them ever runs: the
+# workflow is its sole caller.
+assert_eq "#949 workflow invokes the extracted tag/Release helper" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'scripts/publish-release.sh')"
+# The pin-rewrite set is derived, so it cannot be enumerated in the staging list; it can only
+# be staged from the consolidator's own write-set file. Without it the docs repin is discarded
+# by the next `git reset --hard` and the tagged tree ships stale install commands.
+assert_eq "#949 workflow asks the consolidator for its write set" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF -- '--emit-write-set-to')"
+assert_eq "#949 workflow stages every path in that write set" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'git add -- "$staged_path"')"
+# The fail-closed backstop over any consolidator write neither staging list reached.
+assert_eq "#949 workflow fails closed on a consolidator write that was not staged" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF 'the consolidator wrote files that were not staged')"
+# The tag/Release step must be gated on the push having happened, or a no-pending-changesets
+# run would tag whatever main already points at.
+assert_eq "#949 workflow gates the tag step on the bump having been pushed" "1" \
+  "$(printf '%s\n' "$VP_WF" | grep -cF "steps.consolidate.outputs.pushed == 'true'")"
 
 # ────────────────────────────────────────────────────────────────────────────
 echo "#181 review-engine Phase 0.2 .devflow/logs/** diff-hunk filter"

@@ -175,7 +175,7 @@ jobs:
           RELEASE_NOTES: ${{ steps.consolidate.outputs.notes }}
         # No shell hardening preamble here on purpose: this step is a single command, the
         # runner's default `bash -e {0}` already fails the step on a non-zero exit, and the
-        # helper sets `-euo pipefail` for itself. A second `set -euo pipefail` in this file
-        # would also collide with the #298 uniqueness pin on the consolidate step's own.
+        # helper hardens its own shell. Repeating the consolidate step's preamble here would
+        # also break the #298 uniqueness pin that guards it.
         run: |
           scripts/publish-release.sh --version "$BUMP_VERSION" --notes-file "$RELEASE_NOTES"
