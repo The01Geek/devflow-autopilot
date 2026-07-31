@@ -1,5 +1,5 @@
 # snapshot: same-change identity refreshes over the frozen residual prose-pin manifest
-# frozen-manifest: .devflow/logs/residual-prose-retirement-manifest.tsv
+# frozen-manifest: .prflow/logs/residual-prose-retirement-manifest.tsv
 # consumed-by: lib/test/test_residual_prose_retirement_manifest.py, class
 #   ResidualRequiredCopyRetirementManifestTests -- the class whose name reads
 #   "RequiredCopy" but which loads the residual-PROSE manifest named above. Go by
@@ -12,7 +12,7 @@
 #   re-freeze land in the same commit and a refresh cannot outlive the rename it records.
 # lifetime: a row lives exactly as long as the rename it records. The arm requiring `old` to name
 #   a RETAIN_BOUNDARY identity of the frozen manifest is anchored to that immutable snapshot and is
-#   fixed forever -- which is why regenerating the live census .devflow/logs/pin-corpus-inventory.tsv
+#   fixed forever -- which is why regenerating the live census .prflow/logs/pin-corpus-inventory.tsv
 #   never disturbs a row. The two LIVENESS arms (old identity gone from the tree, refreshed identity
 #   present in it) are re-checked against the CURRENT TREE every run, so the row does need
 #   maintenance:

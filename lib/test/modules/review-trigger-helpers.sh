@@ -1077,9 +1077,9 @@ assert_eq "#329 surface-diag: broken DEVFLOW_JQ override does NOT surface a run 
   "$(printf '%s' "$SED_BADJQ_OUT" | grep -qF "### Run summary" && echo yes || echo no)"
 ( DEVFLOW_JQ=/nonexistent/definitely-not-jq bash "$SED" "$SED_TMP/populated.json" >/dev/null 2>&1 ); assert_eq "#329 surface-diag: exits 0 (broken DEVFLOW_JQ)" "0" "$?"
 # --- AC8: the execution_diagnostics_enabled key exists in schema + example (default true) ---
-SED_SCHEMA="$LIB/../.devflow/config.schema.json"
-SED_EXAMPLE="$LIB/../.devflow/config.example.json"
-SED_PROP='.properties.devflow.properties.execution_diagnostics_enabled'
+SED_SCHEMA="$LIB/../.prflow/config.schema.json"
+SED_EXAMPLE="$LIB/../.prflow/config.example.json"
+SED_PROP='.properties.prflow.properties.execution_diagnostics_enabled'
 assert_eq "#329 execution_diagnostics_enabled: schema type is boolean" "boolean" \
   "$(jq -r "$SED_PROP.type" "$SED_SCHEMA")"
 assert_eq "#329 execution_diagnostics_enabled: schema default is true" "true" \
@@ -1088,17 +1088,17 @@ assert_eq "#329 execution_diagnostics_enabled: schema has a non-empty descriptio
   "$(jq -e "$SED_PROP.description | type == \"string\" and (length > 0)" "$SED_SCHEMA" >/dev/null && echo yes || echo no)"
 assert_eq "#329 execution_diagnostics_enabled: example value matches schema default" \
   "$(jq -r "$SED_PROP.default" "$SED_SCHEMA")" \
-  "$(jq -r '.devflow.execution_diagnostics_enabled' "$SED_EXAMPLE")"
+  "$(jq -r '.prflow.execution_diagnostics_enabled' "$SED_EXAMPLE")"
 # resolver read: configured false read back verbatim, absent/missing → default true
 SED_CFG="$(mktemp)"
-printf '%s' '{"devflow":{"execution_diagnostics_enabled":false}}' > "$SED_CFG"
+printf '%s' '{"prflow":{"execution_diagnostics_enabled":false}}' > "$SED_CFG"
 assert_eq "#329 execution_diagnostics_enabled: configured false read back" "false" \
-  "$("$CG" .devflow.execution_diagnostics_enabled true "$SED_CFG")"
+  "$("$CG" .prflow.execution_diagnostics_enabled true "$SED_CFG")"
 printf '%s' '{}' > "$SED_CFG"
 assert_eq "#329 execution_diagnostics_enabled: unset key → resolver default true" "true" \
-  "$("$CG" .devflow.execution_diagnostics_enabled true "$SED_CFG")"
+  "$("$CG" .prflow.execution_diagnostics_enabled true "$SED_CFG")"
 assert_eq "#329 execution_diagnostics_enabled: missing config file → resolver default true" "true" \
-  "$("$CG" .devflow.execution_diagnostics_enabled true /no/such/config.json)"
+  "$("$CG" .prflow.execution_diagnostics_enabled true /no/such/config.json)"
 rm -f "$SED_CFG"
 rm -rf "$SED_TMP"
 
@@ -1110,7 +1110,7 @@ echo "workflow wiring: Surface execution diagnostics step (#331)"
 # "Surface execution diagnostics" step that: (AC1) runs under always(), reads
 # ${{ steps.claude.outputs.execution_file }}, and resolves the helper
 # vendored-path-first with a repo-path fallback; (AC2) gates on
-# .devflow.execution_diagnostics_enabled (default true) via config-get.sh
+# .prflow.execution_diagnostics_enabled (default true) via config-get.sh
 # (vendored-first) and skips on the literal "false"; (AC3) adds no permissions
 # grant / minted-token scope and uploads no artifact (a pure run-only step).
 # Assertions scope to the step block — awk-sliced from its `- name:` to the next
@@ -1148,22 +1148,22 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
     "$(printf '%s' "$BLK" | grep -qF 'steps.claude.outputs.execution_file' && echo yes || echo no)"
   # AC1: resolves the helper vendored-path-first with a repo-path fallback
   assert_eq "#331 $WF: resolves helper vendored-path-first" "yes" \
-    "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
+    "$(printf '%s' "$BLK" | grep -qF '.prflow/vendor/prflow/scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
   assert_eq "#331 $WF: helper repo-path fallback present" "yes" \
     "$(printf '%s' "$BLK" | grep -qF 'SED=scripts/surface-execution-diagnostics.sh' && echo yes || echo no)"
   # AC1 (order, not just presence): the vendored helper path is tried BEFORE the repo fallback
   assert_eq "#331 $WF: helper vendored path precedes repo fallback" "yes" \
-    "$(block_order_ok "$BLK" 'SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh' 'SED=scripts/surface-execution-diagnostics.sh')"
+    "$(block_order_ok "$BLK" 'SED=.prflow/vendor/prflow/scripts/surface-execution-diagnostics.sh' 'SED=scripts/surface-execution-diagnostics.sh')"
   # AC2: gates on the config key via config-get.sh, vendored-first with fallback
-  assert_eq "#331 $WF: reads .devflow.execution_diagnostics_enabled" "yes" \
-    "$(printf '%s' "$BLK" | grep -qF '.devflow.execution_diagnostics_enabled' && echo yes || echo no)"
+  assert_eq "#331 $WF: reads .prflow.execution_diagnostics_enabled" "yes" \
+    "$(printf '%s' "$BLK" | grep -qF '.prflow.execution_diagnostics_enabled' && echo yes || echo no)"
   assert_eq "#331 $WF: gate uses config-get.sh vendored-first" "yes" \
-    "$(printf '%s' "$BLK" | grep -qF '.devflow/vendor/devflow/scripts/config-get.sh' && echo yes || echo no)"
+    "$(printf '%s' "$BLK" | grep -qF '.prflow/vendor/prflow/scripts/config-get.sh' && echo yes || echo no)"
   assert_eq "#331 $WF: config-get.sh repo-path fallback present" "yes" \
     "$(printf '%s' "$BLK" | grep -qF 'CG=scripts/config-get.sh' && echo yes || echo no)"
   # AC2 (order, not just presence): the vendored config-get path is tried BEFORE the repo fallback
   assert_eq "#331 $WF: config-get.sh vendored path precedes repo fallback" "yes" \
-    "$(block_order_ok "$BLK" 'CG=.devflow/vendor/devflow/scripts/config-get.sh' 'CG=scripts/config-get.sh')"
+    "$(block_order_ok "$BLK" 'CG=.prflow/vendor/prflow/scripts/config-get.sh' 'CG=scripts/config-get.sh')"
   # AC2: disables only on the literal "false" — anchor on the FULL gate shape, not the bare
   # `= "false" ]` substring (which is ALSO contained in `!= "false" ]`, so a gate inverted to
   # `!=` — skip-when-ENABLED, the exact AC2 violation — would pass a bare-substring grep green).
@@ -1174,7 +1174,7 @@ for WF in devflow-runner.yml devflow-implement.yml devflow.yml; do
   # unguarded assignment would fail the job, breaking the read-only "never changes the job's
   # pass/fail" contract.
   assert_eq "#331 $WF: config-get read is -e-guarded (|| true)" "yes" \
-    "$(printf '%s' "$BLK" | grep -qF '.devflow.execution_diagnostics_enabled true || true)' && echo yes || echo no)"
+    "$(printf '%s' "$BLK" | grep -qF '.prflow.execution_diagnostics_enabled true || true)' && echo yes || echo no)"
   # Completeness anchor: the slice reaches the step's run body (the helper invocation).
   # The AC3 assertions below are grep-ABSENT checks that pass vacuously on an empty or
   # short-sliced block, so anchor them on a proven-complete block — a future extract_step
@@ -1209,10 +1209,10 @@ echo "execution transcript artifact: config key + scrub/gate hardening (#409)"
 # credential-scrubbed upload of the engine's execution transcript; its polarity
 # is default-FALSE and fail-CLOSED (the OPPOSITE of execution_diagnostics_enabled),
 # so it must be pinned with the same rigor as its sibling.
-TR_SCHEMA="$LIB/../.devflow/config.schema.json"
-TR_EXAMPLE="$LIB/../.devflow/config.example.json"
+TR_SCHEMA="$LIB/../.prflow/config.schema.json"
+TR_EXAMPLE="$LIB/../.prflow/config.example.json"
 TR_RUNNER="$LIB/../.github/workflows/devflow-runner.yml"
-TR_PROP='.properties.devflow.properties.execution_transcript_artifact_enabled'
+TR_PROP='.properties.prflow.properties.execution_transcript_artifact_enabled'
 # --- item 1: schema family mirrors execution_diagnostics_enabled ---
 assert_eq "#409 transcript key: schema type is boolean" "boolean" \
   "$(jq -r "$TR_PROP.type" "$TR_SCHEMA")"
@@ -1222,15 +1222,15 @@ assert_eq "#409 transcript key: schema has a non-empty description" "yes" \
   "$(jq -e "$TR_PROP.description | type == \"string\" and (length > 0)" "$TR_SCHEMA" >/dev/null && echo yes || echo no)"
 assert_eq "#409 transcript key: example value matches schema default" \
   "$(jq -r "$TR_PROP.default" "$TR_SCHEMA")" \
-  "$(jq -r '.devflow.execution_transcript_artifact_enabled' "$TR_EXAMPLE")"
+  "$(jq -r '.prflow.execution_transcript_artifact_enabled' "$TR_EXAMPLE")"
 # resolver read: configured true read back verbatim; absent/missing → default false
 TR_CFG="$(mktemp)"
-printf '%s' '{"devflow":{"execution_transcript_artifact_enabled":true}}' > "$TR_CFG"
+printf '%s' '{"prflow":{"execution_transcript_artifact_enabled":true}}' > "$TR_CFG"
 assert_eq "#409 transcript key: configured true read back" "true" \
-  "$("$CG" .devflow.execution_transcript_artifact_enabled false "$TR_CFG")"
+  "$("$CG" .prflow.execution_transcript_artifact_enabled false "$TR_CFG")"
 printf '%s' '{}' > "$TR_CFG"
 assert_eq "#409 transcript key: unset key → resolver default false" "false" \
-  "$("$CG" .devflow.execution_transcript_artifact_enabled false "$TR_CFG")"
+  "$("$CG" .prflow.execution_transcript_artifact_enabled false "$TR_CFG")"
 rm -f "$TR_CFG"
 # item 1: the scrub step gates on outputs.transcript == 'true'; the upload step
 # gates on the scrub step producing a path (so an empty/failed scrub uploads nothing).
@@ -2070,7 +2070,7 @@ assert_eq "drc: helper's review-backstop marker matches the backstop producer" "
 # cause, and the notice step composes via the helper (not an inline literal).
 RDWF="$LIB/../.github/workflows/devflow.yml"
 assert_eq "drc: guard invokes the helper at its vendored path" "1" \
-  "$(grep -cF 'CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh' "$RDWF")"
+  "$(grep -cF 'CC_HELPER=.prflow/vendor/prflow/scripts/dedupe-review-command.sh' "$RDWF")"
 assert_eq "drc: guard checks the helper is executable before invoking (fail-open on absence)" "1" \
   "$(grep -cF 'if [ ! -x "$CC_HELPER" ]; then' "$RDWF")"
 assert_eq "drc: guard invocation is wrapped so a non-zero exit routes to fail-open" "1" \
@@ -2078,7 +2078,7 @@ assert_eq "drc: guard invocation is wrapped so a non-zero exit routes to fail-op
 assert_eq "drc: guard emits the deciding cause into GITHUB_OUTPUT" "1" \
   "$(grep -cF 'echo "cause=$CAUSE" >> "$GITHUB_OUTPUT"' "$RDWF")"
 assert_eq "drc: notice step composes via the helper at its vendored path (MODE=notice)" "1" \
-  "$(grep -cF 'NOTICE_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh' "$RDWF")"
+  "$(grep -cF 'NOTICE_HELPER=.prflow/vendor/prflow/scripts/dedupe-review-command.sh' "$RDWF")"
 assert_eq "drc: notice step drives the helper in notice mode with the decided cause" "1" \
   "$(grep -cF 'MODE=notice CAUSE="$CAUSE" HEAD="$HEAD" bash "$NOTICE_HELPER"' "$RDWF")"
 # Both legacy signals are retained byte-for-byte (issue #989 AC): the Devflow
@@ -2412,7 +2412,7 @@ devflow_module_pin_unique "rct #314: resolver calls the shared detect-standalone
 # vendored detector so the trigger gate and the dedupe matcher cannot drift;
 # re-inlining a `case "$BODY"` substring here would re-open that drift.
 devflow_module_pin_unique "rct #321: review_dedupe routes through the shared detect-standalone-command.sh" \
-  '.devflow/vendor/devflow/scripts/detect-standalone-command.sh' "$RCT_WF_DEVFLOW"
+  '.prflow/vendor/prflow/scripts/detect-standalone-command.sh' "$RCT_WF_DEVFLOW"
 
 # review_dedupe is fail-OPEN by contract: a present-but-broken detector (or a
 # missing sed) must NOT abort the guard step under `set -euo pipefail` — an abort

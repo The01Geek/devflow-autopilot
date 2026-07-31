@@ -115,7 +115,7 @@ jobs:
 
       # Compose --allowed-tools = the review profile's exact TOOLS literal (kept
       # verbatim in sync with .github/workflows/devflow-runner.yml's `review`
-      # profile — including the Write(.devflow/tmp/**) grant that landed from this
+      # profile — including the Write(.prflow/tmp/**) grant that landed from this
       # probe's first run, 29111394360). Shapes 12–14 (issue #405) need NO extra grant
       # — they probe whether the helper-invocation PATH FORM matters: the vendored
       # literal (control) is already granted, while the absolute-path and repo-root
@@ -146,8 +146,8 @@ jobs:
         id: tools
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=probe-review manifest_version=12 sha256=e86a15e4ebbe6faacf3a1cc13cab2a7af115dacecc63fa50cdf148198af2c363
-          REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+          # devflow-capability-manifest: region=probe-review manifest_version=12 sha256=6a18d5c304207c028288649441cf04333e8578733fdf349f34d80971f8a490bf
+          REVIEW='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),Bash(.prflow/vendor/prflow/scripts/workpad.py:*),Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),Write(.prflow/tmp/**)'
           CANDIDATES='Bash(cd:*),Write(/tmp/**),Bash(scripts/*.sh:*)'
           TOOLS="$REVIEW,$CANDIDATES"
           delim="TOOLS_EOF_$(date +%s%N)_$$"
@@ -201,11 +201,11 @@ jobs:
             to exit non-zero because the vendored plugin is not present in this
             checkout; attempt it anyway — permission granted vs denied is what
             matters, not the exit code:
-            "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/review}"/../../scripts/load-prompt-extension.sh review
+            "${CLAUDE_SKILL_DIR:-.prflow/vendor/prflow/skills/review}"/../../scripts/load-prompt-extension.sh review
 
             Shape 5 — repo-relative vendored literal (Bash). Also expected to exit
             non-zero (file absent); attempt it anyway:
-            .devflow/vendor/devflow/scripts/load-prompt-extension.sh review
+            .prflow/vendor/prflow/scripts/load-prompt-extension.sh review
 
             Shape 6 — tee heredoc write (Bash):
             tee /tmp/probe-06.txt <<'EOF'
@@ -220,7 +220,7 @@ jobs:
             probe08
 
             Shape 9 — Write tool: use the Write tool to create the file
-            .devflow/tmp/probe-09.txt with exactly this content:
+            .prflow/tmp/probe-09.txt with exactly this content:
             probe09
 
             Shape 10 — pipe into tee (Bash):
@@ -232,7 +232,7 @@ jobs:
 
             Shape 12 — helper invocation, repo-relative vendored literal as the
             leading token (Bash, CONTROL — this is the form the allowlist grants):
-            .devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe12ok
+            .prflow/vendor/prflow/scripts/config-get.sh .base_branch hprobe12ok
 
             Shape 13 — helper invocation, ABSOLUTE-path form (Bash). Same helper, but
             an absolute leading token the allowlist does not grant; attempt it anyway
@@ -241,7 +241,7 @@ jobs:
             `/home/runner/work/<repo>/<repo>` literal; GitHub substitutes it before the
             prompt reaches the agent, so the shape under test (an absolute leading token)
             is byte-identical to the old literal:
-            ${{ github.workspace }}/.devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe13abs
+            ${{ github.workspace }}/.prflow/vendor/prflow/scripts/config-get.sh .base_branch hprobe13abs
 
             Shape 14 — helper invocation, repo-root `scripts/…` form (Bash). Same
             helper, but the repo-root leading token the allowlist does not grant;
@@ -270,7 +270,7 @@ jobs:
             PERMITTED (run 30310938175, 2026-07-27), which retired the desk-lint R5
             discipline rule (issue #869); the row stays as a re-measurable regression
             check after a claude-code-action / CLI upgrade:
-            if HP=$(.devflow/vendor/devflow/scripts/config-get.sh .base_branch hprobe18); then echo probe18; fi
+            if HP=$(.prflow/vendor/prflow/scripts/config-get.sh .base_branch hprobe18); then echo probe18; fi
 
             Shape 19 — `printf` carrying a double-quoted expansion argument (Bash,
             issue #857). No redirect:
@@ -375,7 +375,7 @@ jobs:
               (6,  "tee heredoc write (`tee f <<'EOF'`)",                     "probe-06", "/tmp/probe-06.txt"),
               (7,  "multi-arg printf redirect (`printf '%s\\n' a b > f`)",     "probe-07", "/tmp/probe-07.txt"),
               (8,  "Write tool under `Write(/tmp/**)`",                       "probe-08", "/tmp/probe-08.txt"),
-              (9,  "Write tool under `Write(.devflow/tmp/**)`",               "probe-09", ".devflow/tmp/probe-09.txt"),
+              (9,  "Write tool under `Write(.prflow/tmp/**)`",               "probe-09", ".prflow/tmp/probe-09.txt"),
               (10, "pipe into tee (`printf … | tee f`)",                      "probe-10", "/tmp/probe-10.txt"),
               (11, "plainly granted single command (positive control)",       "README.md", None),
               (12, "helper: repo-relative vendored literal (leading token, CONTROL)", "hprobe12ok", None),
@@ -514,7 +514,7 @@ jobs:
       # copy in the same change).
       #
       # EXTRAS reproduces the consumer config extras
-      # (.devflow_implement.allowed_tools in .devflow/config.json, appended at
+      # (.prflow_implement.allowed_tools in .prflow/config.json, appended at
       # runtime by devflow-implement.yml as `allowed_tools_extra`) VERBATIM.
       #
       # HISTORY (issue #450 -> #455): this compose step once carried a per-form
@@ -535,10 +535,10 @@ jobs:
         id: tools
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=probe-implement manifest_version=12 sha256=814ddc5f555915e333f65b67e86d982b0bd1be9e793dea55f572694b0294786f
-          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*),Bash(.devflow/vendor/devflow/scripts/reception-record.py:*),Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*),Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*),Bash(.devflow/vendor/devflow/scripts/check-verified-premises.py:*),Bash(.devflow/vendor/devflow/scripts/preflight.py:*),Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*),Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*),Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/discover-deferral-manifests.py:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/apply-labels.sh:*),Bash(.devflow/vendor/devflow/scripts/ensure-label.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-existing-pr.sh:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/react-to-trigger.sh:*),Bash(.devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(lib/test/test_python_scripts.py:*),Bash(lib/test/test_module_harness.py:*),Bash(lib/test/test_workflow_flight_recorder.py:*),Bash(lib/test/test_workflow_analyzer.py:*),Bash(lib/test/test_verification_baseline.py:*),Bash(lib/test/test_create_issue_context_eval.py:*),Bash(lib/test/coverage_map_guard.py:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(cmp:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
-          # Config extras, mirrored from .devflow/config.json's
-          # devflow_implement.allowed_tools (the inert */ globs were removed in #484 —
+          # devflow-capability-manifest: region=probe-implement manifest_version=12 sha256=e209768b13578514e3e742431fe583a546ac0fbbf98fa4988c57f72890f71f32
+          IMPLEMENT='Read,Write,Edit,Glob,Grep,LS,Skill,Agent,TodoWrite,EnterPlanMode,ExitPlanMode,WebFetch,WebSearch,Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git pull:*),Bash(git fetch:*),Bash(git ls-remote:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(git branch:*),Bash(git stash:*),Bash(git rm:*),Bash(git mv:*),Bash(git restore:*),Bash(git revert:*),Bash(git blame:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git merge:*),Bash(gh pr create:*),Bash(gh pr edit:*),Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr ready:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr status:*),Bash(gh pr reopen:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh issue edit:*),Bash(gh issue create:*),Bash(gh issue reopen:*),Bash(gh issue status:*),Bash(gh search:*),Bash(gh label list:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh workflow view:*),Bash(gh workflow list:*),Bash(gh api:*),Bash(jq:*),Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),Bash(.prflow/vendor/prflow/scripts/workpad.py:*),Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*),Bash(.prflow/vendor/prflow/scripts/reception-record.py:*),Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*),Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*),Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*),Bash(.prflow/vendor/prflow/scripts/preflight.py:*),Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*),Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*),Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*),Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),Bash(.prflow/vendor/prflow/scripts/apply-labels.sh:*),Bash(.prflow/vendor/prflow/scripts/ensure-label.sh:*),Bash(.prflow/vendor/prflow/scripts/resolve-existing-pr.sh:*),Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),Bash(.prflow/vendor/prflow/scripts/react-to-trigger.sh:*),Bash(.prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh:*),Bash(pip install:*),Bash(pip:*),Bash(python:*),Bash(python3:*),Bash(python -m:*),Bash(python3 -m:*),Bash(ruff:*),Bash(ruff check:*),Bash(ruff format:*),Bash(pytest:*),Bash(mypy:*),Bash(lib/test/test_python_scripts.py:*),Bash(lib/test/test_module_harness.py:*),Bash(lib/test/test_workflow_flight_recorder.py:*),Bash(lib/test/test_workflow_analyzer.py:*),Bash(lib/test/test_verification_baseline.py:*),Bash(lib/test/test_create_issue_context_eval.py:*),Bash(lib/test/coverage_map_guard.py:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(cmp:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(less:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(touch:*),Bash(mkdir:*),Bash(rmdir:*),Bash(rm:*),Bash(mv:*),Bash(cp:*),Bash(tee:*)'
+          # Config extras, mirrored from .prflow/config.json's
+          # prflow_implement.allowed_tools (the inert */ globs were removed in #484 —
           # they never matched the vendored leading token; invoked helpers are granted as
           # vendored literals in the IMPLEMENT literal above). The mirror is verbatim
           # EXCEPT that config's absolute workspace prefix
@@ -606,32 +606,32 @@ jobs:
             path that does not exist in this checkout), but permission granted vs
             denied is what matters, not the exit code — run it VERBATIM, do not
             expand the anchor yourself:
-            "${CLAUDE_SKILL_DIR:-.devflow/vendor/devflow/skills/implement}"/../../scripts/ensure-label.sh iprobe01anchor
+            "${CLAUDE_SKILL_DIR:-.prflow/vendor/prflow/skills/implement}"/../../scripts/ensure-label.sh iprobe01anchor
 
             Shape 2 — vendored-literal leading token, apply-labels.sh (Bash). Now
             granted by the explicit vendored-literal form in the shipped profile
             (Stage B, #455); a PERMITTED here confirms that leading-token form runs.
             Dummy issue 9999, dummy label:
-            .devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe02explicit
+            .prflow/vendor/prflow/scripts/apply-labels.sh 9999 iprobe02explicit
 
             Shape 3 — vendored-literal leading token, ensure-label.sh (Bash). Now
             granted by the explicit vendored-literal form (Stage B, #455) alongside
             the config `*/basename` glob; a PERMITTED here confirms the leading-token
             form runs. Dummy label:
-            .devflow/vendor/devflow/scripts/ensure-label.sh iprobe03explicit
+            .prflow/vendor/prflow/scripts/ensure-label.sh iprobe03explicit
 
             Shape 4 — `for …; do …; done` compound wrapping a granted helper (Bash,
             one call, all lines). Head is the granted ensure-label.sh:
-            for L in iprobe04for-a iprobe04for-b; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
+            for L in iprobe04for-a iprobe04for-b; do .prflow/vendor/prflow/scripts/ensure-label.sh "$L"; done
 
             Shape 5 — piped `while read` loop wrapping a granted helper (Bash, one
             call). Head is the granted ensure-label.sh:
-            printf 'iprobe05while-a\niprobe05while-b\n' | while read -r L; do .devflow/vendor/devflow/scripts/ensure-label.sh "$L"; done
+            printf 'iprobe05while-a\niprobe05while-b\n' | while read -r L; do .prflow/vendor/prflow/scripts/ensure-label.sh "$L"; done
 
             Shape 6 — `VAR="$(…)"` capture of a granted helper (Bash). This is the
             exact capture form the phase-4 label loops use (LBL_ERR="$(…)"), with the
             explicit-granted apply-labels.sh. Dummy issue 9999, dummy label:
-            LBL_ERR="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe06capture 2>&1)"
+            LBL_ERR="$(.prflow/vendor/prflow/scripts/apply-labels.sh 9999 iprobe06capture 2>&1)"
 
             Shape 7 — plainly granted single command, positive control (Bash),
             reading an in-workspace file present in the checkout:
@@ -651,26 +651,26 @@ jobs:
             `if !` capture — a shape this row does not emit) is almost certainly denied too. The second argument is `config-get.sh`'s DEFAULT value, used
             here as this row's unique marker (it is only echoed if the key is absent,
             so it has no side effect either way):
-            DEFERRED_LABELS=$(.devflow/vendor/devflow/scripts/config-get.sh .deferred.labels iprobe08nonlabel)
+            DEFERRED_LABELS=$(.prflow/vendor/prflow/scripts/config-get.sh .deferred.labels iprobe08nonlabel)
 
             Shape 9 — redirect-free `VAR="$(…)"` capture of a LABEL helper (Bash). The
             second disambiguator for shape 6: identical to shape 6 but WITHOUT the inner
             `2>&1`. Read together with shapes 6 and 8, this separates "the capture shape
             is denied" from "the inner redirect is denied" from "a label helper inside a
             substitution is denied". Dummy issue 9999, dummy label:
-            LBL_OUT="$(.devflow/vendor/devflow/scripts/apply-labels.sh 9999 iprobe09nofd)"
+            LBL_OUT="$(.prflow/vendor/prflow/scripts/apply-labels.sh 9999 iprobe09nofd)"
 
             Shape 10 — bare redirect to `/tmp` after a granted head (Bash). This row
             isolates the redirect target class; no compound or trailing diagnostic:
             echo iprobe10tmp > /tmp/iprobe10tmp
 
-            Shape 11 — bare redirect to `.devflow/tmp` after a granted head (Bash).
+            Shape 11 — bare redirect to `.prflow/tmp` after a granted head (Bash).
             This is the workspace-local sibling of shape 10, again with no compound:
-            echo iprobe11workspace > .devflow/tmp/iprobe11workspace
+            echo iprobe11workspace > .prflow/tmp/iprobe11workspace
 
             Shape 12 — heredoc write through a granted leading head (Bash). This row
             isolates the plain heredoc form from the captured form in shape 13:
-            tee .devflow/tmp/iprobe12heredoc <<'EOF'
+            tee .prflow/tmp/iprobe12heredoc <<'EOF'
             iprobe12heredoc
             EOF
 
@@ -814,8 +814,8 @@ jobs:
           # reads "ran"); execfile/hook don't verdict-score their control at all.)
           rows = [
               (1, "unexpanded `${CLAUDE_SKILL_DIR:-…}` anchor leading token (ensure-label.sh)", "iprobe01anchor",  "${CLAUDE_SKILL_DIR"),
-              (2, "vendored-literal leading token, apply-labels.sh (explicit form, shipped)",    "iprobe02explicit", ".devflow/vendor/devflow/scripts/apply-labels.sh"),
-              (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03explicit",     ".devflow/vendor/devflow/scripts/ensure-label.sh"),
+              (2, "vendored-literal leading token, apply-labels.sh (explicit form, shipped)",    "iprobe02explicit", ".prflow/vendor/prflow/scripts/apply-labels.sh"),
+              (3, "vendored-literal leading token, ensure-label.sh (explicit form, shipped)",    "iprobe03explicit",     ".prflow/vendor/prflow/scripts/ensure-label.sh"),
               (4, "`for …; do helper; done` compound wrapping a granted helper",                 "iprobe04for",      "for L in"),
               (5, "piped `while read` loop wrapping a granted helper",                           "iprobe05while",    "while read"),
               (6, "`VAR=\"$(helper …)\"` capture of a granted helper (apply-labels.sh, with `2>&1`)", "iprobe06capture", "$("),
@@ -823,7 +823,7 @@ jobs:
               (8, "`VAR=$(helper …)` capture of a NON-LABEL helper (config-get.sh) — shape-6 disambiguator", "iprobe08nonlabel", "$("),
               (9, "redirect-free `VAR=\"$(helper …)\"` capture of a label helper — shape-6 disambiguator", "iprobe09nofd", "$("),
               (10, "bare `> /tmp/f` redirect after a granted head",                    "iprobe10tmp",             "> /tmp/"),
-              (11, "bare `> .devflow/tmp/f` redirect after a granted head",           "iprobe11workspace",       "> .devflow/tmp/"),
+              (11, "bare `> .prflow/tmp/f` redirect after a granted head",           "iprobe11workspace",       "> .prflow/tmp/"),
               (12, "plain heredoc write through a granted leading head",              "iprobe12heredoc",         "<<'EOF'"),
               (13, "captured `VAR=\"$(cat <<'EOF' …)\"` heredoc form",                "iprobe13captureheredoc",  "$(cat <<'EOF'"),
               (14, "`echo \"$VAR\"` simple expansion after a granted leading head",     "iprobe14expansion",       "$GITHUB_ACTIONS"),
@@ -838,8 +838,8 @@ jobs:
           # that moved an assignment, removed quoting, or changed heredoc shape.
           exact_commands = {
               10: "echo iprobe10tmp > /tmp/iprobe10tmp",
-              11: "echo iprobe11workspace > .devflow/tmp/iprobe11workspace",
-              12: "tee .devflow/tmp/iprobe12heredoc <<'EOF'\niprobe12heredoc\nEOF",
+              11: "echo iprobe11workspace > .prflow/tmp/iprobe11workspace",
+              12: "tee .prflow/tmp/iprobe12heredoc <<'EOF'\niprobe12heredoc\nEOF",
               13: "IPROBE13=\"$(cat <<'EOF'\niprobe13captureheredoc\nEOF\n)\"",
               14: 'echo iprobe14expansion "$GITHUB_ACTIONS"',
               15: "IPROBE15=iprobe15literal echo iprobe15literal",
@@ -1155,7 +1155,7 @@ jobs:
   # the hook is on base, an absent marker is now an ANOMALY (it could not write / the
   # session never reached Stop), not the expected state — but a "did not fire" still must
   # NOT be read as "hooks do not fire under the action" (the reverse launder the issue
-  # warns against). It writes the gitignored breadcrumb .devflow/tmp/stop-hook-probe-fired
+  # warns against). It writes the gitignored breadcrumb .prflow/tmp/stop-hook-probe-fired
   # (a COUPLED contract: renaming it on either side alone would silently read as "did not
   # fire" forever — lib/test/run.sh pins both). This job checks for that breadcrumb after
   # the action. See docs/execution-file-shape.md.
@@ -1198,7 +1198,7 @@ jobs:
           # WORKSPACE ROOT. The hook resolves the git toplevel from the Stop payload cwd,
           # and this job runs Claude from the checkout root, so the two coincide; a future
           # action variant running Claude from a different tree must revisit this read.
-          MARKER=".devflow/tmp/stop-hook-probe-fired"
+          MARKER=".prflow/tmp/stop-hook-probe-fired"
           # Branch selection + user-facing wording live in the suite-drivable helper
           # (scripts/describe-hook-probe.sh) per the repo's extract-branch-selecting-
           # inline-shell convention (PR #367 precedent); the workflow only supplies the
@@ -1244,7 +1244,7 @@ jobs:
                     "hooks": [
                       {
                         "type": "command",
-                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.devflow/tmp\" && touch \"${CLAUDE_PROJECT_DIR:-.}/.devflow/tmp/pretooluse-probe-fired\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"devflow pretooluse-probe: settings-input hook fired\"}}'"
+                        "command": "mkdir -p \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp\" && touch \"${CLAUDE_PROJECT_DIR:-.}/.prflow/tmp/pretooluse-probe-fired\"; printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"devflow pretooluse-probe: settings-input hook fired\"}}'"
                       }
                     ]
                   }
@@ -1271,7 +1271,7 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
-          MARKER=".devflow/tmp/pretooluse-probe-fired"
+          MARKER=".prflow/tmp/pretooluse-probe-fired"
           {
             bash scripts/describe-pretooluse-probe.sh "$MARKER" "${EXECUTION_FILE:-}"
             echo "- run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -1336,7 +1336,7 @@ jobs:
   # Verdict → action mapping (issue #812 AC2/AC3, executed by the maintainer who reads the
   # run): FOREGROUND or BACKGROUNDED is a recordable observation and is transcribed, with
   # this job's run identifier and the re-probe caveat, into the prevention-layer paragraph of
-  # docs/DEVFLOW_SYSTEM_OVERVIEW.md's `devflow_implement.stall_backstop` bullet and the
+  # docs/DEVFLOW_SYSTEM_OVERVIEW.md's `prflow_implement.stall_backstop` bullet and the
   # matching sentence in docs/implement-skill.md. NOT_DISPATCHED and INCONCLUSIVE record
   # nothing and are re-run. Like every verdict in this file the result is version-dependent:
   # re-probe after a claude-code-action / Claude Code CLI upgrade before trusting it.
@@ -1522,18 +1522,18 @@ jobs:
           set -euo pipefail
           python3 scripts/env-propagation-probe-verdict.py "${EXECUTION_FILE}"
 
-  # issue #858 — measure whether a DISPATCHED subagent's Write into `.devflow/tmp/**`
+  # issue #858 — measure whether a DISPATCHED subagent's Write into `.prflow/tmp/**`
   # succeeds under each tier's generated baseline joined with that job's standing extras
-  # (NOT the shipped profile alone — the record reproduces the resolved literal verbatim). `Write(.devflow/tmp/**)` (review) and
+  # (NOT the shipped profile alone — the record reproduces the resolved literal verbatim). `Write(.prflow/tmp/**)` (review) and
   # unrestricted Write (implement) are granted, but every shipped instruction that authors
   # into that tree is addressed to the ORCHESTRATOR — whether a DISPATCHEE can write is
   # unestablished (a grant proven for the dispatcher is not inherited; CLAUDE.md: "Unknown
   # is not zero"). Each tier gets its OWN dedicated job — NOT a shape row inside the
-  # existing probe/implement-probe jobs, whose sessions already write into `.devflow/tmp/`
+  # existing probe/implement-probe jobs, whose sessions already write into `.prflow/tmp/`
   # and would leave a Write record with two possible authors. This job's prompt instructs NO
   # orchestrator write, so a Write record in its execution file has exactly one EXPECTED
   # author (the subagent). That is a PROMPT-level guarantee, not a technical restriction —
-  # the composed allowlist grants Write(.devflow/tmp/**) to the whole session, so the
+  # the composed allowlist grants Write(.prflow/tmp/**) to the whole session, so the
   # orchestrator keeps the capability and is simply not asked to use it. The verdict helper
   # does not rest on the prompt alone: wherever the execution file records parent chains, a
   # parent-less (orchestrator-issued) Write naming the same file falsifies the premise and
@@ -1634,7 +1634,7 @@ jobs:
             once, and nothing else:
             (1) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_BEFORE'
             (2) use the Write tool to create the file
-                .devflow/tmp/subwrite-review.txt with exactly this content on one line:
+                .prflow/tmp/subwrite-review.txt with exactly this content on one line:
                 SUBWRITE_PAYLOAD
             (3) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_AFTER'
             Then STOP and reply with the single word DONE."
@@ -1688,7 +1688,7 @@ jobs:
           fi
           python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
             --tier review \
-            --side-effect-file .devflow/tmp/subwrite-review.txt \
+            --side-effect-file .prflow/tmp/subwrite-review.txt \
             --allowlist "${RESOLVED_TOOLS}" \
             --permission-mode acceptEdits \
             --model claude-haiku-4-5-20251001 \
@@ -1762,7 +1762,7 @@ jobs:
             once, and nothing else:
             (1) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_BEFORE'
             (2) use the Write tool to create the file
-                .devflow/tmp/subwrite-implement.txt with exactly this content on one line:
+                .prflow/tmp/subwrite-implement.txt with exactly this content on one line:
                 SUBWRITE_PAYLOAD
             (3) run this Bash command once: printf '%s\n' 'SUBWRITE_CONTROL_AFTER'
             Then STOP and reply with the single word DONE."
@@ -1808,7 +1808,7 @@ jobs:
           fi
           python3 scripts/subagent-write-probe-verdict.py "${EXECUTION_FILE}" \
             --tier implement \
-            --side-effect-file .devflow/tmp/subwrite-implement.txt \
+            --side-effect-file .prflow/tmp/subwrite-implement.txt \
             --allowlist "${RESOLVED_TOOLS}" \
             --permission-mode acceptEdits \
             --model claude-haiku-4-5-20251001 \

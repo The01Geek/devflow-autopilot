@@ -10,28 +10,28 @@
 #                                     (superseded claude*.yml are removed on upgrade,
 #                                     Anthropic's left)
 #   - .github/actions/*               the composite actions they use
-#   - .devflow/install-manifest.json  the provenance digests the upgrade path reads
+#   - .prflow/install-manifest.json  the provenance digests the upgrade path reads
 #                                     to tell an untouched artifact from a hand-edited
 #                                     one (see UPGRADING below)
-#   - .devflow/config.json            scaffolded from the template ONLY if absent;
-#                                     devflow_version pinned to the installed commit
+#   - .prflow/config.json            scaffolded from the template ONLY if absent;
+#                                     prflow_version pinned to the installed commit
 #                                     (unless already hand-pinned to a non-SHA value)
-#   - .devflow/config.schema.json     refreshed every run (editor autocomplete)
-#   - .devflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
+#   - .prflow/config.schema.json     refreshed every run (editor autocomplete)
+#   - .prflow/.gitignore             scoped ignore for ephemeral tmp/ scratch
 #                                     (created if absent; keeps config.json +
 #                                     learnings/ committed). A thin install also
 #                                     adds /vendor/ so the runtime-vendored tree
 #                                     is never committed; DEVFLOW_VENDOR=1 removes
 #                                     that line (it commits the tree on purpose).
-#   - .devflow/vendor/devflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
+#   - .prflow/vendor/prflow/        the plugin tree — ONLY with DEVFLOW_VENDOR=1
 #                                     (thin install otherwise; see below)
 #
 # Thin by default: the workflows materialize the plugin into the workspace at
 # RUNTIME via the vendor-plugin composite action (it clones the pinned
-# devflow_version), so the tree no longer has to be committed. The plugin SCRIPTS
+# prflow_version), so the tree no longer has to be committed. The plugin SCRIPTS
 # still end up at the literal workspace path the claude-code-action runner needs
 # (its bash sandbox can't reach ~/.claude / CLAUDE_SKILL_DIR) — just produced by a
-# step instead of a commit. Updating then means bumping devflow_version (or
+# step instead of a commit. Updating then means bumping prflow_version (or
 # re-running this installer, now a small diff). Set DEVFLOW_VENDOR=1 to commit the
 # plugin tree instead — self-hosting with no runtime fetch, fully auditable in
 # your repo. (Local editor use is different again: add the github marketplace with
@@ -48,12 +48,12 @@
 # still applies immediately, so the documented one-liner below is unchanged.
 #
 # Local modifications are never silently overwritten. Each artifact the installer
-# owns is recorded in `.devflow/install-manifest.json` with the sha256 of the bytes
+# owns is recorded in `.prflow/install-manifest.json` with the sha256 of the bytes
 # the installer wrote. On the next run:
 #   - byte-identical to the recorded digest -> unmodified -> updated in place;
 #   - different from the recorded digest    -> locally MODIFIED -> PRESERVED, and the
 #                                              new version is written beside it as
-#                                              `<file>.devflow-new` for you to merge;
+#                                              `<file>.prflow-new` for you to merge;
 #   - no recorded digest (an installation predating the manifest, or a skipped-version
 #     jump) -> provenance UNVERIFIED -> preserved the same way, unless the bytes already
 #     equal the new version, in which case nothing changes and the digest is recorded;
@@ -73,7 +73,7 @@
 #   - absent (you deleted it) -> recreated. Whether a path EXISTS is decided by a bash
 #     builtin test, upstream of python3, so a missing interpreter can never make a file
 #     you have look absent — the defect this ordering exists to prevent.
-# `.devflow/config.json` is never rewritten by this mechanism at all — the shared
+# `.prflow/config.json` is never rewritten by this mechanism at all — the shared
 # scaffolder only backfills keys the example gained.
 #
 # Usage, from the root of your repo. Download-read-run is the documented form:
@@ -131,7 +131,7 @@ DEVFLOW_SUPERSEDED_PLUGIN_SPECS='devflow@devflow-marketplace'
 log() { printf 'devflow-install: %s\n' "$1"; }
 die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 
-# Pin .devflow/config.json's devflow_version to the ref we installed, so the
+# Pin .prflow/config.json's prflow_version to the ref we installed, so the
 # runtime fetch (vendor-plugin) never tracks mutable main. Adds or updates the
 # single key without clobbering the rest of the config — using the FIRST
 # USABLE of jq or python3 (both are JSON-safe), each writing to a temp file
@@ -139,19 +139,19 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 # tool SELECTION, not a retry cascade: the jq/python3 arms are `if`/`elif`
 # conditions, so once a tool is selected the other arm is skipped — a
 # selected-but-failing tool does NOT fall through to the next one. That is
-# fine: the realistic failure (a malformed config.json, a read-only .devflow/)
+# fine: the realistic failure (a malformed config.json, a read-only .prflow/)
 # would defeat python3 too. Selection is execution-verified (issue #247): a
 # present-but-unrunnable Windows `jq` shim must not win this selection over a
 # working python3, so the jq arm requires `--version` to actually run. (python3 is a hard DevFlow prerequisite;
 # `node` was dropped from this cascade — it is no longer required anywhere in
 # DevFlow's config path.)
 # NEVER aborts the install: a missing tool OR a present-but-failing tool (e.g. a
-# pre-existing config.json that isn't valid JSON, a read-only .devflow/) both
+# pre-existing config.json that isn't valid JSON, a read-only .prflow/) both
 # degrade to a warning telling the user to set the key by hand. The success-path
 # `return 0`s live inside the `if` conditions so `set -e` can't fire on a tool
 # failure.
 #
-# Only re-stamps when the EXISTING devflow_version is absent/empty or already
+# Only re-stamps when the EXISTING prflow_version is absent/empty or already
 # looks like a commit SHA (7-40 lowercase hex). This is a SHAPE heuristic, not
 # true provenance detection: it cannot distinguish a SHA this function itself
 # previously wrote from a SHA the user hand-set to pin to one specific commit,
@@ -163,7 +163,7 @@ die() { printf 'devflow-install: %s\n' "$1" >&2; exit 1; }
 set_config_version() {
   local cfg="$1" version="$2" tmp
   [ -f "$cfg" ] || return 0
-  tmp="$(mktemp)" || { log "warning: mktemp failed; add \"devflow_version\": \"$version\" to $cfg by hand."; return 0; }
+  tmp="$(mktemp)" || { log "warning: mktemp failed; add \"prflow_version\": \"$version\" to $cfg by hand."; return 0; }
   # jq resolution (#247): adapted from lib/resolve-bin.sh's contract —
   # install.sh must run standalone (curl-piped, before any checkout exists), so
   # it cannot source the shared resolver. An explicit DEVFLOW_JQ wins the
@@ -185,18 +185,18 @@ set_config_version() {
     log "warning: DEVFLOW_JQ is set to '$jqbin' but it does not execute; falling back for this step — fix DEVFLOW_JQ before running DevFlow."
   fi
   if [ -n "$jqbin" ] && "$jqbin" --version >/dev/null 2>&1; then
-    if "$jqbin" -e '(.devflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
+    if "$jqbin" -e '(.prflow_version // "") as $cur | ($cur == "" or ($cur | test("^[0-9a-f]{7,40}$")))' \
         "$cfg" >/dev/null 2>&1; then
-      if "$jqbin" --arg v "$version" '.devflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
+      if "$jqbin" --arg v "$version" '.prflow_version = $v' "$cfg" > "$tmp" 2>/dev/null; then
         if mv "$tmp" "$cfg"; then
-          log "pinned devflow_version=$version in $cfg"; return 0
+          log "pinned prflow_version=$version in $cfg"; return 0
         fi
       fi
     else
       local rc=$?
       if [ "$rc" -eq 1 ]; then
         rm -f "$tmp"
-        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        log "kept existing prflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
         return 0
       fi
       # rc > 1: jq itself errored on the eligibility check (not a genuine false/null
@@ -206,7 +206,7 @@ set_config_version() {
   elif command -v python3 >/dev/null 2>&1; then
     if DEVFLOW_CFG="$cfg" DEVFLOW_VER="$version" DEVFLOW_OUT="$tmp" python3 -c 'import json,os,re,sys
 c=json.load(open(os.environ["DEVFLOW_CFG"]))
-cur=c.get("devflow_version")
+cur=c.get("prflow_version")
 # Only null/false count as "absent", mirroring jq'"'"'s `// ""` exactly (jq'"'"'s // only
 # substitutes on false/null, never on other falsy JSON values like 0/[]/{}). A
 # non-string, non-null/false value (e.g. 0) then fails the re.match below with an
@@ -215,24 +215,24 @@ cur=c.get("devflow_version")
 if cur is None or cur is False:
     cur=""
 if cur == "" or re.match(r"^[0-9a-f]{7,40}$", cur):
-    c["devflow_version"]=os.environ["DEVFLOW_VER"]
+    c["prflow_version"]=os.environ["DEVFLOW_VER"]
     open(os.environ["DEVFLOW_OUT"],"w").write(json.dumps(c,indent=2)+"\n")
     sys.exit(0)
 sys.exit(3)' 2>/dev/null; then
       if mv "$tmp" "$cfg"; then
-        log "pinned devflow_version=$version in $cfg"; return 0
+        log "pinned prflow_version=$version in $cfg"; return 0
       fi
     else
       local rc=$?
       rm -f "$tmp"
       if [ "$rc" -eq 3 ]; then
-        log "kept existing devflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
+        log "kept existing prflow_version in $cfg (looks like a deliberate pin, not a previous SHA stamp) — not overwriting."
         return 0
       fi
     fi
   fi
   rm -f "$tmp"
-  log "warning: could not set devflow_version=$version automatically — add \"devflow_version\": \"$version\" to $cfg by hand so the runtime fetch is pinned."
+  log "warning: could not set prflow_version=$version automatically — add \"prflow_version\": \"$version\" to $cfg by hand so the runtime fetch is pinned."
   return 0
 }
 
@@ -263,7 +263,7 @@ prune_stale_devflow_workflows() {
 
 # Remove a stale committed plugin tree at the OLD vendored location
 # (.claude/plugins/devflow) left by a pre-relocation DEVFLOW_VENDOR=1 install.
-# The plugin now lives at .devflow/vendor/devflow because claude-code-action's
+# The plugin now lives at .prflow/vendor/prflow because claude-code-action's
 # restore-from-base deletes .claude/ on PRs (it is a SENSITIVE_PATH), which wiped
 # a tree vendored there. Signature-guarded — only ever removes a directory that
 # is actually DevFlow's plugin (carries a devflow plugin.json) so an unrelated
@@ -280,7 +280,7 @@ prune_stale_vendored_plugin() {
      && grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" "$old/.claude-plugin/plugin.json"; then
     rm -rf "$old"
     rmdir .claude/plugins .claude 2>/dev/null || true
-    log "removed stale committed plugin at $old (relocated to .devflow/vendor/devflow)"
+    log "removed stale committed plugin at $old (relocated to .prflow/vendor/prflow)"
   else
     # The directory exists but is not a recognizable DevFlow plugin (no devflow
     # plugin.json — e.g. a partial/interrupted older install, or an unrelated
@@ -291,17 +291,17 @@ prune_stale_vendored_plugin() {
 }
 
 # Keep the runtime-vendored tree out of consumer commits — but only for thin
-# installs. A thin consumer materializes .devflow/vendor/devflow at RUNTIME (in
+# installs. A thin consumer materializes .prflow/vendor/prflow at RUNTIME (in
 # cloud CI); now that it survives the restore-from-base (the whole point of the
 # relocation), an implement/review-fix run's `git add -A` would otherwise stage
 # the bulky tree into the consumer's PR. So a thin install adds `/vendor/` to
-# .devflow/.gitignore (patterns there are relative to .devflow/, matching the
+# .prflow/.gitignore (patterns there are relative to .prflow/, matching the
 # existing `/tmp/` entry). A DEVFLOW_VENDOR=1 install commits the tree on
 # purpose, so the ignore line must be ABSENT there — handle the thin→vendor
 # upgrade by removing a previously-added line. Idempotent; no-op when the
 # scaffolded .gitignore is missing.
 manage_vendor_gitignore() {
-  local gi=.devflow/.gitignore
+  local gi=.prflow/.gitignore
   [ -f "$gi" ] || return 0
   if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
     if grep -qxF '/vendor/' "$gi"; then
@@ -316,7 +316,7 @@ manage_vendor_gitignore() {
       grep -vxF '/vendor/' "$gi" > "$gi.tmp" || _rc=$?
       if [ "$_rc" -le 1 ]; then
         mv "$gi.tmp" "$gi"
-        log "un-ignored .devflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
+        log "un-ignored .prflow/vendor/ (DEVFLOW_VENDOR=1 commits the plugin tree)"
       else
         rm -f "$gi.tmp"
         log "warning: could not rewrite $gi (grep exit $_rc); left /vendor/ in place — remove it by hand so the committed tree is tracked."
@@ -324,7 +324,7 @@ manage_vendor_gitignore() {
     fi
   elif ! grep -qxF '/vendor/' "$gi"; then
     printf '/vendor/\n' >> "$gi"
-    log "ignored .devflow/vendor/ (runtime-vendored plugin must not be committed by a thin install)"
+    log "ignored .prflow/vendor/ (runtime-vendored plugin must not be committed by a thin install)"
   fi
 }
 
@@ -367,7 +367,7 @@ offer_python3_shim() {
 # Upgrade machinery: provenance, non-clobbering installs, and the dry-run preview
 # ============================================================================
 #
-# Every artifact this installer OWNS is recorded in .devflow/install-manifest.json
+# Every artifact this installer OWNS is recorded in .prflow/install-manifest.json
 # as a sha256 of the bytes the installer wrote. That digest is the only thing that
 # can distinguish "the consumer never touched this" from "the consumer hand-edited
 # this", and consumers DO hand-edit their workflows. Without it an upgrade is a
@@ -471,7 +471,7 @@ val = arts.get(sys.argv[2])
 if isinstance(val, str):
     sys.stdout.write(val)
 '
-DEVFLOW_MANIFEST_PATH=".devflow/install-manifest.json"
+DEVFLOW_MANIFEST_PATH=".prflow/install-manifest.json"
 devflow_recorded_digest() {
   devflow_resolve_python || { printf ''; return 0; }
   [ -f "$DEVFLOW_MANIFEST_PATH" ] || { printf ''; return 0; }
@@ -531,7 +531,7 @@ devflow_artifact_action() {
 
 # Install one owned artifact, honoring the classification above. Never overwrites a
 # `modified` / `unverified` / `unreadable` artifact: the new bytes go to
-# `<path>.devflow-new` and the consumer is told to merge. Accumulates the artifacts
+# `<path>.prflow-new` and the consumer is told to merge. Accumulates the artifacts
 # whose digest the manifest should record — a preserved one is deliberately NOT
 # recorded, so the conflict is reported again on every run until the consumer
 # resolves it.
@@ -569,22 +569,22 @@ install_managed() {
       # consumer's own broken artifact back to them as a local edit, on every later run.
       # Staging keeps the destructive step down to an rm+mv over an already-complete
       # tree, which is the same care `os.replace` gives the manifest write.
-      rm -rf "$rel.devflow-stage"
-      if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.devflow-stage"; else cp "$srcp" "$rel.devflow-stage"; fi
+      rm -rf "$rel.prflow-stage"
+      if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.prflow-stage"; else cp "$srcp" "$rel.prflow-stage"; fi
       rm -rf "$rel"
-      mv "$rel.devflow-stage" "$rel"
+      mv "$rel.prflow-stage" "$rel"
       log "$act: $rel"
       DEVFLOW_RECORD_RELS="$DEVFLOW_RECORD_RELS $rel"
       ;;
     modified|unverified|unreadable)
-      rm -rf "$rel.devflow-new"
-      if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.devflow-new"; else cp "$srcp" "$rel.devflow-new"; fi
+      rm -rf "$rel.prflow-new"
+      if [ -d "$srcp" ]; then cp -R "$srcp" "$rel.prflow-new"; else cp "$srcp" "$rel.prflow-new"; fi
       case "$act" in
         modified)
-          log "PRESERVED (locally modified since DevFlow wrote it): $rel — the new version is at $rel.devflow-new; merge it by hand."
+          log "PRESERVED (locally modified since DevFlow wrote it): $rel — the new version is at $rel.prflow-new; merge it by hand."
           ;;
         unverified)
-          log "PRESERVED (provenance unverified — no recorded digest, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new; merge it by hand, or delete $rel and re-run to take DevFlow's copy."
+          log "PRESERVED (provenance unverified — no recorded digest, so a local edit cannot be ruled out): $rel — the new version is at $rel.prflow-new; merge it by hand, or delete $rel and re-run to take DevFlow's copy."
           ;;
         *)
           # TWO different causes reach `unreadable`, and they have DIFFERENT remedies, so
@@ -595,9 +595,9 @@ install_managed() {
           # idempotent (it returns early once DEVFLOW_PY is set), so asking again here is
           # free and reads the real state rather than inferring it.
           if devflow_resolve_python; then
-            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. This path was not overwritten; other artifacts on this run were classified normally. python3 works here, so this is a read error on this path — check that it and every file inside it are readable, then re-run."
+            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.prflow-new. This path was not overwritten; other artifacts on this run were classified normally. python3 works here, so this is a read error on this path — check that it and every file inside it are readable, then re-run."
           else
-            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.devflow-new. This path was not overwritten. There is no working python3 on this host, so NOTHING on this run could be compared: resolve one (see docs/install.md) and re-run to get a real comparison."
+            log "PRESERVED (provenance UNESTABLISHED — this artifact's current bytes could not be digested, so a local edit cannot be ruled out): $rel — the new version is at $rel.prflow-new. This path was not overwritten. There is no working python3 on this host, so NOTHING on this run could be compared: resolve one (see docs/install.md) and re-run to get a real comparison."
           fi
           ;;
       esac
@@ -652,7 +652,7 @@ for rel in rels:
         arts[rel] = d
 out = {
     "manifest_version": 1,
-    "devflow_version": version,
+    "prflow_version": version,
     "installed_from_ref": ref,
     "artifacts": dict(sorted(arts.items())),
 }
@@ -702,7 +702,7 @@ devflow_withheld_tier_present() {
 devflow_report_withheld_tier() {
   local present="$1"
   [ -n "$present" ] || return 0
-  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as workflows[\"devflow-review\"] is true in .devflow/config.json. See docs/workflow-triggers.md."
+  log "NOTICE: this repository carries the withheld automatic-review tier ($present). It is not shipped any more (issue #936) and this installer leaves it alone by default, but it keeps running and keeps this repository exposed to issues #930 and #920 for as long as workflows[\"devflow-review\"] is true in .prflow/config.json. See docs/workflow-triggers.md."
   if [ "${REMOVE_WITHHELD:-}" = "1" ]; then
     log "  --remove-withheld-review-tier was given: the workflow files will be deleted and workflows[\"devflow-review\"] set to false. You must ALSO remove the 'Devflow Review' context from any branch protection rule or ruleset that requires it — otherwise every later pull request wedges against a required check nothing will report. This installer cannot do that for you."
   else
@@ -738,7 +738,7 @@ os.replace(tmp, path)
 # rather than a consumer file that merely happens to share the name. This has to be a
 # specific pattern, not the substring "devflow": `telemetry-push.yml` is a perfectly
 # ordinary name for a workflow a consumer owns, and such a file mentioning the string
-# anywhere — a `.devflow/**` path filter, a comment, a step that touches the config —
+# anywhere — a `.prflow/**` path filter, a comment, a step that touches the config —
 # would satisfy a substring test and be deleted with a reassuring "removed withheld
 # review-tier workflow" line. The opt-in flag is not consent to delete a file DevFlow
 # never wrote.
@@ -778,19 +778,19 @@ devflow_withheld_tier_signature() {
 # stranded state the ordering exists to prevent.
 devflow_disable_review_key() {
   local rc
-  if [ ! -f .devflow/config.json ]; then
+  if [ ! -f .prflow/config.json ]; then
     return 0   # nothing to strand
   fi
   if ! devflow_resolve_python; then
-    log "warning: no working python3 — could not set workflows[\"devflow-review\"] to false in .devflow/config.json; do it by hand."
+    log "warning: no working python3 — could not set workflows[\"devflow-review\"] to false in .prflow/config.json; do it by hand."
     return 1
   fi
   rc=0
-  "$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .devflow/config.json 2>/dev/null || rc=$?
+  "$DEVFLOW_PY" -c "$DEVFLOW_DISABLE_REVIEW_PY" .prflow/config.json 2>/dev/null || rc=$?
   case "$rc" in
-    0) log "set workflows[\"devflow-review\"]=false in .devflow/config.json"; return 0 ;;
-    4) log "workflows[\"devflow-review\"] is already false in .devflow/config.json"; return 0 ;;
-    *) log "warning: could not set workflows[\"devflow-review\"] to false in .devflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
+    0) log "set workflows[\"devflow-review\"]=false in .prflow/config.json"; return 0 ;;
+    4) log "workflows[\"devflow-review\"] is already false in .prflow/config.json"; return 0 ;;
+    *) log "warning: could not set workflows[\"devflow-review\"] to false in .prflow/config.json (it is missing, malformed, or holds a non-object at that key); set it by hand."; return 1 ;;
   esac
 }
 devflow_remove_withheld_tier() {
@@ -901,7 +901,7 @@ devflow_report_superseded_identifiers() {
   log "NOTICE: .claude/settings.json still registers superseded DevFlow identifiers ($hits). This installer never writes that file — run /prflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations and adds the current one."
 }
 
-# The same detect-and-route split, applied to `.devflow/config.json`. The GitHub App that
+# The same detect-and-route split, applied to `.prflow/config.json`. The GitHub App that
 # authors PRFlow's PRs was renamed `devflow-autopilot` -> `prflow-implementer` (the app id
 # behind DEVFLOW_APP_ID is unchanged), so a consumer who added the old slug to
 # `devflow.allowed_bots` now carries an entry that matches no live identity:
@@ -963,15 +963,15 @@ devflow_report_stale_config_identifiers() {
   # to find, so no python3 is spent. Re-read the assignment above before asserting which way
   # this falls.
   [ -n "$DEVFLOW_STALE_BOT_LOGINS" ] || return 0
-  [ -f .devflow/config.json ] || return 0
+  [ -f .prflow/config.json ] || return 0
   devflow_resolve_python || {
-    log "warning: no working python3 — could not check .devflow/config.json for superseded PRFlow identifiers; run /prflow:init to correct them."
+    log "warning: no working python3 — could not check .prflow/config.json for superseded PRFlow identifiers; run /prflow:init to correct them."
     return 0
   }
-  hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" .devflow/config.json \
+  hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" .prflow/config.json \
       "$DEVFLOW_STALE_BOT_LOGINS" 2>/dev/null || printf '')"
   [ -n "$hits" ] || return 0
-  log "NOTICE: .devflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /prflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
+  log "NOTICE: .prflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /prflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
 }
 
 # ── The dry-run preview ─────────────────────────────────────────────────────
@@ -986,7 +986,7 @@ DEVFLOW_DIFF_PY='
 import difflib, os, sys
 real, prev = sys.argv[1], sys.argv[2]
 scopes = sys.argv[3:]
-SKIP = (".devflow/vendor",)
+SKIP = (".prflow/vendor",)
 def walk(base):
     out = {}
     for scope in scopes:
@@ -1042,7 +1042,7 @@ for rel in sorted(set(a) | set(b)):
         sys.stdout.write(line if line.endswith("\n") else line + "\n")
 sys.stdout.write("devflow-install: " + str(changed) + " file(s) would change.\n")
 '
-# The subtrees the preview copies and diffs. `.devflow/vendor` is excluded from the
+# The subtrees the preview copies and diffs. `.prflow/vendor` is excluded from the
 # diff body (a DEVFLOW_VENDOR=1 tree is thousands of files and its churn is reported
 # as one line by the apply log instead), and only the two `.claude/` paths this
 # installer READS are copied — never the consumer's wider `.claude/`.
@@ -1055,7 +1055,7 @@ sys.stdout.write("devflow-install: " + str(changed) + " file(s) would change.\n"
 # byte the apply would change. Scoped to `plugins`, never bare `.claude`: the
 # consumer's settings/skills/hooks are their own and this installer neither writes nor
 # reports them. A scope that does not exist simply contributes nothing.
-DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .devflow .claude/plugins"
+DEVFLOW_PREVIEW_SCOPES=".claude-plugin .github .prflow .claude/plugins"
 
 devflow_render_preview() {
   local real="$1" prev="$2"
@@ -1070,7 +1070,7 @@ devflow_render_preview() {
 
 # Materialize the sandbox: a copy of the consumer subtrees the apply path reads or
 # writes. Missing subtrees are simply absent in the copy, which is exactly what the
-# apply path would see. `.devflow/vendor` is skipped — the apply path recreates it
+# apply path would see. `.prflow/vendor` is skipped — the apply path recreates it
 # from $SRC when DEVFLOW_VENDOR=1 and never reads the existing one.
 devflow_build_preview() {
   local real="$1" prev="$2" d
@@ -1078,14 +1078,14 @@ devflow_build_preview() {
   for d in .claude-plugin .github; do
     [ -e "$real/$d" ] && cp -R "$real/$d" "$prev/$d"
   done
-  if [ -d "$real/.devflow" ]; then
-    mkdir -p "$prev/.devflow"
-    for d in "$real"/.devflow/*; do
+  if [ -d "$real/.prflow" ]; then
+    mkdir -p "$prev/.prflow"
+    for d in "$real"/.prflow/*; do
       [ -e "$d" ] || continue
       case "${d##*/}" in vendor) continue ;; esac
-      cp -R "$d" "$prev/.devflow/"
+      cp -R "$d" "$prev/.prflow/"
     done
-    [ -f "$real/.devflow/.gitignore" ] && cp "$real/.devflow/.gitignore" "$prev/.devflow/.gitignore"
+    [ -f "$real/.prflow/.gitignore" ] && cp "$real/.prflow/.gitignore" "$prev/.prflow/.gitignore"
   fi
   if [ -e "$real/.claude/plugins" ]; then
     mkdir -p "$prev/.claude"
@@ -1111,14 +1111,14 @@ devflow_apply_all() (
   #    commits it instead (self-hosting). Both paths copy through the ONE shared
   #    slice definition, so the file set can never drift between installer and CI.
   if [ "${DEVFLOW_VENDOR:-}" = "1" ]; then
-    log "vendoring plugin → .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1)"
-    devflow_copy_slice "$SRC" ".devflow/vendor/devflow"
+    log "vendoring plugin → .prflow/vendor/prflow/ (DEVFLOW_VENDOR=1)"
+    devflow_copy_slice "$SRC" ".prflow/vendor/prflow"
   else
     log "thin install: the plugin is fetched at runtime (set DEVFLOW_VENDOR=1 to commit it instead)"
   fi
 
   # Upgrade migration: remove a stale committed tree at the old .claude/plugins/devflow
-  # location (relocated to .devflow/vendor/devflow). Runs for both install modes.
+  # location (relocated to .prflow/vendor/prflow). Runs for both install modes.
   prune_stale_vendored_plugin
 
   # 2. Root marketplace manifest so `plugin_marketplaces: ./` resolves the vendored
@@ -1131,13 +1131,13 @@ devflow_apply_all() (
 {
   "\$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "$DEVFLOW_MARKETPLACE_CANONICAL",
-  "description": "Local marketplace for the vendored DevFlow plugin (.devflow/vendor/devflow). Installed by prflow/install.sh.",
+  "description": "Local marketplace for the vendored DevFlow plugin (.prflow/vendor/prflow). Installed by prflow/install.sh.",
   "owner": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
   "allowCrossMarketplaceDependenciesOn": [],
   "plugins": [
     {
       "name": "$DEVFLOW_PLUGIN_CANONICAL",
-      "source": "./.devflow/vendor/devflow",
+      "source": "./.prflow/vendor/prflow",
       "description": "End-to-end dev workflow: /prflow:implement, /prflow:review + /prflow:review-and-fix, the /prflow:docs suite, /prflow:create-issue, plus the retrospective loop.",
       "author": { "name": "Daniel Radman", "email": "daniel@radman.ai" },
       "homepage": "https://github.com/The01Geek/prflow",
@@ -1155,8 +1155,8 @@ JSON
   # into on a fresh consumer. That step creates the directory itself as well — this is
   # a convenience for the human, not the workflow's guarantee, which cannot depend on
   # install.sh having run.
-  log "creating .devflow/prompt-extensions"
-  mkdir -p .devflow/prompt-extensions
+  log "creating .prflow/prompt-extensions"
+  mkdir -p .prflow/prompt-extensions
 
   # 3. Workflows (only those the primary repo actually ships).
   #
@@ -1202,20 +1202,20 @@ JSON
   #    and the /devflow:init skill can never drift. It never overwrites a value the
   #    user has set (it only backfills keys newly added to the example) and always
   #    refreshes config.schema.json. Templates resolve relative to the script
-  #    ($SRC/.devflow), and we target the current repo root.
+  #    ($SRC/.prflow), and we target the current repo root.
   bash "$SRC/scripts/scaffold-config.sh" "$PWD"
 
   # 5b. Gitignore the runtime-vendored tree for thin installs (and un-ignore it for
-  #     DEVFLOW_VENDOR=1, which commits it). Runs after scaffold so .devflow/.gitignore exists.
+  #     DEVFLOW_VENDOR=1, which commits it). Runs after scaffold so .prflow/.gitignore exists.
   manage_vendor_gitignore
 
-  # 6. Pin devflow_version to the exact commit we installed from, so the runtime
+  # 6. Pin prflow_version to the exact commit we installed from, so the runtime
   #    fetch is reproducible and never tracks mutable main. Re-running the
   #    installer re-stamps it when eligible (see set_config_version above for the
   #    empty/SHA-shape rule — a hand-set non-SHA value is preserved, not
   #    re-stamped); a maintainer can also bump it by hand to any tag, branch, or
   #    SHA.
-  set_config_version ".devflow/config.json" "$pin"
+  set_config_version ".prflow/config.json" "$pin"
 
   # 7. Record what we installed, so the NEXT upgrade can tell an untouched artifact
   #    from a hand-edited one instead of clobbering both alike.
@@ -1225,7 +1225,7 @@ JSON
   #    plugin/marketplace identifier.
   devflow_report_superseded_identifiers
 
-  # 9. Same detect-and-route split for .devflow/config.json: report (never rewrite) a
+  # 9. Same detect-and-route split for .prflow/config.json: report (never rewrite) a
   #    superseded identifier the add-only scaffolder above cannot correct, and route the
   #    consumer to /devflow:init, which owns that correction.
   devflow_report_stale_config_identifiers
@@ -1275,7 +1275,7 @@ else
   # Fast path: shallow clone of a branch/tag. Fallback: full clone + checkout,
   # which is what resolves a commit SHA (--branch rejects SHAs). Without the
   # fallback's checkout, a SHA ref would silently land on the default branch and
-  # we'd pin devflow_version to the wrong commit. rm -rf before the fallback so a
+  # we'd pin prflow_version to the wrong commit. rm -rf before the fallback so a
   # cleaned-up-or-not partial first attempt never blocks the reclone. stderr is
   # suppressed ONLY on the --branch attempt (a SHA legitimately fails it, and that
   # expected failure must stay quiet); the fallback clone and checkout each
@@ -1299,14 +1299,14 @@ fi
 # shellcheck source=.github/actions/vendor-plugin/vendor-slice.sh
 DEVFLOW_VENDOR_SOURCE=1 . "$SRC/.github/actions/vendor-plugin/vendor-slice.sh"
 
-# Pin devflow_version to the exact commit we installed from, so the runtime fetch is
+# Pin prflow_version to the exact commit we installed from, so the runtime fetch is
 # reproducible and never tracks mutable main. The clone+checkout above gives $SRC a
 # resolvable HEAD, so this essentially always yields a SHA; only a broken clone (or a
 # DEVFLOW_SRC tree that is not a git repository) falls back to $REF — warn there, since
 # $REF may be a mutable branch (the very thing the pin exists to avoid).
 if PIN="$(git -C "$SRC" rev-parse HEAD 2>/dev/null)"; then :; else
   PIN="$REF"
-  log "warning: could not resolve the installed commit SHA; pinning devflow_version=$PIN (if that is a mutable branch, set it to a tag or SHA by hand to freeze the runtime fetch)."
+  log "warning: could not resolve the installed commit SHA; pinning prflow_version=$PIN (if that is a mutable branch, set it to a tag or SHA by hand to freeze the runtime fetch)."
 fi
 
 # ── First install vs UPGRADE, and therefore apply vs dry-run ────────────────
@@ -1318,7 +1318,7 @@ fi
 # A first install APPLIES (the documented one-liner is unchanged and there is nothing to
 # destroy). An upgrade is DRY-RUN BY DEFAULT and needs --apply, because there is.
 DEVFLOW_INSTALL_STATE="a first-time"
-for _probe in .devflow/config.json .claude-plugin/marketplace.json \
+for _probe in .prflow/config.json .claude-plugin/marketplace.json \
               .github/workflows/devflow.yml .github/workflows/devflow-implement.yml \
               "$DEVFLOW_MANIFEST_PATH"; do
   if [ -e "$_probe" ]; then DEVFLOW_INSTALL_STATE="an existing"; break; fi

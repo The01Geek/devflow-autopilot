@@ -14,7 +14,7 @@
 #
 # Args:
 #   --workpad-dir DIR   directory holding the run's iter-<N>.json workpads
-#                       (e.g. .devflow/tmp/review/<slug>/<run-id>/).
+#                       (e.g. .prflow/tmp/review/<slug>/<run-id>/).
 #   --slug SLUG         the run slug (pr-<N> or sanitized branch name).
 #   --mode trace        emit the rendered Markdown trace to stdout.
 #   --mode record       emit the per-run JSON record to stdout.
@@ -32,9 +32,9 @@
 #                       the tree is unchanged and no new branch commit is made.
 #                       With --workpad-dir/--slug it persists just that run;
 #                       without them it DISCOVERS every run under
-#                       .devflow/tmp/review/<slug>/<run-id>/ and persists each.
+#                       .prflow/tmp/review/<slug>/<run-id>/ and persists each.
 #
-# Gating: when devflow_review_and_fix.efficiency_telemetry_enabled is false,
+# Gating: when prflow_review_and_fix.efficiency_telemetry_enabled is false,
 # --mode and --self-check emit NOTHING and exit 0, and --persist derives no
 # record AND synthesizes no workpad (a synthesized workpad exists only to feed
 # the record — issue #381); the durable copy of REAL workpads is not
@@ -113,7 +113,7 @@ done
 # Unsubstituted-placeholder guard, argv half: the phase-3.3 backstop fence
 # carries literal `<slug>`/`<run-id>` placeholders the executing agent must
 # substitute; run verbatim, they would fabricate a
-# `.devflow/tmp/review/<slug>/<run-id>` identity, synthesize the branch's real
+# `.prflow/tmp/review/<slug>/<run-id>` identity, synthesize the branch's real
 # fix commits under it, and the sha exclusion would then lock the
 # misattribution in while the new files suppressed the gap reflection — a
 # silent, durable corruption. No legitimate slug/run-id/path carries `<` or
@@ -135,9 +135,9 @@ case "${WORKPAD_DIR}${SLUG}" in
 esac
 
 # ── Gating flag (on by default). ─────────────────────────────────────────────
-ENABLED="$(devflow_conf '.devflow_review_and_fix.efficiency_telemetry_enabled' 'true')"
+ENABLED="$(devflow_conf '.prflow_review_and_fix.efficiency_telemetry_enabled' 'true')"
 
-THRESHOLD="$(devflow_conf '.devflow_review_and_fix.efficiency_cut_candidate_min_dispatch' 3)"
+THRESHOLD="$(devflow_conf '.prflow_review_and_fix.efficiency_cut_candidate_min_dispatch' 3)"
 # Guard: a non-numeric / empty operator-supplied value must not make --argjson
 # abort jq (and the script under set -e) — fall back to the documented default.
 # Also clamp values below the schema's `minimum: 1` (e.g. 0) to the default, so
@@ -186,14 +186,14 @@ warn_on_mixed_source() {
 }
 
 # Compute the config fingerprint (issue #431): a sha256 over the canonicalized
-# devflow_review + devflow_review_and_fix config blocks, plus a small map of
+# prflow_review + prflow_review_and_fix config blocks, plus a small map of
 # salient key values carried VERBATIM, so a cross-run/experiment analysis can
 # attribute each record to the config variant that produced it. Emits a compact
 # JSON object `{sha256, partial, salient}` — `partial:true` when only one of the
 # two blocks exists (the hash covers what exists) — or the literal `null` when
 # python3 or the config is unavailable / neither block exists. Best-effort: it
 # NEVER aborts the wrapper (a null fingerprint just means the #431 assembler
-# falls back to `git show <merge_sha>:.devflow/config.json` and marks the source).
+# falls back to `git show <merge_sha>:.prflow/config.json` and marks the source).
 # Adds NO new command head: python3 is a hard preflight prerequisite and
 # config-source.sh (already sourced above) shells to it on every config read. This
 # claim is load-bearing, so the body below must stay free of any non-preflight PATH
@@ -266,7 +266,7 @@ emit_jq() {
   fi
 }
 
-# Repo root (for the .devflow/logs/ destinations and the commit) comes from the
+# Repo root (for the .prflow/logs/ destinations and the commit) comes from the
 # already-sourced config-source.sh via devflow_repo_root — it caches
 # `git rev-parse --show-toplevel || pwd` once, so a non-repo tree falls back to
 # cwd and a non-repo commit simply fails best-effort with a breadcrumb.
@@ -377,7 +377,7 @@ _emit_fix_sha() {
 # #441) stays in the exclusion set and its fix commits are never re-attributed
 # (AC12): (1) the live tmp scratch tree, (2) the telemetry branch's durable
 # iter-*.json blobs (read via git ls-tree/git show — the branch is where durable
-# copies now live), and (3) any legacy tracked working-tree .devflow/logs/review/
+# copies now live), and (3) any legacy tracked working-tree .prflow/logs/review/
 # (retained so a consumer's pre-#441 in-tree archive is not dropped). $2 is the
 # target run dir's TMP path, excluded from source (1) only — its durable mirror on
 # the branch, if a prior persist wrote one, is deliberately NOT excluded (a run
@@ -388,7 +388,7 @@ _emit_fix_sha() {
 recorded_fix_shas() {
   local root="$1" skip_dir="$2" f sha_out ref blob_path
   # (1) tmp scratch + (3) legacy tracked working-tree copies.
-  for f in "$root"/.devflow/tmp/review/*/*/iter-*.json "$root"/.devflow/logs/review/*/*/iter-*.json; do
+  for f in "$root"/.prflow/tmp/review/*/*/iter-*.json "$root"/.prflow/logs/review/*/*/iter-*.json; do
     [ -e "$f" ] || continue
     case "$f" in "$skip_dir"/*) continue ;; esac
     if ! sha_out="$("$DEVFLOW_JQ" -r 'if (.fix_commit_sha | type) == "string" then .fix_commit_sha else empty end' "$f" 2>/dev/null)"; then
@@ -408,7 +408,7 @@ recorded_fix_shas() {
       continue
     fi
     _emit_fix_sha "$sha_out" "${ref}:${blob_path}"
-  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/review/")
   return 0
 }
 
@@ -498,7 +498,7 @@ synthesize_iter_workpads() {
   # Without this, every write below fails ENOENT and the rc-4 arm misreads a
   # missing directory as a disk/write failure.
   if ! mkdir -p "$dir" 2>/dev/null; then
-    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs, or on the cloud tier the sandbox's write denial into .devflow/tmp?); cannot synthesize into it" >&2
+    echo "::warning::efficiency-trace.sh --persist: could not create workpad dir ${dir} (permissions/read-only fs, or on the cloud tier the sandbox's write denial into .prflow/tmp?); cannot synthesize into it" >&2
     return 3
   fi
   # Base-ref freshness guard (issue #532): do_persist's pre-synthesis refresh sets
@@ -758,7 +758,7 @@ do_self_check() {
   # dropped one still does (AC15).
   local ref
   ref="$(devflow_telemetry_ref)"
-  record=".devflow/logs/efficiency/${SLUG}-${run_id}.json"
+  record=".prflow/logs/efficiency/${SLUG}-${run_id}.json"
   if ! devflow_telemetry_blob_exists "$root" "$ref" "$record"; then
     echo "::warning::devflow review-and-fix self-check: effectiveness record '${record}' was NOT persisted to the telemetry branch '${ref#refs/heads/}' for run ${SLUG}/${run_id} — recover it with 'lib/efficiency-trace.sh --persist'." >&2
   fi
@@ -955,7 +955,7 @@ persist_one() {
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and the fix-commit search could not run (an uncreatable target dir, an unresolvable base ref, a base ref left unestablished by a failed origin refresh, a telemetry-branch fetch left unestablished by a failed/unattempted fetch, or a failed git log enumeration — the warning above names which) — whether matching fix commits exist was never established; telemetry not synthesized" >&2
         return 0 ;;
       4)
-        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above, which carry the actual jq error text — disk/permissions, a malformed jq program, or on the cloud tier the sandbox's redirect-write denial into .devflow/tmp) — telemetry not synthesized" >&2
+        echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json; matching fix commits were selected but every synthesized record write failed (see the per-commit warnings above, which carry the actual jq error text — disk/permissions, a malformed jq program, or on the cloud tier the sandbox's redirect-write denial into .prflow/tmp) — telemetry not synthesized" >&2
         return 0 ;;
       2)
         echo "::warning::efficiency-trace.sh --persist: run ${slug}/${run_id} left no iter-*.json and no unrecorded 'fix: address review findings (iteration N)' commits were found — per-iteration effectiveness telemetry was not captured this run; nothing to synthesize" >&2
@@ -994,17 +994,17 @@ persist_one() {
   # the floor is a no-op there and only fires when a real promoted iter exists.)
   [ "$ENABLED" = "true" ] && synthesize_shadow_markers "$dir"
 
-  # ── Everything below STAGES into .devflow/tmp/ (never the tracked tree) so the
+  # ── Everything below STAGES into .prflow/tmp/ (never the tracked tree) so the
   # detached telemetry-branch write (do_persist) picks it up (issue #441). The
   # current branch, HEAD, and the working tree are never touched. _TELEMETRY_STAGE
   # is the shared staging root do_persist created; its subtree mirrors the exact
-  # .devflow/logs/… layout the branch commit will carry. ────────────────────────
+  # .prflow/logs/… layout the branch commit will carry. ────────────────────────
 
   # Durable workpad copy — NOT telemetry-gated (runs on every writable run).
   # Copies every *.json in the run dir (iter-*.json + deferrals.json), mirroring
   # the review-and-fix Loop Exit durable-copy (references/loop-exit.md). Content-idempotent: the branch write's
   # tree-equality no-op guard emits no commit when the bytes are unchanged.
-  durable="${_TELEMETRY_STAGE}/.devflow/logs/review/${slug}/${run_id}"
+  durable="${_TELEMETRY_STAGE}/.prflow/logs/review/${slug}/${run_id}"
   if ! cp_err="$( { mkdir -p "$durable" && cp -p "$dir"/*.json "$durable"/; } 2>&1 )"; then
     echo "::warning::efficiency-trace.sh --persist: durable workpad copy failed (${dir} -> ${durable}): ${cp_err:-unknown}; best-effort, continuing" >&2
   else
@@ -1084,7 +1084,7 @@ persist_one() {
   if [ "$ENABLED" = "true" ]; then
     local rel_record
     [ -n "${ref:-}" ] || ref="$(devflow_telemetry_ref)"
-    rel_record=".devflow/logs/efficiency/${slug}-${run_id}.json"
+    rel_record=".prflow/logs/efficiency/${slug}-${run_id}.json"
     if ! devflow_telemetry_blob_exists "$root" "$ref" "$rel_record"; then
       record="${_TELEMETRY_STAGE}/${rel_record}"
       collect_valid_files "$dir"
@@ -1227,7 +1227,7 @@ apply_harness_floor() {
     return 0
   fi
 
-  local eff_dir="${stage}/.devflow/logs/efficiency" f
+  local eff_dir="${stage}/.prflow/logs/efficiency" f
   # Merge arm (a): a record DERIVED THIS PASS and staged under the run-id identity —
   # `<slug>-<ident>.json`, matched by `*-<ident>.json` so ANY slug (pr-<N>, a branch
   # slug, or a synthesized run) is caught, but ONLY for this run-id (AC3: never a record
@@ -1263,7 +1263,7 @@ apply_harness_floor() {
       rm -f "${eff_dir}/${base}" 2>/dev/null
     fi
     return 0
-  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/efficiency/")
+  done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/efficiency/")
 
   # Skeleton arm (AC6): no record for this run-id anywhere. Only record-DERIVING command
   # classes get a skeleton — pr-description's healthy state is "no record", so it takes a
@@ -1292,8 +1292,8 @@ apply_harness_floor() {
   # blob explicitly and decline rather than resting on the empty-list signal: a missed merge
   # (record kept intact, gains harness_cost on a later working re-run) is strictly safer than
   # replacing a real record with an iterations:0 skeleton.
-  if [ -n "$ref" ] && devflow_telemetry_blob_exists "$root" "$ref" ".devflow/logs/efficiency/${slug}-${ident}.json" 2>/dev/null; then
-    echo "::warning::efficiency-trace.sh --persist: harness cost floor: a record already exists on the telemetry branch at .devflow/logs/efficiency/${slug}-${ident}.json (merge-arm-b's branch listing may have failed silently); declining to overwrite it with a cost skeleton" >&2
+  if [ -n "$ref" ] && devflow_telemetry_blob_exists "$root" "$ref" ".prflow/logs/efficiency/${slug}-${ident}.json" 2>/dev/null; then
+    echo "::warning::efficiency-trace.sh --persist: harness cost floor: a record already exists on the telemetry branch at .prflow/logs/efficiency/${slug}-${ident}.json (merge-arm-b's branch listing may have failed silently); declining to overwrite it with a cost skeleton" >&2
     return 0
   fi
   generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -1507,7 +1507,7 @@ do_persist() {
     echo "efficiency-trace.sh --persist: base-ref refresh skipped — no origin remote configured; accepted the local base '${_DEVFLOW_BASE_BRANCH}' without a refresh (recorded residual: the local base may be stale across linked worktrees)" >&2
   fi
   # Bounded cleanup policy for retained staging roots (issue #469 AC8): a degraded
-  # or staging-only persist RETAINS its staging root under .devflow/tmp/ (below), so
+  # or staging-only persist RETAINS its staging root under .prflow/tmp/ (below), so
   # prune older ones to the newest _DEVFLOW_TELEMETRY_STAGE_KEEP (default 8) here,
   # before creating this run's, so they cannot grow without bound. The timestamp
   # prefix on the name below makes the glob sort chronologically (lexicographic ==
@@ -1532,16 +1532,16 @@ do_persist() {
   # large-but-in-range `_keep` needs no clamp: it just makes `_drop` non-positive → prune nothing.
   _keep=$(( 10#$_keep ))
   [ "$_keep" -ge 0 ] || _keep=8
-  for _s in "${root}"/.devflow/tmp/telemetry-stage-*; do
+  for _s in "${root}"/.prflow/tmp/telemetry-stage-*; do
     [ -d "$_s" ] && _stale+=("$_s")
   done
   if [ "${#_stale[@]}" -gt "$_keep" ]; then
     local _drop=$(( ${#_stale[@]} - _keep )) _i
     for ((_i = 0; _i < _drop; _i++)); do rm -rf "${_stale[$_i]}" 2>/dev/null || true; done
   fi
-  # Shared staging root under gitignored .devflow/tmp/ (issue #441). Every
+  # Shared staging root under gitignored .prflow/tmp/ (issue #441). Every
   # persist_one call stages its record + durable workpad copy here, mirroring the
-  # exact .devflow/logs/… layout; after the loop the detached telemetry-branch
+  # exact .prflow/logs/… layout; after the loop the detached telemetry-branch
   # write consumes the whole tree and this scratch is removed. Nothing is ever
   # materialized in the tracked working tree, so `git status` stays byte-for-byte
   # unchanged (AC2). Unique name via bash builtins (not mktemp — the cloud sandbox
@@ -1551,7 +1551,7 @@ do_persist() {
   # orders CLEANUP (never selects an emitted telemetry value — guard-class 2 does
   # not bind), so a missing `date` degrades to a fixed prefix (prune still runs,
   # ordering just falls back to $$/RANDOM); $$-RANDOM-SECONDS keep the name unique.
-  _TELEMETRY_STAGE="${root}/.devflow/tmp/telemetry-stage-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}-${SECONDS}"
+  _TELEMETRY_STAGE="${root}/.prflow/tmp/telemetry-stage-$(date -u +%Y%m%d%H%M%S 2>/dev/null || printf '00000000000000')-$$-${RANDOM}-${SECONDS}"
   rm -rf "$_TELEMETRY_STAGE" 2>/dev/null || true
   mkdir -p "$_TELEMETRY_STAGE" 2>/dev/null || true
   if [ -n "$WORKPAD_DIR" ]; then
@@ -1574,7 +1574,7 @@ do_persist() {
     fi
     persist_one "$WORKPAD_DIR" "$slug" "$run_id" "$root" 1
   else
-    # Discovery: every .devflow/tmp/review/<slug>/<run-id>/ directory. The trailing
+    # Discovery: every .prflow/tmp/review/<slug>/<run-id>/ directory. The trailing
     # slash restricts the glob to directories; an unmatched glob stays literal and
     # the `[ -d ]` guard skips it (no nullglob needed). A dir HOLDING iter-*.json
     # is persisted immediately. A WORKPAD-LESS dir is collected so the issue #381
@@ -1609,7 +1609,7 @@ do_persist() {
     # that created the dir was a review; content stays correct and the sha
     # exclusion still holds.
     local wl_dirs=() wl_n wl_i next_slug allow d_iters wl_slug_first wl_multi_slug=0
-    for dir in "$root"/.devflow/tmp/review/*/*/; do
+    for dir in "$root"/.prflow/tmp/review/*/*/; do
       [ -d "$dir" ] || continue
       dir="${dir%/}"                                # strip trailing slash
       run_id="${dir##*/}"                           # builtins only (guard-class 2:
@@ -1660,7 +1660,7 @@ do_persist() {
 
   # ── Detached write of everything staged above to the telemetry branch ──────
   # (issue #441). Replaces the former current-branch `chore:` commit: the shared
-  # lib hashes each staged .devflow/logs/… file into the object store, builds a
+  # lib hashes each staged .prflow/logs/… file into the object store, builds a
   # tree parented on the telemetry ref (orphan root on first use), CAS-advances
   # the ref, and pushes with a fetch/re-parent retry loop — never touching the
   # current branch, HEAD, or the working tree. Best-effort/exit-0: a push that
@@ -1725,7 +1725,7 @@ if [ "$MODE" != "trace" ] && [ "$MODE" != "record" ]; then
 fi
 
 # Flag off → emit nothing, exit 0 (so a caller writing the record to a file
-# produces no file under .devflow/logs/).
+# produces no file under .prflow/logs/).
 if [ "$ENABLED" != "true" ]; then
   exit 0
 fi

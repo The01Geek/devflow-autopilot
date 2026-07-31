@@ -13,7 +13,7 @@ to demote matched findings to Informational.
 Guards (any failing guard rejects the deferral — finding flows through as
 normal):
     1. Trusted filer:     PR author is in `devflow.allowed_bots` from
-                          .devflow/config.json.
+                          .prflow/config.json.
     2. Mutual cross-link: follow-up issue exists, is open, and its body
                           contains the substring "PR #<N>" (where N is the
                           current PR number). Applies to ordinary deferrals
@@ -250,26 +250,26 @@ def _git_root_error_suffix() -> str:
 
 def _default_config_path() -> str:
     # Anchor the default config path to the repo root so a subdirectory invocation
-    # reads the consumer's ROOT .devflow/config.json. Its explicit config-path
+    # reads the consumer's ROOT .prflow/config.json. Its explicit config-path
     # argument passing to config-get.sh would otherwise defeat config-get.sh's own
     # root anchoring — so this reader must root-anchor its default itself (issue #295).
     root = _repo_root()
     if root is not None:
-        return str(Path(root) / ".devflow" / "config.json")
+        return str(Path(root) / ".prflow" / "config.json")
     cwd = Path.cwd()
-    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
     # the silent-drop class this fix closes.
     # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
     # dubious-ownership), or be absent — not only "outside a git tree" — so don't
     # assert "not in a git repo"; report the root could not be resolved and surface
     # git's own stderr instead of discarding it.
-    if not (cwd / ".devflow").is_dir():
+    if not (cwd / ".prflow").is_dir():
         sys.stderr.write(
             f"match-deferrals.py: could not resolve a git repo root"
-            f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
+            f"{_git_root_error_suffix()} and no .prflow/ at {str(cwd)!r}; "
             f"falling back to a cwd-anchored default config path\n"
         )
-    return str(cwd / ".devflow" / "config.json")
+    return str(cwd / ".prflow" / "config.json")
 
 
 def _config_get(key: str, default: str = "", config_path: str | None = None) -> str:
@@ -504,7 +504,7 @@ def main(argv=None):
                         "or `-` to read from stdin.")
     p.add_argument("--config", default=None,
                    help="Path to config.json (default: the repo-root "
-                        ".devflow/config.json, resolved via git rev-parse "
+                        ".prflow/config.json, resolved via git rev-parse "
                         "--show-toplevel with a cwd fallback; issue #295). A "
                         "non-empty explicit value is honored verbatim.")
     args = p.parse_args(argv)
@@ -550,7 +550,7 @@ def main(argv=None):
         print(json.dumps(result, indent=2))
         return 0
 
-    allowed_bots_raw = _config_get(".devflow.allowed_bots", "", args.config)
+    allowed_bots_raw = _config_get(".prflow.allowed_bots", "", args.config)
     allowed_bots = {b.strip() for b in allowed_bots_raw.split(",") if b.strip()}
     pr_author_trusted = pr_author in allowed_bots if allowed_bots else False
     result["pr_author_trusted"] = pr_author_trusted

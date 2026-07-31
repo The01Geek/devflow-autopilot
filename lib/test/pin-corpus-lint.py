@@ -36,8 +36,8 @@ authoring time:
   scoped tracked-file set — from ``--reloc-search-set`` when supplied (the
   git-free path the self-tests use) else ``git ls-files`` — **minus** the
   pin-source file(s) that declare the literal (auto-excluded plus any
-  ``--reloc-exclude`` substring token) and the non-source trees ``.devflow/vendor/`` /
-  ``.devflow/tmp/``, and reports every other file where the literal resolves as
+  ``--reloc-exclude`` substring token) and the non-source trees ``.prflow/vendor/`` /
+  ``.prflow/tmp/``, and reports every other file where the literal resolves as
   ``RELOCATED … relocated to <file>; update the pin target``. Only when the set
   was enumerated successfully **and** the literal resolves nowhere in it does it
   read ``deleted (not found anywhere)`` — a failed/empty enumeration is reported
@@ -172,7 +172,7 @@ from typing import NamedTuple
 # Non-source trees always excluded from the relocation search set (issue #661): a
 # committed vendored plugin copy and the run's own draft/derivation artifacts both
 # quote pin literals and would otherwise be reported as spurious destinations.
-RELOC_DEFAULT_EXCLUDES = (".devflow/vendor/", ".devflow/tmp/")
+RELOC_DEFAULT_EXCLUDES = (".prflow/vendor/", ".prflow/tmp/")
 
 # Machine-consumed sentinel (issue #967): written to stderr by
 # ``scan_static_pin_changes`` only after both static-classifier passes have
@@ -920,10 +920,10 @@ def resolve_reloc_search_set(explicit_file):
 
 def _reloc_excluded(path, exclude_tokens):
     """A search-set path is excluded when any exclude token is a substring of it
-    (the distinctive ``.devflow/vendor/`` / ``.devflow/tmp/`` trees, or a
+    (the distinctive ``.prflow/vendor/`` / ``.prflow/tmp/`` trees, or a
     pin-source path/prefix) OR resolves to the same file (abspath-equal). Substring
-    matches a temp-dir stand-in like ``/tmp/xxx/.devflow/vendor/copy.md`` against the
-    same token a repo-relative ``.devflow/vendor/…`` path does; the abspath-equality
+    matches a temp-dir stand-in like ``/tmp/xxx/.prflow/vendor/copy.md`` against the
+    same token a repo-relative ``.prflow/vendor/…`` path does; the abspath-equality
     arm is load-bearing for the pin-source auto-exclude, because ``git ls-files``
     emits **repo-relative** paths (``lib/test/run.sh``) while the pin-source token is
     the **absolute** ``$LIB/test/run.sh`` — a substring test alone never matches those
@@ -1382,10 +1382,10 @@ _RETIRED_PIN_REVIVAL_HEADER = (
     "structural_category",
     "structural_rationale",
 )
-_ADJUDICATION_BUNDLE_ROOT = ".devflow/logs/pin-corpus-adjudication-changes"
+_ADJUDICATION_BUNDLE_ROOT = ".prflow/logs/pin-corpus-adjudication-changes"
 _ADJUDICATION_TABLE_PATH = "lib/test/pin-corpus-adjudications.tsv"
 _RETIREMENT_MANIFEST_SPECS = {
-    ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+    ".prflow/logs/residual-prose-retirement-manifest.tsv": (
         (
             "source_file",
             "helper",
@@ -1400,7 +1400,7 @@ _RETIREMENT_MANIFEST_SPECS = {
         frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
         frozenset({"RETIRE_PROSE"}),
     ),
-    ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+    ".prflow/logs/residual-required-copy-retirement-manifest.tsv": (
         (
             "source_file",
             "helper",
@@ -1414,7 +1414,7 @@ _RETIREMENT_MANIFEST_SPECS = {
         frozenset({"RETIRE_PROSE", "RETAIN_BOUNDARY"}),
         frozenset({"RETIRE_PROSE"}),
     ),
-    ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+    ".prflow/logs/red-on-removal-retirement-manifest.tsv": (
         (
             "source_file",
             "helper",
@@ -4315,7 +4315,7 @@ def scan_retired_mutation_population(repo_root):
         raise InfrastructureError("; ".join(population_findings))
 
     inventory, inventory_master = _parse_mutation_inventory(
-        root / ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+        root / ".prflow/logs/mutation-pin-corpus-inventory.tsv",
         census,
     )
     current_by_identity = {

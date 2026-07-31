@@ -24,7 +24,7 @@ REPO_ROOT = HERE.parent.parent
 SCRIPT = HERE / "mutation-pin-census.py"
 HISTORICAL_ADJUDICATIONS = HERE / "mutation-pin-corpus-adjudications.tsv"
 CURRENT_INVENTORY = (
-    REPO_ROOT / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+    REPO_ROOT / ".prflow/logs/mutation-pin-corpus-inventory.tsv"
 )
 HARNESS_INVENTORY = HERE / "modules/harness-python-guards.inventory.md"
 SPEC = importlib.util.spec_from_file_location("mutation_pin_census", SCRIPT)

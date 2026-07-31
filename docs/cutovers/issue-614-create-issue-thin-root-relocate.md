@@ -48,7 +48,7 @@ conditional files, each loaded only when its predicate fires):
 - `skills/create-issue/references/fallback-read-only-sandbox.md` — the consolidated
   read-only-sandbox arms (the derivation artifact, the derivation gate's inline stand-in,
   the audit report artifact, and the presentation gate). 334 words. Trigger: a
-  `.devflow/tmp/` write or delete is refused.
+  `.prflow/tmp/` write or delete is refused.
 - `skills/create-issue/references/fallback-audit-dispatch-arms.md` — the embed arm and its
   sentinel carriage check, the `DRAFT-UNREADABLE` and same-arm retry escalations, and the
   degraded inline arm. 669 words. Trigger: a non-file audit arm, a retry escalation, or no

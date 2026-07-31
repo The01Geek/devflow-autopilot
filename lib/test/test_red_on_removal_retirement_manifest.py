@@ -21,7 +21,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 BASE_REVISION = "19b8d837f320e848983d420287e05bf356977bac"
-MANIFEST = REPO_ROOT / ".devflow/logs/red-on-removal-retirement-manifest.tsv"
+MANIFEST = REPO_ROOT / ".prflow/logs/red-on-removal-retirement-manifest.tsv"
 CLASSIFIER = HERE / "pin-corpus-classifier.py"
 EXPECTED_DISPOSITIONS = {
     "redundant_retire": 59,

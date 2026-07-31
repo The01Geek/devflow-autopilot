@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# Read a value from .devflow/config.json — DevFlow's single config resolver.
+# Read a value from .prflow/config.json — DevFlow's single config resolver.
 #
 # Usage: config-get.sh KEY [DEFAULT] [CONFIG_FILE]
-#   KEY          dot-path like .docs.internal or .devflow.workpad_marker
+#   KEY          dot-path like .docs.internal or .prflow.workpad_marker
 #                (leading dot optional). Arbitrary nesting depth supported —
 #                the path is split on dots and walked through nested objects.
 #   DEFAULT      printed if key is absent or value is empty/null. Pass an
 #                empty string ("") to explicitly request empty-on-missing.
-#   CONFIG_FILE  when omitted, defaults to the repo-root .devflow/config.json
+#   CONFIG_FILE  when omitted, defaults to the repo-root .prflow/config.json
 #                (git rev-parse --show-toplevel, falling back to pwd); a NON-EMPTY
 #                explicit value is honored verbatim (an explicit empty string still
 #                selects the root-anchored default) (issue #295)
 #
 # SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
 # contract): this resolver and scripts/workpad.py's in-process marker read both
-# resolve the DEFAULT `.devflow/config.json` anchored to the git repo root
+# resolve the DEFAULT `.prflow/config.json` anchored to the git repo root
 # (`git rev-parse --show-toplevel`, falling back to `pwd`), NOT relative to the
 # current working directory — mirroring lib/config-source.sh. So a skill invoked
-# from any subdirectory of the repo loads the consumer's root `.devflow/config.json`
+# from any subdirectory of the repo loads the consumer's root `.prflow/config.json`
 # exactly as if invoked from the root; when cwd already IS the root the resolution
 # is byte-for-byte unchanged. Keep the two readers in lockstep: they must resolve
 # the same file for the same cwd. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
@@ -31,8 +31,8 @@
 #
 # Known limitation: `git rev-parse --show-toplevel` returns the NEAREST git root, so
 # a nested git submodule/inner repo resolves to that inner root, and a monorepo whose
-# `.devflow/` is deliberately not at the git root is not covered — consistent with
-# config-source.sh; a walk-up-to-nearest-`.devflow/` resolver was declined for this fix.
+# `.prflow/` is deliberately not at the git root is not covered — consistent with
+# config-source.sh; a walk-up-to-nearest-`.prflow/` resolver was declined for this fix.
 #
 # Parses with python3, which is a hard DevFlow prerequisite (lib/preflight.sh
 # requires python3 >= 3.11; the whole scripts/*.py surface depends on it) and so
@@ -56,7 +56,7 @@ if [ $# -ge 2 ]; then
 fi
 # Anchor the DEFAULT config path to the git repo root (issue #295) — mirroring
 # lib/config-source.sh (`git rev-parse --show-toplevel 2>/dev/null || pwd`) — so a
-# skill invoked from a subdirectory reads the consumer's ROOT .devflow/config.json
+# skill invoked from a subdirectory reads the consumer's ROOT .prflow/config.json
 # instead of silently missing it. A NON-EMPTY explicit CONFIG_FILE (3rd arg) is
 # honored verbatim (an explicit empty 3rd arg still selects the default — see the
 # gate below); root anchoring applies only to the default. Each invocation forks
@@ -71,8 +71,8 @@ if [ -n "${3:-}" ]; then
 else
     # git rev-parse prints nothing and exits non-zero outside a git tree; the trailing
     # `|| _devflow_root=""` keeps that assignment set -e-safe. Then fall back to cwd, with
-    # a breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located — the
-    # silent-drop class this fix closes. (A git root with no .devflow/ is the normal
+    # a breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located — the
+    # silent-drop class this fix closes. (A git root with no .prflow/ is the normal
     # unconfigured local case and stays silent; the caller then applies its own default.)
     _devflow_root="$(git rev-parse --show-toplevel 2>/dev/null)" || _devflow_root=""
     if [ -z "$_devflow_root" ]; then
@@ -83,12 +83,12 @@ else
         # resolved and surface git's own stderr (the one string naming the real
         # cause) instead of discarding it. Re-run on this rare breadcrumb path only;
         # `|| true` keeps it set -e-safe.
-        if [ ! -d "${_devflow_root}/.devflow" ]; then
+        if [ ! -d "${_devflow_root}/.prflow" ]; then
             _git_err="$(git rev-parse --show-toplevel 2>&1 >/dev/null)" || true
-            echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .devflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
+            echo "config-get.sh: could not resolve a git repo root${_git_err:+ (git: ${_git_err})} and no .prflow/ at '${_devflow_root}'; using cwd fallback and defaults" >&2
         fi
     fi
-    config_file="${_devflow_root}/.devflow/config.json"
+    config_file="${_devflow_root}/.prflow/config.json"
 fi
 
 if [ -z "$key" ]; then

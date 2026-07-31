@@ -71,7 +71,7 @@ The **claim** is gated on it: read the local run's summary before you make one. 
 The full local run is `bash lib/test/run.sh` plus every lint gate required by `CLAUDE.md` (using its documented classifier fallback when necessary), and it remains the authoritative local signal because it yields richer failure detail than CI for troubleshooting. A nonempty skip tally is not clean.
 The cloud `/prflow:implement` in-env gate (issue #405) is unchanged and unweakened: such a run verifies in its own environment and never waits on, polls, re-checks, or cites CI for its own progress; the parallel-push allowance above is a local/interactive and reception/shepherd tier rule only.
 
-**Local/interactive tier — capture the parallel full-suite launch and record a `Verification evidence:` marker (issue #719).** Because the parallelized gate launches the full local run *concurrently* with the CI-triggering push rather than serialized behind it, a launch that is denied, blocked, or never reached leaves no trace. So on the **local/interactive tier** capture the full-suite launch to a named file under `.devflow/tmp/`, merging stderr — `bash lib/test/run.sh > .devflow/tmp/verification-<ISSUE_NUMBER>.log 2>&1` (most of `run.sh`'s FAIL sites write their detail to stderr, and a `>` redirect still preserves the exit code where a `tee` pipe would not) — and, before the completion claim, record the exact marker literal `Verification evidence:` in the workpad through `scripts/workpad.py` with the **`note`** reflection kind — a bullet carrying the run's **pass, fail, and skip tallies** and the **captured file's path**. A launch that never started produces an **absent capture file**, so the refused-launch terminal is an inspectable state, not an indistinguishable one. Use `note` because it is the only kind `lib/cheap-gate.jq` does not treat as friction. **Fallback:** a reception pass with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad — record the marker in the **PR description**; a run with **neither** workpad nor PR names that terminal and reports the evidence **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement**: no gate consumes it here, `lib/cheap-gate.jq` is deliberately not wired to it (its population is predominantly cloud runs this scoping excludes), and runtime enforcement is deferred to **issue #730**. The cloud tiers keep the issue-#405 in-env rule and gain **no** capture obligation (the cloud matchers deny the redirect/capture shapes, issues #401/#455).
+**Local/interactive tier — capture the parallel full-suite launch and record a `Verification evidence:` marker (issue #719).** Because the parallelized gate launches the full local run *concurrently* with the CI-triggering push rather than serialized behind it, a launch that is denied, blocked, or never reached leaves no trace. So on the **local/interactive tier** capture the full-suite launch to a named file under `.prflow/tmp/`, merging stderr — `bash lib/test/run.sh > .prflow/tmp/verification-<ISSUE_NUMBER>.log 2>&1` (most of `run.sh`'s FAIL sites write their detail to stderr, and a `>` redirect still preserves the exit code where a `tee` pipe would not) — and, before the completion claim, record the exact marker literal `Verification evidence:` in the workpad through `scripts/workpad.py` with the **`note`** reflection kind — a bullet carrying the run's **pass, fail, and skip tallies** and the **captured file's path**. A launch that never started produces an **absent capture file**, so the refused-launch terminal is an inspectable state, not an indistinguishable one. Use `note` because it is the only kind `lib/cheap-gate.jq` does not treat as friction. **Fallback:** a reception pass with no linked issue (`lib/fetch-pr-context.sh` emits `NoIssue`) has no workpad — record the marker in the **PR description**; a run with **neither** workpad nor PR names that terminal and reports the evidence **unrecordable** rather than stalling. This is **artifact vocabulary plus a captured artifact, not runtime enforcement**: no gate consumes it here, `lib/cheap-gate.jq` is deliberately not wired to it (its population is predominantly cloud runs this scoping excludes), and runtime enforcement is deferred to **issue #730**. The cloud tiers keep the issue-#405 in-env rule and gain **no** capture obligation (the cloud matchers deny the redirect/capture shapes, issues #401/#455).
 
 ## Guard-class shape 1 — existence-vs-sourceability (verify the outcome, not the precondition)
 
@@ -181,7 +181,7 @@ extension decides. (#423)
 ## Config-derivation fixes sweep the full six-shape adversarial matrix, not just the reviewer-cited row
 
 When a fix touches **how a config value is read, derived, or defaulted** — a `config-get.sh` read, an
-inline `jq` extraction over `.devflow/config.json`, an `// default` / `// true`-style fallback, an enum
+inline `jq` extraction over `.prflow/config.json`, an `// default` / `// true`-style fallback, an enum
 validation, or any other code that turns a raw config value into a decision — the **same fix** sweeps the
 full CLAUDE.md six-shape adversarial matrix over that value: `{object, array, scalar, valid-falsy (explicit false / 0 / empty string), missing, wrong-type}`.
 Each shape is **tested in `lib/test/run.sh` in the same change** (exit-0 + a specific, not generic,
@@ -194,7 +194,7 @@ predictable test-gap findings (PR #451 round 2 fixed and tested one config-read 
 almost solely to add the untested sibling arm), so shipping the whole matrix at once is what stops the
 per-fix extra review iteration. This is DevFlow-repo policy; the governing convention is CLAUDE.md's
 best-effort-parser adversarial-matrix gotcha, and this section is its coupled mirror in
-`.devflow/prompt-extensions/receiving-code-review.md` — edit both in the same change. (#466)
+`.prflow/prompt-extensions/receiving-code-review.md` — edit both in the same change. (#466)
 
 ## Merge conflicts in generated artifacts
 
@@ -250,11 +250,11 @@ If the matcher refuses the invocation **twice**, stop — record the refusal and
 
 DevFlow-repo policy: a reviewed diff that touches a **prompt-surface** file must carry evidence
 that its edit went through the `superpowers:writing-skills` RED/GREEN discipline (see
-`.devflow/prompt-extensions/implement.md`'s "Prompt-surface edit routing" rule). This gate is
+`.prflow/prompt-extensions/implement.md`'s "Prompt-surface edit routing" rule). This gate is
 the review-time backstop for that routing — flag a missing discharge as at least **Important**.
 
 **Trigger.** This gate applies only when the reviewed diff touches a path matching one of the
-trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/implement/references/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.devflow/prompt-extensions/*.md`.
+trigger globs: `skills/*/SKILL.md`, `skills/implement/phases/*.md`, `skills/implement/references/*.md`, `skills/review/phases/*.md`, `skills/review-and-fix/references/*.md`, `.prflow/prompt-extensions/*.md`.
 A diff touching none of them draws no finding.
 
 **Enforcement surfaces.** The gate is enforced on: an implement run's **Phase 3** (which holds
@@ -285,7 +285,7 @@ all read as absent).
 
 ## Verification-evidence marker advisory (tier-scoped, non-blocking)
 
-DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.devflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
+DevFlow-repo policy: a second marker gate on the **same shared review-engine surface** as the `Writing-skills evidence:` gate above — the gate that already reads the linked issue's workpad and the PR description. It adds a **tier-scoped advisory** for the `Verification evidence:` marker that local/interactive `/prflow:implement`, `/prflow:review-and-fix`, and direct-reception passes record (per `.prflow/prompt-extensions/implement.md`, `review-and-fix.md`, and `receiving-code-review.md`). Unlike the `Writing-skills evidence:` gate, this clause is **advisory (non-blocking)**: it never raises the review verdict to a FAIL/REJECT on its own — it only informs the reader that a completion/PR-ready claim was made with no captured verification run.
 
 **Input population (stated explicitly).** The clause reads the two durable per-PR surfaces the `Verification evidence:` marker is recorded on — the **linked issue's workpad** and the **PR description** — the same surfaces the `Writing-skills evidence:` gate already fetches (the workpad via `lib/fetch-pr-context.sh` from the linked issue thread; no new fetch channel is required). The marker is recorded on the **local/interactive tier only** (cloud runs verify in-env under issue #405 and carry no capture obligation), so the clause must classify each PR by tier and act only on local/interactive ones — otherwise it is a guard that reads as armed and can never fire.
 

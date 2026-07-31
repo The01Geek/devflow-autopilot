@@ -3,14 +3,14 @@
 # SPDX-License-Identifier: MIT
 """Assemble the unified experiment record — join per-run cost to review outcome.
 
-Writes one JSON line per merged PR into `.devflow/learnings/experiment-records.jsonl`
+Writes one JSON line per merged PR into `.prflow/learnings/experiment-records.jsonl`
 (tracked). Each line joins, for one PR:
 
   * ALL matching per-run efficiency records (both slug families — `pr-<N>` directly
     and the branch slug resolved from the retrospective entry's `branch` field, with
     a `gh` lookup fallback) as a per-run list with per-run cost — never newest-wins,
     since discarding earlier runs' cost corrupts a cost-vs-outcome experiment;
-  * the retrospective entry for the PR (from `.devflow/learnings/retrospectives.jsonl`);
+  * the retrospective entry for the PR (from `.prflow/learnings/retrospectives.jsonl`);
   * the first-completed independent-review VERDICT, selected by artifact shape — the
     first completed PR review whose body matches the `## Verdict:` contract regardless
     of bot identity, with a progress-comment fallback and a null-verdict arm (#403);
@@ -22,7 +22,7 @@ Writes one JSON line per merged PR into `.devflow/learnings/experiment-records.j
     historical PRs) carried VERBATIM — `unavailable` stays `unavailable`, and no path
     coerces an unestablished count to 0;
   * the config fingerprint (from the efficiency record's `config_fingerprint`, else a
-    `git show <merge_sha>:.devflow/config.json` fallback, with the source marked).
+    `git show <merge_sha>:.prflow/config.json` fallback, with the source marked).
 
 Design invariants:
   * IDEMPOTENT — re-running replaces a PR's line, keyed by PR number (one line per PR).
@@ -290,7 +290,7 @@ def _gh_json_ex(endpoint, paginate=False):
 
 
 def _git_show(repo_root, spec):
-    """`git show <spec>` (e.g. '<sha>:.devflow/config.json') at repo_root. Returns
+    """`git show <spec>` (e.g. '<sha>:.prflow/config.json') at repo_root. Returns
     the file text, or None on any failure (missing ref/path, git absent)."""
     rc, out, err = _run([GIT, "-C", str(repo_root), "show", spec])
     if rc != 0:
@@ -437,7 +437,7 @@ def _slug_variants(branch):
 
 def _telemetry_branch(repo_root):
     """The telemetry-branch name (config .telemetry.branch, default
-    devflow-telemetry — issue #441). Read in-process from repo_root/.devflow/
+    devflow-telemetry — issue #441). Read in-process from repo_root/.prflow/
     config.json rather than shelling to config-get.sh: this reader is invoked once
     per retrospective run in a known repo root, an empty/missing key resolves to
     the default, a MALFORMED (present-but-unparseable) config degrades to the
@@ -456,7 +456,7 @@ def _telemetry_branch(repo_root):
     so (PR #442 review). Reader and writer must resolve the same key from the same
     file."""
     override = os.environ.get("DEVFLOW_CONFIG_FILE")
-    cfg = Path(override) if override else Path(repo_root) / ".devflow/config.json"
+    cfg = Path(override) if override else Path(repo_root) / ".prflow/config.json"
     try:
         text = cfg.read_text(encoding="utf-8")
     except OSError:
@@ -535,7 +535,7 @@ def _telemetry_branch(repo_root):
         return branch
     _warn(f".telemetry.branch in {cfg} resolves to '{branch}', which git rejects as a branch name "
           f"(check-ref-format rc={rc}); the writer falls back to 'devflow-telemetry' and this "
-          f"reader follows it — fix .devflow/config.json to read from your intended branch")
+          f"reader follows it — fix .prflow/config.json to read from your intended branch")
     return "devflow-telemetry"
 
 
@@ -582,9 +582,9 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
 
     Sources are UNIONED (issue #441), keyed by `(slug, run_id)` with BRANCH-WINS
     precedence so a run present in both contributes exactly one cost row:
-      1. the working-tree `.devflow/logs/efficiency/*.json` glob — the legacy
+      1. the working-tree `.prflow/logs/efficiency/*.json` glob — the legacy
          tracked archive a consumer repo may still carry (read first);
-      2. the durable `devflow-telemetry` branch's `.devflow/logs/efficiency/*.json`
+      2. the durable `devflow-telemetry` branch's `.prflow/logs/efficiency/*.json`
          blobs, read via `git ls-tree`/`git show` at repo_root (read second, so it
          OVERWRITES a same-key working-tree entry). The branch is where every run
          now persists; the legacy glob is the read-only migration archive.
@@ -652,9 +652,9 @@ def _index_efficiency(eff_dir, repo_root=None, branch=None):
                   f"cost rows unestablished for this run")
         if rc_v == 0:
             rc, out, err = _run([GIT, "-C", str(repo_root), "ls-tree", "-r", "--name-only",
-                                 br, "--", ".devflow/logs/efficiency/"])
+                                 br, "--", ".prflow/logs/efficiency/"])
             if rc != 0:
-                _warn(f"branch {br} exists but its .devflow/logs/efficiency/ tree could not be read "
+                _warn(f"branch {br} exists but its .prflow/logs/efficiency/ tree could not be read "
                       f"(ls-tree rc={rc}): {(err or '').strip()[:160]} — telemetry-branch cost rows "
                       f"unestablished for this run")
             elif out.strip():
@@ -997,7 +997,7 @@ def _resolve_denials(repo, shas):
 
 def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
     """Prefer the fingerprint the efficiency record already stamped; else recompute
-    from `git show <merge_sha>:.devflow/config.json` (records predating the field).
+    from `git show <merge_sha>:.prflow/config.json` (records predating the field).
     Returns (fingerprint_or_None, source).
 
     This field is the experiment's ATTRIBUTION KEY — it says which config variant produced
@@ -1056,7 +1056,7 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # config change — a FALSE AGREEMENT, the dangerous direction, and exactly the
         # misattribution `mixed-across-runs` exists to prevent. Our own producer always
         # emits `sha256`, but `_index_efficiency` copies `config_fingerprint` raw out of
-        # arbitrary JSON under .devflow/logs/efficiency/, so a legacy, hand-edited, or
+        # arbitrary JSON under .prflow/logs/efficiency/, so a legacy, hand-edited, or
         # half-written record is squarely in this file's untrusted-input class: validate
         # the comparand at the boundary rather than letting its absence resolve to a value
         # that agrees with itself (issue #431 fix-delta gate).
@@ -1093,7 +1093,7 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # when there was nothing to read and no sha to recompute from. Both unestablished,
         # and neither is a claim about disagreement.
         return None, ("unparseable" if fps else "no-sha")
-    text = _git_show(repo_root, f"{merge_sha}:.devflow/config.json")
+    text = _git_show(repo_root, f"{merge_sha}:.prflow/config.json")
     if text is None:
         return None, "fetch-failed"
     try:
@@ -1104,7 +1104,7 @@ def _resolve_fingerprint(repo_root, eff_runs, merge_sha):
         # was no config", the strong claim, about a file we failed to parse (#431 delta
         # review). `absent` below is reserved for a config we DID read that simply carried
         # neither reviewed block.
-        _warn(f"config at {merge_sha}:.devflow/config.json is not valid JSON — fingerprint "
+        _warn(f"config at {merge_sha}:.prflow/config.json is not valid JSON — fingerprint "
               "unestablished")
         return None, "unparseable"
     fp = fingerprint_from_config(parsed)
@@ -1314,7 +1314,7 @@ def main(argv=None):
     p.add_argument("--retrospectives", default=None,
                    help="retrospectives.jsonl path (default under repo root).")
     p.add_argument("--efficiency-dir", default=None,
-                   help=".devflow/logs/efficiency dir (default under repo root).")
+                   help=".prflow/logs/efficiency dir (default under repo root).")
     p.add_argument("--dry-run", action="store_true",
                    help="Print the assembled store to stdout; do not write.")
     args = p.parse_args(argv)
@@ -1326,11 +1326,11 @@ def main(argv=None):
         repo_root = Path(out.strip()) if rc == 0 and out.strip() else Path.cwd()
 
     store_path = Path(args.store) if args.store \
-        else repo_root / ".devflow/learnings/experiment-records.jsonl"
+        else repo_root / ".prflow/learnings/experiment-records.jsonl"
     retro_path = Path(args.retrospectives) if args.retrospectives \
-        else repo_root / ".devflow/learnings/retrospectives.jsonl"
+        else repo_root / ".prflow/learnings/retrospectives.jsonl"
     eff_dir = Path(args.efficiency_dir) if args.efficiency_dir \
-        else repo_root / ".devflow/logs/efficiency"
+        else repo_root / ".prflow/logs/efficiency"
 
     repo = _resolve_repo()
     if repo is None:

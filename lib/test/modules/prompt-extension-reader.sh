@@ -19,16 +19,16 @@
 # only add a second ownership layer over the same directories.
 
 
-# The helper prints .devflow/prompt-extensions/<skill>.md verbatim (relative to
+# The helper prints .prflow/prompt-extensions/<skill>.md verbatim (relative to
 # CWD) when present, nothing otherwise; it validates the skill-name argument and
 # refuses any value containing '/' or '..' before touching the filesystem.
 # (issue #84, AC 1–5, AC 8.)
 LPE="$LIB/../scripts/load-prompt-extension.sh"
 LPE_DIR="$(mktemp -d)"
-mkdir -p "$LPE_DIR/.devflow/prompt-extensions"
+mkdir -p "$LPE_DIR/.prflow/prompt-extensions"
 
 # AC 1: present → stdout equals the file, exit 0.
-printf 'line one\nline two\n' > "$LPE_DIR/.devflow/prompt-extensions/implement.md"
+printf 'line one\nline two\n' > "$LPE_DIR/.prflow/prompt-extensions/implement.md"
 LPE_OUT="$(cd "$LPE_DIR" && bash "$LPE" implement 2>/dev/null)"; LPE_RC=$?
 assert_eq "lpe: present → verbatim stdout (newlines trimmed by \$())" \
   "$(printf 'line one\nline two')" "$LPE_OUT"
@@ -36,15 +36,15 @@ assert_eq "lpe: present → exit 0" "0" "$LPE_RC"
 
 # AC 4: byte-for-byte verbatim incl. multi-byte UTF-8, NO trailing newline added
 # when the file has none. cmp the helper's raw bytes against the source file.
-printf 'café 日本語 🎉 no-trailing-newline' > "$LPE_DIR/.devflow/prompt-extensions/review.md"
+printf 'café 日本語 🎉 no-trailing-newline' > "$LPE_DIR/.prflow/prompt-extensions/review.md"
 ( cd "$LPE_DIR" && bash "$LPE" review 2>/dev/null ) > "$LPE_DIR/out-utf8.bin"
 assert_eq "lpe: UTF-8 verbatim, no trailing newline added (cmp byte-exact)" "yes" \
-  "$(cmp -s "$LPE_DIR/.devflow/prompt-extensions/review.md" "$LPE_DIR/out-utf8.bin" && echo yes || echo no)"
+  "$(cmp -s "$LPE_DIR/.prflow/prompt-extensions/review.md" "$LPE_DIR/out-utf8.bin" && echo yes || echo no)"
 # AC 4 (other direction): a file WITH a trailing newline round-trips unchanged.
-printf 'has trailing newline\n' > "$LPE_DIR/.devflow/prompt-extensions/docs.md"
+printf 'has trailing newline\n' > "$LPE_DIR/.prflow/prompt-extensions/docs.md"
 ( cd "$LPE_DIR" && bash "$LPE" docs 2>/dev/null ) > "$LPE_DIR/out-nl.bin"
 assert_eq "lpe: trailing-newline file round-trips byte-for-byte" "yes" \
-  "$(cmp -s "$LPE_DIR/.devflow/prompt-extensions/docs.md" "$LPE_DIR/out-nl.bin" && echo yes || echo no)"
+  "$(cmp -s "$LPE_DIR/.prflow/prompt-extensions/docs.md" "$LPE_DIR/out-nl.bin" && echo yes || echo no)"
 
 # AC 2: absent file → empty stdout, exit 0 (no-op path).
 LPE_ABS_OUT="$(cd "$LPE_DIR" && bash "$LPE" pr-description 2>/dev/null)"; LPE_ABS_RC=$?
@@ -52,15 +52,15 @@ assert_eq "lpe: absent → empty stdout" "" "$LPE_ABS_OUT"
 assert_eq "lpe: absent → exit 0" "0" "$LPE_ABS_RC"
 
 # AC 3: empty file → empty stdout, exit 0.
-: > "$LPE_DIR/.devflow/prompt-extensions/create-issue.md"
+: > "$LPE_DIR/.prflow/prompt-extensions/create-issue.md"
 LPE_EMP_OUT="$(cd "$LPE_DIR" && bash "$LPE" create-issue 2>/dev/null)"; LPE_EMP_RC=$?
 assert_eq "lpe: empty file → empty stdout" "" "$LPE_EMP_OUT"
 assert_eq "lpe: empty file → exit 0" "0" "$LPE_EMP_RC"
 
 # AC 5: path-traversal — reject '/' and '..' BEFORE any read, exit non-zero,
 # print nothing. Sentinels the helper would leak if validation were absent:
-#   name '../config'  → .devflow/prompt-extensions/../config.md = .devflow/config.md
-printf 'SECRET-OUTSIDE' > "$LPE_DIR/.devflow/config.md"
+#   name '../config'  → .prflow/prompt-extensions/../config.md = .prflow/config.md
+printf 'SECRET-OUTSIDE' > "$LPE_DIR/.prflow/config.md"
 for bad in "a/b" ".." "../config" "../../etc/passwd" "foo/../bar"; do
   BAD_OUT="$(cd "$LPE_DIR" && bash "$LPE" "$bad" 2>/dev/null)"; BAD_RC=$?
   assert_eq "lpe: reject '$bad' → exit non-zero" "yes" \
@@ -82,9 +82,9 @@ assert_eq "lpe: empty skill name → empty stdout" "" "$EMPTY_NAME_OUT"
 # run three assertions in EITHER environment: the non-root arm pins the loud refusal;
 # the root arm pins the read-through the bypassed bits actually produce. The count is
 # then constant across environments, so the floor is no longer host-sensitive.
-printf 'unreadable content' > "$LPE_DIR/.devflow/prompt-extensions/locked.md"
-chmod 000 "$LPE_DIR/.devflow/prompt-extensions/locked.md"
-if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.devflow/prompt-extensions/locked.md" ]; then
+printf 'unreadable content' > "$LPE_DIR/.prflow/prompt-extensions/locked.md"
+chmod 000 "$LPE_DIR/.prflow/prompt-extensions/locked.md"
+if [ "$(id -u)" -ne 0 ] && [ ! -r "$LPE_DIR/.prflow/prompt-extensions/locked.md" ]; then
   LOCK_OUT="$(cd "$LPE_DIR" && bash "$LPE" locked 2>/tmp/devflow-lpe-lock.err)"; LOCK_RC=$?
   assert_eq "lpe: unreadable present file → exit non-zero (not a silent no-op)" "yes" \
     "$([ "$LOCK_RC" -ne 0 ] && echo yes || echo no)"
@@ -103,31 +103,31 @@ else
   assert_eq "lpe: unreadable-bits file under root → no 'not readable' breadcrumb (guard bypassed)" "yes" \
     "$(grep -qF 'not readable' /tmp/devflow-lpe-lock.err && echo no || echo yes)"
 fi
-chmod 644 "$LPE_DIR/.devflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
+chmod 644 "$LPE_DIR/.prflow/prompt-extensions/locked.md"   # restore so rm -rf can clean up
 
 # Broken symlink (present link, missing target) → refused LOUDLY (exit 2 +
 # breadcrumb), not the silent no-op a bare `-f` test would yield — same silent-drop
 # class as the unreadable guard, for an unresolvable link.
-ln -s "./this-target-does-not-exist.md" "$LPE_DIR/.devflow/prompt-extensions/broken.md"
+ln -s "./this-target-does-not-exist.md" "$LPE_DIR/.prflow/prompt-extensions/broken.md"
 BROKEN_OUT="$(cd "$LPE_DIR" && bash "$LPE" broken 2>/tmp/devflow-lpe-broken.err)"; BROKEN_RC=$?
 assert_eq "lpe: broken symlink (missing target) → exit non-zero (not silent no-op)" "yes" \
   "$([ "$BROKEN_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "lpe: broken symlink → empty stdout" "" "$BROKEN_OUT"
 assert_eq "lpe: broken symlink → breadcrumb names the missing target" "yes" \
   "$(grep -qF 'missing target' /tmp/devflow-lpe-broken.err && echo yes || echo no)"
-rm -f "$LPE_DIR/.devflow/prompt-extensions/broken.md"
+rm -f "$LPE_DIR/.prflow/prompt-extensions/broken.md"
 
 # Present-but-not-a-regular-file → refused LOUDLY, not a silent no-op: a directory
 # at <skill>.md (a fat-fingered `mkdir`) and a symlink resolving to a directory both
 # have -f false and would otherwise drop the extension silently (same class).
-mkdir "$LPE_DIR/.devflow/prompt-extensions/adir.md"
+mkdir "$LPE_DIR/.prflow/prompt-extensions/adir.md"
 (cd "$LPE_DIR" && bash "$LPE" adir >/dev/null 2>/tmp/devflow-lpe-adir.err); ADIR_RC=$?
 assert_eq "lpe: directory at <skill>.md → exit non-zero (not silent no-op)" "yes" \
   "$([ "$ADIR_RC" -ne 0 ] && echo yes || echo no)"
 assert_eq "lpe: directory at <skill>.md → breadcrumb 'not a regular file'" "yes" \
   "$(grep -qF 'not a regular file' /tmp/devflow-lpe-adir.err && echo yes || echo no)"
 mkdir "$LPE_DIR/realdir"
-ln -s "../../realdir" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md"
+ln -s "../../realdir" "$LPE_DIR/.prflow/prompt-extensions/dirlink.md"
 DIRLINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" dirlink 2>/tmp/devflow-lpe-dirlink.err)"; DIRLINK_RC=$?
 assert_eq "lpe: symlink resolving to a directory → exit non-zero (not silent no-op)" "yes" \
   "$([ "$DIRLINK_RC" -ne 0 ] && echo yes || echo no)"
@@ -136,7 +136,7 @@ assert_eq "lpe: symlink-to-directory → empty stdout" "" "$DIRLINK_OUT"
 # future refactor can't silently reroute this shape through the wrong branch.
 assert_eq "lpe: symlink-to-directory → breadcrumb 'not a regular file'" "yes" \
   "$(grep -qF 'not a regular file' /tmp/devflow-lpe-dirlink.err && echo yes || echo no)"
-rm -rf "$LPE_DIR/.devflow/prompt-extensions/adir.md" "$LPE_DIR/.devflow/prompt-extensions/dirlink.md" "$LPE_DIR/realdir"
+rm -rf "$LPE_DIR/.prflow/prompt-extensions/adir.md" "$LPE_DIR/.prflow/prompt-extensions/dirlink.md" "$LPE_DIR/realdir"
 
 # Intended symlink behavior (pins a DECISION, not an accident): the name guard
 # constrains the model-supplied NAME, not the resolved target. A symlink the repo
@@ -144,18 +144,18 @@ rm -rf "$LPE_DIR/.devflow/prompt-extensions/adir.md" "$LPE_DIR/.devflow/prompt-e
 # directory's contents are trusted by design. This documents that AC 5's "reads no
 # file outside" is a name-confinement guarantee, not symlink-target confinement.
 printf 'TARGET-OF-SYMLINK' > "$LPE_DIR/symlink-target.txt"
-ln -s "../../symlink-target.txt" "$LPE_DIR/.devflow/prompt-extensions/linked.md"
+ln -s "../../symlink-target.txt" "$LPE_DIR/.prflow/prompt-extensions/linked.md"
 LINK_OUT="$(cd "$LPE_DIR" && bash "$LPE" linked 2>/dev/null)"; LINK_RC=$?
 assert_eq "lpe: symlinked extension inside the dir is followed (consumer-owned, by design)" \
   "TARGET-OF-SYMLINK" "$LINK_OUT"
 assert_eq "lpe: symlinked extension → exit 0" "0" "$LINK_RC"
 
 # AC 8: read-only + idempotent — identical output on re-run, source file unchanged.
-printf 'idem\n' > "$LPE_DIR/.devflow/prompt-extensions/init.md"
+printf 'idem\n' > "$LPE_DIR/.prflow/prompt-extensions/init.md"
 LPE_IDEM1="$(cd "$LPE_DIR" && bash "$LPE" init 2>/dev/null)"
-LPE_CKSUM_BEFORE="$(cksum "$LPE_DIR/.devflow/prompt-extensions/init.md")"
+LPE_CKSUM_BEFORE="$(cksum "$LPE_DIR/.prflow/prompt-extensions/init.md")"
 LPE_IDEM2="$(cd "$LPE_DIR" && bash "$LPE" init 2>/dev/null)"
-LPE_CKSUM_AFTER="$(cksum "$LPE_DIR/.devflow/prompt-extensions/init.md")"
+LPE_CKSUM_AFTER="$(cksum "$LPE_DIR/.prflow/prompt-extensions/init.md")"
 assert_eq "lpe: idempotent — identical output on re-run" "$LPE_IDEM1" "$LPE_IDEM2"
 assert_eq "lpe: read-only — source file unchanged after run" \
   "$LPE_CKSUM_BEFORE" "$LPE_CKSUM_AFTER"
@@ -173,8 +173,8 @@ assert_eq "lpe: read-only — source file unchanged after run" \
 # The fixture packs every clause into ONE file so the flagless byte-identity case
 # (AC5) exercises them all at once rather than a reduced happy path.
 LPE_SEC_DIR="$(mktemp -d)"
-mkdir -p "$LPE_SEC_DIR/.devflow/prompt-extensions"
-LPE_SEC_EXT="$LPE_SEC_DIR/.devflow/prompt-extensions/sectioned.md"
+mkdir -p "$LPE_SEC_DIR/.prflow/prompt-extensions"
+LPE_SEC_EXT="$LPE_SEC_DIR/.prflow/prompt-extensions/sectioned.md"
 cat > "$LPE_SEC_EXT" <<'LPE_SEC_FIXTURE'
 Preamble text before any heading.
 
@@ -248,7 +248,7 @@ assert_eq "lpe --section: a --section value carrying trailing whitespace still m
 # `\r` is the byte a CRLF-authored consumer extension actually carries and a strip that
 # handles spaces but not `\r` would pass that case while failing this one.
 printf '## CRLF Heading\r\nbody under a CRLF heading\r\n\r\n## After\r\nafter\r\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/crlf.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/crlf.md"
 LPE_SEC_CRLF="$(cd "$LPE_SEC_DIR" && bash "$LPE" crlf --section '## CRLF Heading' 2>/dev/null)"
 assert_eq "lpe --section: a CRLF-terminated heading line still selects its section" "yes" \
   "$(case "$LPE_SEC_CRLF" in *'body under a CRLF heading'*) echo yes ;; *) echo no ;; esac)"
@@ -272,7 +272,7 @@ assert_eq "lpe --section: a case-drifted heading is REPORTED, not silently accep
 # caller a heading it can plainly see does not exist. The `<!-- ## Commented -->` case
 # above is the contrast: that line does not BEGIN with '## ', so it stays inert.
 printf '## Inline <!-- note -->\ninline body\n\n## AfterInline\nafter inline\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/inline.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/inline.md"
 LPE_SEC_INLINE="$(cd "$LPE_SEC_DIR" && bash "$LPE" inline --section '## Inline <!-- note -->' 2>/dev/null)"
 assert_eq "lpe --section: a heading with a trailing inline HTML comment is still a heading" \
   "$(printf '## Inline <!-- note -->\ninline body\n')" "$LPE_SEC_INLINE"
@@ -288,7 +288,7 @@ assert_eq "lpe --section: the section under an inline-comment heading ends at th
 # section. Without the comment-state update on the heading line, that `## Later` would
 # terminate here and silently truncate the section.
 printf '## Opener <!--\nstill inside the opened comment\n## Later\nafter the inert pseudo-heading\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/opener.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/opener.md"
 LPE_SEC_OPENER="$(cd "$LPE_SEC_DIR" && bash "$LPE" opener --section '## Opener <!--' 2>/dev/null)"
 assert_eq "lpe --section: a heading opening an unclosed comment makes a later '## ' line inert (no truncation)" \
   "yes" "$(case "$LPE_SEC_OPENER" in *'after the inert pseudo-heading'*) echo yes ;; *) echo no ;; esac)"
@@ -300,7 +300,7 @@ assert_eq "lpe --section: ...and the commented lines are still emitted as sectio
 # inert — silent under-delivery of consumer prose into an agent prompt, while four doc
 # sites asserted fence inertness without qualifying the fence kind.
 printf '## Tilde\nbefore\n~~~\n## NotAHeading\n~~~\nafter\n\n## AfterTilde\nafter tilde\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/tilde.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/tilde.md"
 LPE_SEC_TILDE="$(cd "$LPE_SEC_DIR" && bash "$LPE" tilde --section '## Tilde' 2>/dev/null)"
 assert_eq "lpe --section: '##' inside a ~~~ fence is inert (the section is not truncated)" \
   "yes" "$(case "$LPE_SEC_TILDE" in *'after'*) echo yes ;; *) echo no ;; esac)"
@@ -309,7 +309,7 @@ assert_eq "lpe --section: a ~~~ fenced section still ends at the next real headi
 # A fence closes only on its OWN kind: a ~~~ line inside a ``` block is content, so the
 # ``` block stays open and the '## ' line after the ~~~ remains inert.
 printf '## Mixed\n```\n~~~\n## StillFenced\n```\nreal content\n\n## AfterMixed\nafter mixed\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/mixed.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/mixed.md"
 LPE_SEC_MIXED="$(cd "$LPE_SEC_DIR" && bash "$LPE" mixed --section '## Mixed' 2>/dev/null)"
 assert_eq "lpe --section: a tilde line does not close a backtick fence (fence kind is tracked)" \
   "yes" "$(case "$LPE_SEC_MIXED" in *'real content'*) echo yes ;; *) echo no ;; esac)"
@@ -320,19 +320,19 @@ assert_eq "lpe --section: a tilde line does not close a backtick fence (fence ki
 # inert — a silent loss of consumer prose into an agent prompt. Both the heading-line and
 # the body-line arms take the last-marker rule, so both are driven here.
 printf '## Reopen <!-- a --> <!--\nstill inside\n## Inert\nafter the inert line\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/reopen.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/reopen.md"
 LPE_SEC_REOPEN="$(cd "$LPE_SEC_DIR" && bash "$LPE" reopen --section '## Reopen <!-- a --> <!--' 2>/dev/null)"
 assert_eq "lpe --section: a heading that closes AND re-opens a comment leaves it OPEN (no truncation)" \
   "yes" "$(case "$LPE_SEC_REOPEN" in *'after the inert line'*) echo yes ;; *) echo no ;; esac)"
 printf '## Body\nintro\n<!-- a --> <!--\nstill inside\n## Inert\nafter the inert line\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/reopenbody.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/reopenbody.md"
 LPE_SEC_REOPENB="$(cd "$LPE_SEC_DIR" && bash "$LPE" reopenbody --section '## Body' 2>/dev/null)"
 assert_eq "lpe --section: a BODY line that closes AND re-opens a comment leaves it OPEN (no truncation)" \
   "yes" "$(case "$LPE_SEC_REOPENB" in *'after the inert line'*) echo yes ;; *) echo no ;; esac)"
 # The contrast that keeps the two rows above honest: a plain closing marker really does
 # close, so a later '## ' line terminates normally.
 printf '## Closed <!--\ninside\n-->\n## Real\nafter a real heading\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/closed.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/closed.md"
 LPE_SEC_CLOSED="$(cd "$LPE_SEC_DIR" && bash "$LPE" closed --section '## Closed <!--' 2>/dev/null)"
 assert_eq "lpe --section: a plain closing marker really closes (a later heading terminates)" \
   "yes" "$(case "$LPE_SEC_CLOSED" in *'after a real heading'*) echo no ;; *) echo yes ;; esac)"
@@ -395,7 +395,7 @@ assert_eq "lpe --section: absent-heading breadcrumb omits comment-block and fenc
 # says there is none. It differs from case 4 in exactly one observable: NO
 # absent-heading breadcrumb, because the heading WAS found. Distinguishing the two
 # is the point — one is a missing hook, the other a present-but-empty one.
-printf 'body\n\n## Empty\n## After\nafter body\n' > "$LPE_SEC_DIR/.devflow/prompt-extensions/emptysec.md"
+printf 'body\n\n## Empty\n## After\nafter body\n' > "$LPE_SEC_DIR/.prflow/prompt-extensions/emptysec.md"
 LPE_SEC_EMPTY="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptysec --section '## Empty' 2>"$LPE_SEC_DIR/err-empty")"; LPE_SEC_EMPTY_RC=$?
 assert_eq "lpe --section: empty section → empty stdout (equivalent to an absent heading)" \
   "" "$LPE_SEC_EMPTY"
@@ -412,7 +412,7 @@ assert_eq "lpe --section: positive control — the SAME fixture does breadcrumb 
 assert_eq "lpe --section: positive control emits no stdout either" "" "$LPE_SEC_EMPTY_CTL"
 # A whitespace-only body is the same shape as a wholly-absent one — a blank line is
 # not consumer content — so it takes the empty-section arm too.
-printf '## Blank\n\n   \n\n## After\nafter body\n' > "$LPE_SEC_DIR/.devflow/prompt-extensions/blanksec.md"
+printf '## Blank\n\n   \n\n## After\nafter body\n' > "$LPE_SEC_DIR/.prflow/prompt-extensions/blanksec.md"
 LPE_SEC_BLANK="$(cd "$LPE_SEC_DIR" && bash "$LPE" blanksec --section '## Blank' 2>/dev/null)"
 assert_eq "lpe --section: whitespace-only section body takes the empty-section arm" "" "$LPE_SEC_BLANK"
 
@@ -420,7 +420,7 @@ assert_eq "lpe --section: whitespace-only section body takes the empty-section a
 # mutable-markdown malformed-input matrix. Every `##` after the unclosed fence is
 # swallowed, so the section cannot be terminated by one.
 printf '## Open\nbefore\n```\n## swallowed by the unclosed fence\nstill inside\n' \
-  > "$LPE_SEC_DIR/.devflow/prompt-extensions/unclosed.md"
+  > "$LPE_SEC_DIR/.prflow/prompt-extensions/unclosed.md"
 LPE_SEC_UNCLOSED="$(cd "$LPE_SEC_DIR" && bash "$LPE" unclosed --section '## Open' 2>/dev/null)"
 assert_eq "lpe --section: an unclosed fence runs to end of file (no '##' terminates inside it)" \
   "$(printf '## Open\nbefore\n```\n## swallowed by the unclosed fence\nstill inside\n')" \
@@ -430,7 +430,7 @@ assert_eq "lpe --section: an unclosed fence runs to end of file (no '##' termina
 # still emits that final line IN FULL — the second truncation shape. The naive
 # `while read` loop drops it entirely, and `$()` strips trailing newlines on both
 # sides, so this is asserted byte-exactly with cmp rather than through `$()`.
-printf '## Last\nfinal line without newline' > "$LPE_SEC_DIR/.devflow/prompt-extensions/nonl.md"
+printf '## Last\nfinal line without newline' > "$LPE_SEC_DIR/.prflow/prompt-extensions/nonl.md"
 ( cd "$LPE_SEC_DIR" && bash "$LPE" nonl --section '## Last' 2>/dev/null ) > "$LPE_SEC_DIR/out-nonl.bin"
 printf '## Last\nfinal line without newline' > "$LPE_SEC_DIR/want-nonl.bin"
 assert_eq "lpe --section: final line with no terminating newline is emitted in full, byte-exact" "yes" \
@@ -439,7 +439,7 @@ assert_eq "lpe --section: final line with no terminating newline is emitted in f
 # (9) an EMPTY extension file and (10) an ABSENT extension file each emit nothing at
 # exit 0 under --section — and an empty file gets no absent-heading breadcrumb, since
 # the clause is scoped to a NON-empty file (there are no headings to report).
-: > "$LPE_SEC_DIR/.devflow/prompt-extensions/emptyfile.md"
+: > "$LPE_SEC_DIR/.prflow/prompt-extensions/emptyfile.md"
 LPE_SEC_EF="$(cd "$LPE_SEC_DIR" && bash "$LPE" emptyfile --section '## Anything' 2>"$LPE_SEC_DIR/err-ef")"; LPE_SEC_EF_RC=$?
 assert_eq "lpe --section: empty extension file → empty stdout" "" "$LPE_SEC_EF"
 assert_eq "lpe --section: empty extension file → exit 0" "0" "$LPE_SEC_EF_RC"
@@ -459,12 +459,12 @@ assert_eq "lpe --section: absent extension file → exit 0" "0" "$LPE_SEC_AF_RC"
 assert_eq "lpe --section: a FLAGLESS invocation stays byte-identical to the full file (AC5)" "yes" \
   "$(cmp -s "$LPE_SEC_EXT" "$LPE_SEC_DIR/out-flagless.bin" && echo yes || echo no)"
 
-# (12) production realism — the LIVE .devflow/prompt-extensions/create-issue.md is the
+# (12) production realism — the LIVE .prflow/prompt-extensions/create-issue.md is the
 # file the four create-issue re-load sites actually section, and it carries BOTH hooks.
 # A synthetic fixture can satisfy every clause above and still miss a shape the real
 # extension has, so both hooks are driven against the real bytes.
-mkdir -p "$LPE_SEC_DIR/live/.devflow/prompt-extensions"
-cp "$LIB/../.devflow/prompt-extensions/create-issue.md" "$LPE_SEC_DIR/live/.devflow/prompt-extensions/create-issue.md"
+mkdir -p "$LPE_SEC_DIR/live/.prflow/prompt-extensions"
+cp "$LIB/../.prflow/prompt-extensions/create-issue.md" "$LPE_SEC_DIR/live/.prflow/prompt-extensions/create-issue.md"
 LPE_LIVE_AUDIT="$(cd "$LPE_SEC_DIR/live" && bash "$LPE" create-issue --section '## Audit dimensions' 2>/dev/null)"
 LPE_LIVE_AXES="$(cd "$LPE_SEC_DIR/live" && bash "$LPE" create-issue --section '## Evidence axes' 2>/dev/null)"
 assert_eq "lpe --section: live create-issue extension → '## Audit dimensions' extracts non-empty" "yes" \
@@ -529,7 +529,7 @@ rm -rf "$LPE_SEC_DIR"
 # points the loader at it through this variable. The override composes
 # "${DEVFLOW_PROMPT_EXTENSION_ROOT}/${SKILL_NAME}.md" directly — the variable
 # names the extensions DIRECTORY, not a repo root, so no
-# '.devflow/prompt-extensions/' segment is appended to it.
+# '.prflow/prompt-extensions/' segment is appended to it.
 #
 # The variable follows the DEVFLOW_GH / DEVFLOW_JQ / DEVFLOW_BASH convention:
 # honored at top precedence when set and NON-EMPTY, inert when unset, and inert
@@ -537,10 +537,10 @@ rm -rf "$LPE_SEC_DIR"
 # construction — the product of the variable's presence states and the target's
 # filesystem states the resolution branch distinguishes.
 LPE_ENV_DIR="$(mktemp -d)"
-mkdir -p "$LPE_ENV_DIR/repo/.devflow/prompt-extensions" "$LPE_ENV_DIR/trusted" "$LPE_ENV_DIR/emptydir"
+mkdir -p "$LPE_ENV_DIR/repo/.prflow/prompt-extensions" "$LPE_ENV_DIR/trusted" "$LPE_ENV_DIR/emptydir"
 # The two fixtures hold DIFFERENT bytes, which is what makes "the repo-root copy
 # was demonstrably not read" an observation rather than an assumption.
-printf 'REPO-HEAD BYTES\n' > "$LPE_ENV_DIR/repo/.devflow/prompt-extensions/review.md"
+printf 'REPO-HEAD BYTES\n' > "$LPE_ENV_DIR/repo/.prflow/prompt-extensions/review.md"
 printf 'TRUSTED BASE-REF BYTES no-trailing-newline' > "$LPE_ENV_DIR/trusted/review.md"
 : > "$LPE_ENV_DIR/trusted/docs.md"
 printf 'not a directory\n' > "$LPE_ENV_DIR/regular-file"

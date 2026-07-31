@@ -296,7 +296,7 @@ def render(exec_file):
     if verdict == "FOREGROUND":
         decision = (
             "RECORD the harness floor as OBSERVED EFFECTIVE (issue #801) in "
-            "docs/DEVFLOW_SYSTEM_OVERVIEW.md's `devflow_implement.stall_backstop` bullet "
+            "docs/DEVFLOW_SYSTEM_OVERVIEW.md's `prflow_implement.stall_backstop` bullet "
             "and docs/implement-skill.md, with this run's identifier"
         )
     elif verdict == "BACKGROUNDED":

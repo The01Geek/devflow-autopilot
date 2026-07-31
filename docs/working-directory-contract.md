@@ -1,7 +1,7 @@
 # PRFlow working-directory contract
 
 Every PRFlow bundled-helper invocation on the cloud tiers is a **repo-relative
-literal** — `.devflow/vendor/devflow/scripts/…` (and `.devflow/vendor/devflow/lib/…`),
+literal** — `.prflow/vendor/prflow/scripts/…` (and `.prflow/vendor/prflow/lib/…`),
 or the repo-root `scripts/…` / `lib/…` form in a self-repo checkout — because that
 is the only form the harness permission matcher grants (see
 [`docs/cloud-allowlist.md`](cloud-allowlist.md)). A repo-relative literal only
@@ -47,11 +47,11 @@ PRFlow from any directory, on Windows, macOS, or Linux, across several runners
 to the repository root. PRFlow therefore does not depend on cwd on this tier; it
 **re-anchors** instead, through two mechanisms:
 
-- **`git rev-parse --show-toplevel` resolution used by the `.devflow/` readers.**
-  The six `.devflow/` config/prompt-extension readers (`config-get.sh`,
+- **`git rev-parse --show-toplevel` resolution used by the `.prflow/` readers.**
+  The six `.prflow/` config/prompt-extension readers (`config-get.sh`,
   `workpad.py`'s marker read, `load-prompt-extension.sh`,
   `match-deferrals.py`, `match-lint-adjudications.py`, `render-audit-prompt.py`)
-  resolve the default `.devflow/` path anchored to the **git repository root**
+  resolve the default `.prflow/` path anchored to the **git repository root**
   (`git rev-parse --show-toplevel`, falling back to `pwd`/`Path.cwd()`), so a skill
   run from a subdirectory still loads the consumer's root config instead of
   silently missing it.

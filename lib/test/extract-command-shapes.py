@@ -26,7 +26,7 @@ Scope boundary (deliberate — mirrors extract-command-heads.py's narrow reach):
   positive-recipe example written in prose is intentionally invisible here.
 * R3 flags a `>`/`>>` redirect only when its target is under `/tmp/` (out of the
   workspace, and the exact shape the probe denied), NOT every `>` redirect: an
-  in-workspace `> .devflow/tmp/…` write of a granted head is left to the existing
+  in-workspace `> .prflow/tmp/…` write of a granted head is left to the existing
   head/allowlist pins, matching how the skill already authors run-scoped scratch.
   A `cat`-headed heredoc write (`cat >`/`cat >>` … `<<`) is flagged to ANY target:
   the /tmp arm is probe-denied (row 1, which is /tmp-targeted and so confounded
@@ -667,7 +667,7 @@ def find_violations(text: str) -> list[tuple[int, str, str]]:
 #    rather than silently missing. A probe row would settle it.
 #  * `select … in` is not matched (never probed, never written here).
 #  * IR5 (issue #915) flags a `/tmp/`-targeted redirect on the strength of row 11's
-#    proven-permitted `.devflow/tmp/` ALTERNATIVE, NOT a measured denial of each redirect
+#    proven-permitted `.prflow/tmp/` ALTERNATIVE, NOT a measured denial of each redirect
 #    arm: only the spaced-stdout `> /tmp/f` (row 10) is measured DENIED on this tier, and
 #    the attached `2>/tmp/f`/`&>/tmp/f` arms are unmeasured. A later probe returning
 #    PERMITTED for one of those arms does NOT narrow or retire IR5 — the rule keeps engine

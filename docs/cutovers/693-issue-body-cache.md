@@ -6,7 +6,7 @@ kind: growth
 # Issue #693 — issue-body cache: mandatory-prose growth
 
 This records the audited mandatory-surface growth the issue-body cache ships, per the
-"Prose cutover" procedure in `.devflow/prompt-extensions/implement.md`. The change adds
+"Prose cutover" procedure in `.prflow/prompt-extensions/implement.md`. The change adds
 operative decision logic (a new cache producer, an ignore precondition, a content check,
 a worktree re-materialization arm, per-consumer degraded-arm dispositions, and three
 subagent hand-off lines), so the growth is an audited decision, not a side effect.

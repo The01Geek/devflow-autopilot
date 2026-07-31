@@ -4,7 +4,7 @@
 """Fail the suite when a subagent dispatch of a DevFlow skill is not covered by the
 committed dispatch-site registry (issue #834).
 
-Why this exists. A consumer prompt extension (`.devflow/prompt-extensions/<skill>.md`)
+Why this exists. A consumer prompt extension (`.prflow/prompt-extensions/<skill>.md`)
 is honored only when the dispatched skill can reach it. Every `skills/*/SKILL.md`
 body carries the loader line, so the load is always *attempted*; what a dispatch
 into an isolated subagent changes is whether the skill-directory **anchor resolves**.
@@ -30,7 +30,7 @@ Scan population (index-reading `git ls-files`, no `--others`, so a sibling git
 worktree under `.claude/worktrees/` cannot change the result — issue #711):
 
 * every tracked `skills/**/*.md`, and
-* every tracked `.devflow/prompt-extensions/*.md` (exactly one level deep).
+* every tracked `.prflow/prompt-extensions/*.md` (exactly one level deep).
 
 Section model. A file is split into sections at markdown headings (`#`..`######`).
 Each section owns only its **own** lines — its heading line through to the next
@@ -233,7 +233,7 @@ def is_audited(path: str) -> bool:
     normalized = path.replace("\\", "/")
     if normalized.startswith("skills/") and normalized.endswith(".md"):
         return True
-    return bool(re.fullmatch(r"\.devflow/prompt-extensions/[^/]+\.md", normalized))
+    return bool(re.fullmatch(r"\.prflow/prompt-extensions/[^/]+\.md", normalized))
 
 
 @functools.cache

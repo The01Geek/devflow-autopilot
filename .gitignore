@@ -1,24 +1,24 @@
 # DevFlow ephemeral working state (review caches, weekly-loop temp files).
-# Ignore everything under .devflow/ EXCEPT the committed overrides/templates
-# below. (Use /.devflow/* — not /.devflow/ — so the negations can re-include;
+# Ignore everything under .prflow/ EXCEPT the committed overrides/templates
+# below. (Use /.prflow/* — not /.prflow/ — so the negations can re-include;
 # a wholesale dir-ignore can't be overridden per-path.)
-/.devflow/*
-!/.devflow/learnings/
+/.prflow/*
+!/.prflow/learnings/
 # The overrides.json writers (lib/pattern-state.sh, lib/meta-issue.sh) stage
 # their rewrite BESIDE the destination so every `mv` is a same-filesystem
 # rename. That staging file is removed on both the success and the failure path,
 # but a run killed between mktemp and mv would leave one inside this
 # re-included (tracked) tree, where a `git add -A` could commit it.
-/.devflow/learnings/.overrides*
+/.prflow/learnings/.overrides*
 # Per-run /devflow:review-and-fix effectiveness records (one file per run).
 # Tracked so the data survives ephemeral GH-runner teardown — see
-# docs/efficiency-trace.md. In adopter repos the scaffolder's .devflow/.gitignore
+# docs/efficiency-trace.md. In adopter repos the scaffolder's .prflow/.gitignore
 # ignores only tmp/, so logs/ is tracked there without this negation.
-!/.devflow/logs/
+!/.prflow/logs/
 # Single-flight verification coordinator telemetry (issue #528) is LOCAL,
 # per-checkout diagnostics, not a relayed record (see docs/efficiency-trace.md) —
 # keep it out of the tree so a run's flight events are never committed.
-/.devflow/logs/verification-flight/
+/.prflow/logs/verification-flight/
 # Per-run review workpads. These lived in the tree before issue #441 moved the
 # durable copies to the devflow-telemetry branch, which is now their canonical
 # home; lib/efficiency-trace.sh reads them from there and keeps the working-tree
@@ -26,27 +26,27 @@
 # tracked copies were internal per-iteration noise inside a plugin payload that
 # a marketplace /plugin install copies wholesale, so they were
 # untracked (every one of them, and every fix_commit_sha they recorded, is
-# preserved on that branch). This entry must come AFTER the !/.devflow/logs/
+# preserved on that branch). This entry must come AFTER the !/.prflow/logs/
 # negation above, which would otherwise re-include them and leave `git status`
 # permanently dirty — which self-skips the #434 stale-prose gate.
-/.devflow/logs/review/
-# Committed config template + schema (shipped). The LIVE .devflow/config.json is
-# NOT re-included by a negation below, so the /.devflow/* rule above would ignore a
+/.prflow/logs/review/
+# Committed config template + schema (shipped). The LIVE .prflow/config.json is
+# NOT re-included by a negation below, so the /.prflow/* rule above would ignore a
 # fresh one — but this repo TRACKS its config.json anyway: it was force-added with
 # `git add -f` (a tracked file overrides .gitignore) to dogfood DevFlow on this very
 # repo and have its cloud workflows read it from the committed tree. Adopters don't
-# need the force-add: the scaffolder's .devflow/.gitignore ignores only tmp/, so
+# need the force-add: the scaffolder's .prflow/.gitignore ignores only tmp/, so
 # their config.json (it holds project/board IDs) is tracked there too.
-!/.devflow/config.example.json
-!/.devflow/config.schema.json
+!/.prflow/config.example.json
+!/.prflow/config.schema.json
 # Shipped per-language tool/preset registry read by scripts/detect-project-tools.sh
 # (/devflow:init). Must be tracked so the plugin ships it and a clean checkout works.
-!/.devflow/tool-presets.json
+!/.prflow/tool-presets.json
 # DevFlow's own consumer prompt extensions (e.g. the dogfooded versioning rule in
 # implement.md). Tracked so a clean checkout — and CI — sees the re-homed policy.
-!/.devflow/prompt-extensions/
-/.devflow-scratch/
-/.devflow-tmp/
+!/.prflow/prompt-extensions/
+/.prflow-scratch/
+/.prflow-tmp/
 
 # Python
 __pycache__/
@@ -56,7 +56,7 @@ venv/
 
 # Per-shard tally output. `.github/workflows/ci.yml` points DEVFLOW_SHARD_TALLY_DIR at
 # <workspace>/shard-tally-out so the aggregator can upload it as an artifact, which puts
-# it INSIDE the working tree rather than at run-shard.sh's own default (.devflow/tmp/,
+# it INSIDE the working tree rather than at run-shard.sh's own default (.prflow/tmp/,
 # already ignored above). run-shard.sh creates the directory and truncates its log BEFORE
 # invoking the suite, so without this entry `git status --porcelain` reports
 # `?? shard-tally-out/` and the #434 stale-prose self-scan — which grades committed HEAD

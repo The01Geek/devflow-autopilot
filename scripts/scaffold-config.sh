@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: MIT
 # scaffold-config.sh — DevFlow's single config-scaffolding implementation.
 #
-# Drops the DevFlow config files into a repo's .devflow/ directory:
+# Drops the DevFlow config files into a repo's .prflow/ directory:
 #   - config.json     scaffolded from config.example.json when absent; when it
 #                     already exists it's kept (your IDs/secrets stay) and only
 #                     newly-introduced keys are backfilled from the example —
@@ -17,12 +17,12 @@
 # Because both call here, the two coexist safely: whichever runs first creates
 # config.json; the other preserves it (no-clobber) and only refreshes the schema.
 #
-# Templates are resolved RELATIVE TO THIS SCRIPT (../.devflow), so the script is
+# Templates are resolved RELATIVE TO THIS SCRIPT (../.prflow), so the script is
 # self-locating wherever it ships (marketplace cache, vendored plugin, or a
 # clone). The caller never has to tell us where the templates are.
 #
 # Usage: scaffold-config.sh [TARGET_REPO_ROOT]
-#   TARGET_REPO_ROOT  where to write .devflow/ (default: git toplevel, else cwd)
+#   TARGET_REPO_ROOT  where to write .prflow/ (default: git toplevel, else cwd)
 #
 # Exit codes:
 #   0  config.json scaffolded or kept; schema refreshed
@@ -78,7 +78,7 @@ if [ -n "${DEVFLOW_SCAFFOLD_LIB_ONLY:-}" ]; then
 fi
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TPL_DIR="$SELF_DIR/../.devflow"
+TPL_DIR="$SELF_DIR/../.prflow"
 EXAMPLE="$TPL_DIR/config.example.json"
 SCHEMA="$TPL_DIR/config.schema.json"
 
@@ -86,7 +86,7 @@ SCHEMA="$TPL_DIR/config.schema.json"
 [ -f "$SCHEMA" ]  || die "template not found: $SCHEMA (is the plugin install complete?)"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-DEST="$TARGET_ROOT/.devflow"
+DEST="$TARGET_ROOT/.prflow"
 CONFIG="$DEST/config.json"
 
 mkdir -p "$DEST"
@@ -102,23 +102,23 @@ else
   log "scaffolded $CONFIG — every value has a working default; edit it only to customize"
 fi
 
-# Ignore ONLY the ephemeral scratch dir (.devflow/tmp/), never the rest of
-# .devflow/: config.json must be committed for the cloud tier to read it, and
+# Ignore ONLY the ephemeral scratch dir (.prflow/tmp/), never the rest of
+# .prflow/: config.json must be committed for the cloud tier to read it, and
 # learnings/ (retrospectives) and the schema/example are tracked too. A scoped
-# .devflow/.gitignore keeps this self-contained — no mutation of the repo-root
+# .prflow/.gitignore keeps this self-contained — no mutation of the repo-root
 # .gitignore. Created only when absent so an adopter's edits survive re-runs.
 GITIGNORE="$DEST/.gitignore"
 if [ ! -f "$GITIGNORE" ]; then
   printf '%s\n' \
     '# DevFlow ephemeral scratch (review caches, weekly-loop temp files, issue' \
-    '# drafts). Safe to delete; never commit. Everything else under .devflow/' \
+    '# drafts). Safe to delete; never commit. Everything else under .prflow/' \
     '# (config.json, learnings/, the schema/example) is intentionally tracked.' \
     '/tmp/' > "$GITIGNORE"
-  log "wrote $GITIGNORE (ignores ephemeral .devflow/tmp/ scratch)"
+  log "wrote $GITIGNORE (ignores ephemeral .prflow/tmp/ scratch)"
 fi
 
 # Consumer-owned prompt-extensions directory (issue #84, extended in issue #95).
-# Skills load .devflow/prompt-extensions/<skill-name>.md verbatim when present, so a
+# Skills load .prflow/prompt-extensions/<skill-name>.md verbatim when present, so a
 # repo can append repo-specific instructions to any skill with no plugin edit.
 # Scaffold one COMMENTED, INERT <skill>.md.example PER SKILL so adopters discover
 # that EVERY skill is extensible, not just create-issue. The `.example` suffix keeps
@@ -130,7 +130,7 @@ fi
 # create-issue.md.example — gets the remaining examples backfilled on re-run, while
 # any file they created or edited (an .example OR a live <skill>.md) is never
 # touched. The directory is intentionally NOT gitignored (the scoped
-# .devflow/.gitignore ignores only tmp/), so a team commits and shares its
+# .prflow/.gitignore ignores only tmp/), so a team commits and shares its
 # extensions.
 #
 # The skill list below is authoritative and is kept in sync with skills/ by a drift
@@ -141,7 +141,7 @@ fi
 # SC1073/SC1011) while a curly apostrophe would trip SC1112 (see CLAUDE.md).
 EXTENSIONS_DIR="$DEST/prompt-extensions"
 # Guard the directory create like every other write in this file: a failure
-# (read-only .devflow, ENOSPC, perms) logs-and-skips the prompt-extension scaffolding
+# (read-only .prflow, ENOSPC, perms) logs-and-skips the prompt-extension scaffolding
 # rather than aborting the whole best-effort scaffold under `set -euo pipefail` (the
 # documented contract at the top of this file). `mkdir -p` on an already-present
 # directory is a success no-op, so this is idempotent.
@@ -263,7 +263,7 @@ fi
 
 # Backfill newly-introduced keys into an EXISTING config.json. A recursive
 # deep-merge ($example * $config) adds any key present in the example but absent
-# from the repo's config — at any nesting depth (e.g. devflow_runner.provision_env)
+# from the repo's config — at any nesting depth (e.g. prflow_runner.provision_env)
 # — so an in-place upgrade (re-run install.sh / /devflow:init) lets adopters
 # discover and opt into new features instead of silently drifting behind the
 # example. jq's `*` recurses objects with the RIGHT operand winning, so a value
@@ -288,10 +288,10 @@ else
   BACKFILL_TMP="$(mktemp)"; BACKFILL_ERR="$(mktemp)"
   trap 'rm -f "$BACKFILL_TMP" "$BACKFILL_ERR"' EXIT
   if ! "$DEVFLOW_JQ" -n --slurpfile ex "$EXAMPLE" --slurpfile cfg "$CONFIG" '
-        ($cfg[0].devflow_review.agent_overrides? // {}) as $userao
+        ($cfg[0].prflow_review.agent_overrides? // {}) as $userao
         | ($ex[0] * $cfg[0])
-        | if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
-            .devflow_review.agent_overrides |= with_entries(
+        | if (.prflow_review | type) == "object" and (.prflow_review.agent_overrides | type) == "object" then
+            .prflow_review.agent_overrides |= with_entries(
               # Do NOT let the deep-merge GRAFT an effort from the example onto a
               # Haiku-pinned entry the user left effort-less. The shipped example
               # pins the deduper to Sonnet 5 WITH effort; merged onto a config that
@@ -354,23 +354,23 @@ if "$DEVFLOW_JQ" --version >/dev/null 2>&1 && "$DEVFLOW_JQ" -e . "$CONFIG" >/dev
   # jq-missing skip below and adds a real `continue` that would strand the EXIT
   # trap set just after this probe. Capture the probe's exit status
   # (via `|| ao_rc=$?`, which keeps the failing assignment off `set -e`) instead
-  # of folding a jq error into "null" with `|| printf 'null'`: when `devflow_review`
+  # of folding a jq error into "null" with `|| printf 'null'`: when `prflow_review`
   # ITSELF is a non-object (e.g. a string), `.agent_overrides` indexing errors
   # (rc≠0) rather than yielding "null", and the old fold suppressed this very
   # breadcrumb — leaving only the generic "cleanup failed (jq error)" line below
   # to (mis)explain a corrupt config. Distinguish probe-error from genuinely-absent.
   ao_rc=0
-  ao_type="$("$DEVFLOW_JQ" -r '.devflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
+  ao_type="$("$DEVFLOW_JQ" -r '.prflow_review.agent_overrides | type' "$CONFIG" 2>/dev/null)" || ao_rc=$?
   if [ "$ao_rc" -ne 0 ]; then
-    log "could not inspect .devflow_review.agent_overrides in $CONFIG (jq error — is devflow_review itself a non-object?); the Haiku effort-cleanup below will no-op."
+    log "could not inspect .prflow_review.agent_overrides in $CONFIG (jq error — is prflow_review itself a non-object?); the Haiku effort-cleanup below will no-op."
   elif [ "$ao_type" != "object" ] && [ "$ao_type" != "null" ]; then
     log "agent_overrides is present but not an object ($ao_type); the Haiku effort-cleanup below will no-op (the non-object value is left untouched)."
   fi
   CLEANUP_TMP="$(mktemp)"; CLEANUP_ERR="$(mktemp)"
   trap 'rm -f "$CLEANUP_TMP" "$CLEANUP_ERR"' EXIT
   if ! "$DEVFLOW_JQ" '
-        if (.devflow_review | type) == "object" and (.devflow_review.agent_overrides | type) == "object" then
-          .devflow_review.agent_overrides |= with_entries(
+        if (.prflow_review | type) == "object" and (.prflow_review.agent_overrides | type) == "object" then
+          .prflow_review.agent_overrides |= with_entries(
             if (.value | type) == "object"
                and (((.value.model | strings) // "") | startswith("claude-haiku-"))
                and (.value | has("effort"))

@@ -7,9 +7,9 @@ kind: growth
 
 Mandatory prompt rows that grew in this change:
 
-- `.devflow/prompt-extensions/implement.md` — +3,420 bytes (38,476 → 41,896)
-- `.devflow/prompt-extensions/review-and-fix.md` — +1,752 bytes (22,320 → 24,072)
-- `.devflow/prompt-extensions/receiving-code-review.md` — +1,603 bytes (15,128 → 16,731)
+- `.prflow/prompt-extensions/implement.md` — +3,420 bytes (38,476 → 41,896)
+- `.prflow/prompt-extensions/review-and-fix.md` — +1,752 bytes (22,320 → 24,072)
+- `.prflow/prompt-extensions/receiving-code-review.md` — +1,603 bytes (15,128 → 16,731)
 
 Coupled ceiling renegotiation this growth forced (the `#530 budget` block in `lib/test/run.sh`
 and its mirror cells in `docs/review-and-fix-budget.md`):
@@ -36,7 +36,7 @@ The bytes buy artifact vocabulary the retired observational rule did not state, 
 an acceptance criterion of the issue rather than elaboration:
 
 1. **The capture-to-a-named-file mechanism** — on the local/interactive tier the run captures its
-   parallel full-suite launch to a named file under `.devflow/tmp/`, so a launch that never
+   parallel full-suite launch to a named file under `.prflow/tmp/`, so a launch that never
    started is observable as an **absent capture file**.
 2. **The `Verification evidence:` marker** — recorded in the workpad through `scripts/workpad.py`
    with the run's pass/fail/skip tallies and the captured file's path, so a completion claim

@@ -55,7 +55,7 @@ review then **auto-re-triggers and re-evaluates the preconditions** when the bra
 (existing `synchronize` path) **and** when other CI completes (a new
 `check_suite`/`workflow_run: completed` listener) — so once the PR becomes reviewable, the
 review fires with no manual Re-run. Both preconditions are governed by config keys under
-`devflow_review`, defaulting to enabled, and gate on all non-`Devflow Review` checks
+`prflow_review`, defaulting to enabled, and gate on all non-`Devflow Review` checks
 generically (no hardcoded job names), so consumer repos work out of the box and can opt out.
 
 **Part B.** `/devflow:create-issue` performs a mandatory **self-steelman** of the drafted
@@ -87,11 +87,11 @@ no-options gate) before presenting it to the user.
     first-review, `synchronize`, and `check_run` branches) is where the new preconditions are
     evaluated; `on:` needs a new `check_suite`/`workflow_run: completed` trigger; `create_check`
     / `review` / `finalize_check` jobs consume `precheck` outputs.
-  - `.devflow/config.schema.json` and `.devflow/config.example.json` — add the new
-    `devflow_review` precondition keys.
+  - `.prflow/config.schema.json` and `.prflow/config.example.json` — add the new
+    `prflow_review` precondition keys.
   - `.github/actions/read-project-config` — already loads `CONFIG_JSON` into `precheck`; the
     new keys are read from the same `jq` extract step that reads `.workflows["devflow-review"]`
-    and `.devflow.allowed_bots`.
+    and `.prflow.allowed_bots`.
   - `lib/test/run.sh` — the workflow's precheck routing is pinned by tests here (gh-stubbed);
     fixtures under `lib/test/fixtures/*-checkruns.json` model check-run responses.
 - **Architecture Alignment** — the preconditions are new branches inside the existing
@@ -108,9 +108,9 @@ no-options gate) before presenting it to the user.
   `repos/$REPO/commits/$HEAD/check-runs` + combined status
   for the other-checks gate. Base branch comes from config `base_branch`, never hardcoded
   `main`.
-- **Data/Schema Considerations** — two new keys under `devflow_review` in
-  `.devflow/config.schema.json` (booleans, default `true`): one gating the branch-freshness
-  precondition, one gating the other-CI-green precondition. `.devflow/config.example.json`
+- **Data/Schema Considerations** — two new keys under `prflow_review` in
+  `.prflow/config.schema.json` (booleans, default `true`): one gating the branch-freshness
+  precondition, one gating the other-CI-green precondition. `.prflow/config.example.json`
   documents them. `read-project-config` output already carries the whole config JSON, so no new
   wiring beyond the `jq` extract.
 - **Cross-layer Impact** — CI/workflow layer only (`.github/`), plus config schema/example and
@@ -139,11 +139,11 @@ no-options gate) before presenting it to the user.
 
 **Part A**
 - [ ] When the PR branch is behind its configured base branch and
-  `devflow_review.require_up_to_date` is enabled, the `precheck` job sets `should_run=false`
+  `prflow_review.require_up_to_date` is enabled, the `precheck` job sets `should_run=false`
   and the `Devflow Review` check concludes `neutral` with a "branch behind base" reason (it
   does not run the review engine).
 - [ ] When any check on the PR head other than `Devflow Review` has concluded `failure` (or has
-  not yet concluded `success`) and `devflow_review.require_ci_green` is enabled, the `precheck`
+  not yet concluded `success`) and `prflow_review.require_ci_green` is enabled, the `precheck`
   job sets `should_run=false` and the `Devflow Review` check concludes `neutral` with an "other
   CI not green" reason.
 - [ ] `Devflow Review` is excluded from the set of "other checks" evaluated by the CI-green
@@ -161,7 +161,7 @@ no-options gate) before presenting it to the user.
   the real review once CI is green.
 - [ ] Updating a behind branch (existing `synchronize` path) re-evaluates the preconditions and
   auto-triggers the review when they are now satisfied.
-- [ ] Each precondition is independently controlled by a `devflow_review` config key defaulting
+- [ ] Each precondition is independently controlled by a `prflow_review` config key defaulting
   to enabled; setting the key to `false` restores today's unconditional behavior for that
   precondition.
 - [ ] The gate references no hardcoded CI job names (e.g. not `lib + python tests`, not a lint
@@ -192,8 +192,8 @@ no-options gate) before presenting it to the user.
 
 ## Implementation Notes
 
-**Approach (Part A).** Add two config keys under `devflow_review` (booleans, default `true`) to
-`.devflow/config.schema.json` + `.devflow/config.example.json`; read them in the `precheck.extract`
+**Approach (Part A).** Add two config keys under `prflow_review` (booleans, default `true`) to
+`.prflow/config.schema.json` + `.prflow/config.example.json`; read them in the `precheck.extract`
 step's `jq` alongside the existing `enabled`/`allowed_bots` extraction. In `precheck.route`,
 before a first-review or `synchronize` branch emits `should_run=true`, evaluate the two
 preconditions against the resolved `$HEAD`: (1) branch-freshness via a base..head compare
@@ -258,7 +258,7 @@ existing gate/pass sections (no-options gate, independent-derivation pass).
 internal workflow doc under `docs/internal/workflows/` describing the trigger policy must document
 the new preconditions, the neutral-check-with-re-trigger behavior, and the two config keys. The
 `CLAUDE.md` review-engine / gotchas notes should mention the preconditions if they become a
-load-bearing invariant. `.devflow/config.example.json` documents the keys inline.
+load-bearing invariant. `.prflow/config.example.json` documents the keys inline.
 
 **Potential Gotchas.**
 - **Do not re-introduce the required-check deadlock.** The whole workflow exists to keep the

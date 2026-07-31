@@ -11,7 +11,7 @@ from arguments + live GitHub state on each call.
 
 All subcommands shell out to `gh` for GitHub API access (same auth path as
 the rest of devflow). The workpad marker is read from the repo-root
-`.devflow/config.json` directly in-process (issue #275: no `.sh` exec, so it
+`.prflow/config.json` directly in-process (issue #275: no `.sh` exec, so it
 works on Windows), anchored to the git repo root via a native `git rev-parse`
 subprocess (issue #295: falling back to cwd) so a subdirectory invocation still
 reads the consumer's root config, falling back to the built-in default
@@ -245,45 +245,45 @@ def _workpad_marker(explicit=None):
     override = (explicit or '').strip() or os.environ.get('DEVFLOW_WORKPAD_MARKER', '').strip()
     if override:
         return override
-    # Read the marker from .devflow/config.json directly in-process (issue
+    # Read the marker from .prflow/config.json directly in-process (issue
     # #275): Windows cannot exec a .sh helper ([WinError 193]), so the former
     # config-get.sh subprocess hop silently dropped a configured custom marker
     # back to the built-in default there.
     #
     # SHARED REPO-ROOT CONFIG CONTRACT (issue #295, supersedes the #275 cwd-relative
     # contract): this resolver and scripts/config-get.sh both anchor the DEFAULT
-    # `.devflow/config.json` to the git repo root (git rev-parse --show-toplevel,
+    # `.prflow/config.json` to the git repo root (git rev-parse --show-toplevel,
     # falling back to cwd) — NOT relative to the current working directory — so a run
     # invoked from a repo subdirectory reads the consumer's ROOT config, mirroring
     # lib/config-source.sh. Keep the two readers in lockstep: they resolve the same
     # file for the same cwd. An absent file is the normal unconfigured case — silent
     # fallback so the local tier works with no config at all. (Limitation:
     # --show-toplevel returns the NEAREST git root, so a nested submodule/inner repo
-    # or a monorepo whose .devflow/ is not at the git root is not covered.)
+    # or a monorepo whose .prflow/ is not at the git root is not covered.)
     _root = _repo_root()
     if _root is not None:
-        config_file = Path(_root) / '.devflow' / 'config.json'
+        config_file = Path(_root) / '.prflow' / 'config.json'
     else:
         cwd = Path.cwd()
-        config_file = cwd / '.devflow' / 'config.json'
-        # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
-        # the silent-drop class this fix closes. A git root with no .devflow/ is the
+        config_file = cwd / '.prflow' / 'config.json'
+        # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
+        # the silent-drop class this fix closes. A git root with no .prflow/ is the
         # normal unconfigured case and stays silent (handled by FileNotFoundError below).
         # git can exit non-zero while genuinely INSIDE a repo (safe.directory /
         # dubious-ownership), or be absent — not only "outside a git tree" — so don't
         # assert "not in a git repo"; report the root could not be resolved and surface
         # git's own stderr (re-run on this rare path only).
-        if not (cwd / '.devflow').is_dir():
+        if not (cwd / '.prflow').is_dir():
             sys.stderr.write(
                 f"workpad.py: could not resolve a git repo root"
-                f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
+                f"{_git_root_error_suffix()} and no .prflow/ at {str(cwd)!r}; "
                 f"falling back to default marker\n"
             )
     try:
         with config_file.open(encoding='utf-8') as f:
             data = json.load(f)
     except FileNotFoundError:
-        # Absent config (or an absent .devflow/ dir) is the normal
+        # Absent config (or an absent .prflow/ dir) is the normal
         # unconfigured case — silent, unlike the breadcrumbed failures below.
         return _DEFAULT_WORKPAD_MARKER
     except (OSError, ValueError) as e:
@@ -295,13 +295,13 @@ def _workpad_marker(explicit=None):
         # indistinguishable from "no marker override configured": both fall
         # back to the built-in default. Leave a breadcrumb naming the file so
         # an operator debugging a "workpad not found" symptom on a repo with
-        # `.devflow.workpad_marker` configured can tell the two apart.
+        # `.prflow.workpad_marker` configured can tell the two apart.
         sys.stderr.write(
             f"workpad.py: could not read {str(config_file)!r} ({e}); "
             f"falling back to default marker\n"
         )
         return _DEFAULT_WORKPAD_MARKER
-    devflow = data.get('devflow') if isinstance(data, dict) else None
+    devflow = data.get('prflow') if isinstance(data, dict) else None
     if not isinstance(devflow, dict) or 'workpad_marker' not in devflow:
         return _DEFAULT_WORKPAD_MARKER
     value = devflow['workpad_marker']
@@ -491,7 +491,7 @@ def cmd_status(args):
 # reviewer-facing value, and reports normalized divergence.
 #
 # Both live here rather than in `scripts/parse-acs.py` because the read-only
-# review profile grants `Bash(.devflow/vendor/devflow/scripts/workpad.py:*)` and
+# review profile grants `Bash(.prflow/vendor/prflow/scripts/workpad.py:*)` and
 # does NOT grant `parse-acs.py`: riding on workpad.py is what lets the cloud
 # auto-review tier reach this at all without widening the review
 # security-boundary lock.
@@ -568,7 +568,7 @@ def _acs_read_workpad(cmd: str, issue: str):
     `/devflow:review`'s own `<!-- devflow:review-progress -->` comment
     per-invocation. That closes the CALLER channel, not every channel —
     `_workpad_marker(None)` still resolves through `DEVFLOW_WORKPAD_MARKER` and
-    `.devflow.workpad_marker`. Those are deliberately not closed: they are the
+    `.prflow.workpad_marker`. Those are deliberately not closed: they are the
     same value the implement workpad itself is written under, so repointing one
     moves this read and the workpad together rather than desynchronizing them.
     """
@@ -3336,7 +3336,7 @@ def main():
     # `<!-- devflow:review-progress -->` comment.
     _marker_help = (
         'Marker comment that tags this workpad. Overrides the '
-        'DEVFLOW_WORKPAD_MARKER env var and the .devflow/config.json value; '
+        'DEVFLOW_WORKPAD_MARKER env var and the .prflow/config.json value; '
         "defaults to '<!-- devflow:workpad -->'."
     )
 

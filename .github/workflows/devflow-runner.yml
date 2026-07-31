@@ -28,7 +28,7 @@ on:
       effort:
         description: |
           Reasoning effort (low|medium|high|xhigh|max). Defaults to the
-          `devflow_runner.effort` value from .devflow/config.json when
+          `prflow_runner.effort` value from .prflow/config.json when
           empty (which itself falls back to "high"). On the Anthropic default
           path the resolved value is passed explicitly via `--effort` —
           including "high" — so the effort is pinned rather than relying on
@@ -56,7 +56,7 @@ on:
           ref. PR-review callers MUST pass the PR head SHA so the run sees the
           PR's own content — including any plugin/config/scripts the PR adds —
           not the base branch. A repo bootstrapping the devflow plugin via PR
-          has no .devflow/vendor/devflow on the base branch, so a base checkout
+          has no .prflow/vendor/prflow on the base branch, so a base checkout
           fails the plugin install; checking out the PR head fixes that.
         type: string
         required: false
@@ -87,14 +87,14 @@ on:
       pretooluse_guard_fired:
         description: |
           "true" | "false" | "unavailable" — whether scripts/pretooluse-shape-guard.py's
-          heartbeat breadcrumb (.devflow/tmp/pretooluse-guard-fired) is present after this
+          heartbeat breadcrumb (.prflow/tmp/pretooluse-guard-fired) is present after this
           run (issue #908). "unavailable" is never collapsed onto "false": the two are
           distinct claims ("checked, guard never ran" vs "could not check").
         value: ${{ jobs.run.outputs.pretooluse_guard_fired }}
       pretooluse_guard_counts:
         description: |
           The guard's per-arm denial-count object (e.g. {"R1":2,"R4":1}), read from its
-          run-keyed .devflow/tmp/pretooluse-guard-counts-<run>-<attempt>.json store, or the
+          run-keyed .prflow/tmp/pretooluse-guard-counts-<run>-<attempt>.json store, or the
           literal `unavailable` when no store file could be resolved.
         value: ${{ jobs.run.outputs.pretooluse_guard_counts }}
       permission_denials_commands:
@@ -110,7 +110,7 @@ on:
         description: |
           Anthropic Claude Code OAuth token. Pass via `secrets: inherit` from
           callers. No longer `required: true` (issue #313): a repo that routes the
-          devflow_runner section through a third-party provider need not set it.
+          prflow_runner section through a third-party provider need not set it.
           The runner still fails loud when it is absent AND no provider is
           configured (the Anthropic default path), so the default path is never
           silently degraded.
@@ -118,7 +118,7 @@ on:
       DEVFLOW_PROVIDER_API_KEY:
         description: |
           API credential for the optional third-party model provider (issue #313).
-          Consumed only when the devflow_runner section names a `provider`; unused
+          Consumed only when the prflow_runner section names a `provider`; unused
           on the Anthropic default path. Resolves via `secrets: inherit` from the
           caller (devflow-review.yml); declared here (optional) because a reusable
           workflow's `secrets` context is typed by this block (actionlint rejects an
@@ -233,21 +233,21 @@ jobs:
           # instead of silently propagating literal `null` into
           # `--model null` / `allowed_bots: null` downstream.
           CLAUDE_MODEL=$(echo "$CONFIG_JSON" | jq -r '.claude_model // empty')
-          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots // empty')
-          EFFORT=$(echo "$CONFIG_JSON" | jq -r '.devflow_runner.effort // "high"')
+          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_bots // empty')
+          EFFORT=$(echo "$CONFIG_JSON" | jq -r '.prflow_runner.effort // "high"')
           if [ -z "$CLAUDE_MODEL" ]; then
-            echo "::error::claude_model is missing from .devflow/config.json"
+            echo "::error::claude_model is missing from .prflow/config.json"
             exit 1
           fi
           if [ -z "$ALLOWED_BOTS" ]; then
-            echo "::error::devflow.allowed_bots is missing from .devflow/config.json"
+            echo "::error::devflow.allowed_bots is missing from .prflow/config.json"
             exit 1
           fi
           {
             echo "claude_model=$CLAUDE_MODEL"
             echo "allowed_bots=$ALLOWED_BOTS"
             echo "effort=$EFFORT"
-            # devflow_version is deliberately NOT read here. It is resolved from the
+            # prflow_version is deliberately NOT read here. It is resolved from the
             # trusted base ref by the `baseversion` step below (issue #874), because
             # this step reads the PULL REQUEST's checkout — which would let a PR
             # select the plugin commit, and therefore the loader, that reviews it.
@@ -258,7 +258,7 @@ jobs:
       # load-prompt-extension.sh — reviews it. This joins provision_env, the
       # allowed_tools list, and the setup block on the base-ref trust boundary, and
       # carries the same consequence the repository already documents for every
-      # trigger-time-resolved key: a PR that bumps devflow_version does NOT change
+      # trigger-time-resolved key: a PR that bumps prflow_version does NOT change
       # its own review, only later ones.
       #
       # WHY ITS OWN STEP, DECLARED HERE. The value must be readable by `vendor`
@@ -289,9 +289,9 @@ jobs:
           # the fetch branch rather than silently tracking a mutable default.
           DEVFLOW_VERSION=''
           if [ -n "$BASE_REF" ] && git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
-            if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
+            if RAW=$(git show "FETCH_HEAD:.prflow/config.json" 2>/dev/null); then
               # Same object guard baseprovision uses: `jq -c '.'` succeeds on ANY
-              # valid JSON including a bare scalar, and indexing `.devflow_version`
+              # valid JSON including a bare scalar, and indexing `.prflow_version`
               # on one errors (jq exit 5) and would abort this step under set -e.
               if BASE_JSON=$(printf '%s' "$RAW" | jq -ce 'if type=="object" then . else empty end' 2>/dev/null); then
                 # `strings` clamps the value to a scalar string: `jq -r` pretty-prints an
@@ -299,16 +299,16 @@ jobs:
                 # $GITHUB_OUTPUT without a heredoc delimiter corrupts the whole file
                 # (every later line is parsed as another output). A non-string leaf is
                 # dropped to empty, which is the same fail-closed value as an absent key.
-                DEVFLOW_VERSION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_version | strings | select(. != "")) catch empty')
+                DEVFLOW_VERSION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.prflow_version | strings | select(. != "")) catch empty')
               else
-                echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .devflow/config.json; the pinned plugin version could not be read from the trusted base ref."
+                echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .prflow/config.json; the pinned plugin version could not be read from the trusted base ref."
               fi
             else
               # DISTINCT from the malformed arm above and from the legitimately-silent
               # present-config-absent-key shape: the base ref carries no config at all.
               # The most reachable instance is a repo adopting DevFlow through this very
               # pull request, whose base ref predates it.
-              echo "::warning::Base ref '$BASE_REF' carries no .devflow/config.json, so no pinned plugin version could be read from it. See the fetch-branch consequence below."
+              echo "::warning::Base ref '$BASE_REF' carries no .prflow/config.json, so no pinned plugin version could be read from it. See the fetch-branch consequence below."
             fi
           else
             echo "::warning::Could not read the pinned plugin version from the trusted base ref '$BASE_REF' (fetch failed or the base ref is empty); the vendor step receives no pinned ref."
@@ -322,9 +322,9 @@ jobs:
           # and a repo adopting DevFlow through this PR), so the operator gets the
           # diagnosis here rather than only vendor-slice's message.
           if [ -z "$DEVFLOW_VERSION" ]; then
-            echo "::warning::devflow_version resolved EMPTY from the trusted base ref. On a thin (fetch-branch) install the vendor step will refuse an empty ref and fail this review job; on a committed/self vendor tree the ref is ignored and the review proceeds. Commit devflow_version to .devflow/config.json on '$BASE_REF' to resolve it."
+            echo "::warning::prflow_version resolved EMPTY from the trusted base ref. On a thin (fetch-branch) install the vendor step will refuse an empty ref and fail this review job; on a committed/self vendor tree the ref is ignored and the review proceeds. Commit prflow_version to .prflow/config.json on '$BASE_REF' to resolve it."
           fi
-          echo "devflow_version=$DEVFLOW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "prflow_version=$DEVFLOW_VERSION" >> "$GITHUB_OUTPUT"
 
       # Establish the trusted prompt-extension closure and SUPPRESS the PR-head
       # copies — unconditionally (issue #874). Everything in this step must hold on
@@ -341,7 +341,7 @@ jobs:
       # exit), a traversal-shaped protected name, and a non-blob object at a protected
       # path — therefore each degrade to an EMPTY closure, rather than sending the loader
       # back to the PR-head file. The truncation is the belt for the remaining case where
-      # the cooperating half is absent: a consumer whose base ref pins a devflow_version
+      # the cooperating half is absent: a consumer whose base ref pins a prflow_version
       # predating this change gets a loader that ignores the variable, resolves the
       # repo-root path, finds the truncated file, and loads nothing.
       - name: Establish the trusted prompt-extension closure
@@ -350,7 +350,7 @@ jobs:
           set -euo pipefail
           CLOSURE="$RUNNER_TEMP/devflow-trusted-prompt-ext"
           mkdir -p "$CLOSURE"
-          # A consumer checkout may not carry .devflow/prompt-extensions/ at all — git
+          # A consumer checkout may not carry .prflow/prompt-extensions/ at all — git
           # does not track an empty directory, so even a repo whose install.sh created
           # it ships no such path until an extension is committed — and a redirect into
           # a missing directory fails, which under the default `bash -e` step shell
@@ -359,7 +359,7 @@ jobs:
           # UNLINK, NEVER TRUNCATE IN PLACE. This step runs against the PULL REQUEST's
           # checkout and is the first thing to touch that tree, so every path here is
           # PR-author-controlled. `: > path` FOLLOWS a symlink: a PR committing
-          # .devflow/prompt-extensions/review.md as a link to any other file would make
+          # .prflow/prompt-extensions/review.md as a link to any other file would make
           # this job empty that file instead — silently, exit 0 — before ci_summary and
           # harden_hooks read the tree. `rm -f` unlinks the link itself and never its
           # target, so the create that follows always makes a fresh regular file.
@@ -369,14 +369,14 @@ jobs:
           # this step's `set -e` that aborts the job before `vendor`, `baseprovision`,
           # `harden_hooks`, `compose` and the reviewer itself ever run — a PR-author-
           # triggerable denial of the merge gate, since committing a plain file at
-          # `.devflow/prompt-extensions` is all it takes. Removing the offending entry
+          # `.prflow/prompt-extensions` is all it takes. Removing the offending entry
           # keeps the step's own premise ("every path here is PR-author-controlled")
           # true for the directory path as well as the leaves.
-          if [ -e .devflow/prompt-extensions ] && [ ! -d .devflow/prompt-extensions ]; then
-            echo "::warning::PR-head '.devflow/prompt-extensions' exists but is not a directory (symlink or regular file); removing it rather than writing through it."
-            rm -f .devflow/prompt-extensions
+          if [ -e .prflow/prompt-extensions ] && [ ! -d .prflow/prompt-extensions ]; then
+            echo "::warning::PR-head '.prflow/prompt-extensions' exists but is not a directory (symlink or regular file); removing it rather than writing through it."
+            rm -f .prflow/prompt-extensions
           fi
-          mkdir -p .devflow/prompt-extensions
+          mkdir -p .prflow/prompt-extensions
           TRUNCATED=''
           for _n in $DEVFLOW_PROTECTED_PROMPT_EXTENSIONS; do
             # Same three-pattern name guard the materialization helper applies to its
@@ -386,11 +386,11 @@ jobs:
             # the extensions directory rather than the helper's warn-and-skip.
             case "$_n" in
               */* | *..* | '')
-                echo "::warning::devflow protected prompt-extension name '$_n' contains a path separator or '..', or is empty; skipping it rather than removing a path outside .devflow/prompt-extensions/."
+                echo "::warning::devflow protected prompt-extension name '$_n' contains a path separator or '..', or is empty; skipping it rather than removing a path outside .prflow/prompt-extensions/."
                 continue
                 ;;
             esac
-            _p=".devflow/prompt-extensions/${_n}.md"
+            _p=".prflow/prompt-extensions/${_n}.md"
             if [ -L "$_p" ] || { [ -e "$_p" ] && [ ! -f "$_p" ]; }; then
               echo "::warning::PR-head '$_p' is a symlink or a non-regular file; removing it rather than writing through it."
             fi
@@ -415,7 +415,7 @@ jobs:
           echo "DEVFLOW_PROMPT_EXTENSION_ROOT=$CLOSURE" >> "$GITHUB_ENV"
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
-      # loads it from .devflow/vendor/devflow/ and the reviewer's helper scripts
+      # loads it from .prflow/vendor/prflow/ and the reviewer's helper scripts
       # resolve at the literal workspace path. The `ref` is now resolved from the
       # trusted base ref by the `baseversion` step above, so a PR can no longer
       # select the plugin commit that reviews it (issue #874). The composite action
@@ -424,7 +424,7 @@ jobs:
       - uses: ./.github/actions/vendor-plugin
         id: vendor
         with:
-          ref: ${{ steps.baseversion.outputs.devflow_version }}
+          ref: ${{ steps.baseversion.outputs.prflow_version }}
 
       - name: Read trusted base-ref provisioning config
         id: baseprovision
@@ -449,10 +449,10 @@ jobs:
           # uniform repo-wide policy. The common pull_request /
           # pull_request_target paths always read the PR's true base ref.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
-          # Which vendor-slice branch materialized .devflow/vendor/devflow this run.
+          # Which vendor-slice branch materialized .prflow/vendor/prflow this run.
           # `vendor` is declared BEFORE this step, so its output is available here.
           # Only `fetch` (a fresh clone of the official repo at the pinned
-          # devflow_version) qualifies as a trusted source — `committed`/`self` are
+          # prflow_version) qualifies as a trusted source — `committed`/`self` are
           # PR-head content.
           VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
@@ -500,14 +500,14 @@ jobs:
             # refs), so the base tip is the maintainer-controlled config, not the
             # PR head. --depth=1: only the tip is needed to read one file.
             if git fetch --depth=1 origin "$BASE_REF" >/dev/null 2>&1; then
-              if RAW=$(git show "FETCH_HEAD:.devflow/config.json" 2>/dev/null); then
+              if RAW=$(git show "FETCH_HEAD:.prflow/config.json" 2>/dev/null); then
                 # Parse in its own guard so a MALFORMED or non-object base config
                 # collapses to read-only (the documented safe default), NOT
                 # aborts the whole review job under set -e — otherwise every open
                 # PR targeting that branch fails its review with an opaque jq
                 # error. `if type=="object" then . else empty end` + `-e` is
                 # load-bearing: jq -c '.' succeeds on ANY valid JSON including a
-                # bare scalar/array/null, and the `.devflow_runner` index on the
+                # bare scalar/array/null, and the `.prflow_runner` index on the
                 # next line would then error (jq exit 5) and abort under set -e.
                 # Requiring an object routes scalars/arrays to the else branch
                 # too. (2>/dev/null so we emit our own actionable warning, not the
@@ -517,25 +517,25 @@ jobs:
                   # `try … catch false` + `== true` clamps to a literal
                   # true/false: only a real boolean `true` enables provisioning.
                   # The top-level guard above only proves BASE_JSON is an object;
-                  # `.devflow_runner` could still be a non-object (e.g.
-                  # {"devflow_runner":"medium"}), and `.provision_env` on a
+                  # `.prflow_runner` could still be a non-object (e.g.
+                  # {"prflow_runner":"medium"}), and `.provision_env` on a
                   # string/number/array errors (jq exit 5) — which would abort
                   # this step under set -e. `try … catch false` makes any such
                   # shape (and any non-boolean / absent value) yield a clean
                   # `false`, so the step output is always a valid token and a
                   # typo can never accidentally provision.
-                  PROVISION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.provision_env == true) catch false')
+                  PROVISION=$(printf '%s' "$BASE_JSON" | jq -r 'try (.prflow_runner.provision_env == true) catch false')
                 else
                   BASE_JSON='{}'
                   CONFIG_SOURCE='degraded'
-                  echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .devflow/config.json; defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run). Fix the base-branch config to restore build-aware review and provider routing."
+                  echo "::warning::Base ref '$BASE_REF' has a malformed or non-object .prflow/config.json; defaulting to provision_env=false (read-only review) AND ignoring any prflow_runner.provider routing (review falls back to the Anthropic default this run). Fix the base-branch config to restore build-aware review and provider routing."
                 fi
               else
                 # No committed config on the base ref (e.g. a repo bootstrapping
                 # devflow via this very PR) → read-only, as documented. Emit a
                 # notice so a silently-downgraded opt-in is at least observable.
                 CONFIG_SOURCE='absent'
-                echo "::notice::No .devflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review). (No provider can be configured without a base config, so provider routing is simply the Anthropic default.)"
+                echo "::notice::No .prflow/config.json on base ref '$BASE_REF'; provision_env=false (read-only review). (No provider can be configured without a base config, so provider routing is simply the Anthropic default.)"
               fi
               # Materialize the deny-floor helper from the SAME trusted base-ref
               # tip (FETCH_HEAD is still the base ref here — this block must stay
@@ -549,7 +549,7 @@ jobs:
               # neither pre-place nor overwrite it. Best-effort: any failure
               # leaves FLOOR_HELPER empty and the tools step fails closed.
               _floor_raw=''
-              if _floor_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
+              if _floor_raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/filter-runner-tools.sh" 2>/dev/null); then
                 FLOOR_SOURCE='base-ref-vendored'
               elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
                 && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
@@ -585,7 +585,7 @@ jobs:
                 _gitenv_ok=1
                 for _g in emit-git-env.sh config-get.sh; do
                   _g_raw=''
-                  if _g_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_g" 2>/dev/null); then
+                  if _g_raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/$_g" 2>/dev/null); then
                     :
                   elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
                     && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
@@ -632,7 +632,7 @@ jobs:
                 _compose_ok=1
                 for _h in resolve-extra-plugins.sh describe-plugin-compose.sh; do
                   _h_raw=''
-                  if _h_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/$_h" 2>/dev/null); then
+                  if _h_raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/$_h" 2>/dev/null); then
                     :
                   elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
                     && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
@@ -696,7 +696,7 @@ jobs:
               # plugin.json-name discriminator, then — the rank a two-rank ladder would
               # omit — the RUNTIME-FETCHED vendored copy, accepted only when
               # `vendor-plugin` reports it cloned the official repo fresh this run at
-              # the pinned devflow_version (`vendor_source == fetch`). That third rank
+              # the pinned prflow_version (`vendor_source == fetch`). That third rank
               # is what serves a THIN install, which is install.sh's default: there the
               # vendored tree is gitignored so it is not on the base ref, and the
               # consumer's base ref is not the DevFlow plugin repo, so ranks 1 and 2
@@ -716,7 +716,7 @@ jobs:
               _mtpe_source='absent'
               _mtpe_helper=''
               _mtpe_repo_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-              if _mtpe_raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
+              if _mtpe_raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh" 2>/dev/null); then
                 _mtpe_source='base-ref-vendored'
               elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
                 && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
@@ -732,9 +732,9 @@ jobs:
                 && printf '%s\n' "$_mtpe_raw" > "$RUNNER_TEMP/devflow-trusted-prompt-ext-helper/materialize-trusted-prompt-extensions.sh" 2>/dev/null; then
                 _mtpe_helper="$RUNNER_TEMP/devflow-trusted-prompt-ext-helper/materialize-trusted-prompt-extensions.sh"
               elif [ "${VENDOR_SOURCE:-}" = "fetch" ] \
-                && [ -s "$_mtpe_repo_root/.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh" ]; then
+                && [ -s "$_mtpe_repo_root/.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh" ]; then
                 _mtpe_source='vendored-fetch'
-                _mtpe_helper="$_mtpe_repo_root/.devflow/vendor/devflow/scripts/materialize-trusted-prompt-extensions.sh"
+                _mtpe_helper="$_mtpe_repo_root/.prflow/vendor/prflow/scripts/materialize-trusted-prompt-extensions.sh"
               fi
               if [ -n "$_mtpe_helper" ]; then
                 # The helper prints its own fully-formed ::warning:: / ::notice::
@@ -763,7 +763,7 @@ jobs:
               fi
             else
               CONFIG_SOURCE='degraded'
-              echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
+              echo "::warning::Could not fetch base ref '$BASE_REF'; defaulting to provision_env=false (read-only review) AND ignoring any prflow_runner.provider routing (review falls back to the Anthropic default this run)."
               # The base ref's content was never established, so this run cannot say
               # whether an extension exists on it — a distinct NOTICE, never a
               # reason-naming warning that would assert a fact never observed. All
@@ -780,7 +780,7 @@ jobs:
             # unreadable-config cause rather than falsely reporting "no provider
             # configured" (the shadow-S2 misdirection contract this signal exists for).
             CONFIG_SOURCE='degraded'
-            echo "::warning::Base ref could not be determined (empty base ref); defaulting to provision_env=false (read-only review) AND ignoring any devflow_runner.provider routing (review falls back to the Anthropic default this run)."
+            echo "::warning::Base ref could not be determined (empty base ref); defaulting to provision_env=false (read-only review) AND ignoring any prflow_runner.provider routing (review falls back to the Anthropic default this run)."
             # Same not-attempted classification as the fetch-failure arm above
             # (issue #874): with no base ref there is nothing to read, so the run
             # cannot report whether an extension exists on it.
@@ -807,11 +807,11 @@ jobs:
           # a comma-joined string. `map(strings)` keeps only string elements so a
           # single hand-edited non-string entry degrades to "drop that element",
           # not "join errors → catch "" → silently lose ALL tools"; `try … catch ""`
-          # still guards a non-object/array `devflow_runner`/`allowed_tools`,
+          # still guards a non-object/array `prflow_runner`/`allowed_tools`,
           # collapsing it to empty (no build tools). The deny-list floor is applied
           # at CONSUME time in the next step, so the authoritative filter sees
           # exactly the string forwarded here.
-          RUNNER_TOOLS=$(printf '%s' "$BASE_JSON" | jq -r 'try (.devflow_runner.allowed_tools // [] | map(strings) | join(",")) catch ""')
+          RUNNER_TOOLS=$(printf '%s' "$BASE_JSON" | jq -r 'try (.prflow_runner.allowed_tools // [] | map(strings) | join(",")) catch ""')
           # Heredoc forms forward both values verbatim regardless of content — a
           # newline in either (a hand-edited allowed_tools entry, a multi-line base
           # config) must not corrupt step outputs the way a plain key=value echo
@@ -877,7 +877,7 @@ jobs:
           # is 'true' does the review profile gain build/verify commands.
           PROVISION_ENV: ${{ steps.baseprovision.outputs.provision_env }}
           # Freeform build/verify allowlist from the trusted base ref's
-          # devflow_runner.allowed_tools (see the baseprovision step). Appended to
+          # prflow_runner.allowed_tools (see the baseprovision step). Appended to
           # the review profile only when PROVISION_ENV is 'true', and only after
           # the deny-list floor below strips the catastrophic tier.
           RUNNER_TOOLS: ${{ steps.baseprovision.outputs.runner_tools }}
@@ -887,9 +887,9 @@ jobs:
           # profile below.
           FLOOR_HELPER: ${{ steps.baseprovision.outputs.floor_helper }}
           FLOOR_SOURCE: ${{ steps.baseprovision.outputs.floor_source }}
-          # Which vendor-slice branch materialized .devflow/vendor/devflow this
+          # Which vendor-slice branch materialized .prflow/vendor/prflow this
           # run: committed | self | fetch. Only 'fetch' (a fresh clone of the
-          # official repo at the pinned devflow_version) is a trusted source for
+          # official repo at the pinned prflow_version) is a trusted source for
           # the floor helper; committed/self copies come from the PR-head tree.
           VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
@@ -902,14 +902,14 @@ jobs:
               # Slim profile for /devflow:review — read-only tree, comment/post-review
               # only. No PHP/npm/composer (the review skill never shells out
               # to them). No Edit and no tree-writable Write: the ONLY Write rule is
-              # the path-scoped Write(.devflow/tmp/**) at the tail — the reviewer may
-              # author scratch files into the gitignored .devflow/tmp scratch dir
+              # the path-scoped Write(.prflow/tmp/**) at the tail — the reviewer may
+              # author scratch files into the gitignored .prflow/tmp scratch dir
               # (its workpad/scratch recipe uses the Write tool there, never a shell
               # `>` redirect — matcher-probe run 29111394360 recorded `>` redirects
-              # AND Write(/tmp/**) DENIED, while Write(.devflow/tmp/**) is PERMITTED,
+              # AND Write(/tmp/**) DENIED, while Write(.prflow/tmp/**) is PERMITTED,
               # issue #401), but the repo tree stays read-only. The reviewer's
               # `contents: read` token still makes a push impossible, so nothing the
-              # reviewer writes to .devflow/tmp can ever reach the repo.
+              # reviewer writes to .prflow/tmp can ever reach the repo.
               # The workpad.py / config-get.sh / load-prompt-extension.sh /
               # efficiency-trace.sh entries below are read-only-safe: workpad.py
               # authors the live progress comment via `gh api` (a comment edit, not a
@@ -922,7 +922,7 @@ jobs:
               # the run's workpads and prints Markdown. The `--persist` step (run by the
               # base-branch .claude/settings.json Stop hook, which claude-code-action
               # restores in this job) STAGES the run's observability artifacts under the
-              # gitignored .devflow/tmp/ and, on this read-only tier, runs in STAGING-ONLY
+              # gitignored .prflow/tmp/ and, on this read-only tier, runs in STAGING-ONLY
               # mode: it writes NO new telemetry-branch records and does NO push (the push
               # operand DEVFLOW_TELEMETRY_PUSH is deliberately unset here, so #469 AC5 fails
               # closed to staging). A best-effort fetch-before-exclusion step may fast-forward
@@ -966,12 +966,12 @@ jobs:
               # boundary by lib/review-profile.tokens — do NOT hand-edit it; change the
               # manifest and regenerate, and widening the reviewer requires a visible diff
               # to that lock. lib/test/run.sh's --check turns any drift RED.
-              # devflow-capability-manifest: region=runner-review manifest_version=12 sha256=e86a15e4ebbe6faacf3a1cc13cab2a7af115dacecc63fa50cdf148198af2c363
-              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*),Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*),Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*),Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*),Bash(.devflow/vendor/devflow/scripts/workpad.py:*),Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*),Bash(.devflow/vendor/devflow/scripts/config-get.sh:*),Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*),Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*),Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*),Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*),Write(.devflow/tmp/**)'
+              # devflow-capability-manifest: region=runner-review manifest_version=12 sha256=6a18d5c304207c028288649441cf04333e8578733fdf349f34d80971f8a490bf
+              TOOLS='Read,Glob,Grep,LS,Skill,Agent,TodoWrite,WebFetch,WebSearch,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git rev-parse:*),Bash(git merge-base:*),Bash(git blame:*),Bash(git branch:*),Bash(git cat-file:*),Bash(git hash-object:*),Bash(git checkout:*),Bash(mkdir:*),Bash(tee:*),Bash(mktemp:*),Bash(cmp:*),Bash(rm -f:*),Bash(*/load-prompt-extension.sh:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh repo view:*),Bash(gh run view:*),Bash(gh run list:*),Bash(gh api:*),Bash(jq:*),Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*),Bash(grep:*),Bash(rg:*),Bash(find:*),Bash(wc:*),Bash(sort:*),Bash(uniq:*),Bash(cut:*),Bash(tr:*),Bash(xargs:*),Bash(awk:*),Bash(sed:*),Bash(diff:*),Bash(comm:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(tree:*),Bash(file:*),Bash(stat:*),Bash(date:*),Bash(pwd:*),Bash(realpath:*),Bash(dirname:*),Bash(basename:*),Bash(which:*),Bash(type:*),Bash(env:*),Bash(echo:*),Bash(printf:*),Bash(test:*),Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*),Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*),Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*),Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*),Bash(.prflow/vendor/prflow/scripts/workpad.py:*),Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*),Bash(.prflow/vendor/prflow/scripts/config-get.sh:*),Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*),Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*),Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*),Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*),Write(.prflow/tmp/**)'
               # When the trusted base config opted into provisioning, the runner
               # has a built env (setup-project-env ran below), so grant the
               # freeform build/verify commands the maintainer listed in
-              # devflow_runner.allowed_tools (read from the trusted base ref —
+              # prflow_runner.allowed_tools (read from the trusted base ref —
               # RUNNER_TOOLS) so the reviewer can actually compile/test the PR in
               # ANY language instead of punting build-dependent claims. Appended
               # ONLY here: when provisioning is off, TOOLS above is byte-for-byte
@@ -1013,7 +1013,7 @@ jobs:
                 #      RUNNER_TEMP, outside the PR-writable workspace;
                 #   2. the vendored copy, ONLY when the vendor-plugin step reports
                 #      vendor_source=fetch — i.e. the copy was cloned THIS RUN from
-                #      the official repo at the pinned devflow_version, never taken
+                #      the official repo at the pinned prflow_version, never taken
                 #      from the PR-head tree (a PR can at most select an
                 #      official-repo commit — the same accepted posture as the
                 #      vendor step itself).
@@ -1029,7 +1029,7 @@ jobs:
                 # docs/DEVFLOW_SYSTEM_OVERVIEW.md's deny-floor paragraph.
                 # Anchor the relative vendored-copy candidate to the git repo ROOT
                 # (issue #409 item 8, #295 convention: `git rev-parse --show-toplevel`,
-                # falling back to `pwd`). A bare relative `.devflow/vendor/…` path
+                # falling back to `pwd`). A bare relative `.prflow/vendor/…` path
                 # resolves against the step's cwd, so a future `working-directory:` (or a
                 # step that `cd`s) would silently miss the vendored helper and flip every
                 # review that RELIES ON the fetch-vendored fallback to the helper-absent
@@ -1042,12 +1042,12 @@ jobs:
                 if [ -n "${FLOOR_HELPER:-}" ] && [ -f "$FLOOR_HELPER" ]; then
                   FILTER_HELPER="$FLOOR_HELPER"
                   echo "deny-list floor source: trusted base ref (${FLOOR_SOURCE:-base-ref})"
-                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh" ]; then
-                  FILTER_HELPER="$_REPO_ROOT/.devflow/vendor/devflow/scripts/filter-runner-tools.sh"
-                  echo "deny-list floor source: runtime-fetched vendored copy (pinned devflow_version)"
+                elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.prflow/vendor/prflow/scripts/filter-runner-tools.sh" ]; then
+                  FILTER_HELPER="$_REPO_ROOT/.prflow/vendor/prflow/scripts/filter-runner-tools.sh"
+                  echo "deny-list floor source: runtime-fetched vendored copy (pinned prflow_version)"
                 fi
                 if [ -z "$FILTER_HELPER" ]; then
-                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the floor must not be PR-editable. Failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available."
+                  echo "::warning::devflow deny-list floor helper (filter-runner-tools.sh) not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned prflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the floor must not be PR-editable. Failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned prflow_version) so a trusted helper is available."
                 else
                   # The helper reads the raw RUNNER_TOOLS from the environment,
                   # prints the KEPT entries as one comma-joined line on stdout, and
@@ -1076,7 +1076,7 @@ jobs:
                   # a real file, fail CLOSED (append nothing) with an actionable warning.
                   STRIP_LOG="$(mktemp 2>/dev/null || true)"
                   if [ -z "$STRIP_LOG" ] || [ ! -e "$STRIP_LOG" ]; then
-                    echo "::warning::devflow deny-list floor: could not create a temp file (mktemp failed — the runner's temp dir is unwritable or exhausted) to capture the helper's per-entry strip warnings — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). This is a runner ENVIRONMENT issue, NOT an empty devflow_runner.allowed_tools."
+                    echo "::warning::devflow deny-list floor: could not create a temp file (mktemp failed — the runner's temp dir is unwritable or exhausted) to capture the helper's per-entry strip warnings — failing closed: NO build/verify tools appended to the review profile (the reviewer keeps the read-only profile). This is a runner ENVIRONMENT issue, NOT an empty prflow_runner.allowed_tools."
                   else
                     HELPER_RC=0
                     FILTERED="$(RUNNER_TOOLS="$RUNNER_TOOLS" bash "$FILTER_HELPER" 2>"$STRIP_LOG")" || HELPER_RC=$?
@@ -1086,11 +1086,11 @@ jobs:
                     done < "$STRIP_LOG"
                     rm -f "$STRIP_LOG"
                     if [ "$HELPER_RC" -ne 0 ]; then
-                      echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty devflow_runner.allowed_tools — check the helper, do not re-check your config."
+                      echo "::warning::devflow deny-list floor helper ($FILTER_HELPER) exited $HELPER_RC (it is contracted to always exit 0) — failing closed: NO build/verify tools appended to the review profile. This is a helper MALFUNCTION (the helper is unreadable, corrupt, or partially vendored so 'bash' could not run it), NOT an empty prflow_runner.allowed_tools — check the helper, do not re-check your config."
                     elif [ -n "$FILTERED" ]; then
                       TOOLS="$TOOLS,$FILTERED"
                     else
-                      echo "::warning::devflow_runner.provision_env is true but devflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate devflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
+                      echo "::warning::prflow_runner.provision_env is true but prflow_runner.allowed_tools is empty (or empty after deny-list stripping): build-aware review is enabled with NO build tools, so the reviewer has only the read-only profile. Populate prflow_runner.allowed_tools with your build/test/lint tools (e.g. Bash(go:*), Bash(cargo:*)) to enable build-aware review."
                     fi
                   fi
                 fi
@@ -1123,13 +1123,13 @@ jobs:
           echo "value=$RESOLVED" >> "$GITHUB_OUTPUT"
 
       # ── Third-party model provider resolution (issue #313) ─────────────────
-      # Resolve the devflow_runner section's provider decision from
-      # .devflow/config.json via the single-sourced inline jq RESOLVER below. The
+      # Resolve the prflow_runner section's provider decision from
+      # .prflow/config.json via the single-sourced inline jq RESOLVER below. The
       # RESOLVER program is byte-identical across devflow.yml, devflow-implement.yml,
       # and devflow-runner.yml (lib/test/run.sh pins that identity); only the
       # `--arg section` value differs. An empty decision (no provider) reproduces
       # today's Anthropic-OAuth review wiring, so review stays on Claude unless
-      # devflow_runner.provider is set. (One deliberate #313 change on this default
+      # prflow_runner.provider is set. (One deliberate #313 change on this default
       # path: the runner's `--model` now resolves from the TRUSTED BASE-ref config,
       # head only as a bootstrap fallback — see the cargs step's MODEL-fallback
       # comment — so
@@ -1143,12 +1143,12 @@ jobs:
           # the TRUSTED BASE ref config (steps.baseprovision — the same source provision_env
           # / setup / allowed_tools already read), NEVER the PR-head steps.cfg. This review
           # runs on the PR head under a write token, so a PR-head-sourced provider could add
-          # providers.evil + devflow_runner.provider and redirect the privileged review to an
+          # providers.evil + prflow_runner.provider and redirect the privileged review to an
           # attacker endpoint, exfiltrating DEVFLOW_PROVIDER_API_KEY as a bearer token. Base-ref
           # config is maintainer-controlled; a PR cannot grant itself a provider. ({} on a base
           # with no committed config → default Anthropic path, fail-safe.)
           CONFIG_JSON: ${{ steps.baseprovision.outputs.config_json }}
-          SECTION: devflow_runner
+          SECTION: prflow_runner
         run: |
           set -euo pipefail
           # devflow-provider-resolver BEGIN (single-sourced; keep byte-identical across the three cloud workflows — lib/test/run.sh pins it)
@@ -1188,7 +1188,7 @@ jobs:
           if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
             PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
             DETAIL=$(printf '%s' "$DECISION" | jq -r '.detail // "provider configuration is invalid"')
-            echo "::error::.devflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
             exit 1
           fi
           # One jq pass emits every scalar decision field to the step output, each as a
@@ -1227,9 +1227,9 @@ jobs:
               # The provider decision reverted to the Anthropic default only because the
               # trusted base config was unreadable this run — do NOT tell the operator
               # "no provider is configured" (it may well be); name the real cause.
-              echo "::error::The trusted base-ref .devflow/config.json could not be read this run, so any devflow_runner.provider routing was ignored and the review fell back to the Anthropic default path — but the CLAUDE_CODE_OAUTH_TOKEN secret is empty. Fix the base-branch config (a configured provider would then be honored) or set CLAUDE_CODE_OAUTH_TOKEN. Refusing to run."
+              echo "::error::The trusted base-ref .prflow/config.json could not be read this run, so any prflow_runner.provider routing was ignored and the review fell back to the Anthropic default path — but the CLAUDE_CODE_OAUTH_TOKEN secret is empty. Fix the base-branch config (a configured provider would then be honored) or set CLAUDE_CODE_OAUTH_TOKEN. Refusing to run."
             else
-              echo "::error::No model provider is configured for the devflow_runner section, so the review runs on the Anthropic default path — but the CLAUDE_CODE_OAUTH_TOKEN secret is empty. Set it (or configure devflow_runner.provider + DEVFLOW_PROVIDER_API_KEY). Refusing to run."
+              echo "::error::No model provider is configured for the prflow_runner section, so the review runs on the Anthropic default path — but the CLAUDE_CODE_OAUTH_TOKEN secret is empty. Set it (or configure prflow_runner.provider + DEVFLOW_PROVIDER_API_KEY). Refusing to run."
             fi
             exit 1
           fi
@@ -1260,7 +1260,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$MODEL" ]; then
-            echo "::error::claude_model is missing from .devflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
+            echo "::error::claude_model is missing from .prflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
             exit 1
           fi
           # SECURITY: MODEL and EFFORT are spliced UNQUOTED into claude_args (a folded
@@ -1309,7 +1309,7 @@ jobs:
           { printf 'args<<%s\n' "$adelim"; printf '%s\n' "$ARGS"; printf '%s\n' "$adelim"; } >> "$GITHUB_OUTPUT"
 
       # Provision the runtime BEFORE Claude runs, but ONLY when the trusted base
-      # config opted in via devflow_runner.provision_env. config_json is the
+      # config opted in via prflow_runner.provision_env. config_json is the
       # BASE ref's config (steps.baseprovision), never the PR head, so PR edits
       # to `setup.install` cannot inject commands here — the same trust boundary
       # setup-project-env already documents for `services`. (The action body and
@@ -1369,7 +1369,7 @@ jobs:
           # summarize-ci-checks.sh always exits 0, printing `CI status unavailable`
           # when it cannot determine the CI state — so the block is present even when
           # the query fails, and an absent result never renders as a passing one.
-          SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
+          SCC=.prflow/vendor/prflow/scripts/summarize-ci-checks.sh
           [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
           if [ -f "$SCC" ]; then
             # HEAD_SHA is a run:-local variable (computed above), NOT a step env:
@@ -1459,7 +1459,7 @@ jobs:
           # PR-controlled input.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
           # issue #908 review (Important/security, resolved): the registered PreToolUse
-          # hook tries the VENDORED guard path FIRST (`.devflow/vendor/devflow/scripts/
+          # hook tries the VENDORED guard path FIRST (`.prflow/vendor/prflow/scripts/
           # pretooluse-shape-guard.py`) and only falls back to the repo-root path when
           # the vendored one is absent. Hardening only the repo-root GUARD_TARGETS left
           # a consumer repo that COMMITS its vendored plugin (vendor_source=committed,
@@ -1470,7 +1470,7 @@ jobs:
           # (this job's own `vendor` step output, declared before this step) is the same
           # trust signal scripts/filter-runner-tools.sh's own floor resolution keys on:
           # a `fetch` value means the vendored tree was cloned from the OFFICIAL repo
-          # this run, at the pinned devflow_version, into a gitignored directory the PR
+          # this run, at the pinned prflow_version, into a gitignored directory the PR
           # can never edit — trusted, no hardening needed. Any other value
           # (`committed`/`self`) means the vendored tree is PR-head content, so it gets
           # the identical trusted-base-copy-or-stub treatment as the repo-root targets.
@@ -1488,7 +1488,7 @@ jobs:
           ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
           # PREFIX_TOKENS holds one token per closure copy the running hook command can
           # reach: ROOT (the repo-root copy, empty path prefix) always, plus VENDOR (the
-          # `.devflow/vendor/devflow/`-prefixed copy) whenever it is NOT freshly fetched
+          # `.prflow/vendor/prflow/`-prefixed copy) whenever it is NOT freshly fetched
           # from the official repo this run (VENDOR_SOURCE != fetch) — see the
           # VENDOR_SOURCE env comment above for why `fetch` is the one trusted value.
           # Tokens (not a raw empty-string-capable list) sidestep plain-shell
@@ -1500,7 +1500,7 @@ jobs:
           prefix_for_token() {
             case "$1" in
               ROOT) printf '%s' "" ;;
-              VENDOR) printf '%s' ".devflow/vendor/devflow/" ;;
+              VENDOR) printf '%s' ".prflow/vendor/prflow/" ;;
             esac
           }
           # Shadow-review finding (issue #908 review, early shadow trigger): the stub
@@ -1582,7 +1582,7 @@ jobs:
                   # tree: there is no copy of this target anywhere, so no PR-controlled
                   # bytes can execute and there is nothing to displace. This is the
                   # CONSUMER-repo shape (these three paths are DevFlow-repo-internal;
-                  # a consumer vendors the plugin under .devflow/vendor/devflow/), and
+                  # a consumer vendors the plugin under .prflow/vendor/prflow/), and
                   # without this arm every consumer auto-review took the stub path,
                   # emitting a spurious deployment-fault ::warning:: and creating phantom
                   # scripts/ and lib/test/ files in the consumer's checkout — the
@@ -1676,7 +1676,7 @@ jobs:
           # Same TRUSTED base ref the baseprovision step reads (the PR's target
           # branch, or the repo default) — never a PR-controlled input.
           BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
-          # Only 'fetch' (a fresh official-repo clone at the pinned devflow_version)
+          # Only 'fetch' (a fresh official-repo clone at the pinned prflow_version)
           # is a trusted source for the helper; committed/self copies are PR-head.
           VENDOR_SOURCE: ${{ steps.vendor.outputs.vendor_source }}
         run: |
@@ -1734,7 +1734,7 @@ jobs:
             # (untracked) settings.local.json is not in the base tree, so `git show` yields
             # nothing for it and it is correctly ignored.
             SETTINGS_JSON="$(git show "FETCH_HEAD:.claude/settings.json" 2>/dev/null; git show "FETCH_HEAD:.claude/settings.local.json" 2>/dev/null)"
-            if raw=$(git show "FETCH_HEAD:.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
+            if raw=$(git show "FETCH_HEAD:.prflow/vendor/prflow/scripts/harden-stop-hooks.sh" 2>/dev/null); then
               printf '%s\n' "$raw" > "$RUNNER_TEMP/harden-stop-hooks.sh" 2>/dev/null && HELPER="$RUNNER_TEMP/harden-stop-hooks.sh"
             elif [ -n "${DEVFLOW_PLUGIN_NAME_ERE:-}" ] \
               && git show "FETCH_HEAD:.claude-plugin/plugin.json" 2>/dev/null | grep -Eq "$DEVFLOW_PLUGIN_NAME_ERE" \
@@ -1847,8 +1847,8 @@ jobs:
           # Rank 2: the vendored helper, ONLY on a fresh fetch this run (never the
           # PR-head committed/self copy — anchored to the repo ROOT like the floor).
           if [ -z "$HELPER" ] && [ "${VENDOR_SOURCE:-}" = "fetch" ] \
-            && [ -f "$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh" ]; then
-            HELPER="$ROOT/.devflow/vendor/devflow/scripts/harden-stop-hooks.sh"
+            && [ -f "$ROOT/.prflow/vendor/prflow/scripts/harden-stop-hooks.sh" ]; then
+            HELPER="$ROOT/.prflow/vendor/prflow/scripts/harden-stop-hooks.sh"
           fi
           # Fail CLOSED to inline stubs whenever a trusted helper did NOT run to
           # completion — either it never resolved (HELPER empty), OR it resolved but
@@ -1996,7 +1996,7 @@ jobs:
           set -euo pipefail
           # The renderer runs post-displacement (this step is after harden_hooks)
           # and sources nothing, so the stubbed closure members do not affect it.
-          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh
           [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
           if [ -f "$RGB" ]; then
             GROUNDING=$(CI_SUMMARY="$CI_SUMMARY" ALLOWED_TOOLS="$ALLOWED_TOOLS" HARDENED_PATHS="$HARDENED_PATHS" bash "$RGB") || GROUNDING=""
@@ -2066,11 +2066,11 @@ jobs:
           TIMEOUT_MS: ${{ steps.provider.outputs.timeout_ms }}
           PROVIDER: ${{ steps.provider.outputs.provider }}
           PROVIDER_API_KEY: ${{ secrets.DEVFLOW_PROVIDER_API_KEY }}
-          SECTION: devflow_runner
+          SECTION: prflow_runner
         run: |
           set -euo pipefail
           if [ -z "$PROVIDER_API_KEY" ]; then
-            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
           # SECURITY: the env-map KEY is interpolated RAW into the `KEY<<DELIM` heredoc
@@ -2081,7 +2081,7 @@ jobs:
           # POSITIVELY against a real env-var-name charset and fail loud on any stray
           # key rather than emit a malformed/forged $GITHUB_ENV block.
           if printf '%s' "$DECISION" | jq -e '.env | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$") | not)' >/dev/null 2>&1; then
-            echo "::error::.devflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
             exit 1
           fi
           # Every $GITHUB_ENV write below uses GitHub's newline-safe multiline (heredoc) form —
@@ -2134,7 +2134,7 @@ jobs:
           #   1. COMPOSE_HELPER_DIR — base-ref materialized by baseprovision into
           #      RUNNER_TEMP (outside the PR-writable workspace);
           #   2. the vendored copy, ONLY when vendor_source==fetch (a fresh clone at
-          #      the pinned devflow_version — never a committed/self PR-head copy);
+          #      the pinned prflow_version — never a committed/self PR-head copy);
           #   3. else fail-closed (no trusted helper → baseline + trusted-source-rule
           #      ::warning::, no compose). The PR-head checkout's own copy is
           #      deliberately never consulted.
@@ -2144,10 +2144,10 @@ jobs:
             HELPER="$COMPOSE_HELPER_DIR/resolve-extra-plugins.sh"
             COMPOSE="$COMPOSE_HELPER_DIR/describe-plugin-compose.sh"
             echo "plugin-parity compose helper source: trusted base ref (${COMPOSE_HELPER_SOURCE:-base-ref})"
-          elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh" ] && [ -f "$_REPO_ROOT/.devflow/vendor/devflow/scripts/describe-plugin-compose.sh" ]; then
-            HELPER="$_REPO_ROOT/.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh"
-            COMPOSE="$_REPO_ROOT/.devflow/vendor/devflow/scripts/describe-plugin-compose.sh"
-            echo "plugin-parity compose helper source: runtime-fetched vendored copy (pinned devflow_version)"
+          elif [ "${VENDOR_SOURCE:-}" = "fetch" ] && [ -f "$_REPO_ROOT/.prflow/vendor/prflow/scripts/resolve-extra-plugins.sh" ] && [ -f "$_REPO_ROOT/.prflow/vendor/prflow/scripts/describe-plugin-compose.sh" ]; then
+            HELPER="$_REPO_ROOT/.prflow/vendor/prflow/scripts/resolve-extra-plugins.sh"
+            COMPOSE="$_REPO_ROOT/.prflow/vendor/prflow/scripts/describe-plugin-compose.sh"
+            echo "plugin-parity compose helper source: runtime-fetched vendored copy (pinned prflow_version)"
           fi
           EX_P="$(mktemp)"; EX_M="$(mktemp)"; ERR_P="$(mktemp)"; ERR_M="$(mktemp)"; ENTRIES="$(mktemp)"
           trap 'rm -f "$EX_P" "$EX_M" "$ERR_P" "$ERR_M" "$ENTRIES"' EXIT
@@ -2158,7 +2158,7 @@ jobs:
             # Fail-closed (no TRUSTED compose helper): emit the baseline only + one
             # ::warning:: naming the trusted-source rule. describe-plugin-compose.sh
             # is absent with the helper, so the warning stays inline.
-            echo "::warning::devflow resolve-extra-plugins.sh not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the compose helper must not be PR-editable. Proceeding with the baked plugin baseline. Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned devflow_version) so a trusted helper is available (the trusted-source rule, mirroring filter-runner-tools.sh)."
+            echo "::warning::devflow resolve-extra-plugins.sh not found at any TRUSTED source — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned prflow_version (vendor_source='${VENDOR_SOURCE:-unknown}'); the PR-head checkout's own copy is deliberately not consulted, because the compose helper must not be PR-editable. Proceeding with the baked plugin baseline. Land the DevFlow re-vendor on the BASE branch (or use a thin install with a pinned prflow_version) so a trusted helper is available (the trusted-source rule, mirroring filter-runner-tools.sh)."
           elif [ "${COMPOSE_SETTINGS_SOURCE:-degraded}" = "degraded" ]; then
             # The trusted base-ref settings read FAILED (fetch failure / git-show
             # error / unreadable file) — distinct from a DEGRADED FILE the helper
@@ -2257,7 +2257,7 @@ jobs:
       # `baseprovision` materialized out of the base ref into RUNNER_TEMP (rank 1),
       # or from the vendored copy when the vendor step reports
       # `vendor_source == fetch` — a fresh clone of the official repo at the pinned
-      # devflow_version (rank 2). Otherwise this step FAILS CLOSED: it emits
+      # prflow_version (rank 2). Otherwise this step FAILS CLOSED: it emits
       # nothing and warns. The PR-head checkout's own copy is never consulted, and
       # the keys themselves are read from the trusted base-ref config, so a pull
       # request author can neither make the helper write assignments into the
@@ -2286,11 +2286,11 @@ jobs:
           HELPER=''
           if [ -n "$GITENV_HELPERDIR" ] && [ -f "$GITENV_HELPERDIR/emit-git-env.sh" ]; then
             HELPER="$GITENV_HELPERDIR/emit-git-env.sh"
-          elif [ "$GITENV_VENDORSRC" = 'fetch' ] && [ -f '.devflow/vendor/devflow/scripts/emit-git-env.sh' ]; then
-            HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
+          elif [ "$GITENV_VENDORSRC" = 'fetch' ] && [ -f '.prflow/vendor/prflow/scripts/emit-git-env.sh' ]; then
+            HELPER='.prflow/vendor/prflow/scripts/emit-git-env.sh'
           fi
           if [ -z "$HELPER" ]; then
-            echo "::warning::devflow git-env pins: no TRUSTED copy of emit-git-env.sh is available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned devflow_version (vendor_source='${GITENV_VENDORSRC:-unknown}'). The PR-head checkout's own copy is deliberately not consulted, because a PR author must not be able to write assignments into the reviewer's job environment. Failing closed: neither GIT_DIR nor GIT_WORK_TREE is exported (which is also the working default)."
+            echo "::warning::devflow git-env pins: no TRUSTED copy of emit-git-env.sh is available — neither materialized from the base ref (baseprovision) nor runtime-fetched at the pinned prflow_version (vendor_source='${GITENV_VENDORSRC:-unknown}'). The PR-head checkout's own copy is deliberately not consulted, because a PR author must not be able to write assignments into the reviewer's job environment. Failing closed: neither GIT_DIR nor GIT_WORK_TREE is exported (which is also the working default)."
             exit 0
           fi
           CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
@@ -2330,7 +2330,7 @@ jobs:
           CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
         with:
           # Anthropic-default path only: pass the OAuth token when no provider is
-          # active. A provider-routed devflow_runner section passes '' here (the
+          # active. A provider-routed prflow_runner section passes '' here (the
           # action treats empty as absent) and authenticates via anthropic_api_key
           # below (issue #313).
           claude_code_oauth_token: ${{ steps.provider.outputs.provider == '' && secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
@@ -2364,7 +2364,7 @@ jobs:
           # CONSUMER-TIER RESOLUTION AND FAIL-OPEN-ON-ABSENCE (issue #908 confirmatory
           # review, Critical/security). install.sh ships THIS workflow verbatim into
           # consumer repos, where there is no repo-root `scripts/` — the plugin is
-          # vendored under `.devflow/vendor/devflow/` (the #502 rule every other bundled
+          # vendored under `.prflow/vendor/prflow/` (the #502 rule every other bundled
           # helper call site in this file already follows). A bare
           # `python3 <repo-root>/scripts/pretooluse-shape-guard.py` therefore names a
           # file that does not exist there, and `python3` on a missing script exits 2 —
@@ -2412,7 +2412,7 @@ jobs:
                     "hooks": [
                       {
                         "type": "command",
-                        "command": "_r=\"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")\"; _g=\"$_r/.devflow/vendor/devflow/scripts/pretooluse-shape-guard.py\"; [ -f \"$_g\" ] || _g=\"$_r/scripts/pretooluse-shape-guard.py\"; [ -f \"$_g\" ] || exit 0; exec python3 \"$_g\"",
+                        "command": "_r=\"$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' \"${CLAUDE_PROJECT_DIR:-.}\")\"; _g=\"$_r/.prflow/vendor/prflow/scripts/pretooluse-shape-guard.py\"; [ -f \"$_g\" ] || _g=\"$_r/scripts/pretooluse-shape-guard.py\"; [ -f \"$_g\" ] || exit 0; exec python3 \"$_g\"",
                         "timeout": 10
                       }
                     ]
@@ -2485,7 +2485,7 @@ jobs:
           # fall back to the repo path for a self-repo checkout. If neither
           # resolves, default false (fail-safe — finalize_check's HEAD-SHA scoping
           # is the primary staleness guard).
-          PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
+          PEE=.prflow/vendor/prflow/scripts/parse-engine-error.sh
           [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
           if [ -f "$PEE" ]; then
             # Let the helper's stderr breadcrumbs (e.g. a resolve-jq.sh sourcing
@@ -2515,7 +2515,7 @@ jobs:
       # never changes the job's pass/fail. always() (alongside the engine-error
       # step above, same steps.claude.outputs.execution_file) so it runs even
       # when the claude step errored — which is exactly when the diagnostics
-      # matter. Gated on .devflow.execution_diagnostics_enabled (default true)
+      # matter. Gated on .prflow.execution_diagnostics_enabled (default true)
       # via the vendored config-get.sh (repo-path fallback for a self-repo
       # checkout); only the exact string "false" disables it, and an empty read
       # (config-get soft/hard failure) falls safe to enabled.
@@ -2526,14 +2526,14 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
-          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          CG=.prflow/vendor/prflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
           # python3) can't abort this step under GitHub's default `-e` run shell — which
           # would fail the job and break the "never changes the job's pass/fail" contract
           # above. The empty read then falls safe to enabled on the next line. (Mirrors the
           # engine-error step's `|| echo false` assignment guard.)
-          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          ENABLED="$("$CG" .prflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
           # Exported so the transcript steps below can gate without re-reading config
           # from a `uses:` step that cannot run shell. The transcript artifact has its
@@ -2542,14 +2542,14 @@ jobs:
           # granted), and a consumer must opt in to publishing that as an artifact;
           # only the exact string "true" enables it.
           echo "enabled=$ENABLED" >> "$GITHUB_OUTPUT"
-          TRANSCRIPT="$("$CG" .devflow.execution_transcript_artifact_enabled false || true)"
+          TRANSCRIPT="$("$CG" .prflow.execution_transcript_artifact_enabled false || true)"
           [ "$TRANSCRIPT" = "true" ] || TRANSCRIPT=false
           echo "transcript=$TRANSCRIPT" >> "$GITHUB_OUTPUT"
           if [ "$ENABLED" = "false" ]; then
-            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            echo "execution diagnostics: disabled via .prflow.execution_diagnostics_enabled=false; skipping."
             exit 0
           fi
-          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          SED=.prflow/vendor/prflow/scripts/surface-execution-diagnostics.sh
           [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
           if [ -f "$SED" ]; then
             # `|| echo ::notice::` for the same reason as the config-get guard above:
@@ -2606,10 +2606,10 @@ jobs:
         run: |
           set -euo pipefail
           FIRED=false
-          [ -f .devflow/tmp/pretooluse-guard-fired ] && FIRED=true
+          [ -f .prflow/tmp/pretooluse-guard-fired ] && FIRED=true
           echo "fired=$FIRED" >> "$GITHUB_OUTPUT"
 
-          RGC=.devflow/vendor/devflow/scripts/resolve-guard-counts-file.sh
+          RGC=.prflow/vendor/prflow/scripts/resolve-guard-counts-file.sh
           [ -f "$RGC" ] || RGC=scripts/resolve-guard-counts-file.sh
           RAW=unavailable
           if [ -f "$RGC" ]; then
@@ -2617,13 +2617,13 @@ jobs:
             # exists) and exit 2 (a store exists but is zero-byte — unestablished) route
             # to DIFFERENT arms, and an `if cmd` compound collapses both onto "false".
             RGC_RC=0
-            COUNTS_FILE=$(bash "$RGC" .devflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}") || RGC_RC=$?
+            COUNTS_FILE=$(bash "$RGC" .prflow/tmp "${GITHUB_RUN_ID:-}" "${GITHUB_RUN_ATTEMPT:-}") || RGC_RC=$?
             # issue #908 review, Important finding #2: the RGC_RC -> outcome ROUTING is
             # delegated to route-guard-counts-outcome.sh (a suite-drivable extraction,
             # per CLAUDE.md's inline-shell-extraction convention) rather than reimplemented
             # as an inline `if`/`elif` chain, so a regressed arm order or comparison fails
             # the suite instead of only structural grep pins.
-            ROUTE=.devflow/vendor/devflow/scripts/route-guard-counts-outcome.sh
+            ROUTE=.prflow/vendor/prflow/scripts/route-guard-counts-outcome.sh
             [ -f "$ROUTE" ] || ROUTE=scripts/route-guard-counts-outcome.sh
             if [ -f "$ROUTE" ]; then
               OUTCOME_OUT=$(bash "$ROUTE" "$RGC_RC" "$FIRED")
@@ -2636,7 +2636,7 @@ jobs:
               { IFS= read -r OUTCOME || OUTCOME=""; IFS= read -r OUTCOME_MSG || OUTCOME_MSG=""; } <<<"$OUTCOME_OUT"
               case "$OUTCOME" in
                 parse)
-                  JQ=.devflow/vendor/devflow/lib/resolve-jq.sh
+                  JQ=.prflow/vendor/prflow/lib/resolve-jq.sh
                   [ -f "$JQ" ] || JQ=lib/resolve-jq.sh
                   # shellcheck source=../../lib/resolve-jq.sh
                   . "$JQ" 2>/dev/null || echo "::notice::resolve-jq.sh could not be sourced; using bare 'jq' for guard-counts parsing (best-effort)."
@@ -2690,7 +2690,7 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
-          EES=.devflow/vendor/devflow/scripts/extract-execution-shape.sh
+          EES=.prflow/vendor/prflow/scripts/extract-execution-shape.sh
           [ -f "$EES" ] || EES=scripts/extract-execution-shape.sh
           VALUE=unavailable
           if [ -f "$EES" ]; then
@@ -2705,7 +2705,7 @@ jobs:
             # `permission_denials_commands:` line SELECTION moved out of this inline
             # `case`/here-string loop into extract-denied-command-line.sh, a
             # suite-drivable helper (CLAUDE.md's inline-shell-extraction convention).
-            EDC=.devflow/vendor/devflow/scripts/extract-denied-command-line.sh
+            EDC=.prflow/vendor/prflow/scripts/extract-denied-command-line.sh
             [ -f "$EDC" ] || EDC=scripts/extract-denied-command-line.sh
             if [ -f "$EDC" ]; then
               EDC_OUT=$(printf '%s\n' "$BLOCK" | bash "$EDC" "$EES_RC")
@@ -2830,10 +2830,10 @@ jobs:
 
       # Issue #489 (AC2): hand the read-only review tier's STAGED telemetry to the trusted
       # pusher. On this `contents: read` PR-head job, `--persist` runs staging-only (it left
-      # its records under gitignored `.devflow/tmp/telemetry-stage-*/.devflow/logs/…` and
+      # its records under gitignored `.prflow/tmp/telemetry-stage-*/.prflow/logs/…` and
       # pushed nothing — see the TOOLS comment above). This job cannot push them (no write
       # credential, and it must not gain one — it checks out the PR head). So it CONSOLIDATES
-      # every staged `.devflow/logs` subtree into one deterministic dir and uploads it as a
+      # every staged `.prflow/logs` subtree into one deterministic dir and uploads it as a
       # workflow artifact; the trusted `telemetry-push.yml` job (triggered via `workflow_run`)
       # downloads it, validates it as untrusted input, and pushes it. The step is naturally
       # scoped to the staging-only tier: a writable tier's `--persist` returns clean (rc 0)
@@ -2859,7 +2859,7 @@ jobs:
           # it cannot itself be delegated to a script that could be equally absent.
           _collect_rc=0
           # Prefer the vendored collect helper (materialized by the vendor-plugin step
-          # above at .devflow/vendor/devflow/); fall back to the repo-root path for a
+          # above at .prflow/vendor/prflow/); fall back to the repo-root path for a
           # self-repo checkout — mirrors parse-engine-error.sh's vendored-or-repo
           # resolution. A consumer repo has no repo-root scripts/, so the bare
           # repo-relative path was absent there and this step hit rc 127 on every
@@ -2867,7 +2867,7 @@ jobs:
           # (issue #502). Preferring the vendored path fixes that; the rc-126/127 guard
           # now fires only on a genuine double-absence (a real vendor fault). Direct
           # exec (not `bash`) keeps rc 126 reachable, matching the S1 rc-capture contract.
-          _collect_helper=.devflow/vendor/devflow/scripts/collect-staged-telemetry.sh
+          _collect_helper=.prflow/vendor/prflow/scripts/collect-staged-telemetry.sh
           [ -f "$_collect_helper" ] || _collect_helper=scripts/collect-staged-telemetry.sh
           _collect_out="$("$_collect_helper" "$GITHUB_WORKSPACE" "$dest")" || _collect_rc=$?
           if [ "$_collect_rc" = 126 ] || [ "$_collect_rc" = 127 ]; then
@@ -2888,11 +2888,11 @@ jobs:
           # A stable, run-scoped name the trusted pusher downloads by run id via `workflow_run`.
           name: devflow-telemetry-stage-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.collect_telemetry.outputs.path }}
-          # LOAD-BEARING: the entire collected tree lives under the DOT-prefixed `.devflow/`,
+          # LOAD-BEARING: the entire collected tree lives under the DOT-prefixed `.prflow/`,
           # and actions/upload-artifact@v4 EXCLUDES hidden files by default (include-hidden-files
           # defaults to 'false' since v4.4.0). Without this the upload would match nothing and the
           # whole relay would silently transfer zero telemetry (a no-op with no error). The store-
-          # relative `.devflow/logs/…` paths are load-bearing for the validator allowlist and
+          # relative `.prflow/logs/…` paths are load-bearing for the validator allowlist and
           # telemetry-branch.sh, so keeping the hidden root + this flag is the correct fix.
           include-hidden-files: true
           retention-days: 3

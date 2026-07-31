@@ -4,13 +4,13 @@
 # detect-project-tools.sh — language-aware tool/runtime auto-population.
 #
 # Scans a repo for language marker files (package.json, go.mod, Cargo.toml, …),
-# looks each match up in .devflow/tool-presets.json, and MERGES the union of the
-# matching presets into the repo's .devflow/config.json:
+# looks each match up in .prflow/tool-presets.json, and MERGES the union of the
+# matching presets into the repo's .prflow/config.json:
 #
 #   - the build/test/lint tool patterns are added to three execution paths'
-#     allowlists: devflow.allowed_tools (command), devflow_implement.allowed_tools
-#     (implement), and devflow_runner.allowed_tools (the automated reviewer). The
-#     reviewer consumes its list only when devflow_runner.provision_env is set in
+#     allowlists: devflow.allowed_tools (command), prflow_implement.allowed_tools
+#     (implement), and prflow_runner.allowed_tools (the automated reviewer). The
+#     reviewer consumes its list only when prflow_runner.provision_env is set in
 #     the trusted base config, and the runner enforces a deny-list floor over it
 #     (see config.schema.json / docs/cloud-setup.md);
 #   - the shared `setup` block gets node_version (only when currently empty — a
@@ -29,20 +29,20 @@
 # a missing jq / presets file / config logs a notice and exits 0 — never blocks
 # the scaffold.
 #
-# SECURITY: the devflow / devflow_implement allowlists written here run a PR
+# SECURITY: the devflow / prflow_implement allowlists written here run a PR
 # author's code in their respective workflows. The automated reviewer instead
-# runs PR build code only when the maintainer sets devflow_runner.provision_env
+# runs PR build code only when the maintainer sets prflow_runner.provision_env
 # (read from the BASE branch's committed config, never the PR head — see
 # the auto-review caller — so a PR cannot enable it for itself), which then runs
 # setup.install + the PR's build under a write token AND grants the freeform
-# devflow_runner.allowed_tools list (bounded by the runner's deny-list floor).
+# prflow_runner.allowed_tools list (bounded by the runner's deny-list floor).
 # This script never writes a deny-listed tool — the same catastrophic tier the
 # runner strips (tree-mutation tools + raw-shell/eval/privilege Bash) is filtered
 # here too, as fast feedback; the runner's copy is the authoritative boundary.
 # Keep presets to mainstream toolchains and review the config.json before commit.
 #
 # Usage: detect-project-tools.sh [TARGET_REPO_ROOT]
-#   TARGET_REPO_ROOT  repo to scan + whose .devflow/config.json to update
+#   TARGET_REPO_ROOT  repo to scan + whose .prflow/config.json to update
 #                     (default: git toplevel, else cwd)
 #
 # Exit codes: always 0 (best-effort). Non-fatal conditions log and skip.
@@ -58,10 +58,10 @@ set -euo pipefail
 log() { printf 'devflow-detect: %s\n' "$1"; }
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PRESETS="$SELF_DIR/../.devflow/tool-presets.json"
+PRESETS="$SELF_DIR/../.prflow/tool-presets.json"
 
 TARGET_ROOT="${1:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
-CONFIG="$TARGET_ROOT/.devflow/config.json"
+CONFIG="$TARGET_ROOT/.prflow/config.json"
 
 # Best-effort guards — never abort the surrounding scaffold.
 if ! "$DEVFLOW_JQ" --version >/dev/null 2>&1; then
@@ -239,13 +239,13 @@ trap 'rm -f "$TMP"' EXIT
   ([ $keys[] as $k | $p[$k].setup.install[]? ] + $extra_install) as $inst |
   ([ $keys[] as $k | $p[$k].setup.node_version? // empty ] | .[0]) as $nodever |
   $c
-  | .devflow           = (.devflow           // {})
-  | .devflow_implement  = (.devflow_implement  // {})
-  | .devflow_runner     = (.devflow_runner     // {})
+  | .prflow           = (.prflow           // {})
+  | .prflow_implement  = (.prflow_implement  // {})
+  | .prflow_runner     = (.prflow_runner     // {})
   | .setup             = (.setup             // {})
-  | .devflow.allowed_tools           = ((.devflow.allowed_tools           // []) + $tools | odedupe)
-  | .devflow_implement.allowed_tools = ((.devflow_implement.allowed_tools // []) + $tools | odedupe)
-  | .devflow_runner.allowed_tools    = ((.devflow_runner.allowed_tools    // []) + $runner_tools | odedupe)
+  | .prflow.allowed_tools           = ((.prflow.allowed_tools           // []) + $tools | odedupe)
+  | .prflow_implement.allowed_tools = ((.prflow_implement.allowed_tools // []) + $tools | odedupe)
+  | .prflow_runner.allowed_tools    = ((.prflow_runner.allowed_tools    // []) + $runner_tools | odedupe)
   | .setup.install                  = ((.setup.install                  // []) + $inst  | odedupe)
   | (if ($nodever != null) and ((.setup.node_version // "") == "")
        then .setup.node_version = $nodever else . end)
@@ -261,20 +261,20 @@ trap 'rm -f "$TMP"' EXIT
 # JSON-schema validator would add a dependency this jq-only, never-block
 # scaffolder deliberately avoids, so we instead assert — with the jq we already
 # require — the shape of just the fields THIS script manages against the schema's
-# types (see .devflow/config.schema.json). On a mismatch we keep the existing
+# types (see .prflow/config.schema.json). On a mismatch we keep the existing
 # config untouched and warn rather than write a drifted one. jq's `and`
 # short-circuits, so the object checks gate the indexing checks: a non-object
 # managed key fails fast instead of erroring on the `.key.subkey` access.
 config_shape_ok() {
   "$DEVFLOW_JQ" -e '
     def str_array: type == "array" and all(.[]; type == "string");
-    (.devflow            // {} | type == "object")
-    and (.devflow_implement // {} | type == "object")
-    and (.devflow_runner    // {} | type == "object")
+    (.prflow            // {} | type == "object")
+    and (.prflow_implement // {} | type == "object")
+    and (.prflow_runner    // {} | type == "object")
     and (.setup             // {} | type == "object")
-    and (.devflow.allowed_tools           // [] | str_array)
-    and (.devflow_implement.allowed_tools // [] | str_array)
-    and (.devflow_runner.allowed_tools    // [] | str_array)
+    and (.prflow.allowed_tools           // [] | str_array)
+    and (.prflow_implement.allowed_tools // [] | str_array)
+    and (.prflow_runner.allowed_tools    // [] | str_array)
     and (.setup.install                   // [] | str_array)
     and (.setup.node_version              // "" | type == "string")
     and (.setup.node_working_directory    // "" | type == "string")
@@ -289,10 +289,10 @@ if "$DEVFLOW_JQ" --sort-keys . "$CONFIG" >/dev/null 2>&1 && ! diff -q \
   if config_shape_ok "$TMP"; then
     mv "$TMP" "$CONFIG"
     trap - EXIT
-    log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / devflow_implement / devflow_runner) + setup."
-    log "review the additions before committing; the devflow / devflow_implement entries run PR code in their respective workflows. The devflow_runner.allowed_tools entries reach the automated reviewer only when devflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
+    log "detected: ${ACTIVE[*]} — merged build/test tools into config.json (devflow / prflow_implement / prflow_runner) + setup."
+    log "review the additions before committing; the devflow / prflow_implement entries run PR code in their respective workflows. The prflow_runner.allowed_tools entries reach the automated reviewer only when prflow_runner.provision_env is set in the base config (see config.schema.json / docs/cloud-setup.md), which also runs PR build code under a write token; the runner enforces a deny-list floor over that list."
   else
-    log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a devflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .devflow/config.schema.json) and re-run, or add the tool entries by hand."
+    log "detected: ${ACTIVE[*]} — the merged config.json failed a best-effort shape check (a devflow/setup field has an unexpected type); your existing config.json is left unchanged. Fix the field types (see .prflow/config.schema.json) and re-run, or add the tool entries by hand."
   fi
 else
   log "detected: ${ACTIVE[*]} — config.json already covers them; no changes."

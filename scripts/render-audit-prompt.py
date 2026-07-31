@@ -15,7 +15,7 @@ Contract (issue #600):
 
 - Reads no run *state* and writes no file, and takes no stdin. The reads are the
   committed template file; the consumer extension — for consumer-dimension
-  forwarding — ``.devflow/prompt-extensions/create-issue.md``, resolved
+  forwarding — ``.prflow/prompt-extensions/create-issue.md``, resolved
   from the git repo root per the #295 SHARED REPO-ROOT CONFIG CONTRACT (a native
   ``git`` subprocess, cwd fallback; never a ``.sh`` exec — the #275 constraint);
   in ``dispatch-instructions`` mode only (issue #709) — the run's canonical
@@ -236,21 +236,21 @@ def _repo_root() -> str | None:
 def _default_extension_path() -> Path:
     root = _repo_root()
     if root is not None:
-        return Path(root) / ".devflow" / "prompt-extensions" / "create-issue.md"
+        return Path(root) / ".prflow" / "prompt-extensions" / "create-issue.md"
     cwd = Path.cwd()
-    # Breadcrumb only when NEITHER a git root NOR a .devflow/ dir can be located —
+    # Breadcrumb only when NEITHER a git root NOR a .prflow/ dir can be located —
     # the silent-drop class the #295 reader-set contract closes (mirrors
     # match-deferrals.py's _default_config_path). git can exit non-zero while
     # genuinely INSIDE a repo (safe.directory / dubious-ownership), or be absent,
     # so don't assert "not in a git repo" — report that the root could not be
     # resolved.
-    if not (cwd / ".devflow").is_dir():
+    if not (cwd / ".prflow").is_dir():
         sys.stderr.write(
             f"render-audit-prompt.py: could not resolve a git repo root and no "
-            f".devflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
+            f".prflow/ at {str(cwd)!r}; falling back to a cwd-anchored default "
             f"prompt-extension path\n"
         )
-    return cwd / ".devflow" / "prompt-extensions" / "create-issue.md"
+    return cwd / ".prflow" / "prompt-extensions" / "create-issue.md"
 
 
 # --------------------------------------------------------------------------
@@ -906,7 +906,7 @@ def _emit_dispatch_pointer(rendered: str) -> None:
     The caller selects this line by its `dispatch-pointer:` PREFIX, never as "the
     stderr output": `_default_extension_path()` runs unconditionally before the
     mode branch and emits its own breadcrumb on a fully successful run in a cwd
-    with neither a git root nor a `.devflow/`, so stderr can legitimately carry
+    with neither a git root nor a `.prflow/`, so stderr can legitimately carry
     two lines and a positional read would take that breadcrumb as the auditor
     prompt.
 
@@ -1011,7 +1011,7 @@ def _one_line(text: str) -> str:
 
 # Which file a declaration defect is attributable to. The breadcrumb must name the
 # file at fault: the generic arm parses THIS repo's committed template, the consumer
-# arm parses a third-party `.devflow/prompt-extensions/create-issue.md`, and an
+# arm parses a third-party `.prflow/prompt-extensions/create-issue.md`, and an
 # operator who cannot tell the two apart debugs the wrong file.
 _SOURCE_TEMPLATE = "template"
 _SOURCE_CONSUMER = "consumer extension"

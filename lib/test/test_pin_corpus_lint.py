@@ -2441,7 +2441,7 @@ class AdjudicationStateTests(unittest.TestCase):
         )
         historical = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
+            / ".prflow/logs/pin-corpus-adjudication-changes/historical/adjudication-delta.tsv"
         )
         historical.parent.mkdir(parents=True)
         historical.write_text(self._bundle_manifest(), encoding="utf-8")
@@ -2451,7 +2451,7 @@ class AdjudicationStateTests(unittest.TestCase):
         ).stdout.strip()
         current = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
+            / ".prflow/logs/pin-corpus-adjudication-changes/current/adjudication-delta.tsv"
         )
         current.parent.mkdir(parents=True)
         current.write_text(self._bundle_manifest(), encoding="utf-8")
@@ -2484,8 +2484,8 @@ class AdjudicationStateTests(unittest.TestCase):
             return invoke
 
         for label, path in (
-            ("dot id", ".devflow/logs/pin-corpus-adjudication-changes/./adjudication-delta.tsv"),
-            ("dotdot id", ".devflow/logs/pin-corpus-adjudication-changes/../adjudication-delta.tsv"),
+            ("dot id", ".prflow/logs/pin-corpus-adjudication-changes/./adjudication-delta.tsv"),
+            ("dotdot id", ".prflow/logs/pin-corpus-adjudication-changes/../adjudication-delta.tsv"),
         ):
             with self.subTest(case=label):
                 with self.assertRaisesRegex(self.mod.InfrastructureError, "unsafe bundle ID"):
@@ -2538,7 +2538,7 @@ class AdjudicationStateTests(unittest.TestCase):
 
 class AdjudicationChangeScanTests(unittest.TestCase):
     MIGRATION_PATH = (
-        ".devflow/logs/pin-corpus-adjudication-changes/"
+        ".prflow/logs/pin-corpus-adjudication-changes/"
         "2026-07-26-pr-849/migration.tsv"
     )
 
@@ -2694,7 +2694,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             table.write_text(current_table, encoding="utf-8")
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 manifest,
             )
@@ -2707,7 +2707,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             table.write_text(current_table, encoding="utf-8")
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 manifest.replace("old rationale", "older rationale"),
             )
@@ -2731,7 +2731,7 @@ class AdjudicationChangeScanTests(unittest.TestCase):
             )
             self._write_bundle(
                 root,
-                ".devflow/logs/pin-corpus-adjudication-changes/change-1/"
+                ".prflow/logs/pin-corpus-adjudication-changes/change-1/"
                 "adjudication-delta.tsv",
                 (
                     "adjudication_key\tbase_state\tcurrent_state\n"
@@ -2848,20 +2848,20 @@ class RetiredPinRevivalTests(unittest.TestCase):
 
     def _write_retirement_manifests(self, root):
         manifests = {
-            ".devflow/logs/residual-prose-retirement-manifest.tsv": (
+            ".prflow/logs/residual-prose-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tsurface\tdisposition\trationale\n"
                 '"lib/test/old.sh"\tassert_pin_unique\t"old"\t'
                 f'"""{self.LITERAL}"""\t"docs/x.md"\tfalse\tReview\t'
                 "RETIRE_PROSE\tretired prose\n"
             ),
-            ".devflow/logs/residual-required-copy-retirement-manifest.tsv": (
+            ".prflow/logs/residual-required-copy-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\trationale\n"
                 '"lib/test/kept.sh"\tassert_pin_unique\t"kept"\t'
                 '"""NOT RETIRED"""\t"docs/x.md"\tfalse\tRETAIN_BOUNDARY\tkept\n'
             ),
-            ".devflow/logs/red-on-removal-retirement-manifest.tsv": (
+            ".prflow/logs/red-on-removal-retirement-manifest.tsv": (
                 "source_file\thelper\tassertion_name\tliteral\tresolved_target\t"
                 "target_defaulted\tdisposition\tcall_sha256\n"
                 '"lib/test/converted.sh"\tassert_pin_red_on_removal\t"converted"\t'
@@ -2924,7 +2924,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
     ):
         bundle = (
             root
-            / ".devflow/logs/pin-corpus-adjudication-changes/revive-machine-sentinel"
+            / ".prflow/logs/pin-corpus-adjudication-changes/revive-machine-sentinel"
         )
         bundle.mkdir(parents=True, exist_ok=True)
         if include_delta:
@@ -3148,7 +3148,7 @@ class RetiredPinRevivalTests(unittest.TestCase):
 
     def test_historical_retirement_manifests_are_immutable_regular_blobs(self):
         mutations = ("committed edit", "dirty edit", "symlink")
-        relative = ".devflow/logs/residual-prose-retirement-manifest.tsv"
+        relative = ".prflow/logs/residual-prose-retirement-manifest.tsv"
         for mutation in mutations:
             with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as td:
                 root = Path(td)
@@ -3232,10 +3232,10 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             "lib/test/pin-corpus-lint.py",
             "lib/test/test_pin_corpus_lint.py",
             "lib/test/pin-corpus-adjudications.tsv",
-            ".devflow/logs/residual-prose-retirement-manifest.tsv",
-            ".devflow/logs/residual-required-copy-retirement-manifest.tsv",
-            ".devflow/logs/red-on-removal-retirement-manifest.tsv",
-            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            ".prflow/logs/residual-prose-retirement-manifest.tsv",
+            ".prflow/logs/residual-required-copy-retirement-manifest.tsv",
+            ".prflow/logs/red-on-removal-retirement-manifest.tsv",
+            ".prflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
             source = REPO_ROOT / relative
@@ -4058,7 +4058,7 @@ class StaticPinWorktreeCompositionTests(unittest.TestCase):
             )
             bundle = (
                 root
-                / ".devflow/logs/pin-corpus-adjudication-changes"
+                / ".prflow/logs/pin-corpus-adjudication-changes"
                 / "retired-prose-snapshot-test"
             )
             bundle.mkdir(parents=True)
@@ -4240,7 +4240,7 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
             *sorted(self.mod.AUDITED_PIN_SOURCES),
             "lib/test/module-harness.sh",
             "lib/test/pin-corpus-lint.py",
-            ".devflow/logs/mutation-pin-corpus-inventory.tsv",
+            ".prflow/logs/mutation-pin-corpus-inventory.tsv",
             "scripts/workflow-flight-recorder-registry.json",
         ):
             source = REPO_ROOT / relative
@@ -4326,7 +4326,7 @@ class RetiredMutationHelperBanTests(unittest.TestCase):
                 root = Path(td)
                 self._repo(root)
                 inventory = (
-                    root / ".devflow/logs/mutation-pin-corpus-inventory.tsv"
+                    root / ".prflow/logs/mutation-pin-corpus-inventory.tsv"
                 )
                 if case == "missing":
                     inventory.unlink()

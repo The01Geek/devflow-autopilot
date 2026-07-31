@@ -25,7 +25,7 @@
 #   --login LOGIN       the triggering user (GitHub's github.event.sender.login).
 #                       Empty/absent → emit nothing, warn, exit 0.
 #   --config-file PATH  config JSON to read. Defaults to the repo-root
-#                       .devflow/config.json via the shared resolver (issue #295).
+#                       .prflow/config.json via the shared resolver (issue #295).
 #                       The cloud callers pass the TRUSTED trigger-time config
 #                       (the `config` job's default-branch checkout) — never the
 #                       PR head, which is what makes the flag POST-MERGE-ONLY.
@@ -72,7 +72,7 @@
 #
 # An ABSENT helper is likewise safe: the workflow step guards on the file existing
 # and emits nothing when it is missing. The workflow reaches consumers through
-# install.sh's file-copy while this helper reaches them through the devflow_version
+# install.sh's file-copy while this helper reaches them through the prflow_version
 # vendor fetch, so a consumer can carry the step before it carries the helper —
 # that skew must degrade to current authorship, never fail the run.
 
@@ -111,7 +111,7 @@ done
 if [ -z "$_cfg" ]; then
     _root="$(git rev-parse --show-toplevel 2>/dev/null)" || _root=''
     [ -n "$_root" ] || _root="$(pwd)"
-    _cfg="${_root}/.devflow/config.json"
+    _cfg="${_root}/.prflow/config.json"
 fi
 
 # Print `true` iff the leaf at the given dot-path is the JSON boolean true or the
@@ -150,7 +150,7 @@ else:
 }
 
 _enabled() {
-    case "$(_read_key '.devflow.attribute_commits_to_triggerer')" in
+    case "$(_read_key '.prflow.attribute_commits_to_triggerer')" in
         true) return 0 ;;
         *) return 1 ;;
     esac

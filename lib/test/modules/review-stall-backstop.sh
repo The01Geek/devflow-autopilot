@@ -53,8 +53,8 @@ case "$*" in
 esac
 EOF
 chmod +x "$T408"/*.sh
-printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":false,"max_resume_attempts":2}}}' > "$T408/cfg-disabled.json"
-printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":2}}}' > "$T408/cfg-enabled.json"
+printf '%s\n' '{"prflow_review":{"stall_backstop":{"enabled":false,"max_resume_attempts":2}}}' > "$T408/cfg-disabled.json"
+printf '%s\n' '{"prflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":2}}}' > "$T408/cfg-enabled.json"
 # rrb408 <gh-stub> <verdict> <head> <pr> <repo> <app-present> [config-file] -> emits `decision=` value
 rrb408() {
   DEVFLOW_GH="$T408/$1" VERDICT="$2" HEAD_SHA="$3" PR_NUMBER="$4" REPO="$5" APP_TOKEN_PRESENT="$6" CONFIG_FILE="${7:-}" \
@@ -112,8 +112,8 @@ assert_eq "#408 helper: always exits 0 even on a fail-closed arm" "0" "$?"
 # MAX edge rows (the silent-coercion class, #312 discipline): max_resume_attempts=0
 # must be honored (0 >= 0 → exhausted even with zero markers — detect-and-flip only),
 # and a non-integer cap must fall back to the default 2 (so a fresh head still fires).
-printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":0}}}' > "$T408/cfg-max0.json"
-printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":"notanum"}}}' > "$T408/cfg-badmax.json"
+printf '%s\n' '{"prflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":0}}}' > "$T408/cfg-max0.json"
+printf '%s\n' '{"prflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":"notanum"}}}' > "$T408/cfg-badmax.json"
 assert_eq "#408 helper: max_resume_attempts=0 honored -> no-fire (exhausted, detect-and-flip only)" \
   "exhausted" "$(rrb408_reason gh-empty.sh incomplete abc 5 o/r true "$T408/cfg-max0.json")"
 assert_eq "#408 helper: non-integer max_resume_attempts falls back to default 2 -> fire" \
@@ -136,7 +136,7 @@ case "$*" in
 esac
 EOF
 chmod +x "$T408/gh-1marker.sh"
-printf '%s\n' '{"devflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":3}}}' > "$T408/cfg-max3.json"
+printf '%s\n' '{"prflow_review":{"stall_backstop":{"enabled":true,"max_resume_attempts":3}}}' > "$T408/cfg-max3.json"
 assert_eq "#408 helper: 1 prior same-head marker under cap -> fire (attempts>0 increment path)" \
   "fire" "$(rrb408 gh-1marker.sh incomplete abc 5 o/r true "$T408/cfg-max3.json")"
 RRB408_FIRE2="$(DEVFLOW_GH="$T408/gh-1marker.sh" VERDICT=incomplete HEAD_SHA=abc PR_NUMBER=5 REPO=o/r APP_TOKEN_PRESENT=true CONFIG_FILE="$T408/cfg-max3.json" bash "$RRB408" 2>/dev/null)"
@@ -185,15 +185,15 @@ assert_eq "#408 helper: VERDICT unset defaults to eligible 'incomplete' -> fire"
 rm -rf "$T408"
 
 # Config coupled peer set (2.3.0a): example ↔ schema must both carry
-# devflow_review.stall_backstop.{enabled,max_resume_attempts} with matching
+# prflow_review.stall_backstop.{enabled,max_resume_attempts} with matching
 # types/defaults (mirrors the #266 implement-side coherence pin).
 CFG408="$(python3 - "$REPO_ROOT" <<'PY' 2>/dev/null || true
 import json, sys, pathlib
 root = pathlib.Path(sys.argv[1])
-ex = json.loads((root / ".devflow/config.example.json").read_text())
-sc = json.loads((root / ".devflow/config.schema.json").read_text())
-eb = ex.get("devflow_review", {}).get("stall_backstop", {})
-sp = sc["properties"]["devflow_review"]["properties"].get("stall_backstop", {})
+ex = json.loads((root / ".prflow/config.example.json").read_text())
+sc = json.loads((root / ".prflow/config.schema.json").read_text())
+eb = ex.get("prflow_review", {}).get("stall_backstop", {})
+sp = sc["properties"]["prflow_review"]["properties"].get("stall_backstop", {})
 props = sp.get("properties", {})
 ok = (
     eb.get("enabled") is True
@@ -209,7 +209,7 @@ ok = (
 print("yes" if ok else "no")
 PY
 )"
-assert_eq "#408 config example+schema carry coupled devflow_review.stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG408"
+assert_eq "#408 config example+schema carry coupled prflow_review.stall_backstop keys (types/defaults/additionalProperties)" "yes" "$CFG408"
 
 # Workflow wiring — the auto-review path's finalize_check pins are RETIRED (issue #936).
 # .github/workflows/devflow-review.yml was the auto PR-triggered review tier's caller and is
@@ -542,7 +542,7 @@ assert_eq "#414 post-review-backstop-comment.sh exists and is executable" "yes" 
   "$([ -x "$PRBC" ] && echo yes || echo no)"
 
 # Scratch repo-root with stub helpers the extracted glue resolves cwd-relative
-# (.devflow/vendor/... absent -> scripts/... wins). The stubs control the two inputs the
+# (.prflow/vendor/... absent -> scripts/... wins). The stubs control the two inputs the
 # selection reads (the decision and the POST success breadcrumb) AND capture what the helper
 # hands each of them — the RRB stub echoes the five forwarded env inputs (so the marshaling
 # is asserted, not stub-blind), and the POST stubs capture $2 (the composed body) plus a

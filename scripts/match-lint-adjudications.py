@@ -30,7 +30,7 @@ Trust (both required, per issue #466):
                     NOT authenticate the author (a bot echoing attacker prose
                     reproduces it too) — the structural defenses below do that.
     2. Author:      the comment author is a ``Bot``-type account, OR its login is
-                    in ``.devflow.allowed_bots`` (read via ``config-get.sh``,
+                    in ``.prflow.allowed_bots`` (read via ``config-get.sh``,
                     honored as an additional author allowance). Broader than
                     sibling match-deferrals.py by design: ``allowed_bots`` defaults
                     EMPTY, so an allowlist-only rule would make this inert for every
@@ -211,7 +211,7 @@ def _run(cmd, *, check=True):
 def _repo_root():
     # SHARED REPO-ROOT CONFIG CONTRACT (issue #295): resolve the git repo root via
     # a native `git` subprocess (Windows-safe, unlike exec-ing a .sh) so a
-    # subdirectory invocation reads the consumer's ROOT .devflow/config.json.
+    # subdirectory invocation reads the consumer's ROOT .prflow/config.json.
     # Returns the root string, or None when not in a git tree / git cannot run.
     r = _run(["git", "rev-parse", "--show-toplevel"], check=False)
     root = r.stdout.strip() if r.returncode == 0 else ""
@@ -232,15 +232,15 @@ def _default_config_path() -> str:
     # honored verbatim by the caller; this default is only used when --config is None.
     root = _repo_root()
     if root is not None:
-        return str(Path(root) / ".devflow" / "config.json")
+        return str(Path(root) / ".prflow" / "config.json")
     cwd = Path.cwd()
-    if not (cwd / ".devflow").is_dir():
+    if not (cwd / ".prflow").is_dir():
         sys.stderr.write(
             f"match-lint-adjudications.py: could not resolve a git repo root"
-            f"{_git_root_error_suffix()} and no .devflow/ at {str(cwd)!r}; "
+            f"{_git_root_error_suffix()} and no .prflow/ at {str(cwd)!r}; "
             f"falling back to a cwd-anchored default config path\n"
         )
-    return str(cwd / ".devflow" / "config.json")
+    return str(cwd / ".prflow" / "config.json")
 
 
 def _config_get(key: str, default: str = "", config_path: str | None = None) -> str:
@@ -252,7 +252,7 @@ def _config_get(key: str, default: str = "", config_path: str | None = None) -> 
     if r.returncode != 0:
         # ANY non-zero exit means config-get.sh could not return a value — the rc=127
         # OSError sentinel (broken helper: lost exec bit / bad shebang) AND its own rc=2
-        # on a malformed/unparseable .devflow/config.json or a missing python3 (whose
+        # on a malformed/unparseable .prflow/config.json or a missing python3 (whose
         # own diagnostic it already wrote to stderr). Surface that stderr on every arm,
         # not just 127 — otherwise a hand-corrupted config silently empties allowed_bots
         # (which fails trust CLOSED) with the one string naming the real cause discarded.
@@ -414,7 +414,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--config", default=None,
                    help="Path to config.json (default: the repo-root "
-                        ".devflow/config.json, resolved via git rev-parse "
+                        ".prflow/config.json, resolved via git rev-parse "
                         "--show-toplevel with a cwd fallback; issue #295). A "
                         "non-empty explicit value is honored verbatim.")
     args = p.parse_args(argv)
@@ -490,7 +490,7 @@ def main(argv=None):
             continue
         stale_by_key.setdefault((rule, path, detail), []).append(i)
 
-    allowed_bots_raw = _config_get(".devflow.allowed_bots", "", args.config)
+    allowed_bots_raw = _config_get(".prflow.allowed_bots", "", args.config)
     allowed_bots = {b.strip() for b in allowed_bots_raw.split(",") if b.strip()}
 
     payload_key_to_runkey = _collect_payload_keys(comments, allowed_bots, stats)

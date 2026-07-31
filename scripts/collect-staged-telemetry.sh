@@ -5,9 +5,9 @@
 # collect-staged-telemetry.sh <repo_root> <dest>
 #
 # The upload-side (PR-head, read-only review tier) half of the telemetry relay (issue #489, AC2).
-# Consolidate every staged telemetry subtree — <repo_root>/.devflow/tmp/telemetry-stage-*/.devflow/logs
-# (left in place by lib/efficiency-trace.sh's staging-only `--persist`) — into <dest>/.devflow/logs,
-# preserving the `.devflow/logs/…`-relative paths, so the caller can upload <dest> as one workflow
+# Consolidate every staged telemetry subtree — <repo_root>/.prflow/tmp/telemetry-stage-*/.prflow/logs
+# (left in place by lib/efficiency-trace.sh's staging-only `--persist`) — into <dest>/.prflow/logs,
+# preserving the `.prflow/logs/…`-relative paths, so the caller can upload <dest> as one workflow
 # artifact for the trusted pusher to download.
 #
 # Extracted from the workflow's inline shell so lib/test/run.sh can drive it (the repo's
@@ -37,16 +37,16 @@ mkdir -p "$DEST" || { echo "::warning::collect-staged-telemetry: could not creat
 # not an empty run).
 saw_stage=
 found=
-for stage in "$ROOT"/.devflow/tmp/telemetry-stage-*/; do
+for stage in "$ROOT"/.prflow/tmp/telemetry-stage-*/; do
   [ -d "$stage" ] || continue                 # unmatched glob: the literal path is not a dir
-  [ -d "${stage}.devflow/logs" ] || continue  # a staging root that produced no records
+  [ -d "${stage}.prflow/logs" ] || continue  # a staging root that produced no records
   saw_stage=1
-  # Merge this stage's .devflow/logs subtree into the consolidated dest (records from multiple
+  # Merge this stage's .prflow/logs subtree into the consolidated dest (records from multiple
   # retained staging roots land under one tree; same-named files simply overwrite).
-  if mkdir -p "$DEST/.devflow/logs" && cp -R "${stage}.devflow/logs/." "$DEST/.devflow/logs/"; then
+  if mkdir -p "$DEST/.prflow/logs" && cp -R "${stage}.prflow/logs/." "$DEST/.prflow/logs/"; then
     found=1
   else
-    echo "::warning::collect-staged-telemetry: failed to copy '${stage}.devflow/logs' into the upload tree (best-effort; skipping)" >&2
+    echo "::warning::collect-staged-telemetry: failed to copy '${stage}.prflow/logs' into the upload tree (best-effort; skipping)" >&2
   fi
 done
 

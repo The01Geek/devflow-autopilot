@@ -31,7 +31,7 @@
 #                                                (empty for the non-module shards)
 #
 # The tally directory is $DEVFLOW_SHARD_TALLY_DIR, defaulting to
-# .devflow/tmp/shard-tally/<shard>. Exit status is the shard's own pass/fail state.
+# .prflow/tmp/shard-tally/<shard>. Exit status is the shard's own pass/fail state.
 
 set -u
 
@@ -93,7 +93,7 @@ esac
 SHARD="$1"
 _is_known_shard "$SHARD" || { printf 'run-shard.sh: unknown shard %s (known: %s)\n' "$SHARD" "$SHARD_NAMES" >&2; exit 2; }
 
-TALLY_DIR="${DEVFLOW_SHARD_TALLY_DIR:-$REPO_ROOT/.devflow/tmp/shard-tally/$SHARD}"
+TALLY_DIR="${DEVFLOW_SHARD_TALLY_DIR:-$REPO_ROOT/.prflow/tmp/shard-tally/$SHARD}"
 mkdir -p "$TALLY_DIR" || { printf 'run-shard.sh: could not create tally dir %s\n' "$TALLY_DIR" >&2; exit 2; }
 LOG_FILE="$TALLY_DIR/log.txt"
 

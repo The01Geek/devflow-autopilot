@@ -37,14 +37,14 @@ self-trigger a PRFlow review — a repository collaborator must post the comment
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
 even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
-`devflow_version` to the installed commit, so re-running the installer keeps your workflow
+`prflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
 which would report every review `incomplete` and wedge every pull request behind a required
 check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
 silently drops the freshness and CI-green gates. That is why those helpers are retained rather
 than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
-as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**.
+as long as `workflows["devflow-review"]` is `true` in its `.prflow/config.json`**.
 
 **Every upgrade surfaces that exposure.** `install.sh` detects the three files and reports them,
 naming issues #930 and #920 — it does not delete them, because in the repositories that adopted
@@ -55,7 +55,7 @@ no installer can perform:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
    and `.github/workflows/telemetry-push.yml`.
-2. Set `workflows["devflow-review"]` to `false` in `.devflow/config.json`.
+2. Set `workflows["devflow-review"]` to `false` in `.prflow/config.json`.
 3. Remove the `Devflow Review` context from any branch protection rule or ruleset that
    requires it — otherwise every subsequent pull request wedges against a required check
    that nothing will report.
@@ -434,7 +434,7 @@ argument RED at the desk, everywhere outside the Actions-only
 Standalone `/prflow:review` (the light listener in `devflow.yml`, and the
 automated `devflow-review.yml` reviewer) is the review-side analogue of the
 implement workpad. In **PR mode**, and when
-`devflow_review.live_progress_comment_enabled` is `true` (the default), the
+`prflow_review.live_progress_comment_enabled` is `true` (the default), the
 review engine maintains a **single per-run** marker-tagged comment — keyed by a
 run-keyed marker (`<!-- devflow:review-progress run=<id>-<attempt> -->`; the bare
 `devflow:review-progress` is its prefix) — and rewrites it **in place** as it works:
@@ -483,7 +483,7 @@ phase boundary; Phase 4.5 finalizes it).
   `finalize_check` job (`if: always()`, so it survives even a review-job runner
   death) and `devflow.yml`'s comment-triggered job (an `always()` step). The
   died-flip makes a dead review *visible* but leaves it a dead-end; the bounded
-  **no-verdict auto-resume backstop** (`devflow_review.stall_backstop`, issue
+  **no-verdict auto-resume backstop** (`prflow_review.stall_backstop`, issue
   #408) then re-runs it without a human — when a cloud review ends with no
   verdict for the head, `finalize_check` posts a capped App-token-authored
   `/prflow:review` re-trigger (default `max_resume_attempts: 2` per head),
@@ -503,7 +503,7 @@ phase boundary; Phase 4.5 finalizes it).
   (`contents: read`) still runs `--persist`, but in **staging-only** mode: because
   the workflow leaves the push operand `DEVFLOW_TELEMETRY_PUSH` unset, `--persist`
   fails closed under CI (issue #469 AC5) — it stages the records under
-  `.devflow/tmp/`, writes no new branch records, and does no push (a best-effort
+  `.prflow/tmp/`, writes no new branch records, and does no push (a best-effort
   fetch may fast-forward the *local* `devflow-telemetry` ref to mirror the remote;
   that leaves the tree and the *remote* ref untouched), so this runner leaves the
   remote `devflow-telemetry` ref untouched by its own action. To carry those staged records across
@@ -511,11 +511,11 @@ phase boundary; Phase 4.5 finalizes it).
   telemetry-push relay (`telemetry-push.yml`, issue #489 — which does not check out the PR head,
   mints a write-capable token above its checkout, and validates the artifact as untrusted input)
   downloads and pushes them to the branch — see [`efficiency-trace.md`](efficiency-trace.md).
-- Gating: `devflow_review.live_progress_comment_enabled = false` skips the live
+- Gating: `prflow_review.live_progress_comment_enabled = false` skips the live
   comment (the report is produced once at the end, as before); in non-PR /
   current-branch mode there is no comment surface and the narrative goes to chat.
   This flag is independent of
-  `devflow_review_and_fix.efficiency_telemetry_enabled`, which separately gates
+  `prflow_review_and_fix.efficiency_telemetry_enabled`, which separately gates
   the embedded telemetry/trace. Comment writes are best-effort — a failure is
   logged and the review continues to its verdict.
 
@@ -591,7 +591,7 @@ the `review_dedupe` job in `devflow.yml`.
   `/prflow:review` carrying the `devflow:review-backstop` marker — the manual path's
   no-verdict auto-resume, posted from inside a still-active run — is **never**
   suppressed, so the resume still fires.
-- **Three accepted, deliberate costs.** With `devflow_review.live_progress_comment_enabled`
+- **Three accepted, deliberate costs.** With `prflow_review.live_progress_comment_enabled`
   off there is no seeded comment, so nothing is suppressed (present-day behavior);
   a `/prflow:review` issued during a `/prflow:review-and-fix` run *is* suppressed,
   because that run executes the review engine and the suppressed review would have

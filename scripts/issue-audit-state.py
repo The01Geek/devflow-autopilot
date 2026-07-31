@@ -87,7 +87,7 @@ if sys.version_info < (3, 11):
 # additive-optional — a pre-change v1 state file answers through the existing
 # schema-version-mismatch fail-closed matrix row (#546's matrix; no new versioning
 # discipline is invented), forcing a re-init of any in-flight v1 run. Blast radius is
-# small: these state files are ephemeral per-run scratch under .devflow/tmp/.
+# small: these state files are ephemeral per-run scratch under .prflow/tmp/.
 #
 # Bumped 2 → 3 for issue #709: the additive per-attempt `instructions` record (the
 # canonical dispatch-instruction digest plus the round's CLOSED regeneration inputs)
@@ -1011,18 +1011,18 @@ def _repo_root():
 
 
 def state_path(slug, root=None):
-    """`.devflow/tmp/issue-audit-state-<slug>.json`, anchored to the repo/worktree root.
+    """`.prflow/tmp/issue-audit-state-<slug>.json`, anchored to the repo/worktree root.
 
     Deliberately NOT the main-worktree root the draft file uses: sharing one record
     across concurrent worktree runs would let a foreign cold-start wipe this run's state.
     """
     # The slug keys a filesystem path (guard-class 2): an escaping shape would read,
-    # write, and — worst — cold-start-DELETE outside .devflow/tmp. Fail closed.
+    # write, and — worst — cold-start-DELETE outside .prflow/tmp. Fail closed.
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', slug or ''):
         raise StateError(f'slug {slug!r} is not a safe path segment '
                          f'([A-Za-z0-9][A-Za-z0-9._-]*)')
     base = root if root is not None else (_repo_root() or Path.cwd())
-    return Path(base) / '.devflow' / 'tmp' / f'issue-audit-state-{slug}.json'
+    return Path(base) / '.prflow' / 'tmp' / f'issue-audit-state-{slug}.json'
 
 
 def _is_bound_path(p):
@@ -2694,7 +2694,7 @@ def _bound_draft_file(state, slug):
     """The absolute bound canonical draft FILE, or None when unbound.
 
     The binding records the bound *root* (`_bound_path`); the canonical draft file is
-    that root joined with the fixed `.devflow/tmp/issue-draft-<slug>.md` subpath — the
+    that root joined with the fixed `.prflow/tmp/issue-draft-<slug>.md` subpath — the
     same path the skill writes and displays. The digest / eligibility / body-emitting
     readers resolve THIS from the recorded binding so a compacted context that hands a
     drifted `--draft-file` cannot redirect them; they fall back to the caller-supplied
@@ -2703,7 +2703,7 @@ def _bound_draft_file(state, slug):
     root = _bound_path(state)
     if root is None:
         return None
-    return str(Path(root) / '.devflow' / 'tmp' / f'issue-draft-{slug}.md')
+    return str(Path(root) / '.prflow' / 'tmp' / f'issue-draft-{slug}.md')
 
 
 def latest_revision_landed(state):
@@ -5185,7 +5185,7 @@ def cmd_record_dispatch(args):
         # canonical-draft root (the first landed write records it via record-draft-binding)
         # and the skill reports where its write landed via --write-path, the reported path
         # MUST match the file the tool derives from the recorded binding
-        # (`<bound-root>/.devflow/tmp/issue-draft-<slug>.md`, via _bound_draft_file). A
+        # (`<bound-root>/.prflow/tmp/issue-draft-<slug>.md`, via _bound_draft_file). A
         # divergence is a strong signal that a compacted context drifted which file the
         # dispatch audits, so fail closed with the write-path-mismatch breadcrumb.
         #
@@ -7041,7 +7041,7 @@ def cmd_record_draft_binding(args):
 
     The first landed canonical-draft write binds one absolute root for the rest of the
     run. Recorded two-rooted: the bound absolute ROOT (the readers join
-    `.devflow/tmp/issue-draft-<slug>.md` onto it — see `_bound_draft_file`), its tier
+    `.prflow/tmp/issue-draft-<slug>.md` onto it — see `_bound_draft_file`), its tier
     token, and the non-bound root (absolute when a resolver-answered tier-1 main root and
     a divergent tier-2 worktree root both exist; absent otherwise). Immutable — a second
     record is illegal, the forced-reinit path staying the only route to a fresh binding.
@@ -8843,7 +8843,7 @@ def build_parser():
     s.add_argument('--nonce', required=True)
     s.add_argument('--path', required=True,
                    help='The absolute root directory under which the canonical draft '
-                        '.devflow/tmp/issue-draft-<slug>.md was written (the landed root).')
+                        '.prflow/tmp/issue-draft-<slug>.md was written (the landed root).')
     s.add_argument('--tier', help='The bound-tier token: main-root or worktree-root.')
     s.add_argument('--non-bound-root',
                    help='The divergent non-bound root, absolute, when both a '

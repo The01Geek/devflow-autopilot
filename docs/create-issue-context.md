@@ -87,7 +87,7 @@ resident copy. Each appended-content class is classified below.
 
 | Class | Canonical durable copy that already holds it | Safely removable here? |
 | --- | --- | --- |
-| **Re-emission (re-quotation) of an already-produced large block** in the orchestrator's own output — an already-produced Step 1 findings block, an already-produced summary | Step 1 findings: the `.devflow/tmp/issue-step1-<slug>.md` artifact; finding-ledger data: the `issue-audit-state-<slug>.json` field reachable via `query-findings` | **Yes** — removed (see below). Its content is already resident from an earlier append; removing the re-quote touches neither compaction recovery nor a mutable file, and needs no new mechanism. |
+| **Re-emission (re-quotation) of an already-produced large block** in the orchestrator's own output — an already-produced Step 1 findings block, an already-produced summary | Step 1 findings: the `.prflow/tmp/issue-step1-<slug>.md` artifact; finding-ledger data: the `issue-audit-state-<slug>.json` field reachable via `query-findings` | **Yes** — removed (see below). Its content is already resident from an earlier append; removing the re-quote touches neither compaction recovery nor a mutable file, and needs no new mechanism. |
 | **Reference-body re-Read on step re-entry** (a large `references/*.md` re-Read "on every entry into this step") | The reference file on disk | **No — deferred.** It is *compaction insurance*: on a smaller-context consumer model a compaction evicts the body and the re-Read is the recovery. A static instruction cannot tell a compacting run from a non-compacting one, so safe removal needs an in-run compaction-detection signal this issue does not build. Filed as a follow-up. |
 
 ### Authoritative (in-thread presence is load-bearing — must NOT be removed)
@@ -106,11 +106,11 @@ rather than re-quoting it**. The edited sites are:
 
 - `skills/create-issue/SKILL.md` — Step 1's evidence-artifact instruction and Step 3's
   drafting rule: the Step 1 findings stay resident and durably held in
-  `.devflow/tmp/issue-step1-<slug>.md`; Step 3 references them by pointer and does not
+  `.prflow/tmp/issue-step1-<slug>.md`; Step 3 references them by pointer and does not
   re-emit the findings block into its drafting output.
 - `skills/create-issue/references/step-3-6-audit.md` — a runtime-context discipline note
   beside the read-back mandate: consult the `query-findings` read-back and the
-  `.devflow/tmp/issue-audit-<slug>.md` artifact by pointer; do not re-emit an
+  `.prflow/tmp/issue-audit-<slug>.md` artifact by pointer; do not re-emit an
   already-produced findings block into the orchestrator's own reasoning output. The
   user-facing surfaces (findings quoted verbatim for the user, rendered adjudication
   records) are explicitly exempt — they are authoritative decision inputs.
@@ -132,7 +132,7 @@ weakened**:
 1. **Code-reading obligation (confirmed).** Each removed re-emission's content stays
    resident and reachable from its named durable copy at the point of use:
    - Step 1 findings: `skills/create-issue/SKILL.md` Step 1 states the orchestrator
-     writes the reconciled evidence to `.devflow/tmp/issue-step1-<slug>.md` on **both**
+     writes the reconciled evidence to `.prflow/tmp/issue-step1-<slug>.md` on **both**
      arms before Step 1 returns (the write-on-every-path contract), so Step 3 always has
      the durable copy to reference. Confirmed by reading that Step 1 producer.
    - Finding-ledger data: `scripts/issue-audit-state.py` remains the ledger owner and
@@ -298,7 +298,7 @@ decrease means the change is reverted or deferred, never shipped as a reduction.
 A separate axis from the peak-context measurement above, on the same corpus: how many times
 a run *talks to* the Step 3.6 state owner, and how often it gets the call wrong on the first
 try. Both halves are recorded here because the lifecycle reaches consumer repos by the
-`devflow_version` vendor fetch, so a per-round reduction reaches them too.
+`prflow_version` vendor fetch, so a per-round reduction reaches them too.
 
 **Before — the stamped baseline.** Measured over the 57 create-issue runs recorded on the
 maintainer's machine between 2026-07-19 and 2026-07-24, selected from 6,033 transcripts. A

@@ -38,8 +38,8 @@
 #
 # Config read (scripts/config-get.sh, which applies the documented defaults on the
 # soft paths — missing file / absent-or-empty key):
-#   devflow_review.stall_backstop.enabled            default true
-#   devflow_review.stall_backstop.max_resume_attempts default 2
+#   prflow_review.stall_backstop.enabled            default true
+#   prflow_review.stall_backstop.max_resume_attempts default 2
 #
 # Output (stdout, four `key=value` lines, always emitted):
 #   decision=<fire|no-fire>
@@ -110,9 +110,9 @@ esac
 # repo-root default (the workflow's case) while a non-empty CONFIG_FILE is honored
 # verbatim (issue #295) — which is how lib/test/run.sh drives the disabled arm.
 CFG_FILE="${CONFIG_FILE:-}"
-ENABLED="$(bash "$CONFIG_GET" .devflow_review.stall_backstop.enabled true "$CFG_FILE" 2>/dev/null || true)"
+ENABLED="$(bash "$CONFIG_GET" .prflow_review.stall_backstop.enabled true "$CFG_FILE" 2>/dev/null || true)"
 [ -n "$ENABLED" ] || ENABLED=true
-MAX="$(bash "$CONFIG_GET" .devflow_review.stall_backstop.max_resume_attempts 2 "$CFG_FILE" 2>/dev/null || true)"
+MAX="$(bash "$CONFIG_GET" .prflow_review.stall_backstop.max_resume_attempts 2 "$CFG_FILE" 2>/dev/null || true)"
 # A negative or non-integer cap resolves to the documented default 2 (the
 # `^[0-9]+$` test rejects a leading "-", so "-1" falls back). 0 is honored.
 [[ "$MAX" =~ ^[0-9]+$ ]] || MAX=2
@@ -122,7 +122,7 @@ MAX="$(bash "$CONFIG_GET" .devflow_review.stall_backstop.max_resume_attempts 2 "
 #    `true`, an unrecognized string) stays enabled — an `// true`-style coercion
 #    that ignores explicit false is the bug this arm exists to prevent.
 if [ "$ENABLED" = "false" ]; then
-  echo "request-review-backstop: devflow_review.stall_backstop.enabled is false — backstop disabled; degrading to the dead-end flip." >&2
+  echo "request-review-backstop: prflow_review.stall_backstop.enabled is false — backstop disabled; degrading to the dead-end flip." >&2
   emit no-fire disabled
 fi
 

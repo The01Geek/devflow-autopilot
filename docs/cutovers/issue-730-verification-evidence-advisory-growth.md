@@ -8,8 +8,8 @@ kind: growth
 Mandatory prompt rows that grew in this change (the identical tier-scoped advisory block added to
 both shipped review-engine extensions):
 
-- `.devflow/prompt-extensions/review.md` — +3,428 bytes (3,280 → 6,708)
-- `.devflow/prompt-extensions/review-and-fix.md` — +3,428 bytes (24,072 → 27,500)
+- `.prflow/prompt-extensions/review.md` — +3,428 bytes (3,280 → 6,708)
+- `.prflow/prompt-extensions/review-and-fix.md` — +3,428 bytes (24,072 → 27,500)
 
 Coupled ceiling renegotiations this growth forced:
 

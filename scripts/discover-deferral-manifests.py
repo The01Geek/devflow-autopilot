@@ -6,7 +6,7 @@
 Phase 4.0.5 of `/devflow:implement` files follow-up GitHub issues for review
 findings deferred during the Phase 3.3 fix loop. Its first step discovers the
 run-scoped deferrals manifests written by /devflow:review-and-fix at
-`.devflow/tmp/review/<slug>/<run-id>/deferrals.json` (one per run). The old
+`.prflow/tmp/review/<slug>/<run-id>/deferrals.json` (one per run). The old
 inline `find $SEARCH_DIRS … | sort` capture collapsed a *failed* search and a
 *clean no-match* search onto the same empty output — a degraded search then read
 as the clean no-op and acknowledged deferrals were silently stranded (issue #555,

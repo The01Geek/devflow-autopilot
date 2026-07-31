@@ -109,7 +109,7 @@ if [ -d "$IAS_SB" ]; then
   (
     cd "$IAS_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# Draft title\n\nBody line one.\nBody line two.\n' > draft.md
 
     # A genuinely restricted PATH: a scratch bin dir holding symlinks to ONLY git and
@@ -170,7 +170,7 @@ LEDGER-EOF
     # of the new field; assert the recorded value directly from the state file (the
     # second, coordinate-less line proves the field stays absent when not supplied).
     IAS889_RC=0
-    PATH="$RESTRICTED" python3 -c 'import json,sys; d=json.load(open(".devflow/tmp/issue-audit-state-rt.json")); f=[r for r in d["rounds"] if r["round"]==1][0]["findings"]; sys.exit(0 if f[0].get("quoted_draft_line")==12 and "quoted_draft_line" not in f[1] else 1)' || IAS889_RC=$?
+    PATH="$RESTRICTED" python3 -c 'import json,sys; d=json.load(open(".prflow/tmp/issue-audit-state-rt.json")); f=[r for r in d["rounds"] if r["round"]==1][0]["findings"]; sys.exit(0 if f[0].get("quoted_draft_line")==12 and "quoted_draft_line" not in f[1] else 1)' || IAS889_RC=$?
     assert_eq "issue #889: ledger records the per-finding quoted_draft_line coordinate" "0" "$IAS889_RC"
     # issue #889: the PRODUCER round-trip. Every committed states/ fixture is
     # hand-authored, so a field rename on the writer side would leave the eval's own
@@ -183,7 +183,7 @@ LEDGER-EOF
 import importlib.util, os, sys
 spec = importlib.util.spec_from_file_location("cice", os.path.join(sys.argv[1], "scripts", "create-issue-context-eval.py"))
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-st = m.read_state(".devflow/tmp/issue-audit-state-rt.json")
+st = m.read_state(".prflow/tmp/issue-audit-state-rt.json")
 if st is None: sys.exit(2)                                   # the reader rejected a real producer file
 if st[1]["kind"] != "discovery": sys.exit(3)                 # round->kind labelling resolved
 f = st[1]["findings"]
@@ -256,7 +256,7 @@ if m._finding_count(st) != 2: sys.exit(8)                    # never the UNESTAB
     PATH="$RESTRICTED" python3 "$IAS" query-summary rt --nonce "$NONCE" \
       --draft-file draft.md > .rt-summary
     PATH="$RESTRICTED" python3 "$IAS" emit-body rt --nonce "$NONCE" --draft-file draft.md > .rt-body
-    printf '%s\n' "$(ls .devflow/tmp)" > .rt-files
+    printf '%s\n' "$(ls .prflow/tmp)" > .rt-files
   )
 
   assert_eq "#546 cli_roundtrip_restricted_path: query-arm routes a landed write to the file arm" \
@@ -330,7 +330,7 @@ for FILTER_MODE in autocrlf textauto; do
   (
     cd "$CRLF_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     if [ "$FILTER_MODE" = autocrlf ]; then
       git config core.autocrlf true
     else
@@ -376,9 +376,9 @@ if [ -d "$MD_SB" ]; then
   (
     cd "$MD_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf 'round 1 dispatched (file arm), digest abc123\nrevised after round 1\n' \
-      > .devflow/tmp/issue-audit-state-legacy.md
+      > .prflow/tmp/issue-audit-state-legacy.md
     python3 "$IAS" query-eligibility legacy --nonce whatever --mode approve > .md-elig 2>/dev/null
     python3 "$IAS" query-triggers legacy --nonce whatever > .md-trig 2>/dev/null
   )
@@ -405,13 +405,13 @@ if [ -d "$QM_SB" ]; then
       # the malformed file written here is then never read, and every row passes vacuously
       # while exercising nothing.
       git init -q . 2>/dev/null
-      mkdir -p .devflow/tmp
+      mkdir -p .prflow/tmp
       case "$SHAPE" in
-        missing)   rm -f .devflow/tmp/issue-audit-state-m.json ;;
-        empty)     : > .devflow/tmp/issue-audit-state-m.json ;;
-        malformed) printf '{not json' > .devflow/tmp/issue-audit-state-m.json ;;
-        array)     printf '[]' > .devflow/tmp/issue-audit-state-m.json ;;
-        scalar)    printf '"nope"' > .devflow/tmp/issue-audit-state-m.json ;;
+        missing)   rm -f .prflow/tmp/issue-audit-state-m.json ;;
+        empty)     : > .prflow/tmp/issue-audit-state-m.json ;;
+        malformed) printf '{not json' > .prflow/tmp/issue-audit-state-m.json ;;
+        array)     printf '[]' > .prflow/tmp/issue-audit-state-m.json ;;
+        scalar)    printf '"nope"' > .prflow/tmp/issue-audit-state-m.json ;;
       esac
       printf '# T\n\nB\n' > d.md
       for Q in "query-eligibility m --nonce n --mode approve --draft-file d.md" \
@@ -441,7 +441,7 @@ if [ -d "$RI_SB" ]; then
   (
     cd "$RI_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nB\n' > d.md
     N="$(python3 "$IAS" init ri | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-dispatch --kind discovery ri --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
@@ -494,7 +494,7 @@ if [ -d "$FN_SB" ]; then
   (
     cd "$FN_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     N="$(python3 "$IAS" init fn < /dev/null | sed -n '1s/nonce=//p')"
     printf '%s\n' "$N" > .fn-nonce
     # The refusal, attributed by its own breadcrumb.
@@ -527,7 +527,7 @@ if [ -d "$EA_SB" ]; then
   (
     cd "$EA_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nEmbed body.\n' > d.md
     N="$(python3 "$IAS" init ea < /dev/null | sed -n '1s/nonce=//p')"
     # The embed arm takes the draft bytes on stdin (there is no trustworthy file to point at).
@@ -582,7 +582,7 @@ if [ -d "$CB_SB" ]; then
   (
     cd "$CB_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nThe body.\n' > d.md
     N="$(python3 "$IAS" init cb | sed -n '1s/nonce=//p')"
     # issue #709: establish steering so these attestation rows keep measuring the
@@ -643,7 +643,7 @@ if [ -d "$OA_SB" ]; then
   (
     cd "$OA_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     for SLUG in oafix oaold; do
       printf '# T\n\nBody one.\n' > "d-$SLUG.md"
       NS="$(python3 "$IAS" init "$SLUG" | sed -n '1s/nonce=//p')"
@@ -693,7 +693,7 @@ if [ -d "$EB_SB" ]; then
   (
     cd "$EB_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nB\n' > d.md
     N="$(python3 "$IAS" init eb | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-dispatch --kind discovery eb --nonce "$N" --round 1 --arm file --draft-file d.md > /dev/null
@@ -738,7 +738,7 @@ if [ -d "$NA_SB" ]; then
   (
     cd "$NA_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nB\n' > d.md
     OID="$(git hash-object --stdin --no-filters < d.md)"
 
@@ -764,7 +764,7 @@ if [ -d "$NA_SB" ]; then
     python3 "$IAS" record-return nu --nonce "$NU" --round 1 --verdict DRAFT-UNREADABLE > /dev/null
     python3 "$IAS" query-next-action nu --nonce "$NU" --round 1 > .na-unreadable-2
     python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['rounds']))" \
-      .devflow/tmp/issue-audit-state-nu.json > .na-rounds
+      .prflow/tmp/issue-audit-state-nu.json > .na-rounds
 
     # The inline arm past both defined retries closes the round verdict-less rather than
     # looping — the termination invariant.
@@ -855,7 +855,7 @@ print(m._USER_ROUND_CAP)" "$IAS" 2>/dev/null)"
   (
     cd "$UC_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     N="$(python3 "$IAS" init uc | sed -n '1s/nonce=//p')"
     # Accept exactly cap offers, then one more: the ceiling+1th must be refused.
     I=0
@@ -870,7 +870,7 @@ print(m._USER_ROUND_CAP)" "$IAS" 2>/dev/null)"
     # accepted rounds only, so a decline can always be recorded (it is how the run proceeds).
     python3 "$IAS" record-offer uc --nonce "$N" > /dev/null 2>&1 || printf 'DECLINE-REFUSED\n' > .uc-decline
     python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['user_rounds_used'])" \
-      .devflow/tmp/issue-audit-state-uc.json > .uc-used
+      .prflow/tmp/issue-audit-state-uc.json > .uc-used
   )
   assert_eq "#546 user_round_cap_rows: the module exposes a per-run user-round cap" \
     "1" "$([ -n "$UC_CAP" ] && echo 1 || echo 0)"
@@ -901,7 +901,7 @@ if [ -d "$IT_SB" ]; then
   (
     cd "$IT_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     N="$(python3 "$IAS" init it | sed -n '1s/nonce=//p')"
 
@@ -1037,7 +1037,7 @@ if [ -d "$SR_SB" ]; then
   (
     cd "$SR_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
 
     # embed-arm sentinel round-trip: dispatch on stdin, capture the tool-generated pair
@@ -1132,7 +1132,7 @@ if [ -d "$I3_SB" ]; then
   (
     cd "$I3_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
 
@@ -1180,7 +1180,7 @@ if [ -d "$I3_SB" ]; then
     python3 "$IAS" record-override it6 --nonce "$N6" --kind cap-reached \
       --draft-file draft.md > /dev/null 2> .i3-cap; printf '%s' "$?" > .i3-cap-rc
 
-    printf 'not json' > .devflow/tmp/issue-audit-state-it7.json
+    printf 'not json' > .prflow/tmp/issue-audit-state-it7.json
     python3 "$IAS" init it7 --nonce deadbeef > /dev/null 2> .i3-corrupt; printf '%s' "$?" > .i3-corrupt-rc
 
     python3 "$IAS" init 'a/b' > /dev/null 2> .i3-slug; printf '%s' "$?" > .i3-slug-rc
@@ -1214,7 +1214,7 @@ if [ -d "$I4_SB" ]; then
   (
     cd "$I4_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     N="$(python3 "$IAS" init i4 | sed -n '1s/nonce=//p')"
@@ -1228,7 +1228,7 @@ if [ -d "$I4_SB" ]; then
     mkdir -p nogit-bin nogit-cwd
     ln -sf "$(command -v python3)" nogit-bin/python3
     ( cd nogit-cwd && PATH="$I4_SB/nogit-bin" python3 "$IAS" init fb > ../.i4-fb-out 2> ../.i4-fb-err )
-    ls nogit-cwd/.devflow/tmp > .i4-fb-files 2>/dev/null
+    ls nogit-cwd/.prflow/tmp > .i4-fb-files 2>/dev/null
   )
   assert_eq "#546 iter4_variance_rows: a negative --findings-count refuses at the mutation seam" \
     "1" "$(cat "$I4_SB/.i4-neg-rc" 2>/dev/null)"
@@ -1250,7 +1250,7 @@ if [ -d "$I5_SB" ]; then
   (
     cd "$I5_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
     N="$(python3 "$IAS" init i5 | sed -n '1s/nonce=//p')"
@@ -1398,7 +1398,7 @@ if [ -d "$CS_SB" ]; then
   (
     cd "$CS_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
 
@@ -1430,16 +1430,16 @@ if [ -d "$CS_SB" ]; then
     python3 "$IAS" record-creation-epoch cs3 --nonce "$N3" --round 1 > /dev/null 2>&1
     printf '' | python3 "$IAS" record-creation-attestation cs3 --nonce "$N3" > .cs-empty 2>&1
 
-    # unpersistable state: a read-only .devflow/tmp makes the mutation exit non-zero
+    # unpersistable state: a read-only .prflow/tmp makes the mutation exit non-zero
     # with the named breadcrumb, and a QUERY still answers (read-only contract)
-    chmod 555 .devflow/tmp
+    chmod 555 .prflow/tmp
     # issue #705: the round dispatched on the file arm, so record-revision requires
     # --stdin-digest. The arm guard and the stdin read both precede save_state, so the
     # unpersistable failure still surfaces with its could-not-persist breadcrumb.
     printf '# T\n\nrevised\n' | python3 "$IAS" record-revision cs3 --nonce "$N3" \
       --after-round 1 --stdin-digest > /dev/null 2> .cs-nopersist; printf '%s' "$?" > .cs-nopersist-rc
     python3 "$IAS" query-triggers cs3 --nonce "$N3" > .cs-nopersist-query 2>/dev/null
-    chmod 755 .devflow/tmp
+    chmod 755 .prflow/tmp
 
     # query-nonce happy path: the minted nonce round-trips exactly
     printf 'nonce=%s\n' "$N3" > .cs-nonce-expected
@@ -1474,7 +1474,7 @@ if [ -d "$OP_SB" ]; then
   (
     cd "$OP_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nAUDITED body\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
 
@@ -1488,7 +1488,7 @@ if [ -d "$OP_SB" ]; then
     # corrupt/older state file cannot smuggle it past the gate either.
     python3 - <<'PY' > /dev/null 2>&1
 import json, pathlib
-p = pathlib.Path('.devflow/tmp/issue-audit-state-op1.json')
+p = pathlib.Path('.prflow/tmp/issue-audit-state-op1.json')
 d = json.loads(p.read_text())
 d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
                        'recorded_at_ordinal': 0, 'draft_digest': None})
@@ -1538,7 +1538,7 @@ PY
       --findings-count 1 --carriage-object-id "$OID" > /dev/null 2>&1
     python3 - <<'PY' > /dev/null 2>&1
 import json, pathlib
-p = pathlib.Path('.devflow/tmp/issue-audit-state-op2b.json')
+p = pathlib.Path('.prflow/tmp/issue-audit-state-op2b.json')
 d = json.loads(p.read_text())
 d['overrides'].append({'kind': 'user-decline', 'surface': 't1t2-boundary',
                        'recorded_at_ordinal': 0, 'draft_digest': None})
@@ -1643,7 +1643,7 @@ if [ -d "$RD_SB" ]; then
   (
     cd "$RD_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
 
     # the deadlock: file-arm round -> no-parseable-verdict -> draft becomes unhashable
@@ -1714,8 +1714,8 @@ if [ -d "$RD_SB" ]; then
     printf '# T\n\nORIG\n' > d7.md
     printf '# T\n\nORIG\n' | python3 "$IAS" record-dispatch --kind discovery rd7 --nonce "$N7" --round 1 \
       --arm embed --marker write-failed > /dev/null 2>&1
-    RD7_OPEN="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_open'])")"
-    RD7_CLOSE="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_close'])")"
+    RD7_OPEN="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.prflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_open'])")"
+    RD7_CLOSE="$(python3 -c "import json,pathlib;print(json.loads(pathlib.Path('.prflow/tmp/issue-audit-state-rd7.json').read_text())['rounds'][0]['attempts'][-1]['sentinel_close'])")"
     python3 "$IAS" record-return rd7 --nonce "$N7" --round 1 --verdict FILE \
       --findings-count 0 --carriage-sentinel-open "$RD7_OPEN" \
       --carriage-sentinel-close "$RD7_CLOSE" > /dev/null 2>&1
@@ -1723,7 +1723,7 @@ if [ -d "$RD_SB" ]; then
     printf '# T\n\nREVISED never audited\n' > d7.md
     python3 - <<'PY' > /dev/null 2>&1
 import json, pathlib
-p = pathlib.Path('.devflow/tmp/issue-audit-state-rd7.json')
+p = pathlib.Path('.prflow/tmp/issue-audit-state-rd7.json')
 d = json.loads(p.read_text())
 d['revisions'][0]['after_round'] = 0        # below the floor recorded with it
 p.write_text(json.dumps(d))
@@ -1795,7 +1795,7 @@ if [ -d "$I6_SB" ]; then
   (
     cd "$I6_SB" || exit 1
     git init -q . 2>/dev/null
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nbody\n' > draft.md
     OID="$(git hash-object --stdin --no-filters < draft.md)"
 
@@ -1883,7 +1883,7 @@ if [ -d "$DB_SB" ]; then
     cd "$DB_SB" || exit 1
     git init -q .
     git config user.email t@t; git config user.name t
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nB\n' > d.md
     git add -A > /dev/null 2>&1; git commit -qm init > /dev/null 2>&1
     N="$(python3 "$IAS" init db | sed -n '1s/nonce=//p')"
@@ -1941,20 +1941,20 @@ if [ -d "$DB_SB" ]; then
     python3 "$IAS" init 'do' > /dev/null 2>&1
     NO="$(python3 "$IAS" query-nonce 'do' | sed -n '1s/nonce=//p')"
     BR="$DB_SB/boundroot"
-    mkdir -p "$BR/.devflow/tmp"
-    printf '# Draft title\n\nBOUND BODY\n' > "$BR/.devflow/tmp/issue-draft-do.md"
+    mkdir -p "$BR/.prflow/tmp"
+    printf '# Draft title\n\nBOUND BODY\n' > "$BR/.prflow/tmp/issue-draft-do.md"
     printf '# Draft title\n\nDRIFTED BODY\n' > drift.md
     python3 "$IAS" record-draft-binding 'do' --nonce "$NO" --path "$BR" --tier main-root \
       > /dev/null 2>&1
     # issue #709: the anti-drift rows below assert a LIVE clean-ground answer, which now
     # requires established steering — so this epoch establishes it against the BOUND file
     # (the one the readers must resolve to), never the drifted one.
-    IOIDO="$(ias_instructions "$DB_SB" 'do' "$BR/.devflow/tmp/issue-draft-do.md")"
+    IOIDO="$(ias_instructions "$DB_SB" 'do' "$BR/.prflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-dispatch --kind discovery 'do' --nonce "$NO" --round 1 --arm file \
-      --draft-file "$BR/.devflow/tmp/issue-draft-do.md" \
+      --draft-file "$BR/.prflow/tmp/issue-draft-do.md" \
       --instructions-file "$DB_SB/instr-do.md" \
-      --instructions-draft-path "$BR/.devflow/tmp/issue-draft-do.md" > /dev/null 2>&1
-    OIDO="$(git hash-object --stdin --no-filters < "$BR/.devflow/tmp/issue-draft-do.md")"
+      --instructions-draft-path "$BR/.prflow/tmp/issue-draft-do.md" > /dev/null 2>&1
+    OIDO="$(git hash-object --stdin --no-filters < "$BR/.prflow/tmp/issue-draft-do.md")"
     python3 "$IAS" record-return 'do' --nonce "$NO" --round 1 --verdict FILE \
       --findings-count 0 --carriage-object-id "$OIDO" \
       --instructions-object-id "$IOIDO" --extra-dispatch-content no > /dev/null 2>&1
@@ -1992,7 +1992,7 @@ if [ -d "$DB_SB" ]; then
     git branch -q wt-562 2>/dev/null
     if git worktree add -q ../wt562 wt-562 2>/dev/null; then
       WT="$(cd ../wt562 && pwd)"
-      ( cd ../wt562 && mkdir -p .devflow/tmp
+      ( cd ../wt562 && mkdir -p .prflow/tmp
         NW="$(python3 "$IAS" init wtb | sed -n '1s/nonce=//p')"
         python3 "$IAS" record-draft-binding wtb --nonce "$NW" \
           --path "$WT" --tier worktree-root > /dev/null
@@ -2077,7 +2077,7 @@ fi
 # ────────────────────────────────────────────────────────────────────────────
 # issue #569: the record-dispatch file-arm --write-path cross-check. When a run has bound a
 # canonical-draft root and the skill reports its landed write path, the tool cross-checks
-# that path against `<bound-root>/.devflow/tmp/issue-draft-<slug>.md` (the path it derives
+# that path against `<bound-root>/.prflow/tmp/issue-draft-<slug>.md` (the path it derives
 # from the recorded binding) and fails closed with `write-path-mismatch` on divergence. The
 # check is additive: an unbound run and a bound run that omits --write-path both proceed — but
 # a present-but-EMPTY --write-path is an unestablished report, refused as `write-path-empty`
@@ -2087,22 +2087,22 @@ if [ -d "$WP_SB" ]; then
   (
     cd "$WP_SB" || exit 1
     git init -q .
-    mkdir -p .devflow/tmp
+    mkdir -p .prflow/tmp
     printf '# T\n\nB\n' > d.md
     # A bound run: the matching write-path is accepted; a drifted one is refused.
     N="$(python3 "$IAS" init wp | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp --nonce "$N" --path "$WP_SB" --tier worktree-root > /dev/null
     python3 "$IAS" record-dispatch --kind discovery wp --nonce "$N" --round 1 --arm file \
-      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
+      --write-path "$WP_SB/.prflow/tmp/issue-draft-wp.md" --draft-file d.md > .wp-match 2>&1
     printf '%s' "$?" > .wp-match-rc
     # A NEW run (its own binding at the same root; a drifted write path, round 1) is refused.
     # Bindings are per-slug and immutable — wp2 records its own, it does not share wp's. The
-    # bound canonical file for slug wp2 is $WP_SB/.devflow/tmp/issue-draft-wp2.md; report a
+    # bound canonical file for slug wp2 is $WP_SB/.prflow/tmp/issue-draft-wp2.md; report a
     # divergent /elsewhere path and expect the named breadcrumb + non-zero exit.
     N2="$(python3 "$IAS" init wp2 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp2 --nonce "$N2" --path "$WP_SB" --tier worktree-root > /dev/null
     python3 "$IAS" record-dispatch --kind discovery wp2 --nonce "$N2" --round 1 --arm file \
-      --write-path /elsewhere/.devflow/tmp/issue-draft-wp2.md --draft-file d.md \
+      --write-path /elsewhere/.prflow/tmp/issue-draft-wp2.md --draft-file d.md \
       > /dev/null 2> .wp-mismatch; printf '%s' "$?" > .wp-mismatch-rc
     # A bound run that OMITS --write-path proceeds unchanged (the cross-check is additive).
     N3="$(python3 "$IAS" init wp3 | sed -n '1s/nonce=//p')"
@@ -2144,7 +2144,7 @@ if [ -d "$WP_SB" ]; then
     NA="$(python3 "$IAS" init wpa | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wpa --nonce "$NA" --path "$WP_SB" --tier main-root > /dev/null
     python3 "$IAS" record-dispatch --kind discovery wpa --nonce "$NA" --round 1 --arm file \
-      --write-path "$WP_SB/.devflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
+      --write-path "$WP_SB/.prflow/tmp/issue-draft-otherslug.md" --draft-file d.md \
       > /dev/null 2> .wp-slug; printf '%s' "$?" > .wp-slug-rc
     # The shipped skill binds --tier main-root (tier-2/tier-3 selection is the deferred half),
     # so pin the tier the production path actually uses, not only worktree-root: a matching
@@ -2152,7 +2152,7 @@ if [ -d "$WP_SB" ]; then
     N6="$(python3 "$IAS" init wp6 | sed -n '1s/nonce=//p')"
     python3 "$IAS" record-draft-binding wp6 --nonce "$N6" --path "$WP_SB" --tier main-root > /dev/null
     python3 "$IAS" record-dispatch --kind discovery wp6 --nonce "$N6" --round 1 --arm file \
-      --write-path "$WP_SB/.devflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
+      --write-path "$WP_SB/.prflow/tmp/issue-draft-wp6.md" --draft-file d.md > /dev/null 2>&1
     printf '%s' "$?" > .wp-mainroot-rc
     # The cross-check is deliberately scoped INSIDE the file arm: an embed-arm dispatch ignores
     # --write-path entirely. Pin that scoping so a later refactor that HOISTS the check out of

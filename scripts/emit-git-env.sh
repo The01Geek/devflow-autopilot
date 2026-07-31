@@ -25,7 +25,7 @@
 #                       Required when either key is enabled; GIT_DIR is emitted as
 #                       "<workspace>/.git" and GIT_WORK_TREE as "<workspace>".
 #   --config-file PATH  config JSON to read. Defaults to the repo-root
-#                       .devflow/config.json via the shared resolver (issue #295).
+#                       .prflow/config.json via the shared resolver (issue #295).
 #                       Callers on the cloud tiers pass the TRUSTED tree's config
 #                       (the trigger-time `config` job's checkout, or the review
 #                       tier's base-ref-materialized copy) — never the PR head.
@@ -71,9 +71,9 @@
 # FALLBACK branch only — issue #874 made it anchor on DEVFLOW_PROMPT_EXTENSION_ROOT
 # whenever that variable is set and non-empty, which is how the cloud review tier
 # reaches its trusted base-ref closure),
-# match-deferrals.py and match-lint-adjudications.py all anchor `.devflow/` via
+# match-deferrals.py and match-lint-adjudications.py all anchor `.prflow/` via
 # `git rev-parse --show-toplevel`, so under ambient GIT_DIR from a non-root
-# working directory they resolve a `.devflow/` that does not exist. The documented
+# working directory they resolve a `.prflow/` that does not exist. The documented
 # failure is a SILENT MISS, not an error — the reader falls back to its default and
 # nothing says so. This helper therefore emits a loud stderr warning on every run
 # that emits a GIT_DIR assignment, so the tiers where the key stays enabled carry
@@ -90,7 +90,7 @@
 #
 # An ABSENT helper is likewise safe: the workflow step guards on the file existing
 # and emits nothing when it is missing. The workflow reaches consumers through
-# install.sh's file-copy while this helper reaches them through the devflow_version
+# install.sh's file-copy while this helper reaches them through the prflow_version
 # vendor fetch, so a consumer can carry the step before it carries the helper —
 # that skew must not reproduce the outage this helper ends.
 
@@ -135,7 +135,7 @@ esac
 if [ -z "$_cfg" ]; then
     _root="$(git rev-parse --show-toplevel 2>/dev/null)" || _root=''
     [ -n "$_root" ] || _root="$(pwd)"
-    _cfg="${_root}/.devflow/config.json"
+    _cfg="${_root}/.prflow/config.json"
 fi
 
 # Print `true` iff the leaf at the given dot-path is the JSON boolean true or the
@@ -207,7 +207,7 @@ if [ -z "$_ws" ] && { [ "$_git_dir_on" -eq 1 ] || [ "$_work_tree_on" -eq 1 ]; };
 fi
 
 if [ "$_git_dir_on" -eq 1 ]; then
-    echo "emit-git-env.sh: WARNING — setup.git_dir_pin is enabled, so ambient GIT_DIR is in force for the Run Claude Code step and every step after it. Any DevFlow helper that runs from a NON-ROOT working directory will resolve a .devflow/ that does not exist (the issue #295 repo-root readers: config-get.sh, workpad.py, load-prompt-extension.sh — on its fallback branch only, since issue #874 made it anchor on DEVFLOW_PROMPT_EXTENSION_ROOT instead whenever that variable is set and non-empty — match-deferrals.py, match-lint-adjudications.py). That failure is a SILENT MISS, not an error, so this run is not a config-faithful run." >&2
+    echo "emit-git-env.sh: WARNING — setup.git_dir_pin is enabled, so ambient GIT_DIR is in force for the Run Claude Code step and every step after it. Any DevFlow helper that runs from a NON-ROOT working directory will resolve a .prflow/ that does not exist (the issue #295 repo-root readers: config-get.sh, workpad.py, load-prompt-extension.sh — on its fallback branch only, since issue #874 made it anchor on DEVFLOW_PROMPT_EXTENSION_ROOT instead whenever that variable is set and non-empty — match-deferrals.py, match-lint-adjudications.py). That failure is a SILENT MISS, not an error, so this run is not a config-faithful run." >&2
     printf 'GIT_DIR=%s/.git\n' "$_ws"
 fi
 

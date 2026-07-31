@@ -26,13 +26,13 @@ Read the **exit code and printed count line from the tool result**, never a capt
 
 If Phase 3.3's /prflow:review-and-fix run emitted a deferrals manifest, file follow-up GitHub issues for those findings now and update the manifest in place with the assigned issue numbers + deterministic deferral IDs. Phase 4.2's /pr-description run will then surface them in the PR body as a Scope-Acknowledged Findings block that /prflow:review's verdict matcher honors.
 
-**Manifests are run-scoped** (`.devflow/tmp/review/<slug>/<run-id>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it). A single /prflow:implement run can produce **two** of them: Phase 3.3's first /prflow:review-and-fix run and its bounded re-review both run on the same PR with distinct run-ids. Reading one fixed path would miss the other run's deferrals (issue #68 F1, acceptance criterion 3). So **merge every run-scoped manifest into one slug-level aggregate** before filing, then file from the aggregate. The aggregate is the single path /pr-description reads in Phase 4.2.
+**Manifests are run-scoped** (`.prflow/tmp/review/<slug>/<run-id>/deferrals.json` — see that skill's "Pre-mapping: Widens-surface guard + deferrals manifest" section for what's in it). A single /prflow:implement run can produce **two** of them: Phase 3.3's first /prflow:review-and-fix run and its bounded re-review both run on the same PR with distinct run-ids. Reading one fixed path would miss the other run's deferrals (issue #68 F1, acceptance criterion 3). So **merge every run-scoped manifest into one slug-level aggregate** before filing, then file from the aggregate. The aggregate is the single path /pr-description reads in Phase 4.2.
 
 Skip this step if no run-scoped manifest exists or all are empty.
 
 ```bash
 PR_NUMBER=$(gh pr view --json number --jq '.number')
-SLUG_DIR=".devflow/tmp/review/pr-${PR_NUMBER}"
+SLUG_DIR=".prflow/tmp/review/pr-${PR_NUMBER}"
 AGG="${SLUG_DIR}/deferrals.json"   # slug-level aggregate the consumers read; distinct from the per-run files
 # A PR-mode /prflow:review-and-fix run writes its run-scoped manifest under `pr-<N>/`,
 # but a CURRENT-BRANCH-mode run writes it under the sanitized current branch slug instead
@@ -58,7 +58,7 @@ BRANCH_SLUG=$(printf '%s' "$CUR_BRANCH" | tr '/' '-' | tr '[:upper:]' '[:lower:]
 # correct and no breadcrumb fires.) Make the degraded case observable rather than silent.
 # Best-effort breadcrumb; never blocks.
 [ -z "$BRANCH_SLUG" ] && [ -n "$CUR_BRANCH" ] && echo "devflow: current branch produced an empty slug (either 'tr' is missing/degraded on PATH, or the branch name is composed entirely of characters dropped by the [a-z0-9._-] filter); falling back to pr-<N>-only deferral discovery (a current-branch-mode run's manifest may be missed)" >&2
-BRANCH_DIR=".devflow/tmp/review/${BRANCH_SLUG}"
+BRANCH_DIR=".prflow/tmp/review/${BRANCH_SLUG}"
 # Only add the branch-slug dir when it is non-empty AND distinct from pr-<N> (a branch
 # literally named `pr-<N>` would otherwise be searched twice — harmless but pointless).
 SEARCH_DIRS="$SLUG_DIR"
@@ -85,15 +85,15 @@ SEARCH_DIRS="$SLUG_DIR"
 # ran to the PARTIAL arm and file from a stale persisted aggregate. Absent ⇒ grep non-zero ⇒
 # the else/failed arm ⇒ fail-closed.
 # Ensure the scratch leaf exists before any capture write; rc-checked (never `|| true`
-# — a DENIED .devflow/tmp mkdir must fail loudly, mirroring lib/telemetry-branch.sh).
-if ! mkdir -p .devflow/tmp; then
-  echo "devflow: could not create .devflow/tmp for Phase 4.0.5 discovery scratch" >&2
+# — a DENIED .prflow/tmp mkdir must fail loudly, mirroring lib/telemetry-branch.sh).
+if ! mkdir -p .prflow/tmp; then
+  echo "devflow: could not create .prflow/tmp for Phase 4.0.5 discovery scratch" >&2
 fi
-rm -f .devflow/tmp/devflow-dm.err
+rm -f .prflow/tmp/devflow-dm.err
 DISCOVERY_STATE=""
-if MANIFESTS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py $SEARCH_DIRS 2>.devflow/tmp/devflow-dm.err); then
+if MANIFESTS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/discover-deferral-manifests.py $SEARCH_DIRS 2>.prflow/tmp/devflow-dm.err); then
     DISCOVERY_STATE=ok
-elif grep -q 'devflow: discovery partial:' .devflow/tmp/devflow-dm.err; then
+elif grep -q 'devflow: discovery partial:' .prflow/tmp/devflow-dm.err; then
     # PARTIAL: at least one root failed traversal, at least one did not fail (`ok` or `absent`). Keep the
     # captured paths (bash assigns a $(…) capture even when the command exits non-zero) and file
     # from the clean roots, but record the failed root AND the honest limitation: once this run's
@@ -101,23 +101,23 @@ elif grep -q 'devflow: discovery partial:' .devflow/tmp/devflow-dm.err; then
     # be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest
     # all-or-nothing), so recovering them means filing from that root's run-scoped manifest manually.
     DISCOVERY_STATE=partial
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat .devflow/tmp/devflow-dm.err); filing proceeds from the roots that did not fail (\`ok\`/\`absent\`; an \`absent\` root contributes nothing). The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery was PARTIAL — at least one candidate root failed traversal: $(cat .prflow/tmp/devflow-dm.err); filing proceeds from the roots that did not fail (\`ok\`/\`absent\`; an \`absent\` root contributes nothing). The failed root's deferrals are NOT filed this run, and once this run hydrates ${AGG} they cannot be auto-filed by a later re-run (file-deferrals.py refuses a mixed hydrated/raw manifest) — recover them by filing from that root's run-scoped manifest manually."
 else
     # FAILED or REFUSED: every root failed traversal, OR the capture produced NO OUTPUT AT ALL (a
     # likely matcher denial of this unproven capture shape). Blank MANIFESTS so the merge guard is
     # unambiguously false, and record the failure naming the PERSISTED aggregate path so an operator
-    # can re-trigger Phase 4.0.5 deliberately (a stranded prior aggregate under .devflow/tmp is
+    # can re-trigger Phase 4.0.5 deliberately (a stranded prior aggregate under .prflow/tmp is
     # re-fed only by the next healthy run's PRIOR-first merge if one runs while the scratch persists).
     DISCOVERY_STATE=failed
     MANIFESTS=""
-    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery FAILED (every candidate root failed traversal, or the discovery command produced no output at all — a likely harness denial): $(cat .devflow/tmp/devflow-dm.err 2>/dev/null). No deferrals were filed this run; any persisted aggregate at ${AGG} was left intact — re-trigger Phase 4.0.5 deliberately to recover its deferrals."
+    "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 deferral discovery FAILED (every candidate root failed traversal, or the discovery command produced no output at all — a likely harness denial): $(cat .prflow/tmp/devflow-dm.err 2>/dev/null). No deferrals were filed this run; any persisted aggregate at ${AGG} was left intact — re-trigger Phase 4.0.5 deliberately to recover its deferrals."
 fi
 # Surface the helper's roots-echo line into the tool result on EVERY path (including the clean
 # one), so an absent-classified root is observable rather than silent (issue #555). "Every path"
 # assumes what this fence guarantees — a non-empty $SEARCH_DIRS: the helper's zero-argument usage
 # error (exit 2) returns BEFORE it emits any roots-echo. Best-effort — a missing line never blocks
 # the fence.
-grep 'devflow: discovery roots:' .devflow/tmp/devflow-dm.err || true
+grep 'devflow: discovery roots:' .prflow/tmp/devflow-dm.err || true
 if [ -n "$MANIFESTS" ]; then
     # Merge the deferrals[] arrays across runs. The dedup key mirrors file-deferrals.py's
     # _compute_id payload — (file|symbol|kind|summary.strip()), every field defaulted to ""
@@ -174,28 +174,28 @@ if { [ "$DISCOVERY_STATE" = ok ] || [ "$DISCOVERY_STATE" = partial ]; } && [ -n 
     FILED_STATE=failed
     FILED_NUMBERS=""
     # Delete any stale capture so a resumed run cannot read a prior attempt's stderr
-    # (the .devflow/tmp leaf was already created at the top of this fence).
-    rm -f .devflow/tmp/devflow-fd.err
+    # (the .prflow/tmp leaf was already created at the top of this fence).
+    rm -f .prflow/tmp/devflow-fd.err
     if FILED_OUT=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/file-deferrals.py \
         --source-issue $ARGUMENTS \
         --pr "$PR_NUMBER" \
-        --manifest "$AGG" 2>.devflow/tmp/devflow-fd.err); then
+        --manifest "$AGG" 2>.prflow/tmp/devflow-fd.err); then
         FILED_NUMBERS="$FILED_OUT"
         FILED_STATE=filed
         # file-deferrals.py exits 0 even on PARTIAL success: a per-file group whose
         # `gh issue create` failed is dropped from the manifest, yet the helper still
         # exits 0. Surface that so the dropped findings (which won't reach the PR's
         # Scope-Acknowledged block) leave a breadcrumb instead of vanishing silently.
-        grep -q 'were dropped from manifest' .devflow/tmp/devflow-fd.err && \
-            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat .devflow/tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
-    elif grep -q 'already has follow_up' .devflow/tmp/devflow-fd.err; then
+        grep -q 'were dropped from manifest' .prflow/tmp/devflow-fd.err && \
+            "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py filed partially (rc=0): $(cat .prflow/tmp/devflow-fd.err); dropped groups will NOT appear in the PR's Scope-Acknowledged Findings block."
+    elif grep -q 'already has follow_up' .prflow/tmp/devflow-fd.err; then
         FILED_STATE=idempotent
         "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Deferrals already filed on a prior run (idempotent re-run) — nothing new to file; the hydrated aggregate stands."
-    elif grep -q 'no deferrals' .devflow/tmp/devflow-fd.err; then
+    elif grep -q 'no deferrals' .prflow/tmp/devflow-fd.err; then
         FILED_STATE=none
         "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --note "Aggregate held no deferrals to file — nothing to do."
     else
-        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat .devflow/tmp/devflow-fd.err); no follow-up issues filed this run."
+        "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "file-deferrals.py failed (rc≠0): $(cat .prflow/tmp/devflow-fd.err); no follow-up issues filed this run."
     fi
     # Record the filed numbers AND print them — IN THIS FENCE, because this is the only
     # place `FILED_NUMBERS` exists. A shell variable does not survive into a later separate
@@ -223,7 +223,7 @@ fi
 # note (`201, #202`), so it is not what you want to substitute into the per-issue calls.
 #
 # `pr=` carries the PR_NUMBER capture's own outcome (the #480 review). It is the input SLUG_DIR/AGG
-# are built from: if `gh pr view` returns nothing, SLUG_DIR degrades to `.devflow/tmp/review/pr-`,
+# are built from: if `gh pr view` returns nothing, SLUG_DIR degrades to `.prflow/tmp/review/pr-`,
 # no manifest is found, AGG never hydrates, and the sentinel would otherwise print `manifest=[]`
 # — the CLEAN NO-OP state — on a run that had deferrals to file. Printing the value makes that
 # read observable instead of inferred. (A matcher DENIAL of the capture lands in one of these two
@@ -317,17 +317,17 @@ The rc handling above distinguishes three cases: a clean filing (rc 0), the beni
 # legitimately leaves DOC_NEEDED_PATHS empty for the no-op handled below. ($ISSUE_NUMBER is
 # substituted inline in the path exactly as in the gh command — no new cross-statement value.)
 # Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
-if ! mkdir -p .devflow/tmp; then
-  echo "devflow: could not create .devflow/tmp for the Documentation Needed gate" >&2
+if ! mkdir -p .prflow/tmp; then
+  echo "devflow: could not create .prflow/tmp for the Documentation Needed gate" >&2
 fi
-rm -f .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .devflow/tmp/devflow-docgate-gh.err
-if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err \
-   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err; then
+rm -f .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .prflow/tmp/devflow-docgate-gh.err
+if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.prflow/tmp/devflow-docgate-gh.err \
+   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.prflow/tmp/devflow-docgate-gh.err; then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction (see the Workpad Reference) and STOP the run.
 fi
-if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
-   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
+if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
+   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
@@ -341,11 +341,11 @@ These paths are the required deliverables. Stage 2 re-runs the **same helper** r
 
 **Dispatch barrier.** Every subagent dispatch described here is bound by the barrier statement in the engine root's *Cloud headless-wait discipline* block (`skills/implement/SKILL.md`) — read the requirement there; it is deliberately not restated here.
 
-Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `prflow:docs` skill. Compose the dispatch instruction: begin with "Invoke the `prflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." If `DOC_NEEDED_PATHS` is non-empty, append: " The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …" Send this composed instruction along with the issue title and number inline (the prflow:docs dispatch, on every arm). **Hand the issue body off by path, not paste (issue #693):** when the §1.1 cache was written, add an `Issue body path: .devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md` line instructing the `prflow:docs` subagent to Read that file directly, and do **not** paste the body into the prompt. **Only** ship this line when the §1.1 write landed — on the degraded arm where no cache was written, **paste the issue body inline** (the pre-#693 behavior) instead. (The Documentation-Needed gate fences above are deliberately **not** cut over — they read the body live, because a human can amend the deliverable list mid-run.)
+Spawn a **subagent** (using the Agent tool) and instruct it to invoke the `prflow:docs` skill. Compose the dispatch instruction: begin with "Invoke the `prflow:docs` skill to update all documentation (internal docs, external docs, release notes). The issue context is provided for release notes generation." If `DOC_NEEDED_PATHS` is non-empty, append: " The issue requires the following files to be updated; treat each as a mandatory deliverable: `<path1>`, `<path2>`, …" Send this composed instruction along with the issue title and number inline (the prflow:docs dispatch, on every arm). **Hand the issue body off by path, not paste (issue #693):** when the §1.1 cache was written, add an `Issue body path: .prflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md` line instructing the `prflow:docs` subagent to Read that file directly, and do **not** paste the body into the prompt. **Only** ship this line when the §1.1 write landed — on the degraded arm where no cache was written, **paste the issue body inline** (the pre-#693 behavior) instead. (The Documentation-Needed gate fences above are deliberately **not** cut over — they read the body live, because a human can amend the deliverable list mid-run.)
 
-**Consumer prompt-extension by-path handoff (issue #834).** A subagent receives neither `$CLAUDE_SKILL_DIR` nor a `Base directory for this skill:` context line, so the dispatched `prflow:docs` child cannot resolve its own anchor to reach its consumer prompt extension. So **append this sentence unconditionally** to the composed dispatch instruction, substituting the repository root you resolve (`git rev-parse --show-toplevel`) for `<REPO_ROOT>` so the child receives an absolute path its own working directory cannot change: "Consumer prompt-extension handoff: your extension file for this skill is at the absolute path `<REPO_ROOT>/.devflow/prompt-extensions/docs.md`. Read it with your file-read tool and honor any content as instructions appended to the `prflow:docs` skill's own prompt. If the file is absent or empty, treat it as a no-op and report nothing about it; if it is present but you cannot read it, report that in your return so the orchestrator can relay it." Run **no** probe and read **no** extension file yourself — no extension content enters this orchestrator's context on any path. **If the docs subagent's return reports its extension was present but unreadable, relay it** — add a `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1: consumer prompt extension for prflow:docs present but unreadable: <reported detail>"` bullet naming the child skill — this relay never blocks the docs pass.
+**Consumer prompt-extension by-path handoff (issue #834).** A subagent receives neither `$CLAUDE_SKILL_DIR` nor a `Base directory for this skill:` context line, so the dispatched `prflow:docs` child cannot resolve its own anchor to reach its consumer prompt extension. So **append this sentence unconditionally** to the composed dispatch instruction, substituting the repository root you resolve (`git rev-parse --show-toplevel`) for `<REPO_ROOT>` so the child receives an absolute path its own working directory cannot change: "Consumer prompt-extension handoff: your extension file for this skill is at the absolute path `<REPO_ROOT>/.prflow/prompt-extensions/docs.md`. Read it with your file-read tool and honor any content as instructions appended to the `prflow:docs` skill's own prompt. If the file is absent or empty, treat it as a no-op and report nothing about it; if it is present but you cannot read it, report that in your return so the orchestrator can relay it." Run **no** probe and read **no** extension file yourself — no extension content enters this orchestrator's context on any path. **If the docs subagent's return reports its extension was present but unreadable, relay it** — add a `workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.1: consumer prompt extension for prflow:docs present but unreadable: <reported detail>"` bullet naming the child skill — this relay never blocks the docs pass.
 
-After the subagent completes, commit every documentation artifact it changed. Read the configured documentation paths from `.devflow/config.json` — `config-get.sh` **prints** each value, so read the four tool results and substitute non-empty values as literals below. (A `VAR=$(…)` capture does not survive across Bash tool calls on the cloud runner — values expand empty in the later call and `git add ""` fails; #484/#490.)
+After the subagent completes, commit every documentation artifact it changed. Read the configured documentation paths from `.prflow/config.json` — `config-get.sh` **prints** each value, so read the four tool results and substitute non-empty values as literals below. (A `VAR=$(…)` capture does not survive across Bash tool calls on the cloud runner — values expand empty in the later call and `git add ""` fails; #484/#490.)
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .docs.internal docs/internal/
@@ -380,17 +380,17 @@ Then decide whether the docs pass succeeded: it succeeded if the docs subagent a
 # command's exit status inline (gh's, then the extractor's); read AND retry both failing →
 # fail CLOSED to Blocked; an rc-0 EMPTY extraction stays the genuine no-op signal.
 # Ensure the scratch leaf exists (rc-checked, never `|| true`) and drop any stale capture.
-if ! mkdir -p .devflow/tmp; then
-  echo "devflow: could not create .devflow/tmp for the Documentation Needed gate" >&2
+if ! mkdir -p .prflow/tmp; then
+  echo "devflow: could not create .prflow/tmp for the Documentation Needed gate" >&2
 fi
-rm -f .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .devflow/tmp/devflow-docgate-gh.err
-if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err \
-   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.devflow/tmp/devflow-docgate-gh.err; then
+rm -f .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt .prflow/tmp/devflow-docgate-gh.err
+if ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.prflow/tmp/devflow-docgate-gh.err \
+   && ! gh issue view $ISSUE_NUMBER --json body --jq '.body' > .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt 2>.prflow/tmp/devflow-docgate-gh.err; then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: could not read the issue body to extract Documentation Needed deliverables (gh command failure); the deliverable cross-check could not run — retry when GitHub is reachable"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
-if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
-   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .devflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
+if ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt) \
+   && ! DOC_NEEDED_PATHS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/extract-doc-needed-paths.sh < .prflow/tmp/devflow-docgate-body-$ISSUE_NUMBER.txt); then
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind dropped-failed --reflection "Phase 4.1: the Documentation Needed extractor failed (token scan error); the deliverable cross-check could not run — retry"
   # then emit the 👎 outcome reaction and STOP the run.
 fi
@@ -511,7 +511,7 @@ git status --porcelain
 
 If it is non-empty, **do not** finalize yet. The run began from a clean base-branch checkout (`origin/` + the configured `base_branch`), so anything dirty here is this run's own work an earlier phase failed to commit. Commit the part that belongs to this PR with the right prefix (`feat:`/`fix:`/`docs:`/`chore:`) and push, and record which phase under-committed via `--reflection-kind note --reflection "…"` (a corrected under-commit is informational, not a standing failure) — surface the gap, don't paper over it. Surface (do not blindly `git add`) any unexpected untracked file. When the tree is already clean this is a no-op — create no empty commit.
 
-**Run-transient files are the exception — delete, never commit.** A leftover **reflection-payload file** under `.devflow/tmp/` (authored by the file-based `--reflection-file` recipe when a reflection's text carried backticks/`$`/quotes — see `skills/implement/SKILL.md`) is run-transient scratch, not a deliverable: the recipe is supposed to `rm` it after the helper call, but if one survives here, **delete it** rather than committing it. This repo and `install.sh`-scaffolded adopters ignore `.devflow/tmp/`, so the porcelain status above won't even list it there — but a **plugin-only adopter** has no `.devflow/.gitignore` scaffold, so the same leftover shows up as an untracked file that a blind `git add` would commit into the PR. Treat any `.devflow/tmp/` reflection-payload leftover as transient (delete it), never as run work to commit.
+**Run-transient files are the exception — delete, never commit.** A leftover **reflection-payload file** under `.prflow/tmp/` (authored by the file-based `--reflection-file` recipe when a reflection's text carried backticks/`$`/quotes — see `skills/implement/SKILL.md`) is run-transient scratch, not a deliverable: the recipe is supposed to `rm` it after the helper call, but if one survives here, **delete it** rather than committing it. This repo and `install.sh`-scaffolded adopters ignore `.prflow/tmp/`, so the porcelain status above won't even list it there — but a **plugin-only adopter** has no `.prflow/.gitignore` scaffold, so the same leftover shows up as an untracked file that a blind `git add` would commit into the PR. Treat any `.prflow/tmp/` reflection-payload leftover as transient (delete it), never as run work to commit.
 
 **Base-branch update checkpoint 4 (pre-ready) — after the clean-tree backstop, before the publish decision.** So the terminal *published* state carries current base (the review-tier deferral's head-scoped re-evaluation cannot see base advances — issue #448), bring the branch up to date one last time:
 
@@ -526,11 +526,11 @@ Handle the printed token **per the implement-driven outcome-handling contract in
 
 **Read the token as the leading word of the emitted line, never as the whole line** — the matching rule `scripts/update-branch-checkpoint.sh`'s own header states for every call site. The value every test below reads is the **first whitespace-delimited field** of the emitted line, read by you from the invocation's output; never a shell capture (a `TOKEN=$(…)` capture changes the statement's leading token away from the probe-proven vendored-literal form, and `docs/cloud-allowlist.md` records that capture carve-out as an inference rather than a measurement).
 
-**First, separate "the invocation never ran" from "the invocation ran and reported something" — and be honest about which denials are observable.** This test comes *before* the routing list below, because both cases can present with no token line and the routing list would otherwise swallow the first. The invocation is known to have **never run** only when the tool boundary *reports* it — a local-tier classifier denial message, or an rc 127. Those take the *tier-refused* arm at the end of this section (record a degraded reflection and publish). **A silent cloud matcher denial is a disclosed residual, not a case this test can reach:** the cloud matcher refuses a command *before it runs*, producing **no output and no failure signal** (`CLAUDE.md`'s silent-denial class), so it is indistinguishable from an invocation that ran and emitted no recognizable token — and it therefore takes the **refusal** arm below, not the tier-refused arm. That is the fail-closed direction and it is stated here rather than papered over: a consumer whose allowlist omits the helper sees the run Blocked at pre-ready, with the remedy being to grant `.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh` in `devflow_implement.allowed_tools`. Everything else **ran**, and is routed by the gate below on the first field of its output.
+**First, separate "the invocation never ran" from "the invocation ran and reported something" — and be honest about which denials are observable.** This test comes *before* the routing list below, because both cases can present with no token line and the routing list would otherwise swallow the first. The invocation is known to have **never run** only when the tool boundary *reports* it — a local-tier classifier denial message, or an rc 127. Those take the *tier-refused* arm at the end of this section (record a degraded reflection and publish). **A silent cloud matcher denial is a disclosed residual, not a case this test can reach:** the cloud matcher refuses a command *before it runs*, producing **no output and no failure signal** (`CLAUDE.md`'s silent-denial class), so it is indistinguishable from an invocation that ran and emitted no recognizable token — and it therefore takes the **refusal** arm below, not the tier-refused arm. That is the fail-closed direction and it is stated here rather than papered over: a consumer whose allowlist omits the helper sees the run Blocked at pre-ready, with the remedy being to grant `.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh` in `prflow_implement.allowed_tools`. Everything else **ran**, and is routed by the gate below on the first field of its output.
 
 **Publish gate (checkpoint-4-specific — the run does not publish or complete on a non-clean checkpoint).** The clean set is `UPDATED`, `UP_TO_DATE`, `DISABLED`; the non-clean set is `CONFLICT`, `UNVERIFIED`, `PUSH_REJECTED`, `MERGE_IN_PROGRESS` — together exactly the token set `scripts/update-branch-checkpoint.sh`'s header enumerates, complete by construction against that header. Route the observed first field:
 
-- **Clean (`UPDATED` / `UP_TO_DATE` / `DISABLED`)** — record a `--note` naming the observed token **before** publishing, on all three alike: `workpad.py update $ISSUE_NUMBER --note "checkpoint 4: observed token <token> — clean, proceeding to the publish decision"`. On `UPDATED`, record it **after** the post-merge suite re-run above has passed, so the note never asserts the run is proceeding to publish on a run the suite then routes to `Blocked`. This success-path channel is deliberately **checkpoint-4-specific**: §1.4.1's rule that `UP_TO_DATE` and `DISABLED` add **no** workpad traffic stays byte-unchanged for checkpoints 1 through 3, which is why the existing checkpoint note cannot serve as it, and it is what makes a green run carry evidence of the comparison's *result* rather than only its failure path. Then proceed (a `DISABLED` run — the consumer set `devflow_implement.update_branch_checkpoints: false` — publishes and completes exactly as it does today).
+- **Clean (`UPDATED` / `UP_TO_DATE` / `DISABLED`)** — record a `--note` naming the observed token **before** publishing, on all three alike: `workpad.py update $ISSUE_NUMBER --note "checkpoint 4: observed token <token> — clean, proceeding to the publish decision"`. On `UPDATED`, record it **after** the post-merge suite re-run above has passed, so the note never asserts the run is proceeding to publish on a run the suite then routes to `Blocked`. This success-path channel is deliberately **checkpoint-4-specific**: §1.4.1's rule that `UP_TO_DATE` and `DISABLED` add **no** workpad traffic stays byte-unchanged for checkpoints 1 through 3, which is why the existing checkpoint note cannot serve as it, and it is what makes a green run carry evidence of the comparison's *result* rather than only its failure path. Then proceed (a `DISABLED` run — the consumer set `prflow_implement.update_branch_checkpoints: false` — publishes and completes exactly as it does today).
 - **`CONFLICT`** — **not** routed to the refusal below. It follows §1.4.1's inherited resolve-then-suite-then-commit-then-push path (a resolution that fails the suite keeps that contract's abort-and-`Blocked` path), with one checkpoint-4 bound stated below, and the checkpoint helper is then **re-invoked**; the first field of *that re-invocation's* line is the value this gate reads. The re-invocation is **bounded to one**: a second consecutive `CONFLICT` takes the refusal arm below rather than resolving again.
 - **Non-clean (`UNVERIFIED`, `PUSH_REJECTED`, `MERGE_IN_PROGRESS`), or a first field that is empty or unrecognized** — **refuse to run `gh pr ready` and refuse to flip `Status` to `Complete`.** A run that never reconciled with the base must not reach a published, `Complete` end state with no signal that its work was never checked against current trunk. **On `UNVERIFIED`, or an empty/unrecognized field, re-invoke the helper once before refusing** — several such causes are transient and environmental rather than staleness facts (a failed `git fetch`, a `config-get.sh` read failure), and the helper mutates nothing on any `UNVERIFIED` path, so a second invocation is free. **`PUSH_REJECTED` and `MERGE_IN_PROGRESS` get no re-invocation**: those paths re-run fetch/merge/push and a second `git reset --hard`, so re-invoking would compound an already-failed restore rather than clear a blip — they refuse immediately. Grade the re-invocation's first field where one was made; if it is still non-clean, record `workpad.py update $ISSUE_NUMBER --status Blocked --reflection-kind blocked --reflection "checkpoint 4: the base-update checkpoint did not report a clean token after one re-invocation — observed line: <the observed line, verbatim>; helper breadcrumb: <the helper's own stderr breadcrumb, verbatim>; not publishing and not completing"` — quoting the breadcrumb rather than asserting non-reconciliation as the cause, since the observed token alone does not establish it — then emit the 👎 outcome reaction and stop. (The work is preserved on the branch and the workpad names the token, so the remedy is a re-trigger rather than a lost run. A shallow checkout whose history cannot be extended emits `UNVERIFIED` with the helper's "no reachable merge base" breadcrumb and now blocks here where it previously published — the intended fail-closed direction.)
 
@@ -541,7 +541,7 @@ Handle the printed token **per the implement-driven outcome-handling contract in
 **Publish decision — `implement_pr_state`.** Whether the run publishes the PR or leaves it the draft created in Phase 3.1 is a per-consumer config choice. Read it (default `ready_for_review`), then publish **only** when it is not the exact literal `draft` — default-to-publish is the safe direction, so a missing key, empty string, or any unrecognized value publishes, and a hard read failure (malformed config) falls back to publishing. **Capture whether `gh pr ready` actually succeeded** so the finalize wording reflects the *real* end state — a bare `gh pr ready` whose failure (the `else` arm catches *any* non-zero exit — e.g. auth scope, GitHub 5xx, rate limit, a race that already merged/closed the PR) fell through would otherwise leave the workpad falsely claiming the PR was published when it is still a draft:
 
 ```bash
-PR_STATE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .devflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
+PR_STATE=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .prflow_implement.implement_pr_state ready_for_review) || PR_STATE=ready_for_review
 PR_OUTCOME=draft   # one of: draft | published | publish_failed (overwritten below unless PR_STATE=draft)
 if [ "$PR_STATE" = "draft" ]; then
     echo "devflow: implement_pr_state=draft — leaving PR as a draft (skipping gh pr ready)" >&2

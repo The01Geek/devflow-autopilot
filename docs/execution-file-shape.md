@@ -238,7 +238,7 @@ is reconstructable from the harness's own output, with no agent cooperation.
   observations are load-bearing beyond the two #437 jobs; each such job's recorded result
   lives with its own issue — the `background-tasks-probe` verdict in
   [`docs/DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s
-  `devflow_implement.stall_backstop` bullet — not here.)
+  `prflow_implement.stall_backstop` bullet — not here.)
 
 ---
 

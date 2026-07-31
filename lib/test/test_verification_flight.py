@@ -83,7 +83,7 @@ def _decl(**over):
         "environment": {"CI": "1"},
         "toolchain": {"bash": "5.2"},
         "dependencies": {"jq": "1.7"},
-        "output_roots": [".devflow/tmp"],
+        "output_roots": [".prflow/tmp"],
         "external_services": "none",
     }
     checkout = {
@@ -194,7 +194,7 @@ class TestDescriptorAndKey(Harness):
         base = self.run_cmd(["descriptor", "--input-file", self._write(_decl())])[1]
         moved_roots = self.run_cmd([
             "descriptor", "--input-file",
-            self._write(_decl(profile={"output_roots": [".devflow/tmp", "build/"]})),
+            self._write(_decl(profile={"output_roots": [".prflow/tmp", "build/"]})),
         ])[1]
         self.assertEqual(
             base["descriptor_digest"], moved_roots["descriptor_digest"],

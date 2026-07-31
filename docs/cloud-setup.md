@@ -50,7 +50,7 @@ bot-authored, fresh) via the bundled `scripts/dedupe-review-command.sh` helper. 
 open** in every failure direction (a missed suppression only reproduces a recoverable
 double-comment; a wrong one would swallow a review you asked for), never suppresses a
 `/prflow:review-and-fix` or a `devflow:review-backstop` auto-resume, and does nothing when
-`devflow_review.live_progress_comment_enabled` is off (no seeded comment → present-day
+`prflow_review.live_progress_comment_enabled` is off (no seeded comment → present-day
 behavior). This repair reaches your repository on upgrade, because `install.sh` copies
 `devflow.yml`. Full behavior: [`workflow-triggers.md`](workflow-triggers.md).
 
@@ -59,19 +59,19 @@ behavior). This repair reaches your repository on upgrade, because `install.sh` 
 leaves the three files in place and your auto-review keeps working. That continues to hold
 across a plugin upgrade only because **every helper those workflows call is still shipped**
 even though nothing in PRFlow's own tree reaches them any more: `install.sh` re-stamps
-`devflow_version` to the installed commit, so re-running the installer keeps your workflow
+`prflow_version` to the installed commit, so re-running the installer keeps your workflow
 files while vendoring a newer plugin, and a helper deleted as "unreachable" would go missing
 underneath them — `finalize_check` fails **closed** when `derive-review-verdict.sh` is absent,
 which would report every review `incomplete` and wedge every pull request behind a required
 check that never reports, while an absent `derive-review-preconditions.sh` fails **open** and
 silently drops the freshness and CI-green gates. That is why those helpers are retained rather
 than swept. It also means such a repository **remains exposed to the #930 and #920 defects for
-as long as `workflows["devflow-review"]` is `true` in its `.devflow/config.json`**. Every upgrade
+as long as `workflows["devflow-review"]` is `true` in its `.prflow/config.json`**. Every upgrade
 reports that exposure; removal stays an explicit opt-in:
 
 1. Delete `.github/workflows/devflow-review.yml`, `.github/workflows/devflow-runner.yml`
    and `.github/workflows/telemetry-push.yml`.
-2. Set `workflows["devflow-review"]` to `false` in `.devflow/config.json`.
+2. Set `workflows["devflow-review"]` to `false` in `.prflow/config.json`.
 3. Remove the `Devflow Review` context from any branch protection rule or ruleset that
    requires it — otherwise every subsequent pull request wedges against a required check
    that nothing will report.
@@ -95,7 +95,7 @@ prflow@devflow-marketplace` — runs no installer script at all and needs none.
 this page; skip it if you only want the `/prflow:*` skills in your editor.
 
 Run it from the root of your repository — it installs the workflows, composite
-actions, a local `marketplace.json`, and a `.devflow/config.json` scaffold, and is
+actions, a local `marketplace.json`, and a `.prflow/config.json` scaffold, and is
 **idempotent** — re-running it at a newer release tag is also how you update. It
 writes changes into your repository, so download it, read it, then run the file you
 read:
@@ -121,21 +121,21 @@ so it is not the recommended form. See
 [Installing & updating](install.md#pinning-the-installer) for the same guidance
 alongside the local-tier install.
 
-Then review with `git diff` and commit. `.devflow/config.json` ships with a
+Then review with `git diff` and commit. `.prflow/config.json` ships with a
 working default for every value — edit it only to customize.
 
 This is a **thin install**: the bulky plugin tree is **not** committed to your
 repo. The workflows fetch it at runtime (see below), pinned to the
-`devflow_version` that `install.sh` writes into `.devflow/config.json` — the
-commit it installed from. **To update**, bump `devflow_version` to a newer tag,
+`prflow_version` that `install.sh` writes into `.prflow/config.json` — the
+commit it installed from. **To update**, bump `prflow_version` to a newer tag,
 branch, or commit SHA (or just re-run the installer — now a small diff).
 Re-running also **backfills any newly-added config keys** into your existing
-`.devflow/config.json` (at any nesting depth) so you can discover and opt into
+`.prflow/config.json` (at any nesting depth) so you can discover and opt into
 new features; values you've already set are preserved and your arrays (e.g.
 `allowed_tools`) are left untouched. Because the pin is explicit, your CI never
 silently tracks a moving `main`.
 
-`devflow_version` gets one narrow exception to "existing values are preserved":
+`prflow_version` gets one narrow exception to "existing values are preserved":
 the installer re-stamps it to the commit it just installed from **only when the
 current value already looks like a commit SHA** (7-40 lowercase hex chars) or
 is empty. This is a **shape heuristic, not true provenance detection** — the
@@ -146,9 +146,9 @@ so a hand-pinned exact SHA is *not* guaranteed to survive a re-run. Only a
 or a tag like `"v1.2.0"` — is guaranteed protected and left untouched on re-run.
 
 > **Prefer to commit the plugin instead?** Run `DEVFLOW_VENDOR=1 … | bash`. That
-> vendors the full tree into `.devflow/vendor/devflow/` so nothing is fetched at
+> vendors the full tree into `.prflow/vendor/prflow/` so nothing is fetched at
 > runtime — self-hosting, fully auditable in your repo, at the cost of a large
-> vendored diff on every update. `devflow_version` is then ignored.
+> vendored diff on every update. `prflow_version` is then ignored.
 
 ### Why the plugin lives at a workspace path (not added as a github marketplace in CI)
 
@@ -156,10 +156,10 @@ The local skills locate their helpers via the portable `${CLAUDE_SKILL_DIR:-…}
 `claude-code-action` runner that variable is unset, the bash sandbox cannot read
 `~/.claude` (where a marketplace plugin would install), and `$`-expansion in
 commands is blocked. So the workflows reference helper scripts at the **literal
-workspace path** `.devflow/vendor/devflow/scripts/…` — the plugin must physically
-be at `.devflow/vendor/devflow/` when a job runs.
+workspace path** `.prflow/vendor/prflow/scripts/…` — the plugin must physically
+be at `.prflow/vendor/prflow/` when a job runs.
 
-**Why `.devflow/vendor/` and not `.claude/`.** On every pull request,
+**Why `.prflow/vendor/` and not `.claude/`.** On every pull request,
 `claude-code-action` runs a security step (`restoreConfigFromBase`) *before* it
 installs plugins: for each of its `SENSITIVE_PATHS` — as of `claude-code-action`
 v1, `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`,
@@ -170,7 +170,7 @@ inject `.claude/` config into a trusted-token run. A
 plugin vendored under `.claude/plugins/devflow/` is therefore wiped: the whole
 `.claude/` directory is removed, and the base branch has no vendored tree to
 restore, so the subsequent `plugin install` fails with `Source path does not
-exist`. Vendoring to `.devflow/vendor/devflow/` — outside every `SENSITIVE_PATH`
+exist`. Vendoring to `.prflow/vendor/prflow/` — outside every `SENSITIVE_PATH`
 — sidesteps the restore entirely; `claude-code-action` performs no other
 working-tree-destructive step, so the runtime-vendored tree survives until
 install. (A committed `DEVFLOW_VENDOR=1` tree at the old `.claude/` path used to
@@ -182,22 +182,22 @@ that needs the plugin runs the `vendor-plugin` composite action right after
 checkout, which materializes the tree via a single deterministic algorithm —
 **committed** (already in the checkout, e.g. a `DEVFLOW_VENDOR=1` install → used
 as-is), **self** (the source repo, whose plugin lives at its own root → copied
-in), or **fetch** (a thin consumer → clones `devflow_version` and copies it in —
+in), or **fetch** (a thin consumer → clones `prflow_version` and copies it in —
 shallow when it names a branch/tag, a full clone + checkout when it's the commit
 SHA `install.sh` pins). The fetch branch refuses to run without a pinned
-`devflow_version`, so a thin install never tracks mutable `main`.
+`prflow_version`, so a thin install never tracks mutable `main`.
 
-**Which config supplies `devflow_version` differs by tier (issue #874).** The write
+**Which config supplies `prflow_version` differs by tier (issue #874).** The write
 tiers read it from their default-branch checkout. The **automated review runner**
 (`devflow-runner.yml`) reads it from the **trusted base ref** instead — a dedicated
 step, declared above the `vendor-plugin` call so its output is resolvable there,
-fetches the base ref and reads `.devflow/config.json` from it — because a
+fetches the base ref and reads `.prflow/config.json` from it — because a
 PR-head-supplied value would let a pull request choose the plugin commit, and
 therefore the prompt-extension loader, that reviews it. So on the review tier the key
 is **in-PR-inert via the base-ref trust boundary** (the same channel
-`devflow_runner.allowed_tools` uses — *not* the separate trigger-time channel, in
+`prflow_runner.allowed_tools` uses — *not* the separate trigger-time channel, in
 which a `config` job checks out the **default branch**; the two resolve different
-values for a PR targeting a non-default branch). A PR that bumps `devflow_version`
+values for a PR targeting a non-default branch). A PR that bumps `prflow_version`
 does not change its own review run, only later ones. The read fails **closed** to an
 empty value on an unfetchable or empty base ref, a base ref carrying no or a
 malformed config, and an absent key — inert on the `committed`/`self` vendor branches,
@@ -241,7 +241,7 @@ The three claude-code-action call sites (`devflow-implement.yml`, `devflow.yml`,
 
 **Trusted-ref rule.** The write tiers (implement, command) check out the default branch, so their `.claude/settings.json` is maintainer-committed, trusted. The **review tier** checks out the PR head, so it reads the settings exclusively from the **trusted base ref**: the `baseprovision` step materializes `FETCH_HEAD:.claude/settings.json` into `$RUNNER_TEMP`, and the helper invocation consumes only that materialized path — **never the PR-head checkout's settings file**. The consequence: a PR that edits `.claude/settings.json` does **not** alter its own review run's plugin list (the review reads the base-ref copy); the change takes effect on the *next* run after the PR merges. The helper itself runs only from a trusted source on the review tier (base-ref materialized, or the vendored copy only when `vendor_source == "fetch"`); when no trusted copy is available the step appends nothing and emits the baseline with a `::warning::` naming the trusted-source rule. An absent settings file (the normal consumer case) leaves the composed inputs identical to the baked baseline, silently.
 
-**Trusted-ref rule — `.devflow/prompt-extensions/` (issue #874; the AUTOMATED review runner only).** This rule is scoped to `devflow-runner.yml`. The manual `/prflow:review` comment path in `devflow.yml` also checks out the PR head and runs the same engine, but carries **no** truncation step and **no** `DEVFLOW_PROMPT_EXTENSION_ROOT`, so it still appends the PR head's `.devflow/prompt-extensions/review.md` to the reviewing agent's prompt — a disclosed residual, recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet. For the automated runner: the same rule binds the reviewer's own appended prompt, and for the same reason: on the review tier `.devflow/prompt-extensions/<skill>.md` comes from the PR head, and `skills/review/SKILL.md` treats whatever the loader prints as instructions appended to its own prompt. So the review job takes two steps. **Unconditionally**, on every run and outside every branch, it creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/`, creates `.devflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`) to empty — creating an empty file for a name the checkout never carried — and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at that closure. **Conditionally**, inside `baseprovision`'s base-ref fetch-success branch and nowhere else, it populates the closure from `FETCH_HEAD` through `scripts/materialize-trusted-prompt-extensions.sh`, itself resolved through the same trusted-source rank ladder the deny floor uses. The consequence mirrors the settings rule: a PR that edits `.devflow/prompt-extensions/review.md` does **not** change its own review run's prompt; the change takes effect after merge. Because the suppression is unconditional and the population is not, each non-population arm — a failed base-ref fetch, an empty base ref, an unresolvable materialization helper, a per-name read failure or unwritable target, a helper usage defect, a traversal-shaped protected name, and a non-blob object at a protected path — degrades to an empty closure, never to the PR-head file. The three not-established arms — a failed base-ref fetch, an empty base ref, no trusted source for the helper — emit a *not-attempted* notice rather than a reason-naming warning, because a run that never read the base ref cannot say whether an extension exists on it. A base ref that simply carries no extension is the ordinary consumer shape and is **silent**. **Upgrade window:** a consumer whose base ref pins a `devflow_version` predating #874 gets a loader that ignores the variable; the truncation is the only control there, and their committed extension does not load until they bump the pin. That fallback control is sound: `claude-code-action`'s restore pass replaces a **closed, enumerated** set of sensitive paths from the base branch — `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` (read from the pinned action's `src/github/operations/restore-config.ts`) — and `.devflow/` is not among them, so the truncated workspace copies survive into the agent's session rather than being restored from either branch.
+**Trusted-ref rule — `.prflow/prompt-extensions/` (issue #874; the AUTOMATED review runner only).** This rule is scoped to `devflow-runner.yml`. The manual `/prflow:review` comment path in `devflow.yml` also checks out the PR head and runs the same engine, but carries **no** truncation step and **no** `DEVFLOW_PROMPT_EXTENSION_ROOT`, so it still appends the PR head's `.prflow/prompt-extensions/review.md` to the reviewing agent's prompt — a disclosed residual, recorded with the others in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s base-ref-trust-boundary bullet. For the automated runner: the same rule binds the reviewer's own appended prompt, and for the same reason: on the review tier `.prflow/prompt-extensions/<skill>.md` comes from the PR head, and `skills/review/SKILL.md` treats whatever the loader prints as instructions appended to its own prompt. So the review job takes two steps. **Unconditionally**, on every run and outside every branch, it creates `$RUNNER_TEMP/devflow-trusted-prompt-ext/`, creates `.prflow/prompt-extensions/` in the workspace, truncates the workspace copy of each protected extension (`review`, `requesting-code-review`) to empty — creating an empty file for a name the checkout never carried — and exports `DEVFLOW_PROMPT_EXTENSION_ROOT` pointing at that closure. **Conditionally**, inside `baseprovision`'s base-ref fetch-success branch and nowhere else, it populates the closure from `FETCH_HEAD` through `scripts/materialize-trusted-prompt-extensions.sh`, itself resolved through the same trusted-source rank ladder the deny floor uses. The consequence mirrors the settings rule: a PR that edits `.prflow/prompt-extensions/review.md` does **not** change its own review run's prompt; the change takes effect after merge. Because the suppression is unconditional and the population is not, each non-population arm — a failed base-ref fetch, an empty base ref, an unresolvable materialization helper, a per-name read failure or unwritable target, a helper usage defect, a traversal-shaped protected name, and a non-blob object at a protected path — degrades to an empty closure, never to the PR-head file. The three not-established arms — a failed base-ref fetch, an empty base ref, no trusted source for the helper — emit a *not-attempted* notice rather than a reason-naming warning, because a run that never read the base ref cannot say whether an extension exists on it. A base ref that simply carries no extension is the ordinary consumer shape and is **silent**. **Upgrade window:** a consumer whose base ref pins a `prflow_version` predating #874 gets a loader that ignores the variable; the truncation is the only control there, and their committed extension does not load until they bump the pin. That fallback control is sound: `claude-code-action`'s restore pass replaces a **closed, enumerated** set of sensitive paths from the base branch — `.claude`, `.mcp.json`, `.claude.json`, `.gitmodules`, `.ripgreprc`, `CLAUDE.md`, `CLAUDE.local.md`, `.husky` (read from the pinned action's `src/github/operations/restore-config.ts`) — and `.prflow/` is not among them, so the truncated workspace copies survive into the agent's session rather than being restored from either branch.
 
 **Security posture (a decided trade, not an implication).** Honoring `enabledPlugins` splices **unpinned** third-party content into credentialed runners: what the maintainer approves is a pointer (`plugin@marketplace`); what executes is the marketplace repo's content at run time — including plugin hooks, which run with the job's credentials (on the implement tier, the App token). This is accepted deliberately as the price of parity: it is the same live-pointer supply chain the repo's local team already runs under (auto-updating marketplaces), and a maintainer who commits a marketplace pointer to the trusted ref accepts that marketplace's supply chain. The composed risk (unpinned content × runner credentials, which local sessions do not carry) is stated here as a named security decision, not implied. Plugin versions are not pinned (marketplace-latest, matching local sessions); a private-repo marketplace installs locally but is not clonable by the runner's credentials — the action's behavior on a failed install (which a `matcher-probe.yml`-style dispatch with an intentionally uninstallable spliced entry would record as probe evidence in the issue/PR) is stated here as the expected post-compose failure symptom, not a claim that such a dispatch has already been run.
 
@@ -254,7 +254,7 @@ variables → Actions**:
 |---|---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | Authenticates the Claude Code action (`/prflow:implement`, `/prflow:review` runners) on the Anthropic default path | From your Anthropic account. Optional only if **every** active workflow section routes through a third-party `provider`. |
 | `GITHUB_TOKEN` | (built in — no action needed) | Provided automatically to workflows. |
-| `DEVFLOW_PROVIDER_API_KEY` | (optional) API key for a third-party model provider, consumed when a `devflow` / `devflow_implement` / `devflow_runner` section sets `provider` | Only needed if you opt into third-party model routing — see [Third-party model providers](#third-party-model-providers-opt-in-best-effort). One fixed secret name regardless of provider count. |
+| `DEVFLOW_PROVIDER_API_KEY` | (optional) API key for a third-party model provider, consumed when a `devflow` / `prflow_implement` / `prflow_runner` section sets `provider` | Only needed if you opt into third-party model routing — see [Third-party model providers](#third-party-model-providers-opt-in-best-effort). One fixed secret name regardless of provider count. |
 
 That's the whole default — **no GitHub App is required** and `CLAUDE_CODE_OAUTH_TOKEN` is the only secret. Opting a workflow section into a third-party model provider (below) adds exactly one more, `DEVFLOW_PROVIDER_API_KEY`. (Earlier versions needed
 one purely so a bot-authored "implement this" comment could re-trigger the
@@ -269,7 +269,7 @@ By default every job in the two consumer-shipped workflows (`devflow.yml`,
 for all of those jobs uniformly. Set it under **Settings → Secrets and variables
 → Actions → Variables** (a *variable*, not a secret). Runner selection is
 **infrastructure** — which machine runs the job — so it lives in GitHub Settings,
-deliberately **not** in the versioned `.devflow/config.json` (which governs how
+deliberately **not** in the versioned `.prflow/config.json` (which governs how
 PRFlow behaves).
 
 | `DEVFLOW_RUNNER` value | Rendered `runs-on` |
@@ -409,8 +409,8 @@ ignores the key and the helper prints a breadcrumb naming that it did; only
 `git rev-parse --show-toplevel` returns the *current subdirectory* rather than the
 repository root. PRFlow's repo-root config readers — `config-get.sh`,
 `workpad.py`, `load-prompt-extension.sh`, `match-deferrals.py` and
-`match-lint-adjudications.py` — all anchor `.devflow/` on that command, so whenever
-one of them runs from a non-root working directory it resolves a `.devflow/` that
+`match-lint-adjudications.py` — all anchor `.prflow/` on that command, so whenever
+one of them runs from a non-root working directory it resolves a `.prflow/` that
 **does not exist**. (`load-prompt-extension.sh` anchors that way only on its
 *fallback* branch since issue #874: when `DEVFLOW_PROMPT_EXTENSION_ROOT` is set and
 non-empty — which the cloud review tier does — it composes the path from that value
@@ -439,8 +439,8 @@ a trusted source (base-ref-materialized, or the vendored copy when the vendor st
 reports `vendor_source: fetch`), else the step fails closed and warns.
 
 **Two-channel upgrade ordering.** The workflows reach you through `install.sh`'s
-file-copy, while the helper reaches you through the `devflow_version` vendor fetch.
-A consumer who re-runs `install.sh` **without advancing `devflow_version`** therefore
+file-copy, while the helper reaches you through the `prflow_version` vendor fetch.
+A consumer who re-runs `install.sh` **without advancing `prflow_version`** therefore
 gets the step before the helper. That is safe: an absent helper makes the step emit
 no assignment and exit 0 — it **fails open to the working default** rather than
 failing the job — which is exactly what keeps that skew from reproducing the
@@ -615,9 +615,9 @@ cloud run.
 Set the opt-in boolean key to close that gap:
 
 ```jsonc
-// .devflow/config.json
+// .prflow/config.json
 {
-  "devflow": {
+  "prflow": {
     "attribute_commits_to_triggerer": true   // default: false
   }
 }
@@ -664,13 +664,13 @@ The `/prflow:implement` startup lifecycle (see `docs/workflow-triggers.md` and
 `DEVFLOW_SYSTEM_OVERVIEW.md` for the full model) adds **zero** new configuration:
 no new config key, permission, secret, repository variable, service, or install
 mode. It reuses the existing issue-comment workpad, the job's existing token, and a
-gitignored ephemeral JSON handoff record under `.devflow/tmp/` (non-secret,
+gitignored ephemeral JSON handoff record under `.prflow/tmp/` (non-secret,
 advisory, never passed through Claude action settings). Thin cloud installs and
 committed-vendor installs behave identically at runtime.
 
 Because the fix spans **two independently-updated artifacts** — the workflow
 (`devflow-implement.yml`, shipped by `install.sh`) and the plugin/skill + `workpad.py`
-(materialized at the pinned `devflow_version`) — a partially-upgraded consumer sees
+(materialized at the pinned `prflow_version`) — a partially-upgraded consumer sees
 graceful degradation, not breakage:
 
 - **Old workflow + new plugin** — no handoff record is written, so Phase 1 resolves
@@ -684,7 +684,7 @@ graceful degradation, not breakage:
 
 **Duplicate-read protection and the truthful lifecycle wording are complete only
 once both the shipped workflow and the pinned plugin carry this fix** — upgrade the
-two halves together (bump `devflow_version` when you update the workflow).
+two halves together (bump `prflow_version` when you update the workflow).
 
 ### Keeping writer-job credentials fresh past the token's 60-minute lifetime
 
@@ -829,7 +829,7 @@ comment authored by the built-in `GITHUB_TOKEN` never re-triggers the workflow
 backstop posts its resume comment and then fails the job loud instead of
 pretending the resume happened — a human re-posts the trigger comment manually.
 With the App configured, also add the App's bot login (e.g. `your-app[bot]`) to
-`devflow.allowed_bots` in `.devflow/config.json`, or the gate's actor
+`devflow.allowed_bots` in `.prflow/config.json`, or the gate's actor
 authorization declines the App-authored resume comment. Because a `claude` job
 can run longer than an App installation token's ~60-minute lifetime, the backstop
 mints its **own fresh** App token just-in-time immediately before it runs rather
@@ -839,14 +839,14 @@ class that fails the job loud **without** consuming a resume attempt, so a healt
 workpad behind a bad token is never misclassified as corrupt (see
 `docs/implement-skill.md`). The resume comment carries an inline `Resume note:`
 that instructs the resumed run to invoke bundled helpers with the repo-relative
-vendored literal (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`)
+vendored literal (`.prflow/vendor/prflow/scripts/…`, `.prflow/vendor/prflow/lib/…`)
 as the command's leading token — never an absolute path, never repo-root
 `scripts/…`, never behind a `VAR=` prefix or `bash <path>` wrapper — since the
 cloud allowlist silently denies any other form, which is exactly what killed
 prior auto-resume runs on their first helper call (issue #405).
 
 The same App token **also** powers the review workflow's **no-verdict
-auto-resume backstop** (`devflow_review.stall_backstop`, issue #408 — the
+auto-resume backstop** (`prflow_review.stall_backstop`, issue #408 — the
 review-side sibling of the implement backstop above; see
 `docs/DEVFLOW_SYSTEM_OVERVIEW.md`). A headless cloud review can end `success`
 with no verdict — not a timing race but the harness's **default dispatch mode**
@@ -862,10 +862,10 @@ comment never re-triggers the workflow, so this needs the App: with `DEVFLOW_APP
 unset the backstop degrades to the dead-end flip (a visible `❌ Review failed`
 that a human must re-trigger). And exactly like the implement resume, add the
 minting App's bot login (e.g. `your-app[bot]`) to `devflow.allowed_bots` in
-`.devflow/config.json`, or the manual-`/prflow:review` gate the re-trigger
+`.prflow/config.json`, or the manual-`/prflow:review` gate the re-trigger
 re-enters declines the App-authored comment. The backstop is capped at
-`devflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
-gated by `devflow_review.stall_backstop.enabled` (default `true`, disabled only
+`prflow_review.stall_backstop.max_resume_attempts` (default `2`) per head and
+gated by `prflow_review.stall_backstop.enabled` (default `true`, disabled only
 on a real JSON `false`); when the cap is exhausted, disabled, or no App token is
 configured it reports no-fire and degrades to the dead-end flip.
 
@@ -920,12 +920,12 @@ For the full idea → issue → PR walkthrough, see
 
 ## Configure and enable
 
-1. `install.sh` scaffolds `.devflow/config.json` from the template when absent;
+1. `install.sh` scaffolds `.prflow/config.json` from the template when absent;
    when it already exists it's kept and re-running only **backfills newly-added
    keys** from the template (existing values win, your arrays stay as-is). Every
    value has a working default, so commit it as-is or edit to customize — the
    workflows read it from the checked-out tree, so it must be committed (if your
-   repo gitignores it, force-add: `git add -f .devflow/config.json`).
+   repo gitignores it, force-add: `git add -f .prflow/config.json`).
 2. The `workflows` block in that file toggles each workflow on/off.
 3. Make `Devflow Review` a required status check (Settings → Branches → branch
    protection) once you've confirmed it runs.
@@ -934,9 +934,9 @@ For the full idea → issue → PR walkthrough, see
 
 The light command (`devflow.yml`) and `/prflow:implement`
 (`devflow-implement.yml`) always prepare the runner **before**
-Claude runs by reading a `setup` block from `.devflow/config.json`; the
+Claude runs by reading a `setup` block from `.prflow/config.json`; the
 automated reviewer (`devflow-review.yml` → `devflow-runner.yml`) does so too,
-but **only when you opt in** with `devflow_runner.provision_env: true` (see
+but **only when you opt in** with `prflow_runner.provision_env: true` (see
 "Letting the reviewer build/test a PR" below).
 (`/prflow:init` auto-fills `node_version` + an install line from your repo's
 language(s) and lockfile — see "Letting the reviewer build/test a PR" below.)
@@ -1042,10 +1042,10 @@ add them on top of the built-in base list via config; you never edit the
 workflow YAML:
 
 ```json
-"devflow": {
+"prflow": {
   "allowed_tools": ["Bash(make:*)", "Bash(docker compose:*)"]
 },
-"devflow_implement": {
+"prflow_implement": {
   "allowed_tools": ["Bash(make:*)", "Bash(terraform:*)"]
 }
 ```
@@ -1055,10 +1055,10 @@ workflow YAML:
   never replace.
 - These keys are **independent**, one per execution path:
   `devflow.allowed_tools` → light `/prflow:*` command path (`devflow.yml`);
-  `devflow_implement.allowed_tools` → `/prflow:implement` (`devflow-implement.yml`).
+  `prflow_implement.allowed_tools` → `/prflow:implement` (`devflow-implement.yml`).
   None inherits another's extras, so list every tool you want for a given path
   under that path's key. The automated reviewer's build tools live in a third
-  key, `devflow_runner.allowed_tools`, gated behind the `devflow_runner.provision_env`
+  key, `prflow_runner.allowed_tools`, gated behind the `prflow_runner.provision_env`
   opt-in and bounded by a deny-list floor (see "Letting the reviewer build/test a
   PR" below).
 - Leave a key out (or `[]`) to use the base list unchanged.
@@ -1079,34 +1079,34 @@ For the run to actually run those commands, they must be on the allowlist for
 the execution path — invoked by their **direct leading-token** form (the
 `bash <path>` wrapper is deny-floored and can never be granted). So:
 
-- List your project's test/lint commands under **`devflow_implement.allowed_tools`**
+- List your project's test/lint commands under **`prflow_implement.allowed_tools`**
   (the `/prflow:implement` path) **and** under **`devflow.allowed_tools`** (the
   `/prflow:*` command path, including `/prflow:review-and-fix`):
 
   ```json
-  "devflow": {
+  "prflow": {
     "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
   },
-  "devflow_implement": {
+  "prflow_implement": {
     "allowed_tools": ["Bash(npm test:*)", "Bash(npm run lint:*)"]
   }
   ```
 
 - **Leave them ungranted and the run does not silently defer to CI** — a
   verification-command AC goes **`Blocked`**, and the Blocked message names
-  `devflow_implement.allowed_tools` as the exact remedy: grant the command so
+  `prflow_implement.allowed_tools` as the exact remedy: grant the command so
   the run can verify in-env, then re-run. There is never a silent stall, and
   never a verdict resting on a CI result the run never saw.
 
 - **A grant a PR ships is post-merge-only — never rely on a grant that same PR
-  adds.** A grant added to `devflow_implement.allowed_tools` (and equally to
+  adds.** A grant added to `prflow_implement.allowed_tools` (and equally to
   `devflow.allowed_tools`, which this same section instructs populating) inside a PR
   takes effect only after that PR merges, because the workflows resolve grants at trigger time from the default branch — never from the PR's own head.
   So a criterion that must run a *newly*-granted command cannot verify in-env
   during that PR's own implementing run; grant the command in a prior (merged)
   change, or defer that verification to after merge.
 
-(This repo's own `.devflow/config.json` grants `Bash(lib/test/run.sh:*)`,
+(This repo's own `.prflow/config.json` grants `Bash(lib/test/run.sh:*)`,
 `Bash(lib/preflight.sh:*)`, and `Bash(shellcheck:*)` under both keys for exactly
 this reason.) See [`implement-skill.md`](implement-skill.md) for the Phase 3.4
 gate behavior.
@@ -1128,12 +1128,12 @@ says nothing about *whose* bytes it prints, and this job checks out the PR head,
 printed text — which the calling skill appends to its own prompt — used to be PR-author-editable.
 What makes the grant safe on this tier is what the job does *before* the agent starts: the
 unconditional truncation plus the trusted base-ref closure described under the
-**Trusted-ref rule — `.devflow/prompt-extensions/`** above, not the helper being read-only.) The
+**Trusted-ref rule — `.prflow/prompt-extensions/`** above, not the helper being read-only.) The
 effectiveness-trace **record file** is the one piece gated to writable runs. See
 [`workflow-triggers.md`](workflow-triggers.md) and
 [`efficiency-trace.md`](efficiency-trace.md).) Read-only also covers
 `resolve-review-overrides.py`, which the shared review engine runs to resolve the
-per-subagent `devflow_review.agent_overrides` block — it only reads config via
+per-subagent `prflow_review.agent_overrides` block — it only reads config via
 `config-get.sh` and prints the resolved override map to stdout, never touching the
 tree. For those overrides to take effect under the cloud `review` profile, that
 script must be on the profile's tool allow-list (alongside the readers above); if
@@ -1143,7 +1143,7 @@ silently falls back to `{}` (no override). See
 build/test:
 
 ```json
-"devflow_runner": {
+"prflow_runner": {
   "provision_env": true,
   "allowed_tools": ["Bash(npm:*)", "Bash(npx:*)", "Bash(node:*)"]
 },
@@ -1153,7 +1153,7 @@ build/test:
 }
 ```
 
-When `devflow_runner.provision_env` is `true`, the runner (`devflow-runner.yml`)
+When `prflow_runner.provision_env` is `true`, the runner (`devflow-runner.yml`)
 does two extra things before launching Claude:
 
 1. Runs the `setup-project-env` action — the same provisioning the
@@ -1167,7 +1167,7 @@ does two extra things before launching Claude:
    caveat instead of silently degrading the review into a false "changes
    requested" verdict.
 2. Extends the read-only `review` tool profile with the **freeform
-   `devflow_runner.allowed_tools`** list from your base-branch config — read
+   `prflow_runner.allowed_tools`** list from your base-branch config — read
    verbatim from the trusted base ref. This is **language-agnostic**: a Go shop
    lists `Bash(go:*)`, a Rust shop `Bash(cargo:*)`, and so on — no PRFlow
    release is needed per language. `/prflow:init` auto-populates it from your
@@ -1192,7 +1192,7 @@ does two extra things before launching Claude:
    what `config.json` lists. The floor's filter code itself is executed only from
    a **trusted source** — a copy materialized from your base branch, or the
    vendored copy when it was freshly fetched this run at the pinned
-   `devflow_version` — never from the PR-head checkout, so a pull request cannot
+   `prflow_version` — never from the PR-head checkout, so a pull request cannot
    edit the filter that governs its own review; when no trusted copy is
    available the runner fails closed (no build tools appended). (The floor blocks *direct* shell/privilege access; it
    does **not** try to block interpreters like `node -e` / `python -c`, which are
@@ -1204,7 +1204,7 @@ does two extra things before launching Claude:
 When the flag is **absent or `false` (the default)**, none of this happens: the
 runner is byte-for-byte the read-only reviewer it was before — no provisioning
 step, no build tools, no added latency, regardless of what
-`devflow_runner.allowed_tools` contains.
+`prflow_runner.allowed_tools` contains.
 
 The `setup` block is still populated for you: **`/prflow:init` auto-detects
 your repo's language(s)** (Node, Go, Rust, Java, Ruby, PHP, .NET, Make, Docker)
@@ -1273,16 +1273,16 @@ reports *observed* conclusions rather than asserting green: on such a run the en
 ### Where the `review` profile grants its helpers — the path prefix matters
 
 The read-only `review` profile grants its bundled helpers under the **vendored path prefix
-`.devflow/vendor/devflow/`** — e.g. `Bash(.devflow/vendor/devflow/scripts/workpad.py:*)`,
-`Bash(.devflow/vendor/devflow/scripts/config-get.sh:*)`,
-`Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*)`. That prefix is not decoration:
+`.prflow/vendor/prflow/`** — e.g. `Bash(.prflow/vendor/prflow/scripts/workpad.py:*)`,
+`Bash(.prflow/vendor/prflow/scripts/config-get.sh:*)`,
+`Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*)`. That prefix is not decoration:
 Claude Code matches a `Bash(...)` rule against the command's **leading token after
 expansion**, so a helper invoked by any other path — or through a `bash <path>` wrapper —
 matches nothing and is silently denied.
 
 The one exception is `load-prompt-extension.sh`, granted **directory-agnostically** as
 `Bash(*/load-prompt-extension.sh:*)` on the `review` and `command` profiles only (the
-vendored-literal `Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*)` is granted
+vendored-literal `Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*)` is granted
 on `review`, `implement`, and `command`; see the profile breakdown below). The final-pass reviewer (`requesting-code-review`) is
 dispatched as an *installed skill*, so its `${CLAUDE_SKILL_DIR}` anchor resolves to the
 plugin checkout rather than the vendored tree; without the wildcard rule its prompt-extension
@@ -1294,20 +1294,20 @@ wildcard (the `review` profile for the auto-review reviewer above; the `command`
 because `/prflow:requesting-code-review` is also invocable directly as an installed skill,
 where the anchor resolves to the plugin checkout outside the vendored tree). The `implement`
 profile does **not** carry the wildcard — under the Phase-3 dispatch the orchestrator supplies
-the reviewer the **vendored literal** `.devflow/vendor/devflow/scripts/load-prompt-extension.sh`,
+the reviewer the **vendored literal** `.prflow/vendor/prflow/scripts/load-prompt-extension.sh`,
 which `implement` already grants, so no wildcard is needed there.
 
 ## Effectiveness telemetry on the cloud `/prflow:implement` job
 
 `/prflow:implement`'s Phase 3.3 drives `review-and-fix` **inline in the orchestrator's
 context**, and that loop persists a per-run effectiveness record under
-`.devflow/logs/efficiency/` (see [`efficiency-trace.md`](efficiency-trace.md)). Two properties
+`.prflow/logs/efficiency/` (see [`efficiency-trace.md`](efficiency-trace.md)). Two properties
 matter for the cloud tier:
 
 - **The per-iteration `iter-<N>.json` emit is a non-optional obligation on every iteration,
   however the loop was executed** — whether `review-and-fix` ran as a `Skill` invocation or was
   **hand-run via direct `Agent` dispatch** under sandbox friction — and it is written **with the
-  Write tool, never a shell `>`/heredoc redirect** the cloud sandbox denies into `.devflow/tmp`.
+  Write tool, never a shell `>`/heredoc redirect** the cloud sandbox denies into `.prflow/tmp`.
   A `claude-code-action` permission/sandbox denial is not the local-tier permission classifier and
   is **not** license to leave the instrumented loop: on the implement job `Skill`, `Agent`, `Write`,
   `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allow-listed, so the loop is
@@ -1336,9 +1336,9 @@ matter for the cloud tier:
 By default every cloud workflow authenticates to Anthropic with
 `CLAUDE_CODE_OAUTH_TOKEN` and runs a Claude model. Each of the three
 model-running workflow sections — the light command path (`devflow`),
-`/prflow:implement` (`devflow_implement`), and the automated reviewer
-(`devflow_runner`) — can instead be routed through an **Anthropic-compatible**
-endpoint via a `providers` map in `.devflow/config.json` plus one fixed repo
+`/prflow:implement` (`prflow_implement`), and the automated reviewer
+(`prflow_runner`) — can instead be routed through an **Anthropic-compatible**
+endpoint via a `providers` map in `.prflow/config.json` plus one fixed repo
 secret, `DEVFLOW_PROVIDER_API_KEY`. Each section picks its own provider and model
 independently; with no provider configured the cloud tier matches the
 Anthropic-OAuth default (unchanged for a given `claude_model`).
@@ -1352,7 +1352,7 @@ Anthropic-OAuth default (unchanged for a given `claude_model`).
 
 **No provider-by-provider setup walkthrough ships in this release.** The
 per-entry field reference — `base_url`, `auth`, `timeout_ms`, `effort_supported`,
-and the `env` map — lives in [`.devflow/config.schema.json`](../.devflow/config.schema.json)
+and the `env` map — lives in [`.prflow/config.schema.json`](../.prflow/config.schema.json)
 under `providers`, which is the single source for those fields. Two operational
 notes the schema does not carry:
 
@@ -1414,8 +1414,8 @@ After installing (or updating), run a low-stakes test before relying on the
 automation: open a throwaway PR and comment a bare `/prflow:review` on it, and
 confirm the run provisions and responds. The CI permission model is settled —
 each plugin-using job runs the `vendor-plugin` action right after checkout, which
-materializes the plugin at `.devflow/vendor/devflow/` (from the commit, the source
-repo, or the pinned `devflow_version` fetch), so its scripts resolve at the literal
-`.devflow/vendor/devflow/scripts/…` paths the workflows allowlist. (A
+materializes the plugin at `.prflow/vendor/prflow/` (from the commit, the source
+repo, or the pinned `prflow_version` fetch), so its scripts resolve at the literal
+`.prflow/vendor/prflow/scripts/…` paths the workflows allowlist. (A
 github-marketplace install is deliberately *not* used in CI: the Actions sandbox
 can't reach `~/.claude`, and `CLAUDE_SKILL_DIR` is unset there.)

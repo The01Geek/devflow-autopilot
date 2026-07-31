@@ -13,7 +13,7 @@
 # abort the caller — but it leaves a specific stderr breadcrumb on the fallback
 # path so a real failure is visible rather than silently swallowed.
 #
-# This is a DISTINCT resolution from the `.devflow/` repo-root anchoring used by
+# This is a DISTINCT resolution from the `.prflow/` repo-root anchoring used by
 # config-get.sh / config-source.sh / workpad.py (issue #295), which resolve the
 # *nearest* git root via `git rev-parse --show-toplevel` — that returns the
 # WORKTREE when inside one, which is deliberately NOT what this helper wants. The

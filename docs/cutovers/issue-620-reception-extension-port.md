@@ -7,7 +7,7 @@ kind: growth
 
 ## Files
 
-`.devflow/prompt-extensions/receiving-code-review.md` gains two sections. **Focused test modules
+`.prflow/prompt-extensions/receiving-code-review.md` gains two sections. **Focused test modules
 in direct reception passes** ports the module-iteration rule that already governs the loop path,
 adapted for direct passes (the direct leading-token runner form leads) and deferring to the
 review-and-fix extension's own section on loop runs. **Push form in reception passes** ports the
@@ -24,7 +24,7 @@ entry that goes through the skill preamble — the standalone loop, the implemen
 run, and the Step 2.6 shadow entry. The documented Skill-denied fallback, where Phase 3 reads the
 engine straight from the tree, bypasses the preamble and is unchanged by this issue. The vendored
 `skills/receiving-code-review/SKILL.md` stays repo-agnostic and is unchanged; the sources of
-record (`.devflow/prompt-extensions/review-and-fix.md`'s focused-modules section and
+record (`.prflow/prompt-extensions/review-and-fix.md`'s focused-modules section and
 `skills/review-and-fix/references/fixing.md` Step 3 item 6) are unchanged.
 
 ## Justification

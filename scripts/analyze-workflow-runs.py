@@ -182,8 +182,8 @@ def load_legacy_implement_bundle(path: Path) -> SessionBundle:
 def _discover(root: Path) -> list[SessionBundle]:
     found: dict[str, SessionBundle] = {}
     locations = (
-        (root / ".devflow/tmp/workflow-runs", load_session_bundle),
-        (root / ".devflow/tmp/implement-runs", load_legacy_implement_bundle),
+        (root / ".prflow/tmp/workflow-runs", load_session_bundle),
+        (root / ".prflow/tmp/implement-runs", load_legacy_implement_bundle),
     )
     for bundle_root, loader in locations:
         if not bundle_root.is_dir():
@@ -338,7 +338,7 @@ def _analysis_dir(root: Path, selected: list[SelectedOccurrence]) -> Path:
     identities = ",".join(f"{item.session_id}:{item.occurrence_id}" for item in selected)
     digest = hashlib.sha256(identities.encode()).hexdigest()[:10]
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return root / ".devflow/tmp/workflow-analyses" / f"{stamp}-{digest}"
+    return root / ".prflow/tmp/workflow-analyses" / f"{stamp}-{digest}"
 
 
 def parse_output(

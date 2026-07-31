@@ -294,7 +294,7 @@ devflow_render_report() {
     case "$declined_refiled_n" in ''|*[!0-9]*) declined_refiled_n=0 ;; esac
     if [ "$declined_refiled_n" -gt 0 ]; then
         printf '\n## Won'"'"'t-fix patterns re-raised this run\n\n'
-        printf 'These recurred after being closed not-planned. To stop one permanently, add a human `dismissed{}` entry to `.devflow/learnings/overrides.json`.\n\n'
+        printf 'These recurred after being closed not-planned. To stop one permanently, add a human `dismissed{}` entry to `.prflow/learnings/overrides.json`.\n\n'
         _rr_emit declined_refiled '(.declined_refiled // [])[] | "- `\(. | tostring)`"'
     fi
 

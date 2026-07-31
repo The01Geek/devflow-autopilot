@@ -41,7 +41,7 @@ The classification is derived-plus-declared, mirroring the AC1 design
 * an edge carries an unknown kind or class, or a repo-owned edge carries an
   authorization string;
 * a **repository-owned** edge does not resolve beneath
-  ``.devflow/vendor/devflow/`` (a repo-root ``../../scripts/…`` form escapes the
+  ``.prflow/vendor/prflow/`` (a repo-root ``../../scripts/…`` form escapes the
   vendored tree and is rejected), resolves outside the repository via a symlink,
   or its target file is absent on disk;
 * an **external** runtime edge names no preflight guarantee (``lib/preflight.sh``
@@ -70,7 +70,7 @@ sys.path.insert(0, str(_LIBTEST))
 import cloud_writer_contract as cwc  # noqa: E402
 
 REPO_ROOT = cwc.REPO_ROOT
-VENDOR_PREFIX = cwc.VENDOR_PREFIX  # ".devflow/vendor/devflow/"
+VENDOR_PREFIX = cwc.VENDOR_PREFIX  # ".prflow/vendor/prflow/"
 
 
 def _declared_preflight_guarantees():
@@ -810,16 +810,16 @@ def classify_all():
 
 
 def resolves_beneath_vendor(repo_rel):
-    """True iff ``repo_rel`` vendors to a path beneath (or equal to) ``.devflow/vendor/devflow/``.
+    """True iff ``repo_rel`` vendors to a path beneath (or equal to) ``.prflow/vendor/prflow/``.
 
     A source edge written as ``../../scripts/foo`` from a ``scripts/`` helper
     reaches this predicate already helper-relative-normalized as
     ``../scripts/foo``. Vendoring that value normalizes to
-    ``.devflow/vendor/scripts/foo`` — outside the vendored tree — and is rejected.
+    ``.prflow/vendor/scripts/foo`` — outside the vendored tree — and is rejected.
     This is the executable trust boundary the AC5 guard enforces.
     """
-    # An absolute target would reset the join (`.devflow/vendor/devflow/` + `/x`
-    # normalizes to `.devflow/vendor/devflow/x`, and `REPO_ROOT / "/x"` resets to
+    # An absolute target would reset the join (`.prflow/vendor/prflow/` + `/x`
+    # normalizes to `.prflow/vendor/prflow/x`, and `REPO_ROOT / "/x"` resets to
     # `/x`), so reject it up front — no legitimate edge is absolute (derived tails
     # are `lstrip("/")`-ed; declared repo-owned targets are repo-relative).
     if (

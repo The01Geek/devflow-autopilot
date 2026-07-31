@@ -82,7 +82,7 @@ tree is committed, so do not re-run the complete suite mid-iteration just to
 clear it. When the complete suite does run and fails, read its terminal
 `Failure recap` from the captured output rather than relaunching it. The operative statement of this
 policy for agent runs lives in the prompt extensions under
-`.devflow/prompt-extensions/`; the cloud `/prflow:implement` in-env gate
+`.prflow/prompt-extensions/`; the cloud `/prflow:implement` in-env gate
 (issue #405) is untouched by it.
 
 Each module is also executed by the full suite through the fail-closed
@@ -104,10 +104,10 @@ directory makes the directory form copy that directory wholesale: because
 `.claude/settings.json` is tracked, `regenerate-artifacts` used to copy the entire
 untracked `.claude/` tree into every fixture, so a checkout carrying `git worktree`
 checkouts under `.claude/worktrees/` paid that whole payload on every fixture copy — the
-dominant cost of a full local suite run. Build caches and `.devflow/tmp` are excluded by
+dominant cost of a full local suite run. Build caches and `.prflow/tmp` are excluded by
 construction under the tracked-only rule, so a fixture builder needs no prune step —
-while *tracked* content under an otherwise-ignored directory (`.devflow/config.json` and
-the rest of `.devflow/`, force-added past the ignore rule) is still reproduced, which is
+while *tracked* content under an otherwise-ignored directory (`.prflow/config.json` and
+the rest of `.prflow/`, force-added past the ignore rule) is still reproduced, which is
 exactly what completeness requires. The
 measured before/after figures are recorded once, in
 [`lib/test/modules/regenerate-artifacts.inventory.md`](lib/test/modules/regenerate-artifacts.inventory.md).
@@ -231,7 +231,7 @@ structural boundary; a new boundary row alone does not make the revival valid.
 **Retiring existence-only pins (issue #798, restated by #876).** What decides the
 disposition is **whether the pin was buying a divergence check** — whether anything
 depends on two or more homes agreeing. Find the pin's row in the frozen census
-`.devflow/logs/pin-corpus-inventory.tsv` and walk these arms **in order, first match
+`.prflow/logs/pin-corpus-inventory.tsv` and walk these arms **in order, first match
 wins**. Only arm 2 authorizes a *pin-only* removal; arm 1 permits removal solely
 alongside a copy deletion, and arms 0 and 3 retain outright — so an unanswered
 question always retains:
@@ -241,8 +241,8 @@ question always retains:
    and it means the census *cannot answer*, **never** that the answer is "no".
    Either regenerate the census (below) and re-read, or **retain the pin**. Do not
    hand-count: the deciding number excludes the census's own
-   `# counted-file-exclusions` set (`lib/test/`, `.devflow/learnings/`,
-   `.devflow/logs/`, `.changeset/`, `CHANGELOG.md`), so a `git grep` over-counts.
+   `# counted-file-exclusions` set (`lib/test/`, `.prflow/learnings/`,
+   `.prflow/logs/`, `.changeset/`, `CHANGELOG.md`), so a `git grep` over-counts.
 1. **`counted_occurrences >= 2`** — remove the pin only in the same change that
    removes at least one of those copies; a pin-only removal is not an accepted
    disposition, because it leaves the duplicated content without its divergence
@@ -353,23 +353,23 @@ demanded by every source edit that touches a pinned literal.
 
 **Refreshing a frozen pin identity (issue #843).** Renaming a retained pin is a different
 operation from retiring one, and it uses a different mechanism. The residual prose-pin
-manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
+manifest `.prflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
 helper, assertion name, literal, target — against the base revision's committed pin-corpus
 inventory, so a manifest row is **never** edited: an edit there breaks the historical partition
 permanently. When a retained pin's guarded rule is legitimately renamed, declare the rename in
 `lib/test/pin-identity-refreshes.tsv` — live hand-maintained maintainer intent, so it sits
-beside its sibling `lib/test/pin-corpus-adjudications.tsv` rather than under `.devflow/logs/`,
+beside its sibling `lib/test/pin-corpus-adjudications.tsv` rather than under `.prflow/logs/`,
 which holds frozen audit artifacts — in the **same commit** as the source
 rename. `lib/test/test_residual_prose_retirement_manifest.py` applies the declared mapping when
 it realizes retained identities against the current tree, and admits a row only when the old
 identity names a `RETAIN_BOUNDARY` identity in the frozen manifest, the old name is gone from
 the tree, and the new one is present — so the rename and its re-freeze cannot come apart, and a
 refresh cannot outlive the rename it recorded. This is not the two-commit inventory protocol
-above: `.devflow/logs/pin-corpus-inventory.tsv` is a frozen census refreshed by its own
+above: `.prflow/logs/pin-corpus-inventory.tsv` is a frozen census refreshed by its own
 maintenance commits and owes no same-change update for a rename.
 
 Two scope limits. The ledger covers renames of identities frozen in the **residual prose-pin**
-manifest only — the sibling `.devflow/logs/residual-required-copy-retirement-manifest.tsv` makes
+manifest only — the sibling `.prflow/logs/residual-required-copy-retirement-manifest.tsv` makes
 the same retained-vs-tree assertion with no mapping applied, so renaming a pin frozen *there* has
 no refresh path yet and adding a row for it fails with `old identity is not a RETAIN_BOUNDARY row`.
 And the ledger refreshes an assertion **name** only: changing a retained pin's literal or resolved
@@ -440,7 +440,7 @@ needs-human-reconciliation and stop, never a guessed hand-merge.
 
 Autonomous `/prflow:implement`, `/prflow:review-and-fix`, and `/prflow:receiving-code-review`
 runs apply this automatically: the rule lives, byte-identical, in the three
-`.devflow/prompt-extensions/` files, and each skill's in-run conflict arm carries a generic
+`.prflow/prompt-extensions/` files, and each skill's in-run conflict arm carries a generic
 pointer to it. Adding a new artifact row therefore extends the conflict rule with no prompt
 edit — the registry stays the sole enumeration point.
 
@@ -557,7 +557,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   resolve regardless of install location and runner (`$CLAUDE_SKILL_DIR` on Claude Code;
   the runner-reported skill base directory substituted for the placeholder elsewhere —
   never assigned to a shell variable read by a later statement, which some runners'
-  inline-bash marshaling drops). Never hardcode `.devflow/vendor/devflow/…`
+  inline-bash marshaling drops). Never hardcode `.prflow/vendor/prflow/…`
   in a skill (the cloud-tier *workflows* are the one exception — see below).
 - **Portability:** avoid GNU-only flags. Use `python3` for date math (not `date -d`)
   and ERE / `sed -E` (not `grep -P`).
@@ -582,12 +582,12 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   existed, renormalize once with `git add --renormalize .` (or re-clone) — `.gitattributes`
   governs future checkout/normalization, not a tree that is already CRLF on disk.
 - **No secrets, owner-specific IDs, or product names** in committed files. Config
-  lives in `.devflow/config.json` (created from the example). This repo **tracks**
-  its live `config.json` — force-added past the `/.devflow/*` ignore rule with
+  lives in `.prflow/config.json` (created from the example). This repo **tracks**
+  its live `config.json` — force-added past the `/.prflow/*` ignore rule with
   `git add -f` so the cloud tier reads it from the committed tree — so keep secrets
-  and owner-specific IDs out of it. The `.devflow/learnings/` corpus
+  and owner-specific IDs out of it. The `.prflow/learnings/` corpus
   (`retrospectives.jsonl`, `experiment-records.jsonl`, `overrides.json`) is likewise
-  tracked and published — re-included by the `!/.devflow/learnings/` negation in
+  tracked and published — re-included by the `!/.prflow/learnings/` negation in
   `.gitignore` — so keep host-local and owner-identifying data —
   operator home-directory paths, account names — out of it too;
   `lib/materialize-retrospectives.sh` rewrites operator home prefixes to `~` on the
@@ -601,7 +601,7 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   step.** As a preflight, each skill invokes
   `"${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh <skill-name>` and honors
   any returned text as instructions appended verbatim to the end of its own prompt — the
-  consumer-owned, upgrade-safe `.devflow/prompt-extensions/<skill-name>.md` (absent or
+  consumer-owned, upgrade-safe `.prflow/prompt-extensions/<skill-name>.md` (absent or
   empty → no-op). **Which checkout supplies those bytes is a per-tier question, separate
   from who owns the file:** the cloud review tier checks out the pull request's head, so
   the extensions it loads come from the trusted base ref through
@@ -629,13 +629,13 @@ fails the suite. The summary renderer lives in `lib/test/summary.sh`.
   skills with prompt extensions*.
 - Prompt cutovers, trims, and relocations follow the advisory sole-owner discipline in
   [`CLAUDE.md`](CLAUDE.md)'s **Helper cutover** convention, with the lean-prose guidance in
-  [`.devflow/prompt-extensions/implement.md`](.devflow/prompt-extensions/implement.md)
+  [`.prflow/prompt-extensions/implement.md`](.prflow/prompt-extensions/implement.md)
   under **Keeping prompt prose lean**.
 
 ## Cloud-tier workflows
 
 The `.github/workflows/*.yml` files run inside GitHub Actions, where they reference
-plugin scripts at `.devflow/vendor/devflow/scripts/…`. That path assumes the cloud
+plugin scripts at `.prflow/vendor/prflow/scripts/…`. That path assumes the cloud
 tier is used with the plugin **vendored** into the consuming repo at that path (see
 `docs/cloud-setup.md`). This is intentional and distinct from the local skills, which
 resolve the portable `${CLAUDE_SKILL_DIR:-…}` anchor at runtime.

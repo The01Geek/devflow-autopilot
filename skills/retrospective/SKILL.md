@@ -33,11 +33,11 @@ BUNDLE="$(cat "$BUNDLE_PATH")"
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective
 ```
 
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
 
 ## § The context bundle
 
-Schema of `.devflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
+Schema of `.prflow/tmp/pr-<n>.context.json` produced by `fetch-pr-context.sh`:
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -274,7 +274,7 @@ newlines that break naive serialization).
 
 **Optional `extension_unreadable` key (consumer prompt-extension handoff, issue #834).**
 When the dispatching parent supplies a by-path consumer prompt-extension handoff (a
-sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective.md`
+sentence naming your extension file at an absolute `.prflow/prompt-extensions/retrospective.md`
 path and instructing you to read it with your file-read tool), honor it: read that
 file and treat any content as instructions appended to this skill's prompt. An absent
 or empty file is a no-op you report nothing about. If the file is **present but you

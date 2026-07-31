@@ -31,7 +31,7 @@ Your only stdout output is **exactly one** JSON object carrying a `findings` arr
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/load-prompt-extension.sh retrospective-audit
 ```
 
-If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.devflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
+If the invocation fails because the helper path does not exist (`No such file`, exit 127, or the platform equivalent), that is the **anchor-resolution** failure described in the *Portable helper anchor* note above — fix the anchor, don't report a missing extension. Otherwise, if the helper exits non-zero, a consumer extension exists but could not be loaded — surface its stderr message and do not silently proceed as if none existed. If it exits 0 and prints text, treat that text as additional instructions appended to the end of this skill's own prompt for this run — it is upgrade-safe, consumer-owned customization committed under `.prflow/prompt-extensions/`. If it exits 0 and prints nothing, proceed unchanged. (This subagent's stdout contract is strict — exactly one JSON object — so a consumer extension here must not break that contract.)
 
 ## § 1 — Re-derive the root cause
 
@@ -48,7 +48,7 @@ Write your own one-paragraph root-cause restatement — do NOT trust the retrosp
 - **Retrospective hallucination?** Does the retrospective's `summary` contradict the primary-source evidence (PR/issue bodies, comments, reviews)? If so, the real fix may be in `skills/retrospective/SKILL.md`, not a downstream rule.
 - **Category vocabulary wrong?** Did failures get forced into `other`, or into a category that doesn't fit, because the fixed `categories` vocabulary in `retrospective/SKILL.md` lacks the right bucket (or has one so broad it's useless)? If so, the fix may be that vocabulary (and possibly `lib/compute-patterns.jq`).
 - **Missing primary source?** Did the retrospective miss context that would have changed the diagnosis (a referenced PR, a CI log, a doc, an issue-comment thread)? If so, the fix may be in `fetch-pr-context.sh`.
-- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences` / the filing back-pressure caps (`max_issues_per_run` / `max_open_issues` / `max_open_per_category`), or surfaced too aggressively? If so, the fix may be in `.devflow/config.json`.
+- **Threshold mis-tuned?** Are useful patterns suppressed by `cooldown_days` / `min_occurrences` / the filing back-pressure caps (`max_issues_per_run` / `max_open_issues` / `max_open_per_category`), or surfaced too aggressively? If so, the fix may be in `.prflow/config.json`.
 
 Any of these may legitimately be the highest-leverage proposed change — the issue you file can target the engine's own files, because a human reviews and implements it through the normal pipeline.
 
@@ -140,7 +140,7 @@ Each element of `findings`:
 - `rationale` — one sentence naming why this sub-pattern is distinct from the others in the array.
 
 Top-level:
-- `extension_unreadable` *(optional, issue #834)* — include this one string key **only** when the by-path consumer prompt-extension handoff the dispatch prompt supplied (a sentence naming your extension file at an absolute `.devflow/prompt-extensions/retrospective-audit.md` path) named a file that was **present but could not be read**; its value names the path and the read failure so the orchestrator can relay it. An absent or empty extension file is a no-op you report nothing about, and in every non-unreadable case you omit the key. The return stays **exactly one JSON object** — the `findings` array plus at most this optional key — with nothing else on stdout.
+- `extension_unreadable` *(optional, issue #834)* — include this one string key **only** when the by-path consumer prompt-extension handoff the dispatch prompt supplied (a sentence naming your extension file at an absolute `.prflow/prompt-extensions/retrospective-audit.md` path) named a file that was **present but could not be read**; its value names the path and the read failure so the orchestrator can relay it. An absent or empty extension file is a no-op you report nothing about, and in every non-unreadable case you omit the key. The return stays **exactly one JSON object** — the `findings` array plus at most this optional key — with nothing else on stdout.
 
 There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do not edit.
 
@@ -148,7 +148,7 @@ There is no `excluded` field, no `targets[]`, no PR. You return a spec; you do n
 
 ## § 6 — Construct the JSON with `jq -n`
 
-Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write **each finding's body** to its own **unique** scratch file first (plain `Write` tool call) — the orchestrator dispatches every pattern's Stage B subagent concurrently, so a fixed shared path like `.devflow/tmp/issue-body.md` would let two subagents clobber each other; use `$(mktemp)` paths or ones that embed your pattern's slug and the finding index (e.g. `.devflow/tmp/issue-body-<slug>-1.md`). Then build the `findings` array from those per-finding scratch files:
+Never hand-write or heredoc the output JSON — character-escaping errors in multi-line issue bodies are the most common breakage. Write **each finding's body** to its own **unique** scratch file first (plain `Write` tool call) — the orchestrator dispatches every pattern's Stage B subagent concurrently, so a fixed shared path like `.prflow/tmp/issue-body.md` would let two subagents clobber each other; use `$(mktemp)` paths or ones that embed your pattern's slug and the finding index (e.g. `.prflow/tmp/issue-body-<slug>-1.md`). Then build the `findings` array from those per-finding scratch files:
 
 ```bash
 BODY1="$(mktemp)"; BODY2="$(mktemp)"   # one per finding — never a fixed shared path

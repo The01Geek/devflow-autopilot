@@ -50,7 +50,7 @@ CI_REF_FB_NOTASK="$CI_ROOT/skills/create-issue/references/fallback-no-task-tool.
 CI_REF_FB_READONLY="$CI_ROOT/skills/create-issue/references/fallback-read-only-sandbox.md"
 CI_REF_FB_DISPATCH="$CI_ROOT/skills/create-issue/references/fallback-audit-dispatch-arms.md"
 CI_REF_FB_STATEOWNER="$CI_ROOT/skills/create-issue/references/fallback-state-owner-unavailable.md"
-CI_EXT="$CI_ROOT/.devflow/prompt-extensions/create-issue.md"
+CI_EXT="$CI_ROOT/.prflow/prompt-extensions/create-issue.md"
 CI_CLAUDE="$CI_ROOT/CLAUDE.md"
 CI_INVENTORY="$CI_ROOT/lib/test/modules/create-issue-contract.inventory.md"
 
@@ -918,7 +918,7 @@ devflow_module_pin_unique "#603/AC19: an erroneous invalidation needs no amend p
 #     (a)–(f) are all positive-presence pins, so a future edit injecting a DevFlow-internal
 #     reference into a body that ships into consumer repos would pass them all. Assert the two
 #     consumer-installed create-issue bodies name no repo-internal test path / CI job name.
-#     `devflow_implement.allowed_tools` is deliberately NOT banned: it is a consumer-facing
+#     `prflow_implement.allowed_tools` is deliberately NOT banned: it is a consumer-facing
 #     config key (consumers set it themselves), not a DevFlow-repo-internal token.
 for CI465_TOK in 'lib/test/run.sh' 'lib + python tests'; do
   assert_eq "#465 (g): create-issue SKILL stays consumer-agnostic — no '$CI465_TOK'" \

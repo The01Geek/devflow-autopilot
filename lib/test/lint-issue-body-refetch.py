@@ -5,7 +5,7 @@
 
 Why this exists (issue #693): a single `/devflow:implement` run now fetches the
 issue body ONCE, at Phase 1 §1.1, into an in-tree cache
-(`.devflow/tmp/issue-body/issue-<n>.md`), and the Phase 1–2 consumers read it by
+(`.prflow/tmp/issue-body/issue-<n>.md`), and the Phase 1–2 consumers read it by
 explicit hand-off — shell helpers through their `--body-file` arms, subagents
 through an `Issue body path:` line. This scanner keeps a cut-over site from
 silently regressing to a fresh fetch.
@@ -20,7 +20,7 @@ merits, each for a stated reason:
     and its Post-Merge Verification checklist; a named freshness exemption.
   * `skills/receiving-code-review/**` — its per-iteration live re-read is a named
     freshness exemption.
-  * `.devflow/prompt-extensions/**` and `docs/**` — documentation / consumer
+  * `.prflow/prompt-extensions/**` and `docs/**` — documentation / consumer
     prose, not cut-over sites.
 
 The audited UNIT is the site, not the file: `skills/implement/phases/
@@ -31,7 +31,7 @@ allowances, recognized by a literal in the offending logical line:
   * the §1.1 producer fetch — it redirects into the cache path, so its statement
     carries the `issue-body/issue-` cache-path literal; and
   * §4.1's Documentation-Needed gate fences — they redirect to
-    `.devflow/tmp/devflow-docgate-body-<n>.txt`, carrying the `devflow-docgate-body`
+    `.prflow/tmp/devflow-docgate-body-<n>.txt`, carrying the `devflow-docgate-body`
     literal.
 
 A detected form anywhere ELSE in an audited file is a failure.

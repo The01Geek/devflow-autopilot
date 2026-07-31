@@ -51,7 +51,7 @@ jobs:
       effort: ${{ steps.extract.outputs.effort }}
       allowed_tools_extra: ${{ steps.extract.outputs.allowed_tools_extra }}
       allowed_users: ${{ steps.extract.outputs.allowed_users }}
-      devflow_version: ${{ steps.extract.outputs.devflow_version }}
+      prflow_version: ${{ steps.extract.outputs.prflow_version }}
       # Optional path to a pre-installed Claude Code executable (issue #601),
       # sourced from setup.claude_code_executable. Passed to claude-code-action's
       # path_to_claude_code_executable input in the command job below. Empty (the
@@ -81,9 +81,9 @@ jobs:
           # skip the check (allowed_bots is read only downstream of the enabled
           # gate), so this never breaks an intentionally-off install. Mirrors the
           # guard in devflow-runner.yml.
-          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_bots // empty')
+          ALLOWED_BOTS=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_bots // empty')
           if [ "$ENABLED" = "true" ] && [ -z "$ALLOWED_BOTS" ]; then
-            echo "::error::devflow.allowed_bots is missing from .devflow/config.json (a pre-2.2.5 config may still use the old 'claude.allowed_bots' key — see CHANGELOG 2.2.5 migration)"
+            echo "::error::devflow.allowed_bots is missing from .prflow/config.json (a pre-2.2.5 config may still use the old 'claude.allowed_bots' key — see CHANGELOG 2.2.5 migration)"
             exit 1
           fi
           {
@@ -93,16 +93,16 @@ jobs:
             echo "allowed_bots=$ALLOWED_BOTS"
             # Human logins allowed to trigger the command path (AND-filter on top
             # of the collaborator-permission gate; '*' = any collaborator).
-            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_users // "*"')"
-            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.devflow.effort // "high"')"
+            echo "allowed_users=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_users // "*"')"
+            echo "effort=$(echo "$CONFIG_JSON" | jq -r '.prflow.effort // "high"')"
             # Repo-specific extra allowlist entries, appended on top of the
             # built-in devflow base list in the `claude` job's claude_args.
             # Emits a leading-comma string (",Bash(make:*),…") or "" so it can
             # be concatenated directly after the final base entry. Tool patterns
             # never contain commas/newlines, so a single-line output is safe.
-            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.devflow.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
+            echo "allowed_tools_extra=$(echo "$CONFIG_JSON" | jq -r '.prflow.allowed_tools // [] | if length > 0 then "," + join(",") else "" end')"
             # Pinned plugin ref for the vendor-plugin fetch branch (thin installs).
-            echo "devflow_version=$(echo "$CONFIG_JSON" | jq -r '.devflow_version // empty')"
+            echo "prflow_version=$(echo "$CONFIG_JSON" | jq -r '.prflow_version // empty')"
           } >> "$GITHUB_OUTPUT"
           # Optional pre-installed Claude Code executable path (issue #601). For
           # self-hosted runners (typically Windows) whose OS the action's Unix-only
@@ -189,12 +189,12 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Materialize the plugin so detect-standalone-command.sh exists at
-      # .devflow/vendor/devflow/scripts/ (committed → self → fetch). Mirrors the
+      # .prflow/vendor/prflow/scripts/ (committed → self → fetch). Mirrors the
       # gate job so the dedupe body match routes through the SAME shared detector
       # the resolver uses — the two matchers cannot drift (issue #321).
       - uses: ./.github/actions/vendor-plugin
         with:
-          ref: ${{ needs.config.outputs.devflow_version }}
+          ref: ${{ needs.config.outputs.prflow_version }}
       - id: guard
         env:
           GH_TOKEN: ${{ github.token }}
@@ -214,7 +214,7 @@ jobs:
           # the sole content of its own line; it emits `command=<token>` on
           # stdout. First-match-wins is preserved by the detector's
           # most-specific-first ordering (review-and-fix outranks review).
-          DETECTOR=.devflow/vendor/devflow/scripts/detect-standalone-command.sh
+          DETECTOR=.prflow/vendor/prflow/scripts/detect-standalone-command.sh
           if [ ! -x "$DETECTOR" ]; then
             # Fail OPEN (the job's contract): a missing detector must never
             # suppress a manual review. Surface it so a vendoring miss is
@@ -351,9 +351,9 @@ jobs:
           # (efficiency), so short-circuit it.
           CC=false
           if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then
-            CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
+            CC_HELPER=.prflow/vendor/prflow/scripts/dedupe-review-command.sh
             if [ ! -x "$CC_HELPER" ]; then
-              echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned devflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
+              echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned prflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
             elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
               echo "::warning::dedupe-review helper exited non-zero for PR #$PR; Candidate-C signal treated as 0 (fail-open)."
               CC=false
@@ -443,7 +443,7 @@ jobs:
           # helper selects the text from CAUSE: the legacy causes name the
           # `Devflow Review` check + Re-run button, the in-flight-review cause names
           # its own reason.
-          NOTICE_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
+          NOTICE_HELPER=.prflow/vendor/prflow/scripts/dedupe-review-command.sh
           NOTE=""
           if [ ! -x "$NOTICE_HELPER" ]; then
             echo "::warning::dedupe-review helper not found/executable at $NOTICE_HELPER; skipping suppression notice for PR #$PR (the command was already suppressed)." >&2
@@ -508,10 +508,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       # Materialize the plugin so resolve-command-trigger.sh / react-to-trigger.sh
-      # exist at .devflow/vendor/devflow/scripts/ (committed → self → fetch).
+      # exist at .prflow/vendor/prflow/scripts/ (committed → self → fetch).
       - uses: ./.github/actions/vendor-plugin
         with:
-          ref: ${{ needs.config.outputs.devflow_version }}
+          ref: ${{ needs.config.outputs.prflow_version }}
       - id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -526,8 +526,8 @@ jobs:
           TRIGGER_TEXT: ${{ github.event.comment.body || github.event.review.body }}
         run: |
           set -euo pipefail
-          # Vendored path: install.sh copies the plugin into .devflow/vendor/devflow/.
-          RESOLVER=.devflow/vendor/devflow/scripts/resolve-command-trigger.sh
+          # Vendored path: install.sh copies the plugin into .prflow/vendor/prflow/.
+          RESOLVER=.prflow/vendor/prflow/scripts/resolve-command-trigger.sh
           if [ ! -x "$RESOLVER" ]; then
             echo "::error::devflow resolver not found at $RESOLVER — has install.sh vendored the plugin into this repo? Skipping." >&2
             { echo "should_run=false"; echo "command="; } >> "$GITHUB_OUTPUT"
@@ -574,7 +574,7 @@ jobs:
         # the vendored copy kept its executable bit — same robustness rationale
         # as the implement resolver's `bash "$RESOLVER"`. A missing file errors
         # visibly but is absorbed by continue-on-error (best-effort ack).
-        run: bash .devflow/vendor/devflow/scripts/react-to-trigger.sh
+        run: bash .prflow/vendor/prflow/scripts/react-to-trigger.sh
 
   command:
     needs: [config, review_dedupe, gate]
@@ -659,14 +659,14 @@ jobs:
           token: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
 
       # Materialize the plugin (committed → self → fetch) so claude-code-action
-      # loads it from .devflow/vendor/devflow/ and the agent's helper scripts
+      # loads it from .prflow/vendor/prflow/ and the agent's helper scripts
       # resolve at the literal workspace path the allowlist grants.
       - uses: ./.github/actions/vendor-plugin
         with:
-          ref: ${{ needs.config.outputs.devflow_version }}
+          ref: ${{ needs.config.outputs.prflow_version }}
 
       # Provision the runtime (Python / Node / pip cache / deps) from
-      # `.devflow/config.json`'s `setup` block. The logic lives in the
+      # `.prflow/config.json`'s `setup` block. The logic lives in the
       # setup-project-env composite action so devflow.yml and
       # devflow-implement.yml share ONE copy (checkout above gives the action
       # the repo + config to read). See docs/cloud-setup.md for the rationale.
@@ -722,8 +722,8 @@ jobs:
           EXTRA: ${{ needs.config.outputs.allowed_tools_extra }}
         run: |
           set -euo pipefail
-          # devflow-capability-manifest: region=command manifest_version=12 sha256=c19f75d6fcb68eac0582c473a90bd2a470f19c5af98e72f56d3a629278284de3
-          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git hash-object:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh pr checkout:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.devflow/vendor/devflow/scripts/run-jq.sh:*), Bash(.devflow/vendor/devflow/scripts/config-get.sh:*), Bash(.devflow/vendor/devflow/scripts/workpad.py:*), Bash(.devflow/vendor/devflow/scripts/seed-review-progress.sh:*), Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*), Bash(.devflow/vendor/devflow/scripts/reception-record.py:*), Bash(.devflow/vendor/devflow/scripts/check-completion-evidence.py:*), Bash(.devflow/vendor/devflow/scripts/parse-acs.py:*), Bash(.devflow/vendor/devflow/scripts/check-verified-premises.py:*), Bash(.devflow/vendor/devflow/scripts/branch-for-issue.py:*), Bash(.devflow/vendor/devflow/scripts/update-branch-checkpoint.sh:*), Bash(.devflow/vendor/devflow/scripts/file-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-deferrals.py:*), Bash(.devflow/vendor/devflow/scripts/match-lint-adjudications.py:*), Bash(.devflow/vendor/devflow/scripts/normalize-verdicts.py:*), Bash(.devflow/vendor/devflow/scripts/resolve-review-overrides.py:*), Bash(.devflow/vendor/devflow/scripts/stale-prose-lint.py:*), Bash(.devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh:*), Bash(.devflow/vendor/devflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.devflow/vendor/devflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
+          # devflow-capability-manifest: region=command manifest_version=12 sha256=b26c6169881791e332a80cc8685192b848a141ac6e027ed8543f956fbd2064ac
+          TOOLS='Read, Write, Edit, Glob, Grep, LS, Skill, Agent, TodoWrite, EnterPlanMode, ExitPlanMode, WebFetch, WebSearch, Bash(git add:*), Bash(git commit:*), Bash(git push:*), Bash(git pull:*), Bash(git fetch:*), Bash(git ls-remote:*), Bash(git status:*), Bash(git diff:*), Bash(git log:*), Bash(git show:*), Bash(git checkout:*), Bash(git cat-file:*), Bash(git hash-object:*), Bash(git branch:*), Bash(git stash:*), Bash(git rm:*), Bash(git mv:*), Bash(git restore:*), Bash(git revert:*), Bash(git blame:*), Bash(git ls-files:*), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git merge:*), Bash(gh pr create:*), Bash(gh pr edit:*), Bash(gh pr comment:*), Bash(gh pr diff:*), Bash(gh pr view:*), Bash(gh pr review:*), Bash(gh pr ready:*), Bash(gh pr list:*), Bash(gh pr checks:*), Bash(gh pr status:*), Bash(gh pr reopen:*), Bash(gh pr checkout:*), Bash(gh issue view:*), Bash(gh issue comment:*), Bash(gh issue list:*), Bash(gh issue edit:*), Bash(gh issue create:*), Bash(gh issue reopen:*), Bash(gh issue status:*), Bash(gh search:*), Bash(gh label list:*), Bash(gh repo view:*), Bash(gh run view:*), Bash(gh run list:*), Bash(gh workflow view:*), Bash(gh workflow list:*), Bash(gh api:*), Bash(jq:*), Bash(.prflow/vendor/prflow/scripts/run-jq.sh:*), Bash(.prflow/vendor/prflow/scripts/config-get.sh:*), Bash(.prflow/vendor/prflow/scripts/workpad.py:*), Bash(.prflow/vendor/prflow/scripts/seed-review-progress.sh:*), Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*), Bash(.prflow/vendor/prflow/scripts/reception-record.py:*), Bash(.prflow/vendor/prflow/scripts/check-completion-evidence.py:*), Bash(.prflow/vendor/prflow/scripts/parse-acs.py:*), Bash(.prflow/vendor/prflow/scripts/check-verified-premises.py:*), Bash(.prflow/vendor/prflow/scripts/branch-for-issue.py:*), Bash(.prflow/vendor/prflow/scripts/update-branch-checkpoint.sh:*), Bash(.prflow/vendor/prflow/scripts/file-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/match-deferrals.py:*), Bash(.prflow/vendor/prflow/scripts/match-lint-adjudications.py:*), Bash(.prflow/vendor/prflow/scripts/normalize-verdicts.py:*), Bash(.prflow/vendor/prflow/scripts/resolve-review-overrides.py:*), Bash(.prflow/vendor/prflow/scripts/stale-prose-lint.py:*), Bash(.prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh:*), Bash(.prflow/vendor/prflow/lib/efficiency-trace.sh:*), Bash(pip install:*), Bash(pip:*), Bash(python:*), Bash(python3:*), Bash(python -m:*), Bash(python3 -m:*), Bash(ruff:*), Bash(ruff check:*), Bash(ruff format:*), Bash(pytest:*), Bash(mypy:*), Bash(grep:*), Bash(rg:*), Bash(find:*), Bash(wc:*), Bash(sort:*), Bash(uniq:*), Bash(cut:*), Bash(tr:*), Bash(xargs:*), Bash(awk:*), Bash(sed:*), Bash(diff:*), Bash(comm:*), Bash(cat:*), Bash(head:*), Bash(tail:*), Bash(less:*), Bash(ls:*), Bash(tree:*), Bash(file:*), Bash(stat:*), Bash(date:*), Bash(pwd:*), Bash(realpath:*), Bash(dirname:*), Bash(basename:*), Bash(which:*), Bash(type:*), Bash(env:*), Bash(echo:*), Bash(printf:*), Bash(test:*), Bash(touch:*), Bash(mkdir:*), Bash(rmdir:*), Bash(rm:*), Bash(mv:*), Bash(cp:*), Bash(mktemp:*), Bash(cmp:*), Bash(.prflow/vendor/prflow/scripts/load-prompt-extension.sh:*), Bash(*/load-prompt-extension.sh:*), Bash(tee:*)'
           printf 'tools=%s\n' "${TOOLS}${EXTRA}" >> "$GITHUB_OUTPUT"
 
       # Ground the manual `/devflow:review` engine in the same two facts the
@@ -754,7 +754,7 @@ jobs:
             HEAD_SHA=$(gh pr view "$PR_NUM" --repo "$REPO" --json headRefOid -q .headRefOid 2>/dev/null || true)
           fi
           export HEAD_SHA
-          SCC=.devflow/vendor/devflow/scripts/summarize-ci-checks.sh
+          SCC=.prflow/vendor/prflow/scripts/summarize-ci-checks.sh
           [ -f "$SCC" ] || SCC=scripts/summarize-ci-checks.sh
           # Each no-op branch names the condition that fired. Two different causes
           # converging on one breadcrumb would leave a reader unable to tell a missing
@@ -772,7 +772,7 @@ jobs:
           fi
           [ -n "$CI_SUMMARY" ] || CI_SUMMARY="CI status unavailable"
 
-          RGB=.devflow/vendor/devflow/scripts/render-grounding-block.sh
+          RGB=.prflow/vendor/prflow/scripts/render-grounding-block.sh
           [ -f "$RGB" ] || RGB=scripts/render-grounding-block.sh
           if [ ! -f "$RGB" ]; then
             echo "::warning::devflow: render-grounding-block.sh not found at either the vendored or repo path — falling back to the bare command prompt" >&2
@@ -823,7 +823,7 @@ jobs:
           # one in a wrong-direction "reconcile" with the Stop step.
           printf '%s' "$DEVFLOW_APP_PRIVATE_KEY" \
             | env -u DEVFLOW_APP_PRIVATE_KEY \
-                nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop \
+                nohup bash .prflow/vendor/prflow/scripts/refresh-app-credentials.sh loop \
                 >"$RUNNER_TEMP/devflow-refresh.log" 2>&1 &
           disown || true
           echo "credential refresher started (detached); log: $RUNNER_TEMP/devflow-refresh.log"
@@ -831,7 +831,7 @@ jobs:
       # Body delegated to the checked-in seven-output-validated installer (issue
       # #533) — see devflow-implement.yml's install-step comment for the full
       # rationale (PATH-scoped wrapper selection; no process-global DEVFLOW_GH;
-      # vendored at the pinned devflow_version — a stale pin fails this step
+      # vendored at the pinned prflow_version — a stale pin fails this step
       # loudly before the agent; refresh workflows and the pin together).
       - name: Install fresh-gh wrapper (optional)
         if: ${{ vars.DEVFLOW_APP_ID != '' && !startsWith(needs.gate.outputs.command, '/prflow:review ') }}
@@ -839,9 +839,9 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          bash .devflow/vendor/devflow/scripts/install-gh-wrapper.sh
+          bash .prflow/vendor/prflow/scripts/install-gh-wrapper.sh
       # ── Third-party model provider resolution (issue #313) ─────────────────
-      # Resolve this section's (devflow) provider decision from .devflow/config.json
+      # Resolve this section's (devflow) provider decision from .prflow/config.json
       # via the single-sourced inline jq RESOLVER below. The RESOLVER program is
       # byte-identical across devflow.yml, devflow-implement.yml, and
       # devflow-runner.yml (lib/test/run.sh pins that identity); only the
@@ -893,7 +893,7 @@ jobs:
           if [ "$(printf '%s' "$DECISION" | jq -r '.error // ""')" != "" ]; then
             PNAME=$(printf '%s' "$DECISION" | jq -r '.provider // ""')
             DETAIL=$(printf '%s' "$DECISION" | jq -r '.detail // "provider configuration is invalid"')
-            echo "::error::.devflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' provider '$PNAME': $DETAIL. Fix the providers.$PNAME entry (base_url + auth: bearer|api_key) or remove the section provider key. Refusing to run."
             exit 1
           fi
           # One jq pass emits every scalar decision field to the step output, each as a
@@ -933,7 +933,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$PROVIDER_API_KEY" ]; then
-            echo "::error::.devflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' selects provider '$PROVIDER' but the DEVFLOW_PROVIDER_API_KEY repository secret is empty. Set that secret (the provider API key) before running a provider-routed job. Refusing to run."
             exit 1
           fi
           # SECURITY: the env-map KEY is interpolated RAW into the `KEY<<DELIM` heredoc
@@ -944,7 +944,7 @@ jobs:
           # POSITIVELY against a real env-var-name charset and fail loud on any stray
           # key rather than emit a malformed/forged $GITHUB_ENV block.
           if printf '%s' "$DECISION" | jq -e '.env | keys[] | select(test("^[A-Za-z_][A-Za-z0-9_]*$") | not)' >/dev/null 2>&1; then
-            echo "::error::.devflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
+            echo "::error::.prflow/config.json section '$SECTION' provider '$PROVIDER' has an env-map key that is not a valid environment variable name ([A-Za-z_][A-Za-z0-9_]*). Fix the providers.$PROVIDER.env keys. Refusing to run."
             exit 1
           fi
           # Every $GITHUB_ENV write below uses GitHub's newline-safe multiline (heredoc) form —
@@ -982,7 +982,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$MODEL" ]; then
-            echo "::error::claude_model is missing from .devflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
+            echo "::error::claude_model is missing from .prflow/config.json (set a top-level claude_model, or a per-section claude_model). Refusing to run."
             exit 1
           fi
           # SECURITY: MODEL and EFFORT are spliced UNQUOTED into claude_args (a folded
@@ -1047,19 +1047,19 @@ jobs:
           BAKED_PLUGINS="$(printf '%s\n' code-review@claude-plugins-official claude-md-management@claude-plugins-official prflow@devflow-marketplace)"
           BAKED_MARKETPLACES="$(printf '%s\n' https://github.com/anthropics/claude-plugins-official.git ./)"
           SETTINGS=.claude/settings.json
-          HELPER=.devflow/vendor/devflow/scripts/resolve-extra-plugins.sh
-          COMPOSE=.devflow/vendor/devflow/scripts/describe-plugin-compose.sh
+          HELPER=.prflow/vendor/prflow/scripts/resolve-extra-plugins.sh
+          COMPOSE=.prflow/vendor/prflow/scripts/describe-plugin-compose.sh
           EX_P="$(mktemp)"; EX_M="$(mktemp)"; ERR_P="$(mktemp)"; ERR_M="$(mktemp)"; ENTRIES="$(mktemp)"
           trap 'rm -f "$EX_P" "$EX_M" "$ERR_P" "$ERR_M" "$ENTRIES"' EXIT
           if [ ! -f "$HELPER" ]; then
             # Skew arm (issue #455 two-halves; inline + grep-pinned by run.sh): the
             # helper is absent at the vendored path — a consumer whose pinned
-            # devflow_version predates issue #505 running an upgraded workflow.
-            # Proceed with the baked baseline; one ::warning:: names devflow_version
+            # prflow_version predates issue #505 running an upgraded workflow.
+            # Proceed with the baked baseline; one ::warning:: names prflow_version
             # as the remedy. This arm fires precisely when describe-plugin-compose.sh
             # (absent alongside it) cannot be invoked, so the warning stays inline
             # rather than routed through the helper.
-            echo "::warning::devflow resolve-extra-plugins.sh not found at $HELPER — a pinned devflow_version predating issue #505 running an upgraded workflow; proceeding with the baked plugin baseline. Bump devflow_version in .devflow/config.json to compose settings-declared plugins."
+            echo "::warning::devflow resolve-extra-plugins.sh not found at $HELPER — a pinned prflow_version predating issue #505 running an upgraded workflow; proceeding with the baked plugin baseline. Bump prflow_version in .prflow/config.json to compose settings-declared plugins."
             : > "$EX_P"; : > "$EX_M"; : > "$ERR_P"; : > "$ERR_M"
           else
             bash "$HELPER" plugins "$SETTINGS" > "$EX_P" 2>"$ERR_P" || true
@@ -1171,7 +1171,7 @@ jobs:
       # Fails OPEN to the working default. An absent helper emits nothing and
       # exits 0 rather than failing the job: this workflow reaches consumers via
       # install.sh's file-copy while the helper reaches them via the
-      # devflow_version vendor fetch, so a consumer can carry this step before it
+      # prflow_version vendor fetch, so a consumer can carry this step before it
       # carries the helper, and that skew must not reproduce the outage above.
       - name: Resolve git-env pins
         env:
@@ -1181,9 +1181,9 @@ jobs:
           GITENV_WS: ${{ github.workspace }}
         run: |
           set -uo pipefail
-          HELPER='.devflow/vendor/devflow/scripts/emit-git-env.sh'
+          HELPER='.prflow/vendor/prflow/scripts/emit-git-env.sh'
           if [ ! -f "$HELPER" ]; then
-            echo "::notice::devflow git-env pins: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the devflow_version vendor fetch, so a consumer can carry the step first). Failing open to the working default: neither GIT_DIR nor GIT_WORK_TREE is exported."
+            echo "::notice::devflow git-env pins: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the prflow_version vendor fetch, so a consumer can carry the step first). Failing open to the working default: neither GIT_DIR nor GIT_WORK_TREE is exported."
             exit 0
           fi
           CFG="${RUNNER_TEMP}/devflow-gitenv-config.json"
@@ -1203,7 +1203,7 @@ jobs:
       # `gh api users/<login>` call, so it wires GH_TOKEN into its own env: — without
       # it the call runs unauthenticated against the 60/hr anonymous limit and degrades
       # every run to the login-only fallback. Fails OPEN: an absent helper (install.sh
-      # ships the workflow, the devflow_version vendor fetch ships the helper, so a
+      # ships the workflow, the prflow_version vendor fetch ships the helper, so a
       # consumer can carry this step first) or an unmaterializable config emits nothing
       # and exits 0. Attribution is advisory and NEVER gates the run. This scopes to the
       # writer commands (/devflow:review-and-fix, /devflow:pr-description); a
@@ -1217,9 +1217,9 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           set -uo pipefail
-          HELPER='.devflow/vendor/devflow/scripts/resolve-committer-identity.sh'
+          HELPER='.prflow/vendor/prflow/scripts/resolve-committer-identity.sh'
           if [ ! -f "$HELPER" ]; then
-            echo "::notice::devflow commit attribution: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the devflow_version vendor fetch, so a consumer can carry the step first). Falling back to current authorship: no GIT_* identity exported."
+            echo "::notice::devflow commit attribution: bundled helper '$HELPER' is absent (this workflow ships via install.sh's file-copy, the helper via the prflow_version vendor fetch, so a consumer can carry the step first). Falling back to current authorship: no GIT_* identity exported."
             exit 0
           fi
           CFG="${RUNNER_TEMP}/devflow-committer-config.json"
@@ -1280,7 +1280,7 @@ jobs:
           # sites, run.sh-pinned) PLUS the entries .claude/settings.json declares.
           # `./` resolves to the workflow's checkout root (where
           # .claude-plugin/marketplace.json lives), so PR-branch changes to the
-          # marketplace or .devflow/vendor/devflow/** are exercised by devflow.yml
+          # marketplace or .prflow/vendor/prflow/** are exercised by devflow.yml
           # on the PR that introduces them — a git-URL entry would always resolve
           # to main. Local-path marketplaces are supported by claude-code-action
           # since v1.0.28 (we pin @v1, the floating major).
@@ -1331,7 +1331,7 @@ jobs:
           # broader four-way one above.)
           DEVFLOW_REFRESH_STARTED: ${{ steps.refresher.outcome }}
         run: |
-          H=.devflow/vendor/devflow/scripts/stop-refresher.sh
+          H=.prflow/vendor/prflow/scripts/stop-refresher.sh
           [ -f "$H" ] || H=scripts/stop-refresher.sh
           bash "$H"
 
@@ -1344,7 +1344,7 @@ jobs:
       # permissions grant / minted-token scope and uploads no artifact, so it
       # never changes the job's pass/fail. always() so it runs even when the
       # claude step errored — which is exactly when the diagnostics matter. Gated
-      # on .devflow.execution_diagnostics_enabled (default true) via the vendored
+      # on .prflow.execution_diagnostics_enabled (default true) via the vendored
       # config-get.sh (repo-path fallback for a self-repo checkout); only the
       # exact string "false" disables it, and an empty read (config-get soft/hard
       # failure) falls safe to enabled.
@@ -1354,20 +1354,20 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
-          CG=.devflow/vendor/devflow/scripts/config-get.sh
+          CG=.prflow/vendor/prflow/scripts/config-get.sh
           [ -f "$CG" ] || CG=scripts/config-get.sh
           # `|| true` so config-get's hard-fail exit (malformed config.json / missing
           # python3) can't abort this step under GitHub's default `-e` run shell — which
           # would fail the job and break the "never changes the job's pass/fail" contract
           # above. The empty read then falls safe to enabled on the next line. (Mirrors the
           # `|| echo false` assignment guard in devflow-runner.yml's engine-error step.)
-          ENABLED="$("$CG" .devflow.execution_diagnostics_enabled true || true)"
+          ENABLED="$("$CG" .prflow.execution_diagnostics_enabled true || true)"
           [ -n "$ENABLED" ] || ENABLED=true
           if [ "$ENABLED" = "false" ]; then
-            echo "execution diagnostics: disabled via .devflow.execution_diagnostics_enabled=false; skipping."
+            echo "execution diagnostics: disabled via .prflow.execution_diagnostics_enabled=false; skipping."
             exit 0
           fi
-          SED=.devflow/vendor/devflow/scripts/surface-execution-diagnostics.sh
+          SED=.prflow/vendor/prflow/scripts/surface-execution-diagnostics.sh
           [ -f "$SED" ] || SED=scripts/surface-execution-diagnostics.sh
           if [ -f "$SED" ]; then
             # `|| echo ::notice::` for the same reason as the config-get guard above:
@@ -1396,7 +1396,7 @@ jobs:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
         run: |
           set -euo pipefail
-          PEE=.devflow/vendor/devflow/scripts/parse-engine-error.sh
+          PEE=.prflow/vendor/prflow/scripts/parse-engine-error.sh
           [ -f "$PEE" ] || PEE=scripts/parse-engine-error.sh
           if [ -f "$PEE" ]; then
             # Never 2>/dev/null the helper — a broken jq would otherwise report
@@ -1432,7 +1432,7 @@ jobs:
         run: |
           set -euo pipefail
           FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"
-          FLIP_HELPER=.devflow/vendor/devflow/scripts/flip-review-progress-failed.sh
+          FLIP_HELPER=.prflow/vendor/prflow/scripts/flip-review-progress-failed.sh
           [ -f "$FLIP_HELPER" ] || FLIP_HELPER=scripts/flip-review-progress-failed.sh
           if [ -z "${CONTEXT_NUMBER:-}" ]; then
             echo "::notice::flip review-progress: no issue/PR number on this event; nothing to flip"
@@ -1499,7 +1499,7 @@ jobs:
           # post-review-backstop-comment.sh helper (issue #414), unit-tested in lib/test/run.sh.
           # Pass the runtime-derived HEAD_SHA; the helper reads PR_NUMBER/REPO/VERDICT/
           # APP_TOKEN_PRESENT/GH_TOKEN from this step's env.
-          HELPER=.devflow/vendor/devflow/scripts/post-review-backstop-comment.sh
+          HELPER=.prflow/vendor/prflow/scripts/post-review-backstop-comment.sh
           [ -f "$HELPER" ] || HELPER=scripts/post-review-backstop-comment.sh
           if [ ! -f "$HELPER" ]; then
             echo "::warning::review stall backstop: post-review-backstop-comment.sh absent at $HELPER; no auto-resume (degrades to the pre-existing dead-end flip)."
@@ -1525,14 +1525,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          HELPER=.devflow/vendor/devflow/lib/efficiency-trace.sh
+          HELPER=.prflow/vendor/prflow/lib/efficiency-trace.sh
           [ -f "$HELPER" ] || { echo "::warning::observability backstop: $HELPER missing; skipped"; exit 0; }
           # Harness-side cost floor (issue #475): the glue helper runs the execution-file
           # reader, verifies the PR, and emits the floor env values consumed by --persist.
           # Guard its existence exactly like $HELPER: a vendored tree pinned to an OLDER
-          # devflow_version lacks it, and that must draw a NAMED ::warning:: (floor inert),
+          # prflow_version lacks it, and that must draw a NAMED ::warning:: (floor inert),
           # never a raw `No such file` under `set +e`.
-          FLOOR=.devflow/vendor/devflow/scripts/prepare-harness-floor.sh
+          FLOOR=.prflow/vendor/prflow/scripts/prepare-harness-floor.sh
           DEVFLOW_EXECUTION_COST=""
           DEVFLOW_EXECUTION_PR=""
           DEVFLOW_COMMAND_CLASS=""
@@ -1544,7 +1544,7 @@ jobs:
             [ -s "$COST_FILE" ] && DEVFLOW_EXECUTION_COST="$(cat "$COST_FILE")"
             rm -f "$COST_FILE"
           else
-            echo "::warning::harness cost floor inert: $FLOOR missing (a vendored tree pinned to an older devflow_version); the cost floor is skipped this run"
+            echo "::warning::harness cost floor inert: $FLOOR missing (a vendored tree pinned to an older prflow_version); the cost floor is skipped this run"
           fi
           # --persist derives each run's record + durable workpad copy and writes them to
           # the dedicated telemetry branch via git plumbing, then pushes with a fetch/

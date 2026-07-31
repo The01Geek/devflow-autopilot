@@ -40,9 +40,9 @@ for _wf487 in devflow-implement devflow; do
   # The Stop step delegates its branch/message logic to the extracted helper
   # (inline-shell-extraction convention) rather than carrying it inline.
   assert_eq "#487 wiring: $_wf487.yml Stop step invokes the vendored stop-refresher.sh helper" "1" \
-    "$(grep -cF '.devflow/vendor/devflow/scripts/stop-refresher.sh' "$_WFF487")"
+    "$(grep -cF '.prflow/vendor/prflow/scripts/stop-refresher.sh' "$_WFF487")"
   assert_eq "#487 wiring: $_wf487.yml invokes the vendored refresher via nohup (detached, not background:)" "1" \
-    "$(grep -cF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
+    "$(grep -cF 'nohup bash .prflow/vendor/prflow/scripts/refresh-app-credentials.sh loop' "$_WFF487")"
   # ── /proc/<pid>/environ mitigation (PR #491). The Start step exports the PEM as a
   # step-level env var (to pipe it to the refresher's stdin); that var is inherited
   # into the detached refresher's exec-time environment, where the concurrent same-uid
@@ -52,7 +52,7 @@ for _wf487 in devflow-implement devflow; do
   # so the long-lived process's environ never holds the PEM. Removal reopens the leak.
   _startblk487="$(mint_blk 'Start credential refresher (optional)' "$_WFF487")"
   _envu_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'env -u DEVFLOW_APP_PRIVATE_KEY' | head -1 | cut -d: -f1)"
-  _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .devflow/vendor/devflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
+  _nohup_ln="$(printf '%s\n' "$_startblk487" | grep -nF 'nohup bash .prflow/vendor/prflow/scripts/refresh-app-credentials.sh loop' | head -1 | cut -d: -f1)"
   assert_eq "#487 wiring: $_wf487.yml launches the refresher with env -u DEVFLOW_APP_PRIVATE_KEY BEFORE nohup (closes the /proc PEM leak)" "yes" \
     "$([ -n "$_envu_ln" ] && [ -n "$_nohup_ln" ] && [ "$_envu_ln" -lt "$_nohup_ln" ] && echo yes || echo no)"
   # No `background:` step key anywhere (would break actionlint).
@@ -65,7 +65,7 @@ for _wf487 in devflow-implement devflow; do
   # installer (issue #533) — the fingerprint write and GITHUB_PATH prepend now
   # live in scripts/install-gh-wrapper.sh, pinned below outside this loop.
   assert_eq "#533 wiring: $_wf487.yml install step invokes the vendored install-gh-wrapper.sh" "1" \
-    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF '.devflow/vendor/devflow/scripts/install-gh-wrapper.sh')"
+    "$(printf '%s\n' "$(mint_blk 'Install fresh-gh wrapper (optional)' "$_WFF487")" | grep -cF '.prflow/vendor/prflow/scripts/install-gh-wrapper.sh')"
   # AC10 (issue #533): the install step must NOT export a process-global DEVFLOW_GH —
   # GITHUB_ENV values persist into every later job step, where a non-empty DEVFLOW_GH
   # outranks fixture PATH stubs by resolver design. Wrapper selection is PATH-scoped.
@@ -496,8 +496,8 @@ rm -rf "$D533/py690"
 # precedence, a typo'd vendored path) would otherwise ship green while every
 # consumer install failed. The chain is cwd-keyed, so each case runs the
 # installer from a fixture tree root.
-mkdir -p "$D533/tree1/.devflow/vendor/devflow/scripts" "$D533/tree1/scripts" "$D533/tree2/scripts"
-printf '#!/usr/bin/env bash\necho vendored-copy\n' > "$D533/tree1/.devflow/vendor/devflow/scripts/gh-fresh.sh"
+mkdir -p "$D533/tree1/.prflow/vendor/prflow/scripts" "$D533/tree1/scripts" "$D533/tree2/scripts"
+printf '#!/usr/bin/env bash\necho vendored-copy\n' > "$D533/tree1/.prflow/vendor/prflow/scripts/gh-fresh.sh"
 printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree1/scripts/gh-fresh.sh"
 printf '#!/usr/bin/env bash\necho repo-copy\n' > "$D533/tree2/scripts/gh-fresh.sh"
 : > "$D533/ghenv"; : > "$D533/ghpath"
@@ -630,17 +630,17 @@ IU_REF="0123456789abcdef0123456789abcdef01234567"
 # from the real repo so the arms exercise the shipped scaffolder, the shipped
 # workflows and the shipped composite actions rather than stand-ins.
 IU_SRC="$_iw_tmp_root/src"
-mkdir -p "$IU_SRC/scripts" "$IU_SRC/lib" "$IU_SRC/.devflow" "$IU_SRC/.github/workflows" "$IU_SRC/.github/actions"
+mkdir -p "$IU_SRC/scripts" "$IU_SRC/lib" "$IU_SRC/.prflow" "$IU_SRC/.github/workflows" "$IU_SRC/.github/actions"
 cp "$LIB/../scripts/scaffold-config.sh" "$LIB/../scripts/detect-project-tools.sh" "$IU_SRC/scripts/"
 cp "$LIB/resolve-jq.sh" "$LIB/resolve-bin.sh" "$IU_SRC/lib/"
-# tool-presets.json lives under .devflow/, which is where detect-project-tools.sh
-# resolves it from ($SELF_DIR/../.devflow/tool-presets.json). Copying it to scripts/
+# tool-presets.json lives under .prflow/, which is where detect-project-tools.sh
+# resolves it from ($SELF_DIR/../.prflow/tool-presets.json). Copying it to scripts/
 # left the fixture source tree missing it, so these arms silently drove the
 # presets-absent degraded path instead of the shipped one.
-cp "$LIB/../.devflow/config.example.json" "$LIB/../.devflow/config.schema.json" \
-   "$LIB/../.devflow/tool-presets.json" "$IU_SRC/.devflow/"
+cp "$LIB/../.prflow/config.example.json" "$LIB/../.prflow/config.schema.json" \
+   "$LIB/../.prflow/tool-presets.json" "$IU_SRC/.prflow/"
 assert_eq "installer-upgrade fixture: the offline source tree carries tool-presets.json where detect-project-tools.sh resolves it" "yes" \
-  "$([ -f "$IU_SRC/.devflow/tool-presets.json" ] && echo yes || echo no)"
+  "$([ -f "$IU_SRC/.prflow/tool-presets.json" ] && echo yes || echo no)"
 cp "$LIB/../.github/workflows/devflow.yml" "$LIB/../.github/workflows/devflow-implement.yml" "$IU_SRC/.github/workflows/"
 for _iu_a in read-project-config setup-project-env vendor-plugin; do
   cp -R "$LIB/../.github/actions/$_iu_a" "$IU_SRC/.github/actions/"
@@ -729,7 +729,7 @@ _iu_has_line() {  # $1 = file, $2 = literal WHOLE line -> yes|no
 IU_C1="$(_iu_consumer pristine)"
 IU_O1="$(_iu_run "$IU_C1")"
 assert_eq "installer-upgrade: a first-time install applies without --apply (the documented one-liner is unchanged)" "yes yes yes" \
-  "$(_iu_out_has "$IU_O1" 'detected a first-time installation; running in apply mode.') $([ -f "$IU_C1/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C1/.devflow/install-manifest.json" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O1" 'detected a first-time installation; running in apply mode.') $([ -f "$IU_C1/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C1/.prflow/install-manifest.json" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: the first install records a provenance digest for every artifact it owns" "yes" \
   "$(python3 -c '
 import json, sys
@@ -739,7 +739,7 @@ want = {".claude-plugin/marketplace.json", ".github/workflows/devflow.yml",
         ".github/actions/setup-project-env", ".github/actions/vendor-plugin"}
 arts = d.get("artifacts", {})
 print("yes" if want <= set(arts) and all(isinstance(v, str) and len(v) == 64 for v in arts.values()) else "no")
-' "$IU_C1/.devflow/install-manifest.json")"
+' "$IU_C1/.prflow/install-manifest.json")"
 IU_SNAP1="$(_iu_snapshot "$IU_C1")"
 IU_O1B="$(_iu_run "$IU_C1")"
 assert_eq "installer-upgrade: re-running over an existing installation is a DRY RUN by default and writes nothing" "yes yes yes" \
@@ -755,12 +755,12 @@ _iu_run "$IU_C2" >/dev/null
 printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C2/.github/workflows/devflow.yml"
 IU_WF2_BEFORE="$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")"
 IU_O2="$(_iu_run "$IU_C2" --apply)"
-assert_eq "installer-upgrade: --apply over a hand-modified workflow leaves it BYTE-FOR-BYTE unchanged and writes the new version to a .devflow-new sidecar" "yes yes yes" \
-  "$([ "$IU_WF2_BEFORE" = "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER') $([ -f "$IU_C2/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade: --apply over a hand-modified workflow leaves it BYTE-FOR-BYTE unchanged and writes the new version to a .prflow-new sidecar" "yes yes yes" \
+  "$([ "$IU_WF2_BEFORE" = "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER') $([ -f "$IU_C2/.github/workflows/devflow.yml.prflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade: the preserved artifact is reported as locally modified, naming the sidecar" "yes" \
   "$(_iu_out_has "$IU_O2" 'PRESERVED (locally modified since DevFlow wrote it): .github/workflows/devflow.yml')"
 assert_eq "installer-upgrade: the sidecar carries DevFlow's version, not the consumer's edit" "yes no" \
-  "$([ "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml.devflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml.devflow-new" 'CONSUMER-LOCAL-EDIT-MARKER')"
+  "$([ "$(_iu_digest "$IU_C2/.github/workflows/devflow.yml.prflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $(_iu_has "$IU_C2/.github/workflows/devflow.yml.prflow-new" 'CONSUMER-LOCAL-EDIT-MARKER')"
 # The conflict is not silently blessed: the manifest still records the ORIGINAL digest,
 # so the next run reports it again instead of adopting the edited bytes as provenance.
 assert_eq "installer-upgrade: a preserved conflict is re-reported on the next run (its digest is never re-blessed)" "yes" \
@@ -779,7 +779,7 @@ assert_eq "installer-upgrade NEGATIVE CONTROL: an installer whose classifier alw
   "$(_iu_has "$IU_C2B/.github/workflows/devflow.yml" 'CONSUMER-LOCAL-EDIT-MARKER')"
 rm -f "$IU_MUT2"
 
-# ── Scenario 3: a hand-edited .devflow/config.json keeps every consumer value. The
+# ── Scenario 3: a hand-edited .prflow/config.json keeps every consumer value. The
 # config is never a managed artifact — the shared scaffolder only backfills keys.
 IU_C3="$(_iu_consumer configedit)"
 _iu_run "$IU_C3" >/dev/null
@@ -791,14 +791,14 @@ d["watched_authors"] = ["consumer-chosen-bot"]
 d["devflow"] = d.get("devflow", {})
 d["devflow"]["allowed_tools"] = ["Bash(consumer-only-tool:*)"]
 json.dump(d, open(p, "w"), indent=2)
-' "$IU_C3/.devflow/config.json"
+' "$IU_C3/.prflow/config.json"
 _iu_run "$IU_C3" --apply >/dev/null
-assert_eq "installer-upgrade: --apply preserves hand-edited .devflow/config.json values (the scaffolder only backfills)" "consumer-chosen-bot Bash(consumer-only-tool:*)" \
+assert_eq "installer-upgrade: --apply preserves hand-edited .prflow/config.json values (the scaffolder only backfills)" "consumer-chosen-bot Bash(consumer-only-tool:*)" \
   "$(python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
 print(d["watched_authors"][0], d["devflow"]["allowed_tools"][0])
-' "$IU_C3/.devflow/config.json")"
+' "$IU_C3/.prflow/config.json")"
 
 # ── Scenario 4: the withheld automatic-review tier. Reported always; removed only on
 # the explicit opt-in; never removed from a file that is not recognizably DevFlow's.
@@ -836,7 +836,7 @@ assert_eq "installer-upgrade: the default report names the opt-in flag rather th
   "$(_iu_out_has "$IU_O4" 're-run with --remove-withheld-review-tier')"
 IU_O4B="$(_iu_run "$IU_C4" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade: the opt-in deletes the three withheld workflows and turns the review config key off" "0 false" \
-  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("devflow-review")))' "$IU_C4/.devflow/config.json")"
+  "$(_iu_count_withheld "$IU_C4") $(python3 -c 'import json,sys;print(json.dumps(json.load(open(sys.argv[1])).get("workflows",{}).get("devflow-review")))' "$IU_C4/.prflow/config.json")"
 assert_eq "installer-upgrade: the removal states the branch-protection step no installer can perform" "yes" \
   "$(printf '%s' "$IU_O4B" | grep -qF "branch protection rule" && echo yes || echo no)"
 # Signature guard: a same-named workflow that is NOT DevFlow's is never deleted.
@@ -849,7 +849,7 @@ assert_eq "installer-upgrade: the opt-in removal is signature-guarded — a same
 # ADVERSARIAL (#959 review): the arm above only proves a file with NO mention of DevFlow
 # survives, which a bare `grep -qi devflow` would also have satisfied. The case that
 # matters is a workflow the CONSUMER owns, under a generic name they are entitled to use,
-# that legitimately mentions the string — a path filter on `.devflow/**`, a comment, a
+# that legitimately mentions the string — a path filter on `.prflow/**`, a comment, a
 # step that reads the config. Under a substring guard that file is `rm -f`'d on the
 # opt-in, with a log line claiming a withheld-tier workflow was removed. Three separate
 # mentions, one per accepted spelling, so a guard that merely got case-folding wrong is
@@ -862,7 +862,7 @@ name: Push our metrics
 on:
   push:
     paths:
-      - '.devflow/**'
+      - '.prflow/**'
 jobs:
   push:
     runs-on: ubuntu-latest
@@ -920,17 +920,17 @@ root, rel = sys.argv[1], ".github/workflows/devflow.yml"
 p = root + "/" + rel
 body = open(p, encoding="utf-8").read() + "\n# BYTES FROM AN OLDER DEVFLOW RELEASE\n"
 open(p, "w", encoding="utf-8").write(body)
-mp = root + "/.devflow/install-manifest.json"
+mp = root + "/.prflow/install-manifest.json"
 m = json.load(open(mp))
-m["devflow_version"] = "1111111111111111111111111111111111111111"
+m["prflow_version"] = "1111111111111111111111111111111111111111"
 m["artifacts"][rel] = hashlib.sha256(body.encode("utf-8")).hexdigest()
 json.dump(m, open(mp, "w"), indent=2)
 ' "$IU_C5"
 IU_O5="$(_iu_run "$IU_C5" --apply)"
 assert_eq "installer-upgrade: a skipped-version jump updates an untouched older artifact in place (no sidecar, no half-state)" "yes yes no" \
-  "$(_iu_out_has "$IU_O5" 'update: .github/workflows/devflow.yml') $([ "$(_iu_digest "$IU_C5/.github/workflows/devflow.yml")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $([ -e "$IU_C5/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
-assert_eq "installer-upgrade: the skipped-version upgrade re-stamps devflow_version to the installed ref" "$IU_REF" \
-  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["devflow_version"])' "$IU_C5/.devflow/config.json")"
+  "$(_iu_out_has "$IU_O5" 'update: .github/workflows/devflow.yml') $([ "$(_iu_digest "$IU_C5/.github/workflows/devflow.yml")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no) $([ -e "$IU_C5/.github/workflows/devflow.yml.prflow-new" ] && echo yes || echo no)"
+assert_eq "installer-upgrade: the skipped-version upgrade re-stamps prflow_version to the installed ref" "$IU_REF" \
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["prflow_version"])' "$IU_C5/.prflow/config.json")"
 
 # ── Scenario 6: an installation that NEVER upgraded — no provenance on record. Unknown
 # is not "unmodified": an artifact whose bytes differ is preserved, while one already
@@ -946,7 +946,7 @@ assert_eq "installer-upgrade: the skipped-version upgrade re-stamps devflow_vers
 # scenario's own second assertion.
 IU_C6="$(_iu_consumer no-manifest)"
 _iu_run "$IU_C6" >/dev/null
-rm -f "$IU_C6/.devflow/install-manifest.json"
+rm -f "$IU_C6/.prflow/install-manifest.json"
 printf '\n# PRE-MANIFEST-LOCAL-EDIT\n' >> "$IU_C6/.github/workflows/devflow-implement.yml"
 IU_O6="$(_iu_run "$IU_C6" --apply)"
 assert_eq "installer-upgrade: with no manifest, a differing artifact is PRESERVED as provenance-unverified rather than assumed pristine" "yes yes" \
@@ -956,16 +956,16 @@ assert_eq "installer-upgrade: with no manifest, an already-identical artifact is
 import json, sys
 a = json.load(open(sys.argv[1]))["artifacts"]
 print("yes" if ".github/workflows/devflow.yml" in a and ".github/workflows/devflow-implement.yml" not in a else "no")
-' "$IU_C6/.devflow/install-manifest.json")"
+' "$IU_C6/.prflow/install-manifest.json")"
 
 # ── Scenario 7: the consumer deleted something the installer expects. It comes back,
 # and the run does not abort part-way through.
 IU_C7="$(_iu_consumer deleted)"
 _iu_run "$IU_C7" >/dev/null
-rm -rf "$IU_C7/.github/actions/vendor-plugin" "$IU_C7/.claude-plugin/marketplace.json" "$IU_C7/.devflow/config.json"
+rm -rf "$IU_C7/.github/actions/vendor-plugin" "$IU_C7/.claude-plugin/marketplace.json" "$IU_C7/.prflow/config.json"
 IU_O7="$(_iu_run "$IU_C7" --apply)"; IU_RC7=$?
 assert_eq "installer-upgrade: artifacts the consumer deleted are recreated and the run still completes" "0 yes yes yes yes" \
-  "$IU_RC7 $([ -f "$IU_C7/.github/actions/vendor-plugin/vendor-slice.sh" ] && echo yes || echo no) $([ -f "$IU_C7/.claude-plugin/marketplace.json" ] && echo yes || echo no) $([ -f "$IU_C7/.devflow/config.json" ] && echo yes || echo no) $(_iu_out_has "$IU_O7" 'done (from')"
+  "$IU_RC7 $([ -f "$IU_C7/.github/actions/vendor-plugin/vendor-slice.sh" ] && echo yes || echo no) $([ -f "$IU_C7/.claude-plugin/marketplace.json" ] && echo yes || echo no) $([ -f "$IU_C7/.prflow/config.json" ] && echo yes || echo no) $(_iu_out_has "$IU_O7" 'done (from')"
 
 # ── Scenario 8: the dry run is a real preview — it reports the SAME classifications the
 # apply would, and still writes nothing. Two fixtures in the same starting state: one is
@@ -996,7 +996,7 @@ root, rel = sys.argv[1], ".github/workflows/devflow.yml"
 p = root + "/" + rel
 body = open(p, encoding="utf-8").read() + "\n# BYTES FROM AN OLDER DEVFLOW RELEASE\n"
 open(p, "w", encoding="utf-8").write(body)
-mp = root + "/.devflow/install-manifest.json"
+mp = root + "/.prflow/install-manifest.json"
 m = json.load(open(mp))
 m["artifacts"][rel] = hashlib.sha256(body.encode("utf-8")).hexdigest()
 json.dump(m, open(mp, "w"), indent=2)
@@ -1024,7 +1024,7 @@ printf '\n# LOCAL\n' >> "$IU_C9/.github/workflows/devflow.yml"
 IU_SNAP9="$(_iu_snapshot "$IU_C9")"
 _iu_run "$IU_C9" --apply >/dev/null
 assert_eq "installer-upgrade: an upgrade touches only the artifacts it named — the consumer's own files and unrelated workflows are bit-identical afterwards" \
-  ".github/workflows/devflow.yml.devflow-new" \
+  ".github/workflows/devflow.yml.prflow-new" \
   "$(python3 -c '
 import sys
 before = dict(l.split(" ", 1) for l in sys.argv[1].splitlines() if l)
@@ -1136,7 +1136,7 @@ assert_eq "installer-upgrade identity: the shipped installer declares a non-empt
 
 rm -rf "$IU_P11"
 
-# ── Scenario 11c: the SAME detect-and-route split, applied to .devflow/config.json.
+# ── Scenario 11c: the SAME detect-and-route split, applied to .prflow/config.json.
 # The PR-authoring App was renamed, and the config scaffolder is add-only — it can backfill
 # a key but never rename a VALUE — so a consumer's `devflow.allowed_bots` keeps naming an
 # App slug that authorizes nothing. The installer must REPORT that and route to
@@ -1151,7 +1151,7 @@ IU_C11C="$(_iu_consumer stale-config)"
 _iu_run "$IU_C11C" >/dev/null                     # scaffold a config the normal way
 python3 -c '
 import json, sys
-p = sys.argv[1] + "/.devflow/config.json"
+p = sys.argv[1] + "/.prflow/config.json"
 d = json.load(open(p))
 d.setdefault("devflow", {})["allowed_bots"] = "claude,devflow-autopilot,dependabot"
 json.dump(d, open(p, "w"), indent=2)
@@ -1160,7 +1160,7 @@ _iu_allowed_bots() {  # $1 = consumer root -> the devflow.allowed_bots value, or
   python3 -c '
 import json, sys
 try:
-    d = json.load(open(sys.argv[1] + "/.devflow/config.json"))
+    d = json.load(open(sys.argv[1] + "/.prflow/config.json"))
     print(d["devflow"]["allowed_bots"])
 except Exception:
     print("RC")
@@ -1169,7 +1169,7 @@ except Exception:
 IU_CFG11C_BEFORE="$(_iu_allowed_bots "$IU_C11C")"
 IU_O11C="$(_iu_run "$IU_C11C" --apply)"
 # The unchanged-ness asserted is the VALUE the notice is about, not the whole file: an
-# --apply upgrade legitimately re-stamps devflow_version (step 6) on the same file, so a
+# --apply upgrade legitimately re-stamps prflow_version (step 6) on the same file, so a
 # whole-file digest would assert something the installer never promised and would go green
 # for the wrong reason if it stopped re-stamping.
 assert_eq "installer-upgrade stale-config: a superseded App slug in devflow.allowed_bots is REPORTED, names the replacement, and the value itself is left untouched" "yes yes claude,devflow-autopilot,dependabot" \
@@ -1194,60 +1194,60 @@ assert_eq "installer-upgrade stale-config: the shipped installer declares a non-
 # bug class here. Root x {object, array, scalar}; `devflow` x {object, array, scalar,
 # missing}; `allowed_bots` x {string, array, object, valid-falsy, missing, wrong-type}.
 _iu_cfg_shape() {  # $1 = literal config bytes -> the scan's stdout (empty = no hit)
-  printf '%s' "$1" > "$IU_C11C/.devflow/config.json"
+  printf '%s' "$1" > "$IU_C11C/.prflow/config.json"
   # shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
   ( cd "$IU_C11C" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
-      && "${DEVFLOW_PY:-python3}" -c "$DEVFLOW_CONFIG_SCAN_PY" .devflow/config.json \
+      && "${DEVFLOW_PY:-python3}" -c "$DEVFLOW_CONFIG_SCAN_PY" .prflow/config.json \
            "$DEVFLOW_STALE_BOT_LOGINS" ) 2>/dev/null
 }
 IU_CFG_HIT='devflow.allowed_bots[devflow-autopilot -> prflow-implementer]'
 assert_eq "installer stale-config matrix: the plain hit shape is detected (the matrix below is not vacuously silent)" "$IU_CFG_HIT" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "claude,devflow-autopilot"}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": "claude,devflow-autopilot"}}')"
 assert_eq "installer stale-config matrix: a [bot]-suffixed entry with surrounding whitespace is the same login" "$IU_CFG_HIT" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "claude,  devflow-autopilot[bot] , x"}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": "claude,  devflow-autopilot[bot] , x"}}')"
 assert_eq "installer stale-config matrix: the stale entry is reported even when the replacement is ALREADY listed (a dead entry is still dead)" "$IU_CFG_HIT" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "prflow-implementer,devflow-autopilot"}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": "prflow-implementer,devflow-autopilot"}}')"
 assert_eq "installer stale-config matrix: a login that merely CONTAINS the stale slug is not a hit (entries compare whole, never by substring)" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "not-devflow-autopilot-either"}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": "not-devflow-autopilot-either"}}')"
 assert_eq "installer stale-config matrix: malformed JSON degrades silently rather than detonating the scan" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": ')"
 assert_eq "installer stale-config matrix: an empty file degrades" "" "$(_iu_cfg_shape '')"
 assert_eq "installer stale-config matrix: a top-level ARRAY is not indexed as a mapping" "" \
-  "$(_iu_cfg_shape '[{"devflow": {"allowed_bots": "devflow-autopilot"}}]')"
+  "$(_iu_cfg_shape '[{"prflow": {"allowed_bots": "devflow-autopilot"}}]')"
 assert_eq "installer stale-config matrix: a top-level scalar degrades" "" "$(_iu_cfg_shape '42')"
 assert_eq "installer stale-config matrix: a devflow ARRAY is not indexed as a mapping" "" \
-  "$(_iu_cfg_shape '{"devflow": ["allowed_bots", "devflow-autopilot"]}')"
+  "$(_iu_cfg_shape '{"prflow": ["allowed_bots", "devflow-autopilot"]}')"
 assert_eq "installer stale-config matrix: a devflow scalar degrades" "" \
-  "$(_iu_cfg_shape '{"devflow": "devflow-autopilot"}')"
+  "$(_iu_cfg_shape '{"prflow": "devflow-autopilot"}')"
 assert_eq "installer stale-config matrix: an absent devflow section degrades" "" \
   "$(_iu_cfg_shape '{"base_branch": "main"}')"
 assert_eq "installer stale-config matrix: an absent allowed_bots key degrades" "" \
-  "$(_iu_cfg_shape '{"devflow": {"effort": "high"}}')"
+  "$(_iu_cfg_shape '{"prflow": {"effort": "high"}}')"
 assert_eq "installer stale-config matrix: an allowed_bots ARRAY is not read as a comma string" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ["devflow-autopilot"]}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": ["devflow-autopilot"]}}')"
 assert_eq "installer stale-config matrix: an allowed_bots OBJECT degrades" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": {"devflow-autopilot": true}}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": {"devflow-autopilot": true}}}')"
 # The valid-falsy row. An explicit "" / false / 0 is a real config state, not a missing
 # key, and none of them may be coerced into a shape the scan reads as a hit.
 assert_eq "installer stale-config matrix: a valid-falsy empty-string allowed_bots yields no hit" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ""}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": ""}}')"
 assert_eq "installer stale-config matrix: a valid-falsy false allowed_bots is a wrong TYPE, not an empty string (a bool is an int in Python, never a str)" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": false}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": false}}')"
 assert_eq "installer stale-config matrix: a valid-falsy 0 allowed_bots degrades" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": 0}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": 0}}')"
 assert_eq "installer stale-config matrix: a whitespace-and-comma-only allowed_bots yields no entries and no hit" "" \
-  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": " , ,  "}}')"
+  "$(_iu_cfg_shape '{"prflow": {"allowed_bots": " , ,  "}}')"
 
-# The absent-file arm, at the function level: no .devflow/config.json at all must be a
+# The absent-file arm, at the function level: no .prflow/config.json at all must be a
 # strict no-op, not a warning about a file the consumer never had.
 IU_C11E="$(_iu_consumer no-config)"
 # shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
 IU_O11E="$( cd "$IU_C11E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
     && devflow_report_stale_config_identifiers 2>&1 )"
-assert_eq "installer stale-config: an absent .devflow/config.json is a strict no-op" "" "$IU_O11E"
+assert_eq "installer stale-config: an absent .prflow/config.json is a strict no-op" "" "$IU_O11E"
 # And the documented python3-absent degradation: a warning that names the remedy, never a
 # silent skip that would read as "nothing stale here".
-printf '{"devflow": {"allowed_bots": "devflow-autopilot"}}' > "$IU_C11C/.devflow/config.json"
+printf '{"prflow": {"allowed_bots": "devflow-autopilot"}}' > "$IU_C11C/.prflow/config.json"
 # PATH is exported as its OWN statement inside the subshell, never as a prefix on the
 # `.` builtin: a `VAR=x . file` prefix scopes to the sourcing alone, so the function call
 # after it would run with the real python3 back on PATH and this arm would silently test
@@ -1256,7 +1256,7 @@ printf '{"devflow": {"allowed_bots": "devflow-autopilot"}}' > "$IU_C11C/.devflow
 IU_O11F="$( cd "$IU_C11C" && export PATH="$IU_NOPY:$PATH" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
     && devflow_report_stale_config_identifiers 2>&1 )"
 assert_eq "installer stale-config: with no working python3 the check says it could not run and names the remedy, rather than passing silently" "yes yes" \
-  "$(_iu_out_has "$IU_O11F" 'could not check .devflow/config.json for superseded PRFlow identifiers') $(_iu_out_has "$IU_O11F" 'run /prflow:init to correct them')"
+  "$(_iu_out_has "$IU_O11F" 'could not check .prflow/config.json for superseded PRFlow identifiers') $(_iu_out_has "$IU_O11F" 'run /prflow:init to correct them')"
 
 # ── Scenario 12 (#959): the documented python3-absent FAIL-SAFE, driven end to end.
 # This is the arm the original 11 scenarios could not reach, because every one of them
@@ -1272,7 +1272,7 @@ IU_C12="$(_iu_consumer nopython3)"
 _iu_run "$IU_C12" >/dev/null                        # install while python3 still works
 printf '\n# CONSUMER-LOCAL-EDIT-MARKER\n' >> "$IU_C12/.github/workflows/devflow.yml"
 IU_WF12_BEFORE="$(_iu_digest "$IU_C12/.github/workflows/devflow.yml")"
-IU_MANI12_BEFORE="$(_iu_digest "$IU_C12/.devflow/install-manifest.json")"
+IU_MANI12_BEFORE="$(_iu_digest "$IU_C12/.prflow/install-manifest.json")"
 IU_SNAP12_BEFORE="$(_iu_snapshot "$IU_C12")"
 IU_O12="$(IU_PATH_PREFIX="$IU_NOPY" _iu_run "$IU_C12" --apply)" && IU_RC12=0 || IU_RC12=$?
 assert_eq "installer-upgrade #959: an --apply upgrade on a host with no working python3 leaves a hand-edited workflow BYTE-FOR-BYTE intact" "yes yes" \
@@ -1284,15 +1284,15 @@ assert_eq "installer-upgrade #959: an --apply upgrade on a host with no working 
 assert_eq "installer-upgrade #959: no existing artifact is classified create or update when the digest cannot be established" "no no" \
   "$(_iu_out_matches "$IU_O12" '^devflow-install: create: ') $(_iu_out_matches "$IU_O12" '^devflow-install: update: ')"
 assert_eq "installer-upgrade #959: each present artifact is reported PRESERVED with provenance UNESTABLISHED, naming the sidecar and the python3 remedy" "yes yes yes" \
-  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_has "$IU_O12" '.github/workflows/devflow.yml — the new version is at .github/workflows/devflow.yml.devflow-new') $(_iu_out_has "$IU_O12" 'There is no working python3 on this host, so NOTHING on this run could be compared')"
+  "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_has "$IU_O12" '.github/workflows/devflow.yml — the new version is at .github/workflows/devflow.yml.prflow-new') $(_iu_out_has "$IU_O12" 'There is no working python3 on this host, so NOTHING on this run could be compared')"
 # `unverified` ("no recorded digest") is a DIFFERENT diagnosis with a different remedy;
 # reporting a python3-less host that way would send the consumer to delete their files.
 assert_eq "installer-upgrade #959: the unestablished-digest preserve is not misreported as the no-recorded-digest one" "no" \
   "$(_iu_out_has "$IU_O12" 'PRESERVED (provenance unverified')"
 assert_eq "installer-upgrade #959: the run still exits 0 and offers DevFlow's sidecar copy of the artifact it preserved" "0 yes yes" \
-  "$IU_RC12 $([ -f "$IU_C12/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no) $([ "$(_iu_digest "$IU_C12/.github/workflows/devflow.yml.devflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no)"
+  "$IU_RC12 $([ -f "$IU_C12/.github/workflows/devflow.yml.prflow-new" ] && echo yes || echo no) $([ "$(_iu_digest "$IU_C12/.github/workflows/devflow.yml.prflow-new")" = "$(_iu_digest "$IU_SRC/.github/workflows/devflow.yml")" ] && echo yes || echo no)"
 assert_eq "installer-upgrade #959: the manifest is left byte-for-byte alone (an unestablishable digest must never be recorded as provenance) and the run says so" "yes yes" \
-  "$([ "$IU_MANI12_BEFORE" = "$(_iu_digest "$IU_C12/.devflow/install-manifest.json")" ] && echo yes || echo no) $(_iu_out_has "$IU_O12" 'the install provenance manifest (.devflow/install-manifest.json) was not written')"
+  "$([ "$IU_MANI12_BEFORE" = "$(_iu_digest "$IU_C12/.prflow/install-manifest.json")" ] && echo yes || echo no) $(_iu_out_has "$IU_O12" 'the install provenance manifest (.prflow/install-manifest.json) was not written')"
 # The whole-tree form of "nothing existing is overwritten": every path present before
 # the upgrade is bit-identical after it, so the only delta is additions. Asserted over
 # BYTES across the entire fixture, not over the handful of paths the arms above name.
@@ -1357,9 +1357,9 @@ ln -s ./no-such-inner-file "$IU_C13/.github/actions/vendor-plugin/dangling"
 IU_SNAP13_BEFORE="$(_iu_snapshot "$IU_C13")"
 IU_O13="$(_iu_run "$IU_C13" --apply)" && IU_RC13=0 || IU_RC13=$?
 assert_eq "installer-upgrade #959: a present FILE artifact whose digest cannot be established is preserved as-is — still a symlink, never replaced by a copy" "0 yes yes" \
-  "$IU_RC13 $([ -L "$IU_C13/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C13/.github/workflows/devflow.yml.devflow-new" ] && echo yes || echo no)"
+  "$IU_RC13 $([ -L "$IU_C13/.github/workflows/devflow.yml" ] && echo yes || echo no) $([ -f "$IU_C13/.github/workflows/devflow.yml.prflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade #959: a DIRECTORY artifact whose walk digest errors is preserved with its inner contents intact, and its replacement offered beside it" "yes yes yes" \
-  "$(_iu_has "$IU_C13/.github/actions/vendor-plugin/vendor-slice.sh" 'INNER-DIRECTORY-MARKER') $([ -L "$IU_C13/.github/actions/vendor-plugin/dangling" ] && echo yes || echo no) $([ -d "$IU_C13/.github/actions/vendor-plugin.devflow-new" ] && echo yes || echo no)"
+  "$(_iu_has "$IU_C13/.github/actions/vendor-plugin/vendor-slice.sh" 'INNER-DIRECTORY-MARKER') $([ -L "$IU_C13/.github/actions/vendor-plugin/dangling" ] && echo yes || echo no) $([ -d "$IU_C13/.github/actions/vendor-plugin.prflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade #959: the digest error is reported as an unestablished provenance, not masked as a fresh create" "yes no no" \
   "$(_iu_out_has "$IU_O13" 'PRESERVED (provenance UNESTABLISHED') $(_iu_out_matches "$IU_O13" '^devflow-install: create: \.github/workflows/devflow\.yml$') $(_iu_out_matches "$IU_O13" '^devflow-install: create: \.github/actions/vendor-plugin$')"
 # The `ok:` prefix is the anti-vacuity half: a snapshot helper that failed on the planted
@@ -1393,9 +1393,9 @@ printf '\n# BYTES FROM AN OLDER DEVFLOW RELEASE\n' >> "$IU_C13B/.github/workflow
 python3 -c '
 import hashlib, json, sys
 root, rel = sys.argv[1], ".github/workflows/devflow-implement.yml"
-m = json.load(open(root + "/.devflow/install-manifest.json"))
+m = json.load(open(root + "/.prflow/install-manifest.json"))
 m["artifacts"][rel] = hashlib.sha256(open(root + "/" + rel, "rb").read()).hexdigest()
-json.dump(m, open(root + "/.devflow/install-manifest.json", "w"), indent=2)
+json.dump(m, open(root + "/.prflow/install-manifest.json", "w"), indent=2)
 ' "$IU_C13B"
 IU_O13B="$(_iu_run "$IU_C13B" --apply)"
 assert_eq "installer-upgrade #959: a per-artifact read error preserves ONLY that artifact — the others are still classified and written" "yes yes" \
@@ -1407,10 +1407,10 @@ assert_eq "installer-upgrade #959: a per-artifact read error preserves ONLY that
 # re-recorded against the shipped bytes, and the erroring one keeping its EARLIER digest
 # rather than being re-blessed against bytes nothing could read.
 assert_eq "installer-upgrade #959: and the manifest IS still written on a per-artifact read error (unlike the no-python3 trigger, which writes none)" "yes recorded-source kept-earlier" \
-  "$(_iu_out_has "$IU_O13B" 'recorded install provenance in .devflow/install-manifest.json') $(python3 -c '
+  "$(_iu_out_has "$IU_O13B" 'recorded install provenance in .prflow/install-manifest.json') $(python3 -c '
 import hashlib, json, sys
 root, src = sys.argv[1], sys.argv[2]
-arts = json.load(open(root + "/.devflow/install-manifest.json"))["artifacts"]
+arts = json.load(open(root + "/.prflow/install-manifest.json"))["artifacts"]
 impl = ".github/workflows/devflow-implement.yml"
 want = hashlib.sha256(open(src + "/" + impl, "rb").read()).hexdigest()
 wf = ".github/workflows/devflow.yml"
@@ -1461,7 +1461,7 @@ IU_C15="$(_iu_consumer manifest-shapes)"
 _iu_run "$IU_C15" >/dev/null
 printf '\n# SHAPE-MATRIX-LOCAL-EDIT\n' >> "$IU_C15/.github/workflows/devflow.yml"
 _iu_manifest_shape() {  # $1 = literal manifest bytes -> "<recorded> <classification>"
-  printf '%s' "$1" > "$IU_C15/.devflow/install-manifest.json"
+  printf '%s' "$1" > "$IU_C15/.prflow/install-manifest.json"
   # shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
   ( cd "$IU_C15" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
       && printf '%s %s' \
@@ -1512,9 +1512,9 @@ _iu_run "$IU_C16" >/dev/null
 printf '\n# COMPOSITE-ACTION-LOCAL-EDIT\n' >> "$IU_C16/.github/actions/vendor-plugin/vendor-slice.sh"
 IU_O16="$(_iu_run "$IU_C16" --apply)"
 assert_eq "installer-upgrade #959: an inner-file edit inside a composite action marks the whole directory modified and preserves it" "yes yes yes" \
-  "$(_iu_out_has "$IU_O16" 'PRESERVED (locally modified since DevFlow wrote it): .github/actions/vendor-plugin') $(_iu_has "$IU_C16/.github/actions/vendor-plugin/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT') $([ -d "$IU_C16/.github/actions/vendor-plugin.devflow-new" ] && echo yes || echo no)"
+  "$(_iu_out_has "$IU_O16" 'PRESERVED (locally modified since DevFlow wrote it): .github/actions/vendor-plugin') $(_iu_has "$IU_C16/.github/actions/vendor-plugin/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT') $([ -d "$IU_C16/.github/actions/vendor-plugin.prflow-new" ] && echo yes || echo no)"
 assert_eq "installer-upgrade #959: the directory sidecar carries DevFlow's copy, not the consumer's edited one" "no" \
-  "$(_iu_has "$IU_C16/.github/actions/vendor-plugin.devflow-new/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT')"
+  "$(_iu_has "$IU_C16/.github/actions/vendor-plugin.prflow-new/vendor-slice.sh" 'COMPOSITE-ACTION-LOCAL-EDIT')"
 # A file ADDED inside the directory moves the digest too (the walk is over the whole set,
 # not over the files DevFlow shipped), so a consumer's extra file is not silently wiped
 # by the `rm -rf`+`cp -R` the update arm performs.
@@ -1532,11 +1532,11 @@ assert_eq "installer-upgrade #959: a file the consumer ADDED inside a composite 
 IU_C17="$(_iu_consumer withheld-shapes)"
 _iu_run "$IU_C17" >/dev/null
 _iu_withheld_file devflow-review > "$IU_C17/.github/workflows/devflow-review.yml"
-printf '[1, 2, 3]\n' > "$IU_C17/.devflow/config.json"
-IU_CFG17_BEFORE="$(_iu_digest "$IU_C17/.devflow/config.json")"
+printf '[1, 2, 3]\n' > "$IU_C17/.prflow/config.json"
+IU_CFG17_BEFORE="$(_iu_digest "$IU_C17/.prflow/config.json")"
 IU_O17="$(_iu_run "$IU_C17" --apply --remove-withheld-review-tier)"
-assert_eq "installer-upgrade #959: a non-object .devflow/config.json is reported and left byte-for-byte alone, never restructured" "yes yes" \
-  "$(_iu_out_has "$IU_O17" 'it is missing, malformed, or holds a non-object at that key') $([ "$IU_CFG17_BEFORE" = "$(_iu_digest "$IU_C17/.devflow/config.json")" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: a non-object .prflow/config.json is reported and left byte-for-byte alone, never restructured" "yes yes" \
+  "$(_iu_out_has "$IU_O17" 'it is missing, malformed, or holds a non-object at that key') $([ "$IU_CFG17_BEFORE" = "$(_iu_digest "$IU_C17/.prflow/config.json")" ] && echo yes || echo no)"
 IU_C17B="$(_iu_consumer withheld-already-false)"
 _iu_run "$IU_C17B" >/dev/null
 _iu_withheld_file devflow-review > "$IU_C17B/.github/workflows/devflow-review.yml"
@@ -1546,10 +1546,10 @@ p = sys.argv[1]
 d = json.load(open(p))
 d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
-' "$IU_C17B/.devflow/config.json"
+' "$IU_C17B/.prflow/config.json"
 IU_O17B="$(_iu_run "$IU_C17B" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: an already-false review key is reported as already-false, distinctly from a failure" "yes no" \
-  "$(_iu_out_has "$IU_O17B" 'is already false in .devflow/config.json') $(_iu_out_has "$IU_O17B" 'could not set workflows')"
+  "$(_iu_out_has "$IU_O17B" 'is already false in .prflow/config.json') $(_iu_out_has "$IU_O17B" 'could not set workflows')"
 # A non-object `workflows` value takes the same rc-3 arm — the config is not rewritten
 # underneath the consumer just because one key holds the wrong type.
 IU_C17C="$(_iu_consumer withheld-nonobject-workflows)"
@@ -1561,10 +1561,10 @@ p = sys.argv[1]
 d = json.load(open(p))
 d["workflows"] = "all of them"
 json.dump(d, open(p, "w"), indent=2)
-' "$IU_C17C/.devflow/config.json"
+' "$IU_C17C/.prflow/config.json"
 IU_O17C="$(_iu_run "$IU_C17C" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: a non-object workflows value is reported and the config left with that value intact" "yes all of them" \
-  "$(_iu_out_has "$IU_O17C" 'it is missing, malformed, or holds a non-object at that key') $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"])' "$IU_C17C/.devflow/config.json")"
+  "$(_iu_out_has "$IU_O17C" 'it is missing, malformed, or holds a non-object at that key') $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"])' "$IU_C17C/.prflow/config.json")"
 
 # ── Scenario 18 (#959 review, suggestion 1): the dry run must SHOW the one deletion it
 # performs outside .github. prune_stale_vendored_plugin removes a pre-relocation
@@ -1615,10 +1615,10 @@ p = sys.argv[1]
 d = json.load(open(p))
 d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": True})
 json.dump(d, open(p, "w"), indent=2)
-' "$IU_C19/.devflow/config.json"
+' "$IU_C19/.prflow/config.json"
 IU_O19="$(_iu_run "$IU_C19" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: the opt-in really does flip a true review key to false" "False" \
-  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["devflow-review"])' "$IU_C19/.devflow/config.json")"
+  "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workflows"]["devflow-review"])' "$IU_C19/.prflow/config.json")"
 assert_eq "installer-upgrade #959: the config key is turned off BEFORE the workflow files are deleted (the only self-healing order)" "config-first" \
   "$(printf '%s\n' "$IU_O19" | python3 -c '
 import sys
@@ -1649,7 +1649,7 @@ p = sys.argv[1]
 d = json.load(open(p))
 d["workflows"] = dict(d.get("workflows") or {}, **{"devflow-review": False})
 json.dump(d, open(p, "w"), indent=2)
-' "$IU_C19B/.devflow/config.json"
+' "$IU_C19B/.prflow/config.json"
 _iu_run "$IU_C19B" --apply --remove-withheld-review-tier >/dev/null
 assert_eq "installer-upgrade #959: an interrupted removal that already flipped the key still completes on the next run" "0" \
   "$(_iu_count_withheld "$IU_C19B")"
@@ -1663,7 +1663,7 @@ _iu_run "$IU_C19C" >/dev/null
 for _iu_w in devflow-review devflow-runner telemetry-push; do
   _iu_withheld_file "$_iu_w" > "$IU_C19C/.github/workflows/$_iu_w.yml"
 done
-printf '[1, 2, 3]\n' > "$IU_C19C/.devflow/config.json"   # a shape the disabler refuses to edit
+printf '[1, 2, 3]\n' > "$IU_C19C/.prflow/config.json"   # a shape the disabler refuses to edit
 IU_O19C="$(_iu_run "$IU_C19C" --apply --remove-withheld-review-tier)"
 assert_eq "installer-upgrade #959: when the config key cannot be turned off, the workflow files are KEPT rather than stranding the key true" "3 yes yes" \
   "$(_iu_count_withheld "$IU_C19C") $(_iu_out_has "$IU_O19C" 'leaving the withheld review-tier workflow files in place') $(_iu_out_has "$IU_O19C" 'removing the files first would strand that key true')"
@@ -1676,7 +1676,7 @@ _iu_run "$IU_C19D" >/dev/null
 for _iu_w in devflow-review devflow-runner telemetry-push; do
   _iu_withheld_file "$_iu_w" > "$IU_C19D/.github/workflows/$_iu_w.yml"
 done
-rm -f "$IU_C19D/.devflow/config.json"
+rm -f "$IU_C19D/.prflow/config.json"
 _iu_run "$IU_C19D" --apply --remove-withheld-review-tier >/dev/null
 assert_eq "installer-upgrade #959: with no config file there is no key to strand, so the removal still proceeds" "0" \
   "$(_iu_count_withheld "$IU_C19D")"
@@ -1733,15 +1733,15 @@ assert_eq "installer-upgrade #959: a dry run of --remove-withheld-review-tier pr
 #     unlike a chmod. The install must still complete and warn about the consequence.
 IU_C20C="$(_iu_consumer manifest-write-fail)"
 _iu_run "$IU_C20C" >/dev/null
-rm -f "$IU_C20C/.devflow/install-manifest.json"
-mkdir -p "$IU_C20C/.devflow/install-manifest.json"
+rm -f "$IU_C20C/.prflow/install-manifest.json"
+mkdir -p "$IU_C20C/.prflow/install-manifest.json"
 IU_O20C="$(_iu_run "$IU_C20C" --apply)" && IU_RC20C=0 || IU_RC20C=$?
 assert_eq "installer-upgrade #959: an unwritable manifest warns that the next upgrade will preserve everything, and never aborts the install" "0 yes yes" \
-  "$IU_RC20C $(_iu_out_has "$IU_O20C" 'could not write .devflow/install-manifest.json; the next upgrade will preserve every existing artifact rather than update it') $(_iu_out_has "$IU_O20C" 'done (from')"
+  "$IU_RC20C $(_iu_out_has "$IU_O20C" 'could not write .prflow/install-manifest.json; the next upgrade will preserve every existing artifact rather than update it') $(_iu_out_has "$IU_O20C" 'done (from')"
 
 # ── Scenario 21 (#959 review round 3, advisory): the DEVFLOW_VENDOR=1 path, including
 # its ONE documented preview exclusion. The review flagged this path as entirely
-# untested and noted that a regression dropping the `.devflow/vendor` SKIP tuple from
+# untested and noted that a regression dropping the `.prflow/vendor` SKIP tuple from
 # the diff renderer would pass the suite green — the exclusion is asserted nowhere, and
 # it is the single carve-out in the "diff of the bytes it would change" promise.
 #
@@ -1765,12 +1765,12 @@ assert_eq "installer-upgrade #959: the vendor fixture source carries every membe
 
 IU_C21="$(_iu_consumer vendor)"
 IU_O21="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21")"
-assert_eq "installer-upgrade #959: a DEVFLOW_VENDOR=1 install commits the plugin tree at .devflow/vendor/devflow and says so" "yes yes yes" \
-  "$(_iu_out_has "$IU_O21" 'vendoring plugin → .devflow/vendor/devflow/ (DEVFLOW_VENDOR=1)') $([ -d "$IU_C21/.devflow/vendor/devflow/scripts" ] && echo yes || echo no) $([ -f "$IU_C21/.devflow/vendor/devflow/.claude-plugin/plugin.json" ] && echo yes || echo no)"
+assert_eq "installer-upgrade #959: a DEVFLOW_VENDOR=1 install commits the plugin tree at .prflow/vendor/prflow and says so" "yes yes yes" \
+  "$(_iu_out_has "$IU_O21" 'vendoring plugin → .prflow/vendor/prflow/ (DEVFLOW_VENDOR=1)') $([ -d "$IU_C21/.prflow/vendor/prflow/scripts" ] && echo yes || echo no) $([ -f "$IU_C21/.prflow/vendor/prflow/.claude-plugin/plugin.json" ] && echo yes || echo no)"
 # The committed tree must NOT be gitignored — that is the whole point of DEVFLOW_VENDOR=1,
 # and the thin install's `/vendor/` line would silently keep it out of the consumer's commit.
-assert_eq "installer-upgrade #959: a vendored install leaves /vendor/ OUT of .devflow/.gitignore (a thin install puts it in)" "no yes" \
-  "$(_iu_has_line "$IU_C21/.devflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21/.devflow/.gitignore" '/tmp/')"
+assert_eq "installer-upgrade #959: a vendored install leaves /vendor/ OUT of .prflow/.gitignore (a thin install puts it in)" "no yes" \
+  "$(_iu_has_line "$IU_C21/.prflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21/.prflow/.gitignore" '/tmp/')"
 
 # THE EXCLUSION. Upgrade the vendored consumer under a dry run: the apply log reports the
 # vendoring as one line, and the DIFF BODY must not enumerate the vendored tree's files.
@@ -1779,8 +1779,8 @@ assert_eq "installer-upgrade #959: a vendored install leaves /vendor/ OUT of .de
 printf '\n# newer release\n' >> "$IU_VSRC/.github/workflows/devflow.yml"
 IU_SNAP21="$(_iu_snapshot "$IU_C21")"
 IU_O21B="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21" --dry-run)"
-assert_eq "installer-upgrade #959: the dry-run diff EXCLUDES the vendored tree body (the documented .devflow/vendor SKIP) while still diffing everything else" "no yes" \
-  "$(_iu_out_matches "$IU_O21B" '^(ADD|MODIFY|DELETE) +\.devflow/vendor/') $(_iu_out_matches "$IU_O21B" '^MODIFY \.github/workflows/devflow\.yml$')"
+assert_eq "installer-upgrade #959: the dry-run diff EXCLUDES the vendored tree body (the documented .prflow/vendor SKIP) while still diffing everything else" "no yes" \
+  "$(_iu_out_matches "$IU_O21B" '^(ADD|MODIFY|DELETE) +\.prflow/vendor/') $(_iu_out_matches "$IU_O21B" '^MODIFY \.github/workflows/devflow\.yml$')"
 assert_eq "installer-upgrade #959: and that vendored dry run still writes nothing" "yes" \
   "$([ "$IU_SNAP21" = "$(_iu_snapshot "$IU_C21")" ] && echo yes || echo no)"
 # The thin→vendor transition removes a previously-added ignore line, so a consumer who
@@ -1788,8 +1788,8 @@ assert_eq "installer-upgrade #959: and that vendored dry run still writes nothin
 IU_C21B="$(_iu_consumer vendor-transition)"
 _iu_run "$IU_C21B" >/dev/null                       # thin install first: adds /vendor/
 assert_eq "installer-upgrade #959: the thin install added the /vendor/ ignore line (precondition for the transition arm)" "yes" \
-  "$(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/vendor/')"
+  "$(_iu_has_line "$IU_C21B/.prflow/.gitignore" '/vendor/')"
 IU_O21C="$(IU_SRC_OVERRIDE="$IU_VSRC" IU_VENDOR=1 _iu_run "$IU_C21B" --apply)"
-assert_eq "installer-upgrade #959: upgrading thin→vendored un-ignores .devflow/vendor and keeps the other ignore entries" "no yes yes" \
-  "$(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21B/.devflow/.gitignore" '/tmp/') $(_iu_out_has "$IU_O21C" 'un-ignored .devflow/vendor/')"
+assert_eq "installer-upgrade #959: upgrading thin→vendored un-ignores .prflow/vendor and keeps the other ignore entries" "no yes yes" \
+  "$(_iu_has_line "$IU_C21B/.prflow/.gitignore" '/vendor/') $(_iu_has_line "$IU_C21B/.prflow/.gitignore" '/tmp/') $(_iu_out_has "$IU_O21C" 'un-ignored .prflow/vendor/')"
 rm -rf "$IU_VSRC"

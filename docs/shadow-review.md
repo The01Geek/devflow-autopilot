@@ -15,13 +15,13 @@ Existence-only pin findings use the canonical protected-asset classification doc
 ## What the shadow pass is, and why it exists
 
 `/prflow:review-and-fix` wraps `/prflow:review`'s four-phase engine in a fix loop. The loop runs
-up to a configurable number of iterations — `devflow_review_and_fix.max_iterations` (default 5),
+up to a configurable number of iterations — `prflow_review_and_fix.max_iterations` (default 5),
 resolved once at loop start — before exiting with its latest verdict; the shadow pass below is not
 counted toward that cap. Which findings the loop routes to the fixer is itself configurable via
-`devflow_review_and_fix.fix_severity_threshold` (default `important`): every finding at or above the
+`prflow_review_and_fix.fix_severity_threshold` (default `important`): every finding at or above the
 threshold (`critical` > `important` > `suggestion`) is fixed and the rest are parked as advisory,
 except that every finding that drove the engine's REJECT (at or above
-`devflow_review.verdict_severity_threshold`, or via a threshold-independent REJECT class such as the
+`prflow_review.verdict_severity_threshold`, or via a threshold-independent REJECT class such as the
 self-contradicting-diff carve-out) is always in the fix set — so no configuration produces
 a REJECT the fixer is configured to ignore. Iterations
 inside that loop **share state**: the orchestrator's context window carries prior findings, fix
@@ -92,7 +92,7 @@ to the orchestrator instead.
 steps 3.1/3.2).** Independently of agent
 compliance, the shared engine snapshots the tree with `git status --porcelain -z` immediately
 **before** the Phase 3.1 batch (into a temp file — `-z` output carries NUL bytes a bash `$(...)`
-variable cannot hold). The snapshot is a fixed repo-local `.devflow/tmp/` file so it survives
+variable cannot hold). The snapshot is a fixed repo-local `.prflow/tmp/` file so it survives
 the Agent-tool boundary without an unavailable `mktemp` capture. The engine compares it **after**
 the batch returns. Before each snapshot write it removes the prior path object, validates a
 regular non-symlink result, and retains its object ID only in orchestrator state. Restore scratch is removed before reuse; truncated NUL records and failed path writes skip restoration rather
@@ -196,7 +196,7 @@ fresh re-Read stays.
 ## The honest-degradation fail-safe: coverage is a positively-verified assertion
 
 A degraded pass must **never** clear a PR with a clean verdict. The guard is the shadow block's
-`coverage` field, recorded on the workpad (`.devflow/tmp/review/<slug>/<run-id>/iter-<N>.json`, run-scoped):
+`coverage` field, recorded on the workpad (`.prflow/tmp/review/<slug>/<run-id>/iter-<N>.json`, run-scoped):
 
 - **`coverage: "full"` is something the parent *proves*, not the default-on-no-error.** Before it
   may set `"full"`, the parent computes the **expected reviewer roster** for this run and confirms
@@ -533,7 +533,7 @@ A shadow re-raise of an already-parked finding used to re-litigate the parking o
 The fix, in the Park-calibration gate (fix-loop only — the shared `/prflow:review` engine is untouched), grades below-verdict-threshold shadow re-raises on evidence:
 
 - **Precedence.** The scoped sweep-sibling carve-out is evaluated **first**, byte-unchanged; a re-raise it claims never enters the evidence classification. (The carve-out covers the current convergence's registered siblings; a sibling parked at a *prior* convergence flows to the evidence classification.)
-- **Scope boundary.** Only re-raises **below** `devflow_review.verdict_severity_threshold` are graded on evidence. A re-raise at or above the threshold drives the blinded shadow's own Phase 4.2 verdict to REJECT, and shadow-REJECT handling is deliberately untouched — such re-raises promote today and keep promoting. The self-contradicting-diff REJECT class keeps today's path at any severity too. The three under-grade shapes (a fail-open guard or coverage hole, an overclaiming breadcrumb/error, and a deferral the matcher will not honor) remain unconditional mis-grade triggers whatever the evidence relation.
+- **Scope boundary.** Only re-raises **below** `prflow_review.verdict_severity_threshold` are graded on evidence. A re-raise at or above the threshold drives the blinded shadow's own Phase 4.2 verdict to REJECT, and shadow-REJECT handling is deliberately untouched — such re-raises promote today and keep promoting. The self-contradicting-diff REJECT class keeps today's path at any severity too. The three under-grade shapes (a fail-open guard or coverage hole, an overclaiming breadcrumb/error, and a deferral the matcher will not honor) remain unconditional mis-grade triggers whatever the evidence relation.
 - **Populations and pairing.** The parked side is the **reconciled parked population** — the gate's three re-read populations (advisory-parked rows, unactioned Suggestion/Minor findings, Yes-downgrade deferrals) across **all** iterations, **minus** any member a later iteration applied or promoted-and-fixed (the *survived-unfixed reconciliation*, so a fixed-then-regressed defect's re-raise is never read as a preserved parking). A single amendment to Step 2.6's Parse-and-compare novelty definition makes a shadow finding that Phase-3.2-pairs to a member's **parking-time record** count as **overlap, not new** — feeding the `comparison` counts, outcome 1's subset test, and outcome 2's trigger coherently, and routing the pair to the evidence classification. It mirrors the parked-class sweep's registration goal but via a novelty-rule amendment (registration would duplicate carried-forward entries). Populations split into **rationale-bearing** (advisory-parked, Yes-downgrade, `settled-by-disclosure` foreclosures, the sweep sibling) and **rationale-less** (unactioned Suggestion/Minor, row-less or bearing a below-threshold producer row).
 - **Taxonomy and operands.** Each pair receives exactly one of five relations — **equivalent**, **strengthened**, **contradicted** (requires a recorded parking rationale, so unreachable for the rationale-less class), **materially different**, **ambiguous**. Rationale-bearing pairs read a structured `parking_evidence {basis, failing_input, source, finding_ref}` object written at parking time by each of its four producers (Step 2.5 demotion; Step 3's item-5 pushback; the sweep's below-threshold-sibling parker; and the `settled-by-disclosure` foreclosure arm — Step 3's item 5 for a fixer-routed finding or Step 2's per-finding arm for a parked one, whose `source` names the disclosure `{path, phrase}` and is re-verified against the tree at comparison time), beside the retained one-line `evidence` string. Rationale-less pairs read the parking-time `phase3_findings` record alone. The uncitable Step 2.5 demotion arm gains a `step25_classification: "tools_unavailable"` value so its uncitable rationale has a real operand on tools-restricted tiers.
 - **Dispositions.** Parking is **preserved** only when every paired re-raise is **equivalent** from well-formed operands *(a)*, each at or below the parked severity under a component-wise label normalization (`major`≡`important`, `minor`≡`suggestion`) *(b)*, and — for a rationale-bearing row at or above `$FIX_THRESHOLD` — the rationale is anchored (`source` non-null, or an uncitable `step25_classification` restated in `basis`) *(c)*. Every other outcome takes the **existing mis-grade path**, promoting at the shadow re-raise's severity. The gate **fails closed to promotion** (the pre-change behavior): any missing/malformed/unreadable operand, an unresolvable parked identity, or a signature-less judgment-detected re-raise promotes — silent preservation and silent skip are both non-conforming.

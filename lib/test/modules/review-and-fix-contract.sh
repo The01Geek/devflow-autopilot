@@ -25,9 +25,9 @@ RAF_ROOT="${DEVFLOW_RAF_CONTRACT_ROOT:-${LIB%/lib}}"
 RAF_SKILL_ROOT="$RAF_ROOT/skills/review-and-fix/SKILL.md"
 RAF_REFS_DIR="$RAF_ROOT/skills/review-and-fix/references"
 RAF_RECEIVING_SKILL="$RAF_ROOT/skills/receiving-code-review/SKILL.md"
-RAF_EXTENSION="$RAF_ROOT/.devflow/prompt-extensions/review-and-fix.md"
-RAF_SCHEMA="$RAF_ROOT/.devflow/config.schema.json"
-RAF_EXAMPLE="$RAF_ROOT/.devflow/config.example.json"
+RAF_EXTENSION="$RAF_ROOT/.prflow/prompt-extensions/review-and-fix.md"
+RAF_SCHEMA="$RAF_ROOT/.prflow/config.schema.json"
+RAF_EXAMPLE="$RAF_ROOT/.prflow/config.example.json"
 RAF_CONFIG_GET="$RAF_ROOT/scripts/config-get.sh"
 RAF_INVENTORY="$RAF_ROOT/lib/test/modules/review-and-fix-contract.inventory.md"
 
@@ -136,7 +136,7 @@ _raf_pin_unique "raf module: inventory names the convergence contract" \
 _raf_pin_unique "raf module: inventory names the telemetry contract" \
   "Telemetry, recovery, and continuation contracts" "$RAF_INVENTORY"
 
-RAF_MAXI_PROP='.properties.devflow_review_and_fix.properties.max_iterations'
+RAF_MAXI_PROP='.properties.prflow_review_and_fix.properties.max_iterations'
 assert_eq "raf max_iterations: schema type is integer" "integer" \
   "$(jq -r "$RAF_MAXI_PROP.type" "$RAF_SCHEMA")"
 assert_eq "raf max_iterations: schema minimum is one" "1" \
@@ -147,22 +147,22 @@ assert_eq "raf max_iterations: schema has a non-empty description" "yes" \
   "$(jq -e "$RAF_MAXI_PROP.description | type == \"string\" and (length > 0)" "$RAF_SCHEMA" >/dev/null && echo yes || echo no)"
 assert_eq "raf max_iterations: example matches schema default" \
   "$(jq -r "$RAF_MAXI_PROP.default" "$RAF_SCHEMA")" \
-  "$(jq -r '.devflow_review_and_fix.max_iterations' "$RAF_EXAMPLE")"
+  "$(jq -r '.prflow_review_and_fix.max_iterations' "$RAF_EXAMPLE")"
 RAF_MAXI_CFG="$_raf_tmp_root/max-iterations.json"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":9}}' > "$RAF_MAXI_CFG"
+printf '%s' '{"prflow_review_and_fix":{"max_iterations":9}}' > "$RAF_MAXI_CFG"
 assert_eq "raf max_iterations: configured integer resolves verbatim" "9" \
-  "$("$RAF_CONFIG_GET" .devflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
-printf '%s' '{"devflow_review_and_fix":{}}' > "$RAF_MAXI_CFG"
+  "$("$RAF_CONFIG_GET" .prflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
+printf '%s' '{"prflow_review_and_fix":{}}' > "$RAF_MAXI_CFG"
 assert_eq "raf max_iterations: missing key resolves to default" "5" \
-  "$("$RAF_CONFIG_GET" .devflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
+  "$("$RAF_CONFIG_GET" .prflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
 assert_eq "raf max_iterations: missing config resolves to default" "5" \
-  "$("$RAF_CONFIG_GET" .devflow_review_and_fix.max_iterations 5 "$_raf_tmp_root/absent.json")"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":0}}' > "$RAF_MAXI_CFG"
+  "$("$RAF_CONFIG_GET" .prflow_review_and_fix.max_iterations 5 "$_raf_tmp_root/absent.json")"
+printf '%s' '{"prflow_review_and_fix":{"max_iterations":0}}' > "$RAF_MAXI_CFG"
 assert_eq "raf max_iterations: resolver preserves below-floor value" "0" \
-  "$("$RAF_CONFIG_GET" .devflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
-printf '%s' '{"devflow_review_and_fix":{"max_iterations":"abc"}}' > "$RAF_MAXI_CFG"
+  "$("$RAF_CONFIG_GET" .prflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
+printf '%s' '{"prflow_review_and_fix":{"max_iterations":"abc"}}' > "$RAF_MAXI_CFG"
 assert_eq "raf max_iterations: resolver preserves non-integer value" "abc" \
-  "$("$RAF_CONFIG_GET" .devflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
+  "$("$RAF_CONFIG_GET" .prflow_review_and_fix.max_iterations 5 "$RAF_MAXI_CFG")"
 assert_eq "raf max_iterations clamp: valid value is honored" "9" "$(_raf_maxi_clamp 9)"
 assert_eq "raf max_iterations clamp: no upper cap" "42" "$(_raf_maxi_clamp 42)"
 assert_eq "raf max_iterations clamp: zero floors to one" "1" "$(_raf_maxi_clamp 0)"

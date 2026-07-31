@@ -87,7 +87,7 @@ devflow_filing_cap_verdict() {
         esac
         case "$n" in
             ''|*[!0-9]*)
-                echo "::error::filing-decisions: the '${label}' operand is not a non-negative integer (got '${n}') — withholding this pattern as invalid-operand. A malformed .devflow_retrospective cap key reaches here as a coerced string, so a config typo withholds EVERY pattern this run." >&2
+                echo "::error::filing-decisions: the '${label}' operand is not a non-negative integer (got '${n}') — withholding this pattern as invalid-operand. A malformed .prflow_retrospective cap key reaches here as a coerced string, so a config typo withholds EVERY pattern this run." >&2
                 echo "invalid-operand" ; return 0 ;;
         esac
     done
@@ -120,7 +120,7 @@ devflow_filing_cap_verdict() {
 devflow_liveness_warning() {
     local capture="${1:-}"
     # An absent/unreadable capture is not evidence that nothing is suppressed —
-    # Step 6 may have aborted, or `.devflow/tmp/` may not have been creatable.
+    # Step 6 may have aborted, or `.prflow/tmp/` may not have been creatable.
     # Same sentence devflow_declined_refiled uses for the same reason.
     if [ -z "$capture" ] || [ ! -r "$capture" ]; then
         echo "::warning::filing-decisions: the liveness capture '${capture}' is missing or unreadable — the report's liveness section will be omitted, which is NOT evidence that nothing is suppressed" >&2

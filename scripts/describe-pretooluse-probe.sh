@@ -13,7 +13,7 @@
 # shapes are compatible).
 #
 # Usage: describe-pretooluse-probe.sh <marker-path> [execution-file-path]
-#   marker-path          the `.devflow/tmp/pretooluse-probe-fired` breadcrumb the
+#   marker-path          the `.prflow/tmp/pretooluse-probe-fired` breadcrumb the
 #                         probe's ad hoc settings-input hook writes on firing.
 #   execution-file-path   claude-code-action's execution_file output (optional — its
 #                         absence degrades reason-delivery to "unavailable", never to

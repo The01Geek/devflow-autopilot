@@ -41,7 +41,7 @@
 #
 # The helper-file-absent (skew) arm is NOT here: it stays INLINE in the composing step
 # (grep-pinned by run.sh) because it fires precisely when this helper cannot be invoked
-# (a consumer whose pinned devflow_version predates issue #505). Always exits 0 — a
+# (a consumer whose pinned prflow_version predates issue #505). Always exits 0 — a
 # compose annotation never breaks the run.
 
 set -u

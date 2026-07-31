@@ -65,7 +65,7 @@ warn() { printf 'devflow-automode: %s\n' "$1" >&2; }
 # available there by default. The var only does anything on the third-party providers
 # (Amazon Bedrock, Google Vertex AI, Microsoft Foundry). So provisioning it on
 # Anthropic-direct is a pointless user-global settings write; the --apply gate below skips it.
-# Detection reads only the documented Claude Code provider env vars (never .devflow/config.json
+# Detection reads only the documented Claude Code provider env vars (never .prflow/config.json
 # — provider is an environment concern). A var counts as third-party only when set to a truthy
 # value: Claude Code's docs enable these vars with `1`, and we additionally accept `true`
 # (case-insensitive) defensively; empty, `0`, and any other value are treated as OFF, so a

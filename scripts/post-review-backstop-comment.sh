@@ -33,7 +33,7 @@
 # five are step-env in both):
 #   PR_NUMBER  HEAD_SHA  REPO  VERDICT  APP_TOKEN_PRESENT  GH_TOKEN
 # Bundled-helper resolution is cwd-relative (vendored copy first), matching the workflows'
-# repo-root cwd — so a consumer's .devflow/vendor/devflow/scripts/ copy wins. (Not git-root
+# repo-root cwd — so a consumer's .prflow/vendor/prflow/scripts/ copy wins. (Not git-root
 # anchored: run from a subdirectory it would miss the vendored copy — the workflow steps
 # always run at the repo root, so this is correct for the two call sites.)
 set -uo pipefail
@@ -41,7 +41,7 @@ set -uo pipefail
 PR_NUMBER="${PR_NUMBER:-}"
 HEAD_SHA="${HEAD_SHA:-}"
 
-RRB=.devflow/vendor/devflow/scripts/request-review-backstop.sh
+RRB=.prflow/vendor/prflow/scripts/request-review-backstop.sh
 [ -f "$RRB" ] || RRB=scripts/request-review-backstop.sh
 if [ ! -f "$RRB" ]; then
   echo "::warning::review stall backstop: request-review-backstop.sh absent at $RRB; no auto-resume (degrades to the pre-existing dead-end flip)."
@@ -85,7 +85,7 @@ BODY_FILE="$(mktemp)" || {
   printf '**DevFlow review stall backstop** — this cloud review ended with no verdict for `%s`. Auto-resume attempt %s:\n\n' "$HEAD_SHA" "$ATTEMPT"
   printf '/devflow:review\n'
 } > "$BODY_FILE"
-POST=.devflow/vendor/devflow/scripts/post-issue-comment.sh
+POST=.prflow/vendor/prflow/scripts/post-issue-comment.sh
 [ -f "$POST" ] || POST=scripts/post-issue-comment.sh
 if [ ! -f "$POST" ]; then
   echo "::warning::review stall backstop: post-issue-comment.sh absent at $POST; re-trigger comment not posted for PR #$PR_NUMBER (auto-resume did not fire; degrades to the dead-end flip)."

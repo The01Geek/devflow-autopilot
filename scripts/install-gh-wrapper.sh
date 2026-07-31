@@ -70,7 +70,7 @@ REAL_GH="$(command -v gh 2>/dev/null || true)"
 # checkout carries only the vendored copy; the source repo carries scripts/.
 SRC="${DEVFLOW_GH_SOURCE_SH:-}"
 if [ -z "$SRC" ]; then
-  if [ -f .devflow/vendor/devflow/scripts/gh-fresh.sh ]; then SRC=.devflow/vendor/devflow/scripts/gh-fresh.sh
+  if [ -f .prflow/vendor/prflow/scripts/gh-fresh.sh ]; then SRC=.prflow/vendor/prflow/scripts/gh-fresh.sh
   elif [ -f scripts/gh-fresh.sh ]; then SRC=scripts/gh-fresh.sh
   fi
 fi

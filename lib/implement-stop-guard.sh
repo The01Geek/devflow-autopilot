@@ -87,7 +87,7 @@ fi
 set +e
 
 ROOT="$(devflow_repo_root)"
-TMPDIR_DEVFLOW="$ROOT/.devflow/tmp"
+TMPDIR_DEVFLOW="$ROOT/.prflow/tmp"
 
 # nullglob so an unmatched pattern yields an empty array rather than the literal
 # pattern as a phantom filename.
@@ -95,7 +95,7 @@ shopt -s nullglob
 MARKERS=("$TMPDIR_DEVFLOW"/implement-active-*)
 shopt -u nullglob
 if [ "${#MARKERS[@]}" -eq 0 ]; then
-  breadcrumb "no .devflow/tmp/implement-active-* marker present — no implement run to guard, allowing stop"
+  breadcrumb "no .prflow/tmp/implement-active-* marker present — no implement run to guard, allowing stop"
   exit 0
 fi
 
@@ -148,7 +148,7 @@ fi
 # heal_marker PATH ISSUE REASON — delete a marker and report honestly. A breadcrumb claiming
 # "deleted" for a marker still on disk would report success for work that did not happen, so
 # the outcome is read back from the filesystem rather than trusted from `rm`'s exit status
-# (`rm -f` reports success for an already-absent target, and a read-only `.devflow/tmp` is a
+# (`rm -f` reports success for an already-absent target, and a read-only `.prflow/tmp` is a
 # reachable failure the chmod-555 test exercises). Leaving the marker is harmless: the next
 # Stop event re-reads the same terminal workpad and retries the heal.
 heal_marker() {

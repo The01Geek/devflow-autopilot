@@ -22,7 +22,7 @@ Phase 1.6's Pass 6 (`skills/implement/phases/phase-1-setup.md`) closes that gap 
 bullet against the tree the run will build on.
 
 - **Input is the §1.1 issue-body cache, not a re-fetch** (issue #693): the pass invokes the bundled
-  helper with `--body-file` pointing at `.devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md` and
+  helper with `--body-file` pointing at `.prflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md` and
   `--repo-root` naming the tree to adjudicate against, so the helper never guesses a root from the
   working directory. On the degraded arm where §1.1 wrote no cache, the fetched body is written to a
   file and that path is passed instead.
@@ -83,7 +83,7 @@ fetches plus an inline paste into every dispatched subagent's prompt. Phase 1 §
 the body **once per run attempt** into an in-tree cache file and the Phase 1–2 consumers read it
 by explicit hand-off.
 
-- **Path and content.** The cache is `.devflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md`, anchored to
+- **Path and content.** The cache is `.prflow/tmp/issue-body/issue-<ISSUE_NUMBER>.md`, anchored to
   the repo-or-worktree root (`git rev-parse --show-toplevel`, falling back to `pwd`). The producer
   uses the extracting `gh issue view … --json body --jq '.body'` form, so the file holds the bare
   body, never a JSON envelope. §1.1's own remaining metadata fetch drops `body`
@@ -96,7 +96,7 @@ by explicit hand-off.
   Phase 2 consumer reads it. It is removed at every terminal `Status` transition alongside the run
   marker (best-effort; a leftover file is inert because reads are hand-off-only).
 - **Ignore precondition.** The in-tree write is preconditioned on an ignore rule already covering
-  `.devflow/tmp/`; the run never creates one (a new dotfile would be an untracked file a blind
+  `.prflow/tmp/`; the run never creates one (a new dotfile would be an untracked file a blind
   `git add -A` would stage). The precondition is resolved by `scripts/preflight.py
   ignore-precondition`, which calls `git check-ignore` in-process — no new matcher command head and
   no new vendored-literal token. A denied or no-output invocation is an unestablished measurement
@@ -227,7 +227,7 @@ the old-location citations in **both** forms — those that *quote the recovered
 **whitespace-normalized** search plus a rendered-surface check, so a wrapped-adjacent-literal citation
 on no single line is still found, the #375 blind spot) **and** those that *name the vacated
 path/anchor/heading* (which a content search never sees) — and reconciles each against the
-destination. This ports the authoring-tier discipline of `.devflow/prompt-extensions/create-issue.md`'s
+destination. This ports the authoring-tier discipline of `.prflow/prompt-extensions/create-issue.md`'s
 Interaction-surface map down to the implement tier; the cloud-safe search uses `grep -rnE`/`tr`, never
 `git grep` (ungranted in the implement profile). The deterministic desk-time net is
 `lib/test/pin-corpus-lint.py`'s `--reloc` relocation diagnosis, which turns a bare `ABSENT` pin into
@@ -406,7 +406,7 @@ classifier mechanically orders `suite-internal`, `required-copy`, `generated`,
 `config-key`, and the counted-home prose buckets; declared boundary paths and any other
 undecided case first become `unclear`. The committed snapshot, including each site's
 mechanical and final bucket plus its retirement entanglements, is
-`.devflow/logs/pin-corpus-inventory.tsv`.
+`.prflow/logs/pin-corpus-inventory.tsv`.
 
 `bucket_final` is not only descriptive: it is a **deciding operand** for whether an
 existence-only pin may be retired (issue #876). A row whose `bucket_final` is one of the
@@ -421,10 +421,10 @@ changed only in `lib/test/pin-corpus-adjudications.tsv`, never by hand-editing t
 generated inventory.
 
 **Inline-review observability backstop (Phase 3.3).** `review-and-fix`'s Loop Exit is what normally
-persists a run's effectiveness record (`.devflow/logs/efficiency/<slug>-<run-id>.json`) and durable
+persists a run's effectiveness record (`.prflow/logs/efficiency/<slug>-<run-id>.json`) and durable
 workpad copy, derived from its per-iteration `iter-*.json`. But Phase 3.3 drives that loop **inline in the
 orchestrator's context**, and a dropped Loop Exit then leaves those artifacts unwritten — the run
-contributes nothing to `.devflow/logs/efficiency/`, which is `review-and-fix`'s own #1 documented "Common
+contributes nothing to `.prflow/logs/efficiency/`, which is `review-and-fix`'s own #1 documented "Common
 Mistake," unguarded at this seam. So after the inline `review-and-fix` invocation returns — regardless of
 verdict — the orchestrator deterministically runs the existing `lib/efficiency-trace.sh --persist` Layer-3
 backstop (idempotent: it never re-derives an existing record, and with no `--workpad-dir`/`--slug` it
@@ -434,7 +434,7 @@ per-iteration workpad this run, so the telemetry is genuinely lost — the orche
 `dropped-failed` reflection naming the gap rather than letting it vanish silently. The "no inputs"
 detection is **this-run-scoped**: the orchestrator snapshots the pre-existing `iter-*.json` set
 *before* driving the loop and, after, records a loss only when no *new* `iter-*.json` appeared
-(`comm -13` against the snapshot). This matters on the local/interactive tier, where `.devflow/tmp`
+(`comm -13` against the snapshot). This matters on the local/interactive tier, where `.prflow/tmp`
 persists across runs — a whole-tree presence check would let a prior run's leftover mask a genuine
 loss. If the snapshot itself is missing, the detector degrades to whole-tree presence and emits a
 distinct `::warning::` naming that degrade, since it can then mask a real loss behind a leftover
@@ -445,7 +445,7 @@ breadcrumb (jq/mkdir failures) **and** its differently-worded disk/permission wr
 breadcrumb — a single-literal grep would silently miss the latter — recording a second
 `dropped-failed` reflection when either fires. The surface it does **not** cover is the
 telemetry-branch write/push itself (`::warning::telemetry-branch: …`). The record is staged under
-gitignored `.devflow/tmp/`; post-#469 a **degraded** branch write (or a CI staging-only run)
+gitignored `.prflow/tmp/`; post-#469 a **degraded** branch write (or a CI staging-only run)
 **retains** that staging root (only a *clean* write deletes it), bounded by a newest-N prune on the
 next `--persist`; a *degraded* write additionally emits one `::warning::` naming its **absolute
 path**, while a staging-only run retains silently, so on a **local**
@@ -471,7 +471,7 @@ Layer-3 `--persist` backstop can only recover what was *written* — so the real
 per-iteration `iter-<N>.json` emit is a **non-optional obligation on every iteration, however the loop
 was executed**: whether `review-and-fix` ran as a `Skill` invocation or was **hand-run via direct
 `Agent` dispatch** on a degraded path, the record is still written, and always **with the Write tool,
-never a shell `>` redirect** the cloud sandbox denies into `.devflow/tmp`. A cloud `claude-code-action`
+never a shell `>` redirect** the cloud sandbox denies into `.prflow/tmp`. A cloud `claude-code-action`
 permission/sandbox denial is **not** the local-tier permission classifier and is **not** license to
 leave the instrumented loop and hand-run the engine — on the implement job `Skill`, `Agent`, `Write`,
 `efficiency-trace.sh`, `workpad.py`, and `config-get.sh` are all allowlisted, so the loop is navigable,
@@ -506,7 +506,7 @@ post-merge. Three cases are therefore never eligible and the gate refuses the ta
   restore. A tooling gap is not a runtime-environment gap; it takes the existing **`Blocked`** escalation
   path (human handoff), never a silent post-merge pass. (A *verification command* that is **not granted**
   in the run's allowlist — its direct-form invocation refused before it could run — takes that same
-  **`Blocked`** path, naming `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
+  **`Blocked`** path, naming `prflow_implement.allowed_tools` (and `devflow.allowed_tools` for the command
   path) as the exact remedy: grant the command so the run can verify in-env, then re-run. It is **never**
   deferred to a CI result — see *In-env verification is the gate* below.)
 - **Confirmation of a self-authored claim** — a criterion whose purpose is to confirm a behavioral claim
@@ -542,10 +542,10 @@ human merge** — not a channel the run reads to verify itself.
 
 The command is invoked by its **direct leading-token** form (`lib/test/run.sh`, not `bash lib/test/run.sh`
 — the `bash <path>` wrapper is deny-floored and can never be granted), which resolves because the
-suite/lint commands are granted through `devflow_implement.allowed_tools` (and `devflow.allowed_tools` for
+suite/lint commands are granted through `prflow_implement.allowed_tools` (and `devflow.allowed_tools` for
 the `/prflow:*` command path). The two keys' granted sets are **not** identical and are not
-restated here: read them from `.devflow/config.json`, which is their single source — `devflow.allowed_tools`
-for the command path and `devflow_implement.allowed_tools` for the implement run, the latter a superset
+restated here: read them from `.prflow/config.json`, which is their single source — `devflow.allowed_tools`
+for the command path and `prflow_implement.allowed_tools` for the implement run, the latter a superset
 carrying the additional heads a run needs in its own environment. A count or list transcribed onto this
 page is a mirror-fact that goes stale the moment either key changes and nothing reconciles it — which is
 exactly what happened to the enumeration this sentence replaces. The three outcomes at the Phase 3.4
@@ -555,18 +555,18 @@ gate:
 - **In-env failure** — the command *ran and failed*; that is a real failure, not a deferral: fix it or
   take the **`Blocked`** path. Never `(post-merge)` it.
 - **In-env run denied** — the direct-form command is **not granted** in this run's allowlist, so it was
-  refused before it could run. Take the **`Blocked`** path naming `devflow_implement.allowed_tools` (and
+  refused before it could run. Take the **`Blocked`** path naming `prflow_implement.allowed_tools` (and
   `devflow.allowed_tools` for the command path) as the remedy, then re-run. Never launder a denied
   verification command into a `(post-merge)` retag or a CI observation — never a silent stall, never a
   verdict resting on a CI result the run never saw.
 
-**Consumer rule.** List your repo's test/lint commands in `devflow_implement.allowed_tools` (and
+**Consumer rule.** List your repo's test/lint commands in `prflow_implement.allowed_tools` (and
 `devflow.allowed_tools` for the command path) and the run verifies them in-env; leave them ungranted and a
-verification-command AC goes **`Blocked`**, its message naming `devflow_implement.allowed_tools` as the
+verification-command AC goes **`Blocked`**, its message naming `prflow_implement.allowed_tools` as the
 exact remedy. See [`cloud-setup.md`](cloud-setup.md#extending-the-tool-allowlist) for the config surface.
 
 **Grant-timing bootstrap — a grant a PR ships is post-merge-only.** A grant added to
-`devflow_implement.allowed_tools` (or `devflow.allowed_tools`) inside a PR
+`prflow_implement.allowed_tools` (or `devflow.allowed_tools`) inside a PR
 is live only after that PR merges, because the workflows resolve config grants at trigger time from the default branch, not from the PR's own head.
 So a run must not rely on a grant its own PR ships: grant the command in a prior merged change, or
 leave that verification for after merge.
@@ -628,7 +628,7 @@ The two rules above answer *where* verification runs (in-env, #405) and *how oft
 same suite is launched* (single flight, #528). They say nothing about **which** command
 the run picks mid-iteration, and that gap is what made one run pay for the full suite
 repeatedly. The selection rule lives in the shared focused-verification policy — this
-repo's `.devflow/prompt-extensions/{implement,review-and-fix,receiving-code-review}.md`,
+repo's `.prflow/prompt-extensions/{implement,review-and-fix,receiving-code-review}.md`,
 mirrored in `CLAUDE.md`'s tiered-runner bullet, `CONTRIBUTING.md`, and
 [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md)'s *Focused review-and-fix
 iteration* section (the canonical description of the tiers). In outline:
@@ -653,7 +653,7 @@ denies (#401) even though `python3` is a granted head. That requires two things 
 selection cannot supply on its own: the file carries the **exec bit**, and its
 `Bash(lib/test/test_*.py:*)` token is granted in the **`implement` profile** of
 `lib/capability-profiles.json` (regenerated, never hand-edited). Note this is a
-*different* channel from the `devflow_implement.allowed_tools` config key described
+*different* channel from the `prflow_implement.allowed_tools` config key described
 above: these are baked workflow literals generated from the manifest. The
 `.py`-as-direct-leading-token shape is probe-proven PERMITTED on the implement tier —
 see [`cloud-allowlist.md`](cloud-allowlist.md)'s row 17 for the run of record and the
@@ -668,7 +668,7 @@ on a dirty tree is expected and clears on commit; it is not a reason to relaunch
 prints a named `Failure recap` re-listing each failing assertion's identifier, built from
 an on-disk record every FAIL site appends to (so stderr-only failures are listed too).
 Recovering *which* assertion failed reads that recap plus the stderr-merged capture — the
-`2>&1` `.devflow/tmp/verification-<ISSUE>.log` redirect locally (#719; `>` redirects are
+`2>&1` `.prflow/tmp/verification-<ISSUE>.log` redirect locally (#719; `>` redirects are
 matcher-denied on cloud, where the recap rides in the runner log instead). The recap
 preserves `run.sh`'s exit status, so `scripts/verification-flight.py` still records
 `failed` for a RED suite; on a clean run nothing extra prints.
@@ -688,7 +688,7 @@ Phase 4.3 (*Finalize the PR and Finalize Workpad*) is where a run ends. It runs 
 - **Non-blocking warning — unticked `## Plan` rows.** A still-unticked Plan row only warns (a genuinely dropped/superseded step may honestly stay unticked); the finalize still succeeds. Phase 3.5 ticks the versioning and final-suite Plan steps (which complete in Phase 3, so the Phase 2 tick loop never reaches them) precisely so this warning fires only on a real drop. (The versioning step commits the repo's version artifact — for this repo the `.changeset/*.md` file that the merge-time `version-consolidate` Action later consolidates into a bump + `CHANGELOG` entry, not an in-PR version bump.)
 - **Non-blocking warning — un-mirrored AC placeholder.** If the `## Acceptance Criteria` section still holds the un-mirrored `new-body` placeholder (AC-mirroring never ran, so the checkbox scan has nothing to check and the hard-fail is vacuously satisfied), the finalize warns and succeeds — the self-record was never populated, so investigate the mirroring rather than trusting the Complete. A genuinely AC-less issue carries the *distinct* `_(none provided in issue body)_` sentinel and is unaffected.
 
-The publish step is gated by a per-consumer config key, **`devflow_implement.implement_pr_state`** (string, read via `config-get.sh .devflow_implement.implement_pr_state ready_for_review`):
+The publish step is gated by a per-consumer config key, **`prflow_implement.implement_pr_state`** (string, read via `config-get.sh .prflow_implement.implement_pr_state ready_for_review`):
 
 | Value | Phase 4.3 behavior |
 |---|---|
@@ -731,12 +731,12 @@ The two guards above catch a run that *under-completes* Phase 4. A distinct fail
 
 The workflow-level stall backstop below is **cloud-only**, so an unattended *local-tier* run that dies mid-phase has no deterministic net. (The reason is *not* that `Stop` hooks are unavailable on the cloud tier — `claude-code-action` removes `.claude/` and then **restores it from the base branch**, so a base-registered `Stop` hook does execute inside the action; `docs/execution-file-shape.md` records the observation, **`FIRED`**, from probe run `29224205805`. What makes the cloud net workflow-level is that it must key on the workpad `Status` *after* the `claude` step has ended, which a hook inside the session cannot do; and the guard here is repo-local, so no consumer's cloud run wires it either way.) `lib/implement-stop-guard.sh` is that net. It is **repo-local by design**: it is wired in this repo's own `.claude/settings.json` and ships to no consumer repo.
 
-The guard is **marker-gated**, so an ordinary session never pays for it. Phase 1.3 writes an empty run-marker `.devflow/tmp/implement-active-<issue>` the moment the workpad exists (gitignored, anchored to the repo or worktree root); the always-resident *Outcome reaction* block — which already binds every terminal `Status` transition — removes it at each of them. On `Stop`, the guard:
+The guard is **marker-gated**, so an ordinary session never pays for it. Phase 1.3 writes an empty run-marker `.prflow/tmp/implement-active-<issue>` the moment the workpad exists (gitignored, anchored to the repo or worktree root); the always-resident *Outcome reaction* block — which already binds every terminal `Status` transition — removes it at each of them. On `Stop`, the guard:
 
 1. allows immediately when `GITHUB_ACTIONS` is set (the cloud tier has its own backstop);
 2. globs for a marker with pure bash and **allows immediately when none exists** — this arm spawns no interpreter and makes no network call (only the one local `git rev-parse` its repo-root resolver runs), which is the property every non-implement session relies on;
 3. allows when `python3` is unavailable (its own breadcrumb, not folded into the parse arm below), and otherwise parses `session_id` out of the hook's stdin JSON, allowing when the JSON is unparseable, the id is missing, or the id is unsafe as a filename component;
-4. allows when this session's sentinel `.devflow/tmp/stop-guard-<session_id>` already exists;
+4. allows when this session's sentinel `.prflow/tmp/stop-guard-<session_id>` already exists;
 5. allows, keeping **every** marker, when `scripts/workpad.py` itself is absent — `python3 <script>` exits 2 on an unopenable script, which is the very code `workpad.py` uses for "no workpad", so without this check a missing helper would be read as a stale marker and delete it, silently disabling the backstop;
 6. otherwise reads each marker's live workpad `Status` with `scripts/workpad.py status <n>`, which is the **source of truth** — the marker only gates *whether* to ask.
 
@@ -774,7 +774,7 @@ The two coherence-rule sites and the two read-target-rule sites are **coupled mi
 
 ### Ahead-of-base branch-state preflight — Verdict B (`phase-1-setup.md` §1.4.0.5, `scripts/preflight.py branch-state`)
 
-The freshness guard above derives only the *behind*-by count, so a branch that is not behind the base can still carry unrelated **ahead-only** history — foreign commits every downstream step then treats as the run's own, so §1.5 publishes them and the PR diff carries their files (the PR #524 incident: four unrelated files forked from an unpushed local-`main` commit that read "behind-by-0 / up to date"). **Verdict B** closes that blind spot. It runs on the **adopted-branch** arm (`USE_CURRENT` set — the arm a run that adopts a branch takes) and, since issue #780, on the **landed-resume** arm (`LANDED` is `yes`, which never binds `USE_CURRENT`) — on the adopted arm after the freshness record, and on both arms **before** the end-of-§1.4 checkpoint invocation and the §1.5 push, so a stop verdict still precedes every history-mutating step. §1.4.0.5 classifies the working branch against the base by writing the state it holds (base, current branch, workpad body, prior-proceed evidence, workpad provenance, open-PR facts, repo) to `.devflow/tmp/branch-state-$ISSUE_NUMBER.json` with the Write tool and invoking `scripts/preflight.py branch-state --state-file …` as a single leading-token command.
+The freshness guard above derives only the *behind*-by count, so a branch that is not behind the base can still carry unrelated **ahead-only** history — foreign commits every downstream step then treats as the run's own, so §1.5 publishes them and the PR diff carries their files (the PR #524 incident: four unrelated files forked from an unpushed local-`main` commit that read "behind-by-0 / up to date"). **Verdict B** closes that blind spot. It runs on the **adopted-branch** arm (`USE_CURRENT` set — the arm a run that adopts a branch takes) and, since issue #780, on the **landed-resume** arm (`LANDED` is `yes`, which never binds `USE_CURRENT`) — on the adopted arm after the freshness record, and on both arms **before** the end-of-§1.4 checkpoint invocation and the §1.5 push, so a stop verdict still precedes every history-mutating step. §1.4.0.5 classifies the working branch against the base by writing the state it holds (base, current branch, workpad body, prior-proceed evidence, workpad provenance, open-PR facts, repo) to `.prflow/tmp/branch-state-$ISSUE_NUMBER.json` with the Write tool and invoking `scripts/preflight.py branch-state --state-file …` as a single leading-token command.
 
 **Two provenance sources for ahead history (issue #780).** This section is the **canonical statement** of that admission and its threat model; `skills/implement/phases/phase-1-setup.md` §1.4.0.5 and `docs/DEVFLOW_SYSTEM_OVERVIEW.md` carry coupled operative summaries, and `scripts/preflight.py`'s header points here rather than restating it — edit them together.
 
@@ -798,16 +798,16 @@ The helper owns the recognizer and derivation semantics (ahead-of-base count wit
 | `DECISION_BLOCKED <payload-file>` | 2 | ahead history under unverified/hostile provenance, a named divergent branch that does not exist (marker-forged or corrupted workpad), or a divergent existing branch with no prior proceed verdict (`divergent-without-verdict`) — same terminal `Blocked` stop |
 | `UNAVAILABLE <reason>` | 3 | the ahead count, base ref, or existence probe could not be established (`base`/`count`/`shallow-probe`/`shallow-undeepened`/`existence-probe`/`state`) — fail closed to the same `Blocked` stop rather than risk a spurious proceed |
 
-Any non-zero exit is a non-clean measurement — the run never proceeds to the end-of-§1.4 checkpoint invocation on it. The ordering is load-bearing: the classification completes after branch determination and before any history-mutating step (the checkpoint's base merge, the push), so a stop verdict aborts the run with the working tree unchanged and no local branch tip moved (the shallow deepen's refspec does force-update the `origin/$BASE` remote-tracking ref, which can advance if origin's base moved, and `git fetch` tag-auto-following can additionally create `refs/tags/*` entries for tags reachable from the newly-deepened history — both are ref changes outside `refs/heads`; no local branch and no tracked file is touched). The state file is written with the Write tool (a granted class into `.devflow/tmp/**`) and the helper invoked as the repo-relative vendored literal leading token — never behind a `VAR=value` prefix, a `bash <path>` wrapper, or a `>`-redirect (denied cloud shapes, issues #363/#401); a local runner that refuses the direct helper path falls back to `python3 <resolved path> branch-state …`. The change adds the `preflight.py` subcommand and the §1.4.0.5 prose; no workflow, allowlist, or config surface changes — consumers inherit it through the shared skill and the vendored helper.
+Any non-zero exit is a non-clean measurement — the run never proceeds to the end-of-§1.4 checkpoint invocation on it. The ordering is load-bearing: the classification completes after branch determination and before any history-mutating step (the checkpoint's base merge, the push), so a stop verdict aborts the run with the working tree unchanged and no local branch tip moved (the shallow deepen's refspec does force-update the `origin/$BASE` remote-tracking ref, which can advance if origin's base moved, and `git fetch` tag-auto-following can additionally create `refs/tags/*` entries for tags reachable from the newly-deepened history — both are ref changes outside `refs/heads`; no local branch and no tracked file is touched). The state file is written with the Write tool (a granted class into `.prflow/tmp/**`) and the helper invoked as the repo-relative vendored literal leading token — never behind a `VAR=value` prefix, a `bash <path>` wrapper, or a `>`-redirect (denied cloud shapes, issues #363/#401); a local runner that refuses the direct helper path falls back to `python3 <resolved path> branch-state …`. The change adds the `preflight.py` subcommand and the §1.4.0.5 prose; no workflow, allowlist, or config surface changes — consumers inherit it through the shared skill and the vendored helper.
 
-### Base-branch update checkpoints (`devflow_implement.update_branch_checkpoints`)
+### Base-branch update checkpoints (`prflow_implement.update_branch_checkpoints`)
 
-An `/prflow:implement` run can take hours while sibling PRs merge, leaving its feature branch behind base. In a repo whose branch protection requires PR branches to be up to date before merge, the run would otherwise publish a PR on a stale branch — skipped/missing CI, and — because PRFlow's own `devflow_review.require_up_to_date` deferral is head-scoped and cannot see the *base* advancing (the known limitation in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md) §14) — a PR that can strand indefinitely behind a neutral "branch behind base" check. The run therefore brings its branch up to date with the configured `base_branch` at **four checkpoints**, all through one shared helper — `scripts/update-branch-checkpoint.sh` — so every state the merge gate or an auto-review consumes is current, including the terminal pushed state (up to the residual gaps §14 notes: a deferral already stranded on an earlier base advance, and a base that advances in the narrow window between the checkpoint push and the review firing):
+An `/prflow:implement` run can take hours while sibling PRs merge, leaving its feature branch behind base. In a repo whose branch protection requires PR branches to be up to date before merge, the run would otherwise publish a PR on a stale branch — skipped/missing CI, and — because PRFlow's own `prflow_review.require_up_to_date` deferral is head-scoped and cannot see the *base* advancing (the known limitation in [`DEVFLOW_SYSTEM_OVERVIEW.md`](DEVFLOW_SYSTEM_OVERVIEW.md) §14) — a PR that can strand indefinitely behind a neutral "branch behind base" check. The run therefore brings its branch up to date with the configured `base_branch` at **four checkpoints**, all through one shared helper — `scripts/update-branch-checkpoint.sh` — so every state the merge gate or an auto-review consumes is current, including the terminal pushed state (up to the residual gaps §14 notes: a deferral already stranded on an earlier base advance, and a base that advances in the narrow window between the checkpoint push and the review firing):
 
-1. **End of Phase 1.4 — every arm.** The helper is invoked as the **last** step of §1.4, on the new-branch arm, the adopted-branch arm, and the landed-resume arm alike (issue #779): Phase 1 reconciles the branch with the base on **every** path that reaches Phase 1.5, so a resumed run cannot proceed on a stale base. It is not gated on `USE_CURRENT`, and it takes no operand naming which arm was taken — the helper resolves the base from `.devflow/config.json` and the branch from `HEAD` inside its own process. On the adopted arm it runs after the freshness record and after §1.4.0.5's Verdict B; since issue #780 **Verdict B also runs on the landed-resume arm** (the §1.4 freshness record remains adopted-arm-only), so that arm now reaches the checkpoint *with* an ahead-of-base classification. Even so, a `CONFLICT` **at this call site only** routes to `Blocked` as needs-human-reconciliation on every arm rather than to §1.4.1's agent-resolution contract — #780 revisited that routing and left it standing, because classification establishes the ahead history's *provenance* but not the orchestrator's *authorship context* over it, and because no operand readable at the call site distinguishes the landed-resume arm (each fenced block may run as its own shell, and `scripts/workpad.py`'s notes are append-only, so a prior attempt's record — Verdict B's own verdict included — is indistinguishable from this run's). Checkpoints 2 and 3 keep the inherited `CONFLICT` contract unchanged; checkpoint 4 inherits the same resolution path but bounds it to a single re-invocation. Both of §1.4's own base fetches use the same forced refspec the helper uses (`+refs/heads/$BASE:refs/remotes/origin/$BASE`), so every §1.4 path resolves the same base tip.
+1. **End of Phase 1.4 — every arm.** The helper is invoked as the **last** step of §1.4, on the new-branch arm, the adopted-branch arm, and the landed-resume arm alike (issue #779): Phase 1 reconciles the branch with the base on **every** path that reaches Phase 1.5, so a resumed run cannot proceed on a stale base. It is not gated on `USE_CURRENT`, and it takes no operand naming which arm was taken — the helper resolves the base from `.prflow/config.json` and the branch from `HEAD` inside its own process. On the adopted arm it runs after the freshness record and after §1.4.0.5's Verdict B; since issue #780 **Verdict B also runs on the landed-resume arm** (the §1.4 freshness record remains adopted-arm-only), so that arm now reaches the checkpoint *with* an ahead-of-base classification. Even so, a `CONFLICT` **at this call site only** routes to `Blocked` as needs-human-reconciliation on every arm rather than to §1.4.1's agent-resolution contract — #780 revisited that routing and left it standing, because classification establishes the ahead history's *provenance* but not the orchestrator's *authorship context* over it, and because no operand readable at the call site distinguishes the landed-resume arm (each fenced block may run as its own shell, and `scripts/workpad.py`'s notes are append-only, so a prior attempt's record — Verdict B's own verdict included — is indistinguishable from this run's). Checkpoints 2 and 3 keep the inherited `CONFLICT` contract unchanged; checkpoint 4 inherits the same resolution path but bounds it to a single re-invocation. Both of §1.4's own base fetches use the same forced refspec the helper uses (`+refs/heads/$BASE:refs/remotes/origin/$BASE`), so every §1.4 path resolves the same base tip.
 2. **Pre-draft-PR (Phase 3.1).** Immediately before §3.1's existing-PR guard resolves (and so before any `gh pr create`), so the self-review and first review pass see current base — on the guard's adopt arm the checkpoint still runs, only the create does not.
-3. **Each fix iteration + Loop Exit (`/prflow:review-and-fix` loop, `--push-each-iteration` only).** After each iteration's fix commit and immediately before that iteration's push — the helper's single push carries the fix and the base merge together — plus once at Loop Exit after the observability commit, covering the terminal pushed state of a standalone `/prflow:review-and-fix N --push-each-iteration` run (which never reaches Phase 4.3). A direct invocation without the flag never touches the base. The **`devflow_implement.*`** off-switch also governs this checkpoint inside such a standalone review-and-fix run.
-4. **Pre-ready (Phase 4.3).** After the clean-tree backstop and before the publish decision; on a real merge (`UPDATED`) the run re-runs the project test suite and publishes only when it passes — and when the suite is absent, ungranted, or otherwise unrunnable on this tier, it publishes anyway and records that the merge was not locally re-verified (CI is the validating gate). Since issue #779 this checkpoint also **gates the completion claim**: the run grades the **first whitespace-delimited field** of the helper's emitted line (`emit "UPDATED $BEHIND"` prints `UPDATED 3`, so a whole-line test would be false for every real merge), records a `--note` naming the observed token before publishing on `UPDATED`/`UP_TO_DATE`/`DISABLED` alike, and **refuses both `gh pr ready` and the `Status: Complete` flip** — recording `Blocked` naming the observed line — when that field is `UNVERIFIED`, `PUSH_REJECTED`, `MERGE_IN_PROGRESS`, empty, or unrecognized. `CONFLICT` is exempt: it resolves per the inherited contract, the helper is re-invoked **once**, and that re-invocation's field is what the gate reads — a second consecutive `CONFLICT` takes the refusal arm. An invocation whose refusal the tier **reports** (a local classifier denial message, rc 127) is a distinct case — it records a degraded reflection and publishes as before, so a reported permission boundary never becomes a run-ending stop. A **silent** cloud matcher denial is a disclosed residual: it produces no output and no failure signal, so it is indistinguishable from an unrecognized field and takes the refusal arm — the remedy is to grant the helper in `devflow_implement.allowed_tools`.
+3. **Each fix iteration + Loop Exit (`/prflow:review-and-fix` loop, `--push-each-iteration` only).** After each iteration's fix commit and immediately before that iteration's push — the helper's single push carries the fix and the base merge together — plus once at Loop Exit after the observability commit, covering the terminal pushed state of a standalone `/prflow:review-and-fix N --push-each-iteration` run (which never reaches Phase 4.3). A direct invocation without the flag never touches the base. The **`prflow_implement.*`** off-switch also governs this checkpoint inside such a standalone review-and-fix run.
+4. **Pre-ready (Phase 4.3).** After the clean-tree backstop and before the publish decision; on a real merge (`UPDATED`) the run re-runs the project test suite and publishes only when it passes — and when the suite is absent, ungranted, or otherwise unrunnable on this tier, it publishes anyway and records that the merge was not locally re-verified (CI is the validating gate). Since issue #779 this checkpoint also **gates the completion claim**: the run grades the **first whitespace-delimited field** of the helper's emitted line (`emit "UPDATED $BEHIND"` prints `UPDATED 3`, so a whole-line test would be false for every real merge), records a `--note` naming the observed token before publishing on `UPDATED`/`UP_TO_DATE`/`DISABLED` alike, and **refuses both `gh pr ready` and the `Status: Complete` flip** — recording `Blocked` naming the observed line — when that field is `UNVERIFIED`, `PUSH_REJECTED`, `MERGE_IN_PROGRESS`, empty, or unrecognized. `CONFLICT` is exempt: it resolves per the inherited contract, the helper is re-invoked **once**, and that re-invocation's field is what the gate reads — a second consecutive `CONFLICT` takes the refusal arm. An invocation whose refusal the tier **reports** (a local classifier denial message, rc 127) is a distinct case — it records a degraded reflection and publishes as before, so a reported permission boundary never becomes a run-ending stop. A **silent** cloud matcher denial is a disclosed residual: it produces no output and no failure signal, so it is indistinguishable from an unrecognized field and takes the refusal arm — the remedy is to grant the helper in `prflow_implement.allowed_tools`.
 
 **The helper owns the whole mechanical sequence** — the off-switch read, base derivation, the pre-state guards, `git fetch`, behind-by derivation, `git merge --no-edit origin/$BASE` when behind, `git push`, and the push-race recovery arm — so a cloud call site invokes one granted leading-token command (the cloud allowlists grant no inline `git rev-list`, so the behind-by derivation and the base merge run inside the helper's own subprocess; `Bash(git merge:*)` *is* granted, but only for the agent-level `git merge --abort` the conflict contract prescribes at a call site). It is git-only plus `config-get.sh` reads (no `gh`, no `jq`), guard-class-2 throughout (every decision derives from git output, `python3`, and bash builtins). It prints exactly one machine-readable token with a matching exit code:
 
@@ -823,13 +823,13 @@ An `/prflow:implement` run can take hours while sibling PRs merge, leaving its f
 
 A **`CONFLICT`** at checkpoints 2, 3 and 4 is resolved *in-run* (the Phase 1 checkpoint instead routes `CONFLICT` to `Blocked` as needs-human-reconciliation on every arm, aborting the merge first — issue #779): the agent resolves the conflicts (it holds full context of its own changes), runs the project test suite on the resolved tree, commits the merge, pushes, records the conflicted files, and re-runs the Phase 2.3.0 changed-contract sweep. A resolution whose suite run **fails** is **aborted** (`git merge --abort`, restoring the pre-checkpoint tree) before the run hard-stops — the workpad `Blocked` flip when implement-driven, the loop's native "stop and report" when review-and-fix runs standalone — so a failed resolution never remains in the tree. `UNVERIFIED`/`PUSH_REJECTED` are loud but non-fatal (record and continue) **at checkpoints 1-3; at checkpoint 4 they block publication and the `Complete` flip after one bounded re-invocation** (issue #779) — **with one exception: a `PUSH_REJECTED` whose stderr carries the failed-restore `WARNING` hard-stops too**, because the branch may still carry an unpushed base-merge commit that no clean-tree backstop can see (the divergence is in committed history); **`MERGE_IN_PROGRESS` hard-stops** (continuing would absorb an abandoned resolution into the next ordinary commit). The shallow cloud checkout (`fetch-depth: 50`) means the helper's one `git fetch --unshallow origin "$BASE"` retry on an out-of-shallow merge base is not theoretical; the retry targets the base ref explicitly because the cloud checkout's single-branch refspec would otherwise leave `origin/$BASE` un-deepened. When even the unshallow retry cannot establish a merge base, the checkpoint degrades to `UNVERIFIED` — record-and-continue at checkpoints 1-3, publication-blocking at checkpoint 4 (issue #779) — never a bad merge.
 
-**Config.** The off-switch is **`devflow_implement.update_branch_checkpoints`** (boolean, default `true`), read via `config-get.sh`: the checkpoints are disabled exactly when the value serializes to the string `false` — an explicit JSON `false`, or a shape `config-get.sh` serializes identically (the JSON string `"false"`, or `[false]`, since arrays comma-join); a missing config file, missing key, empty string, or any other value leaves them enabled (issue #312 valid-falsy discipline — the documented off-switch genuinely disables, and near-`false` shapes fail toward "off", the pre-feature status quo). On-by-default mirrors `stall_backstop.enabled`'s safe-direction default. A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches — and turns the whole mechanism off with one key.
+**Config.** The off-switch is **`prflow_implement.update_branch_checkpoints`** (boolean, default `true`), read via `config-get.sh`: the checkpoints are disabled exactly when the value serializes to the string `false` — an explicit JSON `false`, or a shape `config-get.sh` serializes identically (the JSON string `"false"`, or `[false]`, since arrays comma-join); a missing config file, missing key, empty string, or any other value leaves them enabled (issue #312 valid-falsy discipline — the documented off-switch genuinely disables, and near-`false` shapes fail toward "off", the pre-feature status quo). On-by-default mirrors `stall_backstop.enabled`'s safe-direction default. A consumer repo without an up-to-date branch-protection rule keeps working unchanged apart from ordinary base merges on feature branches — and turns the whole mechanism off with one key.
 
-### Workflow-level stall backstop (harness-side, `devflow_implement.stall_backstop`)
+### Workflow-level stall backstop (harness-side, `prflow_implement.stall_backstop`)
 
 The two guards above are **agent-side**: they can only fire while the agent is still generating and re-enters its loop. A **cloud** `/prflow:implement` run has a failure mode they cannot reach — the headless `claude-code-action` session is single-shot, and the SDK ends the session the moment the model emits a tool-call-free turn (e.g. a narrate-and-hand-back turn right after `gh pr create`). When that happens at, say, the Phase 2→3 boundary, the agent never re-enters, so the terminal-status self-check is structurally unreachable — yet the Actions job still reports `success` (the action returns `subtype: success`, not `error_max_turns`). The run is then a green success that actually stalled mid-lifecycle, indistinguishable from a healthy one and feeding the stale-workpad retrospective gap (observed on issue #259 → PR #264 and issue #258 → PR #265).
 
-A **workflow-level backstop** closes this, governed by two config keys under `devflow_implement.stall_backstop` (read via `config-get.sh`):
+A **workflow-level backstop** closes this, governed by two config keys under `prflow_implement.stall_backstop` (read via `config-get.sh`):
 
 - **`stall_backstop.enabled`** (boolean, default `true`) — master switch. When `false`, the backstop is skipped entirely and the job behaves exactly as before (green on a mid-lifecycle stop). An unrecognized/missing value resolves to `true` (the safe, honest-failure direction).
 - **`stall_backstop.max_resume_attempts`** (integer, default `2`, minimum `0`) — hard cap on automatic resume attempts. `0` means detect-and-fail-loud only; `N` means up to `N` auto-resumes before failing loud. A negative/non-integer value resolves to `2`.
@@ -841,7 +841,7 @@ When enabled, a post-`claude` step keys on the issue workpad `Status` (via `work
 - **Terminal `Status`** (`Complete` 🎉 / `Blocked` 👎 / `Failed` 💥 / `Cancelled` 🛑) → no-op; the job concludes normally. (`Failed` is written by this backstop's own dead-run flip below, and `Cancelled` by its cancelled-run flip above, so a re-triggered run reads either as a decided end rather than a stall.)
 - **Interim `Status`** (any 🚀 phase) → auto-resume: post a distinct audit comment (attempt *k* of `max_resume_attempts`) and re-dispatch `/prflow:implement <n>` so the skill's Phase 1.3 workpad-resume continues from where it stopped, bounded by the cap. **"Continues from where it stopped" is workpad-state continuity, not in-place phase resumption:** the fresh process re-enters Phase 1, and because the Phase 2 `code-explorer`/`code-architect` artifacts are non-persistent (neither agent declares a `Write`/`Edit`/`Bash` tool), Phase 2 is re-entered from its top — where the §2.0 resume-idempotency gate builds on the committed `## Plan` instead of re-running discovery/architecture.
 
-**Denial-proof helper invocation on a resumed run (issue #405).** A resumed run — and every cloud helper invocation — must invoke bundled helpers with the **repo-relative vendored literal** (`.devflow/vendor/devflow/scripts/…`, `.devflow/vendor/devflow/lib/…`) as the command's **leading token**: never an absolute path (`/home/runner/.../scripts/workpad.py`), never the repo-root `scripts/…` form, and never behind a `VAR=value` prefix or a `bash <path>` wrapper. Each of those makes the command no longer *begin with* the granted literal, so the cloud allowlist silently denies it — and a resumed run that reaches for the absolute or repo-root form is denied on its very first `workpad.py` call and dies without resuming. The stall-backstop **resume comment now carries this discipline inline** (a `Resume note:` line in the comment body), so a resumed run receives the rule inside its own triggering comment even if it never re-reads the skill prose; the same rule is stated in the skill's always-resident orchestrator body. After two denials of a given command shape, switch to a listed legal form rather than iterating a third spelling.
+**Denial-proof helper invocation on a resumed run (issue #405).** A resumed run — and every cloud helper invocation — must invoke bundled helpers with the **repo-relative vendored literal** (`.prflow/vendor/prflow/scripts/…`, `.prflow/vendor/prflow/lib/…`) as the command's **leading token**: never an absolute path (`/home/runner/.../scripts/workpad.py`), never the repo-root `scripts/…` form, and never behind a `VAR=value` prefix or a `bash <path>` wrapper. Each of those makes the command no longer *begin with* the granted literal, so the cloud allowlist silently denies it — and a resumed run that reaches for the absolute or repo-root form is denied on its very first `workpad.py` call and dies without resuming. The stall-backstop **resume comment now carries this discipline inline** (a `Resume note:` line in the comment body), so a resumed run receives the rule inside its own triggering comment even if it never re-reads the skill prose; the same rule is stated in the skill's always-resident orchestrator body. After two denials of a given command shape, switch to a listed legal form rather than iterating a third spelling.
 - **Cap exhausted** (including `max_resume_attempts: 0`) → the job exits non-zero (red) and posts a distinct comment naming the stall for a manual retrigger.
 - **Unreadable `Status`** (workpad missing / unparseable — `workpad.py status` exits 2 or 1, where exit 2 is "no workpad" and exit 1 covers both a missing/empty `Status` line and a present `Status` line whose word isn't in the canonical vocabulary (`Reviewing`/`Complete`/`Blocked`/etc.)) → fail closed (`unreadable` class) with a distinct diagnostic comment, never a false "stalled at X" claim.
 - **Auth/API failure reading the workpad** (`workpad.py status` exits **3** — a `gh`-api/transport/auth failure such as an expired App installation token, reading either the workpad `Status` or the issue comment list that counts prior attempts) → fail closed (`auth-failure` class, distinct from `unreadable`) with an auth-specific diagnostic comment, and **without consuming a resume attempt** — the workpad may be perfectly healthy; only the read failed (issue #287).
@@ -866,7 +866,7 @@ On **every** resume — whether triggered by this backstop's auto-resume, a manu
 | 8 | `VAR=$(non-label-helper …)` capture | PERMITTED |
 | 9 | Redirect-free `VAR="$(label-helper …)"` capture | DENIED |
 | 10 | Granted head with `> /tmp/f` | DENIED |
-| 11 | Granted head with `> .devflow/tmp/f` | PERMITTED |
+| 11 | Granted head with `> .prflow/tmp/f` | PERMITTED |
 | 12 | Plain heredoc write through a granted head | PERMITTED |
 | 13 | Captured `VAR="$(cat <<'EOF' …)"` heredoc | PERMITTED |
 | 14 | `echo "$VAR"` simple expansion after a granted head | DENIED |
@@ -911,7 +911,7 @@ The three sub-sections render in the canonical order `### ⚠️ Action required
 - Sub-headings are `### ` (level-3), **never** `## ` — `lib/fetch-pr-context.sh` terminates the reflection parse at the first `## ` heading, so a level-2 sub-heading would truncate `reflections[]`. The parser captures every kind bullet (glyph, and bold-label prefix when present — a glyph-only bullet is captured identically; useful signal for the retrospective LLM, irrelevant to `cheap-gate.jq`'s friction check) and excludes the `### ` headings, for the grouped shape and a legacy flat block alike. Beyond capturing the bullets, the parser now splits them by **friction**: it emits a top-level `reflections_friction_count` counting every bullet EXCEPT an informational `note` (`ℹ️` under `### ℹ️ Notes`), and `cheap-gate.jq` forces LLM analysis only when that count is > 0 — a run whose reflections are all `note`-kind is treated as clean (an exempted note is still recorded verbatim into the clean entry by `lib/clean-entry.jq`). The gate fails closed if the field is absent (falls back to the legacy "any reflection trips" count), and a present-but-unparseable block is substituted with a friction sentinel, so a missing or broken signal over-analyzes rather than skipping a friction PR.
 - `--reflection-kind` defaults to `note`, so un-kinded call-sites degrade to the Notes sub-section — never to Action required. A single kind applies to every bullet in the call, so the orchestrator emits different kinds in separate `update` calls (this is why the Phase 4.3 `publish_failed` `dropped-failed` reflection is its own call, separate from the `note`-kind finalize). This mirrors `workpad.py`'s existing helper-owns-the-rendering-token idiom (`--status` derives and prepends the status glyph; `--note` nests under the right `## Progress` phase).
 - **The Phase 1.6 issue-claim audit records clean confirmations as `## Progress` `--note`s, not reflections** — an assumption checked that held carries no friction signal, and a reflection trips the retrospective cheap gate. Only audit *findings* reflect: a wrong count/exclusion as `issue-accuracy`, punted workflow-capability work as `deferred`, a policy/dependency contradiction as `blocked`.
-- **Interpolation-safe input.** `--reflection-file PATH` reads the bullet text verbatim as UTF-8 from a file (or stdin when `PATH` is `-`), bypassing shell interpolation — the recipe for reflection text containing backticks, `$`, or double quotes. The call-site recipe (in `skills/implement/SKILL.md`) authors the payload to a `.devflow/tmp/` file with the Write tool, passes `--reflection-file <path>` alongside the `--reflection-kind`, then deletes the payload after the helper call succeeds; an unreadable, undecodable, or empty payload aborts the call before any PATCH.
+- **Interpolation-safe input.** `--reflection-file PATH` reads the bullet text verbatim as UTF-8 from a file (or stdin when `PATH` is `-`), bypassing shell interpolation — the recipe for reflection text containing backticks, `$`, or double quotes. The call-site recipe (in `skills/implement/SKILL.md`) authors the payload to a `.prflow/tmp/` file with the Write tool, passes `--reflection-file <path>` alongside the `--reflection-kind`, then deletes the payload after the helper call succeeds; an unreadable, undecodable, or empty payload aborts the call before any PATCH.
 
 ## Phase 4.0.5 deferral-manifest discovery (`scripts/discover-deferral-manifests.py`)
 
@@ -926,7 +926,7 @@ Discovery is now delegated to the stdlib-only `scripts/discover-deferral-manifes
 
 The phase consumes that status fail-closed. `DISCOVERY_STATE` is initialized **empty** before the statement and no arm sets a non-empty default, so a harness refusal of the capture (the non-label capture shape is unproven on the implement tier — *no output at all* is a possible denial, never an empty value) leaves it empty; the unconditional sentinel gained a `discovery=` field, and the filing guard requires `ok` or `partial`. Consequently: `discovery=[]` (refused or never ran) and `discovery=[failed]` file nothing and record a `dropped-failed` reflection; `discovery=[partial]` files from the clean roots only and records the failed root plus the honest limitation that, once this run hydrates the aggregate, the failed root's deferrals can no longer be auto-filed by a later re-run (`file-deferrals.py` refuses a mixed hydrated/raw manifest all-or-nothing) and must be filed manually from that root's run-scoped manifest; and only `discovery=[ok]` with `manifest=[]` is the clean no-op.
 
-On the cloud implement tier the helper is subject to the same **two-halves upgrade** as the label helpers: `devflow-implement.yml` must grant `Bash(.devflow/vendor/devflow/scripts/discover-deferral-manifests.py:*)` (arrives by re-running `install.sh`; authored through the generated capability manifest, never by hand-editing the workflow literal) *and* the §4.0.5 fence must invoke it (arrives by bumping `devflow_version`). Unlike the label class, a skew here fails **loudly** — the discovery statement is refused, produces no output, and the reader takes the fail-closed `discovery=[]` exit.
+On the cloud implement tier the helper is subject to the same **two-halves upgrade** as the label helpers: `devflow-implement.yml` must grant `Bash(.prflow/vendor/prflow/scripts/discover-deferral-manifests.py:*)` (arrives by re-running `install.sh`; authored through the generated capability manifest, never by hand-editing the workflow literal) *and* the §4.0.5 fence must invoke it (arrives by bumping `prflow_version`). Unlike the label class, a skew here fails **loudly** — the discovery statement is refused, produces no output, and the reader takes the fail-closed `discovery=[]` exit.
 
 ## Phase 4.0 / 4.0.5 deferred-issue labels (`deferred.labels`)
 

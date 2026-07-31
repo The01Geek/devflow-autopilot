@@ -5,7 +5,7 @@ kind: growth
 
 ## Files
 
-- `.devflow/prompt-extensions/create-issue.md`
+- `.prflow/prompt-extensions/create-issue.md`
 
 ## Justification
 

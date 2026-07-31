@@ -47,7 +47,7 @@ it is a *structural* property rather than a blocklist: a checker whose answer de
 on untracked host state is a checker that goes red locally and green on a fresh CI
 checkout, varying between runs on the same commit. A filesystem walk cannot have that
 property — every exclusion list it carries is a blocklist that the next untracked
-directory defeats. DevFlow's own review scratch (``.devflow/tmp/``, which holds a
+directory defeats. DevFlow's own review scratch (``.prflow/tmp/``, which holds a
 cached ``diff.patch`` carrying both pin forms at arbitrary versions) is the instance
 that proved it; the index population removes the whole class, scratch dirs that do
 not exist yet included.
@@ -66,9 +66,9 @@ Both populations then drop the same non-pin content:
   plus (``.claude``) this repo's sibling-git-worktree root.
 * ``.changeset/`` and ``CHANGELOG.md`` — release *history*. Past entries name past
   versions on purpose and must never be rewritten forward.
-* ``.devflow/learnings/`` and ``.devflow/logs/`` — machine-appended corpora that quote
+* ``.prflow/learnings/`` and ``.prflow/logs/`` — machine-appended corpora that quote
   historical text verbatim.
-* ``.devflow/vendor/`` — a materialized copy of some *other* release of the plugin.
+* ``.prflow/vendor/`` — a materialized copy of some *other* release of the plugin.
 * ``lib/test/`` — the suite's own fixtures deliberately carry drifted pins (that is
   the negative control for this very guard).
 
@@ -105,9 +105,9 @@ PRUNED_DIR_NAMES = frozenset({".git", ".claude", "node_modules", "__pycache__"})
 # fixtures deliberately carry drifted pins so this guard has a negative control.
 EXCLUDED_PREFIXES = (
     ".changeset/",
-    ".devflow/learnings/",
-    ".devflow/logs/",
-    ".devflow/vendor/",
+    ".prflow/learnings/",
+    ".prflow/logs/",
+    ".prflow/vendor/",
     "lib/test/",
 )
 
