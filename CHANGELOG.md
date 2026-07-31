@@ -4,6 +4,19 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.5] — 2026-07-31
+
+### Fixed
+- **Renamed the PR-authoring GitHub App reference to its current slug.** The App
+  was renamed `devflow-autopilot` → `prflow-implementer` (`PRFlow (Implementer)`;
+  the app id is unchanged at `3102164`) and the old slug now 404s, so every
+  workflow comment, setup instruction, and architecture note naming it pointed at
+  an identity a reader could not look up. The `DEVFLOW_APP_ID` variable and
+  secret names are deliberately unchanged — they are configuration identifiers,
+  not App identity — as are the workspace-path grants in `.devflow/config.json`
+  (repo-name, re-anchored onto the live `$GITHUB_WORKSPACE`) and the dated
+  `CHANGELOG.md` records.
+
 ## [2.28.4] — 2026-07-31
 
 ### Fixed
