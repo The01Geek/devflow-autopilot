@@ -255,6 +255,19 @@ To finish healing an artifact you never edited, do either of these and re-run �
 
 Merge a sidecar by hand instead and the result still differs from the shipped bytes, so it stays `unverified` and is offered again next run — that is the same deliberate rule as an edit made *with* a manifest: the installer never adopts your bytes as its own provenance. Note also that a healing run does not tidy up: the old `<path>.devflow-new` is left where it is, so delete it yourself once you are done with it. Nothing is at risk either way — what a missing manifest costs you is sidecars to resolve, never overwritten bytes.
 
+#### Upgrade note: a superseded App slug in `devflow.allowed_bots` is reported, and `/prflow:init` corrects it
+
+The GitHub App that authors PRFlow's PRs was renamed `devflow-autopilot` → `prflow-implementer` (the app id you set as `DEVFLOW_APP_ID` is unchanged). Actor authorization compares bot logins for **equality**, so if you added the old slug to `devflow.allowed_bots` it now authorizes nothing — and the failure is silent, one run later: the implement and review stall-backstops post their resume comment successfully and finish green, then the gate that comment re-enters declines the App as an unknown actor, so the run never resumes.
+
+The config scaffolder is add-only — it backfills newly-added keys and never rewrites a value — so an upgrade cannot fix this on its own. `install.sh` therefore **reports** it and routes you to the one place that owns the correction:
+
+```
+devflow-install: NOTICE: .devflow/config.json still names superseded PRFlow identifiers
+(devflow.allowed_bots[devflow-autopilot -> prflow-implementer]). …
+```
+
+Run `/prflow:init`. It corrects the entry in place, preserves every other value, tells you exactly what it changed so you can review the diff before committing, and is a no-op on a config that is already correct. The installer never rewrites `.devflow/config.json` for this — same detect-and-route split it uses for `.claude/settings.json`.
+
 #### Upgrade note: the withheld automatic-review tier is surfaced, and removable on request
 
 If your repository installed the automatic pull-request-triggered review tier before it was withheld (issue #936), you still have `.github/workflows/devflow-review.yml`, `devflow-runner.yml` and `telemetry-push.yml`, they still run, and they keep you exposed to issues [#930](https://github.com/The01Geek/prflow/issues/930) and [#920](https://github.com/The01Geek/prflow/issues/920). Every upgrade now says so. Nothing is deleted unless you ask:
