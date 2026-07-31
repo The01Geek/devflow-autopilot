@@ -31,12 +31,13 @@
 # keeps pinned install URLs resolving and reproducibility unchanged; only the announcement
 # becomes conditional.
 #
-# The coupling that made `always` the original choice is gone: the three install docs that
-# used to send readers to the `releases/latest` page — which resolves to the newest
-# *Release*, not the newest tag — now link the Releases *list* instead, so a patch tag with
-# no Release of its own leaves no documented link naming a superseded version. The derived
-# version pins (scripts/version_pins.py) are untouched by this: they track the newest TAG,
-# which is still every bump.
+# The coupling that made `always` the original choice is gone: the three install docs used
+# to send readers to the `releases/latest` page, which resolves to the newest *Release* and
+# would therefore name a version older than the pin those same docs carry. They now name
+# the Tags page for the current version and keep the Releases page as the feature-release
+# announcement channel, so a patch tag with no Release of its own leaves no documented link
+# naming a superseded version. The derived version pins (scripts/version_pins.py) are
+# untouched by this: they track the newest TAG, which is still every bump.
 #
 # The bump kind is not inferred from a version diff — `scripts/consolidate-changesets.py`
 # already computes the single highest pending bump and hands it over through its
