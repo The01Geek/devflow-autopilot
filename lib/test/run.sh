@@ -49737,6 +49737,45 @@ assert_eq "python-pool selector: the predicate reports disabled at exactly 1" "d
   "$( ( DEVFLOW_SKIP_PYTHON_POOL=1; devflow_python_pool_enabled && echo enabled || echo disabled ) )"
 unset -f _pps_selector_probe
 
+# ── The join's POSITIVE reconciliation branch, in isolation ──
+# The selector probe above reaches only the else arm (no summary captured). The branch
+# that actually does arithmetic — positional field 1 + field 3 of the pooled suite's own
+# `N passed, M failed` line, compared against the verdict lines it contributed — is the
+# one that regresses on a summary-format change, and it is otherwise exercised only end
+# to end inside a 3-minute pooled run. Drive it directly by seeding the two reap-time
+# captures and stubbing devflow_pool_join.
+_pps_reconcile_probe() {  # summary  lines -> "pass=N fail=N"
+  (
+    _pps_res="$(mktemp)"; : > "$_pps_res"
+    RESULTS_FILE="$_pps_res"
+    unset DEVFLOW_SKIP_PYTHON_POOL
+    devflow_pool_join() { :; }
+    # Subscripts quoted: an unquoted associative-array subscript is read as a variable
+    # reference in an assignment context (SC2154), unlike the read sites above.
+    _DEVFLOW_POOL_SELFTALLY_SUMMARY["test_python_scripts.py"]="$1"
+    _DEVFLOW_POOL_SELFTALLY_LINES["test_python_scripts.py"]="$2"
+    devflow_python_suite_pool_join >/dev/null
+    printf 'pass=%s fail=%s\n' \
+      "$(grep -c '^PASS$' "$_pps_res" || true)" "$(grep -c '^FAIL$' "$_pps_res" || true)"
+    rm -f "$_pps_res" "$_pps_res.names"
+  ) 2>/dev/null | tail -1
+}
+# 7 + 2 = 9 contributed lines: the counts agree, so the reconciliation PASSES.
+assert_eq "python-pool join: the reconciliation passes when the contribution equals passed+failed" \
+  "pass=1 fail=0" "$(_pps_reconcile_probe '7 passed, 2 failed' 9)"
+# One verdict short — the uniformly-dropped-verdict shape the width-equality gate cannot
+# see. Must FAIL, or a silently truncated self-tally would report clean.
+assert_eq "python-pool join: a short contribution FAILS the reconciliation (the dropped-verdict shape)" \
+  "pass=0 fail=1" "$(_pps_reconcile_probe '7 passed, 2 failed' 8)"
+# Field 3 is read, not just field 1: a summary whose FAILED count is ignored would make
+# these two agree, so the failed-count half of the arithmetic is pinned separately.
+assert_eq "python-pool join: the FAILED field participates in the sum (field 3, not field 1 alone)" \
+  "pass=0 fail=1" "$(_pps_reconcile_probe '7 passed, 2 failed' 7)"
+# An unestablished line count is never silently accepted as agreement.
+assert_eq "python-pool join: an unestablished contribution count FAILS rather than reconciling" \
+  "pass=0 fail=1" "$(_pps_reconcile_probe '7 passed, 2 failed' '')"
+unset -f _pps_reconcile_probe
+
 # ── run-python-pool.sh's fail-closed arms, against a stub harness ──
 # The driver is exercised in a fixture tree whose module-harness.sh is a stub, so the
 # arms are reachable in milliseconds and the real suites never run. summary.sh is the
@@ -49763,6 +49802,24 @@ if [ -n "$PPS_SB" ] && [ -d "$PPS_SB" ]; then
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qF 'harness did not define devflow_python_suite_pool_open' && echo yes || echo no)"
   assert_eq "python-pool driver: the missing-function arm renders NO summary line (nothing for shard-tally to accept)" "yes" \
     "$(printf '%s' "$PPS_MISSING_OUT" | grep -qE '^[0-9]+ passed, [0-9]+ failed' && echo no || echo yes)"
+  # The gate names SIX functions, and the probe above can only ever exercise the two the
+  # harness provides — the four summary.sh-provided names cannot be absent while the
+  # fixture copies the real file, so deleting one of those four from the gate's list
+  # would stay green. Cover the other half of the list by making the fixture's
+  # summary.sh a stub that omits one, which is what makes the gate's coverage
+  # non-vacuous for the whole set rather than for two of six.
+  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
+devflow_python_suite_pool_join() { printf "PASS\n" >> "$RESULTS_FILE"; }'
+  {
+    printf '%s\n' 'devflow_render_test_summary() { printf "%s passed, %s failed\n" "$1" "$2"; }'
+    printf '%s\n' 'devflow_render_failure_recap() { :; }'
+    printf '%s\n' '# devflow_tally_is_derivable deliberately absent'
+  } > "$PPS_SB/lib/test/summary.sh"
+  PPS_NOSUM_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_NOSUM_RC=$?
+  assert_eq "python-pool driver: a summary.sh missing a gated function ALSO fails closed (rc 2)" "2" "$PPS_NOSUM_RC"
+  assert_eq "python-pool driver: that refusal names the summary.sh-provided function, not a pool entry point" "yes" \
+    "$(printf '%s' "$PPS_NOSUM_OUT" | grep -qF 'harness did not define devflow_tally_is_derivable' && echo yes || echo no)"
+  cp "$LIB/test/summary.sh" "$PPS_SB/lib/test/summary.sh"
 
   # (2) POSITIVE CONTROL on the same fixture: a harness that does record verdicts
   # renders the summary and exits 0 — so every refusal above and below is attributable
@@ -49914,7 +49971,7 @@ if [ -n "$PPS_TDIR" ] && [ -d "$PPS_TDIR" ]; then
 fi
 unset PPS_RUNSHARD PPS_DRIVER PPS_TALLY PPS_SB PPS_DSB PPS_TDIR PPS_MISSING_OUT PPS_MISSING_RC \
   PPS_OK_OUT PPS_OK_RC PPS_ZERO_OUT PPS_ZERO_RC PPS_UNDER_OUT PPS_UNDER_RC \
-  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP \
+  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP PPS_NOSUM_OUT PPS_NOSUM_RC \
   PPS_PP_INVOKED PPS_MONO_INVOKED PPS_MOD_INVOKED _pps_callee
 # ────────────────────────────────────────────────────────────────────────────
 
