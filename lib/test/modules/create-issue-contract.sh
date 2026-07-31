@@ -1379,6 +1379,49 @@ unset -f ci749_field
 # boundary its own ledger row records and the line is maintainable like any other.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
   'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: helper-contract -- the ledger records this argument grammar as the caller/parser interface the dispatcher composes calls against
+
+# ---------------------------------------------------------------------------
+# docs-verify's write-mode reference: the boundary-marker contract.
+# The write-mode half of the skill lives in references/write-mode.md, loaded ONLY on the
+# default (write) path so a --report-only peer never reads it. The marker pair is a
+# MACHINE-CONSUMED contract — the loading agent accepts the reference only when the first
+# line is its `start` marker and the last its matching `end`, each naming the file's own
+# path — so it is pinned structurally rather than as prose. Every arm below fails CLOSED:
+# a missing file, a moved marker, or a self-path mismatch is RED, because a reference that
+# cannot be validated is one a write-mode run must refuse rather than edit docs without.
+CI_DV_WRITE_REF="$CI_ROOT/skills/docs-verify/references/write-mode.md"
+CI_DV_WRITE_REF_REL='skills/docs-verify/references/write-mode.md'
+
+assert_eq "#docs-verify: the write-mode reference exists" \
+  "yes" "$([ -f "$CI_DV_WRITE_REF" ] && echo yes || echo no)"
+
+# First line is the start marker naming this file's own path; last line the matching end.
+# A MISSING-FILE sentinel keeps a deleted reference RED rather than comparing two empties.
+assert_eq "#docs-verify: write-mode reference opens with its own start boundary marker" \
+  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL start -->" \
+  "$([ -f "$CI_DV_WRITE_REF" ] && head -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
+
+assert_eq "#docs-verify: write-mode reference closes with its own end boundary marker" \
+  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL end -->" \
+  "$([ -f "$CI_DV_WRITE_REF" ] && tail -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
+
+# Exactly one of each marker: a duplicated pair would let a truncated read satisfy the gate.
+assert_eq "#docs-verify: write-mode reference carries exactly one start and one end marker" \
+  "start=1 end=1" \
+  "start=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' start -->' "$CI_DV_WRITE_REF") end=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' end -->' "$CI_DV_WRITE_REF")"
+
+# DELIBERATELY UNPINNED: the routing prose in SKILL.md that sends write mode to this reference,
+# its fail-closed arm, and the report-only "do not load it" arm. All three are agent-executed
+# prompt prose whose only reader is the runtime agent, so under the issue-#843/#876 decision they
+# carry no automated regression coverage BY DESIGN — the compensating control is the review pass
+# that re-derives them from the shipped text, not a pin. Pinning them was tried and is what the
+# #810 mutation-routing gate rejects: the gate resolves a literal into prose BEFORE reading any
+# `structural-pin-ok` declaration, so no declaration category can rescue such a pin.
+#
+# What IS covered above is the machine-consumed half: the reference's own boundary-marker
+# contract, which a loading agent validates positionally (first line / last line / exactly one
+# of each) and which fails closed on a missing file. That is a file-structure assertion, not a
+# prose pin, which is why it routes cleanly.
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
