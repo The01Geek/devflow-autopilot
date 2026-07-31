@@ -45,11 +45,11 @@ in flight the seeded progress comment carries no head to compare against, so a `
 requested after pushing a new commit — with the earlier review still running — is skipped too;
 comment again once that review has posted its verdict.
 `devflow.yml`'s `review_dedupe` job detects the in-flight review from the review
-engine's own seeded live progress comment (`devflow:review-progress`, `🚀 Reviewing`,
+engine's own seeded live progress comment (`prflow:review-progress`, `🚀 Reviewing`,
 bot-authored, fresh) via the bundled `scripts/dedupe-review-command.sh` helper. It **fails
 open** in every failure direction (a missed suppression only reproduces a recoverable
 double-comment; a wrong one would swallow a review you asked for), never suppresses a
-`/prflow:review-and-fix` or a `devflow:review-backstop` auto-resume, and does nothing when
+`/prflow:review-and-fix` or a `prflow:review-backstop` auto-resume, and does nothing when
 `prflow_review.live_progress_comment_enabled` is off (no seeded comment → present-day
 behavior). This repair reaches your repository on upgrade, because `install.sh` copies
 `devflow.yml`. Full behavior: [`workflow-triggers.md`](workflow-triggers.md).
@@ -666,7 +666,7 @@ silent fall-back to `GITHUB_TOKEN`. Named exceptions to the App identity: the
 `Devflow Review` check-run (emitted by the Actions runner from the job `name:`,
 not token-authored — it can never be App-authored), and the `/prflow:implement`
 workpad comment, which is *created* on `GITHUB_TOKEN` by the gate job (detection
-is marker-based — `<!-- devflow:workpad -->` — never author-based, so the
+is marker-based — `<!-- prflow:workpad -->` — never author-based, so the
 claude-job fallback creation running under the App token is harmless). The
 stale-rejection housekeeping runs inside the review agent, so it uses whichever
 token the runner holds (the downscoped DevFlow-Reviewer token when configured — its
@@ -1193,7 +1193,7 @@ gate behavior.
 By default the automated reviewer is **read-only** — it inspects the diff but
 cannot compile, lint, or test it, so a build-dependent claim (e.g. "does
 `npx webpack` still compile after this change?") can only be flagged, not
-verified. (Read-only still covers the live per-run `<!-- devflow:review-progress
+verified. (Read-only still covers the live per-run `<!-- prflow:review-progress
 run=<id>-<attempt> -->` progress comment: the `review` tool profile allow-lists `workpad.py`,
 `config-get.sh`, `load-prompt-extension.sh`, and `efficiency-trace.sh` because those only
 edit the PR comment via `gh`, read config, read the run's state, or `cat` a consumer-owned

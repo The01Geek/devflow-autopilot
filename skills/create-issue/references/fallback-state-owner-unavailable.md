@@ -1,4 +1,4 @@
-<!-- devflow:create-issue-ref step=fallback-state-owner-unavailable file=skills/create-issue/references/fallback-state-owner-unavailable.md start -->
+<!-- prflow:create-issue-ref step=fallback-state-owner-unavailable file=skills/create-issue/references/fallback-state-owner-unavailable.md start -->
 
 **Fallback — `state-owner unavailable`.** Exactly **2 classes** route here, and nothing else:
 
@@ -14,4 +14,4 @@ On the `state-owner unavailable` fallback (the two classes above), run **exactly
 
 Entered **after ≥1 completed round**, the fallback sources that round's findings and verdict **from the query surface whenever any query still answers** — queries are read-only, so a mutation-persistence failure leaves them answering — and **never from memory**. When no query answers and the findings are no longer in context (compaction), **dispatch the single fresh round instead**; when that dispatch is also impossible, the single continue/decline offer **names the unrecoverable state explicitly**. **A findings summary reconstructed from memory and presented as a round's real findings is never a legal discharge.** The `state-owner unavailable` marker is **distinct from `degraded`**, which keeps its existing meaning — the inline audit arm — and the two never substitute for one another. A fallback lifecycle is **never silent**: the mandatory-summary-line contract holds here exactly as everywhere else.
 
-<!-- devflow:create-issue-ref step=fallback-state-owner-unavailable file=skills/create-issue/references/fallback-state-owner-unavailable.md end -->
+<!-- prflow:create-issue-ref step=fallback-state-owner-unavailable file=skills/create-issue/references/fallback-state-owner-unavailable.md end -->

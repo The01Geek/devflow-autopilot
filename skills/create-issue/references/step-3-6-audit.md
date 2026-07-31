@@ -1,4 +1,4 @@
-<!-- devflow:create-issue-ref step=3.6 file=skills/create-issue/references/step-3-6-audit.md start -->
+<!-- prflow:create-issue-ref step=3.6 file=skills/create-issue/references/step-3-6-audit.md start -->
 
 ### Ledger maintenance after a revision (shared procedure — referenced by both revision-producing sites)
 
@@ -297,4 +297,4 @@ The variants, each obeying the same contract:
 
 Only a draft that has passed this step — audited, and revised-and-re-gated if the verdict required it — proceeds to Step 4.
 
-<!-- devflow:create-issue-ref step=3.6 file=skills/create-issue/references/step-3-6-audit.md end -->
+<!-- prflow:create-issue-ref step=3.6 file=skills/create-issue/references/step-3-6-audit.md end -->

@@ -6064,7 +6064,7 @@ assert_eq "#781: an update writing scope-decision records exits 0" "0" "$_c781u"
 # note-append comment promises. Asserting on the SECTION and the ORDER is what a
 # refactor moving them into ## Plan, or ahead of the notes, has to go RED on.
 assert_eq "#781: both scope-decision records land in ## Progress, never another section" "2" \
-  "$(sed -n '/^## Progress$/,/^## Plan$/p' "$S781U/out" | grep -c 'devflow:scope-decision')"
+  "$(sed -n '/^## Progress$/,/^## Plan$/p' "$S781U/out" | grep -c 'prflow:scope-decision')"
 # Position-independent: reduce the Progress section's appended bullets to an ORDER
 # WORD per bullet, so the assertion pins the sequence itself rather than absolute
 # line numbers (which shift with any unrelated skeleton edit and would make this a
@@ -6072,8 +6072,8 @@ assert_eq "#781: both scope-decision records land in ## Progress, never another 
 assert_eq "#781: the records append AFTER the free-text --note bullet (narrative, then record)" \
   "note record record" \
   "$(sed -n '/^## Progress$/,/^## Plan$/p' "$S781U/out" \
-     | grep 'this PR delivers A only\|devflow:scope-decision' \
-     | sed -e 's/.*devflow:scope-decision.*/record/' -e 's/.*delivers A only.*/note/' \
+     | grep 'this PR delivers A only\|prflow:scope-decision' \
+     | sed -e 's/.*prflow:scope-decision.*/record/' -e 's/.*delivers A only.*/note/' \
      | tr '\n' ' ' | sed 's/ $//')"
 # Round-trip: the CLI-written records must be readable by the very parser the
 # reviewer runs — and they are written `pr=pending`, so they cover NOTHING until
@@ -6645,15 +6645,15 @@ assert_eq "#356 flip: helper carries the matching '❌ Review failed' literal" "
 # claim is "pinned in lib/test/run.sh".
 M356_DEVFLOW_YML="$LIB/../.github/workflows/devflow.yml"
 assert_pin_unique "#356 marker: skills/review/SKILL.md seeds the run-keyed review-progress marker" \
-  'MARKER=$(printf '"'"'%s'"'"' "<!-- devflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
+  'MARKER=$(printf '"'"'%s'"'"' "<!-- prflow:review-progress run=${GITHUB_RUN_ID:-local-$(date -u +%Y%m%dT%H%M%SZ)}-${GITHUB_RUN_ATTEMPT:-1} -->")' \
   "$REVIEW_BUNDLE"
 assert_pin_unique "#356 marker: devflow.yml rebuilds the identical run-keyed marker" \
-  'FLIP_MARKER="<!-- devflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
+  'FLIP_MARKER="<!-- prflow:review-progress run=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} -->"' "$M356_DEVFLOW_YML"
 # The former cross-FILE identity check compared the two workflow copies of FLIP_MARKER
 # against each other. Issue #936 removed the second copy with devflow-review.yml, and no
 # separate prefix assertion replaces it: the two assert_pin_unique calls above already pin
 # the producer's seeded literal and the consumer's rebuilt literal in full, and the shared
-# `<!-- devflow:review-progress run=` prefix is a substring of both — so a rename on either
+# `<!-- prflow:review-progress run=` prefix is a substring of both — so a rename on either
 # side turns one of them RED without a third, weaker check.
 
 # ── fetch-pr-context.sh glyph-strip pin (unit) ────────────────────────────────
@@ -11912,7 +11912,7 @@ cat > "$SCAN_TMP/gh4" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo "boom: gh outage" >&2; exit 1 ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo "boom: gh outage" >&2; exit 1 ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
   *) echo '[]' ;;
@@ -11935,7 +11935,7 @@ cat > "$SCAN_TMP/gh6" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[]' ;;
   *"pr list"*"author:"*) echo '{"not":"an-array"}' ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -11953,7 +11953,7 @@ cat > "$SCAN_TMP/gh7" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '{"not":"an-array"}' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '{"not":"an-array"}' ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
   *) echo '[]' ;;
@@ -11966,7 +11966,7 @@ cat > "$SCAN_TMP/gh8" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[]' ;;
   *"pr list"*"author:"*) echo "author fetch outage" >&2; exit 1 ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -12556,7 +12556,7 @@ assert_eq "ensure-label: targets REST POST repos/{owner}/{repo}/labels (not gh l
 assert_eq "ensure-label: passes the label name as a -f field" "yes" \
   "$(grep -qF -- 'name=DevFlow' "$EL_TMP/create-args" && echo yes || echo no)"
 assert_eq "ensure-label: passes the description as a -f field" "yes" \
-  "$(grep -qF -- 'description=Created by DevFlow automation' "$EL_TMP/create-args" && echo yes || echo no)"
+  "$(grep -qF -- 'description=Created by PRFlow automation' "$EL_TMP/create-args" && echo yes || echo no)"
 assert_eq "ensure-label: first run breadcrumb says created" "yes" \
   "$(printf '%s' "$EL_E1" | grep -qiF 'created label' && echo yes || echo no)"
 assert_eq "ensure-label: second run breadcrumb says already exists (HTTP 422)" "yes" \
@@ -12689,7 +12689,7 @@ cat > "$S97/gh-label" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[{"number":777,"headRefName":"random/whatever","mergedAt":"2026-05-20T00:00:00Z"}]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[{"number":777,"headRefName":"random/whatever","mergedAt":"2026-05-20T00:00:00Z"}]' ;;
   *"pr list"*"author:"*) echo '[]' ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -12706,7 +12706,7 @@ cat > "$S97/gh-closes" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[]' ;;
   *"pr list"*"author:"*) echo '[{"number":61,"headRefName":"issue-61-x","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":60}]},{"number":99,"headRefName":"feature/hand","author":{"login":"claude"},"mergedAt":"2026-05-21T00:00:00Z","labels":[],"closingIssuesReferences":[]}]' ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -12725,7 +12725,7 @@ cat > "$S97/gh-dedupe" <<'STUB'
 #!/usr/bin/env bash
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[{"number":55,"headRefName":"issue-55-x","mergedAt":"2026-05-22T00:00:00Z"}]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[{"number":55,"headRefName":"issue-55-x","mergedAt":"2026-05-22T00:00:00Z"}]' ;;
   *"pr list"*"author:"*) echo '[{"number":55,"headRefName":"issue-55-x","author":{"login":"claude"},"mergedAt":"2026-05-22T00:00:00Z","labels":[{"name":"DevFlow"}],"closingIssuesReferences":[{"number":54}]}]' ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -12748,7 +12748,7 @@ SIX='[{"number":62,"headRefName":"issue-62-a","author":{"login":"claude"},"merge
       {"number":87,"headRefName":"issue-87-f","author":{"login":"claude"},"mergedAt":"2026-05-06T00:00:00Z","labels":[],"closingIssuesReferences":[{"number":187}]}]'
 case "$*" in
   *"repo view"*) echo "acme/example-repo" ;;
-  *"pr list"*"--label DevFlow"*) echo '[]' ;;
+  *"pr list"*"label:PRFlow,DevFlow"*) echo '[]' ;;
   *"pr list"*"author:"*) echo "$SIX" ;;
   *"pr list"*) echo '[]' ;;
   *"api"*"retrospectives.jsonl?ref=main"*) printf 'HTTP/2.0 404 Not Found\r\n\r\n' ;;
@@ -13686,7 +13686,7 @@ rm -f "$CG446_FALSE" "$CG446_ABSENT" "$CG446_TRUE" "$CG446_WRONGTYPE" "$CG446_TO
 assert_eq "#97 pin: ensure-label.sh exists" "yes" \
   "$([ -f "$LIB/../scripts/ensure-label.sh" ] && echo yes || echo no)"
 assert_eq "#97 pin: create-issue ensures+applies DevFlow label via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && grep -qF 'apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
+  "$(grep -q 'ensure-label.sh PRFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && grep -qF 'apply-labels.sh <issue_number> PRFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels)
 # ── #275: EVERY local-tier skill/phase file resolves its helper anchor portably, in a
 # single statement (supersedes the create-issue-only #241 pins A1/A1b/A2/A2b).
 # Copilot CLI's inline `bash -c` marshaling strips a variable assigned in one statement
@@ -13822,9 +13822,9 @@ fi
 # the root preamble that still performs it (Step 2's re-load names the loader with a
 # --section flag, a different literal, so the root target stays unique).
 assert_pin_unique "#275 pin (A2b): create-issue invokes ensure-label.sh through the inline portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/ensure-label.sh DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/ensure-label.sh PRFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 assert_pin_unique "#275 pin (A2b): create-issue invokes apply-labels.sh through the inline portable anchor" \
-  "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> DevFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
+  "$PORTABLE_ANCHOR_LITERAL"'scripts/apply-labels.sh <issue_number> PRFlow' "$LIB/../skills/create-issue/references/step-4-present-create.md"
 assert_pin_unique "#275 pin (A2b): create-issue invokes load-prompt-extension.sh through the inline portable anchor" \
   "$PORTABLE_ANCHOR_LITERAL"'scripts/load-prompt-extension.sh create-issue' "$LIB/../skills/create-issue/SKILL.md"
 # P4 — the shared "Portable helper anchor (single-statement)" preamble paragraph is a
@@ -14151,11 +14151,11 @@ assert_eq "#275 docs: install.md documents the PowerShell UTF-16LE write pitfall
 assert_pin_unique "#275 docs: install.md documents the inline-bash variable-stripping constraint" \
   "reads **empty** in a later statement of the same command" "$LIB/../docs/install.md"
 assert_eq "#97 pin: implement applies DevFlow label at PR create via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> DevFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
+  "$(grep -q 'ensure-label.sh PRFlow' "$IMPL_SKILL_BUNDLE" && grep -qF 'apply-labels.sh <draft-pr-number> PRFlow' "$IMPL_SKILL_BUNDLE" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + REST apply-labels); issue #218: bundle (label idiom in phases/phase-3-review.md). #480: the PR number is a substituted LITERAL, not "$PR_NUM" — that variable is set in a previous fence and does not survive into this separate command on the cloud runner, so the old form passed an empty number and the helper refused at its arg-slip guard (the label never landed on the PR).
 assert_eq "#152 pin: meta-issue.sh ensures+applies DevFlow and Retrospective labels via REST helper" "yes" \
-  "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'DevFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
+  "$(grep -q 'ensure-label.sh' "$LIB/meta-issue.sh" && grep -qF 'apply-labels.sh' "$LIB/meta-issue.sh" && grep -qF 'PRFlow Retrospective' "$LIB/meta-issue.sh" && echo yes || echo no)"
 assert_eq "#97 pin: init creates the reserved DevFlow provenance label" "yes" \
-  "$(grep -q 'ensure-label.sh DevFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + provenance)
+  "$(grep -q 'ensure-label.sh PRFlow' "$LIB/../skills/init/SKILL.md" && grep -qi 'provenance' "$LIB/../skills/init/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: compound: two greps && on one line (provenance: ensure-label + provenance)
 # ── #228: REST migration — no org-scoped GraphQL porcelain on any migrated path ──
 # The removed invocation LITERALS (command + their args) must be gone. These exact
 # forms never appear in the now-present contrastive prose (which references the bare
@@ -14697,7 +14697,7 @@ echo "render-report.sh / open-state-pr.sh / post-status.sh"
   # ({tag, url}) replaces the old intervention_prs[] + meta_issues[] split.
   SUM='{"prs_scanned":8,"clean_count":3,"analyzed_count":5,"intervention_issues":[{"tag":"implement-review-miss","url":"https://x/issues/901"},{"tag":"review-reject-bypassed","url":"https://x/issues/9"}],"cooldown_skipped":["doc-inventory-inaccuracy"],"blockers":[],"state_pr":900}'
   REPORT="$(devflow_render_report "$SUM")"
-  assert_eq "report has marker"        "true" "$(echo "$REPORT" | head -1 | grep -qF '<!-- devflow:audit-report -->' && echo true || echo false)"
+  assert_eq "report has marker"        "true" "$(echo "$REPORT" | head -1 | grep -qF '<!-- prflow:audit-report -->' && echo true || echo false)"
   assert_eq "report shows prs_scanned"  "true" "$(echo "$REPORT" | grep -q '8' && echo true || echo false)"
   assert_eq "report has Issues filed section" "true" "$(echo "$REPORT" | grep -q '## Issues filed' && echo true || echo false)"
   assert_eq "report lists filed issue tag" "true" "$(echo "$REPORT" | grep -q 'implement-review-miss' && echo true || echo false)"
@@ -14810,7 +14810,7 @@ STUB
 # ── #519: retrospective-weekly Step-1 stale-scratch cleanup literal (coupled) ──
 assert_eq "#519 pin: retrospective-weekly Step 1 removes prior-run per-PR scratch" "yes" \
   "$(grep -qF -- "find .prflow/tmp -maxdepth 1 -type f \\( -name 'result-*.json' -o -name 'pr-*.context.json' -o -name 'overrides-prefiling.json' -o -name 'patterns.json' -o -name 'patterns-full.json' -o -name 'patterns.stderr' \\) -delete 2>/dev/null" "$LIB/../skills/retrospective-weekly/SKILL.md" && echo yes || echo no)"  # raw-guard-ok: presence pin on the byte-exact Step-1 cleanup literal (single coupled site)  # structural-pin-ok: cross-file-phase-contract -- the pinned literal is an EXECUTABLE fence the retrospective orchestrator runs, not prose: it names exactly which per-run scratch files Step 0 deletes, and lib/filing-decisions.sh's devflow_declined_refiled guards its input by readability alone, so a name dropped from this set leaves a READABLE stale snapshot that the guard accepts and the report renders from the previous run's state
-PSR="$(echo '<!-- devflow:audit-report -->' > /tmp/devflow-test-report.md; bash "$LIB/post-status.sh" --pr 900 --report-file /tmp/devflow-test-report.md --dry-run 2>/dev/null; rm -f /tmp/devflow-test-report.md)"
+PSR="$(echo '<!-- prflow:audit-report -->' > /tmp/devflow-test-report.md; bash "$LIB/post-status.sh" --pr 900 --report-file /tmp/devflow-test-report.md --dry-run 2>/dev/null; rm -f /tmp/devflow-test-report.md)"
 assert_eq "post-status dry-run echoes DRYRUN" "true" "$(echo "$PSR" | grep -q 'DRYRUN' && echo true || echo false)"
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -16110,7 +16110,7 @@ if [ -x /bin/bash ] && case "$(/bin/bash -c 'echo "${BASH_VERSINFO[0]}"' 2>/dev/
   TB32_ERR="$( ( cd "$TB32_REPO" && /bin/bash "$LIB/efficiency-trace.sh" --persist ) 2>&1 1>/dev/null )"; TB32_RC=$?
   assert_eq "tb(#442 Critical-1): --persist under stock bash 3.2 exits 0" "0" "$TB32_RC"
   assert_eq "tb(#442 Critical-1): ...and CREATES the orphan telemetry branch (the empty parent_arg path)" "yes" \
-    "$(git -C "$TB32_REPO" cat-file -e "refs/heads/devflow-telemetry:.prflow/logs/efficiency/pr-32-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
+    "$(git -C "$TB32_REPO" cat-file -e "refs/heads/prflow-telemetry:.prflow/logs/efficiency/pr-32-run-1.json" >/dev/null 2>&1 && echo yes || echo no)"
   assert_eq "tb(#442 Critical-1): ...with no 'unbound variable' abort" "no" \
     "$(printf '%s' "$TB32_ERR" | grep -qF 'unbound variable' && echo yes || echo no)"
   rm -rf "$TB32_REPO"
@@ -27894,7 +27894,7 @@ assert_pin_unique "#268 wiring: step posts comments via the vendored best-effort
 # derive ATTEMPTS, via one shell variable — so the literal must appear exactly
 # once in the YAML. Renaming it there without updating this pin goes RED.
 assert_pin_unique "#268 wiring: resume-audit marker literal (written + counted via one variable)" \
-  "devflow:stall-backstop-audit" "$WF268"
+  "prflow:stall-backstop-audit" "$WF268"
 # The re-dispatch body is the ONLY comment carrying the trigger phrase, and it
 # targets the run's own issue number.
 assert_pin_unique "#268 wiring: re-dispatch body carries the canonical implement trigger phrase" \
@@ -27966,7 +27966,7 @@ SB268_STEP="$(awk '/name: Stall backstop/{f=1} f{print} f && /exit "\$FAIL"/{exi
 assert_eq "#268 wiring: stall-backstop step region extracted (non-empty)" "yes" \
   "$([ -n "$SB268_STEP" ] && echo yes || echo no)"
 assert_eq "#268 wiring: resume body cannot trip the self-trigger guard (no workpad marker in the step)" "0" \
-  "$(printf '%s' "$SB268_STEP" | grep -cF 'devflow:workpad' || true)"
+  "$(printf '%s' "$SB268_STEP" | grep -cF 'flow:workpad' || true)"
 
 # Behavioral: extract the Stall backstop step's run: block (same idiom as the
 # provision 'tools' step extraction above) and drive its glue logic with
@@ -28059,7 +28059,7 @@ STUB
   SB268_RC=$?
   assert_eq "#268 behavior: interim under cap -> resume exit 0" "0" "$SB268_RC"
   assert_eq "#268 behavior: resume body carries marker + trigger phrase" "yes" \
-    "$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
+    "$(grep -qF 'prflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
   sb268_run env STUB_STATUS_OUT="interim 🚀 Reviewing" STUB_MAX=2 \
     STUB_GH_BODIES=$'<!-- devflow:stall-backstop-audit -->\nattempt one\n<!-- devflow:stall-backstop-audit -->\nattempt two'
   SB268_RC=$?
@@ -28187,7 +28187,7 @@ STUB
   sb268_run env JOB_STATUS=success STUB_STATUS_OUT="interim 🚀 Reviewing"
   SB268_RC=$?
   assert_eq "#498 behavior: interim + JOB_STATUS=success -> resume still posts (suppression scoped to 'cancelled')" "0:yes" \
-    "$SB268_RC:$(grep -qF 'devflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
+    "$SB268_RC:$(grep -qF 'prflow:stall-backstop-audit' "$SB268_POST" && grep -qF "/${SUITE_AGENT_NS}implement 5" "$SB268_POST" && echo yes || echo no)"
   # skip-cancelled (unreadable class on a cancel): logs and exits green — no
   # fail-loud diagnostic comment, and no flip (the guard is CLASS=interim, this
   # was unreadable). The decide helper maps unreadable+cancelled -> skip-cancelled.
@@ -30305,7 +30305,7 @@ for _s in $REVIEW_PHASE_STEMS; do
   # The check is structural — exactly one start as line 1 and one end as line N, each
   # naming THIS file — which is what the runtime table's marker rows assert on disk.
   assert_eq "#529 AC6 desk: ${_s}.md start marker is the literal FIRST line and names its own path" "yes" \
-    "$(head -1 "$_rbf" | grep -qF -- "<!-- devflow:review-ref phase=" \
+    "$(head -1 "$_rbf" | grep -qF -- "<!-- prflow:review-ref phase=" \
         && head -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md start -->" && echo yes || echo no)"
   assert_eq "#529 AC6 desk: ${_s}.md end marker is the literal LAST line and names its own path" "yes" \
     "$(tail -1 "$_rbf" | grep -qF -- "file=skills/review/phases/${_s}.md end -->" && echo yes || echo no)"
@@ -31267,10 +31267,10 @@ echo "#815 deferred-AC follow-up reference gating"
 assert_eq "#815 the gated reference exists and is non-empty" "yes" \
   "$([ -s "$I815_REF" ] && echo yes || echo no)"  # structural-pin-ok: routing-dispatch-contract -- the stub's exit-0 arm reads this exact path; an absent or empty file routes every gated load to the degraded arm
 assert_eq "#815 the reference's first line is its own start boundary marker" \
-  '<!-- devflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md start -->' \
+  '<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md start -->' \
   "$(head -1 "$I815_REF")"  # structural-pin-ok: routing-dispatch-contract -- the marker the stub literal-matches to accept the load
 assert_eq "#815 the reference's last line is the matching end boundary marker" \
-  '<!-- devflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->' \
+  '<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->' \
   "$(tail -1 "$I815_REF")"  # structural-pin-ok: routing-dispatch-contract -- the closing half of the same accept-the-load contract
 # The move is what buys the reduction, so assert the procedure actually LEFT the phase file
 # rather than being duplicated into the reference. SECTION-scoped, not file-scoped: §4.0.5
@@ -37722,14 +37722,24 @@ import base64, json, os, subprocess, sys
 
 HELPER = os.environ["MLA_HELPER"]
 CFG = os.environ["MLA_CFG"]
-MARKER = "<!-- devflow:review-progress run=999-1 -->"
-S = "<!-- devflow:lint-adjudications-start -->"
-E = "<!-- devflow:lint-adjudications-end -->"
+MARKER = "<!-- prflow:review-progress run=999-1 -->"
+S = "<!-- prflow:lint-adjudications-start -->"
+E = "<!-- prflow:lint-adjudications-end -->"
+# The superseded spellings (issue #1003). The rename rewrites no existing progress
+# comment, so both are honored -- and every sentinel count, search and offset is
+# computed over their UNION, never per spelling.
+MARKER_OLD = "<!-- devflow:review-progress run=999-1 -->"
+S_OLD = "<!-- devflow:lint-adjudications-start -->"
+E_OLD = "<!-- devflow:lint-adjudications-end -->"
 
 def tsv(verdict, rule, path, line, detail):
     return f"{verdict}\t{rule}\t{path}\t{line}\t{detail}"
 
 def payload(row_tsv):
+    return "<!-- prflow:lint-fp-adjudicated " + base64.b64encode(row_tsv.encode()).decode() + " -->"
+
+
+def payload_old(row_tsv):
     return "<!-- devflow:lint-fp-adjudicated " + base64.b64encode(row_tsv.encode()).decode() + " -->"
 
 def adj_comment(author, atype, row_tsv, marker=MARKER, with_section=True):
@@ -37828,7 +37838,7 @@ _, out, _ = run([ROW], [adj_comment("trusted-human", "User", ROW)])
 chk("mla-trust allowlisted-user demoted", "1", len(out["demoted"]))
 
 # mla-malformed: non-base64 payload + 2-column payload -> skipped, breadcrumb, exit 0, no demote
-bad = "<!-- devflow:lint-fp-adjudicated not!base64!! -->"
+bad = "<!-- prflow:lint-fp-adjudicated not!base64!! -->"
 twocol = payload("STALE\tonlytwo")
 body = f"{MARKER}\n{S}\n{bad}\n{twocol}\n{E}\n"
 rc, out, err = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": body}])
@@ -37894,8 +37904,8 @@ chk("mla-shape missing-keys empty demoted", "0", len(out_mk.get("demoted", [])))
 
 # mla-first-trusted-wins: two trusted comments, distinct run= markers, byte-identical
 # payload -> demoted once, and the surfaced run_key is the FIRST trusted comment's.
-M1 = "<!-- devflow:review-progress run=111-1 -->"
-M2 = "<!-- devflow:review-progress run=222-1 -->"
+M1 = "<!-- prflow:review-progress run=111-1 -->"
+M2 = "<!-- devflow:review-progress run=222-1 -->"  # #1003: a pre-rename run key still joins
 c1 = {"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": f"{M1}\n{S}\n{payload(ROW)}\n{E}\n"}
 c2 = {"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": f"{M2}\n{S}\n{payload(ROW)}\n{E}\n"}
 _, out, _ = run([ROW], [c1, c2])
@@ -37922,6 +37932,72 @@ end2 = f"{MARKER}\n{S}\n{payload(ROW)}\n{E}\n> quoted: {E}\n"
 _, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot", "body": end2}])
 chk("mla-tamper-end-only not demoted", "0", len(out["demoted"]))
 chk("mla-tamper-end-only counted", "1", out["stats"]["sentinel_tampered_comments"])
+
+# ── #1003: the sentinel guard counts the UNION of both marker spellings ──────
+# THE forgery this issue names. One GENUINE new-form section plus one
+# attacker-quoted OLD-form section is `1` and `1` when each spelling is counted
+# independently -- no tamper flag raised, and the earlier (forged) window honored.
+# Counting the union is what refuses it. Driven in both orders, because a
+# first-occurrence window makes the forged-first order the exploitable one and the
+# forged-second order the control that must ALSO refuse.
+mixed_forged_first = (
+    f"{MARKER}\n> quoted evidence: {S_OLD}\n{payload_old(ROW)}\n{E_OLD}\n"
+    f"---\n{S}\n{E}\n"
+)
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot",
+                         "body": mixed_forged_first}])
+chk("mla-1003 mixed-spelling forgery (old quoted BEFORE the real section) not demoted",
+    "0", len(out["demoted"]))
+chk("mla-1003 mixed-spelling forgery counted as tampering",
+    "1", out["stats"]["sentinel_tampered_comments"])
+mixed_forged_second = (
+    f"{MARKER}\n{S}\n{E}\n---\n> quoted evidence: {S_OLD}\n{payload_old(ROW)}\n{E_OLD}\n"
+)
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot",
+                         "body": mixed_forged_second}])
+chk("mla-1003 mixed-spelling forgery (old quoted AFTER the real section) not demoted",
+    "0", len(out["demoted"]))
+chk("mla-1003 mixed-spelling forgery (after) counted as tampering",
+    "1", out["stats"]["sentinel_tampered_comments"])
+# The mirror: a genuine OLD-form section with a quoted NEW-form triple is the same
+# shape from a pre-rename comment's point of view, and is refused identically.
+mixed_reverse = (
+    f"{MARKER_OLD}\n> quoted evidence: {S}\n{payload(ROW)}\n{E}\n---\n{S_OLD}\n{E_OLD}\n"
+)
+_, out, _ = run([ROW], [{"author": "devflow-reviewer[bot]", "author_type": "Bot",
+                         "body": mixed_reverse}])
+chk("mla-1003 reverse mixed-spelling forgery not demoted", "0", len(out["demoted"]))
+chk("mla-1003 reverse mixed-spelling forgery counted", "1",
+    out["stats"]["sentinel_tampered_comments"])
+# POSITIVE CONTROLS, so the rows above are not vacuous refusals. A wholly
+# pre-rename comment (old marker, old sentinels, old payload) is still honored --
+# that is the whole point of accepting both spellings -- and so is a MIXED but
+# untampered comment, whose section is opened in one spelling and closed in the
+# other (the shape a pre-rename comment re-written by the current engine takes).
+all_old = {"author": "devflow-reviewer[bot]", "author_type": "Bot",
+           "body": f"{MARKER_OLD}\n# report\n{S_OLD}\n{payload_old(ROW)}\n{E_OLD}\n"}
+_, out, _ = run([ROW], [all_old])
+chk("mla-1003 a wholly pre-rename comment is still honored", "1", len(out["demoted"]))
+chk("mla-1003 ...and its pre-rename run key is surfaced", "999-1",
+    out["demoted"][0]["run_key"] if out["demoted"] else "")
+chk("mla-1003 a wholly pre-rename comment raises no tamper flag", "0",
+    out["stats"]["sentinel_tampered_comments"])
+mixed_pair = {"author": "devflow-reviewer[bot]", "author_type": "Bot",
+              "body": f"{MARKER}\n# report\n{S_OLD}\n{payload(ROW)}\n{E}\n"}
+_, out, _ = run([ROW], [mixed_pair])
+chk("mla-1003 a mixed-spelling sentinel PAIR is honored (window offsets follow the "
+    "spelling actually present)", "1", len(out["demoted"]))
+chk("mla-1003 a mixed-spelling pair raises no tamper flag", "0",
+    out["stats"]["sentinel_tampered_comments"])
+# ...and the window is still a window: a payload OUTSIDE a mixed-spelling pair is
+# refused, so the offset arithmetic did not silently widen to the whole body.
+mixed_outside = {"author": "devflow-reviewer[bot]", "author_type": "Bot",
+                 "body": f"{MARKER}\n> quoted: {payload(ROW)}\n{S_OLD}\n{E}\n"}
+_, out, _ = run([ROW], [mixed_outside])
+chk("mla-1003 a payload outside a mixed-spelling pair is still refused", "0",
+    len(out["demoted"]))
+chk("mla-1003 ...and counted as outside-sentinels", "1",
+    out["stats"]["payloads_outside_sentinels"])
 
 # mla-zero-match: a trusted, honored payload whose (rule,path,detail) is absent from the
 # current STALE rows (the common real case — the FP was fixed so the lint no longer emits
@@ -39421,13 +39497,13 @@ assert_pin_unique "#466 mla-fp-direction: Phase 0.6 degraded arm leaves STALE ro
 # mla-marker-pin (Producer contract): the payload marker literal is present, once,
 # in the review skill's Phase 4.1.7 render protocol.
 assert_pin_unique "#466 mla-marker-pin: Phase 4.1.7 render protocol carries the lint-fp-adjudicated payload marker" \
-  '<!-- devflow:lint-fp-adjudicated <base64 of the row'"'"'s TSV> -->' "$REVIEW_SKILL"
+  '<!-- prflow:lint-fp-adjudicated <base64 of the row'"'"'s TSV> -->' "$REVIEW_SKILL"
 # The sentinel-section literals are the other half of the producer/consumer contract —
 # pin both so a rename desyncs the helper from the skill at the desk.
 assert_pin_unique "#466: review skill Live Progress Comment carries the adjudications-section START sentinel" \
-  '<!-- devflow:lint-adjudications-start -->' "$REVIEW_SKILL"
+  '<!-- prflow:lint-adjudications-start -->' "$REVIEW_SKILL"
 assert_pin_unique "#466: review skill Live Progress Comment carries the adjudications-section END sentinel" \
-  '<!-- devflow:lint-adjudications-end -->' "$REVIEW_SKILL"
+  '<!-- prflow:lint-adjudications-end -->' "$REVIEW_SKILL"
 
 # mla-grants (Allowlists): both review-tier TOOLS= lines grant the new helper by vendored literal.
 MLA_RUNNER_YML="$LIB/../.github/workflows/devflow-runner.yml"

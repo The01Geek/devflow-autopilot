@@ -1,4 +1,4 @@
-<!-- devflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md start -->
+<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md start -->
 
 ### 4.0 File Follow-Up Issues for Deferred Work
 
@@ -83,7 +83,7 @@ First resolve and **print** the clean label list — a `config-get` capture is p
 # left. The `if !` reads config-get's OWN exit status inline (never a captured rc read in a
 # later statement, which a cross-statement-variable-stripping inline-bash runner would
 # leave empty) and is exempt from `set -e`.
-if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels PRFlow,Deferred); then
   DEFERRED_LABELS=""
   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred follow-up issues filed WITHOUT labels."
 fi
@@ -134,4 +134,4 @@ On the arms where the predicate printed `criterion:` lines, each `--mark-deferre
 
 Then continue to 4.0.5.
 
-<!-- devflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->
+<!-- prflow:implement-ref step=4.0 file=skills/implement/references/deferred-ac-followups.md end -->

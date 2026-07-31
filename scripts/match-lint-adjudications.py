@@ -6,9 +6,9 @@
 Carries a stale-prose-lint STALE row's *false-positive adjudication* forward
 across review runs so an already-triaged false positive never re-gates. A prior
 run stamps, for each STALE row it adjudicated false-positive, one hidden payload
-line — ``<!-- devflow:lint-fp-adjudicated <base64 of the row's TSV> -->`` —
+line — ``<!-- prflow:lint-fp-adjudicated <base64 of the row's TSV> -->`` —
 inside a sentinel-delimited adjudications section of its run-keyed
-``devflow:review-progress`` comment. This helper joins the current run's STALE
+``prflow:review-progress`` comment. This helper joins the current run's STALE
 lint rows against the payloads found in prior *trusted* progress comments and
 emits a demotion map: a current STALE row whose rule is carry-forward-eligible (see
 ``CARRY_FORWARD_EXCLUDED_RULES`` — R4 is not) and whose ``(rule, path, detail)`` is
@@ -24,7 +24,7 @@ row always lives in), which is why this is a separate helper.
 
 Trust (both required, per issue #466):
     1. Run marker:  the comment body carries the run-keyed
-                    ``<!-- devflow:review-progress run=<id> -->`` marker (the
+                    ``<!-- prflow:review-progress run=<id> -->`` marker (the
                     ``run_key`` the demotion map surfaces). It scopes payloads to
                     engine progress comments; it is public unsigned text and does
                     NOT authenticate the author (a bot echoing attacker prose
@@ -99,9 +99,11 @@ Known limitation (bounded — a forged single pair in a sectionless trusted comm
     START/END sentinel (a forgery quoted alongside the engine's real seeded section). It
     cannot, from the comment bytes alone, tell a genuine single section from a single
     forged pair in a comment that has NO real section — the case of a pre-feature
-    `devflow:review-progress` comment authored before this feature seeded the section
+    `prflow:review-progress` comment authored before this feature seeded the section
     into the template. The root defense is producer-side (the report renderer neutralizes
-    any `devflow:lint-adjudications*` / `devflow:lint-fp-adjudicated` literal it quotes from
+    any `prflow:lint-adjudications*` / `prflow:lint-fp-adjudicated` literal -- in either
+    the current `prflow:` or the superseded `devflow:` spelling, both honored here per
+    issue #1003 -- it quotes from
     attacker-controlled diff prose at every write point — Phase 3 onward, not only the
     Phase 4 report write — so a POST-feature comment can never carry a forged sentinel
     verbatim). The residual is therefore scoped to progress
@@ -186,21 +188,60 @@ CARRY_FORWARD_EXCLUDED_RULES = frozenset({"R4"})
 # The run-keyed progress-comment marker (mirrors skills/review/SKILL.md's Live
 # Progress Comment section). Its `run=<id>` capture is the run_key the demotion
 # map surfaces. Kept in lockstep with that skill prose.
-RUN_MARKER_RE = re.compile(r"<!-- devflow:review-progress run=(\S+) -->")
+RUN_MARKER_RE = re.compile(r"<!-- (?:pr|dev)flow:review-progress run=(\S+) -->")
 
 # The engine-written, sentinel-delimited adjudications section. Payloads are
 # honored ONLY between these two lines of a trusted comment — a payload literal
 # outside them (e.g. quoted inside a rendered evidence line, which is
 # attacker-controlled diff prose) is data, never an instruction. Kept in lockstep
 # with skills/review/SKILL.md's Phase 4 finalize-write producer contract.
-ADJ_SECTION_START = "<!-- devflow:lint-adjudications-start -->"
-ADJ_SECTION_END = "<!-- devflow:lint-adjudications-end -->"
+ADJ_SECTION_START = "<!-- prflow:lint-adjudications-start -->"
+ADJ_SECTION_END = "<!-- prflow:lint-adjudications-end -->"
+# The superseded spelling (issue #1003). No existing progress comment is
+# rewritten, so a comment written before the rename carries the old sentinels and
+# a comment written after carries the new ones. Both are honored -- but every
+# count, search and offset below is computed over the UNION of the two
+# spellings, never per spelling: counting each independently would let one
+# genuine new-form section sit beside one attacker-quoted old-form section, read
+# as `1` and `1`, raise no tamper flag, and honor whichever window comes first.
+ADJ_SECTION_START_SUPERSEDED = "<!-- devflow:lint-adjudications-start -->"
+ADJ_SECTION_END_SUPERSEDED = "<!-- devflow:lint-adjudications-end -->"
+ADJ_SECTION_STARTS = (ADJ_SECTION_START, ADJ_SECTION_START_SUPERSEDED)
+ADJ_SECTION_ENDS = (ADJ_SECTION_END, ADJ_SECTION_END_SUPERSEDED)
+
+
+def _sentinel_total(body, sentinels):
+    """How many sentinels of one role the body carries, across BOTH spellings.
+
+    The sum is the guard's comparand: `> 1` means the engine's own section
+    cannot be told from a forged or quoted one, whichever spellings were used.
+    """
+    return sum(body.count(sentinel) for sentinel in sentinels)
+
+
+def _sentinel_first(body, sentinels):
+    """The earliest offset of any spelling of one sentinel role, or -1.
+
+    Reached only after `_sentinel_total` established there is exactly one, so
+    "earliest" and "the only one" are the same offset -- but taking the minimum
+    keeps the window derivation independent of which spelling was used.
+    """
+    offsets = [o for o in (body.find(s) for s in sentinels) if o != -1]
+    return min(offsets) if offsets else -1
+
+
+def _sentinel_len(body, sentinels, offset):
+    """The length of the sentinel that actually sits at `offset`."""
+    for sentinel in sentinels:
+        if body.startswith(sentinel, offset):
+            return len(sentinel)
+    return 0
 
 # The hidden per-row adjudication payload: base64 of the row's whole TSV. base64
 # keeps `--` (which would terminate the enclosing HTML comment) out of the marker.
 # Kept in lockstep with skills/review/SKILL.md's Phase 4.1.7 render protocol
 # (mla-marker-pin pins this literal there).
-PAYLOAD_RE = re.compile(r"<!-- devflow:lint-fp-adjudicated (\S+) -->")
+PAYLOAD_RE = re.compile(r"<!-- (?:pr|dev)flow:lint-fp-adjudicated (\S+) -->")
 
 
 def _fail(msg, code=2):
@@ -374,7 +415,12 @@ def _collect_payload_keys(comments, allowed_bots, stats):
         # we cannot tell the engine's own section from a forged/quoted one, so honor
         # no payload from this comment (the fail-closed direction the sentinel prose
         # promises). One each is the only trusted shape.
-        if body.count(ADJ_SECTION_START) > 1 or body.count(ADJ_SECTION_END) > 1:
+        # The comparand is the UNION across both marker spellings (issue #1003):
+        # one genuine new-form section plus one attacker-quoted old-form section is
+        # `1` and `1` when counted per spelling, which would raise no flag and
+        # honor the earlier window -- the exact forgery this guard exists to stop.
+        if (_sentinel_total(body, ADJ_SECTION_STARTS) > 1
+                or _sentinel_total(body, ADJ_SECTION_ENDS) > 1):
             stats["sentinel_tampered_comments"] += 1
             sys.stderr.write(
                 "match-lint-adjudications.py: refusing a trusted comment carrying "
@@ -382,12 +428,15 @@ def _collect_payload_keys(comments, allowed_bots, stats):
                 "suspected) — honoring no payload from it\n"
             )
             continue
-        start = body.find(ADJ_SECTION_START)
-        end = body.find(ADJ_SECTION_END)
+        start = _sentinel_first(body, ADJ_SECTION_STARTS)
+        end = _sentinel_first(body, ADJ_SECTION_ENDS)
         # A well-formed section has a START before an END; anything else means "no
-        # honored section", so every payload falls outside it.
+        # honored section", so every payload falls outside it. The window opens
+        # past whichever spelling actually sits at `start`, so a mixed-spelling
+        # pair (a pre-rename comment whose section the current engine re-wrote)
+        # still yields the correct interior offsets.
         if start != -1 and end != -1 and end > start:
-            section_lo = start + len(ADJ_SECTION_START)
+            section_lo = start + _sentinel_len(body, ADJ_SECTION_STARTS, start)
             section_hi = end
         else:
             section_lo = section_hi = None

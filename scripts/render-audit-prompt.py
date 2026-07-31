@@ -156,7 +156,7 @@ _TARGETED_TOKEN = "tg"
 # `render_dispatch_scope`. A coupled literal: this module refuses to parse a file that
 # does not open with it, so a payload in some other shape can never be spliced into an
 # auditor prompt as though it were the tool's own.
-_SCOPE_MARKER = "<!-- devflow:dispatch-scope v1 -->"
+_SCOPE_MARKER = "<!-- prflow:dispatch-scope v1 -->"
 # Extraction hooks map to the two consumer section headings they forward.
 _HOOKS = {
     "audit-dimensions": "## Audit dimensions",

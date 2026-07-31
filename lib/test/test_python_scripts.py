@@ -17738,8 +17738,12 @@ assert_eq("#815 an injected filed-marker literal in free-text prose discharges n
 # matching and turns a deferred criterion into an unexplained dropped one.
 assert_eq("#815 the scope-decision kind constant is byte-unchanged",
           ('deferred', 'rewritten'), workpad._SCOPE_DECISION_KINDS)
-assert_eq("#815 the scope-decision regex is byte-unchanged",
-          (r'<!-- devflow:scope-decision pr=(\d+|pending) '
+# Issue #1003 widened ONE thing and nothing else: the marker namespace became an
+# alternation so a pre-rename record in a body patched post-rename still parses.
+# Every other byte stays pinned, because an added field or a third kind stops
+# existing records matching at all.
+assert_eq("#815/#1003 the scope-decision regex is unchanged but for the namespace",
+          (r'<!-- (?:pr|dev)flow:scope-decision pr=(\d+|pending) '
            r'kind=(deferred|rewritten) '
            r'text=([A-Za-z0-9+/=]*)(?: newtext=([A-Za-z0-9+/=]*))? -->'),
           workpad._SCOPE_DECISION_RE.pattern)
@@ -17748,10 +17752,10 @@ assert_eq("#815 the scope-decision regex is byte-unchanged",
 assert_eq("#815 acs-resolve's parser still reports the deferred record after filing",
           [{'kind': 'deferred', 'text': DP_CRIT, 'new_text': None}],
           workpad._parse_scope_decisions(_dp_filed_body, 42))
-assert_eq("#815 the filed marker uses its own comment marker, not devflow:scope-decision",
+assert_eq("#815 the filed marker uses its own comment marker, not prflow:scope-decision",
           True,
-          workpad._render_deferred_filed(DP_CRIT).startswith('<!-- devflow:deferred-filed ')
-          and 'devflow:scope-decision' not in workpad._render_deferred_filed(DP_CRIT))
+          workpad._render_deferred_filed(DP_CRIT).startswith('<!-- prflow:deferred-filed ')
+          and 'scope-decision' not in workpad._render_deferred_filed(DP_CRIT))
 
 # The decisive value is derived in Python, never through a tool the preflight does
 # not guarantee — a `grep`/`tr`/`sed`/`wc`/`cut`/`head` derivation would fail OPEN to
@@ -17910,7 +17914,7 @@ _dp_written = apply_mut(
 assert_eq("#815 --mark-deferred-filed writes the marker as a whole isolated Progress bullet",
           True,
           any(ln.strip().split(' — ', 1)[1] == workpad._render_deferred_filed(DP_CRIT)
-              for ln in _dp_written.split('\n') if 'devflow:deferred-filed' in ln))
+              for ln in _dp_written.split('\n') if 'prflow:deferred-filed' in ln))
 assert_eq("#815 a written filed marker is read back by the predicate as a discharge",
           (1, "not-outstanding: 1\n"),
           _dp_run(apply_mut(
@@ -18093,6 +18097,88 @@ assert_eq("#815 a CRLF workpad answers outstanding, never a confident zero",
 assert_eq("#815 a CRLF workpad still reads a filed marker as a discharge",
           (1, "not-outstanding: 1\n"),
           _dp_run(_dp_filed_body.replace('\n', '\r\n')))
+
+# ---------------------------------------------------------------------------
+# #1003: ONE body carries BOTH marker spellings, and every reader resolves per
+# RECORD, not per artifact. A workpad written before the rename and patched after
+# it is the real shape -- the rename rewrites no existing issue body -- so a
+# per-artifact choice would strand every record in the other spelling. The two
+# consequences the issue names by case are driven directly.
+# ---------------------------------------------------------------------------
+
+
+def _dp_superseded(record):
+    """The same record, respelled into the superseded marker namespace."""
+    out = record.replace('<!-- prflow:', '<!-- devflow:', 1)
+    assert out != record, record
+    return out
+
+
+# (a) DOUBLE FILING. A pre-rename `deferred-filed` record must discharge a
+# post-rename deferred criterion -- otherwise `deferred-presence` answers
+# outstanding and Phase 4.0 files the follow-up issue a SECOND time.
+assert_eq("#1003 a PRE-rename filed record discharges a post-rename criterion "
+          "(no duplicate follow-up issue)",
+          (1, "not-outstanding: 1\n"),
+          _dp_run(_dp_body(progress_extra=(
+              _dp_note(_dp_rec(42, 'deferred', DP_CRIT))
+              + _dp_note(_dp_superseded(
+                  workpad._render_deferred_filed(DP_CRIT)))))))
+# Negative control: the same body WITHOUT the filed record is outstanding, so the
+# row above is decided by the superseded-spelling marker and not by the shape.
+assert_eq("#1003 control: without the filed record the same criterion is outstanding",
+          (0, f"outstanding: 1\ncriterion: {DP_CRIT}\n"),
+          _dp_run(_dp_body(progress_extra=_dp_note(
+              _dp_rec(42, 'deferred', DP_CRIT)))))
+# The mirror direction -- a post-rename filed record over a pre-rename
+# scope-decision -- is the ordering a workpad mutated in place actually takes.
+assert_eq("#1003 a POST-rename filed record discharges a pre-rename criterion",
+          (1, "not-outstanding: 1\n"),
+          _dp_run(_dp_body(progress_extra=(
+              _dp_note(_dp_superseded(_dp_rec(42, 'deferred', DP_CRIT)))
+              + _dp_note(workpad._render_deferred_filed(DP_CRIT))))))
+
+# (b) PENDING->PR BINDING. A pre-rename `pr=pending` record must be reached by
+# `--bind-scope-decisions`; a miss leaves it unbound, and an unbound record covers
+# nothing at review time, so the binding silently no-ops.
+_dp1003_bound = apply_mut(
+    _dp_body(progress_extra=(
+        _dp_note(_dp_superseded(_dp_rec('pending', 'deferred', DP_CRIT)))
+        + _dp_note(_dp_rec('pending', 'deferred', DP_OTHER)))),
+    make_args(bind_scope_decisions='42', status='Documenting'))
+assert_eq("#1003 --bind-scope-decisions reaches a PRE-rename pending record too",
+          True,
+          _dp_superseded(_dp_rec(42, 'deferred', DP_CRIT)) in _dp1003_bound
+          and _dp_rec(42, 'deferred', DP_OTHER) in _dp1003_bound)
+assert_eq("#1003 ...and no pending record of either spelling survives the bind",
+          False, 'pr=pending' in _dp1003_bound)
+assert_eq("#1003 both bound records reach acs-resolve's merge-gate-facing parser",
+          [{'kind': 'deferred', 'text': DP_CRIT, 'new_text': None},
+           {'kind': 'deferred', 'text': DP_OTHER, 'new_text': None}],
+          workpad._parse_scope_decisions(_dp1003_bound, 42))
+
+# (c) The CHECKPOINT replay arm: a pre-rename checkpoint row must be seen by a
+# post-rename replay of the same key, or the row is written twice.
+assert_eq("#1003 a PRE-rename checkpoint row makes a post-rename replay a no-op",
+          [],
+          workpad._plan_checkpoints(
+              _CP_BODY.replace(
+                  "  - 02:00:00 — /devflow:implement run started",
+                  "  - 02:00:00 — /devflow:implement run started\n"
+                  "  - 02:01:00 — invoke " + _dp_superseded(_MK)),
+              [(_CPKEY, "x")]))
+
+# (d) The comment SCAN: `_find_workpad_comment` accepts the configured marker and
+# its other-namespace twin, and nothing else. A marker a consumer customised
+# outside the namespace gains no second literal.
+assert_eq("#1003 a marker in the namespace carries exactly its twin",
+          ('<!-- prflow:workpad -->', '<!-- devflow:workpad -->'),
+          workpad._marker_variants('<!-- prflow:workpad -->'))
+assert_eq("#1003 the superseded->current direction resolves too (stale config value)",
+          ('<!-- devflow:workpad -->', '<!-- prflow:workpad -->'),
+          workpad._marker_variants('<!-- devflow:workpad -->'))
+assert_eq("#1003 a custom marker outside the namespace gains no invented twin",
+          ('<!-- acme:pad -->',), workpad._marker_variants('<!-- acme:pad -->'))
 
 # ---------------------------------------------------------------------------
 # #814: `update` suppresses the workpad-body echo on stdout by default; the new

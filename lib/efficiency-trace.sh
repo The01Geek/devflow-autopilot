@@ -25,7 +25,7 @@
 #   --persist           Layer 3 backstop: derive the per-run record + the durable
 #                       workpad copy from whatever iter-*.json workpads exist on
 #                       disk, and persist them to the dedicated telemetry branch
-#                       (`telemetry.branch`, default devflow-telemetry) via git
+#                       (`telemetry.branch`, default prflow-telemetry) via git
 #                       plumbing — it does NOT commit to the current branch and
 #                       never touches HEAD or the tracked working tree (#441).
 #                       Idempotent: once a run's record is already on the branch,
@@ -76,8 +76,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/telemetry-branch.sh
 . "$HERE/telemetry-branch.sh" || {
   echo "devflow: telemetry-branch.sh could not be sourced beside ${BASH_SOURCE[0]} — --persist cannot reach the telemetry branch this run; using no-op stubs so backstop reads degrade cleanly (best-effort exit-0 preserved)" >&2
-  devflow_telemetry_branch()       { printf 'devflow-telemetry\n'; }
-  devflow_telemetry_ref()          { printf 'refs/heads/devflow-telemetry\n'; }
+  devflow_telemetry_branch()       { printf 'prflow-telemetry\n'; }
+  devflow_telemetry_ref()          { printf 'refs/heads/prflow-telemetry\n'; }
   devflow_telemetry_blob_exists()  { return 1; }
   devflow_telemetry_list_blobs()   { return 0; }
   devflow_telemetry_show_blob()    { return 1; }

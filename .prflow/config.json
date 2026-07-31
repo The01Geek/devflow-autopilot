@@ -6,7 +6,7 @@
   "prflow": {
     "allowed_bots": "claude,dependabot,devflow-autopilot,prflow,prflow-implementer",
     "allowed_users": "*",
-    "workpad_marker": "<!-- devflow:workpad -->",
+    "workpad_marker": "<!-- prflow:workpad -->",
     "effort": "low",
     "allowed_tools": [
       "Bash(lib/test/run.sh:*)",
@@ -150,10 +150,10 @@
     "labels": "Documented"
   },
   "deferred": {
-    "labels": "DevFlow,Deferred"
+    "labels": "PRFlow,Deferred"
   },
   "telemetry": {
-    "branch": "devflow-telemetry"
+    "branch": "prflow-telemetry"
   },
   "verification_flight": {
     "enabled": true,

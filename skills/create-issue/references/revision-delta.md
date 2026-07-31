@@ -1,4 +1,4 @@
-<!-- devflow:create-issue-ref step=revision-delta file=skills/create-issue/references/revision-delta.md start -->
+<!-- prflow:create-issue-ref step=revision-delta file=skills/create-issue/references/revision-delta.md start -->
 
 ### Revision-delta verification (shared procedure — referenced by every revise-and-re-gate site)
 
@@ -12,4 +12,4 @@ Every revise-and-re-gate sentence in this skill (Step 3.5's items 5 and 6, Step 
 6. **Route a genuinely new unresolved decision fork through the existing Step 2 machinery** (the runner's user-question tool; `## 🚫 Blocked` on disengagement) — add no new decision-handling path.
 7. **Close every revision event with one standalone evidence line, at the per-site anchor below**: `revision-delta check: <N> enumerated, <V> verified, <F> fixed` (summing the event's batch walks) when any class in any batch was non-empty, or `revision-delta check: no verifiable delta` when every batch walked all-zeros. The line is chat text — it does not extend the Step 4 audit summary line and writes to no artifact. The five per-site anchors cover all six wired sites because the two Step 4 sub-step 4 revision sentences share one anchor: at Step 3.5's item 5, immediately after that item's gate re-run; at Step 3.5's item 6, immediately before the initial Step 3.6 dispatch's pre-dispatch draft write; at the Step 3.6 `VERDICT: REVISE` site, immediately before the re-audit dispatch; at a user-chosen round, immediately before the T1/T2 trigger re-evaluation and its offer message; at the Step 4 sub-step 4 sites, immediately before the re-presented draft. Because the sub-step 4 ordering places the re-presentation **before** the re-audit offer, every flow that later reaches a declined offer passed one of these anchors first, so the declined-offer filing path carries the most recent evidence line adjacent to its presentation with no separate anchor.
 
-<!-- devflow:create-issue-ref step=revision-delta file=skills/create-issue/references/revision-delta.md end -->
+<!-- prflow:create-issue-ref step=revision-delta file=skills/create-issue/references/revision-delta.md end -->

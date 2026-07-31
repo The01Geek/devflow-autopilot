@@ -48,7 +48,7 @@ fi
 # the REST body. It deliberately does NOT match a bare `HTTP 422`: a 422 for a
 # *different* validation reason (e.g. a malformed label name) must route to the
 # failure breadcrumb, not be silently swallowed as "already exists".
-ERR_OUT="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/labels" -f "name=$NAME" -f "description=Created by DevFlow automation" 2>&1)"
+ERR_OUT="$("$DEVFLOW_GH" api --method POST "repos/{owner}/{repo}/labels" -f "name=$NAME" -f "description=Created by PRFlow automation" 2>&1)"
 RC=$?
 
 if [ "$RC" -eq 0 ]; then

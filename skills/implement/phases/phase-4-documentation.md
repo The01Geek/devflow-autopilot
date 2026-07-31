@@ -257,7 +257,7 @@ Then apply the configured `deferred.labels` to each filed issue — the **same**
 # statement) and is exempt from set -e; the default arg covers the SOFT paths (missing
 # file / unset key → exit 0), only the HARD path (rc≠0 — corrupt config.json / missing
 # python3) leaves DEFERRED_LABELS empty AND a breadcrumb.
-if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels DevFlow,Deferred); then
+if ! DEFERRED_LABELS=$("${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/config-get.sh .deferred.labels PRFlow,Deferred); then
     DEFERRED_LABELS=""
     "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/workpad.py update $ISSUE_NUMBER --reflection-kind dropped-failed --reflection "Phase 4.0.5 could not read deferred.labels (config-get rc≠0 — corrupt config.json or python3 missing); deferred review-finding issues filed WITHOUT labels."
 fi

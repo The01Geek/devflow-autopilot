@@ -15,7 +15,7 @@ the rest of devflow). The workpad marker is read from the repo-root
 works on Windows), anchored to the git repo root via a native `git rev-parse`
 subprocess (issue #295: falling back to cwd) so a subdirectory invocation still
 reads the consumer's root config, falling back to the built-in default
-`<!-- devflow:workpad -->` when the config file or key is absent (so it works
+`<!-- prflow:workpad -->` when the config file or key is absent (so it works
 with no config).
 
 Usage:
@@ -33,7 +33,7 @@ Usage:
 
 Subcommands that locate the workpad by its marker comment (`id`, `new-body`,
 `update`) accept `--marker` to target a non-default marker — /devflow:review
-uses it to drive its own `<!-- devflow:review-progress -->` comment. The flag
+uses it to drive its own `<!-- prflow:review-progress -->` comment. The flag
 is preferred over the `DEVFLOW_WORKPAD_MARKER` env var: a leading
 env-assignment makes the command un-matchable against the cloud allow-list.
 
@@ -244,12 +244,48 @@ def _repo_full(api_fail_code=1):
     return r.stdout.strip()
 
 
-_DEFAULT_WORKPAD_MARKER = '<!-- devflow:workpad -->'
+_DEFAULT_WORKPAD_MARKER = '<!-- prflow:workpad -->'
+
+# ── The comment-marker namespace, both spellings (issue #1003) ───────────────
+# PRFlow WRITES `<!-- prflow:… -->`; every artifact created before the rename
+# carries `<!-- devflow:… -->`, and the rename rewrites no existing issue or PR
+# body. A single workpad is therefore mutated in place ACROSS the rename
+# boundary, so one body can carry BOTH spellings at once — pre-rename records
+# beside post-rename ones. Every grammar below accepts either spelling PER
+# RECORD, never per artifact: a per-artifact choice would leave a pre-rename
+# `deferred-filed` record undischarged and file its follow-up issue a second
+# time, and would leave a pre-rename `scope-decision pr=pending` record out of
+# the pending->pr substitution so the binding silently no-ops.
+#
+# END CRITERION for dropping the superseded alternative, mirroring
+# lib/rename-map.json's transitional_read_through.end_criterion: it is removed in
+# the first release after the maintainer confirms no repository still carries a
+# live workpad, progress comment or audit comment written in the superseded
+# spelling. It is not removed on a timer.
+_MARKER_NS_CURRENT = '<!-- prflow:'
+_MARKER_NS_SUPERSEDED = '<!-- devflow:'
+# The regex-source form of the same alternation, for the record grammars below.
+_MARKER_NS_RE = r'<!-- (?:pr|dev)flow:'
+
+
+def _marker_variants(marker: str) -> tuple[str, ...]:
+    """`marker` plus its other-namespace twin, when it is one of PRFlow's own.
+
+    A marker a consumer customized to something outside the namespace has no
+    twin and is returned alone, so this never invents a second literal to match.
+    The superseded->current direction is live too: a consumer whose config still
+    carries the pre-rename value keeps finding comments written under either.
+    """
+    if marker.startswith(_MARKER_NS_CURRENT):
+        return (marker, _MARKER_NS_SUPERSEDED + marker[len(_MARKER_NS_CURRENT):])
+    if marker.startswith(_MARKER_NS_SUPERSEDED):
+        return (marker, _MARKER_NS_CURRENT + marker[len(_MARKER_NS_SUPERSEDED):])
+    return (marker,)
 
 
 def _workpad_marker(explicit=None):
     # An explicit override wins: /devflow:review uses this to target its own
-    # `<!-- devflow:review-progress -->` comment with the same helper, rather
+    # `<!-- prflow:review-progress -->` comment with the same helper, rather
     # than forking a parallel script. Precedence: the `--marker` CLI flag, then
     # the `DEVFLOW_WORKPAD_MARKER` env var, then config, then the built-in
     # default. The flag is preferred over the env var because a leading
@@ -378,7 +414,7 @@ def _find_workpad_comment(cmd, repo, issue, marker, api_fail_code=1):
                 code=api_fail_code,
             )
         for c in items:
-            if (c.get('body') or '').startswith(marker):
+            if (c.get('body') or '').startswith(_marker_variants(marker)):
                 return c
         if len(items) < 100:
             return None
@@ -581,7 +617,7 @@ def _acs_read_workpad(cmd: str, issue: str):
 
     The marker is the DEFAULT implement marker: there is deliberately no
     `--marker` flag on these subcommands, so a caller cannot point this read at
-    `/devflow:review`'s own `<!-- devflow:review-progress -->` comment
+    `/devflow:review`'s own `<!-- prflow:review-progress -->` comment
     per-invocation. That closes the CALLER channel, not every channel —
     `_workpad_marker(None)` still resolves through `DEVFLOW_WORKPAD_MARKER` and
     `.prflow.workpad_marker`. Those are deliberately not closed: they are the
@@ -990,7 +1026,7 @@ _SCOPE_DECISION_PENDING_PR = 'pending'
 # re-spelled, so the constant is the single place a new kind is added — a
 # re-spelled alternation would silently keep matching only the old two.
 _SCOPE_DECISION_RE = re.compile(
-    r'<!-- devflow:scope-decision pr=(\d+|' + _SCOPE_DECISION_PENDING_PR + r') '
+    _MARKER_NS_RE + r'scope-decision pr=(\d+|' + _SCOPE_DECISION_PENDING_PR + r') '
     r'kind=(' + '|'.join(_SCOPE_DECISION_KINDS) + r') '
     r'text=([A-Za-z0-9+/=]*)(?: newtext=([A-Za-z0-9+/=]*))? -->'
 )
@@ -1053,7 +1089,7 @@ def _decode_scope_payload(blob: str, field: str, record: str = 'scope-decision')
 
 
 def _render_scope_decision(pr: str, kind: str, text: str, new_text: str | None = None) -> str:
-    rec = (f'<!-- devflow:scope-decision pr={pr} kind={kind} '
+    rec = (f'<!-- prflow:scope-decision pr={pr} kind={kind} '
            f'text={_b64(normalize_criterion(text))}')
     if new_text is not None:
         rec += f' newtext={_b64(normalize_criterion(new_text))}'
@@ -1122,7 +1158,7 @@ def _bind_scope_decisions(body: str, pr: int) -> str:
         return f'{m.group(1)}{pr}{m.group(2)}'
 
     out = re.sub(
-        r'(<!-- devflow:scope-decision pr=)pending( kind=)',
+        r'(' + _MARKER_NS_RE + r'scope-decision pr=)pending( kind=)',
         _sub,
         body,
     )
@@ -1162,7 +1198,8 @@ def _bind_scope_decisions(body: str, pr: int) -> str:
 # MERGE-GATING reviewer reads, so a record that stops parsing turns a deferred
 # criterion into an unexplained dropped one in front of the gate that decides
 # the merge.
-_DEFERRED_FILED_RE = re.compile(r'<!-- devflow:deferred-filed text=([A-Za-z0-9+/=]*) -->')
+_DEFERRED_FILED_RE = re.compile(
+    _MARKER_NS_RE + r'deferred-filed text=([A-Za-z0-9+/=]*) -->')
 
 # A `## Progress` bullet as `_append_progress_note` renders it: `  - HH:MM:SS — <text>`
 # nested, or the same flat. The prefix is a module constant so the READERS of this wire
@@ -1184,7 +1221,7 @@ def _render_deferred_filed(normalized_text: str) -> str:
     be a second pass over an already-normalized value, and re-typing it by hand
     would key the marker on a string no record carries.
     """
-    return f'<!-- devflow:deferred-filed text={_b64(normalized_text)} -->'
+    return f'<!-- prflow:deferred-filed text={_b64(normalized_text)} -->'
 
 
 def _progress_content_or_none(body: str) -> str | None:
@@ -1330,7 +1367,7 @@ def _print_unestablished(reason: str, unbound: int = 0, corrupted: int = 0,
     the `reason=` token, so a divergent arm is a routing decision the reader
     cannot make.
 
-    `filed` carries the criteria a `devflow:deferred-filed` marker has already
+    `filed` carries the criteria a `prflow:deferred-filed` marker has already
     discharged, printed one per `filed:` line. Without it the unestablished arm
     would be a duplicate-filing hole: it exits before the outstanding set is
     computed, so a workpad whose records never got bound (Phase 3.1's binding
@@ -2277,7 +2314,7 @@ def cmd_update(args):
         except json.JSONDecodeError as e:
             _fail('update id-lookup', f"could not parse gh comments response: {e}")
         for c in items:
-            if (c.get('body') or '').startswith(marker):
+            if (c.get('body') or '').startswith(_marker_variants(marker)):
                 comment_id = c['id']
                 break
         if comment_id is not None or len(items) < 100:
@@ -2683,7 +2720,7 @@ def _terminal_complete_gate(sections) -> list[str]:
 # lifecycle observable in the workpad:
 #
 #   * `update --checkpoint KEY TEXT` writes ONE timestamped ## Progress row that
-#     carries a hidden `<!-- devflow:checkpoint KEY -->` marker. A second call with
+#     carries a hidden `<!-- prflow:checkpoint KEY -->` marker. A second call with
 #     the same KEY is an idempotent REPLAY (the marker is already present) and adds
 #     no duplicate row; a checkpoint-only replay whose every key already exists is a
 #     pure no-op — no `Last updated` refresh, no PATCH (see `_NoOpReplay`). The key
@@ -2694,7 +2731,7 @@ def _terminal_complete_gate(sections) -> list[str]:
 #     OFFLINE (no gh, no network) and prints one of three origin tokens, degrading
 #     every malformed/mismatched shape to `unknown` with a targeted breadcrumb.
 # `\A…\Z` (not `^…$`): this grammar is the injection boundary for the HTML-comment
-# marker `<!-- devflow:checkpoint KEY -->`, and Python's `$` also matches just before a
+# marker `<!-- prflow:checkpoint KEY -->`, and Python's `$` also matches just before a
 # single trailing newline — so `^…$` would admit a key like "gha:1:1:stage\n" and inject
 # a newline into the marker/Progress bullet. `\Z` matches only at the true end of string,
 # keeping the key strictly single-line.
@@ -2704,7 +2741,7 @@ _CHECKPOINT_KEY_RE = re.compile(r'\A[A-Za-z0-9._:-]+\Z')
 def _checkpoint_marker(key: str) -> str:
     """The hidden HTML-comment marker a checkpoint row carries so a replay can
     detect the key without changing the visible timestamped-note rendering."""
-    return f'<!-- devflow:checkpoint {key} -->'
+    return f'<!-- prflow:checkpoint {key} -->'
 
 
 class _NoOpReplay(Exception):
@@ -2790,9 +2827,12 @@ def _plan_checkpoints(body: str, checkpoint_reqs) -> list[tuple[str, str]]:
     #    or a structural failure (outside Progress / duplicate).
     inserts: list[tuple[str, str]] = []
     for key, text in checkpoint_reqs:
-        marker = _checkpoint_marker(key)
-        total = body.count(marker)
-        in_prog = prog_content.count(marker)
+        # Both spellings, summed: a checkpoint row written before the rename
+        # still counts, so a post-rename replay of the same key is a no-op
+        # rather than a duplicate row (issue #1003).
+        variants = _marker_variants(_checkpoint_marker(key))
+        total = sum(body.count(v) for v in variants)
+        in_prog = sum(prog_content.count(v) for v in variants)
         if total != in_prog:
             raise _UpdateError(
                 f"--checkpoint key {key!r} marker appears outside the "
@@ -3349,11 +3389,11 @@ def main():
     # leading env-assignment onto the command) keeps the helper path as the
     # command prefix so the cloud allow-list rule `Bash(.../workpad.py:*)`
     # still matches — /devflow:review relies on this for its
-    # `<!-- devflow:review-progress -->` comment.
+    # `<!-- prflow:review-progress -->` comment.
     _marker_help = (
         'Marker comment that tags this workpad. Overrides the '
         'DEVFLOW_WORKPAD_MARKER env var and the .prflow/config.json value; '
-        "defaults to '<!-- devflow:workpad -->'."
+        "defaults to '<!-- prflow:workpad -->'."
     )
 
     s = sub.add_parser('id', help='Print workpad comment ID for an issue (exit 2 if absent; exit 1 on API/parse error).')
@@ -3376,7 +3416,7 @@ def main():
     s.set_defaults(func=cmd_status)
 
     # No `--marker` on either acs subcommand — deliberately. The review engine
-    # drives its own `<!-- devflow:review-progress -->` comment through this same
+    # drives its own `<!-- prflow:review-progress -->` comment through this same
     # helper, and the acceptance criteria live only on the IMPLEMENT workpad, so
     # omitting the flag denies a CALLER any way to point this read at the wrong
     # comment. The env/config precedence in `_workpad_marker` still applies (see
@@ -3574,8 +3614,8 @@ def main():
                         'kind=deferred criterion whose NORMALIZED_TEXT is a '
                         'criterion: line `deferred-presence` printed — pass it '
                         'verbatim, never re-typed. Writes its own '
-                        '<!-- devflow:deferred-filed ... --> Progress bullet, a '
-                        'grammar distinct from devflow:scope-decision, so '
+                        '<!-- prflow:deferred-filed ... --> Progress bullet, a '
+                        'grammar distinct from prflow:scope-decision, so '
                         'acs-resolve still reports the criterion DEFERRED. A '
                         'matching record then reads not-outstanding, which is '
                         'what stops a second Phase 4 entry re-filing it. '
@@ -3641,7 +3681,7 @@ def main():
     u.add_argument('--checkpoint', nargs=2, metavar=('KEY', 'TEXT'),
                    action='append', default=[],
                    help='Write one timestamped ## Progress row carrying a hidden '
-                        '"<!-- devflow:checkpoint KEY -->" marker (issue #537). '
+                        '"<!-- prflow:checkpoint KEY -->" marker (issue #537). '
                         'Idempotent: a second call with the same KEY is a replay '
                         'that adds no duplicate row. A checkpoint-only replay whose '
                         'keys all exist makes no Last-updated refresh and no PATCH; '

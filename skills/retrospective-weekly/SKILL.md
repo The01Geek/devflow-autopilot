@@ -455,10 +455,10 @@ legacy archive alone; the retrospective is never blocked by a missing telemetry 
 # populated, and on a fresh clone or a cloud checkout the reader then finds nothing and every
 # cost row silently goes missing:
 #   * a schema-valid but git-invalid name ("my branch", "a..b") → the writer persisted to
-#     `devflow-telemetry`, but this would try to fetch `my branch`;
+#     `prflow-telemetry`, but this would try to fetch `my branch`;
 #   * a malformed config → config-get.sh prints NOTHING and exits 2, so TELEMETRY_BRANCH is
 #     empty and the command degrades to `git fetch origin ":"`, while the writer and reader
-#     both fell back to `devflow-telemetry`.
+#     both fell back to `prflow-telemetry`.
 # Source the lib and ask it. The `||` keeps this best-effort: if the lib cannot be sourced, fall
 # back to the same default the resolver would have returned.
 #
@@ -473,7 +473,7 @@ legacy archive alone; the retrospective is never blocked by a missing telemetry 
 # guarded, or errexit will abort the step.
 . "$LIB/telemetry-branch.sh" || true
 TELEMETRY_BRANCH=$(devflow_telemetry_branch) || TELEMETRY_BRANCH=""
-[ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=devflow-telemetry
+[ -n "$TELEMETRY_BRANCH" ] || TELEMETRY_BRANCH=prflow-telemetry
 git fetch origin "${TELEMETRY_BRANCH}:${TELEMETRY_BRANCH}" 2>/dev/null || \
   echo "retrospective-weekly: could not fetch telemetry branch '${TELEMETRY_BRANCH}' (absent on a fresh repo, offline, or the local ref has commits the remote lacks) — the experiment-record reader unions whatever local '${TELEMETRY_BRANCH}' ref exists (if any) with any legacy tracked .prflow/logs/" >&2
 python3 $LIB/../scripts/build-experiment-records.py || \

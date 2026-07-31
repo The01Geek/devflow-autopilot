@@ -1,4 +1,4 @@
-<!-- devflow:review-ref phase=0 file=skills/review/phases/phase-0-setup.md start -->
+<!-- prflow:review-ref phase=0 file=skills/review/phases/phase-0-setup.md start -->
 ## Phase 0: Setup
 
 ### 0.1 Check for uncommitted changes
@@ -314,4 +314,4 @@ Announce one line, e.g.:
 - `Diff classification: detect_all_audit (+ engine_self_modifying) → full checklist, AND forcing the Phase 3.1.5 completeness-critic pass.`
 - `Diff classification: small_diff + config_only → skipping Phase 1+2 and pr-test-analyzer + type-design-analyzer.`
 - `Diff classification: full engine.`
-<!-- devflow:review-ref phase=0 file=skills/review/phases/phase-0-setup.md end -->
+<!-- prflow:review-ref phase=0 file=skills/review/phases/phase-0-setup.md end -->
