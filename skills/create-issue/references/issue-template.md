@@ -311,9 +311,9 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   `prflow_implement.allowed_tools`) or be phrased as a **code-reading obligation citing the
   producer code** — never a run-this-ungranted-helper AC that would send a consumer repo's cloud
   `/prflow:implement` run Blocked for a probe the drafter could have run locally. **Two further
-  obligation forms are discharged by naming work rather than by running a probe** — an obligation
-  to *add* a capability as new work, and an obligation to *establish* whether a capability exists
-  — both routed by the existence-determination rule whose single home is Step 3.5's item 4
+  obligation forms name work for the implementer rather than a drafting-time probe by the
+  drafter** — an obligation to *add* a capability as new work, and an obligation to *establish*
+  whether a capability exists — both routed by the existence-determination rule whose single home is Step 3.5's item 4
   (`skills/create-issue/references/step-3-5-steelman.md`). **This constraint reaches them on the
   same terms as any other obligation:** it governs whatever in-repo command their discharge names,
   and an obligation whose discharge names none is unaffected by it.
