@@ -5,7 +5,7 @@ DevFlow is a single [Claude Code](https://code.claude.com) plugin published at t
 ## Commands
 
 ```bash
-bash lib/preflight.sh      # verify git/gh/jq/python3.11+/PyYAML on PATH
+bash lib/preflight.sh      # verify git/gh/jq/python3.11+ on PATH (PyYAML is advisory here — reported but not gated; the suite below still requires it)
 bash lib/test/run.sh       # full suite: jq filters + shell helpers + python; gh-stubbed, no network/auth
 git ls-files '*.sh' | grep -v '^lib/test/' | xargs -r shellcheck --severity=warning -e SC1091
 shellcheck --severity=warning -e SC1091 --extended-analysis=false lib/test/run.sh

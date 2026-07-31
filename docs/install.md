@@ -41,13 +41,13 @@ PRFlow declares **zero companion-plugin dependencies** — every external asset 
 
 ### The step people miss: PyYAML
 
-`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. PRFlow's shell helpers need **PyYAML**, so install it yourself — by package name, not with `-r requirements.txt` (that path resolves against *your* working directory, not the plugin cache, so in a Python project it would install your project's dependencies instead):
+`/plugin install` resolves companion *plugins* only — it **never runs `pip`**. One runtime helper (`match-deferrals.py`) uses **PyYAML**, so install it yourself — by package name, not with `-r requirements.txt` (that path resolves against *your* working directory, not the plugin cache, so in a Python project it would install your project's dependencies instead):
 
 ```bash
 python3 -m pip install PyYAML
 ```
 
-(The cloud-tier `install.sh` handles PyYAML for you.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies everything.
+On the local tier PyYAML is **advisory**: `bash lib/preflight.sh` reports a missing PyYAML and still exits 0 (with a distinct advisory final line naming the remedy), because that one helper degrades to a logged skip rather than breaking. Installing it only restores the severity demotion of previously-deferred findings. (On the cloud tier the workflows install PyYAML themselves — a `pip install` step in the workflow, not something `install.sh` does — and the test suite and CI still require it.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies the required tools.
 
 ### Windows: resolving `python3`
 
@@ -135,9 +135,9 @@ PowerShell's double-quote handling can split a `--note`/`--reflection` text argu
 For autonomous GitHub Actions automation, run the installer from your repo root. It is idempotent, so re-running it at a *newer* release tag is also how you update. It writes into your repository — the workflows and composite actions under `.github/`, a local `marketplace.json`, and `.devflow/` templates (config scaffold, schema, ignore file) — so those changes land in version control. **Download it, read it, then run the downloaded file:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.10/install.sh -o devflow-install.sh
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.11/install.sh -o devflow-install.sh
 # review devflow-install.sh, then:
-DEVFLOW_REF=v2.28.10 bash devflow-install.sh
+DEVFLOW_REF=v2.28.11 bash devflow-install.sh
 ```
 
 <a id="pinning-the-installer"></a>
@@ -156,8 +156,8 @@ Independently of either pin, `install.sh` stamps `.devflow/config.json`'s `devfl
 `curl … | bash` runs the script without giving you a chance to read it. If you accept that, still pin both refs:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.10/install.sh \
-  | DEVFLOW_REF=v2.28.10 bash
+curl -fsSL https://raw.githubusercontent.com/The01Geek/prflow/v2.28.11/install.sh \
+  | DEVFLOW_REF=v2.28.11 bash
 ```
 
 </details>

@@ -21,7 +21,7 @@ docs/             cloud-setup guide and other docs
 - `git`, `gh` (GitHub CLI, authenticated), `jq`
 - Python 3.11+ with PyYAML (`python3 -m pip install -r requirements.txt`)
 
-Run `bash lib/preflight.sh` to verify your environment.
+Run `bash lib/preflight.sh` to verify your environment. **Note for contributors:** `lib/preflight.sh` no longer *enforces* PyYAML — it reports a missing PyYAML as an advisory gap and still exits 0. The **test suite** (`bash lib/test/run.sh`) does still require PyYAML and fails without it, so install it before running the suite; a green preflight is not sufficient to confirm a contributor environment.
 
 **Windows (stock Python): resolving `python3`.** A stock Windows Python install (python.org / `winget install python`) puts Python on PATH as `python` and the `py -3` launcher — there is **no `python3`**, so every PRFlow helper and the agent-typed `python3 <path>` calls fail. When `python3` is absent but a `>=3.11` Python is reachable as `python` or `py -3`, run the consent-gated provisioner to install a small `python3` shim onto your PATH:
 
