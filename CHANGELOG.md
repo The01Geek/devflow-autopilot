@@ -4,6 +4,39 @@ All notable changes to PRFlow are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.28.12] — 2026-07-31
+
+### Changed
+### Fixed
+
+- `agent_overrides` keys spelled with the transitional `devflow:` namespace are honored again. `.devflow/config.schema.json` enumerates every review-engine subagent under both declared namespaces — the canonical `prflow:` and the `devflow:` alias, "so an override committed before the plugin rename keeps resolving" — but `scripts/resolve-review-overrides.py` looked entries up by exact dispatched subagent id, and the engine dispatches only the canonical spelling. An alias-keyed override was therefore read as absent and silently discarded. The resolver now probes every accepted namespace spelling of each dispatched agent, in a deterministic positional precedence (the dispatched spelling first, then the remaining namespaces in `lib/plugin-identity.json` order), and warns when a lower-precedence duplicate spelling is shadowed instead of dropping it without a diagnostic. An alias-keyed entry is an own entry, so it shadows `default` exactly like a canonically-keyed one; a key whose namespace is not an accepted one is never adopted as an alias.
+
+## [2.28.11] — 2026-07-31
+
+### Changed
+Demote PyYAML from a hard `lib/preflight.sh` stop to an advisory gap on the local user tier. A host with a working Python 3.11+ that lacks PyYAML now passes preflight (exit 0) with a distinct advisory final line naming the `pip install` remedy, instead of failing with a non-zero exit. `git`, `gh`, `jq` and `python3` remain hard stops, and PyYAML stays required for the test suite, CI, and the cloud tiers. `/prflow:init` relays the PyYAML remedy as a non-blocking note on that advisory outcome. This alters the documented local-tier install requirements. (#991)
+
+## [2.28.10] — 2026-07-31
+
+### Changed
+### Changed
+
+- CI: the two heavy pooled Python suites (`test_module_runner.py`,
+  `test_python_scripts.py`) now run on their own concurrent `python-pool` shard
+  instead of inside the `monolith` shard. Profiling the monolith shard with
+  `lib/test/profile-suite.py` measured it sitting idle at the issue-#720 pool join
+  for ~22% of its wall-clock, waiting for Python work it had run out of shell
+  assertions to overlap with. `lib/test/run-shard.sh` now invokes `lib/test/run.sh`
+  with `DEVFLOW_SKIP_PYTHON_POOL=1` on the monolith shard and drives the same pool —
+  over the same membership, via the single `devflow_python_suite_pool_open` /
+  `devflow_python_suite_pool_join` definition in `lib/test/module-harness.sh` — from
+  the new `lib/test/run-python-pool.sh` driver. No assertion is added, removed, or
+  moved between suites; only which shard counts it changes, and the aggregator's
+  `--expect` shard floor rises with the matrix so a missing shard still fails the
+  required `lib + python tests` check closed. A plain local `bash lib/test/run.sh`
+  is unchanged: the selector is unset, so the pool still opens early and overlaps
+  the shell tail.
+
 ## [2.28.9] — 2026-07-31
 
 ### Changed

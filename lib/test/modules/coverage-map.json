@@ -1879,6 +1879,10 @@
       "note": "issue #970 conditional GitHub Release publication; the publish-release.sh --release minor-major matrix and the consolidator --emit-bump-to side channel are driven from the #953 block in lib/test/run.sh",
       "owner": "unmodularized"
     },
+    "984": {
+      "note": "",
+      "owner": "unmodularized"
+    },
     "99": {
       "note": "",
       "owner": "retrospective-lifecycle"

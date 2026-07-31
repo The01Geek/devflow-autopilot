@@ -68,6 +68,11 @@ def _parse_log(
     unambiguously which it dispatched:
       * "monolith" — read only run.sh's own summary (the LAST bare `N passed, M
         failed[, K skipped]` line) and the skip itemization that follows it.
+      * "python-pool" — the same summary.sh contract, emitted by
+        lib/test/run-python-pool.sh (the pooled Python suites' own shard). Named for
+        the shard that produced the log rather than folded into "monolith", so a
+        reader of a tally directory can tell which driver wrote it; the parse is
+        identical because the rendered contract is identical.
       * "modules"  — read only the summed `Module <id>: N passed, M failed` lines.
       * "auto"     — read both (the pre-tier behavior; kept for direct/manual use).
     Passing the known tier is what stops a monolith log that merely *contains* a
@@ -103,7 +108,7 @@ def _parse_log(
 
     # Monolith tier: the LAST bare-format summary line is the real run.sh summary.
     last_summary_idx = -1
-    if tier in ("monolith", "auto"):
+    if tier in ("monolith", "python-pool", "auto"):
         for idx, line in enumerate(lines):
             if _BARE_SUMMARY.match(line):
                 last_summary_idx = idx
@@ -370,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     ex.add_argument("--rc", type=int, required=True, help="shard process exit code")
     ex.add_argument(
         "--tier",
-        choices=("monolith", "modules", "auto"),
+        choices=("monolith", "python-pool", "modules", "auto"),
         default="auto",
         help="which summary contract to read (run-shard.sh passes the known tier)",
     )

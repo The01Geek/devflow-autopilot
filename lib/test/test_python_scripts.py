@@ -3597,6 +3597,123 @@ try:
 finally:
     _os.unlink(_cfg_path)
 
+# ---------------------------------------------------------------------------
+# Namespace-alias resolution. .devflow/config.schema.json enumerates each
+# review-engine subagent under EVERY declared plugin namespace — the canonical
+# `prflow:` and the `devflow:` alias, "so an override committed before the
+# plugin rename keeps resolving" — while the engine dispatches only the
+# canonical spelling. A key-equality lookup therefore read the dispatched
+# spelling and silently discarded an alias-keyed override the schema declares
+# valid. These assertions fail if that alias stops resolving.
+# ---------------------------------------------------------------------------
+_ns = _rro.AGENT_NAMESPACES
+assert_eq("alias: both declared namespaces are accepted (canonical first)",
+          ("prflow:", "devflow:"), tuple(_ns))
+
+# Candidate ordering IS the precedence rule: dispatched spelling first, then the
+# remaining accepted namespaces in identity-file order. Never dict-order-dependent.
+assert_eq("alias: candidate keys are dispatched-spelling-first, then aliases",
+          ["prflow:code-reviewer", "devflow:code-reviewer"],
+          _rro.override_key_candidates("prflow:code-reviewer"))
+assert_eq("alias: candidates for an alias-spelled id put that id first",
+          ["devflow:code-reviewer", "prflow:code-reviewer"],
+          _rro.override_key_candidates("devflow:code-reviewer"))
+assert_eq("alias: `default` has no namespace and exactly one candidate",
+          ["default"], _rro.override_key_candidates("default"))
+assert_eq("alias: an unrecognized namespace is never treated as an alias",
+          ["bogus:code-reviewer"],
+          _rro.override_key_candidates("bogus:code-reviewer"))
+
+# The headline contract: an alias-keyed override resolves to the SAME result as
+# its canonically-keyed equivalent for the same dispatched (canonical) agent.
+_al_entry = {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"}
+_al_res, _al_warn = _rro.resolve_overrides(
+    {"devflow:code-reviewer": dict(_al_entry)}, ["prflow:code-reviewer"])
+_can_res, _can_warn = _rro.resolve_overrides(
+    {"prflow:code-reviewer": dict(_al_entry)}, ["prflow:code-reviewer"])
+assert_eq("alias: `devflow:`-keyed override resolves for a `prflow:`-dispatched agent",
+          _al_entry, _al_res.get("prflow:code-reviewer"))
+assert_eq("alias: alias-keyed and canonically-keyed overrides resolve identically",
+          _can_res, _al_res)
+assert_eq("alias: resolving through the alias emits no warning", ([], []),
+          (_al_warn, _can_warn))
+
+# An alias-keyed entry is an OWN entry: it shadows `default` (entry-level
+# precedence), including the present-but-empty {} shape.
+_al_def, _ = _rro.resolve_overrides(
+    {"default": {"effort": "high"}, "devflow:code-reviewer": {"model": "m"}},
+    ["prflow:code-reviewer"])
+assert_eq("alias: alias-keyed entry does NOT inherit `default` fields",
+          {"model": "m"}, _al_def.get("prflow:code-reviewer"))
+_al_empty, _ = _rro.resolve_overrides(
+    {"default": {"effort": "high"}, "devflow:code-reviewer": {}},
+    ["prflow:code-reviewer"])
+assert_eq("alias: empty alias-keyed entry shadows `default` (no override)",
+          {}, _al_empty)
+
+# Precedence, asserted directly: with BOTH spellings present the dispatched
+# spelling wins deterministically — and it wins from either dict order, so the
+# rule is positional, not insertion-ordered.
+_both_a = {"prflow:code-reviewer": {"model": "canonical"},
+           "devflow:code-reviewer": {"model": "aliased"}}
+_both_b = {"devflow:code-reviewer": {"model": "aliased"},
+           "prflow:code-reviewer": {"model": "canonical"}}
+_pa, _ = _rro.resolve_overrides(_both_a, ["prflow:code-reviewer"])
+_pb, _ = _rro.resolve_overrides(_both_b, ["prflow:code-reviewer"])
+assert_eq("alias: dispatched spelling wins over the alias (declaration order A)",
+          {"model": "canonical"}, _pa.get("prflow:code-reviewer"))
+assert_eq("alias: precedence is positional, not dict-order-dependent",
+          {"model": "canonical"}, _pb.get("prflow:code-reviewer"))
+
+# An unknown-namespace key is NOT silently adopted as an alias of a known leaf.
+_bogus_res, _ = _rro.resolve_overrides(
+    {"bogus:code-reviewer": {"model": "nope"}, "default": {"effort": "high"}},
+    ["prflow:code-reviewer"])
+assert_eq("alias: an unknown-namespace key is not adopted (default still applies)",
+          {"effort": "high"}, _bogus_res.get("prflow:code-reviewer"))
+# ...and dispatching that unknown id still trips the existing drift warning, so
+# it does not vanish without a diagnostic.
+_bogus_err = io.StringIO()
+with contextlib.redirect_stderr(_bogus_err), contextlib.redirect_stdout(io.StringIO()):
+    _rro.main(["bogus:code-reviewer", "--config-get", "/usr/bin/false"])
+assert_eq("alias: an unknown-namespace dispatched id still warns (not silent)",
+          True, "not a known" in _bogus_err.getvalue())
+
+# End-to-end over the REAL config-get.sh reader: the alias must resolve through
+# read_raw's key probing too, not only through the pure resolver.
+with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _alcf:
+    _alcf.write(
+        '{"devflow_review":{"agent_overrides":{'
+        '"default":{"effort":"high"},'
+        '"devflow:code-reviewer":{"model":"m-alias","effort":"low"},'
+        '"devflow:checklist-verifier":{},'
+        '"prflow:comment-analyzer":{"model":"m-canonical"},'
+        '"devflow:comment-analyzer":{"model":"m-shadowed"}}}}'
+    )
+    _al_cfg = _alcf.name
+try:
+    _al_raw, _al_rwarn = _rro.read_raw(
+        ["prflow:code-reviewer", "prflow:checklist-verifier",
+         "prflow:comment-analyzer"],
+        _config_get_sh, _al_cfg)
+    _al_e2e, _ = _rro.resolve_overrides(
+        _al_raw, ["prflow:code-reviewer", "prflow:checklist-verifier",
+                  "prflow:comment-analyzer"])
+    assert_eq("alias(e2e): alias-keyed override resolves through the real reader",
+              {"model": "m-alias", "effort": "low"},
+              _al_e2e.get("prflow:code-reviewer"))
+    assert_eq("alias(e2e): empty alias-keyed entry shadows default through the reader",
+              False, "prflow:checklist-verifier" in _al_e2e)
+    assert_eq("alias(e2e): canonical key wins when both spellings are present",
+              {"model": "m-canonical"}, _al_e2e.get("prflow:comment-analyzer"))
+    assert_eq("alias(e2e): the shadowed duplicate spelling is warned, not dropped silently",
+              1, len([_w for _w in _al_rwarn
+                      if "devflow:comment-analyzer" in _w and "shadowed" in _w]))
+    assert_eq("alias(e2e): a plainly-aliased override warns about nothing",
+              [], [_w for _w in _al_rwarn if "code-reviewer" in _w])
+finally:
+    _os.unlink(_al_cfg)
+
 # read_raw on a malformed config must NOT silently swallow the parse error: it
 # returns no overrides AND surfaces a warning (config-get.sh exits 2), rather
 # than collapsing the parse failure to a silent "no overrides".

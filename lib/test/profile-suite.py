@@ -406,9 +406,14 @@ def _run(args: argparse.Namespace) -> int:
     env = dict(os.environ)
     if not args.command and not args.with_modules:
         # The CI `monolith` shard's exact invocation: the whole suite minus the module
-        # tier, which the modules-* shards own. Profiling the shard as CI runs it is
-        # the point; --with-modules profiles a full local run instead.
+        # tier (the modules-* shards' work) and minus the pooled Python suites (the
+        # python-pool shard's). Profiling the shard as CI runs it is the point;
+        # --with-modules profiles a full local run instead. Both selectors are set
+        # together because run-shard.sh sets them together — profiling with only one
+        # would attribute another shard's cost to this one, which is precisely the
+        # misreading this tool exists to prevent.
         env["DEVFLOW_SKIP_SUITE_MODULES"] = "1"
+        env["DEVFLOW_SKIP_PYTHON_POOL"] = "1"
 
     banners = _banner_set(run_sh)
     prof = Profile(banners)
@@ -465,7 +470,10 @@ def main(argv: "list[str] | None" = None) -> int:
     r.add_argument(
         "--with-modules",
         action="store_true",
-        help="profile a FULL run (do not set DEVFLOW_SKIP_SUITE_MODULES=1)",
+        help=(
+            "profile a FULL run (set neither DEVFLOW_SKIP_SUITE_MODULES=1 nor "
+            "DEVFLOW_SKIP_PYTHON_POOL=1)"
+        ),
     )
     r.add_argument("command", nargs=argparse.REMAINDER, help="-- CMD ... to profile instead")
 
