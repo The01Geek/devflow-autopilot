@@ -1009,6 +1009,11 @@ assert_eq "deferred.labels: SKILL ensures each label exists before applying (age
   "$(grep -qF 'ensure-label.sh "<label>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the piped-while loop into an agent-level single-leading-token call. #480: the label arg is QUOTED — the retired loop passed "$lbl", and dropping the quotes made a multi-word configured label (docs.labels: "Needs Docs") create the WRONG label ('Needs') while breadcrumbing SUCCESS.
 assert_eq "deferred.labels: SKILL applies labels via best-effort REST apply-labels.sh helper (agent-level per-issue call, #455)" "yes" \
   "$(grep -qF 'apply-labels.sh <filed-issue-number> "<deferred-labels>"' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: non-unique: token appears in BOTH deferral channels (4.0+4.0.5); #455 reworked the for/while loop + VAR="$(…)" capture into an agent-level single-leading-token call
+# issue #1011: Phase 4.0 registers the parent as a GitHub-native blocked-by dependency of each
+# filed follow-up, immediately after the label stamp — one single-statement, leading-token,
+# per-issue helper call (the same emission discipline the label helpers carry).
+assert_eq "#1011: Phase 4.0 stamps native blocked-by deps via apply-issue-dependencies.py (agent-level per-issue leading-token call)" "yes" \
+  "$(grep -qF 'apply-issue-dependencies.py <filed-issue-number>' "$DEF_SKILL" && echo yes || echo no)"  # raw-guard-ok: routing-dispatch-contract: the cloud-emitted leading-token helper-invocation shape the implement matcher grants; a for/while wrap or VAR="$(…)" capture is a denied shape
 # Both deferral channels must label: Phase 4.0 (no longer "add no --label") and Phase
 # 4.0.5. Require the resolution token to appear at least twice (once per channel).
 assert_eq "deferred.labels: SKILL resolves the labels in BOTH deferral channels (4.0 + 4.0.5)" "yes" \
@@ -40585,7 +40590,7 @@ fi
 # The registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/create-issue-contract.sh" \
-  "create-issue-contract" 219; then
+  "create-issue-contract" 221; then
   printf 'ERROR: create-issue-contract boundary could not record its result\n'
   exit 1
 fi

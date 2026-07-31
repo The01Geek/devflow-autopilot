@@ -168,6 +168,11 @@
       "note": "",
       "owner": "unmodularized"
     },
+    "scripts/apply-issue-dependencies.py": {
+      "focused_test": "lib/test/test_python_scripts.py",
+      "note": "",
+      "owner": "unmodularized"
+    },
     "scripts/apply-labels.sh": {
       "note": "",
       "owner": "unmodularized"
@@ -647,6 +652,10 @@
     "1010": {
       "note": "",
       "owner": "experiment-records"
+    },
+    "1011": {
+      "note": "",
+      "owner": "unmodularized"
     },
     "1029": {
       "note": "",
