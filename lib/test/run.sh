@@ -14914,12 +14914,17 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # then-current floor drop to 399. Do not read that drop as dead code — deleting these helpers
 # would break every consumer that upgrades. It stops there deliberately — the tranche was
 # scoped in advance to a measured set of low-risk sections, and what follows was not in it.
-# The floor has since RISEN to 410: the plugin rename added dual-namespace acceptance
+# The floor has RISEN twice since: the plugin rename added dual-namespace acceptance
 # coverage to both trigger helpers (canonical-input arms plus wildcard negative controls),
-# since every pre-existing fixture fed only the transitional alias form.
+# since every pre-existing fixture fed only the transitional alias form; and the
+# duplicate-notice self-trigger guard was widened from the single hardcoded `/devflow:`
+# to every declared command namespace, with a planted-defect control per namespace.
+# The floor literal on the call below is equality-checked against this module's
+# `minimum_assertions` in scripts/workflow-flight-recorder-registry.json — change both
+# together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 410; then
+  "review-trigger-helpers" 416; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
