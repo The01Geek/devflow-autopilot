@@ -332,6 +332,25 @@ generated artifact separately. The source/retirement commit is intentionally
 non-green while the artifact is absent, so never leave that intermediate commit as
 the PR head.
 
+Skipping that refresh is no longer undetectable (issue #962). The classifier resolves the
+adjudication table **at the census's recorded revision**, so regenerating the census against
+that revision faithfully reproduces the rationales it already carries however far the working
+tree's table has moved on. `test_frozen_inventory_matches_its_recorded_revision` therefore
+repeats its byte-comparison a second time, reconciling the working tree's adjudications into
+the recorded revision's table, and names the drifting row and column when the two disagree.
+Changing an adjudicated cell — a `bucket_final` or a rationale — for a key the census already
+carries is RED, so a rationale correction is a census refresh, not a one-file edit.
+
+What that comparison deliberately does **not** treat as drift is a key set that has moved.
+A site that resolves a literal is keyed by a hash of that literal, so rewording a pinned
+sentence re-keys the same adjudication, and the census — a frozen snapshot — keeps the old key
+until it is next refreshed. (A literal-less site is keyed by its assertion identity instead,
+which a reword leaves alone.) That lag is the designed, fail-closed behaviour (an absent census row reads as
+*unanswered*, never as *no*), so only keys the two files share are compared; a key that exists
+on one side alone is counted and reported in the failure message rather than being read as a
+disagreement. A census refresh therefore remains driven by the two-commit protocol, not
+demanded by every source edit that touches a pinned literal.
+
 **Refreshing a frozen pin identity (issue #843).** Renaming a retained pin is a different
 operation from retiring one, and it uses a different mechanism. The residual prose-pin
 manifest `.devflow/logs/residual-prose-retirement-manifest.tsv` freezes each identity — source,
