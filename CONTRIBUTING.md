@@ -214,10 +214,15 @@ reach: a pin whose declared target the lint cannot resolve at all
 **concatenated in-module bundle** target is no longer one of those unresolvable cases
 (issue #956): the lint resolves the bundle variable to the member files its own builder
 call concatenates and inspects the declaration against that member set, so such a pin is
-editable like any other. What still cannot be resolved — an unmodeled build shape, an
-ambiguous bundle name, an empty glob expansion, an unreadable member — keeps the refusal,
-and a literal present in no member is still reported absent. Touch a retained pin's lines
-only when you are prepared to answer the gate for it.
+editable like any other. Issue #1008 widened the modeled build grammar twice more, each
+arm measured against `lib/test/run.sh` first: an array built by looping a literal **stem
+list** and appending one interpolated path per stem (how `$REVIEW_BUNDLE` is assembled —
+it had resolved to nothing at all), and an **annotated alias** whose assignment carries a
+trailing comment (`ST_RAF="$MAXI_BUNDLE"   # …`, which had not resolved even though
+`$MAXI_BUNDLE` did). What still cannot be resolved — a build shape outside that grammar,
+an ambiguous bundle name, an empty glob expansion, an unreadable member — keeps the
+refusal, and a literal present in no member is still reported absent. Touch a retained
+pin's lines only when you are prepared to answer the gate for it.
 
 One narrow exemption (issue #1002). A pin site whose only difference from its merge-base
 self is a **sanctioned rename** declared in `lib/rename-map.json` is not new authorship,
