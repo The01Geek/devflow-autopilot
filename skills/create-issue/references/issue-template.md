@@ -164,7 +164,7 @@ never asserts as a claim, so the claim-driven loop has nothing to verify (issue 
 config-unreadable arm rested on `config-get.sh`'s malformed-input non-zero exit without ever
 asserting it as a claim). Enumerate the draft's **own mechanism dependencies** and, for each,
 determine existence first, then route — the rule's single home, with its outcome set, its route
-mapping, and its grounding, is **Step 3.5 item 4** (`references/step-3-5-steelman.md`). This is the
+mapping, and its grounding, is **Step 3.5's item 4** (`references/step-3-5-steelman.md`). This is the
 **in-repo sibling of the relied-on-third-party-behavior class** above — same discipline, extended
 to unstated in-repo reliances; it adds no duplicate premise class.
 
@@ -314,7 +314,7 @@ Checkbox items (`- [ ]`), each a **single unconditional, testable assertion**:
   obligation forms discharge with no in-repo command at all and are unaffected by this
   constraint:** an obligation to *add* a capability as new work, and an obligation to *establish*
   whether a capability exists — both routed by the existence-determination rule whose single home
-  is Step 3.5 item 4 (`references/step-3-5-steelman.md`).
+  is Step 3.5's item 4 (`references/step-3-5-steelman.md`).
 - **Every universal quantifier the body asserts about the system under change is grounded,
   or it does not ship.** A universal quantifier — "never", "always", "each", "every", "all",
   "cannot" — asserted anywhere outside `## 🚫 Blocked` (in Desired Behavior, an
@@ -545,7 +545,7 @@ incomplete issues.
 - [ ] No AC forbids a surface (a path, a file class, a tier) that another AC's discharge must touch — the ACs are mutually consistent
 - [ ] An AC establishing a trust/integrity boundary over executable artifacts defines the protected set over the transitive source/exec/import closure of its entry points, or states the residual unprotected surface explicitly
 - [ ] A Testing Strategy that enumerates an input-shape/case matrix for a convention-governed surface carries the full convention matrix (or an explicit named-and-justified narrowing) and a `governing conventions consulted:` discharge line bounded to `CLAUDE.md`, `CONTRIBUTING.md`, and the configured internal-docs path
-- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5 item 4 (`references/step-3-5-steelman.md`)
+- [ ] The draft's own unstated mechanism dependencies (relied-on in-repo helper/resolver/gate behaviors, and existence-shaped reliances, it never asserts as claims) each have their existence determined first and are then routed per Step 3.5's item 4 (`references/step-3-5-steelman.md`)
 - [ ] Every in-repo occurrence count or coupled-site list is grounded by an executed whitespace-normalized search (cited as a "Verified:" bullet with the command and its hit list) where the tier grants one, else by the specific evidence records consulted record-by-record — never assembled from recall
 - [ ] Every "Verified:" bullet carries a self-contained re-derivation handle — the repository path in backticks plus the sentence quoted verbatim from it, or the exact command whose output grounded the claim — so an implementing run can re-check the premise mechanically rather than re-investigating it
 - [ ] A premise verified as "the code does X" was read with its enclosing gates/conditionals and their defaults on the path to X, and any claim that holds only under a non-default configuration states that precondition inside the claim
