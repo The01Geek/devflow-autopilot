@@ -901,6 +901,79 @@ devflow_report_superseded_identifiers() {
   log "NOTICE: .claude/settings.json still registers superseded DevFlow identifiers ($hits). This installer never writes that file — run /devflow:init, whose scripts/provision-local-settings.sh removes the superseded registrations and adds the current one."
 }
 
+# The same detect-and-route split, applied to `.devflow/config.json`. The GitHub App that
+# authors PRFlow's PRs was renamed `devflow-autopilot` -> `prflow-implementer` (the app id
+# behind DEVFLOW_APP_ID is unchanged), so a consumer who added the old slug to
+# `devflow.allowed_bots` now carries an entry that matches no live identity:
+# scripts/authorize-actor.sh compares logins for EQUALITY, so the stale slug authorizes
+# nothing and the implement/review stall-backstop resume comment is declined by the very
+# gate it re-enters — a green run that never resumes.
+#
+# NOT part of the generated plugin-identity region above, deliberately: that region is
+# compiled from lib/plugin-identity.json, which models plugin/marketplace identity. An App
+# slug is a different identity with a different lifecycle, so it is a plain assignment here
+# rather than a widening of a generated, sha-stamped region.
+#
+# The scaffolder is add-only and cannot rename a VALUE, and this installer does not write
+# the file for this purpose: `/devflow:init` owns the correction, so the installer DETECTS
+# and REPORTS and routes there, exactly as it does for .claude/settings.json above.
+#
+# Format: whitespace-separated `stale=current` pairs.
+DEVFLOW_STALE_BOT_LOGINS='devflow-autopilot=prflow-implementer'
+# Best-effort over a file a human hand-edits: EVERY unexpected shape (unreadable, not JSON,
+# a non-object root, `devflow` or `allowed_bots` of the wrong type, a valid-falsy empty
+# string) leaves stdout empty and exits 0, so the caller reports nothing and the install
+# proceeds. It never writes.
+DEVFLOW_CONFIG_SCAN_PY='
+import json, sys
+path = sys.argv[1]
+pairs = [p.split("=", 1) for p in sys.argv[2].split() if "=" in p]
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+section = data.get("devflow")
+if not isinstance(section, dict):
+    sys.exit(0)
+raw = section.get("allowed_bots")
+# A bool is an int, not a str, so `false` lands here and exits silently like any other
+# wrong type; an explicit "" is a str and simply yields no entries.
+if not isinstance(raw, str):
+    sys.exit(0)
+entries = []
+for e in raw.split(","):
+    e = e.strip()
+    if e.endswith("[bot]"):
+        e = e[: -len("[bot]")]
+    if e:
+        entries.append(e)
+hits = []
+for stale, current in pairs:
+    if stale in entries:
+        hits.append("devflow.allowed_bots[" + stale + " -> " + current + "]")
+if hits:
+    sys.stdout.write(", ".join(hits))
+'
+devflow_report_stale_config_identifiers() {
+  local hits
+  # Same short-circuit shape as the settings report: with no pair declared there is nothing
+  # to find, so no python3 is spent. Re-read the assignment above before asserting which way
+  # this falls.
+  [ -n "$DEVFLOW_STALE_BOT_LOGINS" ] || return 0
+  [ -f .devflow/config.json ] || return 0
+  devflow_resolve_python || {
+    log "warning: no working python3 — could not check .devflow/config.json for superseded PRFlow identifiers; run /devflow:init to correct them."
+    return 0
+  }
+  hits="$("$DEVFLOW_PY" -c "$DEVFLOW_CONFIG_SCAN_PY" .devflow/config.json \
+      "$DEVFLOW_STALE_BOT_LOGINS" 2>/dev/null || printf '')"
+  [ -n "$hits" ] || return 0
+  log "NOTICE: .devflow/config.json still names superseded PRFlow identifiers ($hits). This installer never rewrites that file for this — run /devflow:init, which corrects them in place, preserves your other values, and reports the diff to review before you commit."
+}
+
 # ── The dry-run preview ─────────────────────────────────────────────────────
 # The preview is not a second implementation of the plan: it runs the REAL apply
 # function against a sandbox copy of the consumer's own tree and then diffs the
@@ -1151,6 +1224,11 @@ JSON
   # 8. Report (never rewrite) a consumer settings file still carrying a superseded
   #    plugin/marketplace identifier.
   devflow_report_superseded_identifiers
+
+  # 9. Same detect-and-route split for .devflow/config.json: report (never rewrite) a
+  #    superseded identifier the add-only scaffolder above cannot correct, and route the
+  #    consumer to /devflow:init, which owns that correction.
+  devflow_report_stale_config_identifiers
 )
 
 # When sourced by the test harness (DEVFLOW_SELFTEST=1), define the functions
