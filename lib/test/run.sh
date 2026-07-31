@@ -15950,6 +15950,15 @@ assert_eq "app-token: suppression notice carries exactly one NOTE= body line" "1
 # is DERIVED ($SUITE_CMD_NS, built above from the declared plugin identity), so it
 # follows a namespace addition automatically and does not go vacuous when the
 # transitional namespace is eventually retired.
+# NON-VACUITY, asserted LOCALLY rather than borrowed: $SUITE_CMD_NS is built far
+# upstream in the partition-invariant section, and today its `exit 1` fail-closed
+# arm happens to run earlier in the same linear script. That is an accident of
+# ordering, not a contract — hoisting either block, or moving this one into a
+# module, would leave both loops below iterating over an empty set and passing by
+# inspecting nothing. Assert emptiness here, at the point of use, exactly as the
+# devflow-implement duplicate-notice mirror does for its own DI_CMD_NS.
+assert_eq "app-token: the scanned command-namespace set is non-empty (guard is not vacuous)" \
+  "yes" "$(case "$SUITE_CMD_NS" in *[!\ ]*) echo yes ;; *) echo no ;; esac)"
 for _rs_ns in $SUITE_CMD_NS; do
   assert_eq "app-token: suppression notice contains no /$_rs_ns: phrase in its NOTE body" "0" \
     "$(grep 'NOTE=' <<< "$RS_NOTICE" | grep -c "/$_rs_ns:" || true)"
