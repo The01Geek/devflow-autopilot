@@ -1410,17 +1410,18 @@ assert_eq "#docs-verify: write-mode reference carries exactly one start and one 
   "start=1 end=1" \
   "start=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' start -->' "$CI_DV_WRITE_REF") end=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' end -->' "$CI_DV_WRITE_REF")"
 
-# The routing half: SKILL.md must send write mode to the reference, and must fail closed when
-# it cannot be read. Without the fail-closed arm a write-mode run edits documentation with no
-# scope constraints or file-operation rules loaded — the regression this gate exists to catch.
-devflow_module_pin_present "#docs-verify: SKILL.md routes write mode to the reference" \
-  'references/write-mode.md' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- names the reference the write-mode path must load
-devflow_module_pin_present "#docs-verify: the write-mode reference gate fails closed" \
-  '**This gate fails closed.**' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- the failure arm of the routing row above; a degrade-instead-of-stop revert leaves the routing pin intact
-
-# The report-only path must NOT load it — the whole point of the split.
-devflow_module_pin_present "#docs-verify: report-only is told not to load the write-mode reference" \
-  '**Do not load the write-mode reference**' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- the negative routing arm that keeps the write-mode half out of a peer's context
+# DELIBERATELY UNPINNED: the routing prose in SKILL.md that sends write mode to this reference,
+# its fail-closed arm, and the report-only "do not load it" arm. All three are agent-executed
+# prompt prose whose only reader is the runtime agent, so under the issue-#843/#876 decision they
+# carry no automated regression coverage BY DESIGN — the compensating control is the review pass
+# that re-derives them from the shipped text, not a pin. Pinning them was tried and is what the
+# #810 mutation-routing gate rejects: the gate resolves a literal into prose BEFORE reading any
+# `structural-pin-ok` declaration, so no declaration category can rescue such a pin.
+#
+# What IS covered above is the machine-consumed half: the reference's own boundary-marker
+# contract, which a loading agent validates positionally (first line / last line / exactly one
+# of each) and which fails closed on a missing file. That is a file-structure assertion, not a
+# prose pin, which is why it routes cleanly.
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
