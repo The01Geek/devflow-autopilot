@@ -163,6 +163,15 @@ jobs:
   # review the user explicitly asked for. This is the opposite failure
   # direction from that tier's fail-closed gates, by design.
   #
+  # SCOPE — the two legacy signals above are HEAD-scoped; Signal 3 (issue #989,
+  # the one that fires in this tree) is PULL-REQUEST-scoped. The seeded
+  # review-progress comment it reads carries only a run key at seed time (its
+  # `Reviewed HEAD:` line is stamped at Phase 4, when the review has already
+  # finished), so no commit key exists to filter on while a review is in flight.
+  # Consequence, an accepted cost: pushing a new commit while a review of the
+  # previous one is still running and then asking for a review suppresses that
+  # request. Do not describe this job as "same commit" deduping.
+  #
   # Only `/devflow:review` is deduped — NOT `/devflow:review-and-fix` (that
   # auto-applies fixes and has no automated equivalent), and not the
   # pr-description flow, which falls through with suppress=false untouched.
@@ -306,13 +315,82 @@ jobs:
           fi
           [[ "$IR" =~ ^[0-9]+$ ]] || IR=0
 
-          if [ "$IC" != "0" ] || [ "$IR" != "0" ]; then
+          # Signal 3 (Candidate C, issue #989): an IN-FLIGHT review of THIS PR,
+          # detected from the review engine's seeded live progress comment
+          # (`devflow:review-progress`, `🚀 Reviewing`, bot-authored, fresh). This
+          # is the signal that fires in THIS tree (Signals 1/2 target the withheld
+          # auto-review tier and only fire for a consumer whose installed copy
+          # predates the withholding). The branch-selecting decision lives in a
+          # bundled helper so the suite can drive each arm; it is invoked at its
+          # VENDORED path (a repo-relative `scripts/` path is rc 127 in every
+          # consumer checkout, and — this job failing OPEN — that breakage would be
+          # silent). The invocation is GUARDED so a non-zero exit routes to the
+          # fail-open arm (CC=false) instead of aborting this step under
+          # `set -euo pipefail` and skipping the downstream `command` job. The
+          # helper is self-contained (its own gh query + jq); it fails open on every
+          # degraded arm with its own ::warning:: breadcrumb, surfaced to the log
+          # here (its stderr is not captured). The deciding value is parsed from its
+          # stdout with bash builtins only (no tr/sed/grep for the decision).
+          # A /prflow:review carrying the review-backstop marker is a no-verdict
+          # auto-resume posted from inside a still-active run, and is NEVER
+          # suppressed — this OVERRIDES every signal (legacy included), so the
+          # resume always fires (issue #989). The helper applies this to its own
+          # Signal 3, but the short-circuit below skips the helper when a legacy
+          # signal already fired, so the override is applied HERE to IC/IR too.
+          # Marker literal coupled with the helper's BACKSTOP_MARKER and
+          # scripts/request-review-backstop.sh (pinned in lib/test/).
+          case "$BODY" in
+            *"<!-- devflow:review-backstop"*)
+              echo "::notice::dedupe-review: triggering /prflow:review carries the review-backstop marker (a no-verdict auto-resume); not suppressing (all signals overridden)."
+              IC=0; IR=0 ;;
+          esac
+
+          # Signal 3 (Candidate C) is only consulted when neither legacy signal
+          # fired: whenever IC/IR already decide suppression, the helper's full
+          # paginated comments fetch + jq pass would be computed and discarded
+          # (efficiency), so short-circuit it.
+          CC=false
+          if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then
+            CC_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
+            if [ ! -x "$CC_HELPER" ]; then
+              echo "::warning::dedupe-review helper not found/executable at $CC_HELPER (has install.sh/vendor-plugin vendored the plugin at the pinned devflow_version?); Candidate-C signal skipped (fail-open — manual review proceeds)."
+            elif ! CC_OUT="$(MODE=detect REPO="$REPO" PR="$PR" RUN_ID="${GITHUB_RUN_ID:-}" TRIGGER_BODY="$BODY" bash "$CC_HELPER")"; then
+              echo "::warning::dedupe-review helper exited non-zero for PR #$PR; Candidate-C signal treated as 0 (fail-open)."
+              CC=false
+            else
+              # The helper writes exactly one `suppress=<bool>` line to stdout
+              # (breadcrumbs go to stderr, uncaptured, into the log). Parse it with
+              # a bash case — no tr/sed/grep for the deciding value.
+              case "$CC_OUT" in
+                *suppress=true*) CC=true ;;
+                *) CC=false ;;
+              esac
+            fi
+          fi
+
+          # Select the cause that decided suppression, in precedence order. The
+          # legacy check-run/workflow-run causes name the `Devflow Review` check
+          # and its Re-run button (on the consumer where they fire those are the
+          # reader's real actions); the new in-flight-review cause names its own
+          # reason. The notice step below composes the text from this cause via the
+          # same helper.
+          CAUSE=""
+          if [ "$IC" != "0" ]; then
+            CAUSE=legacy-check-run
+          elif [ "$IR" != "0" ]; then
+            CAUSE=legacy-workflow-run
+          elif [ "$CC" = "true" ]; then
+            CAUSE=inflight-review
+          fi
+
+          if [ -n "$CAUSE" ]; then
             emit true
             # The user-facing suppression notice is posted by the dedicated
             # step below (under the optional downscoped App token); this step
             # keeps only the queries + decision on github.token.
             echo "head=$HEAD" >> "$GITHUB_OUTPUT"
-            echo "::notice::Suppressed manual /prflow:review for PR #$PR (in-flight check=$IC run=$IR)."
+            echo "cause=$CAUSE" >> "$GITHUB_OUTPUT"
+            echo "::notice::Suppressed manual /prflow:review for PR #$PR (cause=$CAUSE; in-flight check=$IC run=$IR inflight-review=$CC)."
             exit 0
           fi
           echo "::notice::No in-flight auto review for PR #$PR HEAD $HEAD; manual review proceeds."
@@ -346,15 +424,43 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.issue.number || github.event.pull_request.number }}
           HEAD: ${{ steps.guard.outputs.head }}
+          CAUSE: ${{ steps.guard.outputs.cause }}
         run: |
           set -euo pipefail
           # CRITICAL: the body must contain NO DevFlow trigger phrase (mirrors
           # the devflow-implement.yml duplicate-notice discipline). Under the
           # App token this comment fires a real issue_comment event (unlike
           # GITHUB_TOKEN comments, which GitHub suppresses), so a trigger
-          # substring here could re-enter the gate and loop. Worded to avoid
-          # `/devflow:` and `@claude`.
-          NOTE="ℹ️ An automated **Devflow Review** is already running for this commit (\`${HEAD:0:7}\`). Skipping this manual review command to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review."
+          # substring here could re-enter the gate and loop.
+          #
+          # The notice TEXT is composed by the bundled helper (MODE=notice), not
+          # inline here: a grep over an inline `NOTE=` literal protects the literal,
+          # not the produced message, so the trigger-token guarantee is asserted
+          # against the helper's actual output. Invoked at the VENDORED path (rc 127
+          # in every consumer otherwise) and guarded (a non-zero exit or an absent
+          # helper skips the post rather than aborting under set -euo pipefail — the
+          # command was already suppressed, so a missing notice is cosmetic). The
+          # helper selects the text from CAUSE: the legacy causes name the
+          # `Devflow Review` check + Re-run button, the in-flight-review cause names
+          # its own reason.
+          NOTICE_HELPER=.devflow/vendor/devflow/scripts/dedupe-review-command.sh
+          NOTE=""
+          if [ ! -x "$NOTICE_HELPER" ]; then
+            echo "::warning::dedupe-review helper not found/executable at $NOTICE_HELPER; skipping suppression notice for PR #$PR (the command was already suppressed)." >&2
+            exit 0
+          fi
+          # The helper writes exactly one `notice=<text>` line to stdout; strip the
+          # key prefix with parameter expansion (no heredoc — a heredoc terminator
+          # dedents inside a YAML `run: |` block).
+          if NOTE_OUT="$(MODE=notice CAUSE="$CAUSE" HEAD="$HEAD" bash "$NOTICE_HELPER")"; then
+            case "$NOTE_OUT" in
+              notice=*) NOTE="${NOTE_OUT#notice=}" ;;
+            esac
+          fi
+          if [ -z "$NOTE" ]; then
+            echo "::warning::dedupe-review: could not compose the suppression notice for PR #$PR (cause='$CAUSE'); skipping notice post (the command was already suppressed)." >&2
+            exit 0
+          fi
           # REST (not `gh pr comment` porcelain): this step can run under the
           # repo-scoped App installation token, and GraphQL-resolving porcelain
           # fails silently under repo-scoped tokens (CLAUDE.md gotcha, #228). A

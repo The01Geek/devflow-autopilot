@@ -528,7 +528,10 @@ runs in parallel as normal.
 
 GitHub Actions has no native "skip if already running": `cancel-in-progress: true`
 cancels the in-flight run (the wrong one), and `cancel-in-progress: false` queues
-the duplicate so it eventually runs (not ignored). So the gate detects duplicates
+the duplicate so it eventually runs (not ignored). This is **repository doctrine
+covering both duplicate-command paths** — the `/prflow:implement` path here and the
+`/prflow:review` command path below — so both detect duplicates with a gate-stage
+check rather than a `concurrency` group. So the implement gate detects duplicates
 itself, in `scripts/dedupe-implement-run.sh`:
 
 - `devflow-implement.yml` sets a `run-name` embedding the issue/PR number the
@@ -557,3 +560,65 @@ Dedupe keys on the issue/PR *thread the command was posted on* (the run-name
 number), not on an explicit `/prflow:implement <n>` cross-posted to a different
 thread. The dominant duplicate case — the same command repeated on one thread —
 is fully covered.
+
+## Duplicate `/prflow:review` commands are deduped by the in-flight review
+
+A second standalone `/prflow:review` on a pull request while a review of the same
+pull request is already **in flight** is **suppressed** — the second run's
+`command` job is skipped and a notice naming the reason is posted, so a pull
+request receives one review rather than several billed engine runs and duplicate
+verdicts. The scope is the **pull request**, not the commit (see the accepted
+costs below). This is the
+command path's analogue of the implement-path dedupe above, and it follows the same
+gate-stage doctrine (native `concurrency` cannot express "ignore the duplicate,
+leave the in-flight run untouched"). The branch-selecting decision lives in the
+bundled helper `scripts/dedupe-review-command.sh`, invoked at its vendored path by
+the `review_dedupe` job in `devflow.yml`.
+
+- **How "already in flight" is detected (Candidate C, issue #989).** The review
+  engine seeds a **live progress comment** at Phase 0.3.5 — before any review work
+  — carrying a run-keyed `devflow:review-progress` marker and `**Status:** 🚀
+  Reviewing`. Only the review engine writes that comment, so the candidate
+  population is *reviews*, not conversation. The helper suppresses when the PR
+  carries such a comment that is **bot-authored** (a forged marker from an ordinary
+  commenter is not trusted), **not this run's own** (excluded by its `run=<id>`
+  key), still in `🚀 Reviewing` (a terminal-flipped comment is a *completed*
+  review, not an in-flight one), and **fresh** — its `updated_at` within a liveness
+  window (default 120 minutes), so a *killed* run that froze its comment in
+  `🚀 Reviewing` is treated as stale, not in-flight.
+- **Exemptions.** `/prflow:review-and-fix` is not deduped (it auto-applies fixes and
+  has no automated equivalent), and the `pr-description` flow is untouched. A
+  `/prflow:review` carrying the `devflow:review-backstop` marker — the manual path's
+  no-verdict auto-resume, posted from inside a still-active run — is **never**
+  suppressed, so the resume still fires.
+- **Three accepted, deliberate costs.** With `devflow_review.live_progress_comment_enabled`
+  off there is no seeded comment, so nothing is suppressed (present-day behavior);
+  a `/prflow:review` issued during a `/prflow:review-and-fix` run *is* suppressed,
+  because that run executes the review engine and the suppressed review would have
+  been redundant; and the check is **pull-request-scoped, not commit-scoped** — the
+  helper's detect mode takes no head and compares no commits, because the seeded
+  comment carries only a run key while the review is in flight (its `Reviewed HEAD:`
+  line is stamped at Phase 4, on a review that has already *finished*, so no commit
+  key exists to filter on). A `/prflow:review` requested after pushing a new commit,
+  with the review of the previous commit still running, is therefore suppressed as
+  well; it proceeds once that review posts its verdict, or once its comment ages
+  past the liveness window. The first two costs were part of the Candidate C
+  decision; this third one was **found during PR #993's review**, after that
+  decision — it is recorded here so it can be re-decided rather than assumed
+  accepted, and the alternative (stamping the head into the *seeded* comment so
+  detect mode could filter on it) is a change to the review engine's seed template
+  and a new producer-key contract, not a rewording.
+- **Fails open in every direction.** A missing/unresolvable operand, a query error,
+  an unparseable response, an unresolvable `jq`, or an absent/mis-vendored helper
+  all yield *no suppression* with a specific breadcrumb — a missed suppression only
+  reproduces the recoverable double-comment, whereas a wrong suppression would
+  silently swallow a review the user asked for.
+- **Two legacy signals are retained** for a consumer whose installed copy predates
+  the withheld auto-review tier: an in-flight `Devflow Review` check-run on the head,
+  and a queued/in-progress `devflow-review.yml` run on the branch. In this tree
+  neither fires (nothing posts that check and the workflow is withheld), so the
+  in-flight-review signal above is what suppresses here.
+
+The notice text is composed by the same helper (selected by the deciding cause) so
+it, too, carries **no** PRFlow/`@claude` trigger phrase — the bot's own notice is an
+`issue_comment[created]` event that would otherwise re-enter the gate.
