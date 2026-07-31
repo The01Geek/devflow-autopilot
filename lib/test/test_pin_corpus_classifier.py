@@ -723,61 +723,366 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
 
         with tempfile.TemporaryDirectory() as raw:
             scratch = Path(raw)
-            reproduced = scratch / "inventory.tsv"
-            command = shlex.split(metadata["producing-command"])
-            archive = subprocess.run(
-                ["git", "archive", "--format=tar", revision],
-                cwd=repo_root,
-                capture_output=True,
-                check=True,
-            ).stdout
-            tracked_paths = []
-            with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
-                for member in tar:
-                    if not member.isfile():
-                        continue
-                    extracted = tar.extractfile(member)
-                    self.assertIsNotNone(extracted)
-                    destination = scratch / member.name
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    destination.write_bytes(extracted.read())
-                    tracked_paths.append(member.name)
+            tracked_paths = self._materialize_revision(repo_root, revision, scratch)
             for relative in (
                 "lib/test/pin-corpus-classifier.py",
                 "lib/test/pin-corpus-lint.py",
                 "lib/test/pin-corpus-adjudications.tsv",
             ):
                 self.assertIn(relative, tracked_paths)
-            tracked = scratch / "tracked-files.txt"
-            tracked.write_bytes(encode_tracked_paths(tracked_paths))
-            command[1] = str(scratch / "lib/test/pin-corpus-classifier.py")
-            repo_index = command.index("--repo-root") + 1
-            command[repo_index] = str(scratch)
-            adjudications_index = command.index("--adjudications") + 1
-            command[adjudications_index] = str(
-                scratch / "lib/test/pin-corpus-adjudications.tsv"
+            self._assert_census_matches(
+                raw_lines,
+                self._regenerate(
+                    scratch,
+                    metadata,
+                    scratch / "lib/test/pin-corpus-adjudications.tsv",
+                    "inventory.tsv",
+                ),
+                [
+                    "the shipped .devflow/logs/pin-corpus-inventory.tsv is not a",
+                    "faithful regeneration of its own recorded revision.",
+                    "Refresh the census with the two-commit inventory-free protocol",
+                    "in CONTRIBUTING.md; never hand-edit the census.",
+                ],
             )
-            output_index = command.index("--output") + 1
-            command[output_index] = str(reproduced)
-            command.extend(("--tracked-files", str(tracked)))
-            result = subprocess.run(
-                command,
-                cwd=scratch,
-                text=True,
-                capture_output=True,
-                check=False,
+            # Issue #962: the regeneration above feeds the classifier the
+            # adjudication table AS OF THE RECORDED REVISION, so on its own it
+            # re-derives whatever rationales the census already carries and can
+            # never notice a working-tree table that has moved on. Repeat it with
+            # the working tree's adjudications reconciled in -- the one input the
+            # frozen path cannot see -- so a table-only edit that skips the census
+            # refresh is RED instead of shipping a superseded rationale behind a
+            # green suite. See _reconciled_adjudications for why the working-tree
+            # table is reconciled against the archived one rather than swapped in
+            # wholesale.
+            working_table = scratch / "working-tree-adjudications.tsv"
+            shared, retired, added = self._reconciled_adjudications(
+                scratch / "lib/test/pin-corpus-adjudications.tsv",
+                repo_root / "lib/test/pin-corpus-adjudications.tsv",
+                working_table,
             )
-            self.assertEqual(0, result.returncode, result.stderr)
-            reproduced_lines = reproduced.read_text(encoding="utf-8").splitlines()
-            producing_index = next(
-                index
-                for index, line in enumerate(reproduced_lines)
-                if line.startswith("# producing-command: ")
+            self.assertTrue(
+                shared,
+                "no adjudication key is shared between the recorded revision's "
+                "table and the working tree's, so the working-tree comparison "
+                "below would compare nothing",
             )
-            reproduced_lines[producing_index] = (
-                f"# producing-command: {metadata['producing-command']}"
+            self._assert_census_matches(
+                raw_lines,
+                self._regenerate(
+                    scratch,
+                    metadata,
+                    working_table,
+                    "working-tree-inventory.tsv",
+                ),
+                [
+                    "the shipped .devflow/logs/pin-corpus-inventory.tsv disagrees",
+                    "with lib/test/pin-corpus-adjudications.tsv as it stands in the",
+                    "working tree. Refresh the census with the two-commit",
+                    "inventory-free protocol in CONTRIBUTING.md; never hand-edit",
+                    "the census.",
+                    f"adjudication keys compared: {len(shared)} shared; "
+                    f"{len(retired)} only at the recorded revision, "
+                    f"{len(added)} only in the working tree (both uncompared)",
+                ],
             )
-            self.assertEqual(raw_lines, reproduced_lines)
+
+    def _reconciled_adjudications(self, archived_table, working_table, destination):
+        """Write the adjudication table the working-tree comparison regenerates from.
+
+        The census is a FROZEN snapshot: its rows are the sites the recorded
+        revision had, and a site that resolves a literal is keyed by a sha256 of
+        that literal (a literal-less site falls back to a ``site:``-prefixed hash
+        of its assertion identity, which a reword does not disturb). The
+        adjudication table tracks the WORKING tree. So the moment a pinned literal
+        changes -- a reworded sentence, a project rename -- the very same
+        adjudication is re-keyed and the two key sets stop lining up, with no
+        adjudication having drifted at all. That lag is by design (CLAUDE.md: the
+        census is a frozen snapshot, so an absent row means unanswered, never
+        "no"), and it must not be reported as drift.
+
+        Swapping the working-tree table in wholesale conflates the two: the
+        classifier fails closed on a table row the recorded revision has no site
+        for (``unknown adjudication keys``), so a rename -- not the drift #962 is
+        about -- turns the suite RED with an opaque stderr blob. Instead take each
+        key the two tables SHARE from the working tree, keep the archived row for
+        an archived-only key, and drop a working-only key entirely (the recorded
+        revision has no site for it, which is what the classifier rejects). A
+        ``bucket_final`` or rationale that moved on still reaches the regenerated
+        census through the real classifier, so every generated column is still
+        covered, while a pure re-keying does not.
+
+        Residual, stated rather than hidden: an adjudication the working tree adds
+        or retires outright is not compared, because at the recorded revision it
+        is indistinguishable from a re-keyed one. The count of both is reported in
+        the drift message so a maintainer reading a RED sees the whole picture.
+        """
+
+        def parse(path):
+            lines = path.read_text(encoding="utf-8").splitlines()
+            rows = {}
+            for line in lines[1:]:
+                if not line:
+                    continue
+                key = line.split("\t", 1)[0]
+                # Last-wins would let a duplicated, conflicting adjudication for a
+                # census key reconcile to whichever copy came last and byte-compare
+                # as "no drift", and would under-report the key counts. Fail closed.
+                self.assertNotIn(
+                    key,
+                    rows,
+                    f"{path} carries {key} more than once, so its adjudication is "
+                    "ambiguous; de-duplicate the table before regenerating",
+                )
+                rows[key] = line
+            return lines[0], rows
+
+        archived_header, archived_rows = parse(archived_table)
+        working_header, working_rows = parse(working_table)
+        self.assertEqual(
+            archived_header,
+            working_header,
+            "lib/test/pin-corpus-adjudications.tsv has gained or lost a column "
+            "since the census's recorded revision, so its rows cannot be "
+            "reconciled; refresh the census with the two-commit inventory-free "
+            "protocol in CONTRIBUTING.md",
+        )
+        shared = sorted(set(archived_rows) & set(working_rows))
+        reconciled = dict(archived_rows)
+        reconciled.update({key: working_rows[key] for key in shared})
+        destination.write_text(
+            "\n".join([archived_header, *reconciled.values()]) + "\n",
+            encoding="utf-8",
+        )
+        return (
+            shared,
+            sorted(set(archived_rows) - set(working_rows)),
+            sorted(set(working_rows) - set(archived_rows)),
+        )
+
+    def _assert_census_matches(self, shipped_lines, regenerated_lines, headline):
+        """Report census drift as located lines, not a 400KB unittest diff."""
+        if shipped_lines == regenerated_lines:
+            return
+        report = list(headline)
+        report.append(
+            f"shipped lines: {len(shipped_lines)}; "
+            f"regenerated lines: {len(regenerated_lines)}"
+        )
+        differing = [
+            index
+            for index in range(max(len(shipped_lines), len(regenerated_lines)))
+            if (
+                shipped_lines[index : index + 1]
+                != regenerated_lines[index : index + 1]
+            )
+        ]
+        report.append(f"differing lines: {len(differing)}")
+        for index in differing[:3]:
+            shipped = shipped_lines[index] if index < len(shipped_lines) else None
+            fresh = (
+                regenerated_lines[index] if index < len(regenerated_lines) else None
+            )
+            if shipped is None or fresh is None:
+                report.append(f"  line {index + 1} present in only one of the two")
+                continue
+            shipped_cells = shipped.split("\t")
+            fresh_cells = fresh.split("\t")
+            # A `#` metadata/comment line has no columns, so naming a TSV column
+            # for it would misreport the drift as `source_file`.
+            if shipped.startswith("#") or fresh.startswith("#"):
+                report.append(f"  line {index + 1} metadata shipped:     {shipped[:400]}")
+                report.append(f"  line {index + 1} metadata regenerated: {fresh[:400]}")
+                continue
+            if len(shipped_cells) != len(fresh_cells):
+                report.append(f"  line {index + 1} shipped:      {shipped[:400]}")
+                report.append(f"  line {index + 1} regenerated:  {fresh[:400]}")
+                continue
+            # Cell-level reporting: the drifting column is usually the trailing
+            # adjudication_rationale, which a line-level excerpt would truncate away.
+            for column, (was, now) in enumerate(zip(shipped_cells, fresh_cells)):
+                if was == now:
+                    continue
+                name = (
+                    self.mod.TSV_COLUMNS[column]
+                    if column < len(self.mod.TSV_COLUMNS)
+                    else f"column {column}"
+                )
+                report.append(f"  line {index + 1} {name} shipped:     {was[:400]}")
+                report.append(f"  line {index + 1} {name} regenerated: {now[:400]}")
+        self.fail("\n".join(report))
+
+    def test_working_tree_rationale_edit_is_visible_in_the_regeneration(self):
+        """The #962 check can fail: a rationale edit changes the regenerated bytes.
+
+        The working-tree comparison in the frozen-revision test is a no-op
+        whenever the table already agrees with the census, which is every green
+        run. This drives the same reconcile-then-regenerate path with one
+        WORKING-TREE rationale mutated, so the suite proves each run that the
+        comparison is capable of firing rather than being satisfied vacuously.
+
+        Mutating the working-tree copy (not the extracted one) is what makes this
+        a control on the reconciliation itself: if a future refactor stopped
+        taking shared keys from the working tree -- the exact non-coverage #962
+        is about -- the sentinel would never reach the regenerated census and
+        this test, not a future maintainer, would notice.
+        """
+        repo_root = HERE.parent.parent
+        inventory = repo_root / ".devflow/logs/pin-corpus-inventory.tsv"
+        raw_lines = inventory.read_text(encoding="utf-8").splitlines()
+        metadata = {}
+        for line in raw_lines:
+            if line.startswith("# "):
+                key, _, value = line[2:].partition(": ")
+                metadata[key] = value
+        revision = metadata["revision"]
+        sentinel = "issue-962 mutation control: this rationale is not the shipped one"
+        with tempfile.TemporaryDirectory() as raw:
+            scratch = Path(raw)
+            self._materialize_revision(repo_root, revision, scratch)
+            frozen_table = scratch / "lib/test/pin-corpus-adjudications.tsv"
+            frozen_lines = frozen_table.read_text(encoding="utf-8").splitlines()
+            header = frozen_lines[0]
+            self.assertEqual(
+                ["adjudication_key", "bucket_final", "rationale"], header.split("\t")
+            )
+            # Any key the recorded revision's table carries is guaranteed to be an
+            # emitted census site there: the classifier fails closed on a table key
+            # with no matching site (`unknown adjudication keys`). So mutating a
+            # SHARED key -- one the working tree still carries under the same
+            # literal -- guarantees the sentinel has a census row to land in.
+            frozen_keys = {
+                line.split("\t", 1)[0] for line in frozen_lines[1:] if line
+            }
+            working_source = repo_root / "lib/test/pin-corpus-adjudications.tsv"
+            working_lines = working_source.read_text(encoding="utf-8").splitlines()
+            target = next(
+                (
+                    index
+                    for index, line in enumerate(working_lines[1:], start=1)
+                    if line and line.split("\t", 1)[0] in frozen_keys
+                ),
+                None,
+            )
+            self.assertIsNotNone(
+                target,
+                "no working-tree adjudication key is also carried by the recorded "
+                "revision's table, so there is no shared key to mutate and this "
+                "control cannot prove the comparison fires",
+            )
+            key, bucket, rationale = working_lines[target].split("\t")
+            self.assertNotEqual(sentinel, rationale)
+            # Mutate BOTH adjudicated columns in the one regeneration, so the
+            # claim that a `bucket_final` edit reaches the census is proven each
+            # run rather than only asserted in prose.
+            other_bucket = next(
+                candidate
+                for candidate in sorted(self.mod.FINAL_BUCKETS)
+                if candidate != bucket
+            )
+            mutated_working = scratch / "mutated-working-adjudications.tsv"
+            mutated_rows = list(working_lines)
+            mutated_rows[target] = "\t".join((key, other_bucket, sentinel))
+            mutated_working.write_text("\n".join(mutated_rows) + "\n", encoding="utf-8")
+            mutated = scratch / "mutated-adjudications.tsv"
+            shared, _, _ = self._reconciled_adjudications(
+                frozen_table, mutated_working, mutated
+            )
+            self.assertIn(key, shared)
+            reproduced_lines = self._regenerate(
+                scratch, metadata, mutated, "mutated-inventory.tsv"
+            )
+            self.assertNotEqual(raw_lines, reproduced_lines)
+            self.assertTrue(
+                any(sentinel in line for line in reproduced_lines),
+                "the mutated rationale never reached the regenerated census",
+            )
+            self.assertFalse(any(sentinel in line for line in raw_lines))
+            # Drive the drifting bytes through the reporter the frozen test uses,
+            # so the control also proves _assert_census_matches RAISES on them.
+            # Without this it would stay green if that helper ever regressed to an
+            # unconditional early return, leaving the frozen test's second
+            # comparison silently vacuous.
+            with self.assertRaises(AssertionError) as raised:
+                self._assert_census_matches(
+                    raw_lines, reproduced_lines, ["mutation control headline"]
+                )
+            located = str(raised.exception)
+            self.assertIn("mutation control headline", located)
+            self.assertIn(sentinel, located)
+            # Both adjudicated columns drifted, and the reporter names each.
+            self.assertIn("adjudication_rationale", located)
+            self.assertIn("bucket_final", located)
+            self.assertIn(other_bucket, located)
+
+    def _materialize_revision(self, repo_root, revision, scratch):
+        """Extract the recorded revision's tracked files into ``scratch``."""
+        archive = subprocess.run(
+            ["git", "archive", "--format=tar", revision],
+            cwd=repo_root,
+            capture_output=True,
+            check=True,
+        ).stdout
+        tracked_paths = []
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as tar:
+            for member in tar:
+                if not member.isfile():
+                    continue
+                extracted = tar.extractfile(member)
+                self.assertIsNotNone(extracted)
+                destination = scratch / member.name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(extracted.read())
+                tracked_paths.append(member.name)
+        tracked = scratch / "tracked-files.txt"
+        tracked.write_bytes(encode_tracked_paths(tracked_paths))
+        return tracked_paths
+
+    def _regenerate(self, scratch, metadata, adjudications, output_name):
+        """Re-run the recorded producing-command over the extracted revision.
+
+        ``adjudications`` selects which table the run reads, which is the whole
+        point. This always runs in ``--tracked-files`` mode, so the classifier
+        reads the given path straight off disk rather than taking its own
+        revision-bound branch, which would resolve the table from the recorded
+        revision no matter what the working tree says.
+        """
+        reproduced = scratch / output_name
+        command = shlex.split(metadata["producing-command"])
+        command[1] = str(scratch / "lib/test/pin-corpus-classifier.py")
+        repo_index = command.index("--repo-root") + 1
+        command[repo_index] = str(scratch)
+        adjudications_index = command.index("--adjudications") + 1
+        command[adjudications_index] = str(adjudications)
+        output_index = command.index("--output") + 1
+        command[output_index] = str(reproduced)
+        command.extend(("--tracked-files", str(scratch / "tracked-files.txt")))
+        result = subprocess.run(
+            command,
+            cwd=scratch,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(
+            0,
+            result.returncode,
+            "the classifier could not reproduce the census from "
+            f"{adjudications}; refresh the census with the two-commit "
+            "inventory-free protocol in CONTRIBUTING.md rather than hand-editing "
+            f"either file. classifier stderr:\n{result.stderr}",
+        )
+        reproduced_lines = reproduced.read_text(encoding="utf-8").splitlines()
+        producing_index = next(
+            index
+            for index, line in enumerate(reproduced_lines)
+            if line.startswith("# producing-command: ")
+        )
+        reproduced_lines[producing_index] = (
+            f"# producing-command: {metadata['producing-command']}"
+        )
+        return reproduced_lines
+
 
 if __name__ == "__main__":
     unittest.main()
