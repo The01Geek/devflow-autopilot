@@ -1124,7 +1124,7 @@
       "owner": "efficiency-trace-telemetry"
     },
     "442": {
-      "note": "",
+      "note": "mostly extracted into lib/test/modules/efficiency-trace-telemetry.sh, but the #442 Critical-1 BEHAVIORAL arm (the bash-3.2 set -u empty-array abort) stays in lib/test/run.sh: it runs only under a real bash 3.x, and a module's emitted tally is compared for equality against its registry floor, so a host-conditional arm cannot live in a module without a permanent host-capability skip. The static half of that guard did move",
       "owner": "efficiency-trace-telemetry"
     },
     "443": {

@@ -3539,7 +3539,7 @@ assert_eq "loop_role #170: missing run dir → record mode exits 0" "0" "$LR_MIS
 #     missing an expected field — naming the field + the iter file — and leaves
 #     the iter file byte-identical. Fixture carries every expected field EXCEPT
 #     telemetry (a non-derivable expected field).
-LR_SC_REPO="$(mktemp -d)"
+LR_SC_REPO="$(git_sandbox "lr self-check repo")"
 git -C "$LR_SC_REPO" init -q
 LR_SC_RUN="$LR_SC_REPO/.devflow/tmp/review/pr-74/run-z"
 mkdir -p "$LR_SC_RUN"
@@ -3640,7 +3640,7 @@ done
 #     when jq fails to parse — this asserts the `if !`-guarded assignment keeps the
 #     contract. A valid iter alongside the malformed one still gets its missing-field
 #     warnings. (Regression test for a /simplify-introduced abort.)
-LR_SCM_REPO="$(mktemp -d)"
+LR_SCM_REPO="$(git_sandbox "lr self-check malformed-iter repo")"
 git -C "$LR_SCM_REPO" init -q
 LR_SCM_RUN="$LR_SCM_REPO/.devflow/tmp/review/pr-75/run-w"
 mkdir -p "$LR_SCM_RUN"
@@ -3660,7 +3660,7 @@ rm -rf "$LR_SCM_REPO"
 # (6b) PR #177 review: a parsed-but-NON-OBJECT iter (valid JSON [], null, "x") must
 #      NOT masquerade as a complete workpad — it takes a distinct sentinel warning,
 #      never the silent "no missing fields" arm. Exit 0 preserved (warn-only).
-LR_SCN_REPO="$(mktemp -d)"
+LR_SCN_REPO="$(git_sandbox "lr self-check null-iter repo")"
 git -C "$LR_SCN_REPO" init -q
 LR_SCN_RUN="$LR_SCN_REPO/.devflow/tmp/review/pr-77/run-n"
 mkdir -p "$LR_SCN_RUN"
@@ -3735,7 +3735,7 @@ rm -rf "$LR_N"
 #      pre-creating the record so only field-validation output can appear. Guards
 #      against an inverted set-difference operand that would pass missing-field
 #      assertions while being wrong for the clean case.
-LR_CLEAN="$(mktemp -d)"
+LR_CLEAN="$(git_sandbox "lr self-check clean-workpad repo")"
 git -C "$LR_CLEAN" init -q
 LR_CLEAN_RUN="$LR_CLEAN/.devflow/tmp/review/pr-80/run-n"
 mkdir -p "$LR_CLEAN_RUN"
@@ -3881,7 +3881,7 @@ printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergen
   > "$TB_WT_REPO/.devflow/tmp/review/pr-1/run-a/iter-1.json"
 ( cd "$TB_WT_REPO" && bash "$LIB/efficiency-trace.sh" --persist ) >/dev/null 2>&1   # creates the branch
 TB_WT_TIP="$(git -C "$TB_WT_REPO" rev-parse devflow-telemetry)"
-TB_WT_LINK="$(mktemp -d)/wt"
+TB_WT_LINK="$(git_sandbox "tb worktree link parent")/wt"
 git -C "$TB_WT_REPO" worktree add -q "$TB_WT_LINK" devflow-telemetry 2>/dev/null
 mkdir -p "$TB_WT_REPO/.devflow/tmp/review/pr-2/run-b"
 printf '%s' '{"iter":1,"phase3_dispatched":["a"],"phase3_findings":[],"convergence_inputs":{"fixes_applied":0},"telemetry":null}' \
