@@ -1563,8 +1563,12 @@ jobs:
           # they reach the shared final exit. The guard is POSITIONAL, not
           # temporal: the flip is called only at genuine fail-loud exits, never
           # on the green resume path (a terminal Failed written before a resume
-          # would make the resumed run's backstop read terminal→noop and disarm
-          # it). The dropped-resume and no-App-token aborts ARE fail-loud exits
+          # would make the resumed run's backstop read the workpad as a decided
+          # terminal end and misjudge it — pre-#1025 that read terminal→noop and
+          # silently disarmed the resume; post-#1025 a `failed` class instead
+          # concludes fail-blocked, which would spuriously fail the resumed run —
+          # either way the flip must never precede a resume). The dropped-resume
+          # and no-App-token aborts ARE fail-loud exits
           # despite living on the resume decision, so they flip: the resume did
           # not actually take, so no run is disarmed.
           # Maintenance obligation of the positional guard: a trap would cover
@@ -1709,7 +1713,8 @@ jobs:
           # job non-`success` so `gh run list` plus this annotation tell a blocked
           # run from a completed one WITHOUT opening the workpad. The annotation
           # names the issue number AND the workpad Status (STATUS_OUT carries the
-          # glyph+word). No comment is posted — the workpad already carries the
+          # full class+glyph+word, e.g. 'blocked 👎 Blocked' — only CLASS is split
+          # off into its own var). No comment is posted — the workpad already carries the
           # blocked/failed reflection — and no flip_to_failed: its CLASS=interim
           # guard makes it a no-op on a terminal status, so 👎/💥 stay truthful.
           if [ "$DECISION" = "fail-blocked" ]; then

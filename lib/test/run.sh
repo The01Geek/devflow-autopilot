@@ -32946,6 +32946,31 @@ assert_eq "#362 isg: terminal workpad deletes the marker (self-heal)" "no" \
   "$([ -e "$ISG_D/.prflow/tmp/implement-active-603" ] && echo yes || echo no)"
 rm -rf "$ISG_D"
 
+# #1025 — a 👎 Blocked workpad is a terminal end and must ALSO self-heal. Since
+# issue #1025 widened `workpad.py status`'s vocabulary, this drives the class
+# `blocked` through the guard's `case complete|blocked|failed|cancelled|terminal`
+# heal arm. RED if that arm were ever narrowed back to `complete`/`terminal`
+# only: a blocked run's stale marker would then block one stop per new session
+# instead of healing.
+cat > "$ISG_GHD/blocked.md" <<'WPMD'
+<!-- prflow:workpad -->
+# DevFlow Workpad — Issue #605
+
+**Status:** 👎 Blocked
+**Last updated:** 2026-05-15T00:00:00Z
+WPMD
+ISG_D="$(isg_repo "isg: blocked self-heal arm")"
+cp "$WP_PY" "$ISG_D/scripts/workpad.py"
+: > "$ISG_D/.prflow/tmp/implement-active-605"
+ISG_R="$(isg_run "$ISG_D" '{"session_id":"sidBk"}' \
+  "DEVFLOW_GH=$ISG_GHD/gh" "ISG_BODY_605=$ISG_GHD/blocked.md")"
+assert_eq "#1025 isg: blocked (terminal) workpad -> allow (exit 0)" "0" "${ISG_R%%|*}"
+assert_eq "#1025 isg: blocked arm names the status word in its breadcrumb" "yes" \
+  "$(printf '%s' "${ISG_R#*|}" | grep -qF 'is terminal (Blocked)' && echo yes || echo no)"
+assert_eq "#1025 isg: blocked workpad deletes the marker (self-heal, not a block)" "no" \
+  "$([ -e "$ISG_D/.prflow/tmp/implement-active-605" ] && echo yes || echo no)"
+rm -rf "$ISG_D"
+
 # terminal, but the marker cannot be removed (read-only .prflow/tmp): the guard must
 # still allow the stop AND must not claim it deleted a marker that is still on disk.
 ISG_D="$(isg_repo "isg: unhealable terminal marker")"
