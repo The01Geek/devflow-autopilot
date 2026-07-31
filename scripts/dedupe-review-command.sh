@@ -19,7 +19,9 @@
 # reviews rather than conversation, and no `run-name` / command-class matcher is
 # needed. (See docs/workflow-triggers.md and issue #989's Decision section.)
 #
-# Two accepted, deliberate costs (issue #989):
+# Three accepted, deliberate costs (issue #989; cost 3 recorded on PR #993's
+# review, and NOT part of the original Candidate C decision — see
+# docs/workflow-triggers.md, which carries the same list):
 #   1. Configuration-dependent: with devflow_review.live_progress_comment_enabled
 #      off there is no seeded comment, so this fails OPEN (no suppression) — the
 #      direction this job is already contractually required to take. The
@@ -28,6 +30,13 @@
 #      /prflow:review issued during one is suppressed. This is correct — the
 #      review-and-fix run executes the review engine, so the suppressed review
 #      would have been redundant.
+#   3. Pull-request-scoped, NOT commit-scoped: detect mode takes no HEAD and
+#      performs no commit comparison, because the seeded comment carries only a
+#      run key at seed time (its `Reviewed HEAD:` line is stamped at Phase 4, on
+#      a review that has already finished — see below). So pushing a new commit
+#      while a review of the previous one is still in flight and then asking for
+#      a review suppresses that request; it proceeds once the in-flight review
+#      finishes (or its comment ages past the liveness window).
 #
 # GitHub-native `concurrency` is NOT the mechanism (shared repository doctrine —
 # see scripts/dedupe-implement-run.sh's header and docs/workflow-triggers.md):
@@ -46,7 +55,9 @@
 #     inline workflow `NOTE=` assignment, so the suite can drive the PRODUCED
 #     message (a grep over an inline literal protects the literal, not the message
 #     a rewording produces). CAUSE ∈ legacy-check-run|legacy-workflow-run|
-#     inflight-review; HEAD is the resolved head SHA (first 7 chars are shown).
+#     inflight-review; HEAD is the resolved head SHA (its first 7 chars are shown
+#     by the two legacy causes, which ARE head-scoped; the inflight-review cause
+#     names no commit because its suppression is pull-request-scoped).
 #
 # Inputs (env):
 #   MODE           detect (default) | notice.
@@ -119,7 +130,7 @@ if [ "$mode" = "notice" ]; then
     legacy-check-run|legacy-workflow-run)
       emit notice "ℹ️ An automated **Devflow Review** is already running for this commit (\`${head7}\`). Skipping this manual review command to avoid a duplicate review and double comments. Use the **Re-run** button on the \`Devflow Review\` check if you need to re-review." ;;
     inflight-review)
-      emit notice "ℹ️ A review of this pull request is already in progress for this commit (\`${head7}\`). Skipping this duplicate review command so the pull request receives a single review. The in-progress review will post its verdict when it finishes — comment again once it has completed if you need a fresh review." ;;
+      emit notice "ℹ️ A review of this pull request is already in progress. Skipping this duplicate review command so the pull request receives a single review. This check is pull-request-scoped, not commit-scoped, so it also skips a request made after a push while the earlier review is still running — the in-progress review will post its verdict when it finishes, and commenting again once it has completed gets you a review of the current head." ;;
     *)
       echo "::warning::dedupe-review notice: unknown CAUSE '${CAUSE:-}'; emitting no notice." >&2
       emit notice ""

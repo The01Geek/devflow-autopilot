@@ -564,9 +564,11 @@ is fully covered.
 ## Duplicate `/prflow:review` commands are deduped by the in-flight review
 
 A second standalone `/prflow:review` on a pull request while a review of the same
-commit is already **in flight** is **suppressed** — the second run's `command` job
-is skipped and a notice naming the reason is posted, so one head receives one
-review rather than several billed engine runs and duplicate verdicts. This is the
+pull request is already **in flight** is **suppressed** — the second run's
+`command` job is skipped and a notice naming the reason is posted, so a pull
+request receives one review rather than several billed engine runs and duplicate
+verdicts. The scope is the **pull request**, not the commit (see the accepted
+costs below). This is the
 command path's analogue of the implement-path dedupe above, and it follows the same
 gate-stage doctrine (native `concurrency` cannot express "ignore the duplicate,
 leave the in-flight run untouched"). The branch-selecting decision lives in the
@@ -589,11 +591,23 @@ the `review_dedupe` job in `devflow.yml`.
   `/prflow:review` carrying the `devflow:review-backstop` marker — the manual path's
   no-verdict auto-resume, posted from inside a still-active run — is **never**
   suppressed, so the resume still fires.
-- **Two accepted, deliberate costs.** With `devflow_review.live_progress_comment_enabled`
+- **Three accepted, deliberate costs.** With `devflow_review.live_progress_comment_enabled`
   off there is no seeded comment, so nothing is suppressed (present-day behavior);
-  and a `/prflow:review` issued during a `/prflow:review-and-fix` run *is* suppressed,
+  a `/prflow:review` issued during a `/prflow:review-and-fix` run *is* suppressed,
   because that run executes the review engine and the suppressed review would have
-  been redundant.
+  been redundant; and the check is **pull-request-scoped, not commit-scoped** — the
+  helper's detect mode takes no head and compares no commits, because the seeded
+  comment carries only a run key while the review is in flight (its `Reviewed HEAD:`
+  line is stamped at Phase 4, on a review that has already *finished*, so no commit
+  key exists to filter on). A `/prflow:review` requested after pushing a new commit,
+  with the review of the previous commit still running, is therefore suppressed as
+  well; it proceeds once that review posts its verdict, or once its comment ages
+  past the liveness window. The first two costs were part of the Candidate C
+  decision; this third one was **found during PR #993's review**, after that
+  decision — it is recorded here so it can be re-decided rather than assumed
+  accepted, and the alternative (stamping the head into the *seeded* comment so
+  detect mode could filter on it) is a change to the review engine's seed template
+  and a new producer-key contract, not a rewording.
 - **Fails open in every direction.** A missing/unresolvable operand, a query error,
   an unparseable response, an unresolvable `jq`, or an absent/mis-vendored helper
   all yield *no suppression* with a specific breadcrumb — a missed suppression only

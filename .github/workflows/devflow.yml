@@ -163,6 +163,15 @@ jobs:
   # review the user explicitly asked for. This is the opposite failure
   # direction from that tier's fail-closed gates, by design.
   #
+  # SCOPE — the two legacy signals above are HEAD-scoped; Signal 3 (issue #989,
+  # the one that fires in this tree) is PULL-REQUEST-scoped. The seeded
+  # review-progress comment it reads carries only a run key at seed time (its
+  # `Reviewed HEAD:` line is stamped at Phase 4, when the review has already
+  # finished), so no commit key exists to filter on while a review is in flight.
+  # Consequence, an accepted cost: pushing a new commit while a review of the
+  # previous one is still running and then asking for a review suppresses that
+  # request. Do not describe this job as "same commit" deduping.
+  #
   # Only `/devflow:review` is deduped — NOT `/devflow:review-and-fix` (that
   # auto-applies fixes and has no automated equivalent), and not the
   # pr-description flow, which falls through with suppress=false untouched.
