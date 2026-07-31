@@ -803,10 +803,12 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
         classifier fails closed on a table row the recorded revision has no site
         for (``unknown adjudication keys``), so a rename -- not the drift #962 is
         about -- turns the suite RED with an opaque stderr blob. Instead take each
-        key the two tables SHARE from the working tree and keep the archived row
-        for a key only one side knows. A ``bucket_final`` or rationale that moved
-        on still reaches the regenerated census through the real classifier, so
-        every generated column is still covered, while a pure re-keying does not.
+        key the two tables SHARE from the working tree, keep the archived row for
+        an archived-only key, and drop a working-only key entirely (the recorded
+        revision has no site for it, which is what the classifier rejects). A
+        ``bucket_final`` or rationale that moved on still reaches the regenerated
+        census through the real classifier, so every generated column is still
+        covered, while a pure re-keying does not.
 
         Residual, stated rather than hidden: an adjudication the working tree adds
         or retires outright is not compared, because at the recorded revision it
@@ -822,7 +824,14 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
 
         archived_header, archived_rows = parse(archived_table)
         working_header, working_rows = parse(working_table)
-        self.assertEqual(archived_header, working_header)
+        self.assertEqual(
+            archived_header,
+            working_header,
+            "lib/test/pin-corpus-adjudications.tsv has gained or lost a column "
+            "since the census's recorded revision, so its rows cannot be "
+            "reconciled; refresh the census with the two-commit inventory-free "
+            "protocol in CONTRIBUTING.md",
+        )
         shared = sorted(set(archived_rows) & set(working_rows))
         reconciled = dict(archived_rows)
         reconciled.update({key: working_rows[key] for key in shared})
@@ -939,9 +948,17 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
             )
             key, bucket, rationale = working_lines[target].split("\t")
             self.assertNotEqual(sentinel, rationale)
+            # Mutate BOTH adjudicated columns in the one regeneration, so the
+            # claim that a `bucket_final` edit reaches the census is proven each
+            # run rather than only asserted in prose.
+            other_bucket = next(
+                candidate
+                for candidate in sorted(self.mod.FINAL_BUCKETS)
+                if candidate != bucket
+            )
             mutated_working = scratch / "mutated-working-adjudications.tsv"
             mutated_rows = list(working_lines)
-            mutated_rows[target] = "\t".join((key, bucket, sentinel))
+            mutated_rows[target] = "\t".join((key, other_bucket, sentinel))
             mutated_working.write_text("\n".join(mutated_rows) + "\n", encoding="utf-8")
             mutated = scratch / "mutated-adjudications.tsv"
             shared, _, _ = self._reconciled_adjudications(
@@ -957,6 +974,22 @@ devflow_module_pin_red_under "outside mutation" 'shared literal' 's/x/y/' "$LIB/
                 "the mutated rationale never reached the regenerated census",
             )
             self.assertFalse(any(sentinel in line for line in raw_lines))
+            # Drive the drifting bytes through the reporter the frozen test uses,
+            # so the control also proves _assert_census_matches RAISES on them.
+            # Without this it would stay green if that helper ever regressed to an
+            # unconditional early return, leaving the frozen test's second
+            # comparison silently vacuous.
+            with self.assertRaises(AssertionError) as raised:
+                self._assert_census_matches(
+                    raw_lines, reproduced_lines, ["mutation control headline"]
+                )
+            located = str(raised.exception)
+            self.assertIn("mutation control headline", located)
+            self.assertIn(sentinel, located)
+            # Both adjudicated columns drifted, and the reporter names each.
+            self.assertIn("adjudication_rationale", located)
+            self.assertIn("bucket_final", located)
+            self.assertIn(other_bucket, located)
 
     def _materialize_revision(self, repo_root, revision, scratch):
         """Extract the recorded revision's tracked files into ``scratch``."""
