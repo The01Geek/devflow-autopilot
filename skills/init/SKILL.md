@@ -204,7 +204,7 @@ Then branch on the preflight result — the **exit code** plus, on exit 0, the s
 
 There is **no trigger label** to create: in the cloud tier, `/prflow:implement` is started by commenting a bare `/prflow:implement <#>` on the issue (a native user event) — not by applying a label. The sender must be an allowed bot or an `allowed_users` collaborator with write access.
 
-DevFlow does, however, stamp a single reserved **provenance** label — the literal `DevFlow` — on every issue and PR it creates, so the weekly retrospective can detect its own work independently of branch naming. Create that label now (best-effort, only here where `gh` is available — never in `scaffold-config.sh`, which must run without `gh` auth on the vendoring path) so it exists from day one:
+DevFlow does, however, stamp a single reserved **provenance** label — the literal `PRFlow` — on every issue and PR it creates, so the weekly retrospective can detect its own work independently of branch naming. (Retrospective selection also still accepts the superseded `DevFlow` spelling on already-labelled history, but only `PRFlow` is created and stamped from here on.) Create that label now (best-effort, only here where `gh` is available — never in `scaffold-config.sh`, which must run without `gh` auth on the vendoring path) so it exists from day one:
 
 ```bash
 "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../scripts/ensure-label.sh PRFlow
