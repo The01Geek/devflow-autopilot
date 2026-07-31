@@ -1379,6 +1379,48 @@ unset -f ci749_field
 # boundary its own ledger row records and the line is maintainable like any other.
 devflow_module_pin_unique "#749/AC26: docs-verify's argument grammar carries the search-space operand" \
   'Grammar: `[--report-only] [--search-space <pathspec>] <topic…>`.' "$CI_DV"  # structural-pin-ok: helper-contract -- the ledger records this argument grammar as the caller/parser interface the dispatcher composes calls against
+
+# ---------------------------------------------------------------------------
+# docs-verify's write-mode reference: the boundary-marker contract.
+# The write-mode half of the skill lives in references/write-mode.md, loaded ONLY on the
+# default (write) path so a --report-only peer never reads it. The marker pair is a
+# MACHINE-CONSUMED contract — the loading agent accepts the reference only when the first
+# line is its `start` marker and the last its matching `end`, each naming the file's own
+# path — so it is pinned structurally rather than as prose. Every arm below fails CLOSED:
+# a missing file, a moved marker, or a self-path mismatch is RED, because a reference that
+# cannot be validated is one a write-mode run must refuse rather than edit docs without.
+CI_DV_WRITE_REF="$CI_ROOT/skills/docs-verify/references/write-mode.md"
+CI_DV_WRITE_REF_REL='skills/docs-verify/references/write-mode.md'
+
+assert_eq "#docs-verify: the write-mode reference exists" \
+  "yes" "$([ -f "$CI_DV_WRITE_REF" ] && echo yes || echo no)"
+
+# First line is the start marker naming this file's own path; last line the matching end.
+# A MISSING-FILE sentinel keeps a deleted reference RED rather than comparing two empties.
+assert_eq "#docs-verify: write-mode reference opens with its own start boundary marker" \
+  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL start -->" \
+  "$([ -f "$CI_DV_WRITE_REF" ] && head -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
+
+assert_eq "#docs-verify: write-mode reference closes with its own end boundary marker" \
+  "<!-- devflow:docs-verify-ref mode=write file=$CI_DV_WRITE_REF_REL end -->" \
+  "$([ -f "$CI_DV_WRITE_REF" ] && tail -n 1 "$CI_DV_WRITE_REF" || echo MISSING-FILE)"  # structural-pin-ok: cross-file-phase-contract -- the loading agent validates this exact marker before accepting the reference
+
+# Exactly one of each marker: a duplicated pair would let a truncated read satisfy the gate.
+assert_eq "#docs-verify: write-mode reference carries exactly one start and one end marker" \
+  "start=1 end=1" \
+  "start=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' start -->' "$CI_DV_WRITE_REF") end=$(devflow_module_pin_count 'mode=write file='"$CI_DV_WRITE_REF_REL"' end -->' "$CI_DV_WRITE_REF")"
+
+# The routing half: SKILL.md must send write mode to the reference, and must fail closed when
+# it cannot be read. Without the fail-closed arm a write-mode run edits documentation with no
+# scope constraints or file-operation rules loaded — the regression this gate exists to catch.
+devflow_module_pin_present "#docs-verify: SKILL.md routes write mode to the reference" \
+  'references/write-mode.md' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- names the reference the write-mode path must load
+devflow_module_pin_present "#docs-verify: the write-mode reference gate fails closed" \
+  '**This gate fails closed.**' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- the failure arm of the routing row above; a degrade-instead-of-stop revert leaves the routing pin intact
+
+# The report-only path must NOT load it — the whole point of the split.
+devflow_module_pin_present "#docs-verify: report-only is told not to load the write-mode reference" \
+  '**Do not load the write-mode reference**' "$CI_DV"  # structural-pin-ok: routing-dispatch-contract -- the negative routing arm that keeps the write-mode half out of a peer's context
 # The declaration above is prose; the locate-documentation step's own read is the behavior a
 # revert to the hardcoded internal-docs location would destroy while leaving that prose intact.
 # An unrecognized `--`-prefixed token must be refused, not stripped as a bare flag: stripping it
