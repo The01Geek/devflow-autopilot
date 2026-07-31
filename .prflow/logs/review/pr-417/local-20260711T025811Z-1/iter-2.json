@@ -1,0 +1,20 @@
+{
+  "iter": 2, "started_at": "2026-07-11T03:32:00Z", "fix_commit_sha": "0de7555",
+  "fix_files": [".github/workflows/matcher-probe.yml", "lib/test/run.sh"],
+  "loop_role": "promoted", "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "name-match fail-open (shadow-promoted)", "fix_decision": "applied"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Important", "description": "REMOVED presumptive honesty (shadow-promoted)", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "second yml operative pin (shadow-promoted)", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1-nameagnostic", "decision": "applied", "commit": "0de7555"},
+    {"finding_id": "S-2-presumptive", "decision": "applied", "commit": "0de7555"},
+    {"finding_id": "S-3-secondpin", "decision": "applied", "commit": "0de7555"}
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 45, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_2_6": {"calls": 5, "tokens": 389000, "wall_clock_s": 268}, "step_3_5": {"calls": 1, "tokens": 64000, "wall_clock_s": 119}}
+}

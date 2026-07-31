@@ -1,0 +1,178 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-11T02:56:00Z",
+  "fix_commit_sha": "3866c53388171898cfa38670f3d46e1c41cf92a2",
+  "fix_files": [
+    "lib/test/run.sh",
+    "scripts/post-review-backstop-comment.sh",
+    ".changeset/issue-414-review-backstop-glue-helper.md"
+  ],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": [],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "env-passthrough assertion vacuous (shadow-promoted)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          290,
+          318
+        ],
+        "kind": "vacuous-assertion"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Important",
+      "description": "'byte-identical' overclaim (shadow-promoted)",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          5,
+          6
+        ],
+        "kind": "overclaim"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "unparsed-decision fail-closed arm untested (shadow-promoted)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          349,
+          364
+        ],
+        "kind": "untested-failclosed-path"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'same names both steps set' loose for HEAD_SHA (shadow-promoted)",
+      "defect_signature": {
+        "file": "scripts/post-review-backstop-comment.sh",
+        "line_range": [
+          23,
+          24
+        ],
+        "kind": "imprecise-claim"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "S-1",
+      "decision": "applied",
+      "commit": "3866c53388171898cfa38670f3d46e1c41cf92a2"
+    },
+    {
+      "finding_id": "S-2",
+      "decision": "applied",
+      "commit": "3866c53388171898cfa38670f3d46e1c41cf92a2"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "applied",
+      "commit": "3866c53388171898cfa38670f3d46e1c41cf92a2"
+    },
+    {
+      "finding_id": "S-4",
+      "decision": "applied",
+      "commit": "3866c53388171898cfa38670f3d46e1c41cf92a2"
+    },
+    {
+      "finding_id": "S-5",
+      "decision": "advisory",
+      "source_file": "scripts/post-review-backstop-comment.sh",
+      "claim_text": "header 'reads all six' \u2014 GH_TOKEN inherited by POST helper, not read here",
+      "skip_category": "advisory-parked",
+      "evidence": "Suggestion from convergence shadow; 'Inputs (env \u2014 ...)' framing makes it essentially correct (all six required in-env); parked per post-shadow-edit discipline rather than a post-convergence edit"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 4,
+    "fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "step_2_6": {
+      "calls": 5,
+      "tokens": 337000,
+      "wall_clock_s": 202
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-11T03:05:00Z",
+    "reviewed_sha": "688637e68bf3cf73e49f14ab1a14c76b479c53a6",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": "intentional",
+    "phase3_findings": [
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "helper header 'reads all six from its environment' \u2014 GH_TOKEN is inherited by the POST helper's gh call, not read by this helper",
+        "defect_signature": {
+          "file": "scripts/post-review-backstop-comment.sh",
+          "line_range": [
+            32,
+            33
+          ],
+          "kind": "imprecise-claim"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 0
+    },
+    "promoted_to_iter_next": false
+  }
+}

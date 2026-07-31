@@ -1,0 +1,174 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-07T23:49:22Z",
+  "fix_commit_sha": "435d186",
+  "fix_files": [
+    ".github/workflows/devflow-review.yml",
+    "lib/test/run.sh",
+    ".changeset/issue-322-devflow-review-workflow-hardening.md"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": true,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "AC1 fix is one-sided: the in-repo retry arm of preconditions_ok still parses a crashed helper's partial stdout (|| true keeps it), failing OPEN, inconsistent with the new no-retry else arm that fails closed.",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          260,
+          262
+        ],
+        "kind": "fail-open"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Retry arm does not clear partial stdout, so a crashed retry can fail OPEN \u2014 asymmetric with the else arm this PR added.",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          260,
+          262
+        ],
+        "kind": "wrong-direction-fallback"
+      },
+      "corroboration_count": 3,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC5 reuse-lookup jq projection [(.output.title // \"\"), (.id|tostring)] | @tsv is executable but only presence-grepped; a swapped column order would silently break the bash title match and defeat de-dup.",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          215,
+          218
+        ],
+        "kind": "test-coverage-gap"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "AC5 reuse keys on exact title, so a head whose deferral reason transitions (behind-base \u2192 ci-not-green \u2192 unverifiable) can accumulate up to 3 neutral checks. Matches the stated same-head+reason contract; harmless (all neutral, gate-excluded).",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-review.yml",
+        "line_range": [
+          743,
+          770
+        ],
+        "kind": "expected-behavior"
+      },
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "advisory"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1-retry-asymmetry",
+      "decision": "applied",
+      "commit": "435d186"
+    },
+    {
+      "finding_id": "F-2-ac5-projection-test",
+      "decision": "applied",
+      "commit": "435d186"
+    },
+    {
+      "finding_id": "F-3-ac5-title-transition",
+      "decision": "advisory",
+      "source_file": ".github/workflows/devflow-review.yml",
+      "claim_text": "reason transition can accumulate up to 3 neutral checks",
+      "skip_category": "advisory-parked",
+      "evidence": "expected behavior per the same-head+reason contract; all checks neutral and excluded by the exactly-once gate; harmless (no wedge, no merge block)"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 40,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 5,
+      "tokens": 231000,
+      "wall_clock_s": 111
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-07T23:56:00Z",
+    "reviewed_sha": "9ee2a9c",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "AC6 pins assert the reference text but not that docs/workflow-triggers.md exists on disk; a later delete/rename would re-introduce the dangling-ref class green.",
+        "defect_signature": {
+          "file": "lib/test/run.sh",
+          "line_range": [
+            233,
+            239
+          ],
+          "kind": "test-coverage-gap"
+        }
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 1,
+      "overlap_with_iter_N": 0,
+      "new": 1,
+      "new_critical": 0,
+      "new_important": 1
+    },
+    "promoted_to_iter_next": true
+  }
+}

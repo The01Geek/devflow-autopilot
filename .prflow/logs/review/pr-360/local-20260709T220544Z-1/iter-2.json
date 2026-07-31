@@ -1,0 +1,73 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-09T23:20:00Z",
+  "fix_commit_sha": "233f44d480c01c66b448653177b1b9c8a93771c2",
+  "fix_files": ["docs/DEVFLOW_SYSTEM_OVERVIEW.md", "lib/test/run.sh", "skills/implement/SKILL.md"],
+  "loop_role": "fix",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist_summary": {
+    "total": 66,
+    "pass": 66,
+    "fail": 0,
+    "inconclusive": 0,
+    "reused_from_iter_1": 37,
+    "verified_fresh": 29,
+    "new_variance_recovery_items": 6
+  },
+  "checklist": [
+    {"id": "VC-39", "claim": "the #356 e2e block asserts cheap-gate clean=false AND the reason, non-vacuously, feeding the whole bundle", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "data_format_assumption:fixtures:failed-prefix-file-set-complete", "verdict": "PASS", "evidence": "Independently mutation-verified: neutralizing workpad_final_status leaves clean=false (via reflections) but flips reason to 'workpad reflections present', so the reason pin goes RED. Invocation now matches the real consumer's whole-bundle stdin shape.", "reused_from_iter_prev": false},
+    {"id": "VC-32", "claim": "the ENGINE_ERROR guard pin is co-located with the flip_review call it gates, with a positive control", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "api_contract:devflow-review.yml:finalize-check-three-arms", "verdict": "PASS", "evidence": "Independently mutation-verified on a temp copy: deleting the guard turns both the positive control and the co-location pin RED; both GREEN on the real file.", "reused_from_iter_prev": false},
+    {"id": "VC2-1", "claim": "CLASS is assigned before the first fail-loud flip call site; V and ISSUE_NUMBER in scope at every site", "file": ".github/workflows/devflow-implement.yml", "verification_mode": "agent", "claim_signature": "dependency_interaction:devflow-implement.yml:class-set-before-mktemp-flip", "verdict": "PASS", "reused_from_iter_prev": false},
+    {"id": "VC2-3", "claim": "the seeding job and the flipping job share GITHUB_RUN_ID on both paths (reusable workflow shares the caller's run)", "file": ".github/workflows/devflow-review.yml", "verification_mode": "agent", "claim_signature": "api_contract:review-progress:same-run-seed-and-flip", "verdict": "PASS", "reused_from_iter_prev": false},
+    {"id": "VC2-4", "claim": "CONTEXT_NUMBER can be an issue number, but the run-keyed marker makes cross-object mutation impossible", "file": ".github/workflows/devflow.yml", "verification_mode": "agent", "claim_signature": "api_contract:devflow.yml:context-number-is-pr-number", "verdict": "PASS", "reused_from_iter_prev": false},
+    {"id": "VC2-5", "claim": "steps.claude.outputs.execution_file is the correct output name; devflow.yml mirrors devflow-runner.yml", "file": ".github/workflows/devflow.yml", "verification_mode": "agent", "claim_signature": "dependency_interaction:devflow.yml:execution-file-output-name", "verdict": "PASS", "reused_from_iter_prev": false},
+    {"id": "VC2-6", "claim": "the helper's Status regex matches the skill's seeded line shape; no seeded variant routes to a no-op arm", "file": "scripts/flip-review-progress-failed.sh", "verification_mode": "agent", "claim_signature": "data_format_assumption:flip-review-progress-failed.sh:status-regex-matches-seed", "verdict": "PASS", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "skills/implement/SKILL.md claims the cloud Stall backstop 'never writes a terminal Status' and that 'no Failed workpad status exists' — both made false by this PR. lib/test/run.sh pins that exact sentence, so the suite was green because it enforced the falsehood.", "defect_signature": {"file": "skills/implement/SKILL.md", "line_range": [260, 260], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "orchestrator", "severity": "Important", "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md's stall-backstop bullet — a line this diff itself rewrote — enumerated the no-op terminal set as (🎉/👎), omitting the 💥 Failed status the same bullet introduces. Sibling mirror sites (config.schema.json, docs/implement-skill.md) were reconciled; this one was not. Self-contradicting diff (contradicts another part of this change) -> non-demotable REJECT driver.", "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [488, 488], "kind": "documented_falsehood"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:requesting-code-review", "severity": "Suggestion", "description": "The flip helper's cause line interpolates text into a markdown italic span; a cause containing _ or * would break the span.", "defect_signature": {"file": "scripts/flip-review-progress-failed.sh", "line_range": [156, 157], "kind": "style"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "advisory"},
+    {"agent": "devflow:code-reviewer", "severity": null, "description": "no findings", "defect_signature": null, "corroboration_count": 0},
+    {"agent": "devflow:comment-analyzer", "severity": null, "description": "no findings; verified all four claims in the iter-1 fix's new comment blocks are true against HEAD", "defect_signature": null, "corroboration_count": 0},
+    {"agent": "devflow:silent-failure-hunter", "severity": null, "description": "no new findings; traced _wp_cause/WP_ERR reuse/partial-TMP/TMP-leak/RESULT catch-all, all fail-closed", "defect_signature": null, "corroboration_count": 0}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F2-1", "decision": "applied", "commit": "233f44d480c01c66b448653177b1b9c8a93771c2"},
+    {"finding_id": "F2-2", "decision": "applied", "commit": "233f44d480c01c66b448653177b1b9c8a93771c2"},
+    {"finding_id": "F2-1", "decision": "severity-calibrated", "source_file": "skills/implement/SKILL.md", "claim_text": "the Stall backstop never writes a terminal Status; no Failed workpad status exists", "original_severity": "Important", "calibrated_severity": "Important", "evidence": "Shape 3 flagged (single-source from pr-test-analyzer, an empirical over-grader; no corroboration, no Phase-2 FAIL). Re-affirmed at Important on observable grounds: the sentence is demonstrably FALSE against HEAD (verified by reading the backstop step and workpad.py). Its impact is not diagnostic-only — it is agent-facing runtime guidance in a skill body AND lib/test/run.sh pins it with assert_pin_unique + assert_pin_red_on_removal, so the suite is green BECAUSE it enforces the falsehood and a future correct fix would go RED. The 4.1.5 deterministic in-code-comment cap does not apply: this is not an inert in-code comment, it is machine-significant (tool-read and test-pinned). Not fail-closed; the suite does not catch it RED."},
+    {"finding_id": "F2-3", "decision": "advisory", "source_file": "scripts/flip-review-progress-failed.sh", "claim_text": "cause line interpolated into a markdown italic span", "skip_category": "advisory-parked", "evidence": "Suggestion severity, below the resolved fix_severity_threshold 'important'. Causes are currently controlled tokens; impact is a cosmetic markdown render, no behavioral fail-direction."},
+    {"finding_id": "F2-4", "decision": "deferred", "source_file": "docs/implement-skill.md", "claim_text": "line 268's parenthetical 'reuses the 🚀/🎉/👎 vocabulary — no new status value' is imprecise about workpad.py's vocabulary", "skip_category": "out-of-scope", "evidence": "The line is NOT diff-added or diff-modified by this PR (git diff over docs/implement-skill.md shows the 'no new status value' clause is untouched; the PR's hunks in that file are >10 lines away). Its clause is also true in its own scope: it describes the #366 self-check feature, which itself added no status value. No pin enforces it. Reported by the Step 3.5 fix-delta gate as a Suggestion."}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 2,
+    "fix_diff_lines": 18,
+    "code_only_fix_diff_lines": 0,
+    "new_corroborated_critical_count": 0,
+    "new_important_count": 2
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 10},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1":   {"calls": 1, "tokens": 100878, "wall_clock_s": 123},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 7, "tokens": 337392, "wall_clock_s": 45},
+    "phase_3":   {"calls": 5, "tokens": 484475, "wall_clock_s": 249},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 3, "webfetches": 0},
+    "step_3_5":  {"calls": 1, "tokens": 75242, "wall_clock_s": 249},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 5}
+  }
+}

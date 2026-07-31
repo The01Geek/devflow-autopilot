@@ -1,0 +1,64 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-09T17:55:00Z",
+  "fix_commit_sha": "32fe1cd9f81112901a88da5396f978e2b7e57d72",
+  "fix_files": [".changeset/issue-338-post-merge-self-reconfiguration.md", "lib/test/run.sh", "scripts/workpad.py"],
+  "loop_role": "promoted",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "checklist_skipped": "intentional"
+  },
+  "phase3_dispatched": [],
+  "checklist": [],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "Shadow (blinded, iter-1 early trigger): the state backstop counts only unticked rows, so a crafted multi-pair shuttle lands (post-merge) on an already-[x] row with no --note. Re-graded from the parked Suggestion by the park-calibration gate: it is a fail-open guard in this PR's own diff AND falsifies SKILL.md/DEVFLOW_SYSTEM_OVERVIEW's claim that a crafted multi-pair sequence that net-adds a (post-merge) row is caught.",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1493, 1520], "kind": "logic_error"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "Shadow (blinded): a single-pair (post-merge) append onto an already-ticked [x] row is unpinned; behavior verified correct (refused by the tick-agnostic per-pair guard) but unprotected against regression.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [93, 358], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "applied", "commit": "32fe1cd9f81112901a88da5396f978e2b7e57d72"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "32fe1cd9f81112901a88da5396f978e2b7e57d72"}
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 21, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-09T17:50:00Z",
+    "reviewed_sha": "e1c74a2e72d68240ec1a1af94afa3d40eccc6e16",
+    "verdict": "APPROVE with notes",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "trigger": "early (engine_self_modifying, after iteration 1)",
+    "phase3_findings": ["ticked-row shuttle (silent-failure-hunter, logic_error)", "single-pair ticked append unpinned (pr-test-analyzer, test_gap)"],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 3, "overlap_with_iter_N": 1, "new": 2, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": true,
+    "note": "Both new findings were emitted below Important. The park-calibration gate re-graded the ticked-row shuttle to Important (fail-open guard in this PR's own diff + documented falsehood vs SKILL.md), which is what drove the promotion. Reproduced against the real CLI before fixing."
+  },
+  "telemetry": {
+    "step_2_6": {"calls": 5, "tokens": 376514, "wall_clock_s": 353},
+    "step_3_5": {"calls": 1, "tokens": 73502, "wall_clock_s": 394},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "iter": 4,
+  "started_at": "2026-07-09T18:30:00Z",
+  "fix_commit_sha": "7a54ce42237b81d98c3ab843b8ff7338366eb537",
+  "fix_files": [".changeset/issue-338-post-merge-self-reconfiguration.md", "lib/test/run.sh", "lib/test/test_python_scripts.py", "scripts/workpad.py"],
+  "loop_role": "fix",
+  "diff_profile": {"small_diff": false, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "detect_all_audit": true, "checklist_skipped": "intentional"},
+  "phase3_dispatched": [],
+  "checklist": [],
+  "phase3_findings": [
+    {
+      "agent": "step-3.5-fix-delta-gate",
+      "severity": "Important",
+      "description": "The newline guard I wrote (`'\\n' in NEW or '\\r' in NEW`) is itself a validator whose accepted-input set is a SUPERSET of its consumer's contract (`str.splitlines()`). Eight further separators (\\v, \\f, \\x1c-\\x1e, NEL, LS, PS) pass the guard and still split the checkbox row, injecting a phantom `- [x]` AC row at exit 0. With a --note present both post-merge guards are skipped, so the row check was the only defense.",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1520, 1526], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "step-3.5-fix-delta-gate",
+      "severity": "Suggestion",
+      "description": "`_is_single_line`'s docstring asserted 'Every reader of a workpad section splits rows with str.splitlines()'. False: `_split_details` and `_append_progress_note` use `.split('\\n')`. An absolute claim false against HEAD is a documented falsehood, so it re-opened the diff at any threshold despite the Suggestion grade.",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1287, 1300], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "step-3.5-fix-delta-gate",
+      "severity": "Suggestion",
+      "description": "`--rewrite-ac` argparse help omitted the new single-line rule — a user-facing contract for a rule that now aborts the call. Trivial and clearly correct to add, on the same surface that already drifted once.",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1730, 1745], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "step-3.5-fix-delta-gate",
+      "severity": "Suggestion",
+      "description": "An empty or whitespace-only `--rewrite-ac` NEW rewrites an AC row to blank text (exit 0, PATCHed).",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [1490, 1500], "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The SKILL.md coupled-invariant pin used grep -q and matched 2 lines, so it guarded wholesale removal but not a partial revert of one of the two coupled sentences.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4340, 4344], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "G-1", "decision": "applied", "commit": "b64577b1912bb569cc2674990898e55530daf562"},
+    {"finding_id": "G-2", "decision": "applied", "commit": "b64577b1912bb569cc2674990898e55530daf562"},
+    {"finding_id": "G-3", "decision": "applied", "commit": "b64577b1912bb569cc2674990898e55530daf562"},
+    {
+      "finding_id": "G-4",
+      "decision": "deferred",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "an empty or whitespace-only --rewrite-ac NEW rewrites an AC row to blank text",
+      "skip_category": "uncategorized",
+      "evidence": "Real but unfixed in-loop, and NOT claimed out-of-scope: this PR's diff touches the --rewrite-ac block, so the widens-surface guard would rightly disqualify an out-of-scope skip. It is pre-existing behavior (present before issue #338 and unchanged by it), it cannot launder a (post-merge) deferral (the blank text ends with no marker, so `_ends_with_post_merge` is False and no row transitions untagged -> tagged), and issue #338's scope is the retag rationale channel, not AC-row content validation. Revisit when AC-row content validation is tightened, or if a run is observed blanking a criterion."
+    },
+    {"finding_id": "F-3", "decision": "applied", "commit": "7a54ce42237b81d98c3ab843b8ff7338366eb537"},
+    {
+      "finding_id": "F-2",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "state backstop residual limitations (ticked-row shuttle; net-zero remove-one/add-one)",
+      "original_severity": "suggestion",
+      "calibrated_severity": "important",
+      "evidence": "Up-calibrated, not down. Observable fail-direction: the guard FAILS OPEN — both shapes were reproduced against the real CLI shipping a (post-merge) deferral with no --note at exit 0 with a PATCH issued. Both also falsified an absolute claim the same diff publishes in SKILL.md and DEVFLOW_SYSTEM_OVERVIEW ('a crafted multi-pair sequence that net-adds a (post-merge) row is caught by the same rule'), making each a documented falsehood on top of a fail-open guard. Blast radius is the audit trail the whole issue exists to create. Both fixed; the residual-limitations comment was deleted because the residuals are gone."
+    }
+  ],
+  "convergence_inputs": {"fixes_applied": 2, "fix_diff_lines": 18, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "step_3_5_gate": {
+    "ran": true,
+    "inner_attempts": 2,
+    "result": "clean after re-fix: no Critical/Important; 3 Suggestions, 2 applied (documented falsehood + help omission), 1 deferred with recorded evidence",
+    "blinded": true
+  },
+  "park_calibration_gate": {
+    "ran": true,
+    "result": "2 parked findings re-graded and routed back (ticked-row shuttle -> iter 2; net-zero swap -> iter 3); 1 parked pin under-specification fixed in iter 4 (negative pin); 1 finding deferred with recorded evidence (degenerate NEW). NOT clean — re-grades are stated plainly in the verdict."
+  },
+  "telemetry": {
+    "step_3_5": {"calls": 3, "tokens": 247592, "wall_clock_s": 1176},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 2}
+  }
+}

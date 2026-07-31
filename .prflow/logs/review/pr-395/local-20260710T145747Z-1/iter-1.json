@@ -1,0 +1,550 @@
+{
+ "iter": 1,
+ "started_at": "2026-07-10T15:00:00Z",
+ "fix_commit_sha": "c4a51aa0f9f00d8b3e128246503ae81d54e5f7eb",
+ "iter_fix_base": "ef9e9da9c40068f209d35ec941657bd9232afe68",
+ "fix_files": [
+  "lib/test/pin-corpus-lint.py",
+  "lib/test/run.sh",
+  "docs/DEVFLOW_SYSTEM_OVERVIEW.md"
+ ],
+ "loop_role": "fix",
+ "resolved_config": {
+  "max_iterations": 5,
+  "fix_severity_threshold": "important",
+  "verdict_severity_threshold": "critical"
+ },
+ "checklist": [
+  {
+   "id": "VC-1",
+   "claim": "AC1 fenced collision flagged",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:fenced-comment-collision-flagged",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-2",
+   "claim": "AC2 fenced-comment-only not flagged",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:fenced-comment-only-not-flagged",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-3",
+   "claim": "HTML-comment-only behavior unchanged",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:html-comment-only-behavior-unchanged",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-4",
+   "claim": "live corpus clean",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:live-corpus-clean",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-5",
+   "claim": "unterminated fence fails closed",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:unterminated-fence-fail-closed",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-6",
+   "claim": ">=4-space indent not a fence",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:four-space-indent-not-fence",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-7",
+   "claim": "backtick-info-string not an opener",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:backtick-info-string-not-opener",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-8",
+   "claim": "closer three conjuncts each pinned",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:closer-three-conjuncts",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-9",
+   "claim": "tilde fence arm exercised",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:pin-corpus-lint.py:tilde-fence-arm",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-10",
+   "claim": "COLLISION format matches run.sh greps",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "api_contract:run.sh:collision-format-matches-grep",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-11",
+   "claim": "AC3 fixture-dir failure records FAIL",
+   "file": "lib/test/run.sh",
+   "verification_mode": "agent",
+   "claim_signature": "absolute_claim:run.sh:fixture-dir-failure-records-fail",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  },
+  {
+   "id": "VC-12",
+   "claim": "_strip_line_spans equivalence",
+   "file": "lib/test/pin-corpus-lint.py",
+   "verification_mode": "agent",
+   "claim_signature": "dependency_interaction:pin-corpus-lint.py:strip-line-spans-equivalence",
+   "verdict": "PASS",
+   "reused_from_iter_prev": false
+  }
+ ],
+ "phase3_dispatched": [
+  "devflow:code-reviewer",
+  "devflow:silent-failure-hunter",
+  "devflow:comment-analyzer",
+  "devflow:pr-test-analyzer",
+  "devflow:requesting-code-review"
+ ],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "detect_all_audit": false,
+  "checklist_skipped": null
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:comment-analyzer",
+   "finding_id": "F-1",
+   "severity": "Critical",
+   "description": "Indent-cap rationale docstring claims a never-closed spurious fence would fold operative #-lines into the comment region; false against HEAD given the same diff's fail-closed drop (self-contradicting diff).",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     352,
+     355
+    ],
+    "kind": "documented_falsehood"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:comment-analyzer",
+   "finding_id": "F-2",
+   "severity": "Suggestion",
+   "description": "Docstring summary line's bare 'indented' ambiguous; say 'indented up to 3 spaces'.",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     335,
+     336
+    ],
+    "kind": "style"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "finding_id": "F-3",
+   "severity": "Important",
+   "description": "Language-agnostic # extraction inside any closed fence \u2014 undocumented fail-open trade-off for non-hash-comment fences.",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     397,
+     400
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "finding_id": "F-4",
+   "severity": "Suggestion",
+   "description": "Tab-indented fence markers silently excluded; docstring note.",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     374,
+     375
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "finding_id": "F-5",
+   "severity": "Important",
+   "description": "Committed-fence retention (inside[:committed]) entirely unpinned; discard-everything mutation survives the suite.",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     20197,
+     20250
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "finding_id": "F-6",
+   "severity": "Important",
+   "description": "Positive half of the indent rule (1-3-space-indented fence IS a fence) untested; regex narrowing mutation survives.",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     20148,
+     20162
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "finding_id": "F-7",
+   "severity": "Suggestion",
+   "description": "Tilde opener with backtick in info string unpinned (guard correctly backtick-only).",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     386,
+     387
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "finding_id": "F-8",
+   "severity": "Important",
+   "description": "A .md target that ends fence-open gets no breadcrumb (silent drop), and docs/DEVFLOW_SYSTEM_OVERVIEW.md has a stray trailing fence (live fence-open pin target).",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     391,
+     400
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "finding_id": "F-9",
+   "severity": "Suggestion",
+   "description": "Fence markers and HTML comments mutually blind (two latent fail shapes); docstring note suffices.",
+   "defect_signature": {
+    "file": "lib/test/pin-corpus-lint.py",
+    "line_range": [
+     373,
+     396
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 2,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "finding_id": "F-10",
+   "severity": "Suggestion",
+   "description": "closerlen removal-direction verified by hand-trace only; no action strictly needed.",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     20272,
+     20277
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "deferred"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "F-1",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "self-contradicting-diff carve-out REJECT driver; rationale reworded to the real mechanism (later matching closer commits the fold), verified against the shipped drop logic"
+  },
+  {
+   "finding_id": "F-2",
+   "decision": "applied",
+   "commit": "989762e"
+  },
+  {
+   "finding_id": "F-3",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "fixed via the reviewers' own accepted alternative (docstring known-limitation note); info-string language gating rejected as contradicting issue #394 Implementation Notes which prescribe running hash_comment_regions over fenced lines language-agnostically"
+  },
+  {
+   "finding_id": "F-4",
+   "decision": "applied",
+   "commit": "989762e"
+  },
+  {
+   "finding_id": "F-5",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "multi.md fixture, mutation-verified RED (inside=[] kills exactly this pin)"
+  },
+  {
+   "finding_id": "F-6",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "indent3.md fixture, mutation-verified RED (dropping the indent allowance kills exactly this pin)"
+  },
+  {
+   "finding_id": "F-7",
+   "decision": "deferred",
+   "source_file": "lib/test/pin-corpus-lint.py",
+   "claim_text": "tilde opener with backtick info string unpinned",
+   "skip_category": "uncategorized",
+   "evidence": "reviewer rated 3/10 (low regression likelihood); the guard's backtick-only scoping is already exercised by VC-7 and the btinfo fixture; not worth a fix-loop iteration"
+  },
+  {
+   "finding_id": "F-8",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "FENCE-UNTERMINATED stderr breadcrumb (pinned via unterminated.md:2 assert, mutation-verified) + stray doc fence removed (verified unmatched opener at line 690)"
+  },
+  {
+   "finding_id": "F-9",
+   "decision": "applied",
+   "commit": "989762e",
+   "note": "documented as known limitation; corroborated by retry final-pass reviewer's orphaned--> ordering variant"
+  },
+  {
+   "finding_id": "F-10",
+   "decision": "deferred",
+   "source_file": "lib/test/run.sh",
+   "claim_text": "closerlen removal-direction hand-traced only",
+   "skip_category": "claim-quality",
+   "evidence": "the removal mutation WAS empirically executed in this run's scratch harness (M3b: len conjunct removed -> closerlen COLLISION vanished), so the premise 'hand-trace only' is factually superseded; no action"
+  },
+  {
+   "finding_id": "F-5+F-6-severity",
+   "decision": "severity-calibrated",
+   "source_file": "lib/test/run.sh",
+   "claim_text": "mutation-confirmed test gaps graded Important by pr-test-analyzer (empirical over-grader, single-source)",
+   "original_severity": "Important",
+   "calibrated_severity": "Important",
+   "evidence": "over-grade shape 3 flagged (single-source from pr-test-analyzer), but each gap is backed by an executed surviving mutant (observable evidence, not a label); grade re-affirmed and both fixed in-iteration"
+  }
+ ],
+ "convergence_inputs": {
+  "fixes_applied": 8,
+  "fix_diff_lines": 95,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "verdict": "REJECT",
+ "verdict_driver": "F-1 self-contradicting-diff carve-out (documented_falsehood)",
+ "reflections": [
+  "over-grade calibration gate: F-5/F-6 flagged shape 3 (single-source pr-test-analyzer) \u2014 severity-calibrated entry recorded, grades re-affirmed on executed-mutant evidence, both fixed",
+  "requesting-code-review dispatch stalled twice waiting on a nested reviewer; recovered via one targeted re-dispatch + direct-review instruction (both eventually returned; retry folded as corroboration only, not double-counted)",
+  "fix-delta gate: clean except one Suggestion (over-broad counterfactual example in the reworded cap rationale) \u2014 applied verbatim as prescribed in commit c4a51aa; no Critical/Important gate finding, so no inner re-gate owed",
+  "over-grade calibration gate (shadow promote path): SFH real-corpus breadcrumb-discard finding flagged shape 3 (uncorroborated single-source from silent-failure-hunter, no Phase-2 FAIL) AND diagnostic-only fail-direction (the breadcrumb still fires; only the harness's captured stderr file is not surfaced at one tier; no wrong output, no masked verdict beyond the already-documented fail-closed hole) \u2014 severity-calibrated Important->Suggestion with this evidence; parked as advisory, not promoted",
+  "park-calibration gate clean: no parked finding matched \u2014 the breadcrumb-surfacing advisory was examined against shape 1 (fail-open guard) and shape 2 (overclaiming breadcrumb) in detail: the shipped docstring claim is function-scoped and true (the breadcrumb IS emitted to stderr); the gap is caller-side observability, advisory by the loop's severity routing",
+  "verifier-hygiene note: two shadow Phase-2 verifier subagents ran wildcard temp-dir sweeps (rm -rf /tmp/tmp.* style) flagged by the harness security policy; no repo state affected (tree snapshot identical before/after every dispatch window); verdicts unaffected"
+ ],
+ "telemetry": {
+  "phase_0": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 60
+  },
+  "phase_0_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10
+  },
+  "phase_1": {
+   "calls": 1,
+   "tokens": 57695,
+   "wall_clock_s": 104
+  },
+  "phase_1_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 0
+  },
+  "phase_2": {
+   "calls": 12,
+   "tokens": 560000,
+   "wall_clock_s": 300
+  },
+  "phase_3": {
+   "calls": 6,
+   "tokens": 385000,
+   "wall_clock_s": 2400
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 120
+  }
+ },
+ "shadow": {
+  "ran_at": "2026-07-10T20:30:00Z",
+  "reviewed_sha": "c4a51aa0f9f00d8b3e128246503ae81d54e5f7eb",
+  "verdict": "APPROVE with notes",
+  "coverage": "full",
+  "trigger": "early (engine_self_modifying, iteration 1 routed to fixes)",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "checklist_result": "16 passed, 0 failed, 0 inconclusive (blinded fresh checklist; VC-4 verifier recovered via one bounded Phase-2 re-dispatch)",
+  "phase3_findings": [
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Important",
+    "description": "Real-corpus tier captures scanner stderr to _PCL_LINT_ERR, greps only RESOLVED/UNRESOLVED-COUNT, then deletes it \u2014 a future real-target FENCE-UNTERMINATED breadcrumb is discarded unread.",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      20151,
+      20171
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Suggestion",
+    "description": "'live corpus is clean of all three' is a point-in-time claim that can rot; self-date it.",
+    "defect_signature": {
+     "file": "lib/test/pin-corpus-lint.py",
+     "line_range": [
+      394,
+      408
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Suggestion",
+    "description": "path=None param is diagnostic-only; one docstring line would say so.",
+    "defect_signature": {
+     "file": "lib/test/pin-corpus-lint.py",
+     "line_range": [
+      334,
+      337
+     ],
+     "kind": "style"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Suggestion",
+    "description": "Nice-to-haves rated 2-4: orphaned--> shape fixture, quote-aware # fixture for the .md arm, tilde-info-string pin, multi/btinfo breadcrumb asserts.",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": [
+      20197,
+      20319
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "md-arm COLLISION output omits the fenced span's line number (hash arm reports it); diagnostic polish, follow-up scope.",
+    "defect_signature": {
+     "file": "lib/test/pin-corpus-lint.py",
+     "line_range": [
+      595,
+      597
+     ],
+     "kind": "style"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 5,
+   "overlap_with_iter_N": 0,
+   "new": 5,
+   "new_critical": 0,
+   "new_important": 1,
+   "note": "the one Important-labeled finding was flagged by the over-grade calibration gate (shape 3 + diagnostic-only fail-direction) and severity-calibrated to Suggestion with recorded evidence; no finding survives at promotion severity"
+  },
+  "promoted_to_iter_next": false
+ }
+}

@@ -1,0 +1,154 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-13T19:20:00Z",
+  "fix_commit_sha": "8917a36",
+  "iter_fix_base": "06efc73",
+  "loop_role": "promoted",
+  "promoted_from": "iter-2 convergence-time shadow (Decide outcome 2)",
+  "note": "Promoted iteration from the convergence-time shadow: fixes the shadow's new findings, skips Phase 1+2+3.",
+  "fix_files": [
+    ".github/workflows/devflow-runner.yml",
+    "lib/test/run.sh",
+    "scripts/harden-stop-hooks.sh"
+  ],
+  "shadow_findings_addressed": [
+    {
+      "id": "SF-failopen",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "relevance gate reads empty SETTINGS_JSON as 'not wired' -> skips -> drops DevFlow's own floor when settings.json exists at base but git show reads empty despite a successful fetch (fail-OPEN, must-never direction)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          744,
+          772
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "genuine fail-open latent since iter-1's gate; fixed via git cat-file -e disambiguation (absent -> skip; present-but-unreadable -> fail-closed harden)"
+    },
+    {
+      "id": "PT-elif",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "elif positive control vacuous — the source sat after `then`, not `elif`, so an elif-arm regression stayed green",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          16975,
+          17016
+        ],
+        "kind": "vacuous_assertion"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "changed fixture to a real elif-position source; mutation-verified (dropping elif from src_re now turns it RED)"
+    },
+    {
+      "id": "PT-inline-fallback",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "inline --wired-check fallback case is an untested branch-selector (reached only when no trusted helper resolves)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          765,
+          767
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "added assert_pin_red_under on the inline case glob (mutation guard); primary path already tested via --wired-check"
+    },
+    {
+      "id": "FP-pyspawn",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "walker's disclosed Python-subprocess-spawn gap could reopen the hole via a trusted .py edit",
+      "defect_signature": {
+        "file": "scripts/detect-hook-closure-edges.py",
+        "line_range": [
+          887,
+          890
+        ],
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "ENFORCED the gap: run.sh pin asserts no .py closure member spawns a repo .sh/.py via subprocess/os"
+    },
+    {
+      "id": "FP-settings-scope",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "gate scans only .claude/settings.json (not settings.local.json)",
+      "defect_signature": {
+        "file": ".github/workflows/devflow-runner.yml",
+        "line_range": [
+          81,
+          106
+        ],
+        "kind": "coverage_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "note": "added a scope comment (fail-safe toward not-hardening; DevFlow wires via settings.json)"
+    }
+  ],
+  "over_grade_calibration": "No auto-demotes. The SF fail-open is genuinely Important (fail-OPEN direction — drops the security floor), fixed. PT-elif is a real test vacuity, fixed. The 3 Suggestions were cheap and bundled.",
+  "fix_decisions": [
+    {
+      "finding_id": "SF-failopen",
+      "decision": "applied",
+      "commit": "8917a36"
+    },
+    {
+      "finding_id": "PT-elif",
+      "decision": "applied",
+      "commit": "8917a36"
+    },
+    {
+      "finding_id": "PT-inline-fallback",
+      "decision": "applied",
+      "commit": "8917a36"
+    },
+    {
+      "finding_id": "FP-pyspawn",
+      "decision": "applied",
+      "commit": "8917a36"
+    },
+    {
+      "finding_id": "FP-settings-scope",
+      "decision": "applied",
+      "commit": "8917a36"
+    }
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 215,
+    "detail": "6020 passed, 0 failed; shellcheck + ruff clean; YAML valid; harden-step bash -n + shellcheck clean; fail-open + elif + inline-fallback + py-spawn pins all PASS"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "critical_important_code_fixes": 1,
+    "fix_diff_lines_code_only": 22,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": {
+    "step_2_6": {
+      "calls": 6,
+      "note": "convergence-time shadow that surfaced these findings ran on iter-2 state"
+    },
+    "step_3_5": {
+      "calls": 1
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

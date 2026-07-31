@@ -1,0 +1,210 @@
+{
+  "iter": 1,
+  "source": "review",
+  "diff_profile": {
+    "engine_self_modifying": true,
+    "detect_all_audit": true,
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false
+  },
+  "checklist": [
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "lite",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    },
+    {
+      "verification_mode": "agent",
+      "verdict": "PASS"
+    }
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:comment-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "corroboration_count": 1,
+      "contributed_to_verdict": true
+    }
+  ],
+  "telemetry": {
+    "phase_0_5": {
+      "calls": 6
+    },
+    "phase_1": {
+      "calls": 2,
+      "agents": 2
+    },
+    "phase_2": {
+      "calls": 4
+    },
+    "phase_3": {
+      "calls": 5,
+      "agents": 5
+    }
+  }
+}

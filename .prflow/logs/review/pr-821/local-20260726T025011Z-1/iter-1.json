@@ -1,0 +1,603 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-26T02:50:11Z",
+  "fix_commit_sha": "HEAD",
+  "fix_files": [
+    "scripts/workpad.py",
+    "lib/test/test_python_scripts.py",
+    "lib/test/run.sh",
+    "skills/implement/phases/phase-4-documentation.md",
+    "skills/implement/references/deferred-ac-followups.md",
+    "docs/cutovers/issue-815-deferred-ac-followups-relocate.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "docs/implement-skill.md",
+    ".changeset/issue-815-deferred-ac-followups-gate.md",
+    "scripts/devflow-cloud-writer-contract.json"
+  ],
+  "loop_role": "fix",
+  "current_step": "loop-exit",
+  "current_substep": null,
+  "pending_dispatch": null,
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "phase3_findings": [
+    {
+      "agent": "devflow:code-reviewer",
+      "severity": "Important",
+      "description": "every measured byte figure in docs/cutovers/issue-815-deferred-ac-followups-relocate.md is false against HEAD, and contradicts the changeset shipped in the same diff",
+      "defect_signature": {
+        "file": "docs/cutovers/issue-815-deferred-ac-followups-relocate.md",
+        "line_range": [
+          28,
+          42
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 3,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Critical",
+      "description": "_bound_deferred_records reads a strictly narrower surface than _parse_scope_decisions and answers a confident not-outstanding: 0 on the difference",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1191,
+          1321
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "normalize_criterion collapses X and X (post-merge), and filed is a set, so one marker discharges a second distinct criterion",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1314,
+          1321
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "the reference's --mark-deferred-filed step has no only-for-creates-that-reported-ok guard, so a marker for a failed create strands that criterion permanently",
+      "defect_signature": {
+        "file": "skills/implement/references/deferred-ac-followups.md",
+        "line_range": [
+          129,
+          137
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "the unestablished arm exits before the outstanding set is computed, so a never-bound workpad re-files duplicates on every fresh Phase 4 entry",
+      "defect_signature": {
+        "file": "skills/implement/references/deferred-ac-followups.md",
+        "line_range": [
+          5,
+          5
+        ],
+        "kind": "logic_error"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "AC116/AC117 (the predicate call-shape criteria) have no assertion; a $PR_NUMBER operand would erase the change's benefit with nothing red",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          35986,
+          36000
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "the marker's normalized-vs-verbatim matching contract is unpinned and untested; every fixture used a string that is its own normalization",
+      "defect_signature": {
+        "file": "skills/implement/references/deferred-ac-followups.md",
+        "line_range": [
+          127,
+          133
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "the un-guaranteed-PATH-tool guard inspects three functions and misses the rest of the decision path, and matches only a quoted bare token",
+      "defect_signature": {
+        "file": "lib/test/test_python_scripts.py",
+        "line_range": [
+          16725,
+          16732
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "the section-4.0 slice assertion self-disables when probe_tmp returns /dev/null, emitting no skip",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          35970,
+          35977
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "the new DEVFLOW_SYSTEM_OVERVIEW layout row cross-references the review-engine section and drops the sibling rows' spacing",
+      "defect_signature": {
+        "file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+        "line_range": [
+          854,
+          854
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "a run.sh comment miscounts the un-pinned prose mirrors (the self-referential-count rot class)",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          36043,
+          36045
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_PROGRESS_BULLET_PREFIX_RE's rationale claims three sites share it; the writer still spells the format independently",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1105,
+          1110
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "_print_unestablished's docstring carries a bare arm count in the one function designed to absorb a fourth arm",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          1290,
+          1298
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "docs/implement-skill.md's Phase 4.0 section never says the filing procedure is now predicate-gated",
+      "defect_signature": {
+        "file": "docs/implement-skill.md",
+        "line_range": [
+          774,
+          774
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "--mark-deferred-filed accepts any string and breadcrumbs nothing when the value matches no bound deferred record",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          3343,
+          3355
+        ],
+        "kind": "api_misuse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "_unb64's breadcrumb hardcodes 'scope-decision record' but now also fires for devflow:deferred-filed payloads",
+      "defect_signature": {
+        "file": "scripts/workpad.py",
+        "line_range": [
+          940,
+          990
+        ],
+        "kind": "comment_drift"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "the stub's operand instruction ('both operands as decimal literals') contradicts its own fence, which passes $ISSUE_NUMBER",
+      "defect_signature": {
+        "file": "skills/implement/phases/phase-4-documentation.md",
+        "line_range": [
+          8,
+          14
+        ],
+        "kind": "documented_falsehood"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "the reference joined the portable-anchor reference loop rather than the phase loop; the P1b dash-only-expansion pin does not cover its anchor call sites",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          15847,
+          15987
+        ],
+        "kind": "test_gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "pushed_back",
+      "skip_category": "claim-quality",
+      "evidence": "the R-loop is the correct home: it is the loop the create-issue and review-and-fix reference families already join, and it applies R1/R2/R1c/R3c to every file plus R3 conditionally on any anchor mention. The reference mentions the anchor, so R3 fires non-vacuously. The P-loop additionally asserts unconditional anchor presence, which is wrong for a conditionally-loaded reference.",
+      "parking_evidence": {
+        "basis": "the named pin (P1b) is not absent for this file; the R-loop applies the equivalent absence and per-occurrence-completeness checks, and R3 fires because the reference mentions the anchor",
+        "failing_input": "a fragile or bare CLAUDE_SKILL_DIR anchor introduced in the new reference",
+        "source": "lib/test/run.sh R-loop (R1/R2/R1c/R3c/R3) over skills/implement/references/*.md",
+        "finding_ref": {
+          "iter": 1,
+          "index": 17
+        }
+      }
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "AC103's deviation ledger lives in the cutover record rather than the PR description",
+      "defect_signature": {
+        "file": "docs/cutovers/issue-815-deferred-ac-followups-relocate.md",
+        "line_range": [
+          53,
+          75
+        ],
+        "kind": "other"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied",
+      "evidence": "carried into the PR description at Phase 4.2, which generates the body"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-2",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-3",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-4",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-5",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-6",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-7",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-8",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-9",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-10",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-11",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-12",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-13",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-14",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-15",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-16",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-17",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "F-18",
+      "decision": "pushed_back",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "the reference joined the portable-anchor reference loop rather than the phase loop",
+      "skip_category": "claim-quality",
+      "evidence": "the R-loop is the correct home for a conditionally-loaded reference; it applies the equivalent absence and completeness checks and its R3 arm fires because the reference mentions the anchor",
+      "parking_evidence": {
+        "basis": "the R-loop applies R1/R2/R1c/R3c unconditionally and R3 conditionally on an anchor mention, which the reference makes",
+        "failing_input": "a fragile or bare CLAUDE_SKILL_DIR anchor introduced in the new reference",
+        "source": "lib/test/run.sh R-loop over skills/implement/references/*.md",
+        "finding_ref": {
+          "iter": 1,
+          "index": 17
+        }
+      }
+    },
+    {
+      "finding_id": "F-19",
+      "decision": "applied"
+    },
+    {
+      "finding_id": "S-3",
+      "decision": "pushed_back",
+      "source_file": "scripts/workpad.py",
+      "claim_text": "the deferred-filed marker carries no pr= field, so a marker written by an earlier run on the same issue discharges a later run's deferral",
+      "skip_category": "claim-quality",
+      "evidence": "the marker is per-ISSUE by design, matching the acceptance criterion it implements",
+      "parking_evidence": {
+        "basis": "AC 13 states the requirement per Phase 4 ENTRY on the issue, not per PR: 'A second Phase 4 entry taken after section 4.0 completed does not read the reference and files no duplicate follow-up issue.' The marker records that a follow-up ISSUE now exists for that criterion; that issue survives across runs on the parent issue, so a later run re-deferring the same criterion has its tracking issue already filed. PR-keying the marker would make every re-run file a second follow-up for a criterion already tracked - the exact duplicate the criterion prohibits.",
+        "failing_input": "run 2 on the same issue re-defers a criterion run 1 already filed a follow-up for",
+        "source": "AC 13 as resolved by scripts/workpad.py acs-resolve 815",
+        "finding_ref": {
+          "iter": 1,
+          "index": 2
+        }
+      }
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 18,
+    "fix_diff_lines": 260,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "reference_reads": {
+    "fix_delta": {
+      "status": "verified",
+      "outcome": "refixed",
+      "reason": null
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-25T00:00:00Z",
+    "reviewed_sha": "86a7a20a0847280baa2d5447f1ae26575e021011",
+    "verdict": "REJECT",
+    "coverage": "verified",
+    "prompt_addenda": null,
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": "first dispatch died on an API session limit; re-dispatched after reset and completed in full",
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:code-reviewer",
+        "severity": "Important",
+        "description": "cutover record + changeset byte figures false at HEAD (self-contradicting diff)",
+        "defect_signature": {
+          "file": "docs/cutovers/issue-815-deferred-ac-followups-relocate.md",
+          "line_range": [
+            21,
+            41
+          ],
+          "kind": "documented_falsehood"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "unestablished-arm skip sentence collapses to 'file nothing' on every exit-2 entry, stranding deferred work",
+        "defect_signature": {
+          "file": "skills/implement/references/deferred-ac-followups.md",
+          "line_range": [
+            5,
+            7
+          ],
+          "kind": "inert-guard"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "filed marker is not PR-keyed, so an earlier run's marker discharges a later run's deferral",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1104,
+            1126
+          ],
+          "kind": "unkeyed-discharge"
+        },
+        "fix_decision": "pushed_back"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Suggestion",
+        "description": "filed: operand suppressed on two unestablished arms, enabling duplicate filing",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1325,
+            1338
+          ],
+          "kind": "suppressed-operand"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "no test drives the deferred-presence CLI/argv surface through main()",
+        "defect_signature": {
+          "file": "lib/test/test_python_scripts.py",
+          "line_range": [
+            16690,
+            16712
+          ],
+          "kind": "missing-cli-wiring-coverage"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Important",
+        "description": "--mark-deferred-filed no-match breadcrumb had no stderr coverage",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            3073,
+            3094
+          ],
+          "kind": "untested-breadcrumb-path"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "unestablished arm-order (corrupted-before-unbound) unasserted; filed: projection driven on only one of four arms; no CRLF row",
+        "defect_signature": {
+          "file": "scripts/workpad.py",
+          "line_range": [
+            1341,
+            1348
+          ],
+          "kind": "untested-arm-order"
+        },
+        "fix_decision": "applied"
+      },
+      {
+        "agent": "devflow:requesting-code-review",
+        "severity": "Important",
+        "description": "unestablished-arm --mark-deferred-filed value contract unsatisfiable: mandates the normalized projection the arm never prints",
+        "defect_signature": {
+          "file": "skills/implement/references/deferred-ac-followups.md",
+          "line_range": [
+            127,
+            133
+          ],
+          "kind": "unverified-assumption"
+        },
+        "fix_decision": "applied"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 8,
+      "overlap_with_iter_N": 0,
+      "new": 8,
+      "new_critical": 0,
+      "new_important": 6
+    },
+    "promoted_to_iter_next": false
+  },
+  "telemetry": "unavailable"
+}

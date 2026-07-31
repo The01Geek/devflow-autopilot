@@ -1,0 +1,200 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-11T02:58:11Z",
+  "fix_commit_sha": "45b6f4c",
+  "fix_files": [
+    ".github/workflows/matcher-probe.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh"
+  ],
+  "loop_role": "fix",
+  "checklist": [],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "missing parity pin: skill's ScheduleWakeup-unavailable operative sentence unpinned",
+      "defect_signature": {
+        "file": "lib/test/run.sh",
+        "line_range": [
+          21141,
+          21148
+        ],
+        "kind": "coverage-gap"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "unknown-collapsed-onto-real-value: absent/unparseable execution file reads as shippable REMOVED",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          459,
+          521
+        ],
+        "kind": "unknown-collapsed-onto-real-value"
+      },
+      "corroboration_count": 2,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "REMOVED fails open on per-action inaction: control_ok proves a call, not that Action 2 was reached",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          472,
+          484
+        ],
+        "kind": "fail-open"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "partial JSONL corruption silently dropped (note_top only on zero-parse)",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          438,
+          441
+        ],
+        "kind": "swallowed-parse"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "confounded measurement: restrictive --allowed-tools may itself remove ScheduleWakeup",
+      "defect_signature": {
+        "file": ".github/workflows/matcher-probe.yml",
+        "line_range": [
+          402,
+          406
+        ],
+        "kind": "confounded-measurement"
+      },
+      "corroboration_count": 1,
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {
+      "finding_id": "F-1-paritypin",
+      "decision": "applied",
+      "commit": "45b6f4c"
+    },
+    {
+      "finding_id": "F-2-unknown-collapse",
+      "decision": "applied",
+      "commit": "45b6f4c"
+    },
+    {
+      "finding_id": "F-3-failopen-peraction",
+      "decision": "applied",
+      "commit": "45b6f4c"
+    },
+    {
+      "finding_id": "F-4-partial-jsonl",
+      "decision": "applied",
+      "commit": "45b6f4c"
+    },
+    {
+      "finding_id": "F-5-confound",
+      "decision": "applied",
+      "commit": "45b6f4c"
+    }
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 5,
+    "fix_diff_lines": 90,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {
+    "count": 0,
+    "by_category": {}
+  },
+  "telemetry": {
+    "phase_3": {
+      "calls": 4,
+      "tokens": 305000,
+      "wall_clock_s": 252
+    }
+  },
+  "shadow": {
+    "ran_at": "2026-07-11T03:30:00Z",
+    "reviewed_sha": "45b6f4c",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "expected_reviewers": [
+      "devflow:code-reviewer",
+      "devflow:silent-failure-hunter",
+      "devflow:comment-analyzer",
+      "devflow:pr-test-analyzer",
+      "devflow:requesting-code-review"
+    ],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "name-match fail-open: NAME=ScheduleWakeup anchor mis-reads a namespaced available tool as REMOVED->ship",
+        "kind": "unverified-assumption-fails-open"
+      },
+      {
+        "agent": "devflow:silent-failure-hunter",
+        "severity": "Important",
+        "description": "REMOVED conflates ran-Action-3 with attempted-Action-2 (presumptive)",
+        "kind": "ambiguous-measurement"
+      },
+      {
+        "agent": "devflow:comment-analyzer",
+        "severity": "Suggestion",
+        "description": "REMOVED comment says '(the AFTER control ran)' but code requires both controls"
+      },
+      {
+        "agent": "devflow:pr-test-analyzer",
+        "severity": "Suggestion",
+        "description": "yml pin anchors on premise not operative instruction"
+      }
+    ],
+    "phase2_fails": [],
+    "comparison": {
+      "shadow_total": 4,
+      "overlap_with_iter_N": 2,
+      "new": 2,
+      "new_critical": 0,
+      "new_important": 2
+    },
+    "promoted_to_iter_next": true
+  }
+}

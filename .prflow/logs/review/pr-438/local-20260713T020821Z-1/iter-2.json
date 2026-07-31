@@ -1,0 +1,350 @@
+{
+ "iter": 2,
+ "started_at": "2026-07-13T03:10:00Z",
+ "fix_commit_sha": "17cad5b543a09ede3f898868b78a08d8476f65bb",
+ "fix_files": [
+  ".changeset/issue-437-execution-file-shape-probe.md",
+  ".claude/settings.json",
+  ".github/workflows/matcher-probe.yml",
+  "docs/efficiency-trace.md",
+  "lib/test/fixtures/exec-shape-denials-countnull.json",
+  "lib/test/run.sh",
+  "scripts/describe-hook-probe.sh",
+  "scripts/extract-execution-shape.sh",
+  "scripts/stop-hook-probe.sh",
+  "skills/implement/phases/phase-3-review.md"
+ ],
+ "loop_role": "promoted",
+ "fix_severity_threshold": "important",
+ "checklist": [],
+ "checklist_note": "promoted iteration (early-shadow feed): Phase 1+2 skipped by design \u2014 the inputs are the shadow's own full Phases 0-4.3 result (38 shadow checklist items, all PASS)",
+ "phase3_dispatched": [],
+ "diff_profile": {
+  "small_diff": false,
+  "config_only": false,
+  "has_new_types": false,
+  "engine_self_modifying": true,
+  "checklist_skipped": "intentional-promoted-iter"
+ },
+ "phase3_findings": [
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Suggestion (calibrated)",
+   "description": "stop-hook jq-unrunnable misattribution",
+   "defect_signature": {
+    "file": "scripts/stop-hook-probe.sh",
+    "line_range": [
+     112,
+     126
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:silent-failure-hunter",
+   "severity": "Suggestion (calibrated)",
+   "description": "hook launch failure masked by || true",
+   "defect_signature": {
+    "file": ".claude/settings.json",
+    "line_range": [
+     15,
+     19
+    ],
+    "kind": "logic_error"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion (calibrated)",
+   "description": "hook-probe branch selector extracted to scripts/describe-hook-probe.sh",
+   "defect_signature": {
+    "file": ".github/workflows/matcher-probe.yml",
+    "line_range": [
+     232,
+     246
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:pr-test-analyzer",
+   "severity": "Suggestion",
+   "description": "fallback tp=false polarity, absent max figure, empty-string transcript_path pinned",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": null,
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "description": "prose universal scoped; changeset encoding enum completed; parenthetical split",
+   "defect_signature": {
+    "file": "skills/implement/phases/phase-3-review.md",
+    "line_range": [
+     115,
+     115
+    ],
+    "kind": "comment_drift"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  },
+  {
+   "agent": "devflow:requesting-code-review",
+   "severity": "Suggestion",
+   "description": "workflow-side marker pin re-anchored to code fragment; 'half the time' antecedent added; null-count fixture pinned",
+   "defect_signature": {
+    "file": "lib/test/run.sh",
+    "line_range": [
+     27574,
+     27584
+    ],
+    "kind": "test_gap"
+   },
+   "corroboration_count": 1,
+   "step25_classification": "codebase",
+   "fix_decision": "applied"
+  }
+ ],
+ "fix_decisions": [
+  {
+   "finding_id": "S-1",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-2",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-3",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-4",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-5",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-6",
+   "decision": "applied",
+   "commit": "17cad5b"
+  },
+  {
+   "finding_id": "S-7",
+   "decision": "applied",
+   "commit": "17cad5b",
+   "note": "fix-delta-gate suggestion: empty-arg test rationale corrected"
+  },
+  {
+   "finding_id": "S3-9",
+   "decision": "deferred",
+   "source_file": "docs/execution-file-shape.md",
+   "claim_text": "label the usage row Evidence cell 'supporting, not sufficient'",
+   "skip_category": "uncategorized",
+   "evidence": "PLAUSIBLE-graded polish; the parenthetical in the same cell already states the parentage limitation verbatim"
+  }
+ ],
+ "verification_evidence": {
+  "command": "lib/test/run.sh (clean tree pre-commit dirty run 5778/0; post-commit lint rc=0) + shellcheck + ruff",
+  "result": "pass",
+  "duration_s": 95
+ },
+ "stale_prose_check": "branch diff at 17cad5b: rc=0 (1 VERIFIED, 1 UNRESOLVABLE informational)",
+ "convergence_inputs": {
+  "fixes_applied": 10,
+  "fix_diff_lines": 145,
+  "critical_important_code_fixes": 0,
+  "critical_important_code_lines": 0,
+  "new_corroborated_critical_count": 0
+ },
+ "cap_drops": {
+  "count": 0,
+  "by_category": {}
+ },
+ "telemetry": {
+  "phase_3": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 0,
+   "note": "promoted iter \u2014 findings supplied by the early shadow"
+  },
+  "step_2_5": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 5,
+   "webfetches": 0
+  },
+  "phase_4_x": {
+   "calls": 0,
+   "tokens": 0,
+   "wall_clock_s": 10
+  }
+ },
+ "devflow_reflection": [
+  "fix-delta gate (iter 1) clean at Critical/Important; its two Suggestions folded into this iteration (empty-arg rationale fixed; the pre-existing transcript_path_present-vs-unknown tension noted for follow-up, superseded in part by the jq-runnability attribution fix).",
+  "Early shadow fed this promoted iteration despite formally calibrating every candidate below the fix threshold \u2014 applied per Step 3 item 2's trivial-and-clearly-correct Suggestion rule and the user's fix-all directive.",
+  "over-grade calibration gate: three findings flagged (shapes 2/3), each with a recorded severity-calibrated evaluation; none auto-demoted without evidence."
+ ],
+ "shadow": {
+  "ran_at": "2026-07-13T03:40:00Z",
+  "reviewed_sha": "cc0dbc5a58c6c29fb5a21db0b7db8eea4e6c36c8",
+  "trigger": "convergence-time (tentative APPROVE WITH CAVEAT after Step 4.5 convergence)",
+  "verdict": "REJECT",
+  "coverage": "full",
+  "reviewers_dispatched": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "expected_reviewers": [
+   "devflow:code-reviewer",
+   "devflow:silent-failure-hunter",
+   "devflow:comment-analyzer",
+   "devflow:pr-test-analyzer",
+   "devflow:requesting-code-review"
+  ],
+  "reason": null,
+  "checklist_skipped": null,
+  "checklist_note": "51 shadow checklist items across 5 batches, manually deduped (deviation recorded), all PASS via lite + orchestrator-direct executed probes; final-pass reviewer independently ran the full suite (5779/0 at cc0dbc5)",
+  "phase3_findings": [
+   {
+    "agent": "devflow:comment-analyzer",
+    "severity": "Important",
+    "description": "stop-hook-probe.sh root-resolution comment false against HEAD: claims repo-root anchoring/subdirectory safety while code trusts payload cwd verbatim (self-contradicting diff)",
+    "defect_signature": {
+     "file": "scripts/stop-hook-probe.sh",
+     "line_range": [
+      63,
+      65
+     ],
+     "kind": "documented_falsehood"
+    },
+    "corroboration_count": 2,
+    "note": "substantively corroborated by silent-failure-hunter (same defect, filed logic_error [144,156])"
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Important (criticality 6)",
+    "description": "empty permission_denials array reads 'present' while count 0 reads 'absent' \u2014 carrier disagreement on a zero-denial run, untested",
+    "defect_signature": {
+     "file": "scripts/extract-execution-shape.sh",
+     "line_range": [
+      2021,
+      2035
+     ],
+     "kind": "test_gap"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion (LOW/MEDIUM)",
+    "description": "settings hook '|| echo launch failed' hardcodes the diagnosis; report the rc",
+    "defect_signature": {
+     "file": ".claude/settings.json",
+     "line_range": [
+      60,
+      63
+     ],
+     "kind": "other"
+    }
+   },
+   {
+    "agent": "devflow:silent-failure-hunter",
+    "severity": "Suggestion (LOW)",
+    "description": "_(none \u2014 execution file %s)_ placeholder blames the file for jq-side degradations",
+    "defect_signature": {
+     "file": "scripts/extract-execution-shape.sh",
+     "line_range": [
+      96,
+      108
+     ],
+     "kind": "other"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "cat stdin read is a non-preflight PATH tool feeding an emitted selection (fail-closed, needs rationale)",
+    "defect_signature": {
+     "file": "scripts/stop-hook-probe.sh",
+     "line_range": [
+      147,
+      147
+     ],
+     "kind": "style"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "CLAUDE_CONFIG_DIR=~/.claude-3 is owner-specific detail in the doc",
+    "defect_signature": {
+     "file": "docs/execution-file-shape.md",
+     "line_range": [
+      516,
+      517
+     ],
+     "kind": "style"
+    }
+   },
+   {
+    "agent": "devflow:requesting-code-review",
+    "severity": "Suggestion",
+    "description": "hook-probe marker read's workspace-root cwd assumption implicit",
+    "defect_signature": {
+     "file": ".github/workflows/matcher-probe.yml",
+     "line_range": [
+      232,
+      244
+     ],
+     "kind": "comment_drift"
+    }
+   },
+   {
+    "agent": "devflow:pr-test-analyzer",
+    "severity": "Suggestion",
+    "description": "describe-hook-probe no-arg stdout/breadcrumb unasserted; transcript-is-directory unpinned; observed.txt format not coupled to emitter",
+    "defect_signature": {
+     "file": "lib/test/run.sh",
+     "line_range": null,
+     "kind": "test_gap"
+    }
+   }
+  ],
+  "phase2_fails": [],
+  "comparison": {
+   "shadow_total": 8,
+   "overlap_with_iter_N": 0,
+   "new": 8,
+   "new_critical": 0,
+   "new_important": 2
+  },
+  "promoted_to_iter_next": true,
+  "note": "outcome 2: the documented_falsehood is a self-contradicting-diff carve-out (non-demotable REJECT driver \u2014 over-grade gate does not apply to false-against-HEAD artifacts); promoted into iteration 3, all 8 findings fixed there (commit 1f4b105); comment-analyzer's usage-row Evidence-cell labeling suggestion (PLAUSIBLE) deferred \u2014 the caveat is already stated in-cell"
+ }
+}

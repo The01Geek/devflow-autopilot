@@ -1,0 +1,109 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-09T17:10:00Z",
+  "fix_commit_sha": "cb2090a0337ae1b2400d1abf3c384164c497f377",
+  "fix_files": ["lib/test/run.sh", "lib/test/test_python_scripts.py"],
+  "loop_role": "promoted",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The resume-arm absence pin — guarding THE load-bearing invariant (never flip on the green resume path, which would disarm the resumed run's backstop) — keyed its awk range on literal 12-space `resume)` / 14-space `;;`. On any reindent the range never opens, awk prints nothing, and the absence check reports PASS with the regression present. Proven by mutation.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4462, 4464], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "devflow.yml's CAUSE-derivation branch is neither pinned nor tested.",
+      "defect_signature": {"file": ".github/workflows/devflow.yml", "line_range": [788, 795], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "delta-review:devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The `! grep -q \"'failed':\"` pin guarding the AC \"Failed remains absent from _STATUS_TO_PROGRESS_PHASE\" is evaded by a double-quoted `\"failed\":` key, and the whole suite stays GREEN with that regression present (the behavioral note-nesting test's fixture has no Review row, so a failed->'Review' mapping falls through to the same last-ticked fallback). The grep pin was the only guard, and it was evadable.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4222, 4223], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "delta-review:devflow:requesting-code-review",
+      "severity": "Important",
+      "description": "Filed the test_python_scripts.py comment's rationale as a documented_falsehood, asserting the behavioral note-nesting test WOULD catch a failed->'Review' mapping.",
+      "defect_signature": {"file": "lib/test/test_python_scripts.py", "line_range": [2776, 2779], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "severity-calibrated"
+    },
+    {
+      "agent": "delta-review:devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "_resume_arm_body's flat awk range would close at the first `;;` of a NESTED case inside the resume arm, re-opening the fail-open. Not reachable today (the arm is flat).",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4426, 4436], "kind": "test_gap"},
+      "corroboration_count": 2,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "T-1", "decision": "applied", "commit": "61158b592b0e47adb9f25b1f876ed2f9c7593c45"},
+    {"finding_id": "T-2", "decision": "applied", "commit": "61158b592b0e47adb9f25b1f876ed2f9c7593c45"},
+    {"finding_id": "T-3", "decision": "applied", "commit": "cb2090a0337ae1b2400d1abf3c384164c497f377"},
+    {
+      "finding_id": "T-4",
+      "decision": "severity-calibrated",
+      "source_file": "lib/test/test_python_scripts.py",
+      "claim_text": "the behavioral note-nesting test does not catch that either (its fixture has no Review row)",
+      "original_severity": "Important",
+      "calibrated_severity": "Suggestion",
+      "evidence": "The documented_falsehood grading fails its own discriminator (false-against-HEAD). Observable evidence: (a) BEFORE the semantic assertion existed, inserting `\"failed\": 'Review'` into _STATUS_TO_PROGRESS_PHASE left the ENTIRE suite green — so no existing behavioral test catches it; (b) comment-analyzer independently read the #356 note-nesting fixture at lib/test/run.sh:4149-4165 and confirmed its Progress rows are only Setup + Implement, no Review row; (c) code-reviewer independently verified the claim TRUE; (d) pr-test-analyzer's mutation matrix shows ONLY the new semantic assertion goes RED. The final-pass reviewer evaluated different fixtures in test_python_scripts.py and hypothetical tests ('the two fixtures a Failed note test WOULD naturally use'), not the test the comment names. Residual: the comment is ambiguous about which file's fixture -> a clarity Suggestion, surfaced for the human. Not edited, per the post-shadow-edit gate's rule that the shadow-reviewed commit is the deliverable."
+    },
+    {
+      "finding_id": "T-5",
+      "decision": "deferred",
+      "source_file": "lib/test/run.sh",
+      "claim_text": "_resume_arm_body's flat awk range would truncate at a nested case's first `;;`",
+      "skip_category": "uncategorized",
+      "evidence": "Corroborated by two delta-review reviewers, but unreachable against the shipped workflow: the resume) arm (devflow-implement.yml:852-869) contains no nested case and no `;;` in its body, verified by grep. A structural change that introduced one would need to re-verify the pin. Surfaced for the human rather than pre-emptively hardened against a construction that does not exist."
+    }
+  ],
+  "convergence_inputs": {"fixes_applied": 3, "fix_diff_lines": 27, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-09T17:05:00Z",
+    "reviewed_sha": "cb2090a0337ae1b2400d1abf3c384164c497f377",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 4, "overlap_with_iter_N": 0, "new": 4, "new_critical": 0, "new_important": 2},
+    "promoted_to_iter_next": false,
+    "trigger": "convergence-time (2377cd8), plus two bounded post-shadow delta-reviews over 2377cd8..61158b5 and 61158b5..cb2090a; reviewed_sha advanced to HEAD after each returned no confirmed new Critical/Important"
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0,  "tokens": 0,      "wall_clock_s": 6},
+    "phase_3":   {"calls": 0,  "tokens": 0,      "wall_clock_s": 0},
+    "step_2_5":  {"calls": 0,  "tokens": 0,      "wall_clock_s": 1, "webfetches": 0},
+    "step_2_6":  {"calls": 15, "tokens": 913000, "wall_clock_s": 1420},
+    "phase_4_x": {"calls": 0,  "tokens": 0,      "wall_clock_s": 3}
+  }
+}

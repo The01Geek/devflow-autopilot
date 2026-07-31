@@ -1,0 +1,193 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-13T18:40:00Z",
+  "fix_commit_sha": "7b1a4f0",
+  "iter_fix_base": "093c1b3",
+  "loop_role": "promoted",
+  "promoted_from": "iter-1 engine_self_modifying early shadow trigger (Decide outcome 2)",
+  "note": "Promoted iteration: skips Phase 1+2+3 (inputs are the early shadow's Phase-3 result); runs Step 2.5 -> Step 3 on the shadow's new findings.",
+  "fix_files": [
+    ".changeset/issue-458-stop-hook-trusted-source-floor.md",
+    ".github/workflows/devflow-runner.yml",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/detect-hook-closure-edges.py",
+    "scripts/harden-stop-hooks.sh"
+  ],
+  "shadow_findings_addressed": [
+    {
+      "id": "PT2",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "FP1 relevance gate + SF4 checked write not behaviorally driven (inline branch-selecting shell)",
+      "fix_decision": "applied",
+      "note": "extracted the gate decision into harden-stop-hooks.sh --wired-check (tested source of truth); workflow decides via the trusted helper, inline case is fallback only"
+    },
+    {
+      "id": "PT4",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "walker positive-control gaps: elif, source keyword, sh, exec .py, assign lib/.sh uncontrolled",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "PT1",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "Pass-2 non-neutralized entry stub branch untested",
+      "fix_decision": "applied",
+      "note": "severity-calibrated to Suggestion: the reached code is write_stub (fully tested); added scenario anyway"
+    },
+    {
+      "id": "SF-A",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "walker blind to variable-indirected source (DEP=$HERE/x.sh; . $DEP), undisclosed",
+      "fix_decision": "applied",
+      "note": "added assign_var_re for VAR=$DIR/name.sh + disclosed the fully-dynamic residual"
+    },
+    {
+      "id": "SF-B",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "walker cannot audit Python subprocess spawns in .py members, yet reports clean; undisclosed",
+      "fix_decision": "applied",
+      "note": "disclosed in docstring Known granularity limits (shell-syntax-only scope)"
+    },
+    {
+      "id": "SF-C",
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "symlink dest followed by cp/printf instead of displaced",
+      "fix_decision": "applied",
+      "note": "[ -L ] && rm -f before write in try_install_trusted + write_stub"
+    },
+    {
+      "id": "FP-S1",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "consumer stub-creation on base-ref fetch-failure not disclosed",
+      "fix_decision": "applied",
+      "note": "disclosed in docs + workflow comment (deliberate fail-closed-over-consumer-fidelity trade)"
+    },
+    {
+      "id": "FP-S2",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "workflow ENTRY_TARGETS not cross-pinned to helper HOOK_ENTRY_TARGETS",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "FP-S3",
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "no set-equality pin: entries u sourced u exec == HOOK_TARGETS",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "CA-S",
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "'walks transitively' reads as runtime recursion; it is inductive per-member",
+      "fix_decision": "applied"
+    },
+    {
+      "id": "PT5",
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "UNREADABLE tested only for missing-file, not directory/permission",
+      "fix_decision": "applied",
+      "note": "added directory-member (IsADirectoryError) variant"
+    }
+  ],
+  "over_grade_calibration": "PT1 (Pass-2 entry stub, crit 6) calibrated to Suggestion — the untested arm routes to write_stub which is fully exercised; fixed anyway (cheap). No finding auto-demoted; all recorded and addressed.",
+  "fix_decisions": [
+    {
+      "finding_id": "PT2",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "PT4",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "PT1",
+      "decision": "severity-calibrated",
+      "source_file": "scripts/harden-stop-hooks.sh",
+      "claim_text": "Pass-2 non-neutralized entry stub branch untested",
+      "original_severity": "Important",
+      "calibrated_severity": "suggestion",
+      "evidence": "over-grade shape 1: the untested arm reaches write_stub, which S4/S5/D exercise; a regression could not install a PR-head copy there (write_stub only writes a stub). Fixed anyway with a dedicated scenario."
+    },
+    {
+      "finding_id": "SF-A",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "SF-B",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "SF-C",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "FP-S1",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "FP-S2",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "FP-S3",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "CA-S",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    },
+    {
+      "finding_id": "PT5",
+      "decision": "applied",
+      "commit": "7b1a4f0"
+    }
+  ],
+  "verification_evidence": {
+    "command": "lib/test/run.sh",
+    "result": "pass",
+    "duration_s": 215,
+    "detail": "6015 passed, 0 failed post-fix; shellcheck + ruff clean; --wired-check + symlink + Pass-2 + coupling assertions all PASS"
+  },
+  "convergence_inputs": {
+    "fixes_applied": 11,
+    "critical_important_code_fixes": 1,
+    "fix_diff_lines_code_only": 24,
+    "new_corroborated_critical_count": 0
+  },
+  "telemetry": {
+    "step_2_5": {
+      "calls": 0
+    },
+    "phase_3": {
+      "calls": 0,
+      "note": "promoted iter — no Phase 1/2/3"
+    },
+    "step_3_5": {
+      "calls": 1
+    }
+  },
+  "shadow": {
+    "shadow_synthesized": true,
+    "promoted_to_iter_next": true
+  }
+}

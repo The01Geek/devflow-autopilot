@@ -1,0 +1,147 @@
+{
+  "iter": 2,
+  "started_at": "2026-07-09T16:20:00Z",
+  "fix_commit_sha": "622dc440361a9e9915350dbfcaf8b25ba6b01a5a",
+  "fix_files": [
+    ".changeset/issue-356-died-status-flip.md",
+    "docs/DEVFLOW_SYSTEM_OVERVIEW.md",
+    "lib/test/run.sh",
+    "scripts/flip-review-progress-failed.sh",
+    "scripts/workpad.py"
+  ],
+  "loop_role": "promoted",
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "checklist": [],
+  "phase3_dispatched": [],
+  "phase3_findings": [
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "docs/DEVFLOW_SYSTEM_OVERVIEW.md described devflow.yml's flip step as keyed on steps.claude.outcome failure|cancelled while the shipped guard carries a third disjunct (steps.engine.outputs.is_error == 'true') that the same bullet's opening sentence enumerates. A diff-added doc line false against HEAD.",
+      "defect_signature": {"file": "docs/DEVFLOW_SYSTEM_OVERVIEW.md", "line_range": [490, 490], "kind": "documented_falsehood"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Important",
+      "description": "flip-review-progress-failed.sh discarded workpad.py's stderr via 2>/dev/null, so the read-failure breadcrumb named the arm but not the underlying gh cause (403 token scope vs rate limit vs 5xx).",
+      "defect_signature": {"file": "scripts/flip-review-progress-failed.sh", "line_range": [82, 93], "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:silent-failure-hunter",
+      "severity": "Suggestion",
+      "description": "Empty-PR and empty-marker converged on one shared usage breadcrumb; the empty-PR path is reachable from finalize_check's pr_number output.",
+      "defect_signature": {"file": "scripts/flip-review-progress-failed.sh", "line_range": [50, 52], "kind": "other"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Important",
+      "description": "The two 'wires the helper' pins grep only the filename, which also appears on the FLIP_HELPER= path-assignment lines — so deleting the actual `bash \"$FLIP_HELPER\"` invocation in either workflow left every pin GREEN, gutting the flip undetected.",
+      "defect_signature": {"file": "lib/test/run.sh", "line_range": [4380, 4385], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The helper's NOSTATUS arm is untested and the '**Status:** 🚀 Reviewing' seed-shape coupling with skills/review/SKILL.md is unpinned; a seed drift would route every flip to the NOSTATUS no-op while all pins stayed green.",
+      "defect_signature": {"file": "scripts/flip-review-progress-failed.sh", "line_range": [899, 932], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:pr-test-analyzer",
+      "severity": "Suggestion",
+      "description": "The implement-side flip_to_failed guard has no behavioral coverage (YAML-embedded shell cannot execute in a bash suite); only static pins cover it.",
+      "defect_signature": {"file": ".github/workflows/devflow-implement.yml", "line_range": [748, 758], "kind": "test_gap"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "deferred"
+    },
+    {
+      "agent": "devflow:comment-analyzer",
+      "severity": "Suggestion",
+      "description": "Changeset prose 'on every fail-loud exit' reads over-broad in isolation; the schema states the precise interim-guarded form.",
+      "defect_signature": {"file": ".changeset/issue-356-died-status-flip.md", "line_range": [16, 16], "kind": "style"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "devflow:requesting-code-review",
+      "severity": "Suggestion",
+      "description": "_progress_phase_for_status docstring's unmapped-status example named only (Blocked); Failed is now a second unmapped terminal status.",
+      "defect_signature": {"file": "scripts/workpad.py", "line_range": [650, 652], "kind": "comment_drift"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    },
+    {
+      "agent": "fix-delta-gate",
+      "severity": "Important",
+      "description": "bash's ${c: -300} yields the EMPTY string when the string is shorter than 300 (zsh clamps, bash does not), so the Cause: breadcrumb was blank for every realistic short gh error — the exact messages it exists to surface. The tests asserted only the arm name, never the cause content.",
+      "defect_signature": {"file": "scripts/flip-review-progress-failed.sh", "line_range": [96, 100], "kind": "logic_error"},
+      "corroboration_count": 1,
+      "step25_classification": "codebase",
+      "fix_decision": "applied"
+    }
+  ],
+  "fix_decisions": [
+    {"finding_id": "S-1", "decision": "severity-calibrated", "source_file": ".github/workflows/devflow.yml", "claim_text": "devflow.yml flip step misses the engine is_error arm", "original_severity": "Suggestion", "calibrated_severity": "Important", "evidence": "Calibrated UP: engine_is_error is parsed AFTER the claude step (devflow-runner.yml:600-632), so a step can exit success with is_error=true; the arm is reachable and the issue's Desired Behavior names it. Fail-open coverage hole in a guard this diff introduced -> park-calibration shape 1 forbids parking."},
+    {"finding_id": "S-1", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-2", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-3", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-4", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-5", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-6", "decision": "deferred", "source_file": ".github/workflows/devflow-implement.yml", "claim_text": "the implement-side flip_to_failed guard is verified only by static pins, never executed", "skip_category": "uncategorized", "evidence": "Accepted residual: YAML-embedded shell cannot execute in the bash suite. Mitigated — the static pins quote the guard's exact text (CLASS=interim, FAIL=1), so an inversion or deletion goes RED; and the resume-arm absence pin was hardened in iteration 3 to be indentation-agnostic with a positive control. Extracting the guard into a testable helper is a separate refactor."},
+    {"finding_id": "S-7", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "S-8", "decision": "applied", "commit": "892f7b36c1852f3dd3a76c61b6cbd8eb4d63d439"},
+    {"finding_id": "G-1", "decision": "applied", "commit": "622dc440361a9e9915350dbfcaf8b25ba6b01a5a"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 8,
+    "fix_diff_lines": 28,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "shadow": {
+    "ran_at": "2026-07-09T16:05:00Z",
+    "reviewed_sha": "76796b3ab928f17730a35ef4f4a5684924b9300a",
+    "verdict": "REJECT",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 9, "overlap_with_iter_N": 0, "new": 9, "new_critical": 0, "new_important": 3},
+    "promoted_to_iter_next": true,
+    "trigger": "early (engine_self_modifying, after iteration 1)"
+  },
+  "telemetry": {
+    "phase_0":   {"calls": 0,  "tokens": 0,      "wall_clock_s": 8},
+    "phase_1":   {"calls": 2,  "tokens": 213278, "wall_clock_s": 344},
+    "phase_3":   {"calls": 0,  "tokens": 0,      "wall_clock_s": 0},
+    "step_2_5":  {"calls": 0,  "tokens": 0,      "wall_clock_s": 2, "webfetches": 0},
+    "step_2_6":  {"calls": 5,  "tokens": 566331, "wall_clock_s": 594},
+    "step_3_5":  {"calls": 2,  "tokens": 192883, "wall_clock_s": 861},
+    "phase_4_x": {"calls": 0,  "tokens": 0,      "wall_clock_s": 4}
+  }
+}

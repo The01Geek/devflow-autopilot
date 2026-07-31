@@ -1,0 +1,34 @@
+{
+  "iter": 3,
+  "started_at": "2026-07-10T05:30:00Z",
+  "fix_commit_sha": "2418743",
+  "fix_files": ["lib/test/run.sh", ".github/workflows/devflow-review.yml"],
+  "loop_role": "promoted",
+  "checklist": [],
+  "phase3_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+  "diff_profile": {"small_diff": true, "config_only": false, "has_new_types": false, "engine_self_modifying": true, "checklist_skipped": null},
+  "phase3_findings": [
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "job-placement not pinned (from iter-2 reshadow)", "defect_signature": {"file": "lib/test/run.sh", "line_range": [20788, 20807], "kind": "vacuous_guard_job_placement"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-I1", "decision": "applied", "commit": "2418743"},
+    {"finding_id": "F-enum-comment", "decision": "applied", "commit": "2418743"}
+  ],
+  "convergence_inputs": {"fixes_applied": 0, "fix_diff_lines": 0, "new_corroborated_critical_count": 0},
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {"step_2_5": {"calls": 0, "tokens": 0, "wall_clock_s": 3}, "step_2_6": {"calls": 6, "tokens": 340000, "wall_clock_s": 320}},
+  "shadow": {
+    "ran_at": "2026-07-10T05:45:00Z",
+    "reviewed_sha": "24187438cb59065a088864d0420e93ef748af868",
+    "verdict": "APPROVE",
+    "coverage": "full",
+    "reviewers_dispatched": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "expected_reviewers": ["devflow:code-reviewer", "devflow:silent-failure-hunter", "devflow:comment-analyzer", "devflow:pr-test-analyzer", "devflow:requesting-code-review"],
+    "reason": null,
+    "checklist_skipped": null,
+    "phase3_findings": [],
+    "phase2_fails": [],
+    "comparison": {"shadow_total": 6, "overlap_with_iter_3": 6, "new": 0, "new_critical": 0, "new_important": 0},
+    "promoted_to_iter_next": false
+  }
+}

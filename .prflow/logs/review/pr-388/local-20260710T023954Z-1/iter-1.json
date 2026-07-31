@@ -1,0 +1,85 @@
+{
+  "iter": 1,
+  "started_at": "2026-07-10T02:39:54Z",
+  "fix_commit_sha": "015d97e77f15a03a53668a8429aea210eec9ef5d",
+  "fix_files": ["lib/test/run.sh"],
+  "loop_role": "fix",
+  "reviewed_base_sha": "39948e22fe79b4f093188b5cae3891388fd43b08",
+  "reviewed_head_sha_pre_fix": "0f5366bda4c183428a5c973fbf329a3cc2247d49",
+  "fix_severity_threshold": "important",
+  "max_iterations": 5,
+  "checklist": [
+    {"id": "VC-L1", "claim": "id-call pin literal (with --marker and stderr redirect) occurs exactly once in skills/review/SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:skill-review:id-call-marker-pin-literal-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L2", "claim": "#356 marker seed-line pin + red-on-removal companion present in lib/test/run.sh", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:356-seed-line-pins-exist", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L3", "claim": "new S3-soundness assertion name present exactly once in lib/test/run.sh", "file": "lib/test/run.sh", "verification_mode": "lite", "claim_signature": "api_contract:run.sh:384-marker-pin-assertion-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L4", "claim": "S2 unreadable breadcrumb literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:skill-review:distinct-errno-breadcrumbs-13", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L5", "claim": "S2 missing breadcrumb literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:skill-review:distinct-errno-breadcrumbs-2", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L6", "claim": "#284 reconciled elif discriminator literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "dependency_interaction:run.sh:284-pin-reconciled", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L7", "claim": "S1 case pattern present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:skill-review:s1-pattern-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L8", "claim": "S2 readable-path precheck literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:skill-review:s2-precheck-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L9", "claim": "AC4 failure-arm literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "issue_acceptance:skill-review:failure-arm-surfacing", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L10", "claim": "create-arm breadcrumb literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:skill-review:create-breadcrumb-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L11", "claim": "S1 non-numeric breadcrumb literal present once in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "api_contract:skill-review:s1-breadcrumb-present", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-L12", "claim": "create stderr capture file distinct from id capture file in SKILL.md", "file": "skills/review/SKILL.md", "verification_mode": "lite", "claim_signature": "data_format_assumption:skill-review:distinct-capture-files", "verdict": "PASS", "evidence": "grep -cF = 1", "reused_from_iter_prev": false},
+    {"id": "VC-A1", "claim": "id subcommand declares issue as type=int (argparse exits 2 on non-numeric)", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:id-issue-type-int-argparse-exit-2", "verdict": "PASS", "evidence": "workpad.py:1703 s.add_argument('issue', type=int)", "reused_from_iter_prev": false},
+    {"id": "VC-A2", "claim": "cmd_id clean-absence exit is silent sys.exit(2), no stderr write", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:cmd-id-silent-exit-2", "verdict": "PASS", "evidence": "workpad.py:300-311; only stderr writes are on _fail error branches", "reused_from_iter_prev": false},
+    {"id": "VC-A3", "claim": "_workpad_marker short-circuits on non-empty explicit --marker before config read; empty falls through via (explicit or '').strip()", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "dependency_interaction:workpad.py:marker-short-circuit-nonempty-explicit", "verdict": "PASS", "evidence": "workpad.py:175-177", "reused_from_iter_prev": false},
+    {"id": "VC-A4", "claim": "id subparser declares --marker optional arg", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "api_contract:workpad.py:id-marker-arg", "verdict": "PASS", "evidence": "workpad.py:1704", "reused_from_iter_prev": false},
+    {"id": "VC-A5", "claim": "create takes <issue> <body_file>, no --marker", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "api_contract:workpad.py:create-signature", "verdict": "PASS", "evidence": "workpad.py:1726-1729", "reused_from_iter_prev": false},
+    {"id": "VC-A6", "claim": "universal 'rc 2 with non-empty stderr is never a clean scan' holds: _run pipes gh stderr; no stderr write reachable on the all-success absent path", "file": "scripts/workpad.py", "verification_mode": "agent", "claim_signature": "absolute_claim:workpad.py:rc2-silent-universal", "verdict": "PASS", "evidence": "workpad.py:92-111,152-158,252-311; stderr=subprocess.PIPE on every gh call", "reused_from_iter_prev": false},
+    {"id": "VC-A7", "claim": "all eight pre-existing #384 pins intact; S2/S3 pins anchor disjoint SKILL.md lines (AC5 independence)", "file": "lib/test/run.sh", "verification_mode": "agent", "claim_signature": "api_contract:run.sh:384-preexisting-pins-intact", "verdict": "PASS", "evidence": "run.sh:1108-1135 vs SKILL.md:110,118", "reused_from_iter_prev": false},
+    {"id": "VC-A8", "claim": "S1 case glob catches every value argparse type=int rejects (edge inputs: sign, whitespace, underscore, empty)", "file": "skills/review/SKILL.md", "verification_mode": "agent", "claim_signature": "issue_acceptance:skill-review:s1-glob-superset-of-int-rejects", "verdict": "PASS", "evidence": "glob rejects +1/-1/' 1'/1_0 which int() partially accepts — over-inclusive (fail-closed), never under-inclusive; PR numbers are bare digits", "reused_from_iter_prev": false},
+    {"id": "VC-A9", "claim": "S2 [ -e ] split maps to python3's [Errno 13]/[Errno 2]; dangling symlink → -e false → [Errno 2] matches python3's ENOENT", "file": "skills/review/SKILL.md", "verification_mode": "agent", "claim_signature": "data_format_assumption:skill-review:errno-split", "verdict": "PASS", "evidence": "verified with local probes", "reused_from_iter_prev": false},
+    {"id": "VC-A10", "claim": "changeset frontmatter valid under consolidate-changesets.py (bump: patch, type: Fixed in CANONICAL_TYPES)", "file": ".changeset/issue-384-review-seed-rc2-screen.md", "verification_mode": "agent", "claim_signature": "api_contract:changeset:frontmatter-valid", "verdict": "PASS", "evidence": "consolidate-changesets.py:52", "reused_from_iter_prev": false}
+  ],
+  "phase3_dispatched": [
+    "devflow:code-reviewer",
+    "devflow:silent-failure-hunter",
+    "devflow:comment-analyzer",
+    "devflow:pr-test-analyzer",
+    "devflow:requesting-code-review"
+  ],
+  "diff_profile": {
+    "small_diff": false,
+    "config_only": false,
+    "has_new_types": false,
+    "engine_self_modifying": true,
+    "checklist_skipped": null
+  },
+  "phase3_findings": [
+    {"agent": "devflow:comment-analyzer", "severity": "Important", "description": "Diff-added comment in run.sh says the '#356 marker:' seed-line pins are 'above' the #384 block; they sit at ~4902, below it — false against HEAD (substance true, direction false). Self-contradicting-diff carve-out.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1143, 1144], "kind": "documented_falsehood"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "case-statement subject unpinned: S1 pattern pin anchors only the glob arm; a refactor detaching ''|*[!0-9]*) from $PR_NUMBER passes every pin.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1095, 1105], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Important", "description": "create call's stderr capture redirect (2>/tmp/devflow-rv-create.err) unpinned; dropping it alone leaves all pins green with a degraded diagnostic.", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1119, 1122], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "applied"},
+    {"agent": "devflow:comment-analyzer", "severity": "Suggestion", "description": "python3-exits-2 framing assumes the python3-by-path invocation form; direct exec of a missing/unreadable script yields 127/126. True of python3 itself, guard sound both ways — clarity note.", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [74, 76], "kind": "comment_drift"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:silent-failure-hunter", "severity": "Suggestion", "description": "Fixed shared-/tmp capture paths (/tmp/devflow-rv-id.err, /tmp/devflow-rv-create.err, /tmp/review-wp.md) — cross-run/multi-user collision class; pre-existing pattern the diff extends by one path.", "defect_signature": {"file": "skills/review/SKILL.md", "line_range": [125, 127], "kind": "other"}, "corroboration_count": 2, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "No ordering assertions between S1/S2 arms and the id call (static presence pins cannot assert order).", "defect_signature": {"file": "lib/test/run.sh", "line_range": [1095, 1145], "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"},
+    {"agent": "devflow:pr-test-analyzer", "severity": "Suggestion", "description": "No bash -n syntax validation of the fenced SKILL.md snippet (repo-wide gap, not specific to this PR).", "defect_signature": {"file": "lib/test/run.sh", "line_range": null, "kind": "test_gap"}, "corroboration_count": 1, "step25_classification": "codebase", "fix_decision": "deferred"}
+  ],
+  "fix_decisions": [
+    {"finding_id": "F-1", "decision": "applied", "commit": "015d97e77f15a03a53668a8429aea210eec9ef5d", "source_file": "lib/test/run.sh", "claim_text": "'#356 marker:' pins located 'above' — false against HEAD", "evidence": "reworded to 'elsewhere in this suite' (direction-free); self-contradicting-diff carve-out REJECT driver"},
+    {"finding_id": "F-2", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "case-statement subject unpinned", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 3 (uncorroborated single-source pr-test-analyzer, no Phase-2 FAIL); fail direction if regressed: argparse rc-2 writes usage to stderr, S3 discriminator routes to the failure arm with a breadcrumb — fail-closed, diagnostic-independence degradation only. Applied anyway (trivially correct one-line pin)."},
+    {"finding_id": "F-2", "decision": "applied", "commit": "015d97e77f15a03a53668a8429aea210eec9ef5d", "source_file": "lib/test/run.sh", "claim_text": "case-statement subject unpinned", "evidence": "assert_pin_unique on 'case \"$PR_NUMBER\" in' added; mutation-checked RED"},
+    {"finding_id": "F-3", "decision": "severity-calibrated", "source_file": "lib/test/run.sh", "claim_text": "create stderr redirect unpinned", "original_severity": "Important", "calibrated_severity": "Suggestion", "evidence": "over-grade shape 3 (uncorroborated single-source pr-test-analyzer); fail direction if regressed: create failure still fires its ::warning:: breadcrumb, only the appended diagnostic is empty (cat 2>/dev/null of a missing file) — fail-closed, diagnostic-only impact. Applied anyway (trivially correct one-line pin)."},
+    {"finding_id": "F-3", "decision": "applied", "commit": "015d97e77f15a03a53668a8429aea210eec9ef5d", "source_file": "lib/test/run.sh", "claim_text": "create stderr redirect unpinned", "evidence": "assert_pin_unique on the create-call literal incl. redirect added; mutation-checked RED"},
+    {"finding_id": "F-4", "decision": "deferred", "source_file": "skills/review/SKILL.md", "claim_text": "python3-exits-2 framing assumes python3-by-path invocation form", "skip_category": "uncategorized", "evidence": "true-but-imprecise clarity note (both agents graded non-falsehood); content shipped in the already-cloud-approved 58a8c8a commits; a SKILL.md wording tweak requires the writing-skills RED/GREEN pass — not worth a fix-loop iteration"},
+    {"finding_id": "F-5", "decision": "deferred", "source_file": "skills/review/SKILL.md", "claim_text": "fixed shared-/tmp capture paths (multi-user collision class)", "skip_category": "uncategorized", "evidence": "pre-existing pattern class (/tmp/devflow-rv-id.err and /tmp/review-wp.md predate this PR); the right fix is one coordinated mktemp migration of the whole block, per the final-pass reviewer — a candidate follow-up issue, not an in-loop edit"},
+    {"finding_id": "F-6", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "no ordering assertions between screens", "skip_category": "uncategorized", "evidence": "rating 3; realistic-regression likelihood low per the raising agent; static pins are the repo convention for SKILL.md prose"},
+    {"finding_id": "F-7", "decision": "deferred", "source_file": "lib/test/run.sh", "claim_text": "no bash -n validation of fenced SKILL.md snippets", "skip_category": "uncategorized", "evidence": "repo-wide gap explicitly noted as not specific to this PR by the raising agent"}
+  ],
+  "convergence_inputs": {
+    "fixes_applied": 3,
+    "fix_diff_lines": 13,
+    "new_corroborated_critical_count": 0
+  },
+  "cap_drops": {"count": 0, "by_category": {}},
+  "telemetry": {
+    "phase_0":   {"calls": 0, "tokens": 0, "wall_clock_s": 40},
+    "phase_0_5": {"calls": 0, "tokens": 0, "wall_clock_s": 5},
+    "phase_1":   {"calls": 1, "tokens": 0, "wall_clock_s": 120},
+    "phase_1_5": {"calls": 0, "tokens": 0, "wall_clock_s": 0},
+    "phase_2":   {"calls": 3, "tokens": 90276, "wall_clock_s": 120},
+    "phase_3":   {"calls": 5, "tokens": 301743, "wall_clock_s": 345},
+    "step_2_5":  {"calls": 0, "tokens": 0, "wall_clock_s": 5, "webfetches": 0},
+    "phase_4_x": {"calls": 0, "tokens": 0, "wall_clock_s": 30}
+  }
+}

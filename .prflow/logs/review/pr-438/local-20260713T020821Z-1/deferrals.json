@@ -1,0 +1,22 @@
+{
+ "schema_version": 1,
+ "pr_branch": "issue-437-pin-what-the-harness-actually-reports-capture-the",
+ "base_branch": "main",
+ "generated_at": "2026-07-13T04:35:00Z",
+ "deferrals": [
+  {
+   "agent": "devflow:comment-analyzer",
+   "severity": "Suggestion",
+   "file": "docs/execution-file-shape.md",
+   "line_range": [
+    47,
+    47
+   ],
+   "symbol": "",
+   "kind": "comment_drift",
+   "summary": "cloud per-message wording rests on parentage the redacted artifact cannot prove",
+   "category": "claim-quality",
+   "explanation": "the prior formal review (run 29217200250) prescribed exactly 'per-message tokens' to align changeset/efficiency-trace wording; the usage-row parenthetical and 'What it does NOT settle' carry the attribution caveat"
+  }
+ ]
+}

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "pr_branch": "issue-356-mark-run-status-died",
+  "base_branch": "main",
+  "generated_at": "2026-07-10T01:10:00Z",
+  "deferrals": [
+    {
+      "agent": "orchestrator",
+      "severity": "Suggestion",
+      "file": "docs/implement-skill.md",
+      "line_range": [
+        268,
+        268
+      ],
+      "symbol": "",
+      "kind": "documented_falsehood",
+      "summary": "line 268's 'no new status value' parenthetical is imprecise about workpad.py's vocabulary",
+      "category": "out-of-scope",
+      "explanation": "see workpad fix_decisions evidence"
+    },
+    {
+      "agent": "orchestrator",
+      "severity": "Suggestion",
+      "file": "skills/review/SKILL.md",
+      "line_range": [
+        81,
+        86
+      ],
+      "symbol": "",
+      "kind": "documented_falsehood",
+      "summary": "the review skill's own workpad.py id rc-2 branch has the same interpreter-rc-2 hazard",
+      "category": "out-of-scope",
+      "explanation": "see workpad fix_decisions evidence"
+    },
+    {
+      "agent": "orchestrator",
+      "severity": "Suggestion",
+      "file": "lib/test/run.sh",
+      "line_range": [
+        7720,
+        7720
+      ],
+      "symbol": "",
+      "kind": "documented_falsehood",
+      "summary": "a scenario-5 comment enumerates the glyph strip set as (rocket/party/thumbsdown)",
+      "category": "out-of-scope",
+      "explanation": "see workpad fix_decisions evidence"
+    }
+  ]
+}
