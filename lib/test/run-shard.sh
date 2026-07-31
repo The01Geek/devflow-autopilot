@@ -11,9 +11,14 @@
 # captures the output, and writes a per-shard tally directory (via shard-tally.py)
 # for the aggregator to download and recombine.
 #
-# The two tiers, deduplicated so nothing is counted twice across shards:
-#   * the `monolith` shard runs run.sh with DEVFLOW_SKIP_SUITE_MODULES=1, i.e. every
-#     inline assertion EXCEPT the module tier;
+# The three tiers, deduplicated so nothing is counted twice across shards:
+#   * the `monolith` shard runs run.sh with DEVFLOW_SKIP_SUITE_MODULES=1 AND
+#     DEVFLOW_SKIP_PYTHON_POOL=1, i.e. every inline assertion EXCEPT the module tier
+#     and the pooled Python suites;
+#   * the `python-pool` shard runs those pooled Python suites — run.sh's own
+#     membership, driven by run-python-pool.sh — concurrently with the monolith
+#     instead of inside it, because the monolith measurably sat IDLE at the pool join
+#     waiting for them (lib/test/profile-suite.py);
 #   * each module shard runs `run-module.sh <id>` for the module ids in its group.
 # The union of every module group is exactly the registered module set — no module
 # is dropped (coverage is preserved), which lib/test/run.sh asserts against the
@@ -23,7 +28,7 @@
 #   bash lib/test/run-shard.sh <shard-name>     run a shard, write its tally dir
 #   bash lib/test/run-shard.sh --list-shards    print every shard name (matrix source)
 #   bash lib/test/run-shard.sh --modules-of S    print the module ids in shard S
-#                                                (empty for the monolith shard)
+#                                                (empty for the non-module shards)
 #
 # The tally directory is $DEVFLOW_SHARD_TALLY_DIR, defaulting to
 # .devflow/tmp/shard-tally/<shard>. Exit status is the shard's own pass/fail state.
@@ -34,14 +39,20 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 # ── Shard → work map (single source of truth) ────────────────────────────────
-# The monolith shard is the sentinel; every other shard names a space-separated
-# module-id group. Keep the union of the module groups equal to the registered
-# module set in scripts/workflow-flight-recorder-registry.json (asserted in run.sh).
-SHARD_NAMES="monolith modules-pin modules-large modules-rest"
+# `monolith` and `python-pool` are the two non-module sentinels (each owns an EMPTY
+# module group); every other shard names a space-separated module-id group. Keep the
+# union of the module groups equal to the registered module set in
+# scripts/workflow-flight-recorder-registry.json (asserted in run.sh).
+#
+# ORDER IS A COUPLED INVARIANT with .github/workflows/ci.yml's matrix list: run.sh
+# compares the two sequences, so a shard added here must be added there in the same
+# position (and vice versa) or the suite goes RED.
+SHARD_NAMES="monolith python-pool modules-pin modules-large modules-rest"
 
-_shard_modules() { # shard-name -> prints module ids (empty for monolith)
+_shard_modules() { # shard-name -> prints module ids (empty for the non-module shards)
   case "$1" in
     monolith)      printf '' ;;
+    python-pool)   printf '' ;;
     modules-pin)   printf '%s' 'harness-python-guards' ;;
     modules-large) printf '%s' 'retrospective-lifecycle review-trigger-helpers create-issue-contract review-stall-backstop' ;;
     modules-rest)  printf '%s' 'workflow-flight-recorder review-and-fix-contract capability-profiles regenerate-artifacts installer-wiring prompt-extension-reader experiment-records' ;;
@@ -90,20 +101,36 @@ shard_rc=0
 : > "$LOG_FILE"
 
 MODS="$(_shard_modules "$SHARD")"
-if [ -z "$MODS" ]; then
-  # Monolith shard: the whole suite minus the module tier (dedup) so it never
-  # re-runs the modules the module shards own.
-  TIER=monolith
-  printf 'run-shard.sh: monolith shard — bash lib/test/run.sh (DEVFLOW_SKIP_SUITE_MODULES=1)\n'
-  DEVFLOW_SKIP_SUITE_MODULES=1 bash "$SCRIPT_DIR/run.sh" >> "$LOG_FILE" 2>&1 || shard_rc=$?
-else
-  # Module shard: run each module in the group; any module failure fails the shard.
-  TIER=modules
-  for mid in $MODS; do
-    printf 'run-shard.sh: module %s — bash lib/test/run-module.sh %s\n' "$mid" "$mid"
-    bash "$SCRIPT_DIR/run-module.sh" "$mid" >> "$LOG_FILE" 2>&1 || shard_rc=1
-  done
-fi
+# Dispatch on the shard NAME, not on the emptiness of its module group: `monolith` and
+# `python-pool` both own an empty group, so an emptiness test alone would silently run
+# the whole monolith suite under the python-pool shard's name — double-counting every
+# inline assertion into the aggregate.
+case "$SHARD" in
+  monolith)
+    # The whole suite minus the module tier AND minus the pooled Python suites (dedup),
+    # so it never re-runs work the modules-* / python-pool shards own.
+    TIER=monolith
+    printf 'run-shard.sh: monolith shard — bash lib/test/run.sh (DEVFLOW_SKIP_SUITE_MODULES=1 DEVFLOW_SKIP_PYTHON_POOL=1)\n'
+    DEVFLOW_SKIP_SUITE_MODULES=1 DEVFLOW_SKIP_PYTHON_POOL=1 \
+      bash "$SCRIPT_DIR/run.sh" >> "$LOG_FILE" 2>&1 || shard_rc=$?
+    ;;
+  python-pool)
+    # The pooled Python suites run.sh skips under DEVFLOW_SKIP_PYTHON_POOL=1, over the
+    # shared membership in module-harness.sh. Emits the same summary.sh contract the
+    # monolith does, hence the same summary-parsing tier below under its own name.
+    TIER=python-pool
+    printf 'run-shard.sh: python-pool shard — bash lib/test/run-python-pool.sh\n'
+    bash "$SCRIPT_DIR/run-python-pool.sh" >> "$LOG_FILE" 2>&1 || shard_rc=$?
+    ;;
+  *)
+    # Module shard: run each module in the group; any module failure fails the shard.
+    TIER=modules
+    for mid in $MODS; do
+      printf 'run-shard.sh: module %s — bash lib/test/run-module.sh %s\n' "$mid" "$mid"
+      bash "$SCRIPT_DIR/run-module.sh" "$mid" >> "$LOG_FILE" 2>&1 || shard_rc=1
+    done
+    ;;
+esac
 
 # Echo the captured log so the shard job's own log carries the detail too.
 cat "$LOG_FILE" || true
