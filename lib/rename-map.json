@@ -61,7 +61,173 @@
       "telemetry-push.yml"
     ],
     "record_paths": ["learnings/", "logs/"],
-    "_comment": "record_paths are RELATIVE TO THE STATE DIRECTORY: they move with it, and their bytes are never rewritten (they are append-only history and frozen census snapshots, so an edit falsifies the record). Out of THIS issue's scope and tracked separately: the DEVFLOW_* environment variables (#1004) and the <!-- devflow:* --> comment markers, the DevFlow label and the devflow-telemetry branch (#1003)."
+
+    "env_identifiers": {
+      "freeze_version": 1,
+      "policy": "AN INVENTORY OF NAMES NOT TO RENAME. This block is NOT a rename table and must never be rendered, summarised or quoted as one. The consumer-facing DEVFLOW_* variables, secrets and environment overrides below are FROZEN under their DEVFLOW_ spelling: no PRFLOW_* read side exists anywhere in the tree, so each name is read under that spelling and only under that spelling. Renaming one does not move a setting -- it deletes it, and most of these delete it SILENTLY (each row's failure_visibility is the answer for that row; do not restate a count here, it rots the moment a row is added or its visibility is re-judged). Only a later tier that ships an actual dual read (PRFLOW_* preferred, DEVFLOW_* still accepted) can unfreeze a row, and it unfreezes it HERE, in the same change that ships the read.",
+      "criterion": {
+        "_comment": "An identifier is consumer-facing iff arm A1 or arm A2 selects it. Both arms are mechanical and are implemented by `lib/generate-env-freeze-advisory.py --derive`, which the tier1-rename-migration module runs against the live tree and reconciles with this block: a name the arms select that appears in neither `identifiers` nor `adjudicated_out` turns the suite RED, and so does a recorded name the arms no longer select. So a workflow that starts reading a new vars./secrets. name, or a doc that starts declaring a new operator override, cannot enter or leave the consumer surface without an adjudication recorded here.",
+        "A1": "Cloud channel -- the name appears as `secrets.<NAME>` or `vars.<NAME>` in a workflow install.sh ships. The consumer sets it in GitHub repository/organization settings; the tree can only read it.",
+        "A2": "Operator channel -- the name is read as an ambient environment variable (a `${NAME:-...}` / `${NAME:=...}` / `$NAME` / `os.environ` read) by a shipped `install.sh` / `scripts/` / `lib/` file AND is declared in a consumer-facing document. The consumer sets it in a shell profile or an install one-liner.",
+        "A2_doc_declaration_rationale": "The doc-declaration clause is what makes A2 select the OPERATOR surface rather than the harness. The read-and-never-internally-assigned mechanics alone select 25 names, almost all of them internal tuning knobs no consumer has ever been told about (DEVFLOW_REFRESH_*, DEVFLOW_TELEMETRY_MAX_*, DEVFLOW_GH_WRAPDIR, DEVFLOW_RECORDER_*, ...). An advisory that raised those to the same salience as DEVFLOW_APP_ID would bury the six names that actually matter. A name a consumer was never told to set cannot be a name a consumer renames.",
+        "never_assigned_internally": "A2's never-assigned-internally clause is applied as a RECORDED ADJUDICATION per candidate rather than as a third grep, because a single name can be internally supplied to one reader and operator-supplied to another. DEVFLOW_REF is exactly that: `.github/actions/vendor-plugin/action.yml` assigns it for vendor-slice.sh's fetch branch, while `install.sh` reads it from the operator's own environment. A blanket assignment grep would delete DEVFLOW_REF from the consumer surface on the strength of a producer that never reaches install.sh. Every candidate the arms select is therefore resolved into `identifiers` or `adjudicated_out`, with the deciding evidence written down.",
+        "shipped_workflows": ["devflow.yml", "devflow-implement.yml"],
+        "consumer_docs": ["README.md", "docs/install.md", "docs/cloud-setup.md"]
+      },
+      "pair_asymmetry": "The asymmetry inverts what a careful consumer would guess. Rename the SECRET alone and the mint step fails loudly -- you find out immediately. Rename the VARIABLE alone and nothing fails: the mint is gated on `vars.<NAME> != ''`, an unresolvable name reads exactly like `deliberately not configured`, so every job falls back to `steps.app-token.outputs.token || secrets.GITHUB_TOKEN` and the run goes GREEN under a degraded identity. Rename BOTH -- the natural thing to do, since they are one setting in the consumer's head -- and the variable's silent skip gates off the secret's loud guard, so the loud half never runs. The safe rename order is therefore the one nobody would guess, which is the reason this block exists.",
+      "identifiers": [
+        {
+          "name": "DEVFLOW_APP_ID",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository or organization variable",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Variables",
+          "read_as": "vars.DEVFLOW_APP_ID -- both the `if:` gate on every App-token mint and the mint step's own `client-id:`",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent feature loss, the largest blast radius here. Every mint gate reads `vars.DEVFLOW_APP_ID != ''`, so an unresolvable name turns every gate false and every consumer falls back to `steps.app-token.outputs.token || secrets.GITHUB_TOKEN`. The run stays green. What breaks is all downstream and none of it names the cause: pushes touching `.github/workflows/` are rejected with `refusing to allow a GitHub App to create or update workflow ... without workflows permission` (which reads as a missing App permission, and the App permission is fine); the credential refresher still reports `credential refresher started (detached)` while its empty-input arm writes `cannot mint` into a redirected log nobody reads, so long implement runs die on an expired token with no trace; and PR authorship and review attribution move to `github-actions[bot]`, which does not satisfy a branch-protection required-approval rule."
+        },
+        {
+          "name": "DEVFLOW_APP_PRIVATE_KEY",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository secret",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Secrets",
+          "read_as": "secrets.DEVFLOW_APP_PRIVATE_KEY, inside the mint step that `vars.DEVFLOW_APP_ID` gates",
+          "failure_visibility": "loud, but only while its paired variable still resolves",
+          "failure_mode": "The mint step fails loudly with an unusable private key -- provided `vars.DEVFLOW_APP_ID` still resolves and the step therefore runs at all. Rename the variable as well and the gate is already false, the mint never executes, and this loud guard is gated off: see `pair_asymmetry`."
+        },
+        {
+          "name": "DEVFLOW_REVIEWER_APP_ID",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository variable",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Variables",
+          "read_as": "vars.DEVFLOW_REVIEWER_APP_ID -- the gate that decides whether the separate read-only DevFlow-Reviewer App identity is used at all",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent identity reversion. This is the GATING half of the reviewer pair: unresolvable, the reviewer mint is skipped exactly as if you had chosen not to configure a reviewer App, and review attribution falls back to the default token. Nothing reports it, and a branch-protection rule that requires an approval from a non-`github-actions[bot]` identity silently stops being satisfiable."
+        },
+        {
+          "name": "DEVFLOW_REVIEWER_PRIVATE_KEY",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository secret",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Secrets",
+          "read_as": "secrets.DEVFLOW_REVIEWER_PRIVATE_KEY, inside the mint step that `vars.DEVFLOW_REVIEWER_APP_ID` gates",
+          "failure_visibility": "loud, but only while its paired variable still resolves",
+          "failure_mode": "The reviewer mint fails loudly with an unusable private key -- provided `vars.DEVFLOW_REVIEWER_APP_ID` still resolves. Rename the variable too and the gate is false, the mint is skipped, and the loud guard never runs: see `pair_asymmetry`."
+        },
+        {
+          "name": "DEVFLOW_PROVIDER_API_KEY",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository secret",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Secrets",
+          "read_as": "secrets.DEVFLOW_PROVIDER_API_KEY -- an explicit emptiness guard in the provider-routing step, and the `anthropic_api_key:` the action receives on the provider path",
+          "failure_visibility": "loud on the provider path; unread otherwise",
+          "failure_mode": "If a config section sets `provider`, the run refuses with an `::error::` naming DEVFLOW_PROVIDER_API_KEY -- the one cloud row that fails loudly on its own. If no section routes through a third-party provider the secret is never read, so a rename is invisible until the day you opt into provider routing, at which point the error names a secret you believe you have set."
+        },
+        {
+          "name": "DEVFLOW_RUNNER",
+          "arm": "A1",
+          "channel": "cloud",
+          "kind": "repository or organization variable",
+          "set_where": "GitHub -> Settings -> Secrets and variables -> Actions -> Variables",
+          "read_as": "runs-on: ${{ vars.DEVFLOW_RUNNER && (...) || 'ubuntu-latest' }} -- on every job of both shipped workflows",
+          "failure_visibility": "silent",
+          "severity": "highest",
+          "failure_mode": "SILENT RUNNER RELOCATION, and the highest-severity outcome in this table. Unresolvable, the expression takes its `|| 'ubuntu-latest'` arm and EVERY job silently moves to a GitHub-hosted runner. That same job carries `secrets.DEVFLOW_APP_PRIVATE_KEY` and `secrets.DEVFLOW_PROVIDER_API_KEY` in its environment -- so a consumer who self-hosts for network isolation or compliance has their GitHub App private key and their model-provider API key executed OUTSIDE the boundary they chose self-hosting for. Nothing errors, no job fails, and no log line names the cause; the only visible difference is the runner label in a page nobody re-reads after setup. Note the contrast with a MIS-SET value: a `DEVFLOW_RUNNER` that begins `[` but is not valid JSON fails loud at evaluation time. It is the name going missing, not the value being wrong, that is silent."
+        },
+        {
+          "name": "DEVFLOW_BASH",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable",
+          "set_where": "your shell profile, or the invocation that launches the runner",
+          "read_as": "honored at the invocation boundary (deliberately not a resolver -- a sourced resolver would itself need a chosen bash to run); `lib/preflight.sh` surfaces it in its `devflow-bash:` breadcrumb",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent reversion to whichever bash the host happens to select. On a healthy POSIX-bash host that is a no-op, so the rename looks successful; on the Windows host the override existed for, the shell helpers go back to running under whatever the launcher picks, and the preflight remedy naming WSL/Git Bash/MSYS2 bash returns."
+        },
+        {
+          "name": "DEVFLOW_GH",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable",
+          "set_where": "your shell profile",
+          "read_as": "`: \"${DEVFLOW_GH:=$(devflow_resolve_gh)}\"` in every gh-calling shell helper; a non-empty value wins outright and is never probed",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent PATH reversion, and the worst kind of silent: on a host where the probe already finds a working `gh` the rename changes nothing observable, so the consumer concludes it worked. On the Windows/WSL host the override existed for, it silently restores the shadowing-`gh` bug the override was added to route around -- a present-but-unrunnable `gh` shim is selected again, and every `gh` call degrades to its best-effort empty-result path."
+        },
+        {
+          "name": "DEVFLOW_JQ",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable",
+          "set_where": "your shell profile",
+          "read_as": "`: \"${DEVFLOW_JQ:=$(devflow_resolve_bin jq)}\"` in every jq-calling shell helper; a non-empty value wins outright and is never probed",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent PATH reversion, identical in shape to DEVFLOW_GH: a no-op on a host whose probe already resolves a working `jq`, so the rename appears to have worked, and a silent return of the shadowed-binary problem on the host that needed the override."
+        },
+        {
+          "name": "DEVFLOW_REF",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable (install-time)",
+          "set_where": "the install one-liner -- `DEVFLOW_REF=<tag> bash devflow-install.sh`",
+          "read_as": "`REF=\"${DEVFLOW_REF:-main}\"` in install.sh",
+          "dual_role": "Also an INTERNAL input: `.github/actions/vendor-plugin/action.yml` assigns DEVFLOW_REF for vendor-slice.sh's fetch branch, sourced from the consumer's `prflow_version`. That internal producer never reaches install.sh, so the name is consumer-facing here and internal there. It is not purely one or the other.",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent un-pin. Unresolvable, install.sh takes its `:-main` default and clones mutable `main` instead of the tag you named. The install succeeds, reports a version, and stamps `prflow_version` -- with a ref you did not choose. A consumer pinning a known-good release to avoid an upgrade gets the upgrade, and the only evidence is the version the installer echoes."
+        },
+        {
+          "name": "DEVFLOW_VENDOR",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable (install-time)",
+          "set_where": "the install one-liner -- `DEVFLOW_VENDOR=1 bash devflow-install.sh`",
+          "read_as": "`[ \"${DEVFLOW_VENDOR:-}\" = \"1\" ]` in install.sh",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent mode reversion to a thin install. The plugin tree stops being committed and is fetched at runtime instead, which is the opposite of what a consumer who set this wanted -- typically an air-gapped or supply-chain-pinned repository. The installer says `thin install: the plugin is fetched at runtime`, which is a truthful line that reads as normal output rather than as a setting having been lost."
+        },
+        {
+          "name": "DEVFLOW_DRY_RUN",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable (install-time)",
+          "set_where": "the install one-liner -- `DEVFLOW_DRY_RUN=1 bash devflow-install.sh`",
+          "read_as": "`[ \"${DEVFLOW_DRY_RUN:-}\" = \"1\" ]` in install.sh, which forces the preview mode request",
+          "failure_visibility": "silent, and the only row that WRITES as a result",
+          "failure_mode": "The only name here whose rename causes a WRITE. On a FIRST-TIME install the default mode is apply, so the preview you explicitly asked for silently becomes an apply and the installer writes to your repository. (On an existing install the default is already preview, so there the rename is a silent no-op.) The equivalent flag `--dry-run` is unaffected -- an unknown flag is rejected outright, which is exactly the loudness the environment channel lacks."
+        },
+        {
+          "name": "DEVFLOW_APPLY",
+          "arm": "A2",
+          "channel": "operator",
+          "kind": "environment variable (install-time)",
+          "set_where": "the install one-liner -- `DEVFLOW_APPLY=1 bash devflow-install.sh`",
+          "read_as": "`[ \"${DEVFLOW_APPLY:-}\" = \"1\" ]` in install.sh, which forces the apply mode request",
+          "failure_visibility": "silent",
+          "failure_mode": "Silent no-write on an upgrade. An existing install defaults to preview, so the upgrade you believe you applied only previewed: the repository is unchanged and keeps running the previous workflows and the previous pin. The run exits 0 and its last line is the ordinary dry-run notice. The equivalent `--apply` flag is unaffected."
+        }
+      ],
+      "adjudicated_out": [
+        {
+          "name": "DEVFLOW_PROMPT_EXTENSION_ROOT",
+          "selected_by": "A2 (read by scripts/load-prompt-extension.sh; declared in docs/install.md and docs/cloud-setup.md)",
+          "decided_by": "A2's never-assigned-internally clause",
+          "verdict": "OUT -- not consumer-facing",
+          "evidence": "Workflow-written and consumer-read-never: `.github/workflows/devflow-runner.yml` (and `matcher-probe.yml`) ASSIGN it, and the sole shipped reader consults it only on the branch those workflows drive. A consumer never sets it, so there is nothing for a consumer to rename. It appears in the docs precisely to explain that the automated review runner sets it -- which is the sentence a hand-drawn list mistakes for a declaration."
+        },
+        {
+          "name": "DEVFLOW_CONFIG_FILE",
+          "selected_by": "neither arm",
+          "decided_by": "A2's doc-declaration clause",
+          "verdict": "OUT -- not consumer-facing",
+          "evidence": "It satisfies A2's read mechanics (`lib/config-source.sh` reads `${DEVFLOW_CONFIG_FILE:-...}` and no non-test file assigns it) but is declared in NONE of the consumer-facing documents -- README.md, docs/install.md, docs/cloud-setup.md. It is a test and tooling seam that was never published as a consumer setting, so no consumer has been told to set it and none can rename it. This is the boundary case the doc-declaration clause exists to decide; recorded explicitly so a later reader sees a decision rather than an omission. If it is ever documented as a consumer override, that same change moves it into `identifiers`."
+        }
+      ]
+    },
+
+    "_comment": "record_paths are RELATIVE TO THE STATE DIRECTORY: they move with it, and their bytes are never rewritten (they are append-only history and frozen census snapshots, so an edit falsifies the record). env_identifiers is issue #1004's Tier 3 record -- an inventory of DEVFLOW_* names that are NOT renamed, never a rename table. Out of THIS issue's scope and tracked separately: the <!-- devflow:* --> comment markers, the DevFlow label and the devflow-telemetry branch (#1003)."
   },
 
   "retained_unshipped_workflows": [

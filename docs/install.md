@@ -61,6 +61,16 @@ bash scripts/provision-python3-shim.sh --apply
 
 It selects the first of `python3`/`py -3`/`python` reporting `>=3.11`, writes a `python3` that forwards all arguments and the exit code to it (never recursing), and prints a `devflow-python:` breadcrumb. Without `--apply` it prints exactly what it would do and writes nothing. It is idempotent — a no-op when a real `python3 >=3.11` already resolves — and refuses to write a shim if no `>=3.11` interpreter exists. `install.sh` surfaces this provisioner in plan-only mode on the clone-based install path, and `bash lib/preflight.sh` (which `/prflow:init` relays) points you here when it detects the no-`python3`/has-alternate state. macOS/Linux already ship a real `python3`, so this step is a no-op there.
 
+### Why the environment variables are still called `DEVFLOW_*`
+
+`DEVFLOW_GH`, `DEVFLOW_JQ`, `DEVFLOW_BASH` and the `install.sh` overrides below kept their
+names through the DevFlow → PRFlow rename, and they are **frozen** under that spelling:
+nothing PRFlow ships reads a `PRFLOW_*` equivalent. Do not rename them. Each one resolves
+through a `${NAME:-…}`-style default, so a renamed name is indistinguishable from an unset
+one — the override silently stops applying, which on a healthy host looks exactly like
+success. The full inventory, with what renaming each one actually does, is in
+[Why these settings are still called `DEVFLOW_*`](cloud-setup.md#why-these-settings-are-still-called-devflow_--and-what-happens-if-you-rename-them).
+
 ### Windows: resolving `gh`
 
 On Windows (WSL-bash or Git Bash), `PATH` can place a **non-executable `gh`** — for example a Python-provided `gh` script carrying a Windows shebang — ahead of the real GitHub CLI (`gh.exe`). A bare `gh` then resolves to that shim, which fails with `cannot execute: required file not found`, so every PRFlow helper that shells out to `gh` breaks even though `gh` works from PowerShell.

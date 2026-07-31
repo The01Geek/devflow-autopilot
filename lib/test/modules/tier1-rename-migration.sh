@@ -730,3 +730,289 @@ for _t1_wf in devflow devflow-implement; do
   assert_eq "#1002 family guard: $_t1_wf.yml routes the operator to /prflow:init" "yes" \
     "$(_t1_has "$_t1_body" 'run /prflow:init to migrate the whole Tier 1 set')"
 done
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "#1004 J. the frozen out-of-repo DEVFLOW_* identifier inventory"
+# ────────────────────────────────────────────────────────────────────────────
+# Tier 3 records the consumer-facing DEVFLOW_* names that are NOT renamed, and derives a
+# consumer advisory from that record. Two guarantees, kept apart because their remedies
+# differ: the criterion still selects exactly the recorded population (remedy: a human
+# adjudication) and the generated advisory region still matches the record (remedy: re-run
+# the generator). Everything below drives lib/generate-env-freeze-advisory.py
+# file-in/exit-code-out — no assertion here pins the advisory's wording.
+T1_ENVGEN="$LIB/generate-env-freeze-advisory.py"
+
+# ── J1 — the criterion, run over THIS checkout, agrees with the record ──────
+# The live arm, and what makes the recorded population DERIVED rather than transcribed: a
+# workflow that starts reading a new vars./secrets. DEVFLOW_* name, or a recorded name
+# whose read side goes away, turns this red until someone adjudicates it.
+assert_eq "#1004 the criterion run over the live tree matches the recorded population" "0" \
+  "$(python3 "$T1_ENVGEN" --audit --repo-root "$LIB/.." >/dev/null 2>&1; printf '%s' $?)"
+
+_t1_env_live="$(python3 "$T1_ENVGEN" --derive --repo-root "$LIB/.." 2>/dev/null)"
+_t1_env_sel() { # <name> -> yes when the live arms select it
+  case "$_t1_env_live" in
+    "$1	"*|*"
+$1	"*) printf 'yes' ;;
+    *) printf 'no' ;;
+  esac
+}
+
+# The three names issue #1004 calls out, each asserted against the LIVE arms rather than
+# against the record — so the record cannot make itself right.
+assert_eq "#1004 A1 selects DEVFLOW_REVIEWER_APP_ID (the gating half of the reviewer pair)" \
+  "yes" "$(_t1_env_sel DEVFLOW_REVIEWER_APP_ID)"
+assert_eq "#1004 the arms DO select DEVFLOW_PROMPT_EXTENSION_ROOT, so excluding it is an adjudication and not an oversight" \
+  "yes" "$(_t1_env_sel DEVFLOW_PROMPT_EXTENSION_ROOT)"
+assert_eq "#1004 the arms do NOT select DEVFLOW_CONFIG_FILE (declared in no consumer document)" \
+  "no" "$(_t1_env_sel DEVFLOW_CONFIG_FILE)"
+
+# The record's two halves stay disjoint, and the excluded pair is the pair the issue names.
+assert_eq "#1004 no name is both consumer-facing and adjudicated out" "disjoint" \
+  "$(python3 -c '
+import json,sys
+b=json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]
+both=set(r["name"] for r in b["identifiers"])&set(r["name"] for r in b["adjudicated_out"])
+print(" ".join(sorted(both)) or "disjoint")' "$T1_MAP" 2>/dev/null)"
+assert_eq "#1004 the adjudicated-out set is exactly the two names issue #1004 names" \
+  "DEVFLOW_CONFIG_FILE DEVFLOW_PROMPT_EXTENSION_ROOT" \
+  "$(python3 -c '
+import json,sys
+b=json.load(open(sys.argv[1]))["frozen"]["env_identifiers"]
+print(" ".join(sorted(r["name"] for r in b["adjudicated_out"])))' "$T1_MAP" 2>/dev/null)"
+
+# ── J2 — a synthetic tree drives each arm in isolation ─────────────────────
+# Minimal fixtures rather than copies of the checkout: the arms then run on inputs whose
+# whole population is known, so a passing assertion cannot be an accident of what the real
+# tree happens to contain.
+_t1_env_fixture() { # <root> <workflow-body> <consumer-doc-body> <shipped-reader-body>
+  local r="$1"
+  mkdir -p "$r/.github/workflows" "$r/docs" "$r/lib"
+  printf '%s\n' "$2" > "$r/.github/workflows/devflow.yml"
+  printf 'name: b\n' > "$r/.github/workflows/devflow-implement.yml"
+  printf '%s\n' "$3" > "$r/README.md"
+  printf 'placeholder\n' > "$r/docs/install.md"
+  printf '%s\n' "$4" > "$r/install.sh"
+  ( cd "$r" && git init -q . && git add -A . ) >/dev/null 2>&1
+}
+
+# The fixture map. Built by python3 so the required-field shape is produced once and
+# mutated per arm, rather than hand-spelled across near-identical heredocs.
+_t1_env_map() { # <root> <consumer-facing csv> <adjudicated-out csv> [field-to-blank]
+  python3 - "$1" "$2" "$3" "${4:-}" <<'T1ENVPY'
+import json, pathlib, sys
+root, ins, outs, blank = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+
+
+def row(name):
+    r = {"name": name, "arm": "A1", "channel": "cloud", "kind": "repository variable",
+         "set_where": "GitHub settings", "read_as": "vars." + name,
+         "failure_visibility": "silent", "failure_mode": "the gate goes false"}
+    if blank:
+        r[blank] = ""
+    return r
+
+
+block = {
+    "freeze_version": 1,
+    "policy": "an inventory of names not to rename",
+    "criterion": {"A1": "cloud", "A2": "operator",
+                  "shipped_workflows": ["devflow.yml", "devflow-implement.yml"],
+                  "consumer_docs": ["README.md", "docs/install.md"]},
+    "pair_asymmetry": "the variable half fails silent",
+    "identifiers": [row(n) for n in ins.split(",") if n],
+    "adjudicated_out": [{"name": n, "selected_by": "A2", "decided_by": "doc-declaration",
+                         "verdict": "OUT", "evidence": "internal"} for n in outs.split(",") if n],
+}
+p = pathlib.Path(root, "lib")
+p.mkdir(parents=True, exist_ok=True)
+(p / "rename-map.json").write_text(
+    json.dumps({"frozen": {"env_identifiers": block}}), encoding="utf-8")
+T1ENVPY
+}
+
+_t1_env_wf='jobs:
+  a:
+    runs-on: ${{ vars.DEVFLOW_ALPHA && 1 || 2 }}
+    steps:
+      - if: ${{ vars.DEVFLOW_ALPHA != '"''"' }}
+        env:
+          K: ${{ secrets.DEVFLOW_BETA }}'
+_t1_env_doc='Set DEVFLOW_HATCH to override.'
+_t1_env_reader='V="${DEVFLOW_HATCH:-default}"'
+
+_t1_env_r1="$(_t1_root)"
+_t1_env_fixture "$_t1_env_r1" "$_t1_env_wf" "$_t1_env_doc" \
+  "$_t1_env_reader"$'\n''U="${DEVFLOW_UNDOCUMENTED:-x}"'
+_t1_env_map "$_t1_env_r1" "DEVFLOW_ALPHA,DEVFLOW_BETA,DEVFLOW_HATCH" ""
+_t1_env_d1=""
+while IFS='	' read -r _t1_env_n _t1_env_a; do
+  [ -n "$_t1_env_n" ] || continue
+  _t1_env_d1="${_t1_env_d1:+$_t1_env_d1 }$_t1_env_n:$_t1_env_a"
+done <<T1ENVEOF
+$(python3 "$T1_ENVGEN" --derive --repo-root "$_t1_env_r1" 2>/dev/null)
+T1ENVEOF
+assert_eq "#1004 the arms select A1's two workflow names and A2's documented override, with the selecting arm" \
+  "DEVFLOW_ALPHA:A1 DEVFLOW_BETA:A1 DEVFLOW_HATCH:A2" "$_t1_env_d1"
+assert_eq "#1004 A2 does not select an ambient read no consumer document declares" "no" \
+  "$(_t1_has "$_t1_env_d1" 'DEVFLOW_UNDOCUMENTED')"
+
+# The advisory is rendered INTO a document A2 scans, and it names the very identifiers it
+# excludes — so without this the generated output feeds its own derivation and a name
+# recorded as adjudicated-out is re-selected by the sentence explaining its exclusion.
+# Drive it directly: a doc whose ONLY mention of a read name sits inside the region.
+_t1_env_r0="$(_t1_root)"
+_t1_env_fixture "$_t1_env_r0" "$_t1_env_wf" "a consumer document mentioning nothing" \
+  "$_t1_env_reader"
+_t1_env_map "$_t1_env_r0" "DEVFLOW_ALPHA,DEVFLOW_BETA" ""
+{ printf '<!-- prflow-env-freeze:begin freeze_version=1 sha256=%064d (x) -->\n' 0
+  printf 'DEVFLOW_HATCH is deliberately not on this list.\n'
+  printf '<!-- prflow-env-freeze:end -->\n'; } > "$_t1_env_r0/README.md"
+assert_eq "#1004 a name declared ONLY inside the generated region is not selected by A2" "no" \
+  "$(_t1_has "$(python3 "$T1_ENVGEN" --derive --repo-root "$_t1_env_r0" 2>/dev/null)" 'DEVFLOW_HATCH')"
+assert_eq "#1004 stripping the region leaves the rest of that document scannable" "0" \
+  "$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r0" >/dev/null 2>&1; printf '%s' $?)"
+
+# ── J3 — the audit fails in BOTH directions, and says which ────────────────
+# A selected name the record does not carry at all: the shape a new vars.DEVFLOW_* in a
+# shipped workflow produces.
+_t1_env_map "$_t1_env_r1" "DEVFLOW_ALPHA,DEVFLOW_HATCH" ""
+_t1_env_o1="$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r1" 2>&1)"; _t1_env_rc1=$?
+assert_eq "#1004 audit: an unadjudicated selected name fails" "1" "$_t1_env_rc1"
+assert_eq "#1004 audit: it names the unadjudicated name with the add direction" "yes" \
+  "$(_t1_has "$_t1_env_o1" '+ DEVFLOW_BETA')"
+assert_eq "#1004 audit: it routes the remedy to an adjudication, not to a regeneration" "yes" \
+  "$(_t1_has "$_t1_env_o1" 'adjudicate each into')"
+
+# The other direction: a recorded consumer-facing name the arms no longer select, which
+# leaves a consumer warned about a name nothing reads.
+_t1_env_map "$_t1_env_r1" "DEVFLOW_ALPHA,DEVFLOW_BETA,DEVFLOW_HATCH,DEVFLOW_GHOST" ""
+_t1_env_o2="$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r1" 2>&1)"; _t1_env_rc2=$?
+assert_eq "#1004 audit: a recorded name the criterion no longer selects fails" "1" "$_t1_env_rc2"
+assert_eq "#1004 audit: it names the stale name with the remove direction" "yes" \
+  "$(_t1_has "$_t1_env_o2" '- DEVFLOW_GHOST')"
+
+# An adjudicated_out entry is EXEMPT from the still-selected requirement: a name belongs
+# there precisely because an arm may not select it (DEVFLOW_CONFIG_FILE is that case), so
+# requiring it to stay selected would invert the block's meaning.
+_t1_env_map "$_t1_env_r1" "DEVFLOW_ALPHA,DEVFLOW_BETA,DEVFLOW_HATCH" "DEVFLOW_NEVER_SELECTED"
+assert_eq "#1004 audit: an adjudicated-out name the arms never select is clean" "0" \
+  "$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r1" >/dev/null 2>&1; printf '%s' $?)"
+
+# ── J4 — the record fails CLOSED on an incomplete row ──────────────────────
+# A row with a blank failure mode is the defect this advisory exists to prevent (AC2:
+# without it the advisory raises salience on every name while withholding that most fail
+# silently). It must be an INPUT failure, never a rendered blank cell.
+for _t1_env_f in failure_mode failure_visibility set_where; do
+  _t1_env_r2="$(_t1_root)"
+  _t1_env_fixture "$_t1_env_r2" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
+  _t1_env_map "$_t1_env_r2" "DEVFLOW_ALPHA" "" "$_t1_env_f"
+  _t1_env_o3="$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r2" 2>&1)"; _t1_env_rc3=$?
+  assert_eq "#1004 a row with an empty $_t1_env_f is an input failure (exit 2), not drift" \
+    "2" "$_t1_env_rc3"
+  assert_eq "#1004 the empty-$_t1_env_f diagnosis names the field" "yes" \
+    "$(_t1_has "$_t1_env_o3" "$_t1_env_f")"
+done
+
+# An unreadable or malformed map is exit 2 as well: exit 1 would tell a batched artifact
+# pass to regenerate from the very file the generator could not read.
+_t1_env_r3="$(_t1_root)"
+_t1_env_fixture "$_t1_env_r3" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
+printf 'not json\n' > "$_t1_env_r3/lib/rename-map.json"
+assert_eq "#1004 a malformed rename map is exit 2, never exit 1" "2" \
+  "$(python3 "$T1_ENVGEN" --audit --repo-root "$_t1_env_r3" >/dev/null 2>&1; printf '%s' $?)"
+rm -f "$_t1_env_r3/lib/rename-map.json"
+assert_eq "#1004 an absent rename map is exit 2, never exit 1" "2" \
+  "$(python3 "$T1_ENVGEN" --check --repo-root "$_t1_env_r3" >/dev/null 2>&1; printf '%s' $?)"
+
+# ── J5 — the generated advisory region ─────────────────────────────────────
+assert_eq "#1004 the shipped advisory region matches the record" "0" \
+  "$(python3 "$T1_ENVGEN" --check --repo-root "$LIB/.." >/dev/null 2>&1; printf '%s' $?)"
+
+# Region identity is asserted by ROUND TRIP over a fixture rather than by grepping the
+# shipped document: render into a placeholder, prove --check is clean, hand-edit one body
+# line, prove --check reports it. That covers the generator and its checker together.
+_t1_env_r4="$(_t1_root)"
+_t1_env_fixture "$_t1_env_r4" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
+_t1_env_map "$_t1_env_r4" "DEVFLOW_ALPHA,DEVFLOW_BETA,DEVFLOW_HATCH" ""
+{ printf 'intro\n\n'
+  printf '<!-- prflow-env-freeze:begin freeze_version=0 sha256=%064d (placeholder) -->\n' 0
+  printf '<!-- prflow-env-freeze:end -->\n\ntail\n'; } > "$_t1_env_r4/docs/cloud-setup.md"
+assert_eq "#1004 the generator writes the region into a placeholder" "0" \
+  "$(python3 "$T1_ENVGEN" --repo-root "$_t1_env_r4" >/dev/null 2>&1; printf '%s' $?)"
+assert_eq "#1004 the freshly generated region passes its own check" "0" \
+  "$(python3 "$T1_ENVGEN" --check --repo-root "$_t1_env_r4" >/dev/null 2>&1; printf '%s' $?)"
+_t1_env_rendered="$(cat "$_t1_env_r4/docs/cloud-setup.md")"
+assert_eq "#1004 the rendered region names every recorded identifier" "yes yes yes" \
+  "$(_t1_has "$_t1_env_rendered" 'DEVFLOW_ALPHA') $(_t1_has "$_t1_env_rendered" 'DEVFLOW_BETA') $(_t1_has "$_t1_env_rendered" 'DEVFLOW_HATCH')"
+assert_eq "#1004 the rendered region carries each row's failure mode" "yes" \
+  "$(_t1_has "$_t1_env_rendered" 'the gate goes false')"
+assert_eq "#1004 the rendered region states where the consumer sets each name" "yes" \
+  "$(_t1_has "$_t1_env_rendered" 'GitHub settings')"
+# The deliverable's defining property: an inventory, never a rename table. No row may
+# render a PRFLOW_ counterpart for a frozen name — a rename column here would be read as an
+# instruction, and following it degrades a consumer's install SILENTLY.
+assert_eq "#1004 the rendered region proposes no PRFLOW_ counterpart for a frozen name" "no" \
+  "$(_t1_has "$_t1_env_rendered" 'PRFLOW_ALPHA')"
+assert_eq "#1004 the rendered region carries the do-not-rename instruction" "yes" \
+  "$(_t1_has "$_t1_env_rendered" 'Do not rename them')"
+
+assert_eq "#1004 the tamper fixture was applied" "done" \
+  "$(python3 - "$_t1_env_r4/docs/cloud-setup.md" <<'T1ENVTAMPER'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+lines = p.read_text(encoding="utf-8").split("\n")
+for i, line in enumerate(lines):
+    if line.startswith("> **These names are frozen"):
+        lines[i] = "> hand-edited"
+        break
+else:
+    print("marker-absent")
+    raise SystemExit(0)
+p.write_text("\n".join(lines), encoding="utf-8")
+print("done")
+T1ENVTAMPER
+)"
+_t1_env_o4="$(python3 "$T1_ENVGEN" --check --repo-root "$_t1_env_r4" 2>&1)"; _t1_env_rc4=$?
+assert_eq "#1004 a hand-edited region is reported as drift (exit 1)" "1" "$_t1_env_rc4"
+assert_eq "#1004 the drift report names the regeneration remedy" "yes" \
+  "$(_t1_has "$_t1_env_o4" 'remedy: python3 lib/generate-env-freeze-advisory.py')"
+
+# The banner is the region's only anchor, so a lost or duplicated one must fail CLOSED
+# rather than let the generator guess where the region starts and overwrite prose.
+for _t1_env_case in absent duplicate; do
+  _t1_env_r5="$(_t1_root)"
+  _t1_env_fixture "$_t1_env_r5" "$_t1_env_wf" "$_t1_env_doc" "$_t1_env_reader"
+  _t1_env_map "$_t1_env_r5" "DEVFLOW_ALPHA" ""
+  if [ "$_t1_env_case" = absent ]; then
+    printf 'no region here\n' > "$_t1_env_r5/docs/cloud-setup.md"
+  else
+    { printf '<!-- prflow-env-freeze:begin freeze_version=1 sha256=%064d (x) -->\n' 0
+      printf '<!-- prflow-env-freeze:end -->\n'
+      printf '<!-- prflow-env-freeze:begin freeze_version=1 sha256=%064d (x) -->\n' 0
+      printf '<!-- prflow-env-freeze:end -->\n'; } > "$_t1_env_r5/docs/cloud-setup.md"
+  fi
+  assert_eq "#1004 a $_t1_env_case begin banner fails closed (exit 2) rather than guessing" "2" \
+    "$(python3 "$T1_ENVGEN" --repo-root "$_t1_env_r5" >/dev/null 2>&1; printf '%s' $?)"
+done
+
+# ── J6 — install.sh's advisory is gated to the upgrade population ──────────
+# Issue #1004 measured that a cloud-only consumer never runs /prflow:init, so the advisory
+# is not delivered there. install.sh is the cloud tier's only executable touchpoint, and
+# the selector below keeps it from firing at a first-time installer who has not created any
+# of these names yet. Both arms driven, including the negative controls.
+_t1_env_installer_arm() { # <install-state> -> whatever the installer emits
+  DEVFLOW_SELFTEST=1 . "$LIB/../install.sh" >/dev/null 2>&1
+  devflow_report_env_identifier_freeze "$1" 2>&1
+}
+_t1_env_upgrade="$(_t1_env_installer_arm 'an existing')"
+assert_eq "#1004 install.sh warns an EXISTING installation not to rename these names" "yes" \
+  "$(_t1_has "$_t1_env_upgrade" 'DEVFLOW_* names are unchanged and must stay that way')"
+assert_eq "#1004 the installer advisory routes to the generated inventory" "yes" \
+  "$(_t1_has "$_t1_env_upgrade" 'docs/cloud-setup.md')"
+assert_eq "#1004 the installer advisory states that renaming fails silently" "yes" \
+  "$(_t1_has "$_t1_env_upgrade" 'SILENTLY')"
+assert_eq "#1004 install.sh stays SILENT for a first-time install (nothing is actionable yet)" \
+  "" "$(_t1_env_installer_arm 'a first-time')"
+assert_eq "#1004 install.sh stays silent for an unestablished install state" "" \
+  "$(_t1_env_installer_arm '')"

@@ -699,6 +699,26 @@ devflow_withheld_tier_present() {
   done
   printf '%s' "${found# }"
 }
+# Issue #1004 Tier 3. The DEVFLOW_* variables, secrets and environment overrides live
+# OUTSIDE the repository (GitHub settings, a shell profile), so no installer can migrate
+# them — and nothing in the plugin reads a PRFLOW_* equivalent, so renaming one deletes the
+# setting rather than moving it. Most delete it silently: an unresolvable `vars.X` is
+# byte-identical to one deliberately left unset, so every gate takes its not-configured arm
+# and the run goes green under a degraded identity.
+#
+# GATED to an UPGRADE, not emitted on every run. A first-time installer is reading
+# docs/cloud-setup.md and setting these names for the first time; a warning not to rename
+# what they have not yet created is noise. The population that HAS them configured, and is
+# now looking at a renamed product, is exactly the existing-installation population. The
+# installer cannot read GitHub variables (it makes no `gh` calls), so this is the closest
+# thing to "silent when nothing is actionable" available on this surface. The full
+# inventory — per name, with its failure mode — is generated into docs/cloud-setup.md from
+# lib/rename-map.json's frozen.env_identifiers block and is deliberately NOT restated here.
+devflow_report_env_identifier_freeze() {
+  local state="$1"
+  [ "$state" = "an existing" ] || return 0
+  log "NOTICE: PRFlow's DEVFLOW_* names are unchanged and must stay that way. The repository rename did not touch the GitHub variables and secrets (DEVFLOW_APP_ID, DEVFLOW_RUNNER, ...) or the environment overrides (DEVFLOW_GH, DEVFLOW_REF, ...) — nothing here reads a PRFLOW_* equivalent, so renaming one removes the setting instead of moving it, and most do so SILENTLY (an unresolvable GitHub variable is indistinguishable from one you never set: the run stays green with a degraded identity, or on a runner you did not choose). Do not rename them. The full list, with what each rename actually does, is in docs/cloud-setup.md under 'Why these settings are still called DEVFLOW_*'."
+}
 devflow_report_withheld_tier() {
   local present="$1"
   [ -n "$present" ] || return 0
@@ -1244,6 +1264,9 @@ JSON
   withheld="$(devflow_withheld_tier_present)"
   devflow_report_withheld_tier "$withheld"
   devflow_remove_withheld_tier "$withheld"
+  # The out-of-repo DEVFLOW_* freeze (issue #1004). Reads the install-state global rather
+  # than re-probing, so the preview and the apply report identically.
+  devflow_report_env_identifier_freeze "${DEVFLOW_INSTALL_STATE:-}"
 
   # 4. Composite actions. vendor-plugin is REQUIRED even for a thin install — the
   #    workflows reference `./.github/actions/vendor-plugin` to materialize the
