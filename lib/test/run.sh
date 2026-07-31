@@ -23829,6 +23829,43 @@ assert_pin_unique "#591 implement.md mandates the cloud direct-leading-token for
 # to dismiss any red assertion — is now re-anchored to the no-flake-set clause below, which is a
 # strictly stronger statement than the complement clause it replaces.
 
+# ── #789 focused-test invocability: a test file that cannot be run the documented way ──
+# The tiered policy above makes the DIRECT LEADING TOKEN the only sanctioned focused-test
+# invocation (`python3 <path>` is the interpreter-head shape the cloud matcher denies), so a
+# `lib/test/test_*.py` shipped 100644 cannot be invoked the documented way at all and pushes the
+# iteration back onto the denied shape. The coverage-map guard's arm 10 already covers the SUBSET
+# named as a `focused_test` target; every other test file is unguarded, which is how ten of them
+# reached main without the bit. This asserts the class over the whole population.
+# The shebang is the second half: mode 100755 alone does not make a leading-token exec work, and a
+# file with no `#!` must NOT carry the bit (exec-without-shebang is worse than 100644 — it fails at
+# the kernel rather than at the reader), so a shebang-less file is skipped here, not demanded.
+# Population comes from the index (`git ls-files -s`, no `--others`) per the #711 rule, so a sibling
+# worktree's copies cannot enter it. The first line is read with a bash builtin, not `head`, because
+# a missing non-preflight PATH tool would empty the comparand and silently pass the file.
+# Fail-closed: the derived population carries a non-empty floor, so a pathspec typo or an
+# unreadable index yields zero rows and goes RED instead of passing vacuously.
+_T789_BAD=""
+_T789_N=0
+while IFS="$(printf '\t')" read -r _t789_meta _t789_path; do
+  [ -n "$_t789_path" ] || continue
+  _t789_mode="${_t789_meta%% *}"
+  _t789_first=""
+  IFS= read -r _t789_first < "$FDROOT/$_t789_path" 2>/dev/null || true
+  case "$_t789_first" in
+    '#!'*) ;;
+    *) continue ;;   # no shebang -> not directly runnable; the bit is correctly absent
+  esac
+  _T789_N=$((_T789_N + 1))
+  [ "$_t789_mode" = 100755 ] || _T789_BAD="$_T789_BAD $_t789_path"
+done <<T789EOF
+$(git -C "$FDROOT" ls-files -s -- 'lib/test/test_*.py')
+T789EOF
+assert_eq "#789 every shebang-carrying lib/test/test_*.py is executable in the index (the documented focused-test invocation is the direct leading token; 100644 forces the denied \`python3 <path>\` shape)" \
+  "" "$_T789_BAD"
+assert_eq "#789 the focused-test exec-bit guard derived a non-empty population (a pathspec/index failure must not pass vacuously)" \
+  "yes" "$([ "$_T789_N" -ge 10 ] && echo yes || echo no)"
+unset _T789_BAD _T789_N _t789_meta _t789_mode _t789_path _t789_first
+
 # ── #719 Verification-evidence marker + undefined-disjunct deletion + cloud full-suite obligation ──
 # Finding 1 (unobservable claim gate): each of the three prompt extensions must state, on the
 # local/interactive tier, that a launch that never started is OBSERVABLE as an absent capture
