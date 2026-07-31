@@ -1976,6 +1976,39 @@ assert_eq "drc: does-not-suppress-a-backstop-resume (marker body, active peer pr
   "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
       HEAD="$DRC_HEADSHA" DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY" bash "$DRC" 2>/dev/null)"
 
+# ── the CURRENT marker spelling, on both marker families (issue #1003). Every
+# fixture above feeds the SUPERSEDED `devflow:` spelling, so neither the
+# `contains($marker)` alternative of the jq isprogress predicate nor the
+# `*"$BACKSTOP_MARKER"*` case arm was reached by any assertion in this module —
+# each leg could be DELETED OUTRIGHT and every check here stayed green, while the
+# only guard on the current literals was a source-text grep that keeps passing
+# when the matching leg it names is gone. That is the spelling every post-rename
+# comment actually carries, so the untested leg is the one the live tier depends
+# on. Each positive is paired with a MIS-CASED near-miss so neither can pass
+# tautologically: flipping a production literal's casing turns the positive RED
+# (its fixture stops matching) AND the control RED (its fixture starts matching),
+# while the superseded-spelling assertions above are unaffected either way.
+DRC_INFLIGHT_CURRENT='[{"body":"<!-- prflow:review-progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc(#1003): current-spelling review-progress marker is in-flight → suppress" "suppress=true" \
+  "$(drc "$DRC_INFLIGHT_CURRENT")"
+DRC_INFLIGHT_MISCASED='[{"body":"<!-- prflow:Review-Progress run=555-1 -->\n'"$DRC_SEEDKEY"'\n**Status:** 🚀 Reviewing","user":{"type":"Bot"},"updated_at":"'"$DRC_FRESH"'"}]'
+assert_eq "drc(#1003): mis-cased review-progress marker is not a progress comment → no suppress" "suppress=false" \
+  "$(drc "$DRC_INFLIGHT_MISCASED")"
+
+# The backstop-resume override on the current spelling, and its own mis-cased
+# control — which must fall through to the ordinary decision, where the active
+# peer in DRC_INFLIGHT suppresses. So the control's expectation is the OPPOSITE
+# of the positive's, and a marker predicate that matched loosely (case-folded or
+# on a shorter prefix) would fail it rather than ride in on the positive's pass.
+DRC_BACKSTOP_BODY_CURRENT="$(printf '/prflow:review\n<!-- prflow:review-backstop head=abcdef0 attempt=2 -->\n')"
+assert_eq "drc(#1003): current-spelling backstop marker overrides an active peer" "suppress=false" \
+  "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+      HEAD="$DRC_HEADSHA" DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY_CURRENT" bash "$DRC" 2>/dev/null)"
+DRC_BACKSTOP_BODY_MISCASED="$(printf '/prflow:review\n<!-- prflow:Review-Backstop head=abcdef0 attempt=2 -->\n')"
+assert_eq "drc(#1003): mis-cased backstop marker is no override → the peer still suppresses" "suppress=true" \
+  "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
+      HEAD="$DRC_HEADSHA" DRC_COMMENTS="$DRC_INFLIGHT" PR=42 TRIGGER_BODY="$DRC_BACKSTOP_BODY_MISCASED" bash "$DRC" 2>/dev/null)"
+
 # fails-open-when-jq-is-unresolvable — DEVFLOW_JQ at a non-existent binary → exit 0,
 # no suppress, and a breadcrumb NAMING the unresolved resolver (not an empty decision).
 DRC_JQ_ERR="$(mktemp)"
