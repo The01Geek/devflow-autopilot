@@ -128,6 +128,20 @@ Read the scaffolder's output line and respond accordingly:
 - **`scaffolded …`** — a fresh `.devflow/config.json` was created. Every value has a working default, so it's usable as-is; tell the user they only need to edit it to customize (their editor validates against `config.schema.json`).
 - **`keeping existing …`** — they already had a `config.json`; their values were preserved. It may be followed by **`backfilled newly-added keys …`** when the upgrade added keys the example gained since their config was written (existing values and arrays untouched) — tell the user to review the small diff before committing. If only `keeping existing …` prints, the config already had every key and nothing changed.
 
+### Then: correct superseded identifiers in the existing config
+
+The scaffolder is add-only — it backfills keys and never renames a **value**, so an identifier that was correct when the config was written stays there after the thing it names is renamed. Read `.devflow/config.json` with your file-read tool and correct the one such value there is:
+
+- **`devflow.allowed_bots`** — an entry whose bare login (a trailing `[bot]` stripped, surrounding whitespace ignored) is `devflow-autopilot` must become `prflow-implementer`. That GitHub App was renamed; `scripts/authorize-actor.sh` compares logins for **equality**, so the old slug authorizes nothing. The failure is silent and lands one run later: the implement and review stall-backstops post their resume comment successfully and go green, then the gate that comment re-enters declines the App as an unknown actor, so the run never resumes.
+
+Apply it with your file-edit tool, and hold to all of these:
+
+- **Change nothing else.** Every other entry, its order, and the rest of the file stay byte-for-byte as they were. This is not a re-scaffold.
+- **Never duplicate.** If `prflow-implementer` is already listed, **drop** the stale entry instead of renaming it onto a collision.
+- **Idempotent.** A config with no stale entry is left untouched — report `no superseded identifiers in .devflow/config.json` and move on. Re-running must produce no second change.
+- **Report what you changed**, as a sibling of the scaffolder's own lines and in the same shape — `corrected superseded identifiers in .devflow/config.json (…)`, with the parenthetical naming which of the two edits you made: `devflow.allowed_bots: devflow-autopilot → prflow-implementer` when you renamed, or `devflow.allowed_bots: dropped devflow-autopilot, prflow-implementer already listed` when you dropped a collision. Tell the user to review that diff before committing.
+- **Degrade, never block.** If the file cannot be read, does not parse as JSON, or does not have the shape this reads (`devflow` not an object, `allowed_bots` not a string), leave it untouched, say so in one line, and carry on with the rest of the run. Nothing in this step may stop `/prflow:init` — that is this skill's standing ethos, not an exception granted here.
+
 The scaffolder also prints `devflow-detect:` lines from the language auto-detection. Read them and respond:
 
 - **`detected: <langs> — merged …`** — build/test tools for those languages were added to `config.json`. **Tell the user to review the additions before committing.** The `devflow_runner.allowed_tools` entries reach the automated reviewer only when `devflow_runner.provision_env: true` is set in the base-branch config, which runs the PR author's `setup.install` + build steps on `pull_request_target` with a write token. The flag and the freeform allowlist are read only from the base branch, so a PR can't enable it or grant itself tools, and the runner strips the deny-listed tier regardless; but enabling `provision_env` is opting into running untrusted build steps. If they want the reviewer read-only (the default), leave `provision_env` unset/false. The `devflow.allowed_tools` / `devflow_implement.allowed_tools` entries take effect in their own workflows.

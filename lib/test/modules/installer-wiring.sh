@@ -1136,6 +1136,128 @@ assert_eq "installer-upgrade identity: the shipped installer declares a non-empt
 
 rm -rf "$IU_P11"
 
+# ── Scenario 11c: the SAME detect-and-route split, applied to .devflow/config.json.
+# The PR-authoring App was renamed, and the config scaffolder is add-only — it can backfill
+# a key but never rename a VALUE — so a consumer's `devflow.allowed_bots` keeps naming an
+# App slug that authorizes nothing. The installer must REPORT that and route to
+# /devflow:init, and must not write the file itself.
+#
+# Driven end to end over a real fixture consumer first (the routing + the never-writes
+# invariant can only be established by an actual before/after), then at the FUNCTION level
+# for the adversarial shape matrix: this is a best-effort parser over a file a human
+# hand-edits, and a full installer run per row would obscure which shape produced which
+# answer.
+IU_C11C="$(_iu_consumer stale-config)"
+_iu_run "$IU_C11C" >/dev/null                     # scaffold a config the normal way
+python3 -c '
+import json, sys
+p = sys.argv[1] + "/.devflow/config.json"
+d = json.load(open(p))
+d.setdefault("devflow", {})["allowed_bots"] = "claude,devflow-autopilot,dependabot"
+json.dump(d, open(p, "w"), indent=2)
+' "$IU_C11C"
+_iu_allowed_bots() {  # $1 = consumer root -> the devflow.allowed_bots value, or RC
+  python3 -c '
+import json, sys
+try:
+    d = json.load(open(sys.argv[1] + "/.devflow/config.json"))
+    print(d["devflow"]["allowed_bots"])
+except Exception:
+    print("RC")
+' "$1"
+}
+IU_CFG11C_BEFORE="$(_iu_allowed_bots "$IU_C11C")"
+IU_O11C="$(_iu_run "$IU_C11C" --apply)"
+# The unchanged-ness asserted is the VALUE the notice is about, not the whole file: an
+# --apply upgrade legitimately re-stamps devflow_version (step 6) on the same file, so a
+# whole-file digest would assert something the installer never promised and would go green
+# for the wrong reason if it stopped re-stamping.
+assert_eq "installer-upgrade stale-config: a superseded App slug in devflow.allowed_bots is REPORTED, names the replacement, and the value itself is left untouched" "yes yes claude,devflow-autopilot,dependabot" \
+  "$(_iu_out_has "$IU_O11C" 'still names superseded PRFlow identifiers') $(_iu_out_has "$IU_O11C" 'devflow.allowed_bots[devflow-autopilot -> prflow-implementer]') $(_iu_allowed_bots "$IU_C11C")"
+assert_eq "installer-upgrade stale-config: the fixture really did carry the stale slug before the run (the invariant above is not comparing two absent values)" "claude,devflow-autopilot,dependabot" \
+  "$IU_CFG11C_BEFORE"
+assert_eq "installer-upgrade stale-config: the report routes to the ONE owner of the correction rather than growing a second copy of it" "yes" \
+  "$(_iu_out_has "$IU_O11C" 'run /devflow:init, which corrects them in place')"
+# MISS arm over its own consumer: the scaffolded default names no superseded slug, so the
+# report stays silent. Reusing the consumer above would make this vacuous.
+IU_C11D="$(_iu_consumer clean-config)"
+IU_O11D="$(_iu_run "$IU_C11D" --apply)"
+assert_eq "installer-upgrade stale-config: a config naming no superseded identifier is reported silently (the notice is an intersection, not a declared-set existence check)" "no" \
+  "$(_iu_out_has "$IU_O11D" 'still names superseded PRFlow identifiers')"
+# Non-vacuity control: the shipped installer really does declare a stale pair, so the
+# silence above is an empty intersection and not an empty declared set.
+assert_eq "installer-upgrade stale-config: the shipped installer declares a non-empty stale-bot-login set" "yes" \
+  "$(_iu_out_matches "$(cat "$IU_INSTALL")" "^DEVFLOW_STALE_BOT_LOGINS='[^']+'")"
+
+# The adversarial input-shape matrix. Every row must exit 0 and print NOTHING but the
+# genuine hit rows — a shape that detonates the scan, or one that is read as a hit, is the
+# bug class here. Root x {object, array, scalar}; `devflow` x {object, array, scalar,
+# missing}; `allowed_bots` x {string, array, object, valid-falsy, missing, wrong-type}.
+_iu_cfg_shape() {  # $1 = literal config bytes -> the scan's stdout (empty = no hit)
+  printf '%s' "$1" > "$IU_C11C/.devflow/config.json"
+  # shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+  ( cd "$IU_C11C" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+      && "${DEVFLOW_PY:-python3}" -c "$DEVFLOW_CONFIG_SCAN_PY" .devflow/config.json \
+           "$DEVFLOW_STALE_BOT_LOGINS" ) 2>/dev/null
+}
+IU_CFG_HIT='devflow.allowed_bots[devflow-autopilot -> prflow-implementer]'
+assert_eq "installer stale-config matrix: the plain hit shape is detected (the matrix below is not vacuously silent)" "$IU_CFG_HIT" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "claude,devflow-autopilot"}}')"
+assert_eq "installer stale-config matrix: a [bot]-suffixed entry with surrounding whitespace is the same login" "$IU_CFG_HIT" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "claude,  devflow-autopilot[bot] , x"}}')"
+assert_eq "installer stale-config matrix: the stale entry is reported even when the replacement is ALREADY listed (a dead entry is still dead)" "$IU_CFG_HIT" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "prflow-implementer,devflow-autopilot"}}')"
+assert_eq "installer stale-config matrix: a login that merely CONTAINS the stale slug is not a hit (entries compare whole, never by substring)" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": "not-devflow-autopilot-either"}}')"
+assert_eq "installer stale-config matrix: malformed JSON degrades silently rather than detonating the scan" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ')"
+assert_eq "installer stale-config matrix: an empty file degrades" "" "$(_iu_cfg_shape '')"
+assert_eq "installer stale-config matrix: a top-level ARRAY is not indexed as a mapping" "" \
+  "$(_iu_cfg_shape '[{"devflow": {"allowed_bots": "devflow-autopilot"}}]')"
+assert_eq "installer stale-config matrix: a top-level scalar degrades" "" "$(_iu_cfg_shape '42')"
+assert_eq "installer stale-config matrix: a devflow ARRAY is not indexed as a mapping" "" \
+  "$(_iu_cfg_shape '{"devflow": ["allowed_bots", "devflow-autopilot"]}')"
+assert_eq "installer stale-config matrix: a devflow scalar degrades" "" \
+  "$(_iu_cfg_shape '{"devflow": "devflow-autopilot"}')"
+assert_eq "installer stale-config matrix: an absent devflow section degrades" "" \
+  "$(_iu_cfg_shape '{"base_branch": "main"}')"
+assert_eq "installer stale-config matrix: an absent allowed_bots key degrades" "" \
+  "$(_iu_cfg_shape '{"devflow": {"effort": "high"}}')"
+assert_eq "installer stale-config matrix: an allowed_bots ARRAY is not read as a comma string" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ["devflow-autopilot"]}}')"
+assert_eq "installer stale-config matrix: an allowed_bots OBJECT degrades" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": {"devflow-autopilot": true}}}')"
+# The valid-falsy row. An explicit "" / false / 0 is a real config state, not a missing
+# key, and none of them may be coerced into a shape the scan reads as a hit.
+assert_eq "installer stale-config matrix: a valid-falsy empty-string allowed_bots yields no hit" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": ""}}')"
+assert_eq "installer stale-config matrix: a valid-falsy false allowed_bots is a wrong TYPE, not an empty string (a bool is an int in Python, never a str)" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": false}}')"
+assert_eq "installer stale-config matrix: a valid-falsy 0 allowed_bots degrades" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": 0}}')"
+assert_eq "installer stale-config matrix: a whitespace-and-comma-only allowed_bots yields no entries and no hit" "" \
+  "$(_iu_cfg_shape '{"devflow": {"allowed_bots": " , ,  "}}')"
+
+# The absent-file arm, at the function level: no .devflow/config.json at all must be a
+# strict no-op, not a warning about a file the consumer never had.
+IU_C11E="$(_iu_consumer no-config)"
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+IU_O11E="$( cd "$IU_C11E" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+    && devflow_report_stale_config_identifiers 2>&1 )"
+assert_eq "installer stale-config: an absent .devflow/config.json is a strict no-op" "" "$IU_O11E"
+# And the documented python3-absent degradation: a warning that names the remedy, never a
+# silent skip that would read as "nothing stale here".
+printf '{"devflow": {"allowed_bots": "devflow-autopilot"}}' > "$IU_C11C/.devflow/config.json"
+# PATH is exported as its OWN statement inside the subshell, never as a prefix on the
+# `.` builtin: a `VAR=x . file` prefix scopes to the sourcing alone, so the function call
+# after it would run with the real python3 back on PATH and this arm would silently test
+# the happy path instead.
+# shellcheck disable=SC1090  # sources install.sh at runtime under DEVFLOW_SELFTEST
+IU_O11F="$( cd "$IU_C11C" && export PATH="$IU_NOPY:$PATH" && DEVFLOW_SELFTEST=1 . "$IU_INSTALL" \
+    && devflow_report_stale_config_identifiers 2>&1 )"
+assert_eq "installer stale-config: with no working python3 the check says it could not run and names the remedy, rather than passing silently" "yes yes" \
+  "$(_iu_out_has "$IU_O11F" 'could not check .devflow/config.json for superseded PRFlow identifiers') $(_iu_out_has "$IU_O11F" 'run /devflow:init to correct them')"
+
 # ── Scenario 12 (#959): the documented python3-absent FAIL-SAFE, driven end to end.
 # This is the arm the original 11 scenarios could not reach, because every one of them
 # ran with a working python3 — which is exactly why the installer shipped doing the
