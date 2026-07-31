@@ -30787,6 +30787,12 @@ case "$*" in
       case "$prev" in
         --emit-entry-to)     printf 'notes body\n' > "$a" ;;
         --emit-write-set-to) printf 'CHANGELOG.md\n' > "$a" ;;
+        # The #970 bump-kind side channel. VPWF_NO_BUMP=1 makes the stub write
+        # NOTHING here, reproducing the real consolidator's own no-op-ish shapes
+        # (an older consolidator that does not know the flag, or a write that
+        # failed) — the case the workflow must relay as an EMPTY bump, never a
+        # defaulted one.
+        --emit-bump-to)      [ "${VPWF_NO_BUMP:-0}" = "1" ] || printf '%s\n' "${VPWF_BUMP-minor}" > "$a" ;;
       esac
       prev="$a"
     done
@@ -30808,6 +30814,20 @@ assert_eq "#953 workflow drive: the happy path exits 0 and reports pushed=true" 
   "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 1 ] && echo yes || echo no)"
 assert_eq "#953 workflow drive: the happy path publishes the derived version, not an empty one" "1" \
   "$(grep -cx 'version=7.7.7' "$VP_WFD/out")"
+# #970 PRODUCER HALF, driven rather than grep-pinned. The consumer half (the helper's
+# minor-major arm) is exercised above; this is the relay that feeds it. Until this arm
+# existed the `read -r bump_kind < "$BUMP_KIND_FILE"` branch ran ZERO times in the suite
+# and nothing checked the emitted `bump=` line, so a regression that dropped the
+# --emit-bump-to flag, read the wrong file, stopped writing the `bump=` output, or
+# defaulted the value would pass every grep pin it did not touch.
+# TWO DECLARED RESIDUALS these arms do NOT cover, stated rather than implied:
+#   * dropping the `-s` guard is behaviour-inert — the `|| true` already absorbs the
+#     failed redirect and leaves bump_kind empty, so `bump=` is empty either way;
+#   * switching the builtin to `cat` is indistinguishable while `cat` is on PATH. That
+#     half stays the source-shape pin above ("reads that side channel with a bash
+#     builtin"); the execution arms only diverge on a host where `cat` is missing.
+assert_eq "#970 workflow drive: the happy path relays the consolidator's own bump kind" "1" \
+  "$(grep -cx 'bump=minor' "$VP_WFD/out")"
 # The ordering that makes the fault survivable: derive BEFORE the irreversible push.
 assert_eq "#953 workflow drive: --print-version is called before the push, not after it" "yes" \
   "$([ "$(grep -n -- '--print-version' "$VP_WFD/log" | head -1 | cut -d: -f1)" \
@@ -30836,6 +30856,24 @@ assert_eq "#953 workflow drive: an EMPTY derived version fails the step and push
     [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 0 ] && echo yes || echo no)"
 assert_eq "#953 workflow drive: the empty-version error names the untaggable bump it refused" "1" \
   "$(grep -c 'refusing to push an untaggable bump' "$VP_WFD/stepout")"
+
+# Arm D (#970): the bump side channel is ABSENT — the consolidator wrote no bump file at
+# all. The step must still push (an absent side channel is not a reason to withhold the
+# version bump) and must emit `bump=` EMPTY, so publish-release.sh fails loud on an
+# undecidable release rather than silently suppressing — or silently publishing — an
+# announcement. A default here would be the worst outcome: `patch` would suppress a real
+# minor Release, `minor` would email every watcher on every patch merge.
+: > "$VP_WFD/log"; : > "$VP_WFD/out"
+VPWF_LOG="$VP_WFD/log" VPWF_NO_BUMP=1 RUNNER_TEMP="$VP_WFD/tmp" GITHUB_OUTPUT="$VP_WFD/out" \
+  PATH="$VP_WFD/bin:$PATH" bash "$VP_WFD/consolidate.sh" >/dev/null 2>&1; VP_RC=$?
+# NON-VACUITY FIRST: without this the two assertions below would both hold on a step that
+# aborted before ever reaching the output block — passing by inspecting nothing.
+assert_eq "#970 workflow drive: an absent bump side channel still pushes the bump (arm reached the output block)" "yes" \
+  "$([ "$VP_RC" -eq 0 ] && [ "$(grep -cx 'pushed=true' "$VP_WFD/out")" -eq 1 ] && echo yes || echo no)"
+assert_eq "#970 workflow drive: an absent bump side channel emits bump= EMPTY, never a default" "1" \
+  "$(grep -cx 'bump=' "$VP_WFD/out")"
+assert_eq "#970 workflow drive: an absent bump side channel emits no non-empty bump= line" "0" \
+  "$(grep -cE '^bump=.+$' "$VP_WFD/out")"
 rm -rf "$VP_WFD"
 
 # ────────────────────────────────────────────────────────────────────────────
