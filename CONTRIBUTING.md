@@ -219,6 +219,20 @@ ambiguous bundle name, an empty glob expansion, an unreadable member — keeps t
 and a literal present in no member is still reported absent. Touch a retained pin's lines
 only when you are prepared to answer the gate for it.
 
+One narrow exemption (issue #1002). A pin site whose only difference from its merge-base
+self is a **sanctioned rename** declared in `lib/rename-map.json` is not new authorship,
+and the gate withdraws it before the policy ladder runs. The comparison is exact — the
+whole effective tuple (family, helper, literal, target path, target members, declaration)
+must match — the superseded-to-current mapping is applied to the **merge-base side only**,
+so a HEAD-side superseded spelling can never be laundered through it, and one base site
+exempts at most one candidate. Names in the map's `frozen` block are never mapped, and an
+absent or malformed map withdraws the exemption entirely rather than widening it. This is
+a correctness fix to the comparison, not an amnesty: the gate previously resolved a
+merge-base source image against current-tree path spellings, so across a rename it
+measured path *spelling* rather than pin *identity*. Anything the exemption does not match
+reaches the unchanged policy path, so a rename **plus** any other edit still answers the
+gate in full.
+
 `lib/test/pin-corpus-adjudications.tsv` contains only the current active adjudication
 state. Every addition, removal, or change to that table must be authorized by an exact
 branch change manifest; prior decisions remain available through Git history, the
