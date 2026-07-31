@@ -14882,7 +14882,7 @@ echo "review/implement trigger helpers (derive-review-verdict.sh … resolve-com
 # together, or test_module_runner.py's tranche test goes RED.
 # See the module's .inventory.md for the coverage map back to these locations.
 if ! devflow_run_full_suite_module "$LIB/test/modules/review-trigger-helpers.sh" \
-  "review-trigger-helpers" 463; then
+  "review-trigger-helpers" 478; then
   printf 'ERROR: review-trigger-helpers boundary could not record its result\n'
   exit 1
 fi
@@ -34649,7 +34649,7 @@ echo "#431 build-experiment-records.py — the unified experiment record (join)"
 # module header and its .inventory.md carry the rationale and the resulting
 # coverage-map decision; do not restate it here, so the two cannot drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/experiment-records.sh" \
-  "experiment-records" 132; then
+  "experiment-records" 133; then
   printf 'ERROR: experiment-records boundary could not record its result\n'
   exit 1
 fi

@@ -167,10 +167,12 @@ if [ -n "$WP" ]; then
 fi
 ```
 
-The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author `.prflow/tmp/review/<slug>/<run-id>/review-wp.md` with the **Write tool**: the `$MARKER` literal as the first line, then the template below from its `# Devflow Review` H1 down — same probe-permitted shape as the seed above; a runner without a Write tool uses the `tee` heredoc fallback) and `patch` at each phase boundary; a full-body rewrite is simplest. Substitute `{N}` (PR number), `{RUN_URL}` (the run link above; `_(local run)_` when there is no run id), and `{workpad.py now}` (the timestamp) when authoring:
+The review body uses its **own section template** (the orchestrator authors it; `workpad.py` only carries it). Rebuild the body from your held state (re-author `.prflow/tmp/review/<slug>/<run-id>/review-wp.md` with the **Write tool**: the `$MARKER` literal as the first line, then the template below from its `# Devflow Review` H1 down — same probe-permitted shape as the seed above; a runner without a Write tool uses the `tee` heredoc fallback) and `patch` at each phase boundary; a full-body rewrite is simplest. Substitute `{N}` (PR number), `{RUN_URL}` (the run link above; `_(local run)_` when there is no run id), `{SEEDED_HEAD}` (see the producer-key rule below the template), and `{workpad.py now}` (the timestamp) when authoring:
 
 ```markdown
 # Devflow Review — PR #{N}
+
+<!-- prflow:review-seeded-head {SEEDED_HEAD} -->
 
 **Status:** 🚀 Reviewing
 **Diff profile:** _(pending Phase 0.5)_
@@ -194,6 +196,8 @@ _(pending)_
 <!-- prflow:lint-adjudications-start -->
 <!-- prflow:lint-adjudications-end -->
 ```
+
+**The `prflow:review-seeded-head` line is a SEED-TIME producer key, and it is not `Reviewed HEAD`.** Substitute `{SEEDED_HEAD}` with `$PR_API_HEAD_SHA` — the PR's API `headRefOid` as Phase 0.2 resolved it, **before** any caller head-override — writing exactly one space either side of the SHA, and re-emit the line unchanged in every later rewrite so it survives for as long as the run is in flight. The two keys answer different questions and neither substitutes for the other: this one says *which commit this run is reviewing right now*, while `Reviewed HEAD:` says *which commit a run finished on* and is therefore stamped at Phase 4 only. `devflow.yml`'s `review_dedupe` job reads this key through `scripts/dedupe-review-command.sh` to make duplicate-review suppression commit-scoped, matching the line exactly, so a drifted spelling or a missing space silently disables that scoping. The API head is what is recorded even under `head_override = local`, because the requesting job resolves the same API head — recording the fix loop's local, possibly unpushed `$PR_HEAD_SHA` instead would stop suppressing a `/prflow:review` issued during a `/prflow:review-and-fix` run. If `$PR_API_HEAD_SHA` is unresolved, **omit the whole line** rather than writing a placeholder: an absent key fails open (nothing is suppressed), whereas a placeholder would be compared as though it were a commit.
 
 The two `prflow:lint-adjudications` sentinel lines are the **only** place a later run's Phase 0.6 join honors a stale-prose false-positive payload (see Phase 4.1.7). They are written **only** by the Phase 4 finalize write; during Phases 0–3 the section stays empty. A payload literal echoed *outside* this sentinel pair — a review agent quoting an attacker-controlled diff line verbatim, say — is data the report shows, never an adjudication the join honors, so the sentinels must bracket **only** the engine's own Phase 4 stamps.
 
