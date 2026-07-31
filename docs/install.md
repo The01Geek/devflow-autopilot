@@ -223,6 +223,10 @@ Two things the migration does **not** own, and reports instead: a retained workf
 
 The **config keys** deliberately have no such fallback. A silent key fallback would make the key migration unobservable and therefore permanent, so it is *detected* rather than read through: `scripts/config-get.sh` breadcrumbs when a requested key is absent and its superseded counterpart is present, and the two shipped workflows' `config` jobs fail loud on an absent key family (the trigger-time channel reads config through inline `jq` and never through the resolver, so no breadcrumb could reach it).
 
+### Leftover `devflow` spellings in your config are deliberate
+
+The migration renames **top-level keys only** — never nested keys or values — so after it runs (or after any re-scaffold) your `.prflow/config.json` can still carry the word `devflow` in a few places, and every one of them is a permanently-accepted alias that resolves correctly and needs no action: `agent_overrides` keys under the `devflow:` namespace (see [`review-agent-overrides.md`](review-agent-overrides.md)), a `devflow`-spelled `workpad_marker`, and `docs.labels` / `deferred.labels` values naming the `DevFlow` provenance label. To keep a consumer from "finishing the rename by hand" and stumbling into a frozen identifier, `scripts/scaffold-config.sh` emits a one-time, report-only advisory at the end of every scaffold — rendered by `lib/generate-config-alias-advisory.py`, the config-side sibling of the env-half `lib/generate-env-freeze-advisory.py`. It names only the accepted-alias categories your config actually still carries (silent when nothing is superseded), never modifies any value, and reaches both `install.sh --apply` and `/prflow:init` because both call the one scaffolder. The same notice warns that the `DEVFLOW_*` **environment** identifiers must never be hand-renamed either — those are frozen and mostly fail silently (see [`cloud-setup.md`](cloud-setup.md) and `lib/rename-map.json`'s `frozen.env_identifiers`).
+
 ## Updating
 
 ### Local tier
