@@ -383,7 +383,7 @@
             "prflow:checklist-deduper": {
               "type": "object",
               "additionalProperties": false,
-              "description": "Pins Claude Sonnet 5 for the dedup pass with effort 'medium' (a cost-saving step down from the API default of 'high'; set it explicitly to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8, Opus 5, Sonnet 4.6, and Sonnet 5), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
+              "description": "Pins Claude Sonnet 5 for the dedup pass with effort 'low' (a cost-saving step down from the API default of 'high'; set it explicitly to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8, Opus 5, Sonnet 4.6, and Sonnet 5), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
               "properties": {
                 "model": {
                   "type": "string"
@@ -609,7 +609,7 @@
             "devflow:checklist-deduper": {
               "type": "object",
               "additionalProperties": false,
-              "description": "Pins Claude Sonnet 5 for the dedup pass with effort 'medium' (a cost-saving step down from the API default of 'high'; set it explicitly to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8, Opus 5, Sonnet 4.6, and Sonnet 5), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
+              "description": "Pins Claude Sonnet 5 for the dedup pass with effort 'low' (a cost-saving step down from the API default of 'high'; set it explicitly to avoid unexpected latency). NOTE: Claude Haiku rejects the `effort` parameter with HTTP 400 (effort is supported only on Opus 4.5\u20134.8, Opus 5, Sonnet 4.6, and Sonnet 5), so if you re-pin a Haiku id here the entry must NOT carry an `effort` key; scaffold-config.sh strips a stale `effort` from any Haiku-pinned override on re-scaffold.",
               "properties": {
                 "model": {
                   "type": "string"

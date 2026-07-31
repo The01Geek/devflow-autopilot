@@ -11448,7 +11448,7 @@ assert_eq "init-memory-nudge: recommends the built-in /init" "yes" \
 echo "shipped agent_overrides: deduper pins Sonnet 5 w/ effort; no Haiku override carries effort"
 # ────────────────────────────────────────────────────────────────────────────
 # The shipped checklist-deduper override pins Claude Sonnet 5 (which DOES
-# support `effort`) with effort "medium" — a cost-saving step down from the API
+# support `effort`) with effort "low" — a cost-saving step down from the API
 # default of "high"; set it explicitly to avoid unexpected latency. A
 # positive sentinel, not a bare has("effort"): a refactor that drops/renames the
 # entry, swaps the model, or strips the effort each FAIL loudly rather than
