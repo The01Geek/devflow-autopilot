@@ -22,12 +22,12 @@
 #     component; a path not admitted by the allowlist below; a `*.json` that is not a
 #     JSON object (malformed JSON included); or if the artifact exceeds the entry-count
 #     or total-byte caps.
-#   - Admit ONLY (both under `.devflow/logs/`, mirroring the telemetry-branch store layout):
-#       .devflow/logs/review/<slug>/<run-id>/<name>.json      (per-iteration workpad copies)
-#       .devflow/logs/efficiency/<slug>-<run-id>.json          (derived effectiveness record)
+#   - Admit ONLY (both under `.prflow/logs/`, mirroring the telemetry-branch store layout):
+#       .prflow/logs/review/<slug>/<run-id>/<name>.json      (per-iteration workpad copies)
+#       .prflow/logs/efficiency/<slug>-<run-id>.json          (derived effectiveness record)
 #     where <slug>/<run-id>/<name> are `[A-Za-z0-9._-]+` (and reject a `..`/`.` segment).
 #   - On success: populate <out_staging_root> with ONLY the admitted, validated regular
-#     files at their `.devflow/logs/…`-relative paths (a fresh tree copied from scratch,
+#     files at their `.prflow/logs/…`-relative paths (a fresh tree copied from scratch,
 #     so symlinks/traversal cannot survive), exit 0.
 #   - Empty OR absent <artifact_dir>: NOT a violation — exit 0 leaving <out_staging_root>
 #     empty (the caller then pushes nothing and says so — the intermediate-inert contract).
@@ -76,8 +76,8 @@ _dvt_path_safe() {  # rel -> rc 0 if safe, 1 otherwise
 _dvt_admitted() {  # rel -> rc 0 if the path shape is admitted
   local rel="$1"
   local seg='[A-Za-z0-9._-]+'
-  if [[ "$rel" =~ ^\.devflow/logs/review/${seg}/${seg}/${seg}\.json$ ]]; then return 0; fi
-  if [[ "$rel" =~ ^\.devflow/logs/efficiency/${seg}\.json$ ]]; then return 0; fi
+  if [[ "$rel" =~ ^\.prflow/logs/review/${seg}/${seg}/${seg}\.json$ ]]; then return 0; fi
+  if [[ "$rel" =~ ^\.prflow/logs/efficiency/${seg}\.json$ ]]; then return 0; fi
   return 1
 }
 
@@ -199,7 +199,7 @@ _admitted_rel=()
 for e in ${_entries[@]+"${_entries[@]}"}; do
   rel="${e#"$ARTIFACT_DIR"/}"
   _dvt_path_safe "$rel" || reject "entry '$rel' has an unsafe path (absolute, empty, or a '.'/'..' traversal component)"
-  _dvt_admitted "$rel" || reject "entry '$rel' is not an admitted telemetry path (only .devflow/logs/review/<slug>/<run-id>/<name>.json and .devflow/logs/efficiency/<slug>-<run-id>.json)"
+  _dvt_admitted "$rel" || reject "entry '$rel' is not an admitted telemetry path (only .prflow/logs/review/<slug>/<run-id>/<name>.json and .prflow/logs/efficiency/<slug>-<run-id>.json)"
 
   # Size cap (accumulated across all entries). This value gates admission, so _dvt_filesize
   # validates its `wc -c` output as a bare integer and fails CLOSED (rc 1 → reject) when it
@@ -227,7 +227,7 @@ for e in ${_entries[@]+"${_entries[@]}"}; do
   # confirming each entry is well-formed JSON of the right top-level type — not vouching for
   # the review record's fields.
   case "$rel" in
-    .devflow/logs/efficiency/*)
+    .prflow/logs/efficiency/*)
       if ! "$DEVFLOW_JQ" -e '(.schema_version | type == "number") and (.slug | type == "string")' "$e" >/dev/null 2>&1; then
         reject "entry '$rel' does not match the efficiency record shape (needs numeric schema_version and string slug)"
       fi ;;

@@ -7,10 +7,10 @@ kind: growth
 
 ## Files
 
-`.devflow/prompt-extensions/review-and-fix.md` and
-`.devflow/prompt-extensions/receiving-code-review.md` — the two always-loaded members of this
+`.prflow/prompt-extensions/review-and-fix.md` and
+`.prflow/prompt-extensions/receiving-code-review.md` — the two always-loaded members of this
 bundle — each gain the byte-identical `## Merge conflicts in generated artifacts` section
-(`.devflow/prompt-extensions/implement.md` gains the same section, but it is not on this bundle's
+(`.prflow/prompt-extensions/implement.md` gains the same section, but it is not on this bundle's
 surface). `skills/review-and-fix/references/fixing.md` gains the one-sentence repo-agnostic
 pointer in its `CONFLICT` arm — as do the other two in-run conflict arms,
 `skills/implement/phases/phase-1-setup.md` (the Checkpoint `CONFLICT` arm) and

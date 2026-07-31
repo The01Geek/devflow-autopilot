@@ -73,12 +73,12 @@ reconciled by the Phase 2.3.0 relocation sweep, not by this doc going stale sile
 ## 2. Corpus classification (recoverable advisory/invalid grades)
 
 The corpus is the machine-local, gitignored, ephemeral set of
-`.devflow/tmp/issue-audit-state-*.json` state files and `.devflow/tmp/issue-audit-*.md` report
+`.prflow/tmp/issue-audit-state-*.json` state files and `.prflow/tmp/issue-audit-*.md` report
 artifacts on the implementing machine. Per the AC it is re-inventoried at implement time, and a
 thin corpus is recorded as found — corpus size never fails a criterion.
 
 **Inventory result (2026-07-23, the implementing machine):** the corpus is **empty**. `ls
-.devflow/tmp/issue-audit-state-*.json` and `ls .devflow/tmp/issue-audit-*.md` each return zero
+.prflow/tmp/issue-audit-state-*.json` and `ls .prflow/tmp/issue-audit-*.md` each return zero
 files. The issue's Problem Statement records a drafting-machine tally (13 state files, 55
 adjudicated rounds, 5 advisory grades, 1 invalid grade); **none of those files exists on this
 implementing machine** — they are drafting-machine-local and were never committed (the state

@@ -45,7 +45,7 @@ def write_bundle(
     models: tuple[str, ...] = ("claude-opus-4-6",),
     effort: tuple[str, ...] = ("high",),
 ) -> Path:
-    bundle = root / ".devflow/tmp/workflow-runs" / session
+    bundle = root / ".prflow/tmp/workflow-runs" / session
     bundle.mkdir(parents=True)
     (bundle / "transcript.jsonl").write_text('{"type":"user"}\n')
     (bundle / "metadata.json").write_text(json.dumps({
@@ -272,7 +272,7 @@ class WorkflowAnalyzerTests(unittest.TestCase):
             self.mod.parse_output(output, ["a"], {"eligible": False, "eligible_groups": []})
 
     def test_legacy_bundle_is_normalized_without_writes(self):
-        bundle = self.root / ".devflow/tmp/implement-runs/legacy"
+        bundle = self.root / ".prflow/tmp/implement-runs/legacy"
         bundle.mkdir(parents=True)
         (bundle / "transcript.jsonl").write_text('{"type":"user"}\n')
         metadata = {
@@ -306,7 +306,7 @@ class WorkflowAnalyzerTests(unittest.TestCase):
             "--allowedTools", "Read,Grep,Glob",
         ])
         self.assertFalse(any(forbidden in argv for forbidden in ("Write", "Edit", "Bash", "Web", "MCP")))
-        diagnostics = list((self.root / ".devflow/tmp/workflow-analyses").glob("*/model-error.txt"))
+        diagnostics = list((self.root / ".prflow/tmp/workflow-analyses").glob("*/model-error.txt"))
         self.assertEqual(len(diagnostics), 1)
 
     def test_provider_access_requires_explicit_acknowledgement(self):

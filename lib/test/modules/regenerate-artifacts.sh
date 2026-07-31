@@ -141,7 +141,7 @@ echo "#619 batched generated-artifact regeneration pass (lib/test/regenerate-art
 #     that misses one makes the *pristine* fixture drift, silently invalidating every "no other row
 #     drifted" premise in this module.
 #   * TRACKED-ONLY — nothing untracked can enter the image, which is why this module
-#     needs no `__pycache__`/`.ruff_cache`/`.devflow/tmp` prune step.
+#     needs no `__pycache__`/`.ruff_cache`/`.prflow/tmp` prune step.
 # The history behind the tracked-only rule and the measured cost it removed live in
 # regenerate-artifacts.inventory.md; do not restate the figures here.
 #
@@ -1457,7 +1457,7 @@ _ra_has "#655 the batched pass prints the SAME recipe string as governing policy
 # ── Surface-presence pins: the rule copies and the arm pointers ──────────────────
 # `assert_pin_unique`-class presence checks (no mutation obligation): these assert that a
 # coupled prose mirror is present and identical, not that a behavior flips.
-RA_EXT_DIR="$RA_REPO/.devflow/prompt-extensions"
+RA_EXT_DIR="$RA_REPO/.prflow/prompt-extensions"
 RA_RULE_HEADING='## Merge conflicts in generated artifacts'
 for _ext in implement review-and-fix receiving-code-review; do
   devflow_module_pin_unique "#655 the conflict rule has its own section in $_ext.md" \

@@ -286,10 +286,10 @@ class InventoryTests(unittest.TestCase):
             },
         )
         storage_root, _ = recorder._shared_storage_root(self.repository)
-        manifest = storage_root / ".devflow/tmp/workflow-manifests/sid-unknown.json"
+        manifest = storage_root / ".prflow/tmp/workflow-manifests/sid-unknown.json"
         manifest.parent.mkdir(parents=True)
         manifest.write_text("{}\n", encoding="utf-8")
-        imported = storage_root / ".devflow/tmp/workflow-runs/sid-unknown/transcript.jsonl"
+        imported = storage_root / ".prflow/tmp/workflow-runs/sid-unknown/transcript.jsonl"
         imported.parent.mkdir(parents=True)
         imported.write_text("already imported\n", encoding="utf-8")
 
@@ -420,7 +420,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
             with self.subTest(workflow=workflow):
                 self.assertIn("skills/review/SKILL.md", globs)
                 self.assertIn("skills/review/phases/*.md", globs)
-                self.assertIn(".devflow/prompt-extensions/review.md", globs)
+                self.assertIn(".prflow/prompt-extensions/review.md", globs)
 
     def test_receiving_code_review_extension_surface_is_recorded(self) -> None:
         # #620: /devflow:review-and-fix loads the receiving-code-review extension at
@@ -428,7 +428,7 @@ class RegistryAndOccurrenceTests(unittest.TestCase):
         # through the inline engine. The row rides `required: false`, so a dropped or
         # typo'd glob ships desk-green while the recorder under-reports the loaded
         # surface. Bind the registry rows to disk, as the references glob is bound.
-        extension_glob = ".devflow/prompt-extensions/receiving-code-review.md"
+        extension_glob = ".prflow/prompt-extensions/receiving-code-review.md"
         for workflow in ("review-and-fix", "implement", "receiving-code-review"):
             with self.subTest(workflow=workflow):
                 rows = [
@@ -881,7 +881,7 @@ class ManifestObserverTests(unittest.TestCase):
 
     def _capture(self, prompt: str, session_id: str = "sid-manifest") -> tuple[dict, dict]:
         result = recorder.capture_prompt_manifest(self._payload(prompt, session_id), REGISTRY)
-        manifest_path = self.root / f".devflow/tmp/workflow-manifests/{session_id}.json"
+        manifest_path = self.root / f".prflow/tmp/workflow-manifests/{session_id}.json"
         return result, json.loads(manifest_path.read_text(encoding="utf-8"))
 
     def test_exact_wrapper_and_embedded_prompts_create_provisional_candidates(self) -> None:
@@ -935,7 +935,7 @@ class ManifestObserverTests(unittest.TestCase):
         self.assertEqual(manifest["git"]["head_sha"], self.head_sha)
         self.assertIsInstance(manifest["git"]["branch"], str)
         self.assertFalse(manifest["git"]["dirty_tree"])
-        self.assertEqual(manifest["devflow_version"], {"value": "9.8.7", "source": "plugin_manifest"})
+        self.assertEqual(manifest["prflow_version"], {"value": "9.8.7", "source": "plugin_manifest"})
         self.assertEqual(
             manifest["claude_configuration"]["outputStyle"],
             {"value": "Default", "source": "project_local_settings", "effective": False},
@@ -964,7 +964,7 @@ class ManifestObserverTests(unittest.TestCase):
         self.assertRegex(surface["sha256"], r"^[0-9a-f]{64}$")
 
         self.assertFalse((self.root / "must-not-exist.jsonl").exists())
-        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/workflow-runs").exists())
         self.assertFalse(any(self.root.rglob("transcript.jsonl")))  # tree-walk-ok: self.root is a per-test sandbox, not the repository root
 
     def test_manifest_dirty_tree_distinguishes_clean_dirty_and_failed_status(self) -> None:
@@ -1045,10 +1045,10 @@ class ManifestObserverTests(unittest.TestCase):
 
         result = recorder.capture_prompt_manifest(payload, REGISTRY)
 
-        central = self.root.resolve() / ".devflow/tmp/workflow-manifests/sid-linked-manifest.json"
+        central = self.root.resolve() / ".prflow/tmp/workflow-manifests/sid-linked-manifest.json"
         self.assertEqual(Path(result["manifest"]), central)
         self.assertTrue(central.is_file())
-        self.assertFalse((linked / ".devflow/tmp/workflow-manifests").exists())
+        self.assertFalse((linked / ".prflow/tmp/workflow-manifests").exists())
         manifest = json.loads(central.read_text(encoding="utf-8"))
         self.assertEqual(manifest["repository_root"], str(linked.resolve()))
         self.assertEqual(manifest["storage_root"], str(self.root.resolve()))
@@ -1064,7 +1064,7 @@ class ManifestObserverTests(unittest.TestCase):
                 result = recorder.capture_prompt_manifest(self._payload(prompt, session_id), REGISTRY)
                 self.assertEqual(result, {"captured": False, "session_id": session_id})
                 self.assertFalse(
-                    (self.root / f".devflow/tmp/workflow-manifests/{session_id}.json").exists()
+                    (self.root / f".prflow/tmp/workflow-manifests/{session_id}.json").exists()
                 )
 
     def test_unsafe_or_malformed_payloads_fail_without_artifacts(self) -> None:
@@ -1083,8 +1083,8 @@ class ManifestObserverTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 with self.assertRaises(ValueError):
                     recorder.capture_prompt_manifest(payload, REGISTRY)
-        self.assertFalse((self.root / ".devflow/tmp/workflow-manifests").exists())
-        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/workflow-manifests").exists())
+        self.assertFalse((self.root / ".prflow/tmp/workflow-runs").exists())
 
     def _run_entry(self, entry: Path, raw: str) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -1098,7 +1098,7 @@ class ManifestObserverTests(unittest.TestCase):
 
     def test_thin_entry_point_is_fail_open_for_success_and_every_failure(self) -> None:
         entry = ROOT / "scripts/capture-workflow-manifest.py"
-        manifests = self.root / ".devflow/tmp/workflow-manifests"
+        manifests = self.root / ".prflow/tmp/workflow-manifests"
 
         # Positive control: this fixture differs from the failure cases below in exactly
         # the one property under test, so a failure case rejected by some unrelated
@@ -1123,7 +1123,7 @@ class ManifestObserverTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("devflow: workflow-manifest-observer:", result.stderr)
                 self.assertEqual(sorted(path.name for path in manifests.iterdir()), before)
-        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/workflow-runs").exists())
 
     def test_stop_entry_point_is_fail_open_when_capture_itself_raises(self) -> None:
         entry = ROOT / "scripts/capture-implement-session.py"
@@ -1139,7 +1139,7 @@ class ManifestObserverTests(unittest.TestCase):
                 result = self._run_entry(entry, raw)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("workflow-flight-recorder:", result.stderr)
-        self.assertFalse((self.root / ".devflow/tmp/workflow-runs").exists())
+        self.assertFalse((self.root / ".prflow/tmp/workflow-runs").exists())
 
 
 class ImportTests(unittest.TestCase):
@@ -1234,7 +1234,7 @@ class ImportTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        bundle = self.repository.resolve() / ".devflow/tmp/workflow-runs" / session_id
+        bundle = self.repository.resolve() / ".prflow/tmp/workflow-runs" / session_id
         bundle.mkdir(parents=True)
         (bundle / "transcript.jsonl").write_bytes(transcript(*records[:3]))
         (bundle / "stop-attempts.jsonl").write_text(
@@ -1390,7 +1390,7 @@ class ImportTests(unittest.TestCase):
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        bundle = self.repository.resolve() / ".devflow/tmp/workflow-runs" / session_id
+        bundle = self.repository.resolve() / ".prflow/tmp/workflow-runs" / session_id
         self.assertEqual(Path(result.stdout.strip()), bundle)
         self.assertIn(b"ISSUE-522-NATIVE-FINAL-TAIL", (bundle / "transcript.jsonl").read_bytes())
         metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
@@ -1428,11 +1428,11 @@ class ImportTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "exactly one.*missing-session"):
             self._import("missing-session")
-        self.assertFalse((self.repository / ".devflow/tmp").exists())
+        self.assertFalse((self.repository / ".prflow/tmp").exists())
 
         with self.assertRaisesRegex(ValueError, "exactly one.*duplicate-session"):
             self._import("duplicate-session")
-        self.assertFalse((self.repository / ".devflow/tmp").exists())
+        self.assertFalse((self.repository / ".prflow/tmp").exists())
         self.assertEqual(
             {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in duplicates},
             before,
@@ -1515,9 +1515,9 @@ class CaptureTests(unittest.TestCase):
             )
             self.assertEqual(launched.returncode, 0, launched.stderr)
 
-            central_bundle = shared / ".devflow/tmp/workflow-runs/sid-linked"
+            central_bundle = shared / ".prflow/tmp/workflow-runs/sid-linked"
             self.assertTrue((central_bundle / "transcript.jsonl").is_file())
-            self.assertFalse((linked / ".devflow/tmp/workflow-runs/sid-linked").exists())
+            self.assertFalse((linked / ".prflow/tmp/workflow-runs/sid-linked").exists())
             metadata = json.loads((central_bundle / "metadata.json").read_text())
             self.assertEqual(metadata["repository_root"], str(linked.resolve()))
             self.assertEqual(metadata["storage_root"], str(shared.resolve()))
@@ -1558,7 +1558,7 @@ class CaptureTests(unittest.TestCase):
                 REGISTRY,
             )
             self.assertTrue(result["captured"])
-            bundle = root / ".devflow/tmp/workflow-runs/sid-capture"
+            bundle = root / ".prflow/tmp/workflow-runs/sid-capture"
             self.assertEqual(json.loads((bundle / "occurrences.json").read_text())[1]["workflow"], "review-and-fix")
             metadata = json.loads((bundle / "metadata.json").read_text())
             self.assertEqual(metadata["occurrence_count"], 2)
@@ -1593,7 +1593,7 @@ class CaptureTests(unittest.TestCase):
                 REGISTRY,
             )
             self.assertFalse(result["captured"])
-            self.assertFalse((root / ".devflow/tmp/workflow-runs/sid-none").exists())
+            self.assertFalse((root / ".prflow/tmp/workflow-runs/sid-none").exists())
 
 
 if __name__ == "__main__":

@@ -11,14 +11,14 @@ Count the changed files. If 10 or fewer, launch one checklist-generator agent. I
 
 **Hand off each batch's slice by file reference, not inline content — the `{DIFF_PATH}` pattern Phase 3 uses, extended to Phase 1.** The slice content must never transit the orchestrator's context (that inline transit is the per-pass cost this removes, re-paid on every engine and shadow pass). Author each slice as a **file on disk**, passing the generator its *path*:
 
-- **Single batch (≤10 files):** pass the cached full diff path `.devflow/tmp/review/<slug>/<run-id>/diff.patch` (from Phase 0.2) directly — **write no slice file.** There is only one batch, so its slice *is* the full diff.
+- **Single batch (≤10 files):** pass the cached full diff path `.prflow/tmp/review/<slug>/<run-id>/diff.patch` (from Phase 0.2) directly — **write no slice file.** There is only one batch, so its slice *is* the full diff.
 - **Multiple batches (>10 files):** author each batch's slice from the **already-cached `diff.patch`** (never a fresh `git`/`gh` fetch — no `git` object access, so a shallow consumer checkout is unaffected). Phase 0.3 derived the file list from `diff.patch`'s `^diff --git` headers **in document order**, so batch _k_ (1-based) is exactly the _k_-th run of 10 `diff --git` sections — a numeric range taking **no per-file filename arguments**: its only operand is the fixed run-scoped `diff.patch` path, so no changed-file path is ever passed and spaces cannot break quoting. For batch _k_, with `s=(k-1)*10+1` and `e=k*10`, extract sections _s_ through _e_ with `awk`, **redirecting** its stdout into a run-scoped slice file beside the cached diff (redirected rather than piped through `tee`, so the slice never enters the orchestrator's context):
 
   ```bash
-  awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .devflow/tmp/review/<slug>/<run-id>/diff.patch > .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && test -s .devflow/tmp/review/<slug>/<run-id>/batch-1.patch && echo "slice-ok: batch-1" || echo "slice-failed: batch-1 — dispatch the full diff.patch path for this batch"
+  awk -v s=1 -v e=10 '/^diff --git/{n++} n>=s && n<=e' .prflow/tmp/review/<slug>/<run-id>/diff.patch > .prflow/tmp/review/<slug>/<run-id>/batch-1.patch && test -s .prflow/tmp/review/<slug>/<run-id>/batch-1.patch && echo "slice-ok: batch-1" || echo "slice-failed: batch-1 — dispatch the full diff.patch path for this batch"
   ```
 
-  (`awk` is a granted head and an **in-workspace `>` redirect of a granted head** is a permitted shape — Phase 4.5's `> .devflow/tmp/…/iter-1.json` is the precedent — so it adds **no** allowlist entry. It deliberately avoids Phase 0.2's `| tee` form, which would echo the slice into the orchestrator's context — the exact per-pass transit this change removes; here the generator Reads the slice by *path*.)
+  (`awk` is a granted head and an **in-workspace `>` redirect of a granted head** is a permitted shape — Phase 4.5's `> .prflow/tmp/…/iter-1.json` is the precedent — so it adds **no** allowlist entry. It deliberately avoids Phase 0.2's `| tee` form, which would echo the slice into the orchestrator's context — the exact per-pass transit this change removes; here the generator Reads the slice by *path*.)
 
 **Fail-closed fallback (guard-class 2).** `awk` is not a preflight-guaranteed tool, so a batch's slice is usable only when the authoring command **both** exited 0 **and** left a non-empty file — hence the `&&`-chain: gated on `awk`'s **own exit status** first, then the `test -s` non-empty check (a **bash builtin** — never another PATH tool). Gate on exit status, never output shape alone — `test -s` ("is the file non-empty?") admits strictly more than "did `awk` write the whole slice?": a partial write (`ENOSPC`, quota, a killed `awk`) leaves a **non-empty but truncated** slice it waves through, and the batch would review a thinned surface with missing files silently unrepresented. **On `slice-failed` — a non-zero `awk`/redirect exit, or a missing/empty slice — fall back to passing the full `diff.patch` path for that batch** (coverage preserved, savings forfeited), and record the fallback in the run's telemetry notes (`step_2_6`/`phase_1` in `/prflow:review-and-fix`; chat in standalone). A fallback batch relies on the generator's retained scope instruction (items only for this batch's listed files) so the full diff cannot inflate cross-batch duplicates.
 
@@ -74,14 +74,14 @@ Pass the following prompt — carrying the slice's **file path** (from Phase 1.1
 The diff you must analyze is cached on disk. Read it directly with your Read tool — it is NOT inlined here.
 
 Diff path: {SLICE_PATH}
-  (In a >1-batch run this is your batch's slice — only your batch's files. On the fail-closed fallback, or in a single-batch run, it is the full cached diff `.devflow/tmp/review/<slug>/<run-id>/diff.patch`.)
+  (In a >1-batch run this is your batch's slice — only your batch's files. On the fail-closed fallback, or in a single-batch run, it is the full cached diff `.prflow/tmp/review/<slug>/<run-id>/diff.patch`.)
 
 Changed files to analyze:
 {paste the file list here}
 
 Generate the verification checklist ONLY for the changed files listed above — even if the diff at that path contains other files (a fallback slice is the full diff). Return the JSON array in a ```json code fence.
 ```
-Substitute `{SLICE_PATH}` with the batch's slice path (`.devflow/tmp/review/<slug>/<run-id>/batch-<k>.patch`), or the full `diff.patch` path on a single-batch run or the Phase 1.1 fail-closed fallback. In a >1-batch run, also name the sibling batches' files (per Phase 1.1).
+Substitute `{SLICE_PATH}` with the batch's slice path (`.prflow/tmp/review/<slug>/<run-id>/batch-<k>.patch`), or the full `diff.patch` path on a single-batch run or the Phase 1.1 fail-closed fallback. In a >1-batch run, also name the sibling batches' files (per Phase 1.1).
 
 **If `issue_context` is not empty**, append this to the prompt:
 

@@ -16,9 +16,9 @@ the git remote on both tiers.
 Scope boundaries, all deliberate and each asserted by a fixture in the suite:
 
 * The audited population excludes `lib/test/`, `docs/`, `.github/workflows/`,
-  `.github/actions/`, `.devflow/logs/`, `.devflow/learnings/`, `.changeset/`,
+  `.github/actions/`, `.prflow/logs/`, `.prflow/learnings/`, `.changeset/`,
   and `CHANGELOG.md`. `lib/test/` carries the `#466` pin literal; `docs/` and
-  `CHANGELOG.md` carry the rule's own statement text; the `.devflow/` corpora are machine-appended
+  `CHANGELOG.md` carry the rule's own statement text; the `.prflow/` corpora are machine-appended
   records that quote reviewed commands verbatim; `.changeset/` is `CHANGELOG.md`'s
   producer and describes before-states. `.github/workflows/` and
   `.github/actions/` are excluded on the merits: both run only inside Actions,
@@ -126,8 +126,8 @@ EXCLUDED_PREFIXES = (
     "docs/",
     ".github/workflows/",
     ".github/actions/",
-    ".devflow/logs/",
-    ".devflow/learnings/",
+    ".prflow/logs/",
+    ".prflow/learnings/",
     ".changeset/",
     ".claude/worktrees/",
 )

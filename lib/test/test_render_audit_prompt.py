@@ -31,7 +31,7 @@ DRAFT_UNREADABLE_EMIT = "If you cannot read the file, return **no findings** and
 HASH_OBJECT = "run `git hash-object --no-filters` on that draft file and quote the object ID it prints verbatim"
 FILE_ARM_OOB = (
     "The following on-disk files are **out of bounds**, exactly these 7 paths — "
-    "`.devflow/tmp/issue-derivation-"
+    "`.prflow/tmp/issue-derivation-"
 )
 EMBED_ARM_OOB = "the out-of-bounds declaration names exactly these 9 files"
 READ_ORDERING_AMENDED = (
@@ -83,7 +83,7 @@ def run_loader(cwd, section="## Audit dimensions"):
 
 
 def write_ext(root: Path, body: str) -> Path:
-    d = root / ".devflow" / "prompt-extensions"
+    d = root / ".prflow" / "prompt-extensions"
     d.mkdir(parents=True, exist_ok=True)
     p = d / "create-issue.md"
     p.write_text(body, encoding="utf-8")
@@ -96,7 +96,7 @@ class DispatchArms(unittest.TestCase):
         self.root = Path(self.tmp.name)
         # An extension carrying the section so status is a stable 'appended'.
         write_ext(self.root, "## Audit dimensions\n\n- **X** — a consumer dim.\n")
-        self.ext = self.root / ".devflow" / "prompt-extensions" / "create-issue.md"
+        self.ext = self.root / ".prflow" / "prompt-extensions" / "create-issue.md"
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -221,7 +221,7 @@ class Extraction(unittest.TestCase):
 
     def test_real_extension_fixture(self):
         # Production-realistic: this repo's live extension carries both hooks.
-        real = REPO / ".devflow" / "prompt-extensions" / "create-issue.md"
+        real = REPO / ".prflow" / "prompt-extensions" / "create-issue.md"
         for hook in ("audit-dimensions", "evidence-axes"):
             r = run_renderer(["extract", "--hook", hook,
                               "--extension-file", str(real)])
@@ -237,7 +237,7 @@ class DeliveryEquivalence(unittest.TestCase):
             root = Path(d)
             make_ext(root)
             # Renderer classification.
-            ext = root / ".devflow" / "prompt-extensions" / "create-issue.md"
+            ext = root / ".prflow" / "prompt-extensions" / "create-issue.md"
             r = run_renderer(["status-only", "--extension-file", str(ext)])
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertTrue(
@@ -264,7 +264,7 @@ class DeliveryEquivalence(unittest.TestCase):
 
     def test_absent(self):
         def make(root):
-            (root / ".devflow" / "prompt-extensions").mkdir(parents=True)
+            (root / ".prflow" / "prompt-extensions").mkdir(parents=True)
         self._assert_maps(make, "absent")
 
     def test_present_but_empty(self):
@@ -282,7 +282,7 @@ class DeliveryEquivalence(unittest.TestCase):
 
     def test_broken_symlink(self):
         def make(root):
-            d = root / ".devflow" / "prompt-extensions"
+            d = root / ".prflow" / "prompt-extensions"
             d.mkdir(parents=True)
             (d / "create-issue.md").symlink_to(root / "missing-target.md")
         self._assert_maps(make, "unestablished")
@@ -335,7 +335,7 @@ class DeliveryEquivalence(unittest.TestCase):
 
     def test_present_but_non_regular(self):
         def make(root):
-            d = root / ".devflow" / "prompt-extensions"
+            d = root / ".prflow" / "prompt-extensions"
             d.mkdir(parents=True)
             (d / "create-issue.md").mkdir()  # a directory, not a regular file
         self._assert_maps(make, "unestablished")
@@ -482,7 +482,7 @@ class FailClosedAndAnchoring(unittest.TestCase):
         real_cwd = Path.cwd
         try:
             mod._repo_root = lambda: None
-            Path.cwd = staticmethod(lambda: self.root)  # no .devflow/ here
+            Path.cwd = staticmethod(lambda: self.root)  # no .prflow/ here
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 got = mod._default_extension_path()
@@ -493,7 +493,7 @@ class FailClosedAndAnchoring(unittest.TestCase):
         self.assertIn("could not resolve a git repo root", err.getvalue())
         self.assertIn("prompt-extension path", err.getvalue())
         self.assertEqual(
-            got, self.root / ".devflow" / "prompt-extensions" / "create-issue.md")
+            got, self.root / ".prflow" / "prompt-extensions" / "create-issue.md")
 
     def test_R18_template_malformed_block_shapes_fail_closed(self):
         # The template is agent/human-mutable markdown reached by a prompt-surface
@@ -633,7 +633,7 @@ class FailClosedAndAnchoring(unittest.TestCase):
             self.root,
             "## Audit dimensions\n\n- token <slug> and {DRAFT_PATH} literal\n",
         )
-        ext = self.root / ".devflow" / "prompt-extensions" / "create-issue.md"
+        ext = self.root / ".prflow" / "prompt-extensions" / "create-issue.md"
         r = run_renderer(["file", "--slug", "realslug",
                           "--draft-path", "/a/real-draft.md",
                           "--extension-file", str(ext)])
@@ -1045,7 +1045,7 @@ class EnumerateDimensions(unittest.TestCase):
         # consumer status is unestablished, never laundered into absent; generic
         # floor still enumerates.
         with tempfile.TemporaryDirectory() as d:
-            extdir = Path(d) / ".devflow" / "prompt-extensions"
+            extdir = Path(d) / ".prflow" / "prompt-extensions"
             extdir.mkdir(parents=True)
             (extdir / "create-issue.md").mkdir()  # a directory, not a file
             r = run_renderer(
@@ -1533,8 +1533,8 @@ class OutOfBoundsEnumerations(unittest.TestCase):
     the file but fell out of the rendered block would pass a grep and fail here.
     """
 
-    SCOPE_GLOB = "`.devflow/tmp/issue-audit-scope-<slug>.*.md`"
-    DISPATCH_FILE = "`.devflow/tmp/issue-audit-dispatch-<slug>.md`"
+    SCOPE_GLOB = "`.prflow/tmp/issue-audit-scope-<slug>.*.md`"
+    DISPATCH_FILE = "`.prflow/tmp/issue-audit-dispatch-<slug>.md`"
 
     def _slug_glob(self, slug="my-slug"):
         return self.SCOPE_GLOB.replace("<slug>", slug)

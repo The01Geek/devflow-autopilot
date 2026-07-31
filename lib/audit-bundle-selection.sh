@@ -9,7 +9,7 @@
 # occurrence PR of every actionable pattern, unbounded — a cost proportional to
 # each pattern's cumulative occurrence history, growing monotonically with the
 # corpus. This helper bounds that fetch: the skill fence resolves
-# `.devflow_retrospective.audit_bundle_cap` (via config-get.sh, with the default
+# `.prflow_retrospective.audit_bundle_cap` (via config-get.sh, with the default
 # 10), passes the resolved value to `devflow_validate_audit_bundle_cap`, then asks
 # `devflow_select_audit_bundles` for the most-recent-N occurrence PRs, and finally
 # asks `devflow_audit_dispatch_ok` whether the bundles that actually arrived are
@@ -85,7 +85,7 @@
 devflow_validate_audit_bundle_cap() {
     local cap="${1:-}"
     if [ -z "$cap" ]; then
-        echo "::error::audit-bundle-selection: the audit_bundle_cap read produced an empty value — this means either a malformed .devflow/config.json (its embedded python exits non-zero and config-get.sh's file-scope set -euo pipefail aborts the assignment before the default fallback) or a resolver failure (python3 absent, config-get.sh missing or non-executable). Refusing to launder either into a working cap of 10." >&2
+        echo "::error::audit-bundle-selection: the audit_bundle_cap read produced an empty value — this means either a malformed .prflow/config.json (its embedded python exits non-zero and config-get.sh's file-scope set -euo pipefail aborts the assignment before the default fallback) or a resolver failure (python3 absent, config-get.sh missing or non-executable). Refusing to launder either into a working cap of 10." >&2
         return 1
     fi
     # Any value carrying a non-digit character reaches the residual arm: a boolean
@@ -96,7 +96,7 @@ devflow_validate_audit_bundle_cap() {
     # here as an array (the pinned residual named in the header).
     case "$cap" in
         *[!0-9]*)
-            echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer (got '$cap')" >&2
+            echo "::error::audit-bundle-selection: .prflow_retrospective.audit_bundle_cap must be a positive integer (got '$cap')" >&2
             return 1 ;;
     esac
     # All-digit now (0, 00, 08, 007, or a canonical positive). Reject a LEADING-ZERO
@@ -116,13 +116,13 @@ devflow_validate_audit_bundle_cap() {
     # literal, so that test is safe on it).
     case "$cap" in
         0*[1-9]*)
-            echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer with no leading zero — '$cap' is not a canonical JSON integer literal, so its numeric meaning downstream is parser-dependent; write the intended count without leading zeros" >&2
+            echo "::error::audit-bundle-selection: .prflow_retrospective.audit_bundle_cap must be a positive integer with no leading zero — '$cap' is not a canonical JSON integer literal, so its numeric meaning downstream is parser-dependent; write the intended count without leading zeros" >&2
             return 1 ;;
     esac
     # Canonical all-digit now (all-zeros, or a leading-zero-free positive). Reject
     # zero and — via the same guard — a value that is only zeros.
     if [ "$cap" -le 0 ]; then
-        echo "::error::audit-bundle-selection: .devflow_retrospective.audit_bundle_cap must be a positive integer, not zero — a bundle cap of zero would starve Stage B of all evidence (got '$cap')" >&2
+        echo "::error::audit-bundle-selection: .prflow_retrospective.audit_bundle_cap must be a positive integer, not zero — a bundle cap of zero would starve Stage B of all evidence (got '$cap')" >&2
         return 1
     fi
     printf '%s\n' "$cap"

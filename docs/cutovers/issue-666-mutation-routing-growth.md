@@ -6,8 +6,8 @@ kind: growth
 ## Files
 
 - `CLAUDE.md`
-- `.devflow/prompt-extensions/implement.md`
-- `.devflow/prompt-extensions/create-issue.md`
+- `.prflow/prompt-extensions/implement.md`
+- `.prflow/prompt-extensions/create-issue.md`
 
 ## Justification
 
@@ -22,12 +22,12 @@ kind: growth
   the one repo-wide home every run loads, including cloud `/prflow:review-and-fix`, and it sits under
   no word ceiling — the reason the fix-loop's prose channel is `CLAUDE.md` rather than the
   `review-and-fix` extension (which is a `RAF_LOAD_CEIL`/`RAF_MAXSTEP_CEIL` budget term).
-- **`.devflow/prompt-extensions/implement.md`** — the "Behavioral-fix pins — evidence, not
+- **`.prflow/prompt-extensions/implement.md`** — the "Behavioral-fix pins — evidence, not
   attestation" section gains a paragraph stating that the mandate is now enforced by the
   `mutation-routing` gate and that a structural pin the change adds must carry the marker. This is the
   operative implement-time policy an autonomous run reads, so the obligation belongs at this execution
   home rather than only in a doc.
-- **`.devflow/prompt-extensions/create-issue.md`** — the `#464` mutation-evidence audit dimension
+- **`.prflow/prompt-extensions/create-issue.md`** — the `#464` mutation-evidence audit dimension
   keeps its surface-presence carve-out and adds the declaration obligation as an **implement-time
   consequence**, phrased so the Step 3.6 auditor does not flag a draft's surface-presence pin for
   lacking a marker no issue draft can carry. Surface-presence pins are the dominant Testing-Strategy

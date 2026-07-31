@@ -68,7 +68,7 @@ USAGE
     `run` writes DIR/{log.txt,events.tsv,sections.tsv,labels.tsv,assertions.tsv,
     run.json} and prints the top-N report. The child's exit status is this
     process's exit status, so a profiled run still fails the way an unprofiled one
-    would. DIR defaults to `.devflow/tmp/profile/<label>` — inside `.devflow/tmp/`,
+    would. DIR defaults to `.prflow/tmp/profile/<label>` — inside `.prflow/tmp/`,
     which .gitignore already covers, so a profiled run never dirties the tree (a
     dirty tree self-skips the #434 stale-prose gate).
 """
@@ -400,7 +400,7 @@ def _run(args: argparse.Namespace) -> int:
     root = _repo_root(Path(__file__).resolve().parent)
     run_sh = root / "lib" / "test" / "run.sh"
     cmd = list(args.command) if args.command else [str(run_sh)]
-    out = Path(args.out) if args.out else root / ".devflow" / "tmp" / "profile" / args.label
+    out = Path(args.out) if args.out else root / ".prflow" / "tmp" / "profile" / args.label
     out.mkdir(parents=True, exist_ok=True)
 
     env = dict(os.environ)
@@ -463,7 +463,7 @@ def main(argv: "list[str] | None" = None) -> int:
     sub = ap.add_subparsers(dest="mode", required=True)
 
     r = sub.add_parser("run", help="profile a suite run and report")
-    r.add_argument("--out", help="output directory (default .devflow/tmp/profile/<label>)")
+    r.add_argument("--out", help="output directory (default .prflow/tmp/profile/<label>)")
     r.add_argument("--label", default="monolith", help="name of the default output directory")
     r.add_argument("--top", type=int, default=20, help="rows per report table")
     r.add_argument("--tee", action="store_true", help="also stream the suite output to stdout")

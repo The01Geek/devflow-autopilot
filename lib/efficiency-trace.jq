@@ -2,7 +2,7 @@
 # the /devflow:review-and-fix per-iteration workpads.
 #
 # This is the mechanical heart of the telemetry feature: it reads the
-# `iter-<N>.json` workpads (already on disk under .devflow/tmp/review/<slug>/<run-id>/),
+# `iter-<N>.json` workpads (already on disk under .prflow/tmp/review/<slug>/<run-id>/),
 # assigns each dispatched Phase-3 subagent exactly one of four effectiveness
 # verdicts, and emits EITHER a rendered Markdown trace ($mode == "trace") OR a
 # single per-run JSON record ($mode == "record"). No LLM, no side effects —
@@ -245,7 +245,7 @@ def iter_view:
       # Which skill produced this iteration: "review" (standalone /devflow:review)
       # vs the default review-and-fix loop. Carried so a cross-run analyzer can
       # segment effectiveness by originating skill (both write into the same
-      # .devflow/logs/efficiency/ store; the filename does not disambiguate them).
+      # .prflow/logs/efficiency/ store; the filename does not disambiguate them).
       source: ($it.source // null),
       # True when this iteration was RECONSTRUCTED by lib/efficiency-trace.sh's
       # synthesis floor (issue #381) from a fix commit rather than written by the
@@ -298,7 +298,7 @@ def iter_view:
       # schema_version stays 1 across the issue #431 config_fingerprint addition:
       # the field is additive and OPTIONAL (nullable), no consumer gates on the
       # version, and the #431 assembler handles presence/absence uniformly
-      # (falling back to `git show <merge_sha>:.devflow/config.json` when it is
+      # (falling back to `git show <merge_sha>:.prflow/config.json` when it is
       # null/absent). A bump would imply a breaking change this is not — records
       # predating the field remain valid. (Decision recorded in docs/efficiency-trace.md.)
       schema_version: 1,
@@ -353,7 +353,7 @@ def iter_view:
         agent_verdicts: .agent_verdicts
       })),
       # Cost telemetry carried forward from each workpad so it is no longer lost
-      # when .devflow/tmp/ is destroyed at GH-runner teardown. `phases` mirrors
+      # when .prflow/tmp/ is destroyed at GH-runner teardown. `phases` mirrors
       # established workpad value verbatim, or the explicit unavailable marker.
       telemetry: ($iters | map({iter: .iter, phases: .telemetry}))
     }

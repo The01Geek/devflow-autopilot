@@ -7,11 +7,11 @@ kind: growth
 
 Each of the mandatory census rows listed below grows by one `## Batched artifact regeneration` section. The defining site is the `for _ra_ext in …` pin loop in `lib/test/run.sh`, which pins every listed surface — a count stated here would be a mirror-fact that rots if a fourth surface is added:
 
-- `.devflow/prompt-extensions/implement.md` — the `/prflow:implement` entry surface, loaded
+- `.prflow/prompt-extensions/implement.md` — the `/prflow:implement` entry surface, loaded
   unconditionally by its `load-prompt-extension.sh` step.
-- `.devflow/prompt-extensions/review-and-fix.md` — the `/prflow:review-and-fix` entry surface,
+- `.prflow/prompt-extensions/review-and-fix.md` — the `/prflow:review-and-fix` entry surface,
   loaded unconditionally by its SKILL.md `load-prompt-extension.sh` step.
-- `.devflow/prompt-extensions/receiving-code-review.md` — loaded whenever the
+- `.prflow/prompt-extensions/receiving-code-review.md` — loaded whenever the
   receiving-code-review skill itself loads (interactive invocations and description-matched
   dispatches).
 
@@ -52,7 +52,7 @@ not reach the flagship fix loop.
 
 ## Budget renegotiation (review-and-fix initial load)
 
-`.devflow/prompt-extensions/review-and-fix.md` was sitting **six words** below its documented
+`.prflow/prompt-extensions/review-and-fix.md` was sitting **six words** below its documented
 initial-load ceiling — root 3,213 + extension 2,291 = 5,504 words against a 5,510 ceiling — so
 this instruction could not fit under it at any phrasing. The section was
 first trimmed to its operative minimum (the invocation, the act-on-the-report rule, the

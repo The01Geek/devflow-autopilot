@@ -275,10 +275,10 @@ try:
     # A blank/whitespace override is ignored — falls through to config/default.
     # Assert it lands on the documented default marker (not merely non-empty), so
     # a regression in the fall-through wiring that returned the wrong marker is
-    # caught. config-get.sh reads `.devflow/config.json` relative to cwd; the repo
+    # caught. config-get.sh reads `.prflow/config.json` relative to cwd; the repo
     # *does* carry one whose workpad_marker is byte-identical to the default, so to
     # genuinely exercise the default-leg (config absent → config-get.sh returns the
-    # passed default) we must run from a cwd with no .devflow/config.json. (Running
+    # passed default) we must run from a cwd with no .prflow/config.json. (Running
     # from the repo root would pass either way and prove nothing.) workpad resolves
     # config-get.sh via __file__, so the chdir does not break locating the helper.
     import tempfile as _tempfile  # noqa: E402
@@ -296,11 +296,11 @@ finally:
     if _saved is not None:
         _os.environ['DEVFLOW_WORKPAD_MARKER'] = _saved
 
-# #275: _workpad_marker must read .devflow/config.json directly in Python —
+# #275: _workpad_marker must read .prflow/config.json directly in Python —
 # never by exec-ing config-get.sh, which Windows cannot exec ([WinError 193])
 # and which therefore silently dropped a configured custom marker back to the
 # built-in default. The tests below exercise the REAL config file (a temp cwd
-# with a real .devflow/config.json — the config read is not mocked) while
+# with a real .prflow/config.json — the config read is not mocked) while
 # poisoning workpad._run so any residual subprocess dependency in the marker
 # path raises the same OSError class Windows produces: against the pre-#275
 # code the custom-marker case fails for the right reason (exec fails → default
@@ -318,19 +318,19 @@ try:
         _os.chdir(_td)
 
         # No config file at all (fresh empty dir) → built-in default, silently.
-        assert_eq("marker (#275): no .devflow/config.json → built-in default",
+        assert_eq("marker (#275): no .prflow/config.json → built-in default",
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
 
-        _os.mkdir('.devflow')
+        _os.mkdir('.prflow')
 
         def _write_cfg(text):
-            with open(_os.path.join('.devflow', 'config.json'), 'w',
+            with open(_os.path.join('.prflow', 'config.json'), 'w',
                       encoding='utf-8') as _f:
                 _f.write(text)
 
         # The headline regression: a configured custom marker is honored even
         # when no subprocess can run (the Windows [WinError 193] shape).
-        _write_cfg('{"devflow": {"workpad_marker": "<!-- custom:pad -->"}}')
+        _write_cfg('{"prflow": {"workpad_marker": "<!-- custom:pad -->"}}')
         _stderr_happy = io.StringIO()
         with contextlib.redirect_stderr(_stderr_happy):
             _val = workpad._workpad_marker(None)
@@ -350,7 +350,7 @@ try:
             _os.environ.pop('DEVFLOW_WORKPAD_MARKER', None)
 
         # Key absent at either level → built-in default, silently (normal case).
-        _write_cfg('{"devflow": {}}')
+        _write_cfg('{"prflow": {}}')
         assert_eq("marker (#275): workpad_marker key absent → built-in default",
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
         _write_cfg('{"other": 1}')
@@ -360,7 +360,7 @@ try:
         # A non-string or empty value is "not configured", never a coerced
         # garbage marker stamped into a comment — but present-and-invalid
         # leaves a breadcrumb (unlike the silent absent-key cases above).
-        _write_cfg('{"devflow": {"workpad_marker": 42}}')
+        _write_cfg('{"prflow": {"workpad_marker": 42}}')
         _stderr_nonstr = io.StringIO()
         with contextlib.redirect_stderr(_stderr_nonstr):
             _val = workpad._workpad_marker(None)
@@ -368,7 +368,7 @@ try:
                   workpad._DEFAULT_WORKPAD_MARKER, _val)
         assert_eq("marker (#275): non-string marker value → breadcrumb names workpad_marker",
                   True, "workpad_marker" in _stderr_nonstr.getvalue())
-        _write_cfg('{"devflow": {"workpad_marker": "   "}}')
+        _write_cfg('{"prflow": {"workpad_marker": "   "}}')
         _stderr_blank = io.StringIO()
         with contextlib.redirect_stderr(_stderr_blank):
             _val = workpad._workpad_marker(None)
@@ -379,7 +379,7 @@ try:
         # Wrong-type shapes above the key (adversarial input matrix): a scalar
         # where the devflow object is expected, and a top-level array — both
         # are "not configured" (no key present), silent default.
-        _write_cfg('{"devflow": "str"}')
+        _write_cfg('{"prflow": "str"}')
         assert_eq("marker (#275): scalar devflow value → built-in default",
                   workpad._DEFAULT_WORKPAD_MARKER, workpad._workpad_marker(None))
         _write_cfg('[1]')
@@ -395,8 +395,8 @@ try:
         # except tuple already caught, making a BOM-less probe vacuous. The
         # real PowerShell `>` write emits the \xff\xfe BOM, whose \xff is an
         # invalid UTF-8 lead byte → UnicodeDecodeError, the arm this pins.
-        with open(_os.path.join('.devflow', 'config.json'), 'wb') as _f:
-            _f.write(b'\xff\xfe' + '{"devflow": {"workpad_marker": "<!-- utf16 -->"}}'.encode('utf-16-le'))
+        with open(_os.path.join('.prflow', 'config.json'), 'wb') as _f:
+            _f.write(b'\xff\xfe' + '{"prflow": {"workpad_marker": "<!-- utf16 -->"}}'.encode('utf-16-le'))
         _stderr_u16 = io.StringIO()
         with contextlib.redirect_stderr(_stderr_u16):
             _val = workpad._workpad_marker(None)
@@ -406,7 +406,7 @@ try:
                   True, "config.json" in _stderr_u16.getvalue())
 
         # A padded configured marker is trimmed (the .strip() contract).
-        _write_cfg('{"devflow": {"workpad_marker": "  <!-- padded:pad -->  "}}')
+        _write_cfg('{"prflow": {"workpad_marker": "  <!-- padded:pad -->  "}}')
         assert_eq("marker (#275): padded custom marker is stripped",
                   '<!-- padded:pad -->', workpad._workpad_marker(None))
 
@@ -445,11 +445,11 @@ try:
         _sp295.run(['git', 'init', '-q', _rd295], check=True)
         _sp295.run(['git', '-C', _rd295, 'config', 'user.email', 't@example.com'], check=True)
         _sp295.run(['git', '-C', _rd295, 'config', 'user.name', 't'], check=True)
-        _os.makedirs(_os.path.join(_rd295, '.devflow'))
+        _os.makedirs(_os.path.join(_rd295, '.prflow'))
         _os.makedirs(_os.path.join(_rd295, 'a', 'b', 'c'))
-        with open(_os.path.join(_rd295, '.devflow', 'config.json'), 'w',
+        with open(_os.path.join(_rd295, '.prflow', 'config.json'), 'w',
                   encoding='utf-8') as _f:
-            _f.write('{"devflow": {"workpad_marker": "<!-- root:295 -->"}}')
+            _f.write('{"prflow": {"workpad_marker": "<!-- root:295 -->"}}')
         _os.chdir(_os.path.join(_rd295, 'a', 'b', 'c'))
         assert_eq("marker (#295): resolves the ROOT config marker from a nested subdir",
                   '<!-- root:295 -->', workpad._workpad_marker(None))
@@ -3556,7 +3556,7 @@ import tempfile as _tempfile  # noqa: E402
 _config_get_sh = str(SCRIPTS / 'config-get.sh')
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _cf:
     _cf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:checklist-verifier":{},'
         '"devflow:silent-failure-hunter":{"iterations":{"nested":"obj"}},'
@@ -3598,7 +3598,7 @@ finally:
     _os.unlink(_cfg_path)
 
 # ---------------------------------------------------------------------------
-# Namespace-alias resolution. .devflow/config.schema.json enumerates each
+# Namespace-alias resolution. .prflow/config.schema.json enumerates each
 # review-engine subagent under EVERY declared plugin namespace — the canonical
 # `prflow:` and the `devflow:` alias, "so an override committed before the
 # plugin rename keeps resolving" — while the engine dispatches only the
@@ -3683,7 +3683,7 @@ assert_eq("alias: an unknown-namespace dispatched id still warns (not silent)",
 # read_raw's key probing too, not only through the pure resolver.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _alcf:
     _alcf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:code-reviewer":{"model":"m-alias","effort":"low"},'
         '"devflow:checklist-verifier":{},'
@@ -3718,7 +3718,7 @@ finally:
 # returns no overrides AND surfaces a warning (config-get.sh exits 2), rather
 # than collapsing the parse failure to a silent "no overrides".
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _bcf:
-    _bcf.write('{"devflow_review": {"agent_overrides": {  BROKEN')
+    _bcf.write('{"prflow_review": {"agent_overrides": {  BROKEN')
     _bad_cfg = _bcf.name
 try:
     _braw, _bwarn = _rro.read_raw(
@@ -3737,7 +3737,7 @@ finally:
 # object sentinel from a scalar/array stringification.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _nocf:
     _nocf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"default":{"effort":"high"},'
         '"devflow:code-reviewer":"high",'
         '"devflow:comment-analyzer":["a","b"]}}}'
@@ -3845,7 +3845,7 @@ assert_eq("resolve: distinct own-entry bad-effort warnings stay distinct (not co
 # and forwarded as a model id (or surfaced as a misleading "not in enum" effort).
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _objf:
     _objf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"devflow:code-reviewer":{"model":{"nested":1},"effort":"high"}}}}'
     )
     _obj_cfg = _objf.name
@@ -3882,7 +3882,7 @@ assert_eq("main: stdout stays pure JSON even with an unknown-agent warning",
 # main() collapses the now-identical default-sourced warnings to a SINGLE stderr
 # line (the warning-spam fix), even with several no-entry agents dispatched.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _deff:
-    _deff.write('{"devflow_review":{"agent_overrides":{"default":{"effort":"turbo"}}}}')
+    _deff.write('{"prflow_review":{"agent_overrides":{"default":{"effort":"turbo"}}}}')
     _def_cfg = _deff.name
 try:
     _od, _ed = io.StringIO(), io.StringIO()
@@ -3906,7 +3906,7 @@ finally:
 # nonexistent config (no overrides → no report), so this is the only coverage
 # that a regression writing the report to stdout would corrupt the engine parse.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _e554f:
-    _e554f.write('{"devflow_review":{"agent_overrides":'
+    _e554f.write('{"prflow_review":{"agent_overrides":'
                  '{"devflow:code-reviewer":{"effort":"low"}}}}')
     _e554_cfg = _e554f.name
 try:
@@ -3942,7 +3942,7 @@ finally:
 # consequence (no fallback for no-entry agents), NOT the nonsensical "default still
 # applies" phrasing meaningful only for a real agent key.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _ndf:
-    _ndf.write('{"devflow_review":{"agent_overrides":{"default":"high"}}}')
+    _ndf.write('{"prflow_review":{"agent_overrides":{"default":"high"}}}')
     _nd_cfg = _ndf.name
 try:
     _ndraw, _ndwarn = _rro.read_raw(
@@ -3970,11 +3970,11 @@ finally:
 # rather than an alias-list assumption: the property actually under guard is the
 # LEAF set, and a leaf added on one side and not the other still breaks this on
 # any alias configuration.
-_schema_path = SCRIPTS.parent / '.devflow' / 'config.schema.json'
+_schema_path = SCRIPTS.parent / '.prflow' / 'config.schema.json'
 with open(_schema_path) as _sf:
     _schema = json.load(_sf)
 _schema_keys = set(
-    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
+    _schema["properties"]["prflow_review"]["properties"]["agent_overrides"]["properties"]
 )
 with open(SCRIPTS.parent / '.claude-plugin' / 'plugin.json') as _pjf:
     _CANON_NS = json.load(_pjf)["name"] + ":"
@@ -3992,7 +3992,7 @@ assert_eq("resolve: the canonical namespace is an accepted agent namespace",
 # out-of-enum iterations value in a validated config — is rejected outright). This pins
 # the schema surface the resolver's VALID_ITERATIONS mirrors.
 _ao_entries = (
-    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]["properties"]
+    _schema["properties"]["prflow_review"]["properties"]["agent_overrides"]["properties"]
 )
 for _ent_name, _ent in _ao_entries.items():
     _it = _ent.get("properties", {}).get("iterations")
@@ -4005,24 +4005,24 @@ for _ent_name, _ent in _ao_entries.items():
 assert_eq("#425 schema: VALID_ITERATIONS mirrors the schema enum",
           ("first-only",), _rro.VALID_ITERATIONS)
 
-# T6 (issue #425): the shipped tracked .devflow/config.json pins the code-reviewer
+# T6 (issue #425): the shipped tracked .prflow/config.json pins the code-reviewer
 # override to model+effort+iterations exactly, so a partial edit (dropping iterations,
 # or changing model/effort) fails the suite. config.example.json carries iterations too.
-_shipped_cfg_path = SCRIPTS.parent / '.devflow' / 'config.json'
+_shipped_cfg_path = SCRIPTS.parent / '.prflow' / 'config.json'
 with open(_shipped_cfg_path) as _scf:
     _shipped_cfg = json.load(_scf)
 _shipped_cr = (
-    _shipped_cfg["devflow_review"]["agent_overrides"]["devflow:code-reviewer"]
+    _shipped_cfg["prflow_review"]["agent_overrides"]["devflow:code-reviewer"]
 )
 assert_eq("#425 config.json: code-reviewer override is model+effort+iterations exactly",
           {"model": "claude-opus-4-8", "effort": "low", "iterations": "first-only"},
           _shipped_cr)
-_example_cfg_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
+_example_cfg_path = SCRIPTS.parent / '.prflow' / 'config.example.json'
 with open(_example_cfg_path) as _ecf:
     _example_cfg = json.load(_ecf)
 assert_eq("#425 config.example.json: code-reviewer override carries iterations first-only",
           "first-only",
-          _example_cfg["devflow_review"]["agent_overrides"]
+          _example_cfg["prflow_review"]["agent_overrides"]
           ["prflow:code-reviewer"].get("iterations"))
 
 # Migration: the documented schema-rejection of a stale externally-namespaced override key
@@ -4038,7 +4038,7 @@ assert_eq("#425 config.example.json: code-reviewer override carries iterations f
 # Literal split ("pr-review-" "toolkit:") so neither this value nor any comment reintroduces a
 # colon-form id the run.sh #141 residual scan flags.
 _ao_schema = (
-    _schema["properties"]["devflow_review"]["properties"]["agent_overrides"]
+    _schema["properties"]["prflow_review"]["properties"]["agent_overrides"]
 )
 assert_eq("#141 migration: schema agent_overrides is additionalProperties:false "
           "(a stale override key is REJECTED, not silently validated)",
@@ -4052,11 +4052,11 @@ _PRT_OLD_KEYS = [
 ]
 assert_eq("#141 migration: no stale pre-rename override key survives in config.schema.json",
           [], [k for k in _PRT_OLD_KEYS if k in _schema_keys])
-_example_path = SCRIPTS.parent / '.devflow' / 'config.example.json'
+_example_path = SCRIPTS.parent / '.prflow' / 'config.example.json'
 with open(_example_path) as _exf:
     _example = json.load(_exf)
 _example_ao = (
-    _example.get("devflow_review", {}).get("agent_overrides", {})
+    _example.get("prflow_review", {}).get("agent_overrides", {})
 )
 assert_eq("#141 migration: no stale pre-rename override key survives in config.example.json",
           [], [k for k in _PRT_OLD_KEYS if k in _example_ao])
@@ -4143,7 +4143,7 @@ assert_eq("#142 migration: main() warns the stale old key is not a known subagen
 # old key from the dispatched-unknown block above.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _stalef:
     _stalef.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"' + _OLD_CR_KEY + '":{"model":"claude-opus-4-8","effort":"high"}}}}'
     )
     _stale_cfg = _stalef.name
@@ -4169,7 +4169,7 @@ finally:
 # the #141 config-layer block above so seam 3's rename gets the same honest-behavior pin.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _stalerf:
     _stalerf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"' + _OLD_RCR_KEY + '":{"model":"claude-opus-4-8","effort":"high"}}}}'
     )
     _stale_rcfg = _stalerf.name
@@ -4193,7 +4193,7 @@ finally:
 # sees it, so a SINGLE-element array is indistinguishable from a scalar string.
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _arrf:
     _arrf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"devflow:code-reviewer":{"effort":["high"]},'
         '"devflow:silent-failure-hunter":{"effort":["high","low"]},'
         '"devflow:pr-test-analyzer":{"model":["a","b"]}}}}'
@@ -4224,7 +4224,7 @@ finally:
 # the unknown-id warning fires. (The existing unknown test used an absent config.)
 with _tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as _tyf:
     _tyf.write(
-        '{"devflow_review":{"agent_overrides":{'
+        '{"prflow_review":{"agent_overrides":{'
         '"devflow:code-reviewter":{"effort":"high"}}}}'
     )
     _ty_cfg = _tyf.name
@@ -4260,7 +4260,7 @@ assert_eq("main: duplicate unknown id warns exactly once (deduped)",
 _oserr_warn = []
 _oserr_out = _rro._config_get(
     "/nonexistent/definitely-not-a-real-config-get.sh", None,
-    ".devflow_review.agent_overrides.default.effort", _oserr_warn)
+    ".prflow_review.agent_overrides.default.effort", _oserr_warn)
 assert_eq("_config_get: OSError on bogus helper path returns '' (no raise)", "", _oserr_out)
 assert_eq("_config_get: OSError on bogus helper path surfaces a warning",
           True, any("cannot run" in w for w in _oserr_warn))
@@ -4968,8 +4968,8 @@ assert_eq("#818 exclusions: the `stale-prose-lint: example` marker suppresses th
 # reached, so it is asserted at that boundary rather than through the helper.
 assert_eq("#818 exclusions: the machine-appended-corpus paths are excluded before examination",
           [True, True, True, False, False, False, False],
-          [stale_prose_lint._is_excluded(".devflow/learnings/x.jsonl"),
-           stale_prose_lint._is_excluded(".devflow/logs/y.jsonl"),
+          [stale_prose_lint._is_excluded(".prflow/learnings/x.jsonl"),
+           stale_prose_lint._is_excluded(".prflow/logs/y.jsonl"),
            # The rendered census artifact is a FILE entry, not a directory prefix: its
            # `logical_call` column quotes each censused pin's source verbatim, so a count a
            # pin name carries is data about that pin, not a claim about the TSV. A sibling
@@ -5201,13 +5201,13 @@ assert_eq("#818: the quantifier is recognised through `**…**` emphasis, and a 
               "In the common case the call site is updated",
               "This usually updates the call site")])
 
-# The `.devflow/learnings/` and `.devflow/logs/` exclusion is applied in `run()`, so it is
+# The `.prflow/learnings/` and `.prflow/logs/` exclusion is applied in `run()`, so it is
 # driven END-TO-END here rather than only through `_is_excluded` — a mutant that let the new
 # tier bypass the exclusion would not be caught by the isolated predicate assertion above.
 _EXCL_DIFF_818 = (
-    "diff --git a/.devflow/learnings/x.md b/.devflow/learnings/x.md\n"
-    "--- a/.devflow/learnings/x.md\n"
-    "+++ b/.devflow/learnings/x.md\n"
+    "diff --git a/.prflow/learnings/x.md b/.prflow/learnings/x.md\n"
+    "--- a/.prflow/learnings/x.md\n"
+    "+++ b/.prflow/learnings/x.md\n"
     "@@ -0,0 +1 @@\n"
     "+" + _CU_LINE_818 + "\n")
 _excl_rc818, _excl_out818, _excl_err818 = _spl_main_818(
@@ -5810,9 +5810,9 @@ assert_eq("#562 _binding_line: a bound run answers bound path + tier + non-bound
           issue_audit_state._binding_line(_bound_wt))
 # _bound_draft_file — the readers join the fixed draft subpath onto the bound root, so a
 # drifted --draft-file cannot redirect them; unbound derives None (fall back to caller).
-assert_eq("#562 _bound_draft_file: joins .devflow/tmp/issue-draft-<slug>.md onto the "
+assert_eq("#562 _bound_draft_file: joins .prflow/tmp/issue-draft-<slug>.md onto the "
           "bound root",
-          '/wt/root/.devflow/tmp/issue-draft-topic.md',
+          '/wt/root/.prflow/tmp/issue-draft-topic.md',
           issue_audit_state._bound_draft_file(_bound_wt, 'topic'))
 assert_eq("#562 _bound_draft_file: unbound state derives None (readers fall back to "
           "--draft-file)",
@@ -6759,7 +6759,7 @@ assert_eq("#546 shadow-round: pending survives until the retry dispatch is recor
           'dispatch-embed-retry',
           issue_audit_state.next_action(_pending_round, 1))
 
-# (5) A slug that escapes .devflow/tmp is refused as untrustworthy state, fail closed.
+# (5) A slug that escapes .prflow/tmp is refused as untrustworthy state, fail closed.
 assert_raises("#546 shadow-round: a path-escaping slug raises StateError",
               issue_audit_state.StateError,
               lambda: issue_audit_state.state_path('../../evil'))
@@ -6949,7 +6949,7 @@ print("issue-audit-state: coverage-gap rows (issue #546, PR #552 review)")
 # persist never leaves a stray temp file in the evidence-bearing tmp directory.
 with tempfile.TemporaryDirectory() as _td:
     _ss_root = Path(_td)
-    (_ss_root / '.devflow' / 'tmp' / 'issue-audit-state-s.json').mkdir(parents=True)
+    (_ss_root / '.prflow' / 'tmp' / 'issue-audit-state-s.json').mkdir(parents=True)
     try:
         issue_audit_state.save_state(_state([]), 's', root=_ss_root)
         assert_eq("#546 save_state_cleanup_rows: a persist the OS refuses raises "
@@ -6960,7 +6960,7 @@ with tempfile.TemporaryDirectory() as _td:
                   True, 'could not persist state' in str(_e))
     assert_eq("#546 save_state_cleanup_rows: ... and no partial .json.tmp survives "
               "the failed persist",
-              [], list((_ss_root / '.devflow' / 'tmp').glob('*.json.tmp')))
+              [], list((_ss_root / '.prflow' / 'tmp').glob('*.json.tmp')))
 
 # (2) The attestation trailing-newline tolerance swallows a _DigestError raised by
 # the SECOND (newline-stripped) hash: the compare stays a well-defined mismatch —
@@ -7708,18 +7708,18 @@ finally:
 with tempfile.TemporaryDirectory() as _gd:
     _wf = Path(_gd) / "wf.yml"
     _wf.write_text(
-        "# was: Bash(.devflow/vendor/devflow/scripts/commented.sh:*)\n"
-        "CG=.devflow/vendor/devflow/scripts/assigned.sh\n"
-        "TOOLS='Bash(.devflow/vendor/devflow/scripts/real-grant.sh:*),Bash(git status:*)'\n",
+        "# was: Bash(.prflow/vendor/prflow/scripts/commented.sh:*)\n"
+        "CG=.prflow/vendor/prflow/scripts/assigned.sh\n"
+        "TOOLS='Bash(.prflow/vendor/prflow/scripts/real-grant.sh:*),Bash(git status:*)'\n",
         encoding="utf-8",
     )
     _grants = vcwc.extract_profile_grants(_wf)
     assert_eq("#543 AC18: extract_profile_grants counts the real Bash(...) grant",
-              True, ".devflow/vendor/devflow/scripts/real-grant.sh" in _grants)
+              True, ".prflow/vendor/prflow/scripts/real-grant.sh" in _grants)
     assert_eq("#543 AC18: a commented-out grant is NOT counted (fail-open fix)",
-              False, ".devflow/vendor/devflow/scripts/commented.sh" in _grants)
+              False, ".prflow/vendor/prflow/scripts/commented.sh" in _grants)
     assert_eq("#543 AC18: a shell assignment is NOT counted (fail-open fix)",
-              False, ".devflow/vendor/devflow/scripts/assigned.sh" in _grants)
+              False, ".prflow/vendor/prflow/scripts/assigned.sh" in _grants)
 # Unreadable grant source → empty set (unknown-is-not-zero; HEAD_ABSENT follows).
 assert_eq("#543 AC18: extract_profile_grants on a nonexistent path returns set()",
           set(), vcwc.extract_profile_grants("/nonexistent/wf-543.yml"))
@@ -7881,8 +7881,8 @@ assert_eq("#650 AC9: REQUIRED_HELPER_HEADS restored after the profile-parity arm
 # not a grant, so the literal reads as ungranted.
 _gs_comment = _cw_healthy_grants()
 _gs_comment["review"] = _gs_comment["review"].replace(
-    "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
-    "# TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'")
+    "TOOLS='Bash(.prflow/vendor/prflow/scripts/workpad.py:*)'",
+    "# TOOLS='Bash(.prflow/vendor/prflow/scripts/workpad.py:*)'")
 assert_eq("#650 AC9: a commented-out reachable grant does not count (fail-open guard)",
           True, any("workpad.py" in e and "grants no explicit" in e
                     for e in cwc.check_grant_sync(_gs_comment)))
@@ -7894,8 +7894,8 @@ assert_eq("#650 AC9: a commented-out reachable grant does not count (fail-open g
 # (#363/#401) with the guard green.
 _gs_inline = _cw_healthy_grants()
 _gs_inline["review"] = _gs_inline["review"].replace(
-    "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
-    "TOOLS='Bash(git:*)'  # was Bash(.devflow/vendor/devflow/scripts/workpad.py:*)")
+    "TOOLS='Bash(.prflow/vendor/prflow/scripts/workpad.py:*)'",
+    "TOOLS='Bash(git:*)'  # was Bash(.prflow/vendor/prflow/scripts/workpad.py:*)")
 assert_eq("#650 AC9: an INLINE-commented reachable grant does not count either",
           True, any("workpad.py" in e and "grants no explicit" in e
                     for e in cwc.check_grant_sync(_gs_inline)))
@@ -7913,9 +7913,9 @@ assert_eq("#650 AC9: an INLINE-commented reachable grant does not count either",
 for _q in ("'", '"'):
     _gs_quoted = _cw_healthy_grants()
     _gs_quoted["review"] = _gs_quoted["review"].replace(
-        "TOOLS='Bash(.devflow/vendor/devflow/scripts/workpad.py:*)'",
+        "TOOLS='Bash(.prflow/vendor/prflow/scripts/workpad.py:*)'",
         "TOOLS=%sBash(git:*) # issue 650, not a comment: "
-        "Bash(.devflow/vendor/devflow/scripts/workpad.py:*)%s" % (_q, _q))
+        "Bash(.prflow/vendor/prflow/scripts/workpad.py:*)%s" % (_q, _q))
     assert_eq("#650 AC9: a '#' inside a %s-quoted scalar does not truncate the grant "
               "that follows it on the same line" % ("single" if _q == "'" else "double"),
               [], cwc.check_grant_sync(_gs_quoted))
@@ -7957,7 +7957,7 @@ for _pr in cwc.ROOTS:
 # below was silently ACCEPTED by the earlier three-prefix classifier, whose
 # unrecognized-shape arm returned None and dropped the finding.
 for _spec, _why in (
-        (".devflow/vendor/devflow/scripts/*", "directory glob over the vendored helper dir"),
+        (".prflow/vendor/prflow/scripts/*", "directory glob over the vendored helper dir"),
         ("*", "blanket grant"),
         ("**/workpad.py", "leading ** (not the '*/' prefix)"),
         ("*workpad.py", "leading * without a slash"),
@@ -7965,7 +7965,7 @@ for _spec, _why in (
         ("../scripts/workpad.py", "parent-relative path"),
         ("~/scripts/workpad.py", "home-relative path"),
         ("workpad.py", "bare basename, executable from anywhere on PATH"),
-        (".devflow/vendor/devflow/scripts/workpad.p?", "single-char '?' glob"),
+        (".prflow/vendor/prflow/scripts/workpad.p?", "single-char '?' glob"),
 ):
     _gs_cover = _cw_healthy_grants()
     _gs_cover["implement"] += "\nTOOLS='Bash(%s:*)'" % _spec
@@ -8064,11 +8064,11 @@ assert_eq("#650 AC9: ROOTS['review'] workflow restored after the on-disk arm",
 # stray non-UTF-8 .yml in the tree, exactly the shape a future tree-walking guard
 # would choke on. _grant_source joins the path onto REPO_ROOT, so the fixture
 # must live under it (a tempfile elsewhere would not be reachable by that read).
-_gs_badbytes = cwc.REPO_ROOT / ".devflow" / "tmp" / "gs-650-nonutf8.yml"
+_gs_badbytes = cwc.REPO_ROOT / ".prflow" / "tmp" / "gs-650-nonutf8.yml"
 try:
     _gs_badbytes.parent.mkdir(parents=True, exist_ok=True)
     _gs_badbytes.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
-    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gs-650-nonutf8.yml"
+    cwc.ROOTS["review"]["workflow"] = ".prflow/tmp/gs-650-nonutf8.yml"
     assert_eq("#650 AC9: a non-UTF-8 workflow is reported unavailable, not a raw traceback "
               "(UnicodeDecodeError is named explicitly; it is not an OSError)",
               True, any("grant source unavailable" in e for e in cwc.check_grant_sync()))
@@ -8137,12 +8137,12 @@ assert_eq("#678 AC9-residual: the forged fixture's grant-removal actually edits 
           "workflow (a no-op replace would make the arm below vacuous)",
           True, _gsr_stripped != _gsr_review_text)
 _gsr_forged = _gsr_stripped + "\n      - run: echo \"grant it with Bash(%s:*)\"\n" % _gsr_lit
-_gsr_fixture = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-forged.yml"
+_gsr_fixture = cwc.REPO_ROOT / ".prflow" / "tmp" / "gsr-678-forged.yml"
 _gsr_orig_wf = cwc.ROOTS["review"]["workflow"]
 try:
     _gsr_fixture.parent.mkdir(parents=True, exist_ok=True)
     _gsr_fixture.write_text(_gsr_forged, encoding="utf-8")
-    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-forged.yml"
+    cwc.ROOTS["review"]["workflow"] = ".prflow/tmp/gsr-678-forged.yml"
     assert_eq("#678 AC9-residual: a vendored literal named only in a `run:` echo OUTSIDE "
               "the grant region does not satisfy the ungranted-literal arm",
               True, any("grants no explicit" in e and _gsr_lit in e
@@ -8156,12 +8156,12 @@ assert_eq("#678 AC9-residual: ROOTS['review'] workflow restored after the forged
 # (b) An UNLOCATABLE region fails closed with the existing grant-source-unavailable
 # violation — never a silently empty grant set, and never a fall back to the
 # whole-file read this residual exists to retire (unknown is not zero).
-_gsr_noregion = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-noregion.yml"
+_gsr_noregion = cwc.REPO_ROOT / ".prflow" / "tmp" / "gsr-678-noregion.yml"
 try:
     _gsr_noregion.parent.mkdir(parents=True, exist_ok=True)
     _gsr_noregion.write_text("on: push\njobs:\n  a:\n    steps:\n      - run: echo hi\n",
                              encoding="utf-8")
-    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-noregion.yml"
+    cwc.ROOTS["review"]["workflow"] = ".prflow/tmp/gsr-678-noregion.yml"
     # Match the SPECIFIC cause, not merely the shared "grant source unavailable"
     # prefix every no-source arm emits: the whole point of _grant_source's
     # three-way cause is that the arms are distinguishable, and asserting only the
@@ -8186,7 +8186,7 @@ try:
     _gsr_noregion.write_text(_gsr_review_text + "\n" + "\n".join(
         ln for ln in _gsr_review_text.splitlines() if ln.lstrip().startswith("TOOLS='")),
         encoding="utf-8")
-    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-noregion.yml"
+    cwc.ROOTS["review"]["workflow"] = ".prflow/tmp/gsr-678-noregion.yml"
     # The duplicate-region cause must be distinguishable from the absent-region
     # cause above — they are different fixes (restore a lost allowlist line vs.
     # remove a second one), and before the cause was threaded out of the scoper
@@ -8232,11 +8232,11 @@ assert_eq("#678 AC9-residual: an absent injected grant source names the injectio
 
 # (f) The UNREADABLE-workflow cause is likewise its own arm (the #650 non-UTF-8
 # fixture now flows through the rewritten _grant_source).
-_gsr_bad = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-nonutf8.yml"
+_gsr_bad = cwc.REPO_ROOT / ".prflow" / "tmp" / "gsr-678-nonutf8.yml"
 try:
     _gsr_bad.parent.mkdir(parents=True, exist_ok=True)
     _gsr_bad.write_bytes(b"TOOLS='Bash(\xff\xfe:*)'\n")
-    cwc.ROOTS["review"]["workflow"] = ".devflow/tmp/gsr-678-nonutf8.yml"
+    cwc.ROOTS["review"]["workflow"] = ".prflow/tmp/gsr-678-nonutf8.yml"
     assert_eq("#678 AC9-residual: an undecodable workflow names the read cause, not a "
               "region cause",
               True, any("unreadable or not valid UTF-8" in e for e in cwc.check_grant_sync()))
@@ -8251,13 +8251,13 @@ assert_eq("#678 AC9-residual: ROOTS['review'] workflow restored after the undeco
 # prove nothing about it. A refusal signalled by any mechanism other than
 # SystemExit would escape check_grant_sync as a traceback rather than a reported
 # violation, which is exactly what the conversion exists to prevent.
-_gsr_impl = cwc.REPO_ROOT / ".devflow" / "tmp" / "gsr-678-noblock.yml"
+_gsr_impl = cwc.REPO_ROOT / ".prflow" / "tmp" / "gsr-678-noblock.yml"
 _gsr_orig_impl_wf = cwc.ROOTS["implement"]["workflow"]
 try:
     _gsr_impl.parent.mkdir(parents=True, exist_ok=True)
     _gsr_impl.write_text("on: push\njobs:\n  a:\n    steps:\n      - run: echo hi\n",
                          encoding="utf-8")
-    cwc.ROOTS["implement"]["workflow"] = ".devflow/tmp/gsr-678-noblock.yml"
+    cwc.ROOTS["implement"]["workflow"] = ".prflow/tmp/gsr-678-noblock.yml"
     assert_eq("#678 AC9-residual: the implement scoper's refusal is reported as a "
               "violation (not a traceback) and names its own extractor",
               True, any("grant source unavailable" in e
@@ -8287,7 +8287,7 @@ for _gsr_body, _gsr_label, _gsr_phrase in (
     try:
         _gsr_impl.parent.mkdir(parents=True, exist_ok=True)
         _gsr_impl.write_text(_gsr_body, encoding="utf-8")
-        cwc.ROOTS["implement"]["workflow"] = ".devflow/tmp/gsr-678-noblock.yml"
+        cwc.ROOTS["implement"]["workflow"] = ".prflow/tmp/gsr-678-noblock.yml"
         assert_eq("#678 AC9-residual: %s fails closed with its own cause, never a "
                   "partial region" % _gsr_label,
                   True, any("grant source unavailable" in e and _gsr_phrase in e
@@ -8457,7 +8457,7 @@ assert_eq("#678 AC4: PROFILE_SHAPE_TABLES restored after the unaudited-asset con
 # while "reports no violations on the live closure" stayed green: the self-satisfying
 # shape. Register a real denied fence through the same SKILL_ASSETS seam the
 # undecodable-asset arm uses and assert the emitted message.
-_sc_planted_asset = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-planted.md"
+_sc_planted_asset = cwc.REPO_ROOT / ".prflow" / "tmp" / "sc-678-planted.md"
 _sc_orig_pd = cwc.SKILL_ASSETS["pr-description"]
 try:
     _sc_planted_asset.parent.mkdir(parents=True, exist_ok=True)
@@ -8465,9 +8465,9 @@ try:
     # a fence denied by the IMPLEMENT table (IR3, a label-helper capture). A review-table
     # rule would produce nothing here, which is itself the intersection working.
     _sc_planted_asset.write_text(
-        "```bash\nOUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)\n```\n",
+        "```bash\nOUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)\n```\n",
         encoding="utf-8")
-    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd) + [".devflow/tmp/sc-678-planted.md"]
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd) + [".prflow/tmp/sc-678-planted.md"]
     _sc_e2e = cwc.check_shape_conformance()
     assert_eq("#678 AC4: check_shape_conformance's own per-asset loop emits the violation "
               "for a denied fence in a reached asset (end-to-end, not via "
@@ -8497,16 +8497,16 @@ assert_eq("#678 AC4: SKILL_ASSETS restored after the end-to-end emission control
 # comfortably over the limit and pin the exact rendered budget (117 chars + the
 # three-character ellipsis), plus a positive control that the SHORT plant above
 # is rendered whole, so this cannot pass by truncating everything.
-_sc_long_asset = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-long.md"
+_sc_long_asset = cwc.REPO_ROOT / ".prflow" / "tmp" / "sc-678-long.md"
 _sc_orig_pd_long = cwc.SKILL_ASSETS["pr-description"]
 try:
     _sc_long_asset.parent.mkdir(parents=True, exist_ok=True)
-    _sc_short_stmt = "OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)"
+    _sc_short_stmt = "OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)"
     _sc_long_asset.write_text(
-        "```bash\n" + _sc_short_stmt + "\nOUT=$(.devflow/vendor/devflow/scripts/"
+        "```bash\n" + _sc_short_stmt + "\nOUT=$(.prflow/vendor/prflow/scripts/"
         "apply-labels.sh 1 " + "verylonglabelname," * 12 + "X)\n```\n",
         encoding="utf-8")
-    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd_long) + [".devflow/tmp/sc-678-long.md"]
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_pd_long) + [".prflow/tmp/sc-678-long.md"]
     _sc_long_errs = [e for e in cwc.check_shape_conformance() if "sc-678-long.md" in e]
     assert_eq("#678 AC4: the truncation plant produces exactly two violations "
               "(one short, one long)", 2, len(_sc_long_errs))
@@ -8547,12 +8547,12 @@ assert_eq("#678 AC4: the shared review engine is audited under both tabled profi
 # contract, and nothing else drives it: shape_audited_assets() keys off
 # SKILL_ASSETS, not the disk, so a reached-but-undecodable asset is a real state
 # (check_closure reports a MISSING asset, never an undecodable one).
-_sc_bad = cwc.REPO_ROOT / ".devflow" / "tmp" / "sc-678-nonutf8.md"
+_sc_bad = cwc.REPO_ROOT / ".prflow" / "tmp" / "sc-678-nonutf8.md"
 _sc_orig_assets = cwc.SKILL_ASSETS["pr-description"]
 try:
     _sc_bad.parent.mkdir(parents=True, exist_ok=True)
     _sc_bad.write_bytes(b"```bash\n\xff\xfe\n```\n")
-    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_assets) + [".devflow/tmp/sc-678-nonutf8.md"]
+    cwc.SKILL_ASSETS["pr-description"] = list(_sc_orig_assets) + [".prflow/tmp/sc-678-nonutf8.md"]
     assert_eq("#678 AC4: a reached asset that cannot be decoded is reported, never counted "
               "as zero findings (unknown is not clean)",
               True, any("could not be read" in e and "sc-678-nonutf8.md" in e
@@ -8601,7 +8601,7 @@ assert_raises("#678: a merely-absent .py sibling fails at exec_module with a pat
 # silent pass-through to another profile's table. Drive it against text that DOES
 # violate both tables: a table-inheriting regression would report those hits.
 _sc_dirty = "```bash\ncd /tmp\npython3 -c pass\n" \
-            'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)\n```\n'
+            'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)\n```\n'
 assert_eq("#678 AC4: light-command declares no probe-anchored table, so a shape denied "
           "on BOTH other tiers yields no hit under it (no cross-profile inference)",
           [], cwc.shape_violations_in("light-command", _sc_dirty))
@@ -8632,9 +8632,9 @@ _sc_planted = {
     "R2": "cd /tmp",
     "R3": "printf hi > /tmp/devflow-678.txt",
     "R4": "python3 -c pass",
-    "IR1": 'for n in 1 2; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
-    "IR2": 'while read -r n; do .devflow/vendor/devflow/scripts/apply-labels.sh "$n" X; done',
-    "IR3": 'OUT=$(.devflow/vendor/devflow/scripts/apply-labels.sh 1 X)',
+    "IR1": 'for n in 1 2; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "IR2": 'while read -r n; do .prflow/vendor/prflow/scripts/apply-labels.sh "$n" X; done',
+    "IR3": 'OUT=$(.prflow/vendor/prflow/scripts/apply-labels.sh 1 X)',
     "IR4": "cd somewhere",
     "IR5": "printf hi > /tmp/devflow-915.txt",
 }
@@ -8713,7 +8713,7 @@ assert_eq("#855: find_implement_violations flags a leading `cd` (IR4)",
           any(rule == "IR4" for _, rule, _ in
               _shapes_mod.find_implement_violations(_wd_cd_fixture)))
 _wd_helper_fixture = ("```bash\n"
-                      ".devflow/vendor/devflow/scripts/apply-labels.sh 1 X\n"
+                      ".prflow/vendor/prflow/scripts/apply-labels.sh 1 X\n"
                       "```\n")
 assert_eq("#855: find_implement_violations does NOT flag a granted leading-token "
           "helper call",
@@ -8783,7 +8783,7 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
 # this RED at the desk.
 #
 # The predicate is the recorded snapshot's: a bash-fence line carrying one of the
-# tokens {.devflow/ docs/ scripts/ lib/ .github/} as a BARE repo-relative path (not
+# tokens {.prflow/ docs/ scripts/ lib/ .github/} as a BARE repo-relative path (not
 # `$VAR/…`-anchored, not `${CLAUDE_SKILL_DIR}`-anchored — those resolve independently
 # of cwd), in COMMAND position (not a pure `VAR=value` assignment value, not a
 # `for X in …` data list — those are data strings, not emitted command paths). The
@@ -8794,7 +8794,7 @@ assert_eq("#855: every scanned implement-profile prompt surface teaches no denie
 # (`.`, `_`, `-`, alnum) path, which resolve independently of cwd. The negative
 # lookbehind is the class the hand-rolled prev-char test spelled out; `\w` covers
 # alnum + `_`.
-_wd_bare_re = re.compile(r"(?<![\w/$.{}-])(?:\.devflow/|docs/|scripts/|lib/|\.github/)")
+_wd_bare_re = re.compile(r"(?<![\w/$.{}-])(?:\.prflow/|docs/|scripts/|lib/|\.github/)")
 _wd_assign_only = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=\S*\s*(#.*)?$")
 _wd_for_in = re.compile(r"(^|;|\bdo\b|\bthen\b)\s*for\s+\w+\s+in\b")
 
@@ -8815,12 +8815,12 @@ def _wd_emits_command_path(text_line):
 # include/exclude arm against synthetic lines rather than trusting the corpus never
 # to hit a false-negative shape.
 for _wd_line, _wd_want, _wd_why in [
-    ("mkdir -p .devflow/tmp/x", True, "bare repo-relative path as a command argument"),
+    ("mkdir -p .prflow/tmp/x", True, "bare repo-relative path as a command argument"),
     ("> docs/generated.txt", True, "bare repo-relative path as a redirect target"),
-    ('mkdir -p "$MAIN_ROOT/.devflow/tmp"', False, "$VAR/-anchored path (resolves independently of cwd)"),
+    ('mkdir -p "$MAIN_ROOT/.prflow/tmp"', False, "$VAR/-anchored path (resolves independently of cwd)"),
     ('cp "${CLAUDE_SKILL_DIR}/lib/x" .', False, "${…}-anchored path"),
     ('for f in ".github/x" "y"; do', False, "a `for X in …` data list, not a command path"),
-    ('DEFERRALS_FILE=".devflow/tmp/x.json"', False, "a pure VAR=value assignment value"),
+    ('DEFERRALS_FILE=".prflow/tmp/x.json"', False, "a pure VAR=value assignment value"),
     ("echo mydocs/x", False, "word-internal token (mydocs/), not a bare path"),
 ]:
     assert_eq("#855: _wd_emits_command_path(%r) == %s (%s)" % (_wd_line, _wd_want, _wd_why),
@@ -8843,17 +8843,17 @@ assert_eq("#855: the pointer-population sweep matches the recorded snapshot exac
           {"implement", "retrospective-weekly", "review", "review-and-fix"},
           _wd_pointer_pop)
 
-# Regression pin: `Bash(cd:*)` is revoked from devflow_implement.allowed_tools
+# Regression pin: `Bash(cd:*)` is revoked from prflow_implement.allowed_tools
 # (issue #855), so a later re-add fails at the desk. Reading the config file, not an
 # executed probe — the grant is trigger-time-resolved and a running implement job
 # cannot observe its own revocation. Introduces no mutation-taking pin helper, so
 # mutation-pin-census.py's RETAINED_BOUNDARY_IDENTITIES stays empty.
-_wd_cfg = _json.loads((cwc.REPO_ROOT / ".devflow/config.json").read_text(encoding="utf-8"))
-assert_eq("#855: Bash(cd:*) is absent from devflow_implement.allowed_tools",
+_wd_cfg = _json.loads((cwc.REPO_ROOT / ".prflow/config.json").read_text(encoding="utf-8"))
+assert_eq("#855: Bash(cd:*) is absent from prflow_implement.allowed_tools",
           False,
-          "Bash(cd:*)" in _wd_cfg.get("devflow_implement", {}).get("allowed_tools", []))
+          "Bash(cd:*)" in _wd_cfg.get("prflow_implement", {}).get("allowed_tools", []))
 
-# issue #915 — engine scratch migrated off cloud-denied /tmp onto .devflow/tmp/,
+# issue #915 — engine scratch migrated off cloud-denied /tmp onto .prflow/tmp/,
 # plus IR5 (the desk-time redirect gate) and preflight.py's fallback breadcrumb.
 
 
@@ -8868,9 +8868,9 @@ for _ir5_spelling in ("> /tmp/f", "2> /tmp/f", ">> /tmp/f", "&> /tmp/f",
     _ir5_fence = "```bash\ncmd %s\n```" % _ir5_spelling
     assert_eq("#915 IR5: a /tmp redirect '%s' is flagged IR5 under --profile implement"
               % _ir5_spelling, True, "IR5" in _ir5_rules(_ir5_fence))
-# IR5 ignores a .devflow/tmp/ target. (Maps to the .devflow/tmp/-negative criterion.)
-assert_eq("#915 IR5: a .devflow/tmp/ redirect is NOT flagged",
-          [], _ir5_rules("```bash\ncmd > .devflow/tmp/f\n```"))
+# IR5 ignores a .prflow/tmp/ target. (Maps to the .prflow/tmp/-negative criterion.)
+assert_eq("#915 IR5: a .prflow/tmp/ redirect is NOT flagged",
+          [], _ir5_rules("```bash\ncmd > .prflow/tmp/f\n```"))
 # IR5 does NOT inherit R3's cat-heredoc arm (row 12 records a plain heredoc write
 # PERMITTED on this tier). (Maps to the heredoc-negative criterion.)
 assert_eq("#915 IR5: a cat-headed heredoc write with no /tmp target is NOT flagged",
@@ -8906,13 +8906,13 @@ _bare_tmp = 0
 for _mf in _MIGRATED_FILES:
     for _line in (cwc.REPO_ROOT / _mf).read_text(encoding="utf-8").splitlines():
         for _m in re.finditer(r"/tmp/", _line):
-            if not _line[max(0, _m.start() - 8):_m.start()].endswith(".devflow"):
+            if not _line[max(0, _m.start() - 8):_m.start()].endswith(".prflow"):
                 _bare_tmp += 1
 print("residual bare-/tmp lines: %d" % _bare_tmp)
 assert_eq("#915: no bare-/tmp scratch target remains in the five migrated files",
           0, _bare_tmp)
 
-# The positive half: each migrated filename stem appears under a .devflow/tmp/ path
+# The positive half: each migrated filename stem appears under a .prflow/tmp/ path
 # in its OWN file, so a deleted line cannot satisfy the absence check alone.
 # (Maps to the stems-present criterion.)
 _STEM_HOMES = {
@@ -8926,9 +8926,9 @@ _STEM_HOMES = {
 for _mf, _stems in _STEM_HOMES.items():
     _text = (cwc.REPO_ROOT / _mf).read_text(encoding="utf-8")
     for _stem in _stems:
-        assert_eq("#915: stem '%s' is present under a .devflow/tmp/ path in %s" % (_stem, _mf),
+        assert_eq("#915: stem '%s' is present under a .prflow/tmp/ path in %s" % (_stem, _mf),
                   True,
-                  bool(re.search(r"\.devflow/tmp/[^\s`\"')]*" + re.escape(_stem), _text)))
+                  bool(re.search(r"\.prflow/tmp/[^\s`\"')]*" + re.escape(_stem), _text)))
 
 # preflight.py's _payload_dir writes a distinct stderr breadcrumb on each fallback
 # arm (unresolvable git root vs os.makedirs failure), still returns None, and
@@ -8955,8 +8955,8 @@ _pf915._run_git = _pf_git_happy
 _pf_happy_err = io.StringIO()
 with contextlib.redirect_stderr(_pf_happy_err):
     _pf_happy_v = _pf915._payload_dir()
-assert_eq("#915 preflight: the happy-path arm returns the repo-relative .devflow/tmp dir with no breadcrumb",
-          (os.path.join(_pf_happy_tmpd, ".devflow", "tmp"), ""),
+assert_eq("#915 preflight: the happy-path arm returns the repo-relative .prflow/tmp dir with no breadcrumb",
+          (os.path.join(_pf_happy_tmpd, ".prflow", "tmp"), ""),
           (_pf_happy_v, _pf_happy_err.getvalue()))
 assert_eq("#915 preflight: the happy-path arm actually creates the returned directory",
           True, os.path.isdir(_pf_happy_v))
@@ -8972,7 +8972,7 @@ assert_eq("#915 preflight: the git-root breadcrumb states the payload lands outs
           True, "OUTSIDE the workspace" in _pf_err.getvalue())
 
 _pf_tmpd = tempfile.mkdtemp()
-(Path(_pf_tmpd) / ".devflow").write_text("x", encoding="utf-8")  # block makedirs
+(Path(_pf_tmpd) / ".prflow").write_text("x", encoding="utf-8")  # block makedirs
 
 
 def _pf_git_ok(args):
@@ -9067,22 +9067,22 @@ _hb_matrix = {
     "absolute":    ("```bash\n/home/runner/scripts/workpad.py id 5\n```", "absolute-path"),
     "repo-root":   ("```bash\nscripts/workpad.py id 5\n```", "repo-root-path"),
     "unexpanded":  ("```bash\n\"%s\"/../scripts/workpad.py id 5\n```" % _hb_A, "unexpanded-anchor"),
-    "launch-env":  ("```bash\nenv .devflow/vendor/devflow/scripts/workpad.py id 5\n```",
+    "launch-env":  ("```bash\nenv .prflow/vendor/prflow/scripts/workpad.py id 5\n```",
                     "launcher-prefixed:env"),
-    "launch-timeout": ("```bash\ntimeout 30 .devflow/vendor/devflow/scripts/apply-labels.sh 1 X\n```",
+    "launch-timeout": ("```bash\ntimeout 30 .prflow/vendor/prflow/scripts/apply-labels.sh 1 X\n```",
                        "launcher-prefixed:timeout"),
     # A helper hidden behind the launcher's OWN tokens (an `env VAR=val` assignment
     # or an operand-taking flag) must still be caught — the tail is scanned whole.
-    "launch-env-assign": ("```bash\nenv GH_TOKEN=x .devflow/vendor/devflow/scripts/workpad.py id 5\n```",
+    "launch-env-assign": ("```bash\nenv GH_TOKEN=x .prflow/vendor/prflow/scripts/workpad.py id 5\n```",
                           "launcher-prefixed:env"),
-    "launch-xargs-flag": ("```bash\nprintf x | xargs -I {} .devflow/vendor/devflow/scripts/workpad.py {}\n```",
+    "launch-xargs-flag": ("```bash\nprintf x | xargs -I {} .prflow/vendor/prflow/scripts/workpad.py {}\n```",
                           "launcher-prefixed:xargs"),
     # An UNTERMINATED ```bash fence must still be audited (fail-closed), not dropped
     # as if the file were clean.
     "unterminated-fence": ("```bash\nscripts/workpad.py id 5", "repo-root-path"),
     "capture-ok":  ("```bash\nWID=$(\"%s\"/../../scripts/workpad.py id 5)\n```" % _hb_A, None),
     "pipe-ok":     ("```bash\nprintf x | \"%s\"/../../scripts/run-jq.sh -r .\n```" % _hb_A, None),
-    "echo-arg-ok": ("```bash\necho \"see .devflow/vendor/devflow/scripts/workpad.py here\"\n```", None),
+    "echo-arg-ok": ("```bash\necho \"see .prflow/vendor/prflow/scripts/workpad.py here\"\n```", None),
 }
 for _hb_name, (_hb_txt, _hb_expect) in sorted(_hb_matrix.items()):
     _hb_got = [r for _, r, _ in _hb_ech.helper_boundary_violations(_hb_txt, _hb_names, _hb_launch)]
@@ -9098,7 +9098,7 @@ for _hb_name, (_hb_txt, _hb_expect) in sorted(_hb_matrix.items()):
 # for an interpreter-run helper (refresh-pr-run-link.py) is not flagged.
 assert_eq("#701 AC3: a helper outside the per-helper-grant set is not governed",
           [], _hb_ech.helper_boundary_violations(
-              "```bash\npython3 .devflow/vendor/devflow/scripts/refresh-pr-run-link.py x\n```",
+              "```bash\npython3 .prflow/vendor/prflow/scripts/refresh-pr-run-link.py x\n```",
               _hb_names, _hb_launch))
 
 # Fail-closed on an unavailable grant source (unknown is not zero): a profile whose
@@ -9122,7 +9122,7 @@ assert_eq("#701 AC3: an unavailable grant source is reported, not silently empty
 # governs it.
 _hb_asset_key = "pr-description"
 _hb_orig_pd = cwc.SKILL_ASSETS[_hb_asset_key]
-_hb_planted = cwc.REPO_ROOT / ".devflow" / "tmp" / "hb-701-planted.md"
+_hb_planted = cwc.REPO_ROOT / ".prflow" / "tmp" / "hb-701-planted.md"
 # Path-family plants: reason class -> a fenced statement exhibiting it.
 _hb_path_plants = {
     "unexpanded-anchor":  '"%s"/../scripts/apply-labels.sh 1 X' % _hb_A,
@@ -9155,7 +9155,7 @@ try:
     # Non-vacuity baseline: the copied asset is clean before any plant.
     _hb_base = (cwc.REPO_ROOT / "skills/pr-description/SKILL.md").read_text(encoding="utf-8")
     _hb_planted.write_text(_hb_base, encoding="utf-8")
-    cwc.SKILL_ASSETS[_hb_asset_key] = list(_hb_orig_pd) + [".devflow/tmp/hb-701-planted.md"]
+    cwc.SKILL_ASSETS[_hb_asset_key] = list(_hb_orig_pd) + [".prflow/tmp/hb-701-planted.md"]
     assert_eq("#701 AC8: the copied plant asset is clean before any mutation",
               [], [e for e in cwc.check_helper_boundary() if "hb-701-planted.md" in e])
     # PATH family — one plant per reason class, each observed RED end-to-end.
@@ -9173,7 +9173,7 @@ try:
         # A wrapper-with-operand (timeout/nice) needs its own numeric operand before
         # the helper; every other launcher head takes the helper directly.
         _hb_pre = ("%s 30" % _hb_l) if _hb_l in cwc._heads.WRAPPERS_WITH_OPERAND else _hb_l
-        _hb_stmt = "%s .devflow/vendor/devflow/scripts/apply-labels.sh 1 X" % _hb_pre
+        _hb_stmt = "%s .prflow/vendor/prflow/scripts/apply-labels.sh 1 X" % _hb_pre
         _hb_planted.write_text(_hb_base + "\n```bash\n%s\n```\n" % _hb_stmt, encoding="utf-8")
         _hb_errs = cwc.check_helper_boundary()
         assert_eq("#701 AC8: a helper behind the granted launcher head '%s' is observed RED"
@@ -9513,7 +9513,7 @@ finally:
 # Non-vacuity — the vendored-boundary predicate rejects a prefix-collision sibling
 # and an absolute target (both would fail open if the `root + "/"` / absolute
 # guards regressed — #583 review findings).
-assert_eq("#583 AC5: a prefix-collision sibling '.devflow/vendor/devflowX/…' does NOT resolve beneath vendor",
+assert_eq("#583 AC5: a prefix-collision sibling '.prflow/vendor/prflowX/…' does NOT resolve beneath vendor",
           False, cwd.resolves_beneath_vendor("../devflowX/foo.sh"))
 assert_eq("#583 AC5: an absolute target does NOT resolve beneath vendor (no pathlib reset fail-open)",
           False, cwd.resolves_beneath_vendor("/etc/passwd"))
@@ -10868,7 +10868,7 @@ with tempfile.TemporaryDirectory() as _cw_base:
     _asset = _base / "scripts" / "foo.sh"
     _asset.write_text("echo hi\n", encoding="utf-8")
     _good_hash = hashlib.sha256(b"echo hi\n").hexdigest()
-    _head = ".devflow/vendor/devflow/scripts/foo.sh"
+    _head = ".prflow/vendor/prflow/scripts/foo.sh"
 
     def _valid_manifest():
         return {
@@ -11130,7 +11130,7 @@ try:
     # (d) a required helper whose (vendor-prefixed) source is absent on disk.
     cwc.REQUIRED_HELPER_HEADS = {**_cc_o_heads,
                                  "implement": _cc_o_heads["implement"]
-                                 + [".devflow/vendor/devflow/scripts/nonexistent-578.sh"]}
+                                 + [".prflow/vendor/prflow/scripts/nonexistent-578.sh"]}
     assert_eq("#578-3: check_closure catches a required helper source missing on disk",
               True, any("nonexistent-578" in e and "missing on disk" in e
                         for e in cwc.check_closure()))
@@ -11275,8 +11275,8 @@ with tempfile.TemporaryDirectory() as _sk_base:
     (_skb / "scripts").mkdir()
     (_skb / "scripts" / "kept-703.sh").write_text("echo hi\n", encoding="utf-8")
     (_skb / "scripts" / "retired-703.sh").write_text("echo bye\n", encoding="utf-8")
-    _kept_head = ".devflow/vendor/devflow/scripts/kept-703.sh"
-    _retired_head = ".devflow/vendor/devflow/scripts/retired-703.sh"
+    _kept_head = ".prflow/vendor/prflow/scripts/kept-703.sh"
+    _retired_head = ".prflow/vendor/prflow/scripts/retired-703.sh"
     _old_plugin_manifest = {
         "protocol": "devflow-cloud-writer-contract-v1",
         # the OLD plugin declares its own (older) baseline — the plugin contract state
@@ -11398,7 +11398,7 @@ assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserve
 # the vendor slice's `cp -R "$src/.claude-plugin" … "$src/scripts" …` byte-copies
 # the vendored helper tree (asserted above), and install.sh routes each composite
 # action through `install_managed`, whose directory arm copies with a plain
-# mode-preserving `cp -R`. That copy now lands on a `.devflow-stage` sibling which is
+# mode-preserving `cp -R`. That copy now lands on a `.prflow-stage` sibling which is
 # then `mv`d into place (issue #959: an in-place `rm -rf` + `cp -R` leaves a window
 # where a mid-copy failure strands a half-written tree, and because the abort happens
 # before the manifest write the NEXT run reads those bytes as a local edit and
@@ -11409,8 +11409,8 @@ assert_eq("#703 AC20: /devflow:init never touches the runtime manifest (preserve
 # copy demo that would pass regardless of what these files do.
 assert_eq("#703 AC20: install.sh copies the composite-action helpers with mode-preserving cp -R",
           True, ('install_managed ".github/actions/$a" "$SRC/.github/actions/$a"' in _install_sh
-                 and 'cp -R "$srcp" "$rel.devflow-stage"' in _install_sh
-                 and 'mv "$rel.devflow-stage" "$rel"' in _install_sh))
+                 and 'cp -R "$srcp" "$rel.prflow-stage"' in _install_sh
+                 and 'mv "$rel.prflow-stage" "$rel"' in _install_sh))
 assert_eq("#703 AC20: install.sh never strips modes with --no-preserve",
           False, "--no-preserve" in _install_sh)
 assert_eq("#703 AC20: the vendor slice never strips modes with --no-preserve",
@@ -13170,7 +13170,7 @@ def _row22(r):
               (reop.returncode, decided(reop.stdout)))
     # `query-findings`' state-unestablished arm: corrupt the state file so `_query_state`
     # answers None, and confirm the query still exits 0 with its decided single line.
-    Path(r.tmp, '.devflow', 'tmp', 'issue-audit-state-s603.json').write_text(
+    Path(r.tmp, '.prflow', 'tmp', 'issue-audit-state-s603.json').write_text(
         '{ not json', encoding='utf-8')
     qf = r('query-findings', r.slug, nonce=True)
     assert_eq("#603-22/AC8: query-findings answers state-unestablished at exit 0 over an "
@@ -13395,10 +13395,10 @@ def _row704_4(r):
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
     r.baseline('claim-present', 'location', 'anchor.md')
-    doc = _json.loads(Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    doc = _json.loads(Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
                          .read_text(encoding='utf-8'))
     doc['claims']['claim-legacy'] = {'claim_class': 'location', 'paths': ['anchor.md']}
-    Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json').write_text(
+    Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json').write_text(
         _json.dumps(doc), encoding='utf-8')
     got = r.staleness('claim-legacy')
     assert_eq("#704-4: a claim with no recorded baseline reads possibly-stale, never fresh",
@@ -13624,7 +13624,7 @@ _with_run704(_row704_12)
 def _row704_13(r):
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
-    sp = Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    sp = Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
     doc = _json.loads(sp.read_text(encoding='utf-8'))
     doc.pop('claims', None)
     doc.pop('finding_evidence', None)
@@ -13684,7 +13684,7 @@ def _row704_15(r):
     r.write('anchor.md', 'alpha\n')
     r.commit('A')
     r.baseline('ok', 'location', 'anchor.md')
-    sp = Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    sp = Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
     good = _json.loads(sp.read_text(encoding='utf-8'))
 
     def _with(claims):
@@ -13727,7 +13727,7 @@ def _row704_16(r):
     _round704(r)
     r.evidence(1, 1, locator='a.py:1', command='c', observed='o\n',
                baseline_revision='rev')
-    sp = Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    sp = Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
     good = _json.loads(sp.read_text(encoding='utf-8'))
     over = 'x' * (issue_audit_state._EVIDENCE_MAX_CHARS
                   + len(issue_audit_state._EVIDENCE_TRUNCATION_MARK) + 1)
@@ -13824,7 +13824,7 @@ def _row704_18(r):
     read = r('query-finding-evidence', r.slug, '--round', '1', nonce=True)
     assert_eq("#704-18: the truncation is DISCLOSED in the stored bytes, never silent",
               True, 'truncated by issue-audit-state.py' in read.stdout)
-    stored = _json.loads(Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json')
+    stored = _json.loads(Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json')
                          .read_text(encoding='utf-8'))['finding_evidence']['1:1']['observed']
     assert_eq("#704-18: the stored field is bounded to the cap plus its disclosure",
               cap + len(issue_audit_state._EVIDENCE_TRUNCATION_MARK), len(stored))
@@ -13886,7 +13886,7 @@ def _row704_20(r):
         assert_eq(f"#704-20: {cmd} refuses a foreign nonce rather than reading another run",
                   (0, f'{sentinel}=none reason=foreign-nonce'), (got.returncode,
                                                                  got.stdout.strip()))
-    Path(r.tmp, '.devflow/tmp/issue-audit-state-s704.json').write_text('{', encoding='utf-8')
+    Path(r.tmp, '.prflow/tmp/issue-audit-state-s704.json').write_text('{', encoding='utf-8')
     got = r('query-claim-baselines', r.slug, nonce=True)
     assert_eq("#704-20: an unestablished state is named, never rendered as an empty store",
               'claims=none reason=state-unestablished', got.stdout.strip())
@@ -14237,7 +14237,7 @@ def _row704_26(r):
     r.write('anchor26.md', 'x\n')
     r.commit('C: anchor for the read-boundary row')
     r.baseline('good26', 'location', 'anchor26.md')
-    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    state = Path(r.tmp, '.prflow/tmp', f'issue-audit-state-{r.slug}.json')
     doc = _json.loads(state.read_text())
     doc['claims']['evil\nclaim=forged class=location state=fresh reason=identity-match'] = \
         dict(doc['claims']['good26'])
@@ -14261,7 +14261,7 @@ _with_run704(_row704_26)
 # differently now.
 def _row704_27(r):
     r.evidence(1, 1, locator='a:1', command='c', baseline_revision='r1', observed='o\n')
-    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    state = Path(r.tmp, '.prflow/tmp', f'issue-audit-state-{r.slug}.json')
     doc = _json.loads(state.read_text())
     # Exactly the shape the pre-fix build wrote: an `unestablished` required field stored
     # alongside the `complete` that build derived for it.
@@ -14282,7 +14282,7 @@ def _row704_27(r):
     # is the assertion that keeps it honest: the classic hand-edit — `complete` stored beside
     # a blanked required field — still reads `incomplete`, because the stored value is never
     # the one consulted. Self-healing relaxed the failure MODE, never the guarantee.
-    state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    state = Path(r.tmp, '.prflow/tmp', f'issue-audit-state-{r.slug}.json')
     doc = _json.loads(state.read_text())
     doc['finding_evidence']['1:1'] = dict(doc['finding_evidence']['1:1'],
                                           observed='', completeness='complete')
@@ -15255,7 +15255,7 @@ def _cov_read_boundary(r):
     # Corrupt the recorded outcome directly in the state file.
     import glob as _glob
     import json as _json
-    path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: non-recursive glob inside this row's own temp state dir, never the repository tree
+    path = _glob.glob(str(Path(r.tmp, '.prflow', 'tmp',  # tree-walk-ok: non-recursive glob inside this row's own temp state dir, never the repository tree
                                 'issue-audit-state-*.json')))[0]
     doc = _json.loads(Path(path).read_text())
     doc['rounds'][0]['coverage'][0]['outcome'] = 'bogus'
@@ -15335,7 +15335,7 @@ def _cov_expected_keys_preconditions(r):
     import glob as _glob
 
     def _state_bytes():
-        path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
+        path = _glob.glob(str(Path(r.tmp, '.prflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
                                    'issue-audit-state-*.json')))[0]
         return Path(path).read_bytes()
 
@@ -15410,7 +15410,7 @@ def _cov_read_boundary_matrix(r):
 
     def _statefile():
         import glob as _glob
-        return _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
+        return _glob.glob(str(Path(r.tmp, '.prflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
                                    'issue-audit-state-*.json')))[0]
 
     def _corrupt(mutate, label):
@@ -15749,7 +15749,7 @@ def _cov_expected_keys_persisted(r):
         r,
         'g:host-os-variance exercised "a quoted line" — a concrete concern\n',
         expected='g:host-os-variance,g:degraded-environments')
-    path = _glob.glob(str(Path(r.tmp, '.devflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
+    path = _glob.glob(str(Path(r.tmp, '.prflow', 'tmp',  # tree-walk-ok: this row's own temp state dir, never the repository tree
                                'issue-audit-state-*.json')))[0]
     doc = _json.loads(Path(path).read_text())
     assert_eq("#708-25: the supplied enumeration is persisted with the round",
@@ -15780,7 +15780,7 @@ def _write_state705(tmp, slug, nonce, rounds, revisions=None):
     doc = {'schema_version': issue_audit_state.SCHEMA_VERSION,
            'slug': slug, 'nonce': nonce, 'rounds': rounds,
            'revisions': revisions or [], 'overrides': []}
-    p = Path(tmp) / '.devflow' / 'tmp' / f'issue-audit-state-{slug}.json'
+    p = Path(tmp) / '.prflow' / 'tmp' / f'issue-audit-state-{slug}.json'
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(doc), encoding='utf-8')
     return p
@@ -16103,8 +16103,8 @@ def _row743_roundtrip(r):
                      and 'calibration_trigger=yes' in cal and 'unevidenced=1' in cal))
     # delete-cycle survival: the report artifact's per-round delete removes the .md; the
     # records live in the state .json (exempt) and are still read back.
-    Path(r.tmp, '.devflow', 'tmp').mkdir(parents=True, exist_ok=True)
-    rep = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-{r.slug}.md')
+    Path(r.tmp, '.prflow', 'tmp').mkdir(parents=True, exist_ok=True)
+    rep = Path(r.tmp, '.prflow', 'tmp', f'issue-audit-{r.slug}.md')
     rep.write_text('report\n', encoding='utf-8')
     rep.unlink()
     assert_eq("#743: records survive the report-artifact delete cycle (read back after .md removed)",
@@ -16879,7 +16879,7 @@ def _row792_no_double_funding(r):
            '--draft-file', r.draft, nonce=True)
     assert_eq("#792 AC103: the pass round dispatches, funded by the dedicated slot",
               0, d2.returncode)
-    state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
+    state = _json.loads(Path(r.tmp, '.prflow', 'tmp',
                             f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
     assert_eq("#792 AC103/AC104: the automatic counter is UNCHANGED by a final-byte pass",
               0, state.get('automatic_reaudits_used', 0))
@@ -17039,7 +17039,7 @@ def _row792_decline_clears_pending(r):
     r('record-offer', r.slug, '--accepted', nonce=True)
     r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
-    _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
+    _state = _json.loads(Path(r.tmp, '.prflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
     assert_eq("#792 iter2: a DECLINE clears the armed grant, so the next ordinary round is NOT "
               "marked as the pass — a stale arm would silently exclude it from the coverage and "
@@ -17080,7 +17080,7 @@ _with_run792(_row792_decline_retracts_grant)
 # user's exit from the very loop the ceiling exists to bound.
 def _row792_ceiling_still_permits_decline(r):
     r.uncovered_round()
-    _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+    _p = Path(r.tmp, '.prflow', 'tmp', f'issue-audit-state-{r.slug}.json')
     _d = _json.loads(_p.read_text(encoding='utf-8'))
     _d['final_byte_passes_used'] = issue_audit_state._FINAL_BYTE_GRANT_CAP
     _d['final_byte_refunds'] = issue_audit_state._FINAL_BYTE_GRANT_CAP
@@ -17122,7 +17122,7 @@ def _row792_revision_retracts_outstanding_grant(r):
     r('record-offer', r.slug, '--accepted', nonce=True)
     r('record-dispatch', '--kind', 'discovery', r.slug, '--round', '2', '--arm', 'file',
       '--draft-file', r.draft, nonce=True)
-    _state = _json.loads(Path(r.tmp, '.devflow', 'tmp',
+    _state = _json.loads(Path(r.tmp, '.prflow', 'tmp',
                               f'issue-audit-state-{r.slug}.json').read_text(encoding='utf-8'))
     assert_eq("#792 iter4: the revision retracted the stale grant, so the ordinary round is NOT "
               "stamped as the pass",
@@ -17153,7 +17153,7 @@ def _row792_grant_ceiling(r):
     # cycle but never GRANT headroom. Recorded directly rather than driven through the full
     # degraded-inline escalation each cycle, which this row does not exercise (the refund's own
     # behavior is `_row792_refund`'s subject).
-    _p = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+    _p = Path(r.tmp, '.prflow', 'tmp', f'issue-audit-state-{r.slug}.json')
     for i in range(issue_audit_state._FINAL_BYTE_GRANT_CAP):
         assert_eq(f"#792 iter2: grant {i + 1} of the ceiling is accepted",
                   0, r.offer(accepted=True).returncode)
@@ -17218,7 +17218,7 @@ def _state792(r):
     rows do not drive), so those rows patch the recorded document directly rather than
     asserting nothing about the arm.
     """
-    return Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+    return Path(r.tmp, '.prflow', 'tmp', f'issue-audit-state-{r.slug}.json')
 
 
 def _open_pass_round(r, n=2):
@@ -17395,7 +17395,7 @@ _with_run792(_row792_refund_on_embed_arm_degradation)
 # grounds on.
 def _row792_bound_file_wins_for_new_commands(r):
     r.clean_round()
-    _bound_dir = Path(r.tmp, '.devflow', 'tmp')
+    _bound_dir = Path(r.tmp, '.prflow', 'tmp')
     _bound_dir.mkdir(parents=True, exist_ok=True)
     _bound_file = _bound_dir / f'issue-draft-{r.slug}.md'
     _bound_file.write_text(Path(r.draft).read_text(encoding='utf-8'), encoding='utf-8')
@@ -17550,7 +17550,7 @@ for _badd792 in (5, '', True, [], {}):
 # `uncovered` here would have been asserting a state the read boundary makes unreachable.
 def _row792_absent_round_digest(r):
     r.clean_round()
-    _p792 = Path(r.tmp, '.devflow', 'tmp', f'issue-audit-state-{r.slug}.json')
+    _p792 = Path(r.tmp, '.prflow', 'tmp', f'issue-audit-state-{r.slug}.json')
     _s792 = _json.loads(_p792.read_text(encoding='utf-8'))
     _s792['rounds'][0]['attempts'][-1].pop('digest', None)
     _p792.write_text(_json.dumps(_s792), encoding='utf-8')
@@ -18516,7 +18516,7 @@ class _Run795:
                                text=True)
 
     def state_bytes(self):
-        return Path(self.tmp, '.devflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
+        return Path(self.tmp, '.prflow/tmp', f'issue-audit-state-{self.slug}.json').read_bytes()
 
     def open_round(self, n=1):
         return self('record-dispatch', '--kind', 'discovery', self.slug, '--round', str(n), '--arm', 'file',
@@ -18583,7 +18583,7 @@ _with795(_row795_nonce_recovery)
 # --- even when the file was present-but-corrupt, where a cold start DISCARDS recorded
 # --- state and the condition is squarely Route C.
 def _row795_init_nonce_load_split(r):
-    _state = Path(r.tmp, '.devflow/tmp', f'issue-audit-state-{r.slug}.json')
+    _state = Path(r.tmp, '.prflow/tmp', f'issue-audit-state-{r.slug}.json')
 
     # (a) present but unparseable -> never recommends the cold start.
     _saved = _state.read_bytes()
@@ -19149,7 +19149,7 @@ assert_eq("#868 helper: a resolved quotation whose bullet also cites an un-adjud
           and 'location inside the file' in _cvp_out)
 
 # --- a glob span names a SET of paths and is not adjudicable ----------------
-for _cvp_glob in ('.devflow/prompt-extensions/*.md', 'lib/test/test_*.py'):
+for _cvp_glob in ('.prflow/prompt-extensions/*.md', 'lib/test/test_*.py'):
     _cvp_rc, _cvp_out = _cvp_run(f'**Verified:** `{_cvp_glob}` all carry the header.\n')
     assert_eq(f"#868 helper: the glob citation {_cvp_glob} is never refuted — it names "
               "a set, which one existence check cannot adjudicate",
@@ -20040,7 +20040,7 @@ def _793_ias(tmp, *argv, stdin=None):
 
 with tempfile.TemporaryDirectory() as _t793b:
     _p793 = _write_state705(_t793b, 's793', 'N793', [_round705(1, 'file')])
-    _base793 = str(Path(_t793b) / '.devflow' / 'tmp' / 'issue-draft-s793.N793.staged.md')
+    _base793 = str(Path(_t793b) / '.prflow' / 'tmp' / 'issue-draft-s793.N793.staged.md')
     _dA, _pA, _ = _sdw_stage(_base793, b'# T\n\n## A\n\nfirst\n')
     _r = _793_ias(_t793b, 'record-staged-write', 's793', '--nonce', 'N793',
                   '--path', _pA, '--digest', _dA)
@@ -20151,7 +20151,7 @@ assert_eq("#793: a resolved claim is not enumerated — only live claims are re-
 
 def _793_state_doc(run):
     return json.loads(
-        Path(run.tmp, '.devflow', 'tmp',
+        Path(run.tmp, '.prflow', 'tmp',
              f'issue-audit-state-{run.slug}.json').read_text(encoding='utf-8'))
 
 
@@ -20175,7 +20175,7 @@ def _793_targeted_run():
     run.adjudicate(1, 'REVISE', must=1, unresolved='1',
                    ledger='unresolved: the AC omits its operand\n')
     # Stage the round-1 bytes into the byte history, then revise the draft.
-    base = str(Path(td, '.devflow', 'tmp', f'issue-draft-{run.slug}.N.staged.md'))
+    base = str(Path(td, '.prflow', 'tmp', f'issue-draft-{run.slug}.N.staged.md'))
     _d1, _p1, _ = _sdw_stage(base, b'# T\n\n## A\n\nold\n')
     run('record-staged-write', run.slug, '--path', _p1, '--digest', _d1, nonce=True)
     draft.write_text('# T\n\n## A\n\nrevised\n', encoding='utf-8')
@@ -20437,7 +20437,7 @@ def _793_scoped_round(tmpdir_holder):
     run('record-return', run.slug, '--round', '1', '--verdict', 'REVISE',
         '--findings-count', '1', '--carriage-object-id', dig, nonce=True)
     run.adjudicate(1, 'REVISE', must=1, unresolved='1', ledger='unresolved: a defect\n')
-    _d, _p, _ = _sdw_stage(str(Path(td, '.devflow', 'tmp',
+    _d, _p, _ = _sdw_stage(str(Path(td, '.prflow', 'tmp',
                                     f'issue-draft-{run.slug}.N.staged.md')),
                            b'# T\n\n## A\n\nold\n')
     run('record-staged-write', run.slug, '--path', _p, '--digest', _d, nonce=True)
@@ -20525,7 +20525,7 @@ _dig4 = _d4.stdout.split('digest=', 1)[1].split()[0]
 _r4('record-return', _r4.slug, '--round', '2', '--verdict', 'REVISE',
     '--findings-count', '1', '--carriage-object-id', _dig4,
     '--claim-verdicts', '1.1 not-addressed', nonce=True)
-_doc4 = json.loads(Path(_r4.tmp, '.devflow', 'tmp',
+_doc4 = json.loads(Path(_r4.tmp, '.prflow', 'tmp',
                         f'issue-audit-state-{_r4.slug}.json').read_text(encoding='utf-8'))
 assert_eq("#793/AC39: an all-not-addressed targeted round leaves the run-wide effective "
           "unresolved count equal to the discovery round's, not doubled",
@@ -20731,7 +20731,7 @@ _dig6 = _d6.stdout.split('digest=', 1)[1].split()[0]
 # A targeted return carrying NO per-claim block at all: outcome FILE, round UNUSABLE.
 _ret6 = _r6('record-return', _r6.slug, '--round', '2', '--verdict', 'FILE',
             '--findings-count', '0', '--carriage-object-id', _dig6, nonce=True)
-_doc6 = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+_doc6 = json.loads(Path(_r6.tmp, '.prflow', 'tmp',
                         f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
 assert_eq("#793: a targeted return with no per-claim block records outcome FILE and marks "
           "the round UNUSABLE (the precondition the dead end needed)",
@@ -20747,7 +20747,7 @@ assert_eq("#793: ... and next_action still schedules the confirming whole-draft 
 
 _d6b = _r6('record-dispatch', '--kind', 'discovery', _r6.slug, '--round', '3',
            '--arm', 'file', '--draft-file', str(_draft6.resolve()), nonce=True)
-_doc6b = json.loads(Path(_r6.tmp, '.devflow', 'tmp',
+_doc6b = json.loads(Path(_r6.tmp, '.prflow', 'tmp',
                          f'issue-audit-state-{_r6.slug}.json').read_text(encoding='utf-8'))
 assert_eq("#793: ... and the round next_action scheduled is FUNDED — the confirming "
           "counter is spent for it, so record-dispatch accepts instead of dead-ending "
@@ -20859,7 +20859,7 @@ assert_eq("#793/AC18: an UNTAMPERED scope file regenerates to the recorded ident
            'scope-file-tampered' in _ret7.stdout,
            'scope-file-unreadable' in _ret7.stdout))
 
-_doc7 = json.loads(Path(_r7.tmp, '.devflow', 'tmp',
+_doc7 = json.loads(Path(_r7.tmp, '.prflow', 'tmp',
                         f'issue-audit-state-{_r7.slug}.json').read_text(encoding='utf-8'))
 assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, so a "
           "later reader sees the verified regeneration rather than re-inferring it",
@@ -20869,7 +20869,7 @@ assert_eq("#793/AC18: ... and the established result is PERSISTED on the round, 
 # scripts/pretooluse-shape-guard.py — the review-tier PreToolUse shape guard (#805)
 # ══════════════════════════════════════════════════════════════════════════════
 # The guard reads a hook payload on stdin, uses `git rev-parse --show-toplevel` to
-# anchor its .devflow/tmp store, and loads lib/test/extract-command-shapes.py from that
+# anchor its .prflow/tmp store, and loads lib/test/extract-command-shapes.py from that
 # root. To drive it hermetically (isolated store, no collision with the real repo or the
 # parallel pool), each invocation runs in a throwaway git repo that carries copies of the
 # guard's importlib closure at their committed relative paths.
@@ -20901,7 +20901,7 @@ _GuardResult = _collections805.namedtuple('_GuardResult', 'rc decision reason st
 
 
 class _GuardRig:
-    """A hermetic git repo that runs the guard with an isolated .devflow/tmp store."""
+    """A hermetic git repo that runs the guard with an isolated .prflow/tmp store."""
 
     def __init__(self):
         _GUARD_RIG_SEQ[0] += 1
@@ -20951,18 +20951,18 @@ class _GuardRig:
         return self._exec(raw_bytes)
 
     def heartbeat_exists(self):
-        return (self.root / '.devflow' / 'tmp' / 'pretooluse-guard-fired').exists()
+        return (self.root / '.prflow' / 'tmp' / 'pretooluse-guard-fired').exists()
 
     def store_names(self):
-        d = self.root / '.devflow' / 'tmp'
+        d = self.root / '.prflow' / 'tmp'
         return sorted(p.name for p in d.glob('pretooluse-guard-counts-*.json')) if d.is_dir() else []
 
     def counts(self):
-        f = self.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json'
+        f = self.root / '.prflow' / 'tmp' / 'pretooluse-guard-counts.json'
         return _json805.loads(f.read_text()) if f.exists() else None
 
     def write_counts(self, obj):
-        d = self.root / '.devflow' / 'tmp'
+        d = self.root / '.prflow' / 'tmp'
         d.mkdir(parents=True, exist_ok=True)
         (d / 'pretooluse-guard-counts.json').write_text(_json805.dumps(obj), encoding='utf-8')
 
@@ -20983,7 +20983,7 @@ def _payload(cmd, tid='t0'):
 _rig = _GuardRig()
 for _name, _cmd, _phrase in [
     ('R1', 'M=x printf hi', 'VAR=$(cmd)'),
-    ('R3-tmp', 'echo x > /tmp/f', '.devflow/tmp/'),
+    ('R3-tmp', 'echo x > /tmp/f', '.prflow/tmp/'),
     ('R4', 'python3 foo.py', 'leading token'),
 ]:
     _res = _rig.run(_payload(_cmd, tid=f'deny-{_name}'))
@@ -20995,14 +20995,14 @@ for _name, _cmd, _phrase in [
 
 # ── Excluded arms DEFER (a lint-discipline rule never becomes a runtime deny) ──
 for _name, _cmd in [('R2-cd', 'cd /tmp/x'),
-                    ('R3-heredoc', 'cat > .devflow/tmp/x <<HED')]:
+                    ('R3-heredoc', 'cat > .prflow/tmp/x <<HED')]:
     _dec = _GuardRig().run(_payload(_cmd, tid=_name)).decision
     assert_eq(f"#805 guard: excluded arm {_name} DEFERS", 'defer', _dec)
 
 # ── Regression pairing (arm split): the heredoc DEFERS while the /tmp redirect DENIES.
 # Both return the token R3 from classify(); an implementation resolving at rule-id
 # granularity passes one and fails the other whichever way it errs.
-_dec_hd = _GuardRig().run(_payload('cat > .devflow/tmp/x <<HED', tid='pair-hd')).decision
+_dec_hd = _GuardRig().run(_payload('cat > .prflow/tmp/x <<HED', tid='pair-hd')).decision
 _dec_tmp = _GuardRig().run(_payload('echo x > /tmp/f', tid='pair-tmp')).decision
 assert_eq("#805 guard: arm-split pairing — heredoc defers AND /tmp redirect denies", ('defer', 'deny'),
           (_dec_hd, _dec_tmp))
@@ -21039,7 +21039,7 @@ assert_eq("#805 shapes: REVIEW_ARMS and REVIEW_RULES are both derived from the o
 # arm->rule projection of classify_arms(). Driven over one planted statement per arm plus
 # a clean and a multi-arm one.
 _ARM2RULE = {a: r for a, r, _p in _shapes_mod._REVIEW_ARM_TABLE}
-for _st in ['M=x printf hi', 'cd /tmp/x', 'echo x > /tmp/f', "cat > .devflow/tmp/x <<HED",
+for _st in ['M=x printf hi', 'cd /tmp/x', 'echo x > /tmp/f', "cat > .prflow/tmp/x <<HED",
             'python3 foo.py', 'echo hello', 'M=x cmd ; echo z > /tmp/h']:
     _proj = []
     for _a in _shapes_mod.classify_arms(_st):
@@ -21133,15 +21133,15 @@ assert_eq("#805/#906 guard: tool_name scoping positive control — the identical
           "under tool_name=Bash still denies", 'deny', _dec_bash_ctrl)
 
 # ── Guard-internal failure: an unwritable store must cost the COUNTER, never the
-# DECISION. The store and the heartbeat are telemetry; an obstructed .devflow/tmp used to
+# DECISION. The store and the heartbeat are telemetry; an obstructed .prflow/tmp used to
 # raise before classification (or revoke an already-computed deny) and main()'s blanket
 # handler published `defer` — silently disarming the guard on exactly the runs where a
 # read-only or full workspace is the reason. Asserting `_dec in ('deny','defer')` could
 # not fail, so it is pinned to `deny` here: a denied shape stays denied with the store
 # gone, and only the escalation is lost.
 _rig_ro = _GuardRig()
-_rig_ro.run(_payload('echo hi', tid='seed'))  # create .devflow/tmp
-_ro_dir = _rig_ro.root / '.devflow' / 'tmp'
+_rig_ro.run(_payload('echo hi', tid='seed'))  # create .prflow/tmp
+_ro_dir = _rig_ro.root / '.prflow' / 'tmp'
 # Mode 0500 does NOT restrict uid 0, so under a root-run container this fixture would
 # silently degrade into a duplicate of the ordinary deny case — green, and proving nothing
 # about the unwritable-store path. Skip loudly instead of asserting vacuously.
@@ -21228,7 +21228,7 @@ for _sname, _store, _want_repeat, _want_corrupt_crumb in [
     ('top-level scalar', 7, True, True),
 ]:
     _rig_s = _GuardRig()
-    _rig_s.run(_payload('echo hi', tid=f'seed-{_sname}'))  # create .devflow/tmp
+    _rig_s.run(_payload('echo hi', tid=f'seed-{_sname}'))  # create .prflow/tmp
     _rig_s.write_counts(_store)
     _res_s = _rig_s.run(_payload('echo x > /tmp/f', tid=f'store-{_sname}'))
     assert_eq(f"#805 guard: malformed counter store '{_sname}' still DENIES, exit 0",
@@ -21242,7 +21242,7 @@ for _sname, _store, _want_repeat, _want_corrupt_crumb in [
 # it must escalate + breadcrumb rather than silently restart the counters at zero.
 _rig_s2 = _GuardRig()
 _rig_s2.run(_payload('echo hi', tid='seed-trunc'))
-(_rig_s2.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json').write_text(
+(_rig_s2.root / '.prflow' / 'tmp' / 'pretooluse-guard-counts.json').write_text(
     '{"arms": {"R3-tmp":', encoding='utf-8')
 _res_s2 = _rig_s2.run(_payload('echo x > /tmp/f', tid='trunc'))
 assert_eq("#805 guard: a truncated counter store still DENIES (no crash), escalates, and "
@@ -21268,7 +21268,7 @@ assert_eq("#805 guard: ABSENT counter store (positive control) — first denial 
 if _os.geteuid() != 0:
     _rig_s4 = _GuardRig()
     _rig_s4.run(_payload('echo hi', tid='seed-unreadable'))
-    _unreadable = _rig_s4.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json'
+    _unreadable = _rig_s4.root / '.prflow' / 'tmp' / 'pretooluse-guard-counts.json'
     _unreadable.write_text('{"arms": {}, "seen": {}}', encoding='utf-8')
     _unreadable.chmod(0o000)
     try:
@@ -21283,7 +21283,7 @@ if _os.geteuid() != 0:
 
 # An UNWRITABLE-BUT-READABLE store (PR #906 review, Important #2) drives the write-back
 # OSError branch in _bump_counts specifically: the "unwritable store" rig above makes the
-# whole .devflow/tmp DIRECTORY unwritable, so it trips _write_heartbeat first and
+# whole .prflow/tmp DIRECTORY unwritable, so it trips _write_heartbeat first and
 # _bump_counts is never reached; the "unreadable store" rig makes the FILE unreadable, so
 # it exercises the READ path's OSError, not the write-back one. A file that is readable
 # (0o400) inside an otherwise-writable directory reaches _bump_counts, computes a real
@@ -21294,7 +21294,7 @@ if _os.geteuid() != 0:
 if _os.geteuid() != 0:
     _rig_s5 = _GuardRig()
     _rig_s5.run(_payload('echo x > /tmp/f', tid='seed-unwritable-1'))  # arm count -> 1
-    _store_s5 = _rig_s5.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.json'
+    _store_s5 = _rig_s5.root / '.prflow' / 'tmp' / 'pretooluse-guard-counts.json'
     _store_s5.chmod(0o400)  # readable, not writable; directory stays writable
     try:
         _res_s5 = _rig_s5.run(_payload('echo x > /tmp/g', tid='seed-unwritable-2'))
@@ -21351,7 +21351,7 @@ import fcntl as _fcntl805  # noqa: E402
 
 _rig_lk = _GuardRig()
 _rig_lk.run(_payload('echo hi', tid='seed-lock'))
-_lock_f = open(_rig_lk.root / '.devflow' / 'tmp' / 'pretooluse-guard-counts.lock', 'w')
+_lock_f = open(_rig_lk.root / '.prflow' / 'tmp' / 'pretooluse-guard-counts.lock', 'w')
 _fcntl805.flock(_lock_f.fileno(), _fcntl805.LOCK_EX)
 try:
     _res_lk = _rig_lk.run(_payload('echo x > /tmp/f', tid='lock'))

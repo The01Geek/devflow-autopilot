@@ -6,7 +6,7 @@
 Why this exists (issue #543, deferred half of #533): bundled-helper skill call
 sites are authored around the portable ``${CLAUDE_SKILL_DIR:-…}`` anchor while
 the cloud permission matcher grants only repo-relative
-``.devflow/vendor/devflow/`` leading tokens. There was no machine-auditable
+``.prflow/vendor/prflow/`` leading tokens. There was no machine-auditable
 source of truth for *which* skill/phase assets a cloud writer session reaches,
 and no runtime manifest a workflow preflight could validate before the agent
 boots. This module is that source of truth.
@@ -93,7 +93,7 @@ PROTOCOL = "devflow-cloud-writer-contract-v1"
 LEGACY_PROFILE_BASELINE = "2.15.13"
 
 # The one repo-relative prefix a cloud-reached bundled helper is granted under.
-VENDOR_PREFIX = ".devflow/vendor/devflow/"
+VENDOR_PREFIX = ".prflow/vendor/prflow/"
 
 # --- AC1: cloud execution roots ------------------------------------------------
 # Each root is a cloud writer entry surface: the workflow that dispatches the
@@ -219,12 +219,12 @@ SKILL_ASSETS = {
 # manifest pins.
 REQUIRED_HELPER_HEADS = {
     "implement": [
-        ".devflow/vendor/devflow/scripts/run-jq.sh",
-        ".devflow/vendor/devflow/scripts/config-get.sh",
-        ".devflow/vendor/devflow/scripts/workpad.py",
-        ".devflow/vendor/devflow/scripts/parse-acs.py",
-        ".devflow/vendor/devflow/scripts/branch-for-issue.py",
-        ".devflow/vendor/devflow/scripts/update-branch-checkpoint.sh",
+        ".prflow/vendor/prflow/scripts/run-jq.sh",
+        ".prflow/vendor/prflow/scripts/config-get.sh",
+        ".prflow/vendor/prflow/scripts/workpad.py",
+        ".prflow/vendor/prflow/scripts/parse-acs.py",
+        ".prflow/vendor/prflow/scripts/branch-for-issue.py",
+        ".prflow/vendor/prflow/scripts/update-branch-checkpoint.sh",
         # NOT listed here: Phase 3.1's existing-PR resolver (scripts/resolve-existing-pr.sh,
         # issue #782). A review pass asked for it, and the request is sound in isolation —
         # membership would assert its vendored grant, audit its leading-token boundary, and
@@ -240,24 +240,24 @@ REQUIRED_HELPER_HEADS = {
         # `implement` profile (lib/capability-profiles.json + the generated literals), so a
         # current-workflow consumer runs it — only the every-supported-workflow REQUIREMENT
         # is deferred.
-        ".devflow/vendor/devflow/scripts/file-deferrals.py",
+        ".prflow/vendor/prflow/scripts/file-deferrals.py",
         # Phase 4.0.5's discovery step, invoked in the SAME fence as
         # file-deferrals.py above (issue #555). Registered alongside it so the
         # deferrals pipeline's two helpers share one trust boundary: pinning the
         # filing half while leaving the discovery half out is the asymmetry a
         # reader would take for a deliberate exclusion rather than an omission.
-        ".devflow/vendor/devflow/scripts/discover-deferral-manifests.py",
-        ".devflow/vendor/devflow/scripts/match-deferrals.py",
-        ".devflow/vendor/devflow/scripts/resolve-review-overrides.py",
-        ".devflow/vendor/devflow/scripts/apply-labels.sh",
-        ".devflow/vendor/devflow/scripts/ensure-label.sh",
-        ".devflow/vendor/devflow/scripts/stale-prose-lint.py",
-        ".devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh",
-        ".devflow/vendor/devflow/scripts/match-lint-adjudications.py",
-        ".devflow/vendor/devflow/scripts/load-prompt-extension.sh",
-        ".devflow/vendor/devflow/scripts/react-to-trigger.sh",
-        ".devflow/vendor/devflow/scripts/extract-doc-needed-paths.sh",
-        ".devflow/vendor/devflow/lib/efficiency-trace.sh",
+        ".prflow/vendor/prflow/scripts/discover-deferral-manifests.py",
+        ".prflow/vendor/prflow/scripts/match-deferrals.py",
+        ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
+        ".prflow/vendor/prflow/scripts/apply-labels.sh",
+        ".prflow/vendor/prflow/scripts/ensure-label.sh",
+        ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
+        ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
+        ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
+        ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        ".prflow/vendor/prflow/scripts/react-to-trigger.sh",
+        ".prflow/vendor/prflow/scripts/extract-doc-needed-paths.sh",
+        ".prflow/vendor/prflow/lib/efficiency-trace.sh",
     ],
     # Note the absent apply-labels.sh / ensure-label.sh: those are implement-only
     # (Phases 3.1/4.0/4.1). devflow.yml dispatches only review-and-fix /
@@ -266,32 +266,32 @@ REQUIRED_HELPER_HEADS = {
     # profile correctly does not carry. (Completeness of this per-profile list vs.
     # what the reached skills actually invoke is the deferred grant-sync work, AC9.)
     "light-command": [
-        ".devflow/vendor/devflow/scripts/run-jq.sh",
-        ".devflow/vendor/devflow/scripts/config-get.sh",
-        ".devflow/vendor/devflow/scripts/workpad.py",
-        ".devflow/vendor/devflow/scripts/parse-acs.py",
-        ".devflow/vendor/devflow/scripts/branch-for-issue.py",
-        ".devflow/vendor/devflow/scripts/update-branch-checkpoint.sh",
-        ".devflow/vendor/devflow/scripts/file-deferrals.py",
-        ".devflow/vendor/devflow/scripts/match-deferrals.py",
-        ".devflow/vendor/devflow/scripts/match-lint-adjudications.py",
-        ".devflow/vendor/devflow/scripts/resolve-review-overrides.py",
-        ".devflow/vendor/devflow/scripts/stale-prose-lint.py",
-        ".devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh",
-        ".devflow/vendor/devflow/scripts/load-prompt-extension.sh",
-        ".devflow/vendor/devflow/lib/efficiency-trace.sh",
+        ".prflow/vendor/prflow/scripts/run-jq.sh",
+        ".prflow/vendor/prflow/scripts/config-get.sh",
+        ".prflow/vendor/prflow/scripts/workpad.py",
+        ".prflow/vendor/prflow/scripts/parse-acs.py",
+        ".prflow/vendor/prflow/scripts/branch-for-issue.py",
+        ".prflow/vendor/prflow/scripts/update-branch-checkpoint.sh",
+        ".prflow/vendor/prflow/scripts/file-deferrals.py",
+        ".prflow/vendor/prflow/scripts/match-deferrals.py",
+        ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
+        ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
+        ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
+        ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
+        ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        ".prflow/vendor/prflow/lib/efficiency-trace.sh",
     ],
     "review": [
-        ".devflow/vendor/devflow/scripts/run-jq.sh",
-        ".devflow/vendor/devflow/scripts/match-deferrals.py",
-        ".devflow/vendor/devflow/scripts/match-lint-adjudications.py",
-        ".devflow/vendor/devflow/scripts/dismiss-stale-rejections.sh",
-        ".devflow/vendor/devflow/scripts/workpad.py",
-        ".devflow/vendor/devflow/scripts/config-get.sh",
-        ".devflow/vendor/devflow/scripts/load-prompt-extension.sh",
-        ".devflow/vendor/devflow/scripts/resolve-review-overrides.py",
-        ".devflow/vendor/devflow/scripts/stale-prose-lint.py",
-        ".devflow/vendor/devflow/lib/efficiency-trace.sh",
+        ".prflow/vendor/prflow/scripts/run-jq.sh",
+        ".prflow/vendor/prflow/scripts/match-deferrals.py",
+        ".prflow/vendor/prflow/scripts/match-lint-adjudications.py",
+        ".prflow/vendor/prflow/scripts/dismiss-stale-rejections.sh",
+        ".prflow/vendor/prflow/scripts/workpad.py",
+        ".prflow/vendor/prflow/scripts/config-get.sh",
+        ".prflow/vendor/prflow/scripts/load-prompt-extension.sh",
+        ".prflow/vendor/prflow/scripts/resolve-review-overrides.py",
+        ".prflow/vendor/prflow/scripts/stale-prose-lint.py",
+        ".prflow/vendor/prflow/lib/efficiency-trace.sh",
     ],
 }
 
@@ -465,7 +465,7 @@ def unlisted_skill_assets():
 # (i) Interpreter and wrapper grants. _ANY_BASH_GRANT_RE reads only the grant's
 # leading command-position token, so Bash(python3:*) yields 'python3', which
 # neither glob-matches a vendored literal nor shares a reachable basename — yet
-# it can execute every reachable helper (`python3 .devflow/vendor/devflow/
+# it can execute every reachable helper (`python3 .prflow/vendor/prflow/
 # scripts/workpad.py …`). The same blindness covers any wrapper head. This is
 # not an oversight detection could simply close: every live profile grants at
 # least one interpreter head — `env` in all three, `python3` in implement and
@@ -493,7 +493,7 @@ def unlisted_skill_assets():
 #
 # (iii) Consumer-spliced grants. devflow-implement.yml's --allowed-tools baseline
 # is followed by a `${{ needs.config.outputs.allowed_tools_extra }}` splice, so a
-# consumer's devflow_implement.allowed_tools entries never appear in the file
+# consumer's prflow_implement.allowed_tools entries never appear in the file
 # this guard reads. A widened grant added there is outside the measured surface.
 #
 # (iv) Injected grant sources. check_grant_sync's `profile_grants` parameter is a
@@ -543,7 +543,7 @@ def unlisted_skill_assets():
 # two false positives. The coupling is asserted in lib/test/test_python_scripts.py
 # rather than left to a reader, so widening the alternation is forced in lockstep.
 _VENDORED_GRANT_RE = re.compile(
-    r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
+    r"Bash\(\s*(\.prflow/vendor/prflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
 )
 # Any `Bash(<spec>)` grant's command-position path token (up to the first `:` /
 # `)` / whitespace). Used to enumerate every grant so a widened one covering a
@@ -819,7 +819,7 @@ def _grant_covers(spec, literals, basenames):
 
     * **glob coverage** — ``spec`` read as a shell pattern matches a reachable
       vendored literal. This is what catches a *directory* or blanket wildcard
-      (``.devflow/vendor/devflow/scripts/*``, ``*``, ``**/workpad.py``), whose
+      (``.prflow/vendor/prflow/scripts/*``, ``*``, ``**/workpad.py``), whose
       basename is ``*`` and so never matches a reachable basename.
     * **basename coverage** — ``spec``'s final path segment names a reachable
       helper. This catches a widened *path* to the same helper
@@ -1139,7 +1139,7 @@ def check_helper_boundary(profile_grants=None):
 def _helper_source_path(vendored_token):
     """Map a vendored leading token to its repository-owned source path.
 
-    `.devflow/vendor/devflow/scripts/workpad.py` -> `scripts/workpad.py`.
+    `.prflow/vendor/prflow/scripts/workpad.py` -> `scripts/workpad.py`.
     """
     if not vendored_token.startswith(VENDOR_PREFIX):
         raise ValueError(f"helper token not under vendor prefix: {vendored_token}")

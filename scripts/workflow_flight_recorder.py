@@ -859,8 +859,8 @@ def inventory_native_transcripts(
         summary = build_event_summary(events, occurrences)
         model_effort = summary["model_effort"]
         session_id = native_path.stem
-        manifest = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
-        imported = storage_root / ".devflow/tmp/workflow-runs" / session_id / "transcript.jsonl"
+        manifest = storage_root / ".prflow/tmp/workflow-manifests" / f"{session_id}.json"
+        imported = storage_root / ".prflow/tmp/workflow-runs" / session_id / "transcript.jsonl"
         occurrence = occurrences[0]
         rows.append(
             InventoryRow(
@@ -1290,7 +1290,7 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
         "storage_root": str(storage_root),
         "storage_root_source": storage_root_source,
         "git": {"head_sha": head_sha, "branch": branch, "dirty_tree": dirty_tree},
-        "devflow_version": _plugin_version(root),
+        "prflow_version": _plugin_version(root),
         "claude_configuration": _claude_configuration(root),
         "claude_code_version": {"value": claude_code_version, "source": version_source},
         "provider": _provider_classification(),
@@ -1305,7 +1305,7 @@ def capture_prompt_manifest(payload: dict[str, Any], registry_path: Path) -> dic
         if invocation_evidence == "embedded_user_command_candidate"
         else [],
     }
-    path = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
+    path = storage_root / ".prflow/tmp/workflow-manifests" / f"{session_id}.json"
     _atomic_write(path, _json_bytes(manifest))
     return {"captured": True, "session_id": session_id, "manifest": str(path)}
 
@@ -1465,7 +1465,7 @@ def _write_session_bundle(
         "provider": provider,
         "warnings": warnings,
     }
-    bundle = storage_root / ".devflow/tmp/workflow-runs" / session_id
+    bundle = storage_root / ".prflow/tmp/workflow-runs" / session_id
     bundle.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(bundle, 0o700)
     _atomic_write(bundle / "transcript.jsonl", raw)
@@ -1525,7 +1525,7 @@ def import_inventory_session(
     if not admission:
         raise ValueError("selected native transcript no longer classifies as an inventory session")
     occurrences = _bundle_occurrences(events, definitions, admission[0])
-    manifest_path = storage_root / ".devflow/tmp/workflow-manifests" / f"{session_id}.json"
+    manifest_path = storage_root / ".prflow/tmp/workflow-manifests" / f"{session_id}.json"
     start_manifest = _read_start_manifest(manifest_path, session_id)
 
     bundle, captured_at, event_count = _write_session_bundle(

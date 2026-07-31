@@ -89,8 +89,8 @@ IFR_TRANSCRIPT="$IFR_PROJECTS/sid-a.jsonl"
 IFR_PAYLOAD="$(jq -cn --arg sid sid-a --arg transcript "$IFR_TRANSCRIPT" --arg cwd "$IFR_ROOT/nested" \
   '{session_id:$sid,transcript_path:$transcript,cwd:$cwd,user_prompt:"/devflow:implement 123",model:"claude-start-model",effort:"high"}')"
 printf '%s' "$IFR_PAYLOAD" | python3 "$IFR_MANIFEST" 2>"$IFR_ROOT/manifest.err"
-IFR_MANIFEST_FILE="$IFR_ROOT/.devflow/tmp/workflow-manifests/sid-a.json"
-IFR_BUNDLE="$(cd "$IFR_ROOT" && pwd -P)/.devflow/tmp/workflow-runs/sid-a"
+IFR_MANIFEST_FILE="$IFR_ROOT/.prflow/tmp/workflow-manifests/sid-a.json"
+IFR_BUNDLE="$(cd "$IFR_ROOT" && pwd -P)/.prflow/tmp/workflow-runs/sid-a"
 assert_eq "flight recorder: UserPromptSubmit observation writes only the start manifest" "yes" \
   "$([ -f "$IFR_MANIFEST_FILE" ] && [ ! -e "$IFR_BUNDLE" ] && echo yes || echo no)"
 
@@ -159,7 +159,7 @@ assert_eq "flight recorder: documented local Stop example has no recorder comman
 printf '%s\n' "$(jq -cn --arg cwd "$IFR_ROOT" '{type:"user",timestamp:"2026-07-15T20:00:00Z",cwd:$cwd,message:{role:"user",content:"<command-message>devflow:implement</command-message><command-args>456</command-args>"}}')" > "$IFR_PROJECTS/sid-markup.jsonl"
 python3 "$IFR_IMPORT" sid-markup --claude-projects-root "$IFR_PROJECTS" --repo-root "$IFR_ROOT" >/dev/null
 assert_eq "flight recorder: user command-markup invocation is recognized" "456" \
-  "$(jq -r '.[0].subject.number' "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/occurrences.json")"
+  "$(jq -r '.[0].subject.number' "$IFR_ROOT/.prflow/tmp/workflow-runs/sid-markup/occurrences.json")"
 
 # Prompt contract: pin the scientific and human-gated controls that deterministic
 # driver validation cannot infer from model prose.
@@ -205,7 +205,7 @@ IFR_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
 (cd "$IFR_ROOT" && DEVFLOW_CLAUDE_BIN="$IFR_FAKE" FAKE_ARGS="$IFR_ARGS" FAKE_OUTPUT="$IFR_REPORT" \
   python3 "$IFR_ANALYZE" --acknowledge-provider-access latest >/dev/null)
 assert_eq "flight recorder analyzer: latest writes only the selected run report" "yes" \
-  "$([ -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
+  "$([ -f "$IFR_ROOT/.prflow/tmp/workflow-runs/sid-markup/run-report.md" ] && echo yes || echo no)"
 assert_eq "flight recorder analyzer: launch enables safe mode" "1" "$(grep -cFx -- '--safe-mode' "$IFR_ARGS")"
 assert_eq "flight recorder analyzer: launch uses print mode" "1" "$(grep -cFx -- '--print' "$IFR_ARGS")"
 assert_eq "flight recorder analyzer: launch denies permission prompts" "1" "$(grep -cFx -- 'dontAsk' "$IFR_ARGS")"
@@ -216,18 +216,18 @@ assert_eq "flight recorder analyzer: no write/edit/bash/web tool is granted" "no
 # Form a comparable three-run cohort from safe local fixtures.
 IFR_COHORT_FP="$(jq -r '.[0].prompt_fingerprint' "$IFR_BUNDLE/occurrences.json")"
 for IFR_SID in sid-b sid-c; do
-  mkdir -p "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID"
-  cp "$IFR_BUNDLE/transcript.jsonl" "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/transcript.jsonl"
+  mkdir -p "$IFR_ROOT/.prflow/tmp/implement-runs/$IFR_SID"
+  cp "$IFR_BUNDLE/transcript.jsonl" "$IFR_ROOT/.prflow/tmp/implement-runs/$IFR_SID/transcript.jsonl"
   jq -n --arg sid "$IFR_SID" --arg fp "$IFR_COHORT_FP" \
     '{schema_version:1,session_id:$sid,issue_number:123,prompt_fingerprint:$fp,captured_at:"2026-07-15T00:00:00Z"}' \
-    > "$IFR_ROOT/.devflow/tmp/implement-runs/$IFR_SID/metadata.json"
+    > "$IFR_ROOT/.prflow/tmp/implement-runs/$IFR_SID/metadata.json"
 done
 jq '.captured_at="2026-07-15T00:00:02Z"' \
   "$IFR_BUNDLE/metadata.json" > "$IFR_ROOT/sid-a-metadata"
 mv "$IFR_ROOT/sid-a-metadata" "$IFR_BUNDLE/metadata.json"
 # sid-markup is newer but is deliberately made invalid for discovery, leaving the
 # intended three-run cohort as the newest valid comparable set.
-rm -f "$IFR_ROOT/.devflow/tmp/workflow-runs/sid-markup/transcript.jsonl"
+rm -f "$IFR_ROOT/.prflow/tmp/workflow-runs/sid-markup/transcript.jsonl"
 IFR_COHORT_REPORT='<!-- DEVFLOW_REPORT_BEGIN -->
 # Cohort report
 <!-- DEVFLOW_REPORT_END -->

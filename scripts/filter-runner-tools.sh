@@ -4,7 +4,7 @@
 # filter-runner-tools.sh — the cloud reviewer's deny-list floor (issues #363, #402).
 #
 # This is the AUTHORITATIVE deny-list floor that runs at consume-time, on the
-# trusted base-ref `devflow_runner.allowed_tools` value, before those freeform
+# trusted base-ref `prflow_runner.allowed_tools` value, before those freeform
 # build/verify commands are appended to the read-only `review` profile in
 # .github/workflows/devflow-runner.yml. It strips the categorically-unrecoverable
 # tier no matter what /devflow:init's LLM enrichment or a later hand-edit wrote:
@@ -16,7 +16,7 @@
 # not this header: devflow-runner.yml executes the floor only from a TRUSTED
 # copy — one materialized from the base ref by its baseprovision step, or the
 # vendored copy when (and only when) vendor-plugin freshly fetched it at the
-# pinned devflow_version — never from the PR-head checkout. A PR that edits
+# pinned prflow_version — never from the PR-head checkout. A PR that edits
 # this file therefore changes nothing about how that PR's own review is
 # floored; the edit takes effect only after it lands on the base branch.
 #
@@ -137,7 +137,7 @@ for raw in "$@"; do
 
   if [ "$denied" = true ]; then
     # Per-entry strip warning (#402): the workflow re-emits each as a `::warning::`.
-    printf "devflow_runner.allowed_tools: stripped '%s' — never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation)\n" "$entry" >&2
+    printf "prflow_runner.allowed_tools: stripped '%s' — never permitted on the reviewer's write-token job (tree mutation / raw shell / privilege escalation)\n" "$entry" >&2
   else
     FILTERED="${FILTERED:+$FILTERED,}$entry"
   fi

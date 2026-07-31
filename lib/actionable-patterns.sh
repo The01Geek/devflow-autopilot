@@ -97,8 +97,8 @@ case "${3:-}" in
     *) echo "actionable-patterns: unknown argument '$3' (expected --full)" >&2; exit 2 ;;
 esac
 
-MIN="$(devflow_conf '.devflow_retrospective.min_occurrences' 2)"
-COOLDOWN="$(devflow_conf '.devflow_retrospective.cooldown_days' 3)"
+MIN="$(devflow_conf '.prflow_retrospective.min_occurrences' 2)"
+COOLDOWN="$(devflow_conf '.prflow_retrospective.cooldown_days' 3)"
 
 # gh binary: resolved once via the single-source resolver (execution-verified);
 # an explicit DEVFLOW_GH still wins, so test stubs are untouched.

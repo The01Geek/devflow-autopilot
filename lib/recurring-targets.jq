@@ -8,7 +8,7 @@
 # deterministic reader: no filing, no dismissal state, no producer-path change.
 #
 # Invocation (mirrors compute-patterns.jq — slurp the JSONL into one array):
-#   jq -s -f lib/recurring-targets.jq .devflow/learnings/retrospectives.jsonl
+#   jq -s -f lib/recurring-targets.jq .prflow/learnings/retrospectives.jsonl
 #
 # Input:
 #   stdin: array of retrospective entries (kind: "implementation" | "audit"),

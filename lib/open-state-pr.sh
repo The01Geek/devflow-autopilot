@@ -8,9 +8,9 @@
 #
 # --base defaults to "main": the per-run branch is (re)created from that ref so
 # the resulting PR diff contains only the learnings files, never whatever the
-# operator happened to have checked out. The .devflow/learnings/* files are
-# tracked (re-included by the !/.devflow/learnings/ negation in .gitignore, past
-# the /.devflow/* ignore rule), so the checkout carries them onto the new branch
+# operator happened to have checked out. The .prflow/learnings/* files are
+# tracked (re-included by the !/.prflow/learnings/ negation in .gitignore, past
+# the /.prflow/* ignore rule), so the checkout carries them onto the new branch
 # as modified tracked files, which Step 2 then stages (plain git add) and commits.
 #
 # Prints the PR number to stdout (or "DRYRUN" in dry-run mode).
@@ -48,9 +48,9 @@ done
 # label. Count via jq (kind != "skip"); on any jq failure fall back to the raw line
 # count so the label degrades to over-counting rather than breaking the commit.
 N=0
-if [ -f .devflow/learnings/retrospectives.jsonl ]; then
+if [ -f .prflow/learnings/retrospectives.jsonl ]; then
     N=$("$DEVFLOW_JQ" -s '[.[] | select((.kind // "") != "skip")] | length' \
-        < .devflow/learnings/retrospectives.jsonl 2>/dev/null || true)
+        < .prflow/learnings/retrospectives.jsonl 2>/dev/null || true)
     # Fallback line count uses ONLY bash builtins. `wc`/`tr` are not guaranteed by
     # lib/preflight.sh (git/gh/jq/python3 only), and $N is an EMITTED value — it lands
     # in the commit subject's "(N entries)" label — so a missing PATH tool must not be
@@ -62,7 +62,7 @@ if [ -f .devflow/learnings/retrospectives.jsonl ]; then
             N=0
             while IFS= read -r _line || [ -n "$_line" ]; do
                 N=$((N + 1))
-            done < .devflow/learnings/retrospectives.jsonl
+            done < .prflow/learnings/retrospectives.jsonl
             ;;
     esac
 fi
@@ -104,7 +104,7 @@ _run git checkout -B "$BRANCH" "$BASE"
 if [ "$DRY_RUN" -eq 1 ]; then
     printf 'DRYRUN: git add <existing learnings files>\n'
 else
-    for _f in .devflow/learnings/retrospectives.jsonl .devflow/learnings/overrides.json .devflow/learnings/experiment-records.jsonl; do
+    for _f in .prflow/learnings/retrospectives.jsonl .prflow/learnings/overrides.json .prflow/learnings/experiment-records.jsonl; do
         if [ -f "$_f" ]; then
             git add "$_f"
         fi

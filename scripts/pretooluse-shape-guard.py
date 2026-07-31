@@ -47,7 +47,7 @@ The BOOKKEEPING writes are deliberately NOT on that fail-open path. A failed hea
 write, a failed counter write, an unavailable `fcntl`, or a lock the guard could not
 acquire costs only the telemetry and the REPEAT escalation — never the decision: a
 command already classified as a denied shape still returns `deny`. Un-excluded, an
-unwritable `.devflow/tmp` silently disarmed the guard for a whole run. See the
+unwritable `.prflow/tmp` silently disarmed the guard for a whole run. See the
 `BOOKKEEPING NEVER DECIDES` comment in `_run` and the counter-write comment below it;
 this exclusion is the contract those two comments implement, so do not "restore" a
 uniform fail-open here.
@@ -55,7 +55,7 @@ uniform fail-open here.
 REPEAT BOUND. The load-bearing assumption (a per-call remediation changes behavior where
 generic refusal did not) may fail, so the guard also carries a control: a second denial
 of the same arm within one run escalates the remediation to name the abandonment rule
-explicitly. The per-arm counts live in a store under `.devflow/tmp/` (each hook
+explicitly. The per-arm counts live in a store under `.prflow/tmp/` (each hook
 invocation is a separate process) written under an exclusive lock, so parallel subagent
 invocations cannot interleave and undercount. The store file is RUN-KEYED whenever the
 environment supplies a run identifier (`GITHUB_RUN_ID`, then `GITHUB_RUN_ATTEMPT` — the
@@ -126,7 +126,7 @@ REMEDIATION = {
     "R3-tmp": (
         "devflow shape guard (R3-tmp): a >/>> redirect targeting /tmp is denied by the "
         "review-tier matcher. Permitted alternative: author the file with the Write tool "
-        "under .devflow/tmp/, or stream through a pipe into tee; do not redirect to /tmp."
+        "under .prflow/tmp/, or stream through a pipe into tee; do not redirect to /tmp."
     ),
     "R4": (
         "devflow shape guard (R4): an interpreter head (python3/python/node) is granted "
@@ -227,7 +227,7 @@ def _repo_root() -> str:
 
 
 def _tmp_dir(root: str) -> str:
-    d = os.path.join(root, ".devflow", "tmp")
+    d = os.path.join(root, ".prflow", "tmp")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -458,7 +458,7 @@ def _bump_counts(tmp: str, arm: str, seen_key: str) -> tuple[bool, bool]:
 def _run() -> None:
     # BOOKKEEPING NEVER DECIDES. The heartbeat and the counter store are telemetry; a
     # failure in either must not change the decision. Un-guarded, an unwritable
-    # .devflow/tmp raised here — BEFORE any classification — and main()'s blanket handler
+    # .prflow/tmp raised here — BEFORE any classification — and main()'s blanket handler
     # turned it into a `defer`, silently disarming the guard for the whole run. So the
     # store is best-effort and `tmp is None` simply means "classify, do not count".
     root = _repo_root()

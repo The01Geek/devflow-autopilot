@@ -7,7 +7,7 @@ how they were discharged.
 ## The conflict
 
 AC2 asked that a bundled-helper cloud command be **emitted with a literal
-`.devflow/vendor/devflow/scripts/…` leading token** and its local twin retain the
+`.prflow/vendor/prflow/scripts/…` leading token** and its local twin retain the
 portable anchor. AC3 asked for a **raw-token guard over source that rejects
 unexpanded anchors**. Both, taken literally, collide with two binding
 conventions:
@@ -35,7 +35,7 @@ first breaks #275 and needlessly duplicates the shipped-default review-bundle su
 
 Key observation: `lib/test/extract-command-heads.py`'s `_ANCHOR`/`_normalize`
 already reduce the well-formed portable source anchor to the exact vendored
-literal `.devflow/vendor/devflow/scripts/x` — the same string the cloud allowlist
+literal `.prflow/vendor/prflow/scripts/x` — the same string the cloud allowlist
 grants and the cloud runner emits. So **the single anchored source line IS the
 cloud call-site form after emission**; no duplicate fence is needed.
 

@@ -10,7 +10,7 @@
 #     -f lib/classify-pr-kind.jq
 #
 # $impl_prefix is the adopter's implementation-bot branch prefix
-# (devflow_retrospective.implementation_branch_prefix, default "claude/").
+# (prflow_retrospective.implementation_branch_prefix, default "claude/").
 # The devflow/* prefixes below are DevFlow's own internal branch conventions
 # and are intentionally fixed.
 #

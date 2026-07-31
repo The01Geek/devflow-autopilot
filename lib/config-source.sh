@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
-# config-source.sh — read settings from .devflow/config.json. Source, don't exec.
-#   devflow_conf '.devflow_retrospective.min_occurrences' 2
+# config-source.sh — read settings from .prflow/config.json. Source, don't exec.
+#   devflow_conf '.prflow_retrospective.min_occurrences' 2
 #
 # This is an ergonomic shell wrapper; the actual parsing is delegated to
 # scripts/config-get.sh (the ONE config-reading implementation, python3-based —
@@ -14,7 +14,27 @@ set -euo pipefail
 _DEVFLOW_REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # Config path. Override with DEVFLOW_CONFIG_FILE (used by the test suite to
 # point at a committed fixture instead of the live repo config).
-_DEVFLOW_CONFIG="${DEVFLOW_CONFIG_FILE:-${_DEVFLOW_REPO_ROOT}/.devflow/config.json}"
+# State-directory resolution (issue #1002): canonical .prflow/, with the LOUD
+# transitional fallback to a superseded .devflow/ when only that one is present.
+# Guarded source so a partially-copied deployment degrades to the canonical name
+# with a breadcrumb rather than aborting the sourcing chain under `set -e`.
+# Self-directory anchor. `dirname` is NOT one of the tools lib/preflight.sh
+# guarantees, and under `set -e` its failing command substitution aborts the read
+# before a caller default is emitted — so this uses the dirname-free spelling of
+# the anchor, which is also one of the shapes lib/test/cloud_writer_deps.py can
+# prove (a variable assigned by a `case` cannot be resolved by that scanner, so an
+# edge built from one reads as a repo-root escape). `cd`/`pwd` are bash builtins.
+_DEVFLOW_CONF_DIR_EARLY="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
+# shellcheck source=resolve-state-dir.sh
+if [ -f "${_DEVFLOW_CONF_DIR_EARLY}/resolve-state-dir.sh" ] \
+   && . "${_DEVFLOW_CONF_DIR_EARLY}/resolve-state-dir.sh" \
+   && type prflow_state_dir >/dev/null 2>&1; then
+  :
+else
+  echo "config-source.sh: resolve-state-dir.sh not found beside this file — using the canonical .prflow/ with no transitional fallback" >&2
+  prflow_state_dir() { printf '%s' "${1:-}/.prflow"; }
+fi
+_DEVFLOW_CONFIG="${DEVFLOW_CONFIG_FILE:-$(prflow_state_dir "${_DEVFLOW_REPO_ROOT}")/config.json}"
 # Locate the resolver relative to this file (lib/ → ../scripts/).
 _DEVFLOW_CONF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _DEVFLOW_CONFIG_GET="${_DEVFLOW_CONF_DIR}/../scripts/config-get.sh"
@@ -45,11 +65,11 @@ devflow_conf() {
 # Watched authors → comma-separated. devflow override array > devflow.allowed_bots string.
 devflow_watched_authors() {
   local arr
-  arr="$(devflow_conf '.devflow_retrospective.watched_authors' '')"
+  arr="$(devflow_conf '.prflow_retrospective.watched_authors' '')"
   if [ -n "$arr" ]; then
     printf '%s' "$arr"
   else
-    devflow_conf '.devflow.allowed_bots' ''
+    devflow_conf '.prflow.allowed_bots' ''
   fi
 }
 

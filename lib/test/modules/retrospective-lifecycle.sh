@@ -217,7 +217,7 @@ assert_eq "#788 atomic write: reconcile succeeds with an unusable \$TMPDIR" "0" 
 assert_eq "#788 atomic write: the transition still applied with an unusable \$TMPDIR" "fixed" \
   "$(jq -r '.patterns["tmpdir-free"].state' "$RL_TMP/t11.json")"
 # The staging file is cleaned up — a `.overrides.*` left beside the destination
-# would be committed into .devflow/learnings/ by the state PR.
+# would be committed into .prflow/learnings/ by the state PR.
 assert_eq "#788 atomic write: no staging file is left beside the destination" "0" \
   "$(set -- "$RL_TMP"/.overrides*; [ -e "$1" ] && echo 1 || echo 0)"
 # (The unwritable-destination-directory arm is deliberately NOT asserted with a
@@ -1508,19 +1508,19 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
 # silently re-tuning the filing budget.
 (
   . "$REPO_ROOT/lib/filing-decisions.sh"
-  mkdir -p "$RL_TMP/cfg/.devflow"
+  mkdir -p "$RL_TMP/cfg/.prflow"
   # rl_cap_token <json-value-for-max_issues_per_run> -> the verdict token
   # filed_this_run=0 against the resolved cap, every other operand slack, so the
   # token reflects the CAP's usability and nothing else.
   rl_cap_token() {
-    printf '{"devflow_retrospective":{"max_issues_per_run":%s}}' "$1" > "$RL_TMP/cfg/.devflow/config.json"
+    printf '{"prflow_retrospective":{"max_issues_per_run":%s}}' "$1" > "$RL_TMP/cfg/.prflow/config.json"
     local cap
     # The fixture is selected by config-get.sh's THIRD POSITIONAL argument. A
     # `CONFIG_FILE=` env prefix is inert here — the script takes no such variable —
     # and reading as an explicit selection while the cwd silently did the selecting
     # is what makes an environment-shifted rerun mysterious.
     cap="$(cd "$RL_TMP/cfg" && \
-             "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 .devflow/config.json 2>/dev/null)"
+             "$REPO_ROOT/scripts/config-get.sh" '.prflow_retrospective.max_issues_per_run' 3 .prflow/config.json 2>/dev/null)"
     devflow_filing_cap_verdict open 0 "$cap" 0 99 0 99 2>/dev/null
   }
   # scalar — the ordinary shape
@@ -1536,9 +1536,9 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   assert_eq "#788 cap-shape: a multi-element array cap is rejected" "invalid-operand" "$(rl_cap_token '[3,4]')"
   assert_eq "#788 cap-shape: a non-numeric string cap is rejected" "invalid-operand" "$(rl_cap_token '"abc"')"
   # missing / null — fall back to the declared default, which is usable
-  printf '{"devflow_retrospective":{}}' > "$RL_TMP/cfg/.devflow/config.json"
+  printf '{"prflow_retrospective":{}}' > "$RL_TMP/cfg/.prflow/config.json"
   assert_eq "#788 cap-shape: a missing cap falls back to the default" "file" \
-    "$(devflow_filing_cap_verdict open 0 "$(cd "$RL_TMP/cfg" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.max_issues_per_run' 3 .devflow/config.json 2>/dev/null)" 0 99 0 99 2>/dev/null)"
+    "$(devflow_filing_cap_verdict open 0 "$(cd "$RL_TMP/cfg" && "$REPO_ROOT/scripts/config-get.sh" '.prflow_retrospective.max_issues_per_run' 3 .prflow/config.json 2>/dev/null)" 0 99 0 99 2>/dev/null)"
   assert_eq "#788 cap-shape: a null cap falls back to the default" "file" "$(rl_cap_token null)"
   # RESIDUALS (pinned, not fixed — config-get.sh coercion is repo-wide and out of
   # this PR's scope). Both launder a wrong-typed value into a REAL filing budget:
@@ -1559,14 +1559,14 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
 (
   # shellcheck source=../../audit-bundle-selection.sh
   . "$REPO_ROOT/lib/audit-bundle-selection.sh"
-  mkdir -p "$RL_TMP/abc/.devflow"
+  mkdir -p "$RL_TMP/abc/.prflow"
   # rl_abc_raw <config-value> -> the config-get.sh-coerced string the fence passes.
   # The fixture is selected by config-get.sh's THIRD POSITIONAL argument (a
   # `CONFIG_FILE=` env prefix would be inert — the script reads no such variable).
   rl_abc_raw() {
-    printf '{"devflow_retrospective":{"audit_bundle_cap":%s}}' "$1" > "$RL_TMP/abc/.devflow/config.json"
+    printf '{"prflow_retrospective":{"audit_bundle_cap":%s}}' "$1" > "$RL_TMP/abc/.prflow/config.json"
     (cd "$RL_TMP/abc" && \
-       "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)
+       "$REPO_ROOT/scripts/config-get.sh" '.prflow_retrospective.audit_bundle_cap' 10 .prflow/config.json 2>/dev/null)
   }
   # rl_abc_token <config-value> -> "cap:<n>" when validated, "REJECT" when the
   # validator fails closed. Composes config-get.sh -> devflow_validate_audit_bundle_cap.
@@ -1589,9 +1589,9 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   assert_eq "#894 cap: a non-integer number cap is rejected" "REJECT" "$(rl_abc_token 3.5)"
   # missing / null / empty-string / empty-array -> config-get resolves to the default 10
   rl_abc_missing() {
-    printf '{"devflow_retrospective":{}}' > "$RL_TMP/abc/.devflow/config.json"
+    printf '{"prflow_retrospective":{}}' > "$RL_TMP/abc/.prflow/config.json"
     local raw v
-    raw="$(cd "$RL_TMP/abc" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)"
+    raw="$(cd "$RL_TMP/abc" && "$REPO_ROOT/scripts/config-get.sh" '.prflow_retrospective.audit_bundle_cap' 10 .prflow/config.json 2>/dev/null)"
     if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
   }
   assert_eq "#894 cap: a missing key falls back to the default 10" "cap:10" "$(rl_abc_missing)"
@@ -1615,7 +1615,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   # the leading-zero arm from the starvation arm ten lines away.
   RL_ABC_LZ_ERR="$(devflow_validate_audit_bundle_cap 007 2>&1 >/dev/null)"
   assert_eq "#894 cap: the leading-zero breadcrumb names the key and the canonical-literal reason" "true" \
-    "$(case "$RL_ABC_LZ_ERR" in *".devflow_retrospective.audit_bundle_cap"*"no leading zero"*"canonical JSON integer literal"*) echo true ;; *) echo false ;; esac)"
+    "$(case "$RL_ABC_LZ_ERR" in *".prflow_retrospective.audit_bundle_cap"*"no leading zero"*"canonical JSON integer literal"*) echo true ;; *) echo false ;; esac)"
   RL_ABC_00_ERR="$(devflow_validate_audit_bundle_cap 00 2>&1 >/dev/null)"
   assert_eq "#894 cap: an all-zeros value takes the STARVATION arm, not the leading-zero arm" "true" \
     "$(case "$RL_ABC_00_ERR" in *"starve Stage B"*) echo true ;; *) echo false ;; esac)"
@@ -1627,7 +1627,7 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
   rl_abc_nofile() {
     local raw v
     rm -rf "$RL_TMP/abc-nofile"; mkdir -p "$RL_TMP/abc-nofile"
-    raw="$(cd "$RL_TMP/abc-nofile" && "$REPO_ROOT/scripts/config-get.sh" '.devflow_retrospective.audit_bundle_cap' 10 .devflow/config.json 2>/dev/null)"
+    raw="$(cd "$RL_TMP/abc-nofile" && "$REPO_ROOT/scripts/config-get.sh" '.prflow_retrospective.audit_bundle_cap' 10 .prflow/config.json 2>/dev/null)"
     if v="$(devflow_validate_audit_bundle_cap "$raw" 2>/dev/null)"; then echo "cap:$v"; else echo "REJECT"; fi
   }
   assert_eq "#894 cap: an ABSENT config file falls back to the default 10" "cap:10" "$(rl_abc_nofile)"
@@ -1639,10 +1639,10 @@ assert_eq "#891 meta-issue: a v3 file still receives its lifecycle record (contr
     "$(if devflow_validate_audit_bundle_cap "" >/dev/null 2>&1; then echo "cap"; else echo REJECT; fi)"
   RL_ABC_ERR="$(devflow_validate_audit_bundle_cap "" 2>&1 >/dev/null)"
   assert_eq "#894 cap: the empty-read breadcrumb names both malformed-config and resolver-failure" "true" \
-    "$(case "$RL_ABC_ERR" in *"malformed .devflow/config.json"*"resolver failure"*) echo true ;; *) echo false ;; esac)"
+    "$(case "$RL_ABC_ERR" in *"malformed .prflow/config.json"*"resolver failure"*) echo true ;; *) echo false ;; esac)"
   RL_ABC_ZERO_ERR="$(devflow_validate_audit_bundle_cap 0 2>&1 >/dev/null)"
   assert_eq "#894 cap: the zero-cap breadcrumb names the key and the starvation reason" "true" \
-    "$(case "$RL_ABC_ZERO_ERR" in *".devflow_retrospective.audit_bundle_cap"*"starve Stage B"*) echo true ;; *) echo false ;; esac)"
+    "$(case "$RL_ABC_ZERO_ERR" in *".prflow_retrospective.audit_bundle_cap"*"starve Stage B"*) echo true ;; *) echo false ;; esac)"
 
   # Selection: most-recent-first (occurrences[] arrives ascending by ts), and the
   # emitted ORDER is asserted, not just the set.

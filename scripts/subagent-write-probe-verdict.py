@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 """subagent-write-probe-verdict.py — derive the "does a dispatched subagent's Write
-into `.devflow/tmp/**` succeed?" probe verdict from a `claude-code-action` execution
+into `.prflow/tmp/**` succeed?" probe verdict from a `claude-code-action` execution
 file, per tier (issue #858).
 
 Why a helper rather than inline Python in matcher-probe.yml: this verdict is a
@@ -18,7 +18,7 @@ scripts/background-tasks-probe-verdict.py (#812), scripts/env-propagation-probe-
 (#874), scripts/agents-seam-probe-verdict.py (#610), and scripts/describe-denial-count.sh
 (PR #367).
 
-THE PREMISE UNDER TEST. `Write(.devflow/tmp/**)` is granted in the review profile and
+THE PREMISE UNDER TEST. `Write(.prflow/tmp/**)` is granted in the review profile and
 unrestricted `Write` in the implement profile, but every shipped instruction that authors
 into that tree is addressed to the ORCHESTRATOR. Whether a DISPATCHED subagent's Write
 lands is unestablished: a grant proven for the dispatcher is not inherited by the
@@ -149,7 +149,7 @@ Markers, kept in lockstep with matcher-probe.yml's subagent-write probe prompts:
   SUBWRITE_CONTROL_BEFORE   positive control, before the write attempt
   SUBWRITE_CONTROL_AFTER    positive control, after the write attempt
   SUBWRITE_PAYLOAD          the fixed content the subagent writes into the side-effect file
-The tier's side-effect FILENAME (`subwrite-<tier>.txt`, written into `.devflow/tmp/`) is
+The tier's side-effect FILENAME (`subwrite-<tier>.txt`, written into `.prflow/tmp/`) is
 the write marker, matched as a substring: a `Write` tool_use, or a denial, naming that
 filename is the write signal. It is the filename and not the full path because the recorded
 `file_path` spelling is not established — a relative and an absolute recording of the same
@@ -165,7 +165,7 @@ Usage: subagent-write-probe-verdict.py [EXECUTION_FILE] --tier {review|implement
   --tier               review or implement (machine-consumed `tier` field in the output).
                        Any other value (including a missing one) emits a stderr breadcrumb
                        naming it and routes the run to `unestablished`.
-  --side-effect-file   the tier's `.devflow/tmp/subwrite-<tier>.txt`. Corroborates a
+  --side-effect-file   the tier's `.prflow/tmp/subwrite-<tier>.txt`. Corroborates a
                        PERMITTED only when it is present AND carries the payload marker;
                        reported as absent / wrong-content / unreadable otherwise, each with
                        its own reason. Presence alone is not corroboration.
@@ -446,7 +446,7 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     # subwrite-<tier>.txt" would be a positively-stated permission finding about a
     # permission that was never attempted for that target — the one outcome the
     # three-outcome contract forbids. On the review tier the shape is live: `Write` is
-    # granted only as `Write(.devflow/tmp/**)`, so any subagent deviation produces exactly
+    # granted only as `Write(.prflow/tmp/**)`, so any subagent deviation produces exactly
     # such an entry. It is not silently dropped either — `_is_foreign_write_denial` below
     # routes it to its OWN named `unestablished` arm, so the run does not instead assert
     # "the subagent ran but did not attempt the write" about a write it demonstrably tried.
@@ -574,7 +574,7 @@ def compute(denials, tool_uses, note_top, side_path, side_present, upstream_empt
     # and each fails CLOSED on its own:
     #   the recorded tool's OWN name must be `write` — naming the file is not issuing the
     #   write, and any granted head can name it, so a subagent reading its work back
-    #   (`Bash: cat .devflow/tmp/subwrite-*.txt`) with a leftover file on disk would
+    #   (`Bash: cat .prflow/tmp/subwrite-*.txt`) with a leftover file on disk would
     #   otherwise publish PERMITTED for a run in which no Write was ever issued;
     #   and the recorded input must name the tier's side-effect FILENAME — the payload
     #   marker alone is not enough, because a Write of that payload to some OTHER path is a

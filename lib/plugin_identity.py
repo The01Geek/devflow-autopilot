@@ -35,7 +35,7 @@ here against the real marketplace manifest instead.
 
 Root resolution is `__file__`-relative (this file sits in `<root>/lib/`), which
 resolves identically in the source repo and in a vendored
-`.devflow/vendor/devflow/` tree. It is NOT `git rev-parse`-anchored: a vendored
+`.prflow/vendor/prflow/` tree. It is NOT `git rev-parse`-anchored: a vendored
 tree is not its own git root.
 
 FAIL-CLOSED: every accessor raises `IdentityError` rather than substituting a

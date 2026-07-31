@@ -119,7 +119,7 @@ _wp_err_cleanup() { [ -n "$WP_ERR" ] && rm -f "$WP_ERR"; return 0; }
 #      SILENTLY (see its `sys.exit(2)` — no stderr), while every interpreter-level rc 2
 #      writes a diagnostic. So rc 2 with non-empty captured stderr is never a clean scan.
 #      This relies on our ALWAYS passing an explicit `--marker`: `_workpad_marker` returns
-#      immediately on an explicit marker, before the `.devflow/config.json` read that can
+#      immediately on an explicit marker, before the `.prflow/config.json` read that can
 #      breadcrumb to stderr on a malformed/BOM config. A future caller that dropped
 #      `--marker` could make a genuine clean scan write stderr and be misrouted here — so
 #      keep the marker explicit, or narrow this discriminator to the interpreter's own

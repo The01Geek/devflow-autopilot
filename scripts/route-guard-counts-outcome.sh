@@ -34,7 +34,7 @@ case "$RGC_RC" in
     ;;
   2)
     printf 'zero-byte\n'
-    printf '%s\n' "resolve-guard-counts-file.sh found a zero-byte counts store under .devflow/tmp (partial or interrupted write); per-arm denial counts reported as unavailable rather than as a zero."
+    printf '%s\n' "resolve-guard-counts-file.sh found a zero-byte counts store under .prflow/tmp (partial or interrupted write); per-arm denial counts reported as unavailable rather than as a zero."
     ;;
   1)
     if [ "$FIRED" = true ]; then

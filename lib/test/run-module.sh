@@ -10,7 +10,7 @@ set -u
 TEST_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 REPO_ROOT="$(cd "$TEST_DIR/../.." && pwd -P)"
 REGISTRY="$REPO_ROOT/scripts/workflow-flight-recorder-registry.json"
-LOG_DIR="$REPO_ROOT/.devflow/tmp/test-module-logs"
+LOG_DIR="$REPO_ROOT/.prflow/tmp/test-module-logs"
 MODULE_ID=""
 # Assigned unconditionally (issue #890), never defaulted with `:-` off the environment:
 # this is what makes an inherited MODULE_HEAVY_UNIT_MODE structurally unable to shrink

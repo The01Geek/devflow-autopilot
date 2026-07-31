@@ -24,15 +24,15 @@ workflows. A few areas warrant care:
   data-retention and training policy before the first run — prompts routed
   through it leave Anthropic's infrastructure.
 - **`config.json` is committed, not gitignored.** PRFlow's cloud tier reads it
-  from the committed tree, so the scaffolded `.devflow/.gitignore` ignores only
+  from the committed tree, so the scaffolded `.prflow/.gitignore` ignores only
   `tmp/` and leaves `config.json` tracked. Because it is committed, keep secrets
   out of it — it holds only non-secret environment configuration (project/board
   IDs, model names). Store credentials as encrypted GitHub Actions secrets, never
   in `config.json`.
-- **The `.devflow/learnings/` corpus is committed, not gitignored.** The
+- **The `.prflow/learnings/` corpus is committed, not gitignored.** The
   retrospective loop's records (`retrospectives.jsonl`, `experiment-records.jsonl`,
-  `overrides.json`) are tracked — re-included by the `!/.devflow/learnings/`
-  negation in `.gitignore` past the `/.devflow/*` ignore rule — and published to
+  `overrides.json`) are tracked — re-included by the `!/.prflow/learnings/`
+  negation in `.gitignore` past the `/.prflow/*` ignore rule — and published to
   the repository through a weekly state PR. Because they are committed, keep
   host-local and owner-identifying data — operator home-directory paths, account
   names, machine layout — out of them. The corpus is meant to record the bot's

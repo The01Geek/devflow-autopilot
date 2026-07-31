@@ -224,9 +224,9 @@ assert_eq "verification flight: TERMINAL_STATES declares every terminal state" "
 # manual-comment profile (manual Review-and-Fix), and must NOT be added to the
 # read-only reviewer profile (standalone CI-grounded Review creates no flight).
 assert_eq "#528 coupled: devflow-implement.yml grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
+  "$(grep -cF 'Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow-implement.yml" || true)"
 assert_eq "#528 coupled: devflow.yml (manual review listener) grants verification-flight.py by vendored path" "1" \
-  "$(grep -cF 'Bash(.devflow/vendor/devflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
+  "$(grep -cF 'Bash(.prflow/vendor/prflow/scripts/verification-flight.py:*)' "$LIB/../.github/workflows/devflow.yml" || true)"
 assert_eq "#528 coupled: devflow-runner.yml (read-only reviewer) grants NO verification-flight flight helper" "0" \
   "$(grep -cF 'verification-flight.py' "$LIB/../.github/workflows/devflow-runner.yml" || true)"
 

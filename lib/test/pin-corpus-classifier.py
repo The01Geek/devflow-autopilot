@@ -71,8 +71,8 @@ MECHANICAL_BUCKETS = frozenset(
 FINAL_BUCKETS = MECHANICAL_BUCKETS - {"unclear"}
 COUNTED_EXCLUSIONS = (
     "lib/test/",
-    ".devflow/learnings/",
-    ".devflow/logs/",
+    ".prflow/learnings/",
+    ".prflow/logs/",
     ".changeset/",
     "CHANGELOG.md",
 )
@@ -434,7 +434,7 @@ def parse_adjudications(text: str) -> dict[str, tuple[str, str]]:
 
 def _config_keys(tracked: dict[str, bytes]) -> frozenset[str]:
     keys = set()
-    for relative in (".devflow/config.schema.json", ".devflow/config.json"):
+    for relative in (".prflow/config.schema.json", ".prflow/config.json"):
         raw = tracked.get(relative)
         if raw is None:
             continue

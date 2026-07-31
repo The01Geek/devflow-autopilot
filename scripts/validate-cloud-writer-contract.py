@@ -35,7 +35,7 @@ Deployment note (the pre-agent wiring is AC19/AC20 of #543, deferred). The defau
 ``base_dir``) and the profile grants (from ``base_dir / <workflow>``) against the
 same ``base_dir``. In the *source* repository that is the repo root, which holds
 both ``scripts/``/``lib/`` and ``.github/workflows/``, so ``main([])`` works. In a
-*consumer* the helpers are vendored under ``.devflow/vendor/devflow/`` while the
+*consumer* the helpers are vendored under ``.prflow/vendor/prflow/`` while the
 workflows live at the consumer repo root, so the two roots differ and the caller
 must inject ``base_dir`` / ``profile_grants`` explicitly. ``validate()`` takes all
 three as injectable parameters precisely so the pre-agent wiring can supply the
@@ -336,12 +336,12 @@ def _load_contract_module():
 # A vendored helper is *granted* only as the leading token of a `Bash(...)` tool
 # spec — never a bare mention. Anchoring on `Bash(` is what keeps a vendored path
 # that appears only in a YAML comment or a shell assignment (e.g.
-# `CG=.devflow/vendor/devflow/scripts/config-get.sh`) from being counted as a
+# `CG=.prflow/vendor/prflow/scripts/config-get.sh`) from being counted as a
 # grant, which would make class 17 (HEAD_ABSENT) fail open. (The authoritative
 # comment-aware allowlist scoping is lib/test/extract-command-heads.py, wired by
 # the deferred grant-synchronization work, AC9 of #543.)
 _GRANT_RE = re.compile(
-    r"Bash\(\s*(\.devflow/vendor/devflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
+    r"Bash\(\s*(\.prflow/vendor/prflow/(?:scripts|lib)/[A-Za-z0-9._-]+)"
 )
 
 

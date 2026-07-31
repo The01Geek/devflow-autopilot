@@ -2,8 +2,8 @@
   "$schema": "./config.schema.json",
   "base_branch": "main",
   "claude_model": "claude-opus-4-8",
-  "devflow_version": "main",
-  "devflow": {
+  "prflow_version": "main",
+  "prflow": {
     "allowed_bots": "claude,dependabot,devflow-autopilot,prflow,prflow-implementer",
     "allowed_users": "*",
     "workpad_marker": "<!-- devflow:workpad -->",
@@ -18,7 +18,7 @@
     "execution_transcript_artifact_enabled": true,
     "attribute_commits_to_triggerer": false
   },
-  "devflow_implement": {
+  "prflow_implement": {
     "effort": "low",
     "implement_pr_state": "ready_for_review",
     "allowed_tools": [
@@ -88,18 +88,18 @@
       "max_resume_attempts": 2
     }
   },
-  "devflow_runner": {
+  "prflow_runner": {
     "effort": "low",
     "provision_env": false,
     "allowed_tools": []
   },
-  "devflow_review_and_fix": {
+  "prflow_review_and_fix": {
     "fix_severity_threshold": "suggestion",
     "max_iterations": 5,
     "efficiency_telemetry_enabled": true,
     "efficiency_cut_candidate_min_dispatch": 3
   },
-  "devflow_review": {
+  "prflow_review": {
     "verdict_severity_threshold": "critical",
     "live_progress_comment_enabled": true,
     "stale_prose": {
@@ -161,7 +161,7 @@
     "wait_timeout_seconds": 600,
     "profiles": {}
   },
-  "devflow_retrospective": {
+  "prflow_retrospective": {
     "enabled": true,
     "retrospective_model": "claude-opus-4-8",
     "audit_model": "claude-opus-4-8",

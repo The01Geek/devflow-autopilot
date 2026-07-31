@@ -32,7 +32,7 @@ No new tool grants and no probe change: `git grep -n "create-issue" .github/work
 
 ## Shipping coupling
 
-Single artifact: `skills/create-issue/SKILL.md` and `scripts/render-audit-prompt.py` + `skills/create-issue/references/audit-prompt-template.md` all ship together in the one plugin artifact (the `devflow_version` vendor fetch / marketplace), so the #455-class two-independently-updated-artifact skew does not arise.
+Single artifact: `skills/create-issue/SKILL.md` and `scripts/render-audit-prompt.py` + `skills/create-issue/references/audit-prompt-template.md` all ship together in the one plugin artifact (the `prflow_version` vendor fetch / marketplace), so the #455-class two-independently-updated-artifact skew does not arise.
 
 ## Mutation evidence
 

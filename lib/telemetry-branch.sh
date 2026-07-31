@@ -126,7 +126,7 @@ devflow_telemetry_branch() {
     # that actually caused it — on every run (PR #442 review). Fail back to the
     # default so telemetry still persists, and say exactly which key to fix.
     if ! git check-ref-format --branch "$b" >/dev/null 2>&1; then
-      echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'devflow-telemetry' — fix .devflow/config.json to persist to your intended branch" >&2
+      echo "::warning::telemetry-branch: config key 'telemetry.branch' resolved to '${b}', which git rejects as a branch name (git check-ref-format); falling back to 'devflow-telemetry' — fix .prflow/config.json to persist to your intended branch" >&2
       b="devflow-telemetry"
     fi
     # What actually makes this memo work is `do_persist` SEEDING it in the parent shell before
@@ -149,7 +149,7 @@ devflow_telemetry_ref() {
 }
 
 # Verify an EXISTING ref is a telemetry store: its tip tree must hold only
-# `.devflow/logs/`-shaped paths. An ABSENT ref returns 0 (a fresh orphan store is
+# `.prflow/logs/`-shaped paths. An ABSENT ref returns 0 (a fresh orphan store is
 # about to be created). A non-conforming tip returns 1 with a breadcrumb, so the
 # write skips rather than committing onto a same-named branch a consumer uses for
 # something else (AC4). Pure `case` matching — no grep (selection decision).
@@ -181,9 +181,9 @@ devflow_telemetry_verify_store() {
   while IFS= read -r path; do
     [ -n "$path" ] || continue
     case "$path" in
-      .devflow/logs/*) ;;
+      .prflow/logs/*) ;;
       *)
-        echo "::warning::telemetry-branch: existing ref '${ref}' holds a non-.devflow/logs/ path ('${path}') — it is not a DevFlow telemetry store; refusing to append (a consumer may use this branch for something else)" >&2
+        echo "::warning::telemetry-branch: existing ref '${ref}' holds a non-.prflow/logs/ path ('${path}') — it is not a DevFlow telemetry store; refusing to append (a consumer may use this branch for something else)" >&2
         return 1 ;;
     esac
   done < <(printf '%s\n' "$tree_out")
@@ -204,8 +204,8 @@ devflow_telemetry_branch_checked_out() {
   return 1
 }
 
-# Emit the `.devflow/logs/…`-relative paths of every blob under $3 (a path
-# prefix, e.g. `.devflow/logs/efficiency/`) on ref $2, one per line. Empty output
+# Emit the `.prflow/logs/…`-relative paths of every blob under $3 (a path
+# prefix, e.g. `.prflow/logs/efficiency/`) on ref $2, one per line. Empty output
 # when the ref or prefix is absent — the reader/backstop then degrades to its
 # other sources (legacy tracked tree, tmp scratch). Best-effort, always rc 0.
 #
@@ -286,8 +286,8 @@ devflow_telemetry_show_blob() {
 # devflow_telemetry_persist_tree <root> <staging_root>
 #
 # Persist every regular file under <staging_root> onto the telemetry branch at
-# its <staging_root>-relative path (the paths ARE `.devflow/logs/…` — the caller
-# stages them there under .devflow/tmp/, so nothing is materialized in the
+# its <staging_root>-relative path (the paths ARE `.prflow/logs/…` — the caller
+# stages them there under .prflow/tmp/, so nothing is materialized in the
 # tracked tree). Sequence (issue #441 Implementation Notes):
 #   1. resolve the branch; enumerate staged files (nothing staged → clean no-op).
 #   2. verify an existing ref is a telemetry store (else breadcrumb-skip).
@@ -365,7 +365,7 @@ devflow_telemetry_persist_tree() {
     return 0   # nothing to persist — clean no-op
   fi
 
-  # Guard: every staged path must be under .devflow/logs/ so a caller bug can
+  # Guard: every staged path must be under .prflow/logs/ so a caller bug can
   # never write a stray path onto the store (keeps verify_store's invariant true
   # by construction). A non-conforming path is FILTERED OUT with a per-path
   # breadcrumb — NOT aborting the whole batch — so one stray path from one run's
@@ -374,9 +374,9 @@ devflow_telemetry_persist_tree() {
   local rel conforming=()
   for rel in ${staged_rel[@]+"${staged_rel[@]}"}; do
     case "$rel" in
-      .devflow/logs/*) conforming+=("$rel") ;;
+      .prflow/logs/*) conforming+=("$rel") ;;
       *)
-        echo "::warning::telemetry-branch: staged path '${rel}' is not under .devflow/logs/ — skipping just this path (caller staged an unexpected path); other conforming records still persist" >&2 ;;
+        echo "::warning::telemetry-branch: staged path '${rel}' is not under .prflow/logs/ — skipping just this path (caller staged an unexpected path); other conforming records still persist" >&2 ;;
     esac
   done
   staged_rel=(${conforming[@]+"${conforming[@]}"})
@@ -419,10 +419,10 @@ devflow_telemetry_persist_tree() {
   # holds while the return VALUE now carries the outcome.
   local _persist_subrc=0
   (
-    idx="${root}/.devflow/tmp/telemetry-index-$$-${RANDOM}-${SECONDS}-${RANDOM}"
+    idx="${root}/.prflow/tmp/telemetry-index-$$-${RANDOM}-${SECONDS}-${RANDOM}"
     # `|| :` is load-bearing, not hygiene. An EXIT trap's LAST command supplies the subshell's
-    # exit status, and this `rm` genuinely fails when `.devflow/tmp` is not a directory (ENOTDIR
-    # — precisely the denied-.devflow/tmp case the guard below breadcrumbs). Without `|| :` the
+    # exit status, and this `rm` genuinely fails when `.prflow/tmp` is not a directory (ENOTDIR
+    # — precisely the denied-.prflow/tmp case the guard below breadcrumbs). Without `|| :` the
     # subshell then exits 1, `set -e` in the caller turns that into an abort BEFORE the
     # function's `return`, and the helper breaks its own never-aborts-the-caller contract on
     # the exact degradation it was written to handle gracefully (PR #442 shadow review). It
@@ -432,13 +432,13 @@ devflow_telemetry_persist_tree() {
     # REPORTS the degradation (do_persist then retains the staged records), while the
     # caller/process still never aborts and --persist still exits 0.
     trap 'rm -f "$idx" 2>/dev/null || :' EXIT
-    # Check this mkdir's rc. Discarding it (`|| true`) meant a DENIED .devflow/tmp
+    # Check this mkdir's rc. Discarding it (`|| true`) meant a DENIED .prflow/tmp
     # write — the cloud sandbox denial this very file cites elsewhere, a read-only
     # fs, or a permissions fault — surfaced only as the downstream generic
     # "object-store write failed" breadcrumb, sending the operator to inspect
     # .git/objects, which is perfectly healthy. Name the real cause (PR #442 review).
-    if ! mkdir -p "${root}/.devflow/tmp" 2>/dev/null; then
-      echo "::warning::telemetry-branch: could not create '${root}/.devflow/tmp' for the temp index (read-only filesystem, permissions, or the cloud sandbox's write denial into .devflow/tmp) — this is NOT an object-store failure; telemetry not persisted this run" >&2
+    if ! mkdir -p "${root}/.prflow/tmp" 2>/dev/null; then
+      echo "::warning::telemetry-branch: could not create '${root}/.prflow/tmp' for the temp index (read-only filesystem, permissions, or the cloud sandbox's write denial into .prflow/tmp) — this is NOT an object-store failure; telemetry not persisted this run" >&2
       exit 1
     fi
 
@@ -584,10 +584,10 @@ devflow_telemetry_persist_tree() {
            if [ -n "$remote_sha" ]; then
              local_selected=no; remote_selected=no
              case "$path" in
-               .devflow/logs/review/*/iter-*.json)
+               .prflow/logs/review/*/iter-*.json)
                  local_selected="$(classify_migration_blob "$sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2
                  remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and ((has("telemetry") | not) or .telemetry == null)')" || exit 2 ;;
-               .devflow/logs/efficiency/*.json)
+               .prflow/logs/efficiency/*.json)
                  local_selected="$(classify_migration_blob "$sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2
                  remote_selected="$(classify_migration_blob "$remote_sha" 'type == "object" and (.telemetry | type) == "array" and all(.telemetry[]; type == "object") and any(.telemetry[]; has("phases") and .phases == null)')" || exit 2 ;;
              esac
@@ -600,7 +600,7 @@ devflow_telemetry_persist_tree() {
           # OTHER staged path (a fresh record, a skeleton, a durable workpad copy, or a
           # record absent from base) applies local-wins.
           case "$path" in
-            .devflow/logs/efficiency/*.json)
+            .prflow/logs/efficiency/*.json)
               if git -C "$root" cat-file -e "${base}:${path}" 2>/dev/null; then
                 _u_base="$(git -C "$root" show "${base}:${path}" 2>/dev/null)"
                 _u_local="$(git -C "$root" show "${overlay}:${path}" 2>/dev/null)"
@@ -652,7 +652,7 @@ devflow_telemetry_persist_tree() {
     # Assumption (PR #442 review Suggestion-6): verify_store ran ONCE above and is
     # NOT re-run inside this loop, even though a retry re-reads a sibling's new tip.
     # That is sound only because the LOCAL ref has exactly one writer class — this
-    # helper — and every write it makes is a `.devflow/logs/`-shaped tree (the staged-
+    # helper — and every write it makes is a `.prflow/logs/`-shaped tree (the staged-
     # path guard above enforces that by construction), so a tip that appears mid-loop
     # is necessarily another DevFlow persist's. The REMOTE tip has no such guarantee
     # (a consumer may have created a same-named branch), which is exactly why the push

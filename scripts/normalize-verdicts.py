@@ -13,7 +13,7 @@ idiom). It is stdlib-only, reads no config, and makes no ``gh``/network/``git``
 calls — unit-testable exactly like ``consolidate-changesets.py`` (issue #556).
 
 Input — one pairs file (a JSON object) named as ``argv[1]``. The orchestrator
-Writes it into the run-scoped ``.devflow/tmp/`` tree. Shape::
+Writes it into the run-scoped ``.prflow/tmp/`` tree. Shape::
 
     {
       "pairs": [
@@ -21,7 +21,7 @@ Writes it into the run-scoped ``.devflow/tmp/`` tree. Shape::
           "item": { "id": "VC-3", "verification_mode": "agent",
                     "claim_provenance": "generated_paraphrase",
                     "source_excerpt": "<verbatim authored text, source_authored items only>", ... },
-          "verdict_path": ".devflow/tmp/review/<slug>/<run>/verdicts/iter-1/VC-3-<nonce>.json",
+          "verdict_path": ".prflow/tmp/review/<slug>/<run>/verdicts/iter-1/VC-3-<nonce>.json",
           "response_text": "...transcribed verifier response (fallback channel)...",
           "pinned_verdict": "FAIL"   # optional: field-completion re-ask — the raw
                                       # FAIL is pinned to the first response; any

@@ -9,7 +9,7 @@ Two **mandatory** rows grow in this diff (issue #729, PR #732):
 
 - `skills/create-issue/references/step-3-6-audit.md` — group `create-issue-flow`,
   +295 bytes (74,465 → 74,760).
-- `.devflow/prompt-extensions/create-issue.md` — group `extensions`, +451 bytes
+- `.prflow/prompt-extensions/create-issue.md` — group `extensions`, +451 bytes
   (23,419 → 23,870).
 
 `skills/create-issue/references/audit-prompt-template.md` also grows (+2,941 bytes,
@@ -25,7 +25,7 @@ machine-read declaration lines, not a cutover.
 **`step-3-6-audit.md` (+295 bytes) — a new degraded-arm route that would otherwise
 have no rule.** This change makes `render-audit-prompt.py enumerate-dimensions` able
 to exit non-zero on a malformed dim-key declaration — including one in the
-*consumer's* own `.devflow/prompt-extensions/create-issue.md`, a file this repo does
+*consumer's* own `.prflow/prompt-extensions/create-issue.md`, a file this repo does
 not author. Step 3.6's degraded ladder previously named exactly two triggers (an
 `unestablished` `render-status:`, and a keyset divergence). A non-zero exit produces
 **no `render-status:` line at all**, so it matched neither, and the orchestrator would
@@ -35,7 +35,7 @@ marker. The added sentence routes that outcome to `--render degraded` and record
 helper's stderr. These bytes are a *stop condition an agent must act on*, which the
 Prose cutover policy names as a retained category that stays on the mandatory path.
 
-**`.devflow/prompt-extensions/create-issue.md` (+451 bytes) — nine
+**`.prflow/prompt-extensions/create-issue.md` (+451 bytes) — nine
 `<!-- dim-key: … -->` declaration lines, one per audit dimension.** These are
 machine-read identity data, not instruction prose: the renderer strips every one of
 them before the text reaches an auditor's context, so the *rendered* prompt mass is

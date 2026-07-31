@@ -10,7 +10,7 @@ before any branch setup begins.
 The ignore-precondition subcommand (issue #693) reports whether a path is
 covered by a gitignore rule, resolved through `git check-ignore` in-process (the
 scripts/reception-record.py shape). It is the precondition of the §1.1 issue-body
-cache write: the cache lives in-tree under .devflow/tmp/, so it must already be
+cache write: the cache lives in-tree under .prflow/tmp/, so it must already be
 ignored before it is written. Shipping it as a subcommand of this already-granted
 helper — rather than a new bundled helper — keeps the precondition free of any
 new matcher command head or vendored-literal token, so no install.sh-versus-
@@ -432,10 +432,10 @@ def _branch_exists(name: str) -> bool | None:
 
 
 def _payload_dir() -> str | None:
-    """The repo's `.devflow/tmp/` when resolvable/writable, else None (system temp).
+    """The repo's `.prflow/tmp/` when resolvable/writable, else None (system temp).
 
     A cloud agent's Read tool is scoped to the workspace, so a stop-verdict payload
-    under `.devflow/tmp/` stays readable (and consistent with where the caller
+    under `.prflow/tmp/` stays readable (and consistent with where the caller
     writes the state file), whereas a system-`/tmp` path may not be. Falls back to
     None (NamedTemporaryFile's default temp dir) when the git root is unresolvable
     or the directory cannot be created — the payload still writes, just elsewhere.
@@ -452,7 +452,7 @@ def _payload_dir() -> str | None:
 
     top = _run_git(["rev-parse", "--show-toplevel"])
     if top.returncode == 0 and top.stdout.strip():
-        candidate = os.path.join(top.stdout.strip(), ".devflow", "tmp")
+        candidate = os.path.join(top.stdout.strip(), ".prflow", "tmp")
         try:
             os.makedirs(candidate, exist_ok=True)
             return candidate
@@ -758,7 +758,7 @@ def branch_state(args: argparse.Namespace) -> int:
 
 # ── ignore-precondition (issue #693) ─────────────────────────────────────────
 # A precondition of the §1.1 issue-body cache write: the cache lives IN-TREE under
-# .devflow/tmp/, so an ignore rule covering it must already be in effect before it
+# .prflow/tmp/, so an ignore rule covering it must already be in effect before it
 # is written (the run never creates one — a new dotfile would itself be an
 # untracked file the run's `git add -A` calls would stage). Resolving ignore state
 # through git itself — the scripts/reception-record.py `_check_ignored` shape —

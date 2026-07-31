@@ -23,13 +23,18 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent.parent
 BASE_REVISION = "1d4d306bcacd4970df170faeab94e602724943b8"
+# BASE_REVISION predates the .devflow/ -> .prflow/ state-directory rename (issue
+# #1002), which moved every frozen record with its directory and rewrote none of
+# their bytes.  This names a path in a historical tree, so it keeps the spelling
+# that tree used; the live constants above/below carry the current spelling.
+BASE_REVISION_INVENTORY = f"{BASE_REVISION}:.devflow/logs/pin-corpus-inventory.tsv"
 MANIFEST_DECISION_REVISION = "b430c9b8b2ff83069bfe24a2ec4aa9424e56e200"
-MANIFEST = REPO_ROOT / ".devflow/logs/residual-prose-retirement-manifest.tsv"
+MANIFEST = REPO_ROOT / ".prflow/logs/residual-prose-retirement-manifest.tsv"
 # The manifest's own identity set is frozen against BASE_REVISION's committed
 # inventory, so a row there can never be edited to track a rename.  A rename is
 # declared here instead, and only the current-tree realization consumes it.  This
 # is live hand-maintained maintainer intent, so it lives beside its sibling
-# pin-corpus-adjudications.tsv rather than under .devflow/logs/, which holds
+# pin-corpus-adjudications.tsv rather than under .prflow/logs/, which holds
 # frozen audit artifacts.
 IDENTITY_REFRESHES = HERE / "pin-identity-refreshes.tsv"
 ADJUDICATIONS = REPO_ROOT / "lib/test/pin-corpus-adjudications.tsv"
@@ -495,7 +500,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
 
     def selected_base_inventory(self) -> set[tuple[object, ...]]:
         result = subprocess.run(
-            ["git", "show", f"{BASE_REVISION}:.devflow/logs/pin-corpus-inventory.tsv"],
+            ["git", "show", BASE_REVISION_INVENTORY],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,
@@ -524,7 +529,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
         target, and target_defaulted are indexes 0, 2, 1, 5, 6, and 7.
         """
         result = subprocess.run(
-            ["git", "show", f"{BASE_REVISION}:.devflow/logs/pin-corpus-inventory.tsv"],
+            ["git", "show", BASE_REVISION_INVENTORY],
             cwd=REPO_ROOT,
             text=True,
             capture_output=True,
@@ -840,7 +845,7 @@ class ResidualRequiredCopyRetirementManifestTests(unittest.TestCase):
 
 NEW_BASE_REVISION = "29f3298b0cd0bbd5efea4c01ca592041a2be92e4"
 NEW_MANIFEST_DECISION_REVISION = "83bb532037676e9742d7e1bd036f3c33e610c59b"
-NEW_MANIFEST = REPO_ROOT / ".devflow/logs/residual-required-copy-retirement-manifest.tsv"
+NEW_MANIFEST = REPO_ROOT / ".prflow/logs/residual-required-copy-retirement-manifest.tsv"
 NEW_MANIFEST_COLUMNS = IDENTITY_COLUMNS + ("disposition", "rationale")
 NEW_EXPECTED_SELECTOR_DIGEST = "d412dfc70f1830fafe8388f33d42057722999d5f34876b6cfd16a629bd6b7abb"
 NEW_EXPECTED_CANONICAL_BYTES = 31254
@@ -1023,7 +1028,7 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         )
 
     def test_final_inventory_realizes_only_authorized_buckets(self):
-        inventory = REPO_ROOT / ".devflow/logs/pin-corpus-inventory.tsv"
+        inventory = REPO_ROOT / ".prflow/logs/pin-corpus-inventory.tsv"
         raw = inventory.read_text(encoding="utf-8")
         metadata = dict(
             line[2:].split(": ", 1) for line in raw.splitlines() if line.startswith("# ")
@@ -1033,9 +1038,13 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
         subprocess.run(["git", "cat-file", "-e", f"{revision}^{{commit}}"], cwd=REPO_ROOT, check=True)
         self.assertEqual(
             "python3 lib/test/pin-corpus-classifier.py --repo-root . --adjudications "
-            "lib/test/pin-corpus-adjudications.tsv --output .devflow/logs/pin-corpus-inventory.tsv "
+            "lib/test/pin-corpus-adjudications.tsv --output .prflow/logs/pin-corpus-inventory.tsv "
             f"--revision {revision}",
-            metadata["producing-command"],
+            # The census is frozen at a revision that predates the .devflow/ ->
+            # .prflow/ state-directory rename (issue #1002).  Project the recorded
+            # command onto the current spelling rather than editing the frozen
+            # record, which would falsify it.
+            metadata["producing-command"].replace(".devflow/", ".prflow/"),
         )
         rows = list(csv.DictReader((line for line in raw.splitlines() if not line.startswith("# ")), delimiter="\t"))
         self.assertTrue(rows)
@@ -1070,7 +1079,20 @@ class ResidualProseRetirementManifestTests(unittest.TestCase):
                 decode_cell(row["literal"]).encode("utf-8")
             ).hexdigest()
             self.assertIn(f"literal:{digest}", table, where)
-        self.assertTrue(all(".devflow/logs/pin-corpus-inventory.tsv" not in decode_cell(row["homes"]) for row in rows))
+        # The census is frozen at a revision that predates the .devflow/ ->
+        # .prflow/ state-directory rename (issue #1002), so its homes carry the
+        # superseded spelling.  Project each home before the membership test,
+        # which would otherwise pass vacuously for every row.
+        self.assertTrue(
+            all(
+                ".prflow/logs/pin-corpus-inventory.tsv"
+                not in {
+                    home.replace(".devflow/", ".prflow/")
+                    for home in decode_cell(row["homes"])
+                }
+                for row in rows
+            )
+        )
         _, manifest = self.load_manifest()
         retired = {identity(row) for row in manifest if row["disposition"] == "RETIRE_PROSE"}
         observed = {

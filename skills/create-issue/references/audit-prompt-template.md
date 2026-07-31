@@ -139,12 +139,12 @@ return no findings and say so plainly; do not audit from memory.
 
 You have repository read access. These on-disk files are **out of bounds**, and
 they are exactly these 7 paths —
-`.devflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact
-`.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`,
-`.devflow/tmp/issue-audit-state-<slug>.json`, the retired
-`.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft
-artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope
-artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`. **Any finding derived
+`.prflow/tmp/issue-derivation-<slug>.md`, the Step 1 evidence artifact
+`.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`,
+`.prflow/tmp/issue-audit-state-<slug>.json`, the retired
+`.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft
+artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope
+artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`. **Any finding derived
 from those files is void.** That last glob is **total** — a round's own scope
 file is out of bounds to that round's auditor too, because the scope payload
 reaches you only through the rendered instructions and never by reading the
@@ -231,11 +231,11 @@ The draft title and body are embedded below, bracketed by the sentinel tokens `{
 <!-- render-block-end -->
 
 <!-- render-block: file inline -->
-Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds**, exactly these 7 paths — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`; **any finding derived from those files is void.** That last glob is **total** — this round's own scope file is out of bounds to you as well, because its payload reaches you only through this rendered prompt and never by reading the file, which is what keeps this list byte-stable across rounds. (The draft under audit is the artifact under audit, not out of bounds.)
+Verify every claim against the repository (you have read access). The following on-disk files are **out of bounds**, exactly these 7 paths — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, and any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`; **any finding derived from those files is void.** That last glob is **total** — this round's own scope file is out of bounds to you as well, because its payload reaches you only through this rendered prompt and never by reading the file, which is what keeps this list byte-stable across rounds. (The draft under audit is the artifact under audit, not out of bounds.)
 <!-- render-block-end -->
 
 <!-- render-block: embed -->
-Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 9 files — `.devflow/tmp/issue-derivation-<slug>.md`, `.devflow/tmp/issue-step1-<slug>.md`, `.devflow/tmp/issue-draft-<slug>.md`, `.devflow/tmp/issue-audit-<slug>.md`, `.devflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.devflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.devflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.devflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.devflow/tmp/issue-audit-dispatch-<slug>.md`; **any finding derived from those files is void.** The scope glob is **total** — a round's own scope file is out of bounds too, since its payload reaches an auditor only through the rendered prompt and never by reading the file, which keeps this list byte-stable across rounds — and the instruction file is named here because it persists after the run with the scope file's content spliced into it, so a claim-scoped round that retried onto this arm after `VERDICT: DRAFT-UNREADABLE` would otherwise leave both carriers of that round's enumerated findings unnamed. The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
+Verify every claim against the repository (you have read access). On this arm the out-of-bounds declaration names exactly these 9 files — `.prflow/tmp/issue-derivation-<slug>.md`, `.prflow/tmp/issue-step1-<slug>.md`, `.prflow/tmp/issue-draft-<slug>.md`, `.prflow/tmp/issue-audit-<slug>.md`, `.prflow/tmp/issue-audit-state-<slug>.json`, the **retired** `.prflow/tmp/issue-audit-state-<slug>.md`, any staged canonical-draft artifact `.prflow/tmp/issue-draft-<slug>.*.staged.md`, any dispatch-scope artifact `.prflow/tmp/issue-audit-scope-<slug>.*.md`, and the generated instruction file `.prflow/tmp/issue-audit-dispatch-<slug>.md`; **any finding derived from those files is void.** The scope glob is **total** — a round's own scope file is out of bounds too, since its payload reaches an auditor only through the rendered prompt and never by reading the file, which keeps this list byte-stable across rounds — and the instruction file is named here because it persists after the run with the scope file's content spliced into it, so a claim-scoped round that retried onto this arm after `VERDICT: DRAFT-UNREADABLE` would otherwise leave both carriers of that round's enumerated findings unnamed. The embedded body above is the sole draft source; the on-disk draft file is untrusted here.
 <!-- render-block-end -->
 
 <!-- render-block: file embed inline -->

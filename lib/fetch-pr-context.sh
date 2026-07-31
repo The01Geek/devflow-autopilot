@@ -51,7 +51,7 @@ CHANGED_FILES="$(echo "$PR_JSON" | "$DEVFLOW_JQ" '[.files[].path]')"
 # Mirror lib/scan.sh's union predicate (label / closes-issue / prefix) so
 # a PR scan selected on the label or closes-issue path — e.g. DevFlow's own
 # issue-<N>-<slug> branches that match no prefix — is not then dropped here.
-IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
+IMPL_PREFIX="$(devflow_conf '.prflow_retrospective.implementation_branch_prefix' 'claude/')"
 LABELS_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.labels // []')"
 CLOSING_JSON="$(echo "$PR_JSON" | "$DEVFLOW_JQ" -c '.closingIssuesReferences // []')"
 # argjson-ok: watched labels closing -- per-PR bounded operands (one PR's label list and closing-issue refs, plus a constant boolean), never corpus-sized (issue #895)
@@ -168,7 +168,7 @@ COMMITS_RAW="$(printf '%s' "$_COMMITS_RAW" | "$DEVFLOW_JQ" -s 'add // []')"
 COMMITS="$(echo "$COMMITS_RAW" | "$DEVFLOW_JQ" '[.[] | {sha: .sha, author_login: (.author.login // ""), committer_login: (.committer.login // ""), committed_at: (.commit.committer.date // ""), message: (.commit.message // ""), parents_count: ((.parents // []) | length)}]')"
 
 # ── 10. Diff ──────────────────────────────────────────────────────────────────
-DIFF_BYTE_CAP="$(devflow_conf '.devflow_retrospective.diff_byte_cap' 204800)"
+DIFF_BYTE_CAP="$(devflow_conf '.prflow_retrospective.diff_byte_cap' 204800)"
 # `gh pr diff` fails outright on very large PRs (HTTP 406 — "diff exceeded the
 # maximum number of files (300)") and on transient API errors. That must NOT
 # abort the whole context fetch: a PR whose diff we cannot retrieve is the same
@@ -583,7 +583,7 @@ fi
 
 # ── 13. Write output ──────────────────────────────────────────────────────────
 REPO_ROOT="$(devflow_repo_root)"
-OUT_DIR="${REPO_ROOT}/.devflow/tmp"
+OUT_DIR="${REPO_ROOT}/.prflow/tmp"
 mkdir -p "$OUT_DIR"
 OUT_FILE="${OUT_DIR}/pr-${PR}.context.json"
 

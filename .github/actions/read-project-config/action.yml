@@ -1,6 +1,6 @@
 name: 'Read project config'
 description: |
-  Emit the contents of `.devflow/config.json` as a single JSON string output.
+  Emit the contents of `.prflow/config.json` as a single JSON string output.
   The config is already JSON, so this validates it with python3 (a hard DevFlow
   prerequisite) and passes it through — no yq, no PyYAML, no Node. Consumers read
   fields with `fromJSON(steps.<id>.outputs.json).path.to.field`. Repository must
@@ -8,7 +8,7 @@ description: |
 
 outputs:
   json:
-    description: 'The entire .devflow/config.json as a compact JSON string.'
+    description: 'The entire .prflow/config.json as a compact JSON string.'
     value: ${{ steps.read.outputs.json }}
 
 runs:
@@ -19,7 +19,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        CONFIG=".devflow/config.json"
+        CONFIG=".prflow/config.json"
         if [ ! -f "$CONFIG" ]; then
           echo "::error file=${CONFIG}::config.json not found in working tree"
           exit 1

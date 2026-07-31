@@ -5,7 +5,7 @@
 
 The shared review engine (skills/review/SKILL.md) dispatches up to nine
 subagents. Operators tune each one's model/effort via the
-`devflow_review.agent_overrides` block in .devflow/config.json. This helper
+`prflow_review.agent_overrides` block in .prflow/config.json. This helper
 reads that block (through config-get.sh — DevFlow's single config reader) for
 the subagents about to be dispatched and prints the resolved model/effort map.
 
@@ -111,7 +111,7 @@ AGENT_LEAVES = (
 # (lib/plugin-identity.json + .claude-plugin/plugin.json) rather than spelled as
 # a literal here, so every declared identifier resolves without this file being
 # re-edited. lib/ is a sibling of scripts/ in both the source repo and a vendored
-# .devflow/vendor/devflow/ tree, so the import path holds on every tier.
+# .prflow/vendor/prflow/ tree, so the import path holds on every tier.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 try:
     import plugin_identity as _plugin_identity
@@ -530,7 +530,7 @@ def read_raw(dispatched, config_get, config_file):
             # rather than dropping it silently.
             duplicate = _config_get(
                 config_get, config_file,
-                f".devflow_review.agent_overrides.{key}", warnings)
+                f".prflow_review.agent_overrides.{key}", warnings)
             if duplicate:
                 warnings.append(
                     f"agent_overrides[{key}] is shadowed by "
@@ -550,7 +550,7 @@ def _read_entry(raw, key, config_get, config_file, warnings):
     and treated as no-entry, so `default` still applies), so the caller can move
     on to the next accepted spelling.
     """
-    base = f".devflow_review.agent_overrides.{key}"
+    base = f".prflow_review.agent_overrides.{key}"
     entry = {}
     for field in ("model", "effort", "iterations"):
         # Agent ids contain ':' but never '.', so they are a single

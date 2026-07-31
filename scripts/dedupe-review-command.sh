@@ -22,7 +22,7 @@
 # Three accepted, deliberate costs (issue #989; cost 3 recorded on PR #993's
 # review, and NOT part of the original Candidate C decision — see
 # docs/workflow-triggers.md, which carries the same list):
-#   1. Configuration-dependent: with devflow_review.live_progress_comment_enabled
+#   1. Configuration-dependent: with prflow_review.live_progress_comment_enabled
 #      off there is no seeded comment, so this fails OPEN (no suppression) — the
 #      direction this job is already contractually required to take. The
 #      absent-signal path still emits a breadcrumb.

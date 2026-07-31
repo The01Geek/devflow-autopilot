@@ -1,0 +1,80 @@
+{
+  "map_version": 1,
+  "_comment": "SINGLE SOURCE OF TRUTH for the consumer-facing devflow -> prflow rename (issue #1002, whose Tier 1 scope supersedes issue #988's config-key-only scope). Every site that has to know a superseded name resolves it from here rather than carrying its own literal copy: scripts/scaffold-config.sh's config-key migration, scripts/config-get.sh's superseded-key probe, scripts/migrate-consumer-tier1.sh's four-member atomic unit, and the workflow config-job guards (pinned against this table at desk time by lib/test/run.sh rather than read at runtime, because a workflow's inline jq cannot load a file the checkout may not carry). Readers: lib/rename_map.py (Python) and lib/rename-map.sh (shell). The frozen block is enumerated so a later sweep cannot 'helpfully' widen the map -- adding a member there is a behaviour change with its own issue, never a tidy-up.",
+
+  "config_keys": {
+    "devflow": "prflow",
+    "devflow_implement": "prflow_implement",
+    "devflow_retrospective": "prflow_retrospective",
+    "devflow_review": "prflow_review",
+    "devflow_review_and_fix": "prflow_review_and_fix",
+    "devflow_runner": "prflow_runner",
+    "devflow_version": "prflow_version"
+  },
+
+  "paths": {
+    "state_dir": { "superseded": ".devflow", "current": ".prflow" },
+    "vendor_dir": { "superseded": ".devflow/vendor/devflow", "current": ".prflow/vendor/prflow" },
+    "scratch_dirs": [
+      { "superseded": ".devflow-scratch", "current": ".prflow-scratch" },
+      { "superseded": ".devflow-tmp", "current": ".prflow-tmp" }
+    ]
+  },
+
+  "atomic_unit": [
+    {
+      "id": "state-dir-move",
+      "title": "state directory move",
+      "detail": "the consumer's .devflow/ tree, including its vendor/devflow subdirectory, relocated to .prflow/ (vendor/prflow) with every byte preserved"
+    },
+    {
+      "id": "workflow-content-rewrite",
+      "title": "workflow-content rewrite",
+      "detail": "every .github/workflows/*.yml present on disk that names a superseded path or config key, rewritten in place; the workflow FILENAMES are frozen"
+    },
+    {
+      "id": "marketplace-source-rewrite",
+      "title": "marketplace-source rewrite",
+      "detail": ".claude-plugin/marketplace.json's local plugin source (and the description that names the same path) repointed at the current vendor dir"
+    },
+    {
+      "id": "version-pin-advance",
+      "title": "plugin version pin",
+      "detail": "the consumer's plugin pin renamed devflow_version -> prflow_version and advanced to a ref that contains this layout, so the runtime-vendored plugin and the migrated tree agree"
+    }
+  ],
+
+  "frozen": {
+    "config_keys": ["workflows.devflow", "workflows.devflow-review"],
+    "identifiers": [
+      "devflow-marketplace",
+      "devflow-telemetry",
+      "DevFlow",
+      "devflow_module_pin_*",
+      "lib + python tests"
+    ],
+    "workflow_filenames": [
+      "devflow.yml",
+      "devflow-implement.yml",
+      "devflow-runner.yml",
+      "devflow-review.yml",
+      "telemetry-push.yml"
+    ],
+    "record_paths": ["learnings/", "logs/"],
+    "_comment": "record_paths are RELATIVE TO THE STATE DIRECTORY: they move with it, and their bytes are never rewritten (they are append-only history and frozen census snapshots, so an edit falsifies the record). Out of THIS issue's scope and tracked separately: the DEVFLOW_* environment variables (#1004) and the <!-- devflow:* --> comment markers, the DevFlow label and the devflow-telemetry branch (#1003)."
+  },
+
+  "retained_unshipped_workflows": [
+    "devflow-review.yml",
+    "devflow-runner.yml",
+    "telemetry-push.yml"
+  ],
+
+  "transitional_read_through": {
+    "applies_to": "state_dir",
+    "rule": "A reader resolves the current state directory first. Only when that path is absent AND the superseded one is present does it fall back, and every such resolution writes a stderr breadcrumb naming /prflow:init. The fallback exists because a consumer's plugin can auto-update ahead of any migration run (init registers the marketplace with autoUpdate: true), so without it the very next plugin update would resolve an absent config and silently revert every `// default` extraction.",
+    "not_applies_to": "config_keys",
+    "not_applies_reason": "Issue #988 ruled out a read-through for the config keys: a silent key fallback makes the migration unobservable and therefore permanent. Key migration is detected instead -- scripts/config-get.sh's superseded-key breadcrumb and the workflow config jobs' per-family ::error:: guards.",
+    "end_criterion": "The state-directory fallback is removed in the first release after the maintainer has walked every known consumer through /prflow:init and confirmed no repository still carries a .devflow/ directory. Until that is confirmed the fallback stays; it is not removed on a timer."
+  }
+}

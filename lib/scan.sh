@@ -49,11 +49,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 REPO="$("$DEVFLOW_GH" repo view --json nameWithOwner -q .nameWithOwner)"
-MAX_PRS="$(devflow_conf '.devflow_retrospective.max_prs_per_run' 500)"
+MAX_PRS="$(devflow_conf '.prflow_retrospective.max_prs_per_run' 500)"
 # Adopter's implementation-bot branch prefix (default "claude/"). An EMPTY
 # prefix is honoured as "disable the prefix path" — it must NOT degrade to a
 # `*`-glob that matches every branch (the old `${IMPL_PREFIX}*` bug).
-IMPL_PREFIX="$(devflow_conf '.devflow_retrospective.implementation_branch_prefix' 'claude/')"
+IMPL_PREFIX="$(devflow_conf '.prflow_retrospective.implementation_branch_prefix' 'claude/')"
 # Watched authors (comma list, [bot] suffix optional). Used by the closes-issue
 # path (b); the label path (a) is deliberately author-agnostic, so it does not
 # depend on this being set.
@@ -204,7 +204,7 @@ _add_candidates "$LABEL_BATCH"
 # Skipped (not fatal) when no watched authors are configured — the label pass
 # above still stands on its own.
 if [ -z "$WATCHED" ]; then
-    echo "::warning::no watched authors configured (devflow_retrospective.watched_authors / devflow.allowed_bots); relying on the DevFlow-label path only" >&2
+    echo "::warning::no watched authors configured (prflow_retrospective.watched_authors / devflow.allowed_bots); relying on the DevFlow-label path only" >&2
 else
     IFS=',' read -ra _watched <<< "$WATCHED"
     for _w in "${_watched[@]}"; do
@@ -277,7 +277,7 @@ _decode_existing() {  # $1 = decoded jsonl text, $2 = source label for breadcrum
 EXISTING='[]'
 RESP="$(mktemp)"; ERR="$(mktemp)"
 trap 'rm -f "$RESP" "$ERR"' EXIT
-"$DEVFLOW_GH" api -i "repos/${REPO}/contents/.devflow/learnings/retrospectives.jsonl?ref=main" > "$RESP" 2>"$ERR" || true
+"$DEVFLOW_GH" api -i "repos/${REPO}/contents/.prflow/learnings/retrospectives.jsonl?ref=main" > "$RESP" 2>"$ERR" || true
 HTTP="$(awk 'NR==1 {print $2; exit}' "$RESP")"
 case "$HTTP" in
     200)

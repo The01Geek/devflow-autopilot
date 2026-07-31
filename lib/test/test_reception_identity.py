@@ -79,7 +79,7 @@ class ScratchRepo:
         path.mkdir(parents=True, exist_ok=True)
         git(path, "init", "-q")
         # A gitignore so the session dir is ignored (mirrors the scaffolder).
-        (path / ".gitignore").write_text("/.devflow/*\n")
+        (path / ".gitignore").write_text("/.prflow/*\n")
         git(path, "add", ".gitignore")
         git(path, "commit", "-qm", "seed")
 
@@ -117,7 +117,7 @@ class IdentityContractTests(unittest.TestCase):
 
     def test_gitignored_append_equal(self):
         r = self._repo()
-        r.write(".gitignore", "/.devflow/*\nignored.log\n")
+        r.write(".gitignore", "/.prflow/*\nignored.log\n")
         r.write("ignored.log", "x\n")
         derived = ri.derive_candidate_identity(str(r.path))
         r.write("ignored.log", "x\nmore\n")
@@ -467,7 +467,7 @@ class RecordCliTests(unittest.TestCase):
         # of the runner uid (a chmod 0500 dir is bypassed by root in CI).
         r = self._repo()
         r.write("a.txt", "x\n")
-        blocker = r.path / ".devflow" / "tmp" / "blocker"
+        blocker = r.path / ".prflow" / "tmp" / "blocker"
         blocker.parent.mkdir(parents=True, exist_ok=True)
         blocker.write_text("i am a file\n")
         sd = blocker / "sub"   # a directory under a file -> unwritable by construction
@@ -672,7 +672,7 @@ class ReviewFixTests(unittest.TestCase):
 
     # ── Finding E: CLAUDE.md's #295 repo-root contract. The default session dir
     # was cwd-anchored, so a run from a subdirectory composed
-    # `<subdir>/.devflow/...`, which the root-anchored ignore rule cannot match —
+    # `<subdir>/.prflow/...`, which the root-anchored ignore rule cannot match —
     # producing a `session_dir_not_ignored` breadcrumb whose remedy is wrong.
     def test_default_session_dir_anchors_on_repo_root_not_cwd(self):
         r = self._repo()
@@ -687,7 +687,7 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(
             Path(payload["identity_path"]).resolve().parent,
             (r.path / rr.SESSION_DIRNAME).resolve())
-        self.assertFalse((sub / ".devflow").exists())
+        self.assertFalse((sub / ".prflow").exists())
 
     def test_explicit_repo_root_still_honored_verbatim(self):
         # The root-anchoring applies only to the DEFAULT; an explicit value wins.
@@ -777,8 +777,8 @@ class ReviewFixTests(unittest.TestCase):
 
         Round-2 shadow: `git check-ignore` ran with cwd=repo-root while the write
         resolved its Path against the PROCESS cwd, so a relative --session-dir
-        made the guard pass on an ignored <root>/.devflow/... while the artifacts
-        landed at <cwd>/.devflow/... — untracked, NOT ignored, and therefore part
+        made the guard pass on an ignored <root>/.prflow/... while the artifacts
+        landed at <cwd>/.prflow/... — untracked, NOT ignored, and therefore part
         of the very content the identity hashes. Both halves are pinned: the
         artifacts land under the repo root, and the tree stays clean.
         """
@@ -786,7 +786,7 @@ class ReviewFixTests(unittest.TestCase):
         r.write("a.txt", "x\n")
         sub = r.path / "nested" / "deep"
         sub.mkdir(parents=True)
-        rel = os.path.join(".devflow", "tmp", "reception-sessions")
+        rel = os.path.join(".prflow", "tmp", "reception-sessions")
         code, out, err = self._run(
             ["record", "--session-dir", rel], cwd=str(sub))
         self.assertEqual(code, 0, err)
@@ -794,7 +794,7 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(
             Path(payload["identity_path"]).resolve().parent,
             (r.path / rel).resolve())
-        self.assertFalse((sub / ".devflow").exists())
+        self.assertFalse((sub / ".prflow").exists())
         # The write added no non-ignored content, so the identity it recorded is
         # still the identity of the tree right after the write.
         self.assertEqual(

@@ -25,7 +25,7 @@ prose, trailing comments after code, and ``#`` comments inside ```` ```bash ````
 markdown. None of the four historical escape shapes lived on those surfaces.
 
 **Excluded population: machine-appended corpora (issue #672).** Diff-added lines under
-``.devflow/learnings/`` and ``.devflow/logs/``, and in the single rendered census artifact
+``.prflow/learnings/`` and ``.prflow/logs/``, and in the single rendered census artifact
 ``lib/test/mutation-pin-corpus-adjudications.tsv``, are not examined at all. Those files are
 records DevFlow *writes* — a retrospective, an experiment record, a log — each quoting
 reviewed prose verbatim inside a JSON string. The quoted text is data about a past PR, never
@@ -171,8 +171,8 @@ and neither tier terminates the other. Both still sit after every gating rule, s
 gating rule emitted a row for reaches neither.
 
 *Exclusions are inherited unchanged.* The pre-rule exclusions this header documents bind this
-tier identically — the ``prose_mask`` prose/code predicate, the ``.devflow/learnings/`` and
-``.devflow/logs/`` path exclusion (a whole-*file* skip, applied in ``run`` before the post-image
+tier identically — the ``prose_mask`` prose/code predicate, the ``.prflow/learnings/`` and
+``.prflow/logs/`` path exclusion (a whole-*file* skip, applied in ``run`` before the post-image
 is read), the ``stale-prose-lint: example`` marker, and the content-anchor drop the working-tree
 record below describes. The list is illustrative rather than exhaustive: this tier is reached
 from the same point in ``examine_file`` as the shipped recognition tier, so whatever skips a
@@ -647,13 +647,13 @@ _unrecognised_exts = set()  # reported once, at the end of the run (see `run`)
 #
 # The third entry is a FILE, not a directory. `lib/test/mutation-pin-corpus-adjudications.tsv`
 # is rendered output of `lib/test/mutation-pin-census.py --format adjudication-tsv`, and it
-# lives beside its generator rather than under `.devflow/logs/` (where its `master_sha256`
+# lives beside its generator rather than under `.prflow/logs/` (where its `master_sha256`
 # counterpart, the mutation-pin corpus inventory, does sit). Its `logical_call` column embeds each
 # censused pin's source text verbatim — pin names included, and many of those carry counts —
 # so the count-locked rule resolves a quoted numeral against the surrounding TSV rows, which
 # are not that claim's referent. That is exactly the issue-#672 shape: a machine-rendered
 # record quoting prose as DATA, with no referent in the post-diff state to resolve against.
-_EXCLUDED_PREFIXES = (".devflow/learnings/", ".devflow/logs/")
+_EXCLUDED_PREFIXES = (".prflow/learnings/", ".prflow/logs/")
 _EXCLUDED_FILES = frozenset(
     {"lib/test/mutation-pin-corpus-adjudications.tsv"}
 )
@@ -1181,7 +1181,7 @@ def post_file_lines(rev, path, root=None):
     a bare ``open(path)`` would make the two modes disagree the moment the caller's CWD is not
     the root: every file would land on this arm's ``None`` and the whole run would emit zero
     rows while exiting 0 — a *clean-shaped* result for work that never happened. Anchoring
-    mirrors the shared repo-root contract the ``.devflow/`` readers already follow (issue
+    mirrors the shared repo-root contract the ``.prflow/`` readers already follow (issue
     #295): ``git rev-parse --show-toplevel``, falling back to the CWD with a breadcrumb."""
     if rev is WORKTREE:
         try:

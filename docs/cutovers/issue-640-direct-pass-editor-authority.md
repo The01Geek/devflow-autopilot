@@ -7,7 +7,7 @@ kind: growth
 
 ## Files
 
-`.devflow/prompt-extensions/receiving-code-review.md` gains one section, **Weigh an Addendum's
+`.prflow/prompt-extensions/receiving-code-review.md` gains one section, **Weigh an Addendum's
 authority by who edited the issue**. It carries the editor-authority *mechanism* that issue #620
 had placed only in the review-and-fix loop preamble: identify the editor via `lastEditedAt` +
 `userContentEdits(last: 10){nodes{editedAt,editor{login}}}`, route a failed/denied/unparseable
@@ -40,7 +40,7 @@ mirror image of the gap #620 closed. The altitude reviewer on PR #633 raised it;
 here.
 
 Option 1 (the issue's recommended first step) is taken: the rule lives in
-`.devflow/prompt-extensions/receiving-code-review.md`, this repo's reception policy, which **both**
+`.prflow/prompt-extensions/receiving-code-review.md`, this repo's reception policy, which **both**
 paths load — the direct pass through its own preamble and the loop through its second
 `load-prompt-extension.sh` call. That gives every future reception rule one authoritative home
 rather than a manual mirror decision, and it satisfies the coupled-mirror convention without

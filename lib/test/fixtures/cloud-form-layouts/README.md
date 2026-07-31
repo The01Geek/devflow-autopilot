@@ -19,12 +19,12 @@ cannot itself carry.
   repo-root `scripts/`. The anchor `skills/implement/../../scripts/<helper>`
   resolves to `scripts/<helper>`.
 - `consumer/` — a freshly installed consumer layout: the plugin is vendored
-  under `.devflow/vendor/devflow/` (never `.claude/`), so both the skill and
+  under `.prflow/vendor/prflow/` (never `.claude/`), so both the skill and
   its helpers live beneath that prefix. The cloud form resolves to
-  `.devflow/vendor/devflow/scripts/<helper>`.
+  `.prflow/vendor/prflow/scripts/<helper>`.
 
 Each layout ships one trivial executable helper, `scripts/echo-anchor.sh`
-(vendored under `.devflow/vendor/devflow/scripts/` for the consumer), which
+(vendored under `.prflow/vendor/prflow/scripts/` for the consumer), which
 prints the sentinel `ANCHOR-OK`. The driver asserts the helper runs (exit 0,
 sentinel emitted) when reached through the cloud form inside each materialized
 checkout, and that `git rev-parse --show-toplevel` — the repo-root anchoring
@@ -40,14 +40,14 @@ two components below the directory that also contains `scripts/`, joined with
 `../../scripts/<helper>`, resolves to and executes that layout's helper — in a
 spaced checkout and in a shallow detached one. That containing directory is not
 the same in both layouts: it is the checkout root for `source-repo`, and the
-vendored prefix `.devflow/vendor/devflow/` for `consumer`, whose skill base is
+vendored prefix `.prflow/vendor/prflow/` for `consumer`, whose skill base is
 five components below the checkout root. They do **not**, by themselves, guard
 the real shipped `skills/**` ↔ `scripts/` offset: relocating the real tree would
 leave these fixtures green. The driver's separate `real shipped layout` block is
 the narrow guard for that residual, over the **source-repo** layout only — it
 asserts every tracked `skills/*/SKILL.md` still sits two components below the
 repo root and that a repo-root `scripts/` exists. The consumer layout is that
-same tree copied wholesale under `.devflow/vendor/devflow/` by `install.sh`,
+same tree copied wholesale under `.prflow/vendor/prflow/` by `install.sh`,
 which carries the offset along with it; nothing checks that copy.
 
 The cloud form itself is a filesystem path join and the driver's

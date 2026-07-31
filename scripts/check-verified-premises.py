@@ -174,7 +174,7 @@ _EXTENSION = re.compile(r'\.[A-Za-z0-9]{1,6}$')
 # A shell/glob metacharacter. A span carrying one names a SET of paths, not a
 # path, so it is not adjudicable by a single existence check — and adjudicating
 # it as one produced false refutations against real issue bodies, which cite
-# `.devflow/prompt-extensions/*.md`-style patterns routinely.
+# `.prflow/prompt-extensions/*.md`-style patterns routinely.
 _GLOBBY = re.compile(r'[*?\[\]]')
 
 # The start of the next markdown list item. A bullet's span must stop here as

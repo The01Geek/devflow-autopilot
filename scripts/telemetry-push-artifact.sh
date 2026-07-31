@@ -68,9 +68,9 @@ if [ "$_val_rc" -ne 0 ]; then
 fi
 
 # An admitted-but-empty result (absent/empty artifact) → nothing to push; say so.
-# The validator only materializes the `.devflow/logs/…` subtree when it admits at least
+# The validator only materializes the `.prflow/logs/…` subtree when it admits at least
 # one record, so its presence is the builtin emptiness probe (no non-preflight PATH tool).
-if [ ! -d "$VALIDATED_ROOT/.devflow/logs" ]; then
+if [ ! -d "$VALIDATED_ROOT/.prflow/logs" ]; then
   echo "::notice::telemetry-push-artifact: no telemetry records to push (the artifact was absent, empty, or contained no admitted records)." >&2
   exit 0
 fi

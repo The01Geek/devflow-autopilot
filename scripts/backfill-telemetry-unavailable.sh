@@ -18,7 +18,7 @@ if [ -z "$root" ] || [ -z "$ref" ] || ! git -C "$root" rev-parse --verify --quie
   exit 0
 fi
 
-stage="$root/.devflow/tmp/telemetry-stage-backfill-$$-${RANDOM}-${SECONDS}"
+stage="$root/.prflow/tmp/telemetry-stage-backfill-$$-${RANDOM}-${SECONDS}"
 mkdir -p "$stage" 2>/dev/null || { echo "::warning::backfill-telemetry-unavailable: could not create staging root '$stage'; migration skipped" >&2; exit 0; }
 trap 'rm -rf "$stage" 2>/dev/null || true' EXIT
 selected=0
@@ -39,11 +39,11 @@ while IFS= read -r path; do
   else
     rm -f "$out"; echo "::warning::backfill-telemetry-unavailable: rewrite failed for '$path'; left untouched" >&2
   fi
-done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/review/")
+done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/review/")
 
 while IFS= read -r path; do
   [ -n "$path" ] || continue
-  case "$path" in .devflow/logs/efficiency/*.json) ;; *) continue ;; esac
+  case "$path" in .prflow/logs/efficiency/*.json) ;; *) continue ;; esac
   content="$(devflow_telemetry_show_blob "$root" "$ref" "$path")" || { echo "::warning::backfill-telemetry-unavailable: could not read record blob '$path'; left untouched" >&2; continue; }
   if ! printf '%s' "$content" | "$DEVFLOW_JQ" -e 'type == "object"' >/dev/null 2>&1; then
     echo "::warning::backfill-telemetry-unavailable: record blob '$path' is malformed or non-object (R7); left byte-verbatim" >&2; continue
@@ -61,7 +61,7 @@ while IFS= read -r path; do
   else
     rm -f "$out"; echo "::warning::backfill-telemetry-unavailable: rewrite failed for '$path'; left untouched" >&2
   fi
-done < <(devflow_telemetry_list_blobs "$root" "$ref" ".devflow/logs/efficiency/")
+done < <(devflow_telemetry_list_blobs "$root" "$ref" ".prflow/logs/efficiency/")
 
 if [ "$selected" -eq 0 ]; then
   echo "backfill-telemetry-unavailable: no eligible blobs; telemetry store already converged" >&2
