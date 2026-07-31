@@ -2,14 +2,19 @@
 # SPDX-FileCopyrightText: 2026 Daniel Radman
 # SPDX-License-Identifier: MIT
 # preflight.sh — verify DevFlow's runtime dependencies are present, with clear,
-# actionable errors. Exits 0 when everything is available, 1 otherwise.
+# actionable errors. Exits 0 when the required tools are available; exits 1 when
+# one of them is missing. A missing PyYAML is an advisory gap on the local user
+# tier — it is reported but does not cause a non-zero exit.
 #
 #   "${CLAUDE_SKILL_DIR:-<absolute skill base directory this runner reports in context>}"/../../lib/preflight.sh
 #
 # DevFlow's shell/Python helpers assume: git, gh (authenticated), jq, and
 # python3 (>=3.11) with PyYAML. Date math and text extraction were written to
 # avoid GNU-only flags (no `date -d`, no `grep -P`), so coreutils/grep flavor
-# does not matter — but the four tools above are required.
+# does not matter. git, gh, jq and python3 are required — a missing one exits
+# non-zero. PyYAML is the exception: on the local user tier a missing PyYAML is
+# an advisory gap that does not gate the exit (it stays required for the test
+# suite, CI, and the cloud tiers).
 set -u
 
 # Running-bash diagnostic (issue #248) — a DIAGNOSTIC, not a selector.
@@ -38,9 +43,13 @@ fi
 
 # Canonical machine-readable runtime vocabulary consumed by
 # lib/test/cloud_writer_deps.py. Keep semantic package names (PyYAML) alongside
-# executable names; the probes below remain the enforcement mechanism. This
-# declaration must stay below the non-Bash guard above because `readonly -a` is
-# itself Bash-only syntax.
+# executable names. The probes below enforce git, gh, jq and python3 by gating
+# the exit; PyYAML is the exception — on the local user tier its probe now
+# reports an advisory gap rather than gating the exit. PyYAML nonetheless stays
+# a DECLARED dependency in this set: it remains enforced by the test suite, CI,
+# and the cloud tiers, so this array is the declared dependency vocabulary, not
+# the local-tier gate. This declaration must stay below the non-Bash guard above
+# because `readonly -a` is itself Bash-only syntax.
 readonly -a _DEVFLOW_PREFLIGHT_GUARANTEES=(git gh jq python3 PyYAML)
 
 # Share the interpreter-selection contract with scripts/provision-python3-shim.sh so the
@@ -87,6 +96,10 @@ else
 fi
 
 missing=0
+# PyYAML is demoted to an advisory on the local user tier (issue #984): its probe
+# below sets this flag instead of `missing`, so a PyYAML-only gap exits 0 with a
+# distinct advisory final line rather than the aggregate non-zero exit.
+pyyaml_advisory=0
 
 _need() {  # $1=command  $2=how-to-install hint
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -188,8 +201,12 @@ fi
 if [ -n "$PYTHON" ]; then
   # shellcheck disable=SC2086  # $PYTHON may be the two words "py -3"
   if ! $PYTHON -c 'import yaml' >/dev/null 2>&1; then
+    # ADVISORY, not a gate (issue #984): the probe keeps its shape (an `if !`
+    # over `$PYTHON -c 'import yaml'`, which lib/test/test_python_scripts.py
+    # re-derives the PyYAML guarantee token from) and the message literals, but
+    # sets the advisory flag instead of `missing` so a PyYAML-only gap exits 0.
     printf "devflow preflight: Python package PyYAML not found — run '%s -m pip install pyyaml'\n" "$PYTHON" >&2
-    missing=1
+    pyyaml_advisory=1
   fi
   # Version check only for the `python3` happy path — that branch above did NOT call
   # devflow_resolve_python, so python3's version is still unverified here. The resolved
@@ -204,6 +221,16 @@ fi
 if [ "$missing" -ne 0 ]; then
   printf 'devflow preflight: one or more required dependencies are missing (see above).\n' >&2
   exit 1
+fi
+
+# PyYAML-only gap (issue #984): every required tool is present, so exit 0 — but
+# emit a DISTINCT final line instead of the all-clear, carrying the stable
+# literal token `PyYAML advisory` so a caller (e.g. /prflow:init) can tell this
+# exit-0 outcome apart from the all-clear by matching that token rather than
+# judging prose.
+if [ "$pyyaml_advisory" -ne 0 ]; then
+  printf 'devflow preflight: required dependencies present; PyYAML advisory (see above).\n'
+  exit 0
 fi
 
 printf 'devflow preflight: all dependencies present.\n'

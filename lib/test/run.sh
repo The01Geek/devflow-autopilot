@@ -31452,6 +31452,39 @@ EOF
   assert_eq "#225 preflight: no provisioner pointer when python3 resolves (AC10)" "no" \
     "$(printf '%s' "$PF10_OUT" | grep -q 'provision-python3-shim.sh' && echo yes || echo no)"
 
+  # ── #984: a working python3 >=3.11 that LACKS PyYAML → advisory demotion on the local
+  #    user tier. No prior fixture covered this population — T7/TPYPRE also lack python3, so
+  #    their non-zero exit came from the python3 arm, never from PyYAML. Here the ONLY gap is
+  #    PyYAML, so it exits 0 with a DISTINCT advisory final line carrying the stable
+  #    `PyYAML advisory` token, while the AC2 message literals ('PyYAML not found' + the
+  #    resolved-interpreter pip remedy) are preserved. ──
+  T984="$(mktemp -d)"; build_stub_bin "$T984"; make_fake_python "$T984/python3" "3.11.5" 3 11 noyaml
+  PF984_OUT="$(PATH="$T984" bash "$PREFLIGHT_SH" 2>&1)"; PF984_RC=$?
+  assert_eq "#984 preflight: PyYAML-only gap (working python3, no yaml) → exit 0 (AC1)" "0" "$PF984_RC"
+  assert_eq "#984 preflight: advisory names PyYAML not found (AC1/AC2 literal preserved)" "yes" \
+    "$(printf '%s' "$PF984_OUT" | grep -qF 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#984 preflight: AC2 remedy literal names the resolved interpreter (python3 -m pip install pyyaml)" "yes" \
+    "$(printf '%s' "$PF984_OUT" | grep -qF "'python3 -m pip install pyyaml'" && echo yes || echo no)"
+  assert_eq "#984 preflight: exit-0 advisory run emits the distinct final line carrying the stable token (AC3)" "yes" \
+    "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qF 'PyYAML advisory' && echo yes || echo no)"
+  assert_eq "#984 preflight: advisory final line is NOT the byte-identical all-clear (AC3)" "no" \
+    "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qxF 'devflow preflight: all dependencies present.' && echo yes || echo no)"
+  rm -rf "$T984"
+
+  # ── #984 AC4 negative control: each of git/gh/jq/python3, absent one at a time, still sets
+  #    the aggregate flag and exits non-zero — proving the demotion is scoped to the PyYAML arm,
+  #    not global. Each fixture carries a working python3+PyYAML so the removed tool is the only
+  #    gap (for the python3 row, removing it leaves no py/python alternate → the missing-python3
+  #    dead end). ──
+  for _tool984 in git gh jq python3; do
+    T984N="$(mktemp -d)"; build_stub_bin "$T984N"; make_fake_python "$T984N/python3" "3.11.5" 3 11
+    rm -f "$T984N/$_tool984"
+    PF984N_RC=0; PATH="$T984N" bash "$PREFLIGHT_SH" >/dev/null 2>&1 || PF984N_RC=$?
+    assert_eq "#984 preflight AC4: missing '$_tool984' still exits non-zero (demotion is scoped, not global)" "yes" \
+      "$([ "$PF984N_RC" -ne 0 ] && echo yes || echo no)"
+    rm -rf "$T984N"
+  done
+
   # ── AC6 (python3-present-but-too-old): a real python3 <3.11 takes preflight's python3 branch
   #    (NOT the resolved-alternate path) and must fail with the specific version message from the
   #    version re-check — a distinct code path from the `python`(alternate)-too-old case above. ──
