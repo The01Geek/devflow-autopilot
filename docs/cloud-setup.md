@@ -93,7 +93,7 @@ The URL ref fixes which *installer bytes* you review and run; `DEVFLOW_REF`
 (default `main`, and it accepts a tag, a SHA, or a branch) fixes which ref the
 installer clones its payload from — pinning the URL alone still leaves the payload
 tracking `main`. Substitute a newer tag in both places to install a newer version;
-[the Releases page](https://github.com/The01Geek/prflow/releases/latest)
+[the Releases page](https://github.com/The01Geek/prflow/releases)
 or `gh release list --repo The01Geek/prflow --limit 5` names the current
 one. Omit `DEVFLOW_REF` only if you deliberately want to track the moving `main`
 branch. Piping the download straight into `bash` also works

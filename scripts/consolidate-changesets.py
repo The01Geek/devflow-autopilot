@@ -25,12 +25,16 @@ It writes nothing else into the repository — staging and the ``chore: bump ver
 are the workflow's job. (The two opt-in ``$RUNNER_TEMP`` side channels documented below live
 outside the repository tree by design, so they are not exceptions to that.)
 
-Two optional side-channel outputs exist for the workflow, both written **outside** the
+Three optional side-channel outputs exist for the workflow, all written **outside** the
 repository (``$RUNNER_TEMP``) so they never enter the commit: ``--emit-entry-to`` writes
-the assembled CHANGELOG entry body (the GitHub Release notes) and ``--emit-write-set-to``
-writes one repo-relative path per line for every file this run rewrote. The write set is
-what lets the workflow stage a **derived** pin-rewrite set explicitly, without resorting
-to ``git add -A``.
+the assembled CHANGELOG entry body (the GitHub Release notes), ``--emit-write-set-to``
+writes one repo-relative path per line for every file this run rewrote, and
+``--emit-bump-to`` writes the single highest pending bump kind (``patch``/``minor``/
+``major``). The write set is what lets the workflow stage a **derived** pin-rewrite set
+explicitly, without resorting to ``git add -A``. The bump kind is what lets the workflow
+tell ``scripts/publish-release.sh`` whether this bump warrants a *published* GitHub
+Release (``minor``/``major``) or only its annotated tag (``patch``) — it is reported from
+the value computed here rather than re-inferred downstream from a version diff.
 
 Fail-closed contract: a malformed changeset (no frontmatter, missing/invalid ``bump``, an
 unknown ``type``, or an empty prose body) aborts with exit 2 and a diagnostic naming the
@@ -353,6 +357,7 @@ def consolidate(
     date: str,
     entry_out: "str | None" = None,
     write_set_out: "str | None" = None,
+    bump_out: "str | None" = None,
 ) -> int:
     changeset_dir = os.path.join(root, ".changeset")
     manifest_path = os.path.join(root, ".claude-plugin", "plugin.json")
@@ -447,6 +452,11 @@ def consolidate(
         written.extend(pin_rewrites)
         rels = sorted(os.path.relpath(p, root) for p in written)
         _write_text(write_set_out, "".join(f"{r}\n" for r in rels))
+    # The bump kind the release decision reads. Written only on a run that actually bumped:
+    # the no-pending-changesets early return leaves the file ABSENT rather than writing a
+    # default, so a downstream reader can tell "no bump happened" from "a patch bump did".
+    if bump_out:
+        _write_text(bump_out, f"{highest}\n")
 
     print(
         f"consolidated {len(pending)} changeset(s): {current} -> {new_version} "
@@ -488,12 +498,28 @@ def main(argv: "list[str] | None" = None) -> int:
             "Point it OUTSIDE the repository."
         ),
     )
+    parser.add_argument(
+        "--emit-bump-to",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Also write the single highest pending bump kind (patch/minor/major) to PATH, "
+            "so the workflow can decide whether this bump warrants a published GitHub "
+            "Release or only its tag. Point it OUTSIDE the repository."
+        ),
+    )
     args = parser.parse_args(argv)
     date = args.date or datetime.now(timezone.utc).date().isoformat()
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
         return _fatal(f"--date {date!r} is not YYYY-MM-DD")
     try:
-        return consolidate(args.root, date, args.emit_entry_to, args.emit_write_set_to)
+        return consolidate(
+            args.root,
+            date,
+            args.emit_entry_to,
+            args.emit_write_set_to,
+            args.emit_bump_to,
+        )
     except ChangesetError as exc:
         return _fatal(str(exc))
     except OSError as exc:
