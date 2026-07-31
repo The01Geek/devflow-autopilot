@@ -40205,7 +40205,7 @@ rm -rf "$D487"
 # registry and this full-suite call share the same lower-bound contract;
 # test_module_runner.py parses this operand and rejects any coupling drift.
 if ! devflow_run_full_suite_module "$LIB/test/modules/installer-wiring.sh" \
-  "installer-wiring" 238; then
+  "installer-wiring" 239; then
   printf 'ERROR: installer-wiring boundary could not record its result\n'
   exit 1
 fi
