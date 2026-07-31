@@ -1947,12 +1947,13 @@ DRC_TERMINAL='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 
 assert_eq "drc: terminal (past 🚀 Reviewing) progress comment → no suppress" "suppress=false" \
   "$(drc "$DRC_TERMINAL")"
 
-# does-not-suppress-a-backstop-resume — the fixture is built from the body
-# scripts/post-review-backstop-comment.sh REALLY writes (the transitional
-# /devflow:review token + the devflow:review-backstop marker), asserting no
-# suppression EVEN WITH an active in-flight peer present. Fails first because no
-# marker predicate exists today; the fixture is the producer's own body so a
-# predicate reading the canonical token would pass the test yet fail in production.
+# does-not-suppress-a-backstop-resume — the fixture carries the transitional
+# /devflow:review token (what scripts/post-review-backstop-comment.sh writes) AND
+# the devflow:review-backstop marker (composed by scripts/request-review-backstop.sh),
+# asserting no suppression EVEN WITH an active in-flight peer present. Fails first
+# because no marker predicate exists today. The helper matches the marker as an
+# order-independent substring, so the exact field order here is not load-bearing;
+# the marker literal's agreement with the producer is pinned separately below.
 DRC_BACKSTOP_BODY="$(printf '/devflow:review\n<!-- devflow:review-backstop head=abcdef0 attempt=2 -->\n')"
 assert_eq "drc: does-not-suppress-a-backstop-resume (marker body, active peer present)" "suppress=false" \
   "$(env DEVFLOW_GH="$DRC_STUB/gh" REPO=o/r RUN_ID=999 DEDUPE_NOW_EPOCH="$DRC_NOW" \
@@ -2012,6 +2013,16 @@ rm -f "$DRC_E_ERR"
 #     conversation comment) → simply no match, no suppress.
 assert_eq "drc: matrix — unrelated conversation comment → no suppress" "suppress=false" \
   "$(drc '[{"body":"looks good to me","user":{"type":"User"},"updated_at":"'"$DRC_FRESH"'"}]')"
+# (f2) a bot-authored, marker-carrying, 🚀 Reviewing candidate that OMITS updated_at
+#      entirely (distinct from row (e)'s explicit null) → liveness cannot be
+#      established → not counted, malformed breadcrumb, no suppress.
+DRC_F2_ERR="$(mktemp)"
+DRC_NODATE='[{"body":"<!-- devflow:review-progress run=555-1 -->\n**Status:** 🚀 Reviewing","user":{"type":"Bot"}}]'
+assert_eq "drc: matrix — candidate omitting updated_at entirely → no suppress" "suppress=false" \
+  "$(drc "$DRC_NODATE" 42 2>"$DRC_F2_ERR")"
+assert_eq "drc: matrix — omitted updated_at breadcrumb (liveness could not be established)" "1" \
+  "$(grep -c 'unparseable updated_at' "$DRC_F2_ERR")"
+rm -f "$DRC_F2_ERR"
 # (g) unresolved/invalid thread key → no suppress + its own breadcrumb.
 DRC_G_ERR="$(mktemp)"
 assert_eq "drc: matrix — invalid PR thread key → no suppress" "suppress=false" \
@@ -2088,6 +2099,15 @@ assert_eq "drc: guard's review-backstop marker matches the producer (coupling ho
 # so the helper's paginated fetch is not computed and discarded (efficiency).
 assert_eq "drc: Candidate-C helper is consulted only when both legacy signals are 0" "1" \
   "$(grep -cF 'if [ "$IC" = "0" ] && [ "$IR" = "0" ]; then' "$RDWF")"
+# resolves-the-thread-key-on-a-review-comment-event (issue #989 named assertion):
+# devflow.yml accepts three events, but only issue_comment populates
+# github.event.issue.number — pull_request_review[_comment] populate only
+# github.event.pull_request.number. Both the guard job's PR env and the notice
+# step's PR env must derive the thread key with the `||` fallback, or Candidate C
+# silently never suppresses on two of the three trigger events (the helper's own
+# numeric-PR guard fails open on an empty PR). Pin BOTH sites (guard + notice).
+assert_eq "drc: guard+notice PR env derive the thread key on ALL three events (|| fallback)" "2" \
+  "$(grep -cF 'PR: ${{ github.event.issue.number || github.event.pull_request.number }}' "$RDWF")"
 
 rm -rf "$DRC_STUB"
 

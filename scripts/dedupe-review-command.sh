@@ -101,7 +101,7 @@ emit() { printf '%s=%s\n' "$1" "$2"; }
 PROGRESS_MARKER='<!-- devflow:review-progress'
 INFLIGHT_STATUS='🚀 Reviewing'
 # The marker a stall-backstop review auto-resume comment carries (kept identical
-# to the MARKER scripts/post-review-backstop-comment.sh writes; pinned agreeing).
+# to the marker scripts/request-review-backstop.sh produces; pinned agreeing).
 BACKSTOP_MARKER='<!-- devflow:review-backstop'
 
 mode="${MODE:-detect}"
@@ -146,8 +146,9 @@ run_id="${RUN_ID:-}"
 window_min="${REVIEW_INFLIGHT_MAX_AGE_MINUTES:-120}"
 
 # Fail open on a missing/invalid thread key or repo: an unresolvable operand must
-# never suppress. (RUN_ID is optional — a missing one only weakens self-exclusion,
-# which cannot wrongly suppress, so it fails open silently to an empty string.)
+# never suppress. (RUN_ID is optional and always set in Actions; a missing one only
+# weakens self-exclusion — `run=<id>-` becomes `run=-`, matching nothing — so it
+# degrades to an empty string rather than aborting.)
 if [ -z "$repo" ]; then
   echo "::warning::dedupe-review: REPO is unset; not suppressing (manual review proceeds)." >&2
   emit suppress false
@@ -166,7 +167,14 @@ fi
 window_s=$(( window_min * 60 ))
 
 # gh binary: resolved once via the single-source resolver (execution-verified); an
-# explicit DEVFLOW_GH still wins, so test stubs are untouched.
+# explicit DEVFLOW_GH still wins, so test stubs are untouched. Sourced UNGUARDED —
+# the repo convention forbids a bare `DEVFLOW_GH:=gh` fallback (the resolver is the
+# single source; lib/test/run.sh's #245 pin enforces it), mirroring the sibling
+# dedupe-implement-run.sh. A lib-less deployment that cannot source the resolver is
+# a deployment-integrity failure; the fail-OPEN contract for it lives one level up,
+# in devflow.yml's guarded helper invocation (a non-zero exit → CC=false + warning),
+# not in a bare-gh fallback here. The detect-mode arms this header enumerates —
+# query/parse/empty/jq/absent-signal — are what fail open in-helper.
 # shellcheck source=../lib/resolve-gh.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../lib/resolve-gh.sh"
 : "${DEVFLOW_GH:=$(devflow_resolve_gh)}"
@@ -183,8 +191,8 @@ if ! comments_json="$("$GH" api --paginate "repos/$repo/issues/$pr/comments" 2>/
   exit 0
 fi
 
-# Distinguish an empty response from a genuinely-empty array: `--jq` over an empty
-# body prints nothing (empty stdout), which is a degraded read, not `[]`.
+# Distinguish an empty response from a genuinely-empty array: a degraded/empty read
+# prints nothing (empty stdout), which is distinct from a genuinely-empty array `[]`.
 if [ -z "$comments_json" ]; then
   echo "::warning::dedupe-review: comments query returned an empty response for PR #$pr; not suppressing (fail-open)." >&2
   emit suppress false
@@ -220,7 +228,14 @@ decision="$("$DEVFLOW_JQ" -r \
     | "\($m) \($bad)"
   end' <<<"$comments_json" 2>"$jq_err")" || decision=""
 
-jq_diag="$(tr '\n' ' ' < "$jq_err" 2>/dev/null || printf '')"
+# Collapse the captured stderr to one line with a bash builtin (`$(<file)` +
+# parameter expansion), never `tr`: the breadcrumb SELECTED below (the case on
+# $jq_diag) is a user-facing diagnostic, and a non-preflight tool that yields empty
+# on its own absence would misattribute the cause (e.g. report "could not resolve
+# jq" for a genuine parse error). The `not-array` sentinel below is a fixed literal,
+# so the selection never depends on this collapse succeeding.
+jq_diag_raw=""; [ -r "$jq_err" ] && jq_diag_raw="$(<"$jq_err")"
+jq_diag="${jq_diag_raw//$'\n'/ }"
 [ "$jq_err" = /dev/null ] || rm -f "$jq_err"
 
 # An unresolvable jq (e.g. DEVFLOW_JQ pointed at a non-existent binary) or a parse
