@@ -47,7 +47,7 @@ PRFlow declares **zero companion-plugin dependencies** — every external asset 
 python3 -m pip install PyYAML
 ```
 
-On the local tier PyYAML is **advisory**: `bash lib/preflight.sh` reports a missing PyYAML and still exits 0 (with a distinct advisory final line naming the remedy), because that one helper degrades to a logged skip rather than breaking. Installing it only restores the severity demotion of previously-deferred findings. (The cloud-tier `install.sh` handles PyYAML for you, and the test suite and CI still require it.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies the required tools.
+On the local tier PyYAML is **advisory**: `bash lib/preflight.sh` reports a missing PyYAML and still exits 0 (with a distinct advisory final line naming the remedy), because that one helper degrades to a logged skip rather than breaking. Installing it only restores the severity demotion of previously-deferred findings. (On the cloud tier the workflows install PyYAML themselves — a `pip install` step in the workflow, not something `install.sh` does — and the test suite and CI still require it.) See [Requirements](../README.md#requirements) for the full PATH checklist; in a checkout of this repo, `bash lib/preflight.sh` verifies the required tools.
 
 ### Windows: resolving `python3`
 

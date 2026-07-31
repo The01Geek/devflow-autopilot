@@ -31469,6 +31469,12 @@ EOF
     "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qF 'PyYAML advisory' && echo yes || echo no)"
   assert_eq "#984 preflight: advisory final line is NOT the byte-identical all-clear (AC3)" "no" \
     "$(printf '%s\n' "$PF984_OUT" | tail -1 | grep -qxF 'devflow preflight: all dependencies present.' && echo yes || echo no)"
+  # The advisory final line must land on STDOUT (where /prflow:init reads it), not stderr —
+  # the captures above merge 2>&1, so a stdout-only capture is what pins the stream.
+  PF984_STDOUT="$(PATH="$T984" bash "$PREFLIGHT_SH" 2>/dev/null)"
+  assert_eq "#984 preflight: the advisory final line is emitted on stdout, not stderr (AC3)" \
+    "devflow preflight: required dependencies present; PyYAML advisory (see above)." \
+    "$(printf '%s\n' "$PF984_STDOUT" | tail -1)"
   rm -rf "$T984"
 
   # ── #984 AC4 negative control: each of git/gh/jq/python3, absent one at a time, still sets
@@ -31484,6 +31490,25 @@ EOF
       "$([ "$PF984N_RC" -ne 0 ] && echo yes || echo no)"
     rm -rf "$T984N"
   done
+
+  # ── #984 precedence: a run carrying BOTH a real prerequisite gap AND a missing PyYAML must
+  #    take the hard stop, never the exit-0 advisory. The aggregate `missing` gate in
+  #    lib/preflight.sh is deliberately ordered BEFORE the `pyyaml_advisory` arm; swapping the
+  #    two exit blocks would make this fixture exit 0 and print the advisory line. Reachable
+  #    combined case: a too-old python3 (sets `missing` via the version re-check) that ALSO
+  #    lacks PyYAML (sets `pyyaml_advisory`). Neither the AC1 fixture (every tool present) nor
+  #    the AC4 loop (PyYAML present) exercises both flags at once. ──
+  T984P="$(mktemp -d)"; build_stub_bin "$T984P"; make_fake_python "$T984P/python3" "3.10.9" 3 10 noyaml
+  PF984P_OUT="$(PATH="$T984P" bash "$PREFLIGHT_SH" 2>&1)"; PF984P_RC=$?
+  assert_eq "#984 preflight precedence: both a real gap (python3 <3.11) and a missing PyYAML → hard stop wins (non-zero exit)" "yes" \
+    "$([ "$PF984P_RC" -ne 0 ] && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the combined-gap run emits BOTH diagnostics (version failure + PyYAML advisory message)" "yes" \
+    "$(printf '%s' "$PF984P_OUT" | grep -q 'Python 3.11+ required (found' && printf '%s' "$PF984P_OUT" | grep -qF 'PyYAML not found' && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the exit-0 'PyYAML advisory' token is NEVER printed on a hard-stop run" "no" \
+    "$(printf '%s' "$PF984P_OUT" | grep -qF 'PyYAML advisory' && echo yes || echo no)"
+  assert_eq "#984 preflight precedence: the hard-stop run ends on the missing-dependencies line, not the advisory line" "yes" \
+    "$(printf '%s\n' "$PF984P_OUT" | tail -1 | grep -qxF 'devflow preflight: one or more required dependencies are missing (see above).' && echo yes || echo no)"
+  rm -rf "$T984P"
 
   # ── AC6 (python3-present-but-too-old): a real python3 <3.11 takes preflight's python3 branch
   #    (NOT the resolved-alternate path) and must fail with the specific version message from the
