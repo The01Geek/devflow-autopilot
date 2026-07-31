@@ -1995,7 +1995,7 @@ devflow_pool_join() {
 #   * lib/test/run-python-pool.sh is the dedicated CI shard's driver — it has nothing
 #     to overlap, so it opens and joins back-to-back.
 #
-# run.sh skips BOTH calls under DEVFLOW_SKIP_PYTHON_POOL=1 (what the monolith shard
+# Both entry points no-op under DEVFLOW_SKIP_PYTHON_POOL=1 (what the monolith shard
 # sets), so exactly one shard runs these suites per CI run and nothing is
 # double-counted — the same dedup argument DEVFLOW_SKIP_SUITE_MODULES makes for the
 # module tier.
@@ -2003,11 +2003,31 @@ devflow_pool_join() {
 # test_module_harness.py is deliberately NOT a member — see its serial driver site in
 # run.sh: it asserts on the SIGINT disposition its children inherit, which a pooled
 # fork under job control off would corrupt.
+
+# The selector decision, in ONE place. rc 0 = run the pool, rc 1 = this shard's work
+# belongs to the `python-pool` shard instead.
 #
+# The gate lives HERE, inside the entry points below, rather than as an `if` at each
+# call site: a call-site `if` is a decision the suite can only reach by running the
+# whole of run.sh (~6 minutes), so in practice it would ship untested, and an inverted
+# one fails in the two worst directions — double-counting both suites into the
+# aggregate, or dropping both from a local full run with no floor to notice. As a
+# predicate with one home, every arm is drivable directly, which is exactly how
+# DEVFLOW_SKIP_SUITE_MODULES is gated inside devflow_run_full_suite_module.
+#
+# Only the exact value `1` disables, matching that sibling: any other value (including
+# `0`, `yes`, and empty) runs the pool, so a half-set variable never silently drops
+# coverage.
+devflow_python_pool_enabled() {
+  [ "${DEVFLOW_SKIP_PYTHON_POOL:-}" = 1 ] && return 1
+  return 0
+}
+
 # The script paths are anchored on THIS file's directory (BASH_SOURCE self-anchoring,
 # the local-tier idiom) rather than on a caller-supplied root, so no caller can hand
 # the pool a wrong base and have a real suite degrade into a missing-script failure.
 devflow_python_suite_pool_open() {
+  devflow_python_pool_enabled || return 0
   local _pp_dir
   _pp_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" || return 1
   devflow_pool_open \
@@ -2025,6 +2045,7 @@ devflow_python_suite_pool_open() {
 # Calls assert_eq, which each caller defines against the same RESULTS_FILE +
 # record_fail contract; the name resolves at call time.
 devflow_python_suite_pool_join() {
+  devflow_python_pool_enabled || return 0
   local _ps_lines _ps_summary _ps_total
   devflow_pool_join
   _ps_lines="${_DEVFLOW_POOL_SELFTALLY_LINES[test_python_scripts.py]:-}"

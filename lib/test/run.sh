@@ -46778,14 +46778,17 @@ unset POOL720_FIX _POOL720_CORE _POOL720_W1 _POOL720_W2 _POOL720_CORE_C _POOL720
 #
 # PYTHON-POOL SELECTOR: the `python-pool` CI shard runs these same two suites through
 # lib/test/run-python-pool.sh, so the monolith shard invokes this suite with
-# DEVFLOW_SKIP_PYTHON_POOL=1 and skips both the open and the join below — the pooled
+# DEVFLOW_SKIP_PYTHON_POOL=1 and both this open and the join below no-op — the pooled
 # assertions are counted in exactly one shard per CI run, the same dedup argument
 # DEVFLOW_SKIP_SUITE_MODULES makes for the module tier. Unset (a plain
 # `bash lib/test/run.sh`) is byte-identical to before: the local full suite still runs
 # them, still overlapped with the shell tail.
-if [ "${DEVFLOW_SKIP_PYTHON_POOL:-}" != 1 ]; then
-  devflow_python_suite_pool_open
-fi
+#
+# The call is UNCONDITIONAL here and the selector is checked inside the entry point
+# (devflow_python_pool_enabled). A call-site `if` would be a decision reachable only by
+# running this entire file, so it could not be driven by an assertion; inside the
+# helper, every arm is. See the gate's own comment in module-harness.sh.
+devflow_python_suite_pool_open
 
 # The zero-population mutation census is an executable CI contract. Run its focused
 # unittest suite serially and feed the verdict into the same RESULTS_FILE tally as
@@ -49015,12 +49018,10 @@ fi
 # against its own summary line — both live in devflow_python_suite_pool_join, shared
 # with the `python-pool` shard driver so the reconciliation cannot exist in only one.
 #
-# Gated by the same selector as the open above: under DEVFLOW_SKIP_PYTHON_POOL=1 no pool
-# was opened, so joining one would be meaningless and the reconciliation would fail
-# closed on a summary that was never captured.
-if [ "${DEVFLOW_SKIP_PYTHON_POOL:-}" != 1 ]; then
-  devflow_python_suite_pool_join
-fi
+# Gated by the same selector as the open above, and inside the same helper: under
+# DEVFLOW_SKIP_PYTHON_POOL=1 no pool was opened, so joining one would be meaningless and
+# the reconciliation would fail closed on a summary that was never captured.
+devflow_python_suite_pool_join
 
 # ────────────────────────────────────────────────────────────────────────────
 # #783 argjson->slurpfile transport guard for the corpus-aggregating retrospective
@@ -49616,6 +49617,247 @@ assert_eq "#877 gate: the empty-result diagnosis is distinct from the did-not-su
   "$(bash "$E877_GATE" "" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
 assert_eq "#877 gate: a missing argument takes the same unestablished arm (no bare set -u abort)" "yes" \
   "$(bash "$E877_GATE" 2>&1 | grep -qF 'refusing to pass the required check over an unestablished shard outcome' && echo yes || echo no)"
+# ────────────────────────────────────────────────────────────────────────────
+
+# ────────────────────────────────────────────────────────────────────────────
+echo "python-pool shard: selector gate, driver fail-closed arms, dispatch selection, tally tier"
+# ────────────────────────────────────────────────────────────────────────────
+# The `python-pool` shard exists to take the pooled Python suites off the monolith's
+# critical path. Every mechanism it adds is a FAIL-CLOSED guard whose whole job is to
+# stop a shard that silently ran nothing from recombining as a green merge gate — so
+# each one is DRIVEN here, in both directions, exactly as the #877 module-tier selector
+# probe and the gate-shard-result.sh arms above are. A guard that has never been shown
+# to go red is not covered: an inverted gate would double-count both suites into the
+# aggregate, or drop them from a local full run with nothing to notice.
+#
+# These are meta-probes: each runs against stubs or a fixture tree, so none of them
+# executes the real pooled suites and none perturbs those suites' contribution to the
+# tally. They add their own assertions to the monolith shard and nothing else.
+PPS_RUNSHARD="$LIB/test/run-shard.sh"
+PPS_DRIVER="$LIB/test/run-python-pool.sh"
+PPS_TALLY="$LIB/test/shard-tally.py"
+
+assert_eq "python-pool: run-python-pool.sh exists and is executable" "yes" \
+  "$([ -x "$PPS_DRIVER" ] && echo yes || echo no)"
+
+# ── The DEVFLOW_SKIP_PYTHON_POOL selector, driven at BOTH entry points ──
+# devflow_pool_open/join are shadowed inside a subshell, so the real 275s of Python
+# never runs: the probe observes only the DECISION. `open=` is the number of pool
+# membership modes handed to devflow_pool_open (2 when the pool ran, 0 when gated);
+# `join=` is the number of verdict lines the join wrote to its private RESULTS_FILE
+# (the enabled arm reaches the reconciliation, which — with no summary captured from a
+# stubbed pool — records exactly one FAIL, so a non-zero join= is proof the body ran).
+_pps_selector_probe() {  # selector-value ('' = unset) -> "open=N join=N"
+  (
+    _pps_rec="$(mktemp)"; _pps_res="$(mktemp)"; : > "$_pps_rec"; : > "$_pps_res"
+    RESULTS_FILE="$_pps_res"
+    if [ -n "$1" ]; then DEVFLOW_SKIP_PYTHON_POOL="$1"; else unset DEVFLOW_SKIP_PYTHON_POOL; fi
+    # Shadowed for this subshell only; resolved at call time by the entry points.
+    devflow_pool_open() { printf '%s\n' "$@" >> "$_pps_rec"; }
+    devflow_pool_join() { :; }
+    devflow_python_suite_pool_open
+    devflow_python_suite_pool_join
+    printf 'open=%s join=%s\n' \
+      "$(grep -cE '^(single-verdict|self-tally)$' "$_pps_rec" || true)" \
+      "$(grep -c . "$_pps_res" || true)"
+    rm -f "$_pps_rec" "$_pps_res" "$_pps_res.names"
+  ) 2>/dev/null | tail -1
+}
+assert_eq "python-pool selector: with DEVFLOW_SKIP_PYTHON_POOL unset the pool opens and the join body runs" \
+  "open=2 join=1" "$(_pps_selector_probe '')"
+assert_eq "python-pool selector: DEVFLOW_SKIP_PYTHON_POOL=1 opens nothing and writes NO verdict (no double-count)" \
+  "open=0 join=0" "$(_pps_selector_probe 1)"
+# Only the exact value 1 disables — the DEVFLOW_SKIP_SUITE_MODULES contract. A
+# half-set variable must not silently drop both suites from a run.
+assert_eq "python-pool selector: DEVFLOW_SKIP_PYTHON_POOL=0 still runs the pool (only the exact 1 disables)" \
+  "open=2 join=1" "$(_pps_selector_probe 0)"
+assert_eq "python-pool selector: a non-empty non-1 value still runs the pool" \
+  "open=2 join=1" "$(_pps_selector_probe yes)"
+assert_eq "python-pool selector: the predicate reports enabled when unset" "enabled" \
+  "$( ( unset DEVFLOW_SKIP_PYTHON_POOL; devflow_python_pool_enabled && echo enabled || echo disabled ) )"
+assert_eq "python-pool selector: the predicate reports disabled at exactly 1" "disabled" \
+  "$( ( DEVFLOW_SKIP_PYTHON_POOL=1; devflow_python_pool_enabled && echo enabled || echo disabled ) )"
+unset -f _pps_selector_probe
+
+# ── run-python-pool.sh's fail-closed arms, against a stub harness ──
+# The driver is exercised in a fixture tree whose module-harness.sh is a stub, so the
+# arms are reachable in milliseconds and the real suites never run. summary.sh is the
+# REAL file (the renderer and the derivability predicate are what the arms consume).
+PPS_SB="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$PPS_SB" ] && [ -d "$PPS_SB" ]; then
+  mkdir -p "$PPS_SB/lib/test" "$PPS_SB/bin"
+  cp "$PPS_DRIVER" "$PPS_SB/lib/test/run-python-pool.sh"
+  cp "$LIB/test/summary.sh" "$PPS_SB/lib/test/summary.sh"
+  _pps_stub_harness() {  # body -> writes the fixture module-harness.sh
+    {
+      printf '%s\n' 'record_fail() { printf "%s\n" "$1" >> "$RESULTS_FILE.names"; }'
+      printf '%s\n' "$1"
+    } > "$PPS_SB/lib/test/module-harness.sh"
+  }
+
+  # (1) Missing-function gate. A harness that sources cleanly but no longer defines the
+  # shared entry points must refuse — otherwise the driver runs nothing and reports
+  # `0 passed, 0 failed`, the exact silent-green this shard's guards exist to stop.
+  _pps_stub_harness ': # deliberately defines neither pool entry point'
+  PPS_MISSING_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_MISSING_RC=$?
+  assert_eq "python-pool driver: a harness missing the pool entry points fails closed (rc 2)" "2" "$PPS_MISSING_RC"
+  assert_eq "python-pool driver: the missing-function refusal NAMES the function it could not find" "yes" \
+    "$(printf '%s' "$PPS_MISSING_OUT" | grep -qF 'harness did not define devflow_python_suite_pool_open' && echo yes || echo no)"
+  assert_eq "python-pool driver: the missing-function arm renders NO summary line (nothing for shard-tally to accept)" "yes" \
+    "$(printf '%s' "$PPS_MISSING_OUT" | grep -qE '^[0-9]+ passed, [0-9]+ failed' && echo no || echo yes)"
+
+  # (2) POSITIVE CONTROL on the same fixture: a harness that does record verdicts
+  # renders the summary and exits 0 — so every refusal above and below is attributable
+  # to the arm under test, not to a broken fixture.
+  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
+devflow_python_suite_pool_join() { printf "PASS\nPASS\n" >> "$RESULTS_FILE"; }'
+  PPS_OK_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_OK_RC=$?
+  assert_eq "python-pool driver positive control: a verdict-recording harness exits 0" "0" "$PPS_OK_RC"
+  assert_eq "python-pool driver positive control: it renders the summary.sh contract shard-tally.py parses" "yes" \
+    "$(printf '%s\n' "$PPS_OK_OUT" | grep -qx '2 passed, 0 failed' && echo yes || echo no)"
+
+  # (3) Zero-verdict abort. A run that recorded NOTHING must not render
+  # `0 passed, 0 failed` — that line parses cleanly, so shard-tally.py would accept it
+  # and the aggregate would lose this shard's whole population behind a green check.
+  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
+devflow_python_suite_pool_join() { :; }'
+  PPS_ZERO_OUT="$(bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_ZERO_RC=$?
+  assert_eq "python-pool driver: a run recording ZERO verdicts fails closed (rc 1)" "1" "$PPS_ZERO_RC"
+  assert_eq "python-pool driver: the zero-verdict refusal says it is refusing an empty shard" "yes" \
+    "$(printf '%s' "$PPS_ZERO_OUT" | grep -qF 'recorded ZERO verdicts' && echo yes || echo no)"
+  assert_eq "python-pool driver: the zero-verdict arm renders NO '0 passed, 0 failed' summary" "yes" \
+    "$(printf '%s\n' "$PPS_ZERO_OUT" | grep -qx '0 passed, 0 failed' && echo no || echo yes)"
+
+  # (4) Underivable tally, PASS and FAIL SEPARATELY. `grep -c` prints NOTHING on a real
+  # error (rc >= 2), leaving the tally EMPTY — and an empty tally coerced to 0
+  # downstream would render a clean-looking summary over a measurement never made.
+  # Driven for real with a PATH `grep` that errors, not by stubbing the predicate: the
+  # arm under test is the driver's RESPONSE to an unestablished value.
+  #
+  # The shim errors for ONE pattern and delegates every other call to the real binary.
+  # A blanket-erroring shim was tried first and proved too coarse to be coverage: it
+  # empties BOTH tallies at once, so the FAIL guard fires and masks the PASS guard —
+  # deleting the PASS guard left every assertion green (verified by mutation). Each
+  # guard therefore gets its own isolated probe, and each asserts the diagnosis names
+  # ITS OWN tally, so neither can be satisfied by the other one firing.
+  PPS_REAL_GREP="$(command -v grep || true)"
+  _pps_grep_shim() {  # pattern-to-fail -> installs the selective shim
+    {
+      printf '%s\n' '#!/usr/bin/env bash'
+      printf 'for _a in "$@"; do [ "$_a" = %s ] && exit 2; done\n' "'$1'"
+      printf 'exec %s "$@"\n' "$PPS_REAL_GREP"
+    } > "$PPS_SB/bin/grep"
+    chmod +x "$PPS_SB/bin/grep"
+  }
+  _pps_stub_harness 'devflow_python_suite_pool_open() { :; }
+devflow_python_suite_pool_join() { printf "PASS\nPASS\n" >> "$RESULTS_FILE"; }'
+  if [ -n "$PPS_REAL_GREP" ]; then
+    _pps_grep_shim '^PASS$'
+    PPS_UNDER_OUT="$(PATH="$PPS_SB/bin:$PATH" bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_UNDER_RC=$?
+    assert_eq "python-pool driver: an underivable PASS tally fails closed (rc 1)" "1" "$PPS_UNDER_RC"
+    assert_eq "python-pool driver: the PASS refusal names the PASS tally specifically" "yes" \
+      "$(printf '%s' "$PPS_UNDER_OUT" | grep -qF 'PASS tally underivable' && echo yes || echo no)"
+    _pps_grep_shim '^FAIL$'
+    PPS_UNDERF_OUT="$(PATH="$PPS_SB/bin:$PATH" bash "$PPS_SB/lib/test/run-python-pool.sh" 2>&1)"; PPS_UNDERF_RC=$?
+    assert_eq "python-pool driver: an underivable FAIL tally fails closed (rc 1)" "1" "$PPS_UNDERF_RC"
+    assert_eq "python-pool driver: the FAIL refusal names the FAIL tally specifically" "yes" \
+      "$(printf '%s' "$PPS_UNDERF_OUT" | grep -qF 'FAIL tally underivable' && echo yes || echo no)"
+    rm -f "$PPS_SB/bin/grep"
+  fi
+  unset -f _pps_stub_harness _pps_grep_shim
+  rm -rf "$PPS_SB"
+fi
+
+# ── run-shard.sh's python-pool DISPATCH selection ──
+# The #890 argv probe above `continue`s over every empty-module-group shard, so it can
+# see neither the monolith nor the python-pool arm. Both own an EMPTY group, which is
+# precisely why the dispatcher keys on the shard NAME: reverting it to the former
+# `if [ -z "$MODS" ]` emptiness test would route `python-pool` through the monolith arm
+# — running the whole inline suite a second time, WITHOUT the skip selectors, and
+# double-counting every inline assertion into the aggregate while CI stayed green.
+# Drive the real dispatcher in a fixture tree whose three callees are stubs that record
+# which of them ran and with which selectors.
+PPS_DSB="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$PPS_DSB" ] && [ -d "$PPS_DSB" ]; then
+  mkdir -p "$PPS_DSB/lib/test"
+  cp "$PPS_RUNSHARD" "$PPS_DSB/lib/test/run-shard.sh"
+  for _pps_callee in run.sh run-python-pool.sh run-module.sh; do
+    {
+      printf '%s\n' '#!/usr/bin/env bash'
+      printf 'printf "CALLEE %s SKIP_MODULES=%%s SKIP_POOL=%%s\\n" "${DEVFLOW_SKIP_SUITE_MODULES:-unset}" "${DEVFLOW_SKIP_PYTHON_POOL:-unset}" >> "$(cd "$(dirname "$0")/../.." && pwd)/invoked.txt"\n' "$_pps_callee"
+    } > "$PPS_DSB/lib/test/$_pps_callee"
+    chmod +x "$PPS_DSB/lib/test/$_pps_callee"
+  done
+  printf '%s\n' '#!/usr/bin/env python3' 'raise SystemExit(0)' > "$PPS_DSB/lib/test/shard-tally.py"
+
+  : > "$PPS_DSB/invoked.txt"
+  DEVFLOW_SHARD_TALLY_DIR="$PPS_DSB/t-pp" bash "$PPS_DSB/lib/test/run-shard.sh" python-pool >/dev/null 2>&1
+  PPS_PP_INVOKED="$(cat "$PPS_DSB/invoked.txt" 2>/dev/null || true)"
+  assert_eq "python-pool dispatch: the python-pool shard runs run-python-pool.sh exactly once" "1" \
+    "$(printf '%s\n' "$PPS_PP_INVOKED" | grep -c 'CALLEE run-python-pool.sh' || true)"
+  assert_eq "python-pool dispatch: the python-pool shard does NOT run run.sh (the double-count regression)" "0" \
+    "$(printf '%s\n' "$PPS_PP_INVOKED" | grep -c 'CALLEE run.sh' || true)"
+
+  : > "$PPS_DSB/invoked.txt"
+  DEVFLOW_SHARD_TALLY_DIR="$PPS_DSB/t-mono" bash "$PPS_DSB/lib/test/run-shard.sh" monolith >/dev/null 2>&1
+  PPS_MONO_INVOKED="$(cat "$PPS_DSB/invoked.txt" 2>/dev/null || true)"
+  assert_eq "python-pool dispatch: the monolith shard runs run.sh with BOTH dedup selectors set" "1" \
+    "$(printf '%s\n' "$PPS_MONO_INVOKED" | grep -c 'CALLEE run.sh SKIP_MODULES=1 SKIP_POOL=1' || true)"
+  assert_eq "python-pool dispatch: the monolith shard does NOT also run run-python-pool.sh" "0" \
+    "$(printf '%s\n' "$PPS_MONO_INVOKED" | grep -c 'CALLEE run-python-pool.sh' || true)"
+
+  # A module shard is unaffected by the new arm — the `*)` fall-through still dispatches
+  # its whole group, and it neither runs the driver nor inherits a pool selector.
+  : > "$PPS_DSB/invoked.txt"
+  DEVFLOW_SHARD_TALLY_DIR="$PPS_DSB/t-pin" bash "$PPS_DSB/lib/test/run-shard.sh" modules-pin >/dev/null 2>&1
+  PPS_MOD_INVOKED="$(cat "$PPS_DSB/invoked.txt" 2>/dev/null || true)"
+  assert_eq "python-pool dispatch: a module shard still reaches run-module.sh, not the new arm" "yes" \
+    "$(printf '%s\n' "$PPS_MOD_INVOKED" | grep -q 'CALLEE run-module.sh' \
+       && printf '%s\n' "$PPS_MOD_INVOKED" | grep -qv 'CALLEE run-python-pool.sh' && echo yes || echo no)"
+  rm -rf "$PPS_DSB"
+fi
+
+# ── shard-tally.py's python-pool TIER ──
+PPS_TDIR="$(mktemp -d 2>/dev/null || true)"
+if [ -n "$PPS_TDIR" ] && [ -d "$PPS_TDIR" ]; then
+  printf '%s\n' \
+    'python-pool shard: concurrent focused Python suites' \
+    '' \
+    '3186 passed, 0 failed' \
+    > "$PPS_TDIR/pp.log"
+  python3 "$PPS_TALLY" extract --shard python-pool --tier python-pool \
+    --log "$PPS_TDIR/pp.log" --rc 0 --out "$PPS_TDIR/t-pp" >/dev/null 2>&1
+  assert_eq "python-pool tier: extract reads the summary.sh contract the driver renders" "passed=3186 failed=0 skipped=0" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s skipped=%s"%(d["passed"],d["failed"],d["skipped"]))' "$PPS_TDIR/t-pp/summary")"
+  # Tier isolation, the same content-collision defense --tier monolith carries: the
+  # pooled test_module_runner.py legitimately prints run-module.sh output, so a stray
+  # `Module <id>: …` line in THIS shard's log must not be summed on top of the real
+  # summary and inflate the aggregate.
+  printf '%s\n' \
+    'Module capability-profiles: 61 passed, 2 failed' \
+    '3186 passed, 0 failed' \
+    > "$PPS_TDIR/pp-collide.log"
+  python3 "$PPS_TALLY" extract --shard python-pool --tier python-pool \
+    --log "$PPS_TDIR/pp-collide.log" --rc 0 --out "$PPS_TDIR/t-collide" >/dev/null 2>&1
+  assert_eq "python-pool tier: a stray Module line is NOT summed on top of the driver summary" "passed=3186 failed=0" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("passed=%s failed=%s"%(d["passed"],d["failed"]))' "$PPS_TDIR/t-collide/summary")"
+  # A driver that aborted before rendering (every fail-closed arm above) leaves a log
+  # with no parseable summary — which must record the fail-closed synthetic failure, so
+  # the refusals proven above actually reach the required check as a RED shard.
+  printf '%s\n' 'ERROR: the python-pool shard recorded ZERO verdicts — refusing to report an empty shard as a clean pass' \
+    > "$PPS_TDIR/pp-abort.log"
+  python3 "$PPS_TALLY" extract --shard python-pool --tier python-pool \
+    --log "$PPS_TDIR/pp-abort.log" --rc 1 --out "$PPS_TDIR/t-abort" >/dev/null 2>&1
+  assert_eq "python-pool tier: an aborted driver (no summary) records a fail-closed synthetic failure" "failed=1" \
+    "$(python3 -c 'import sys; d={}; [d.__setitem__(*l.rstrip("\n").split("\t")) for l in open(sys.argv[1]) if "\t" in l]; print("failed=%s"%d["failed"])' "$PPS_TDIR/t-abort/summary")"
+  assert_eq "python-pool tier: that aborted shard makes the recombined aggregate exit nonzero" "rc=nonzero" \
+    "$(python3 "$PPS_TALLY" combine "$PPS_TDIR/t-abort" --expect 1 >/dev/null 2>&1 && echo rc=0 || echo rc=nonzero)"
+  rm -rf "$PPS_TDIR"
+fi
+unset PPS_RUNSHARD PPS_DRIVER PPS_TALLY PPS_SB PPS_DSB PPS_TDIR PPS_MISSING_OUT PPS_MISSING_RC \
+  PPS_OK_OUT PPS_OK_RC PPS_ZERO_OUT PPS_ZERO_RC PPS_UNDER_OUT PPS_UNDER_RC \
+  PPS_UNDERF_OUT PPS_UNDERF_RC PPS_REAL_GREP \
+  PPS_PP_INVOKED PPS_MONO_INVOKED PPS_MOD_INVOKED _pps_callee
 # ────────────────────────────────────────────────────────────────────────────
 
 echo "#908 render-guard-visibility.sh (PreToolUse guard visibility renderer — adversarial matrix)"
