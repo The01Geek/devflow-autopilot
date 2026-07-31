@@ -59,6 +59,10 @@
       "note": "#561 capability-profile manifest generator; the capability-profiles module drives its --check over the generated workflow regions.",
       "owner": "capability-profiles"
     },
+    "lib/generate-env-freeze-advisory.py": {
+      "note": "issue #1004 Tier 3: renders the frozen out-of-repo DEVFLOW_* advisory region from lib/rename-map.json and re-runs the two-arm criterion over the tree (--audit)",
+      "owner": "tier1-rename-migration"
+    },
     "lib/generate-plugin-identity.py": {
       "note": "issue #927 name-agnostic plugin identity: compiles the baked discriminator regions",
       "owner": "unmodularized"
@@ -629,6 +633,10 @@
       "owner": "unmodularized"
     },
     "1002": {
+      "note": "",
+      "owner": "tier1-rename-migration"
+    },
+    "1004": {
       "note": "",
       "owner": "tier1-rename-migration"
     },
